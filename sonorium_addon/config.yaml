@@ -1,12 +1,12 @@
+name: Sonorium
+version: "1.3.1"
+slug: sonorium
+description: Ambient soundscape mixer with crossfade looping for Home Assistant
+url: https://github.com/synssins/sonorium
+
 arch:
   - aarch64
   - amd64
-
-name: Sonorium
-description: Ambient soundscape mixer with crossfade looping for Home Assistant
-slug: sonorium
-version: 1.3.1
-url: https://github.com/synssins/sonorium
 
 init: false
 homeassistant_api: true
@@ -18,8 +18,11 @@ map:
 
 ports:
   8080/tcp: 8007
+ports_description:
+  8080/tcp: "Sonorium Web UI and streaming API"
 
 panel_icon: mdi:waveform
+webui: http://[HOST]:[PORT:8080]/
 
 options:
   sonorium__stream_url: "http://homeassistant.local:8007"
@@ -29,4 +32,5 @@ schema:
   sonorium__stream_url: str
   sonorium__path_audio: str
 
-webui: http://[HOST]:[PORT:8080]/
+startup: application
+stage: experimental
