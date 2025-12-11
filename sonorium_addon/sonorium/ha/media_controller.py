@@ -1,0 +1,276 @@
+"""
+Home Assistant Media Player Control
+
+Handles service calls to Home Assistant for controlling media players:
+- Play media (stream URL)
+- Pause/Stop playback
+- Volume control
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+import asyncio
+
+from fmtr.tools import http
+from sonorium.obs import logger
+
+
+class HAMediaController:
+    """
+    Controls Home Assistant media players via REST API.
+    
+    Used to send stream URLs to speakers and control playback.
+    """
+    
+    def __init__(self, api_url: str, token: str):
+        """
+        Initialize with HA API connection details.
+        
+        Args:
+            api_url: Base URL for HA API (e.g., "http://supervisor/core/api")
+            token: Long-lived access token or supervisor token
+        """
+        self.api_url = api_url.rstrip("/")
+        self.token = token
+        self.headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        }
+    
+    def _post_service(self, domain: str, service: str, data: dict) -> bool:
+        """
+        Call a Home Assistant service.
+        
+        Args:
+            domain: Service domain (e.g., "media_player")
+            service: Service name (e.g., "play_media")
+            data: Service data
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        url = f"{self.api_url}/services/{domain}/{service}"
+        try:
+            with http.Client() as client:
+                response = client.post(url, headers=self.headers, json=data)
+                return response.status_code in (200, 201)
+        except Exception as e:
+            logger.error(f"Service call failed: {domain}.{service} - {e}")
+            return False
+    
+    async def _post_service_async(self, domain: str, service: str, data: dict) -> bool:
+        """Async wrapper for service calls."""
+        # Run sync HTTP call in thread pool
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None, 
+            lambda: self._post_service(domain, service, data)
+        )
+    
+    # --- Playback Control ---
+    
+    @logger.instrument("Playing media on {entity_id}...")
+    async def play_media(
+        self, 
+        entity_id: str, 
+        media_url: str,
+        media_type: str = "music"
+    ) -> bool:
+        """
+        Play media URL on a speaker.
+        
+        Args:
+            entity_id: Media player entity ID
+            media_url: URL to stream
+            media_type: Media content type (default: "music")
+        
+        Returns:
+            True if successful
+        """
+        data = {
+            "entity_id": entity_id,
+            "media_content_id": media_url,
+            "media_content_type": media_type,
+        }
+        success = await self._post_service_async("media_player", "play_media", data)
+        if success:
+            logger.info(f"  Started playback on {entity_id}")
+        else:
+            logger.warning(f"  Failed to start playback on {entity_id}")
+        return success
+    
+    @logger.instrument("Playing media on {count} speakers...")
+    async def play_media_multi(
+        self,
+        entity_ids: list[str],
+        media_url: str,
+        media_type: str = "music"
+    ) -> dict[str, bool]:
+        """
+        Play media URL on multiple speakers simultaneously.
+        
+        Args:
+            entity_ids: List of media player entity IDs
+            media_url: URL to stream
+            media_type: Media content type
+        
+        Returns:
+            Dict mapping entity_id to success status
+        """
+        if not entity_ids:
+            return {}
+        
+        # Run all play calls concurrently
+        tasks = [
+            self.play_media(entity_id, media_url, media_type)
+            for entity_id in entity_ids
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        # Build result dict
+        status = {}
+        for entity_id, result in zip(entity_ids, results):
+            if isinstance(result, Exception):
+                logger.error(f"  Exception for {entity_id}: {result}")
+                status[entity_id] = False
+            else:
+                status[entity_id] = result
+        
+        success_count = sum(1 for v in status.values() if v)
+        logger.info(f"  {success_count}/{len(entity_ids)} speakers started")
+        return status
+    
+    @logger.instrument("Pausing {entity_id}...")
+    async def pause(self, entity_id: str) -> bool:
+        """Pause playback on a speaker."""
+        data = {"entity_id": entity_id}
+        return await self._post_service_async("media_player", "media_pause", data)
+    
+    async def pause_multi(self, entity_ids: list[str]) -> dict[str, bool]:
+        """Pause playback on multiple speakers."""
+        if not entity_ids:
+            return {}
+        tasks = [self.pause(eid) for eid in entity_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return {
+            eid: (r if not isinstance(r, Exception) else False)
+            for eid, r in zip(entity_ids, results)
+        }
+    
+    @logger.instrument("Stopping {entity_id}...")
+    async def stop(self, entity_id: str) -> bool:
+        """Stop playback on a speaker."""
+        data = {"entity_id": entity_id}
+        return await self._post_service_async("media_player", "media_stop", data)
+    
+    async def stop_multi(self, entity_ids: list[str]) -> dict[str, bool]:
+        """Stop playback on multiple speakers."""
+        if not entity_ids:
+            return {}
+        tasks = [self.stop(eid) for eid in entity_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return {
+            eid: (r if not isinstance(r, Exception) else False)
+            for eid, r in zip(entity_ids, results)
+        }
+    
+    # --- Volume Control ---
+    
+    @logger.instrument("Setting volume on {entity_id} to {volume_level}...")
+    async def set_volume(self, entity_id: str, volume_level: float) -> bool:
+        """
+        Set volume on a speaker.
+        
+        Args:
+            entity_id: Media player entity ID
+            volume_level: Volume 0.0 - 1.0
+        
+        Returns:
+            True if successful
+        """
+        data = {
+            "entity_id": entity_id,
+            "volume_level": max(0.0, min(1.0, volume_level)),
+        }
+        return await self._post_service_async("media_player", "volume_set", data)
+    
+    async def set_volume_multi(
+        self, 
+        entity_ids: list[str], 
+        volume_level: float
+    ) -> dict[str, bool]:
+        """Set volume on multiple speakers."""
+        if not entity_ids:
+            return {}
+        tasks = [self.set_volume(eid, volume_level) for eid in entity_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return {
+            eid: (r if not isinstance(r, Exception) else False)
+            for eid, r in zip(entity_ids, results)
+        }
+    
+    @logger.instrument("Muting {entity_id}...")
+    async def mute(self, entity_id: str, mute: bool = True) -> bool:
+        """Mute or unmute a speaker."""
+        data = {
+            "entity_id": entity_id,
+            "is_volume_muted": mute,
+        }
+        return await self._post_service_async("media_player", "volume_mute", data)
+    
+    # --- State Queries ---
+    
+    def get_state(self, entity_id: str) -> Optional[dict]:
+        """
+        Get current state of a media player.
+        
+        Returns:
+            State dict with 'state' and 'attributes', or None if not found
+        """
+        url = f"{self.api_url}/states/{entity_id}"
+        try:
+            with http.Client() as client:
+                response = client.get(url, headers=self.headers)
+                if response.status_code == 200:
+                    return response.json()
+        except Exception as e:
+            logger.error(f"Failed to get state for {entity_id}: {e}")
+        return None
+    
+    async def get_state_async(self, entity_id: str) -> Optional[dict]:
+        """Async wrapper for get_state."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, lambda: self.get_state(entity_id))
+    
+    def is_playing(self, entity_id: str) -> bool:
+        """Check if a media player is currently playing."""
+        state = self.get_state(entity_id)
+        if state:
+            return state.get("state") == "playing"
+        return False
+    
+    async def get_playing_states(self, entity_ids: list[str]) -> dict[str, bool]:
+        """Check playing state for multiple speakers."""
+        if not entity_ids:
+            return {}
+        tasks = [self.get_state_async(eid) for eid in entity_ids]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        return {
+            eid: (r.get("state") == "playing" if isinstance(r, dict) else False)
+            for eid, r in zip(entity_ids, results)
+        }
+
+
+# Factory function
+def create_media_controller_from_supervisor() -> HAMediaController:
+    """
+    Create HAMediaController using supervisor API.
+    For use within Home Assistant addons.
+    """
+    from sonorium.settings import settings
+    
+    return HAMediaController(
+        api_url=f"{settings.ha_supervisor_api.replace('/core', '')}/core/api",
+        token=settings.token,
+    )
