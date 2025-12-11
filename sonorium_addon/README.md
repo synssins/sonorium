@@ -1,5 +1,7 @@
 # Sonorium
 
+![Sonorium](logo.png)
+
 **Ambient Soundscape Mixer for Home Assistant**
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered sounds—from distant thunder and rainfall to forest ambiance and ocean waves—to any media player in your Home Assistant setup.
