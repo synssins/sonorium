@@ -1,4 +1,4 @@
-# Amniotic
+# Sonorium - based on Amniotic
 
 A multi-output ambient sound mixer for Home Assistant.
 
