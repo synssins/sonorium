@@ -3,11 +3,14 @@ from functools import cached_property
 
 import numpy as np
 
-from amniotic.obs import logger
-from amniotic.recording import LOG_THRESHOLD
+from sonorium.obs import logger
+from sonorium.recording import LOG_THRESHOLD
 from fmtr.tools import av
 from fmtr.tools.iterator_tools import IndexList
 from fmtr.tools.string_tools import sanitize
+
+# Default output gain multiplier (now controlled via device.master_volume)
+DEFAULT_OUTPUT_GAIN = 6.0
 
 
 class ThemeDefinition:
@@ -31,17 +34,24 @@ class ThemeDefinition:
 
     """
 
-    def __init__(self, amniotic, name):
-        self.amniotic = amniotic
+    def __init__(self, sonorium, name):
+        self.sonorium = sonorium
         self.name = name
 
-        self.instances = IndexList(meta.get_instance() for meta in self.amniotic.metas)
+        # Use theme-specific recordings instead of all recordings
+        if name in self.sonorium.theme_metas:
+            theme_metas = self.sonorium.theme_metas[name]
+        else:
+            # Fallback to all recordings for backwards compatibility
+            theme_metas = self.sonorium.metas
+        
+        self.instances = IndexList(meta.get_instance() for meta in theme_metas)
 
         self.streams: list[ThemeStream] = []
 
     @cached_property
     def url(self) -> str:
-        from amniotic.settings import settings
+        from sonorium.settings import settings
         return f'{settings.stream_url}/stream/{self.id}'
 
     @cached_property
@@ -76,7 +86,7 @@ class ThemeStream:
 
     @cached_property
     def chunk_silence(self):
-        from amniotic.recording import RecordingThemeStream
+        from sonorium.recording import RecordingThemeStream
         data = np.zeros((1, RecordingThemeStream.CHUNK_SIZE), np.int16)
         return data
 
@@ -87,8 +97,29 @@ class ThemeStream:
             if not data_recs:
                 # logger.debug(f'Theme "{self.theme_def.name}" has no enabled recordings. Streaming silence...')
                 data_recs.append(self.chunk_silence)
+            
+            # Stack all recordings
             data = np.vstack(data_recs)
-            data = data.mean(axis=0).astype(data.dtype).reshape(1, -1)  # Mix recordings
+            
+            # Proper audio mixing: sum the signals, then normalize to prevent clipping
+            # Using float32 for intermediate calculation to avoid overflow
+            mixed = data.astype(np.float32).sum(axis=0)
+            
+            # Soft clipping / normalization to prevent distortion
+            # Divide by sqrt(n) for a good balance between volume and avoiding clipping
+            n_tracks = len(data_recs)
+            if n_tracks > 1:
+                # Use sqrt(n) normalization - louder than mean, but prevents harsh clipping
+                mixed = mixed / np.sqrt(n_tracks)
+            
+            # Apply output gain boost (use device master_volume if available)
+            output_gain = getattr(self.theme_def.sonorium, 'master_volume', DEFAULT_OUTPUT_GAIN)
+            mixed = mixed * output_gain
+            
+            # Clip to int16 range and convert back
+            mixed = np.clip(mixed, -32768, 32767)
+            data = mixed.astype(np.int16).reshape(1, -1)
+            
             yield data
 
     def __iter__(self):

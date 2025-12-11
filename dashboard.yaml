@@ -1,91 +1,74 @@
-views:
-  - title: Amniotic
-    sections:
-      - type: grid
-        cards:
-          - type: heading
-            heading: Theme
-            heading_style: title
-          - type: tile
-            grid_options: &ref_0
-              columns: 48
-              rows: 1
-            entity: select.amniotic_theme
-            name: Theme
-            vertical: false
-            features: &ref_1
-              - type: select-options
-            features_position: bottom
-          - type: tile
-            grid_options: *ref_0
-            entity: sensor.amniotic_stream_url
-            name: Theme Stream URL
-            state_content: state
-            vertical: false
-            features_position: bottom
-        column_span: 4
-      - type: grid
-        cards:
-          - type: heading
-            heading_style: title
-            heading: Current Recording
-          - type: tile
-            grid_options: *ref_0
-            entity: select.amniotic_recording
-            name: Theme Recording
-            vertical: false
-            features: *ref_1
-            features_position: bottom
-          - type: tile
-            grid_options: *ref_0
-            entity: switch.amniotic_enable_recording
-            name: Enable Current Recording in Theme
-            vertical: false
-            features_position: bottom
-            features:
-              - type: toggle
-          - type: tile
-            grid_options: *ref_0
-            entity: number.amniotic_recording_volume
-            name: Current Recording Volume
-            vertical: false
-            features:
-              - style: slider
-                type: numeric-input
-            features_position: bottom
-        column_span: 4
-      - type: grid
-        cards:
-          - type: heading
-            heading: Media Players
-            heading_style: title
-          - type: tile
-            grid_options: *ref_0
-            entity: select.amniotic_media_player
-            name: Media Player
-            vertical: false
-            features: *ref_1
-            features_position: bottom
-          - type: tile
-            grid_options: *ref_0
-            entity: button.amniotic_stream
-            name: Stream Current Theme to Media Player
-            show_entity_picture: false
-            hide_state: true
-            vertical: false
-            features:
-              - type: button
-                action_name: Stream
-            features_position: bottom
-        column_span: 4
-    type: sections
-    max_columns: 4
-    icon: mdi:waveform
-    cards: [ ]
-    header:
+# Sonorium Dashboard Configuration
+# Add this to your Lovelace dashboard
+
+# Option 1: With button-card HACS integration (recommended)
+type: vertical-stack
+cards:
+  - type: entities
+    title: Sonorium
+    entities:
+      - entity: select.sonorium_theme
+        name: Theme
+      - entity: select.sonorium_media_player
+        name: Stream To
+      - entity: number.sonorium_master_volume
+        name: Volume
+  - type: custom:button-card
+    entity: switch.sonorium_play
+    show_name: false
+    show_state: false
+    styles:
       card:
-        type: markdown
-        text_only: true
-        content: |-
-          # Amniotic
-          An ambient sound mixer for Home Assistant.
+        - height: 80px
+      icon:
+        - width: 40px
+    state:
+      - value: 'off'
+        icon: mdi:play
+        color: '#3b82f6'
+        tap_action:
+          action: toggle
+      - value: 'on'
+        icon: mdi:pause
+        color: '#eab308'
+        tap_action:
+          action: toggle
+
+---
+
+# Option 2: Stock Home Assistant cards (no HACS required)
+# Uses conditional cards to swap play/pause icons
+
+type: vertical-stack
+cards:
+  - type: entities
+    title: Sonorium
+    entities:
+      - entity: select.sonorium_theme
+        name: Theme
+      - entity: select.sonorium_media_player
+        name: Stream To
+      - entity: number.sonorium_master_volume
+        name: Volume
+  - type: conditional
+    conditions:
+      - entity: switch.sonorium_play
+        state: 'off'
+    card:
+      type: button
+      entity: switch.sonorium_play
+      show_name: false
+      show_state: false
+      icon: mdi:play
+      icon_height: 40px
+  - type: conditional
+    conditions:
+      - entity: switch.sonorium_play
+        state: 'on'
+    card:
+      type: button
+      entity: switch.sonorium_play
+      show_name: false
+      show_state: false
+      icon: mdi:pause
+      icon_height: 40px
