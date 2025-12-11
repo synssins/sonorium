@@ -6,6 +6,10 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered sounds—from distant thunder and rainfall to forest ambiance and ocean waves—to any media player in your Home Assistant setup.
 
+## Acknowledgements
+
+Sonorium is a fork of [Amniotic](https://github.com/fmtr/amniotic) by [fmtr](https://github.com/fmtr). The original Amniotic project laid the groundwork for this addon with its innovative approach to ambient soundscape mixing in Home Assistant. We're grateful for the time, effort, and creativity that went into building the foundation that Sonorium is built upon.
+
 ## Features
 
 - **Theme-Based Organization**: Audio files are organized into theme folders (e.g., "Thunder", "Forest", "Ocean")
@@ -146,10 +150,6 @@ Access the built-in web interface at `http://[your-ha-ip]:8007/` for:
 - Fork from [fmtr/amniotic](https://github.com/fmtr/amniotic)
 - Renamed to Sonorium
 - Complete codebase refactor
-
-## Credits
-
-Originally forked from [Amniotic](https://github.com/fmtr/amniotic) by fmtr.
 
 ## License
 
