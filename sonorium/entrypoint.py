@@ -1,5 +1,5 @@
 def main():
-    from amniotic.settings import settings
+    from sonorium.settings import settings
     return settings.run()
 
 

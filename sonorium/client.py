@@ -1,24 +1,25 @@
 import asyncio
 
-from amniotic.api import ApiAmniotic
-from amniotic.device import Amniotic
-from amniotic.obs import logger
+from sonorium.api import ApiSonorium
+from sonorium.device import Sonorium
+from sonorium.obs import logger
 from fmtr.tools import http
 from haco.client import ClientHaco
 
 
-class ClientAmniotic(ClientHaco):
+class ClientSonorium(ClientHaco):
     """
     Take an extra API argument, and gather with super.start
     """
 
-    API_CLASS = ApiAmniotic
+    API_CLASS = ApiSonorium
 
-    def __init__(self, device: Amniotic, *args, **kwargs):
+    def __init__(self, device: Sonorium, *args, **kwargs):
         super().__init__(device=device, *args, **kwargs)
 
     @logger.instrument('Connecting MQTT client to {self._client.username}@{self._hostname}:{self._port}...')
     async def start(self):
+        # Start the base haco client and API
         await asyncio.gather(
             super().start(),
             self.API_CLASS.launch_async(self)
@@ -26,8 +27,8 @@ class ClientAmniotic(ClientHaco):
 
     @classmethod
     @logger.instrument('Instantiating MQTT client from Supervisor API...')
-    def from_supervisor(cls, device: Amniotic, **kwargs):
-        from amniotic.settings import settings
+    def from_supervisor(cls, device: Sonorium, **kwargs):
+        from sonorium.settings import settings
 
         with http.Client() as client:
             response = client.get(
@@ -40,5 +41,12 @@ class ClientAmniotic(ClientHaco):
 
         data = response.json().get("data", {})
 
-        self = cls(device=device, hostname=data['host'], port=data['port'], username=data['username'], password=data['password'], **kwargs)
+        self = cls(
+            device=device, 
+            hostname=data['host'], 
+            port=data['port'], 
+            username=data['username'], 
+            password=data['password'], 
+            **kwargs
+        )
         return self

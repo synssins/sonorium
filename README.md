@@ -1,62 +1,156 @@
-# Sonorium - based on Amniotic
+# Sonorium
 
-A multi-output ambient sound mixer for Home Assistant.
+**Ambient Soundscape Mixer for Home Assistant**
 
-Amniotic lets you use a single device to create on-the-fly, custom ambient audio mixes - e.g. mixing Waterfall sounds with Birdsong on one media player entity, while playing Fireplace sounds from a second audio device - to suit your tastes and environment.
+[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium)
 
-The library integrates with Home Assistant via MQTT as a new device, allowing you to create and control ambient mixes from the Home Assistant interface.
+Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered sounds—from distant thunder and rainfall to forest ambiance and ocean waves—to any media player in your Home Assistant setup.
 
-### Why Would I Want Such a Thing?
+## Features
 
-I won't explain the general reasons for introducing non-musical sounds into one's environment, but if you find [sound masking](https://en.wikipedia.org/wiki/Sound_masking) helps you concentrate in noisy environments, if you're (as I am) slightly [misophonic](https://www.webmd.com/mental-health/what-is-misophonia), if you use [white noise machines](https://en.wikipedia.org/wiki/White_noise_machine) to induce sleep or relaxation, or if you just think sound is an important factor in setting a pleasant ambience, then you might find Amniotic useful.
+- **Theme-Based Organization**: Audio files are organized into theme folders (e.g., "Thunder", "Forest", "Ocean")
+- **Automatic Mixing**: All recordings in a theme are mixed together seamlessly
+- **Crossfade Looping**: Single-file themes loop seamlessly with 3-second equal-power crossfades
+- **Simple Controls**: Just select a theme, pick a speaker, and hit play
+- **Master Volume**: Single volume control for the entire mix
+- **Any Media Player**: Works with any Home Assistant media_player entity that supports HTTP streams
+- **No External Dependencies**: Uses only built-in Home Assistant REST API—no HACS integrations required
 
-### Can't I do This with Spotify, Volumio, HifiBerry etc.?
+## Installation
 
-Since those systems are intended for music, they aren't designed for playing or mixing multiple streams simultaneously with a single device, even if set up in multi-room configurations. Also, the streaming services often won't allow a single account to play multiple streams, even
-_if_ multiple devices are used.
+### Home Assistant Add-on (Recommended)
 
-Anyway, those limitations motivated this library.
+**One-Click Install:**
 
-There are two ways to install and run Amniotic:
+[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium)
 
-- On the Home Assistant machine itself, as an add-on.
-- Install manually, on a separate machine.
+**Manual Install:**
 
-## Home Assistant Addon
+1. In Home Assistant, go to **Settings** → **Add-ons** → **Add-on Store**
+2. Click the three dots (⋮) → **Repositories**
+3. Add: `https://github.com/synssins/sonorium`
+4. Find "Sonorium" in the store and click **Install**
+5. Configure and start
 
-To add as an Addon, click here:
+### Audio Setup
 
-[![Open your Home Assistant instance and show the add add-on repository dialog with the repository URL pre-filled.](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://fmtr.link/amniotic/addon-install)
+Create theme folders in `/media/sonorium/` with audio files:
+
+```
+/media/sonorium/
+├── Thunder/
+│   ├── distant_thunder_1.mp3
+│   ├── distant_thunder_2.mp3
+│   └── rain_on_roof.mp3
+├── Forest/
+│   ├── birds_morning.mp3
+│   ├── wind_leaves.mp3
+│   └── stream_babbling.mp3
+└── Ocean/
+    ├── waves_gentle.mp3
+    └── seagulls.mp3
+```
+
+Supported formats: `.mp3`, `.wav`, `.flac`, `.ogg`
+
+**Single-File Themes:** If a theme folder contains only one audio file, Sonorium will loop it seamlessly using crossfade blending—no more jarring restarts!
 
 ## Dashboard
 
-[Lovelace Dashboard](https://fmtr.link/amniotic/doc/dashboard)
+Add this to your Lovelace dashboard:
 
-![Dashboard Screenshot](https://fmtr.link/amniotic/doc/dashboard/screenshot)
+```yaml
+type: vertical-stack
+cards:
+  - type: entities
+    title: Sonorium
+    entities:
+      - entity: select.sonorium_theme
+        name: Theme
+      - entity: select.sonorium_media_player
+        name: Stream To
+      - entity: number.sonorium_master_volume
+        name: Volume
+  - type: custom:button-card
+    entity: switch.sonorium_play
+    show_name: false
+    show_state: false
+    styles:
+      card:
+        - height: 80px
+      icon:
+        - width: 40px
+    state:
+      - value: 'off'
+        icon: mdi:play
+        color: '#3b82f6'
+        tap_action:
+          action: toggle
+      - value: 'on'
+        icon: mdi:pause
+        color: '#eab308'
+        tap_action:
+          action: toggle
+```
 
-## Getting Started
+*Note: Requires [button-card](https://github.com/custom-cards/button-card) from HACS for the play/pause styling*
 
-Better documentation is coming soon. Currently, the easiest workflow is the following:
+## Entities
 
-- Install as an Addon, using the button above.
-- If you're using a non-default address for Home Assistant on your network (i.e. not
-  `homeassistant.local`), set that in the Addon configuration.
-- Add some audio files to the Home Assistant
-  `/media/Amniotic` directory. Note: currently, you'll need to restart the Addon for it to see new files.
-- Add the Dashboard to Lovelace.
-- Select a Default Theme from A or B. Note: Adding your own themes isn't implemented yet, nor will they be saved between restarts.
-- Select a Recording from the dropdown.
-- Toggle to Enable the Recording.
-- Select a Media Player to stream the Theme to. Note: Your media player needs to support streaming from a basic HTTP stream, which most should.
-- Click Stream to Media Player.
-- Your Theme should start playing on your Media Player.
-- You can now Enable additional Recordings in the Theme, modify their volume, etc., to create a custom mix.
-- Note: there's also a Current Theme URL, for if you want to manually paste stream to a non-HA player, like a phone or something.
+| Entity | Type | Description |
+|--------|------|-------------|
+| `select.sonorium_theme` | Select | Choose the soundscape theme |
+| `select.sonorium_media_player` | Select | Target speaker/media player |
+| `number.sonorium_master_volume` | Number | Master volume (0-100%) |
+| `switch.sonorium_play` | Switch | Play/Pause toggle |
+| `sensor.sonorium_stream_url` | Sensor | Current stream URL |
 
-## Do I need a Sonos Speaker? Can't I just use a Raspberry Pi, etc?
+## How It Works
 
-- You can use basically any device with audio hardware. You just need to allow Home Assistant to see it as a Media Player entity.
-- In Home Assistant, install the https://www.home-assistant.io/integrations/vlc_telnet
-- On your Device, install VLC, and start it in telnet mode, e.g.
-  `vlc -I telnet --telnet-password password --telnet-host 0.0.0.0:4212`
-- Add your VLC server to the integration.
+1. **Select a Theme**: All audio files in that theme folder are loaded
+2. **Choose a Speaker**: Pick any media_player entity from your Home Assistant
+3. **Press Play**: Sonorium mixes all tracks together in real-time and streams to your speaker
+4. **Adjust Volume**: Use the master volume to control output level
+
+The mixing uses sqrt(n) normalization to blend multiple tracks without clipping while maintaining good volume levels.
+
+**Crossfade Looping:** When a track reaches the last 3 seconds, Sonorium starts a new instance and blends them together using equal-power curves for seamless, infinite playback.
+
+## Web UI
+
+Access the built-in web interface at `http://[your-ha-ip]:8007/` for:
+- Theme overview with track counts
+- Enable/disable all tracks in a theme
+- Direct stream playback in browser
+
+## API Endpoints
+
+- `GET /` - Web UI
+- `GET /stream/{theme_id}` - Audio stream for theme
+- `POST /api/enable_all/{theme_id}` - Enable all recordings
+- `POST /api/disable_all/{theme_id}` - Disable all recordings
+- `GET /api/status` - Current status JSON
+
+## Version History
+
+### v1.3.1
+- Added crossfade looping for seamless single-file playback
+- Removed external MQTT media player dependency
+- Simplified controls to single play/pause toggle
+- Theme-based folder organization
+- Master volume control
+- Direct Home Assistant REST API integration
+- One-click Home Assistant add-on installation
+
+### Previous
+- Fork from [fmtr/amniotic](https://github.com/fmtr/amniotic)
+- Renamed to Sonorium
+- Complete codebase refactor
+
+## Credits
+
+Originally forked from [Amniotic](https://github.com/fmtr/amniotic) by fmtr.
+
+## License
+
+See LICENSE file for details.
