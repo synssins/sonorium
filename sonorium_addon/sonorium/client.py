@@ -39,7 +39,28 @@ class ClientSonorium(ClientHaco):
                 },
             )
 
-        data = response.json().get("data", {})
+        response_json = response.json()
+        data = response_json.get("data", {})
+        
+        # Debug: log what we received
+        logger.info(f"  MQTT service response: {response_json}")
+        
+        # Check if MQTT is available
+        if not data:
+            raise RuntimeError(
+                "MQTT service not available. Please ensure the Mosquitto broker addon is installed "
+                "and running, or that you have an MQTT broker configured in Home Assistant."
+            )
+        
+        # Check for required keys
+        required_keys = ['host', 'port', 'username', 'password']
+        missing_keys = [k for k in required_keys if k not in data]
+        if missing_keys:
+            raise RuntimeError(
+                f"MQTT configuration incomplete. Missing: {missing_keys}. "
+                f"Available keys: {list(data.keys())}. "
+                "Please check your MQTT broker configuration."
+            )
 
         self = cls(
             device=device, 
