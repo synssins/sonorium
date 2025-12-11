@@ -16,11 +16,20 @@ from sonorium.ha.registry import (
     create_registry_from_supervisor,
 )
 
+from sonorium.ha.media_controller import (
+    HAMediaController,
+    create_media_controller_from_supervisor,
+)
+
 __all__ = [
+    # Registry
     "Speaker",
     "Area",
     "Floor",
     "SpeakerHierarchy",
     "HARegistry",
     "create_registry_from_supervisor",
+    # Media Control
+    "HAMediaController",
+    "create_media_controller_from_supervisor",
 ]
