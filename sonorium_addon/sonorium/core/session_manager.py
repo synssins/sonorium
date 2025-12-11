@@ -24,6 +24,7 @@ from sonorium.obs import logger
 
 if TYPE_CHECKING:
     from sonorium.ha.registry import HARegistry
+    from sonorium.ha.media_controller import HAMediaController
 
 
 class SessionManager:
@@ -34,9 +35,38 @@ class SessionManager:
     Multiple sessions can run simultaneously.
     """
     
-    def __init__(self, state_store: StateStore, ha_registry: HARegistry):
+    def __init__(
+        self, 
+        state_store: StateStore, 
+        ha_registry: HARegistry,
+        media_controller: HAMediaController = None,
+        stream_base_url: str = None,
+    ):
+        """
+        Initialize SessionManager.
+        
+        Args:
+            state_store: StateStore for persistence
+            ha_registry: HARegistry for speaker resolution
+            media_controller: HAMediaController for playback (optional, for testing)
+            stream_base_url: Base URL for audio streams (e.g., "http://192.168.1.104:8007")
+        """
         self.state = state_store
         self.registry = ha_registry
+        self.media_controller = media_controller
+        self.stream_base_url = stream_base_url or "http://localhost:8080"
+    
+    def set_media_controller(self, controller: HAMediaController):
+        """Set the media controller (for deferred initialization)."""
+        self.media_controller = controller
+    
+    def set_stream_base_url(self, url: str):
+        """Set the stream base URL."""
+        self.stream_base_url = url.rstrip("/")
+    
+    def get_stream_url(self, theme_id: str) -> str:
+        """Get the stream URL for a theme."""
+        return f"{self.stream_base_url}/stream/{theme_id}"
     
     # --- Auto-naming ---
     
@@ -256,7 +286,7 @@ class SessionManager:
         logger.info(f"  Deleted session '{session.name}'")
         return True
     
-    # --- Playback Control ---
+    # --- Speaker Resolution ---
     
     def get_resolved_speakers(self, session: Session) -> list[str]:
         """
@@ -319,13 +349,17 @@ class SessionManager:
         
         return f"{len(speakers)} speakers"
     
+    # --- Playback Control ---
+    
     @logger.instrument("Playing session {session_id}...")
     async def play(self, session_id: str) -> bool:
         """
         Start playback for a session.
         
+        Sends the stream URL to all resolved speakers and sets volume.
+        
         Returns:
-            True if started, False if session not found or no theme/speakers
+            True if started successfully, False otherwise
         """
         session = self.state.sessions.get(session_id)
         if not session:
@@ -341,14 +375,32 @@ class SessionManager:
             logger.warning(f"  Session has no speakers")
             return False
         
-        # TODO: Implement actual playback via HA media_player service calls
-        # This will be added in the next phase
+        if not self.media_controller:
+            logger.warning(f"  No media controller available")
+            return False
+        
+        # Build stream URL
+        stream_url = self.get_stream_url(session.theme_id)
+        logger.info(f"  Stream URL: {stream_url}")
+        
+        # Play on all speakers
+        results = await self.media_controller.play_media_multi(speakers, stream_url)
+        
+        # Set volume on all speakers
+        volume_level = session.volume / 100.0
+        await self.media_controller.set_volume_multi(speakers, volume_level)
+        
+        # Check if at least one speaker started
+        success_count = sum(1 for v in results.values() if v)
+        if success_count == 0:
+            logger.error(f"  Failed to start playback on any speaker")
+            return False
         
         session.is_playing = True
         session.mark_played()
         self.state.save()
         
-        logger.info(f"  Started playback on {len(speakers)} speakers")
+        logger.info(f"  Started playback on {success_count}/{len(speakers)} speakers")
         return True
     
     @logger.instrument("Pausing session {session_id}...")
@@ -364,7 +416,10 @@ class SessionManager:
             logger.warning(f"  Session {session_id} not found")
             return False
         
-        # TODO: Implement actual pause via HA media_player service calls
+        speakers = self.get_resolved_speakers(session)
+        
+        if self.media_controller and speakers:
+            await self.media_controller.pause_multi(speakers)
         
         session.is_playing = False
         self.state.save()
@@ -385,7 +440,10 @@ class SessionManager:
             logger.warning(f"  Session {session_id} not found")
             return False
         
-        # TODO: Implement actual stop via HA media_player service calls
+        speakers = self.get_resolved_speakers(session)
+        
+        if self.media_controller and speakers:
+            await self.media_controller.stop_multi(speakers)
         
         session.is_playing = False
         self.state.save()
@@ -413,7 +471,12 @@ class SessionManager:
         session.volume = max(0, min(100, volume))
         self.state.save()
         
-        # TODO: If playing, update volume on speakers via HA service calls
+        # If playing, update volume on speakers
+        if session.is_playing and self.media_controller:
+            speakers = self.get_resolved_speakers(session)
+            if speakers:
+                volume_level = session.volume / 100.0
+                await self.media_controller.set_volume_multi(speakers, volume_level)
         
         logger.info(f"  Set volume to {session.volume}%")
         return True
