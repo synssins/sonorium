@@ -12,6 +12,9 @@ init: false
 homeassistant_api: true
 audio: false
 
+services:
+  - mqtt:need
+
 map:
   - media:rw
   - config:rw
