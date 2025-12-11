@@ -31,7 +31,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 
 # Copy local sonorium source code
 COPY sonorium/ /app/sonorium/
-COPY setup.py pyproject.toml /app/
+COPY setup.py pyproject.toml README.md /app/
 
 # Install sonorium from local source
 RUN pip3 install --no-cache-dir --break-system-packages -e /app
