@@ -1,6 +1,6 @@
 # Sonorium
 
-![Sonorium](logo.png)
+![Sonorium](https://raw.githubusercontent.com/synssins/sonorium/main/sonorium_addon/logo.png)
 
 **Ambient Soundscape Mixer for Home Assistant**
 
