@@ -1,7 +1,7 @@
 """
 Sonorium Core Module
 
-Contains data models and state management.
+Contains data models, state management, and managers.
 """
 
 from sonorium.core.state import (
@@ -14,7 +14,11 @@ from sonorium.core.state import (
     StateStore,
 )
 
+from sonorium.core.session_manager import SessionManager
+from sonorium.core.group_manager import GroupManager
+
 __all__ = [
+    # Data models
     "NameSource",
     "SonoriumSettings", 
     "SpeakerSelection",
@@ -22,4 +26,7 @@ __all__ = [
     "Session",
     "SonoriumState",
     "StateStore",
+    # Managers
+    "SessionManager",
+    "GroupManager",
 ]
