@@ -1,16 +1,22 @@
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, HTMLResponse
 
 from sonorium.theme import ThemeDefinition
 from sonorium.version import __version__
+from sonorium.obs import logger
 from fmtr.tools import api, mqtt
 
 for name in ["uvicorn.access", "uvicorn.error", "uvicorn"]:
-    logger = logging.getLogger(name)
-    logger.handlers.clear()
-    logger.propagate = False
+    _logger = logging.getLogger(name)
+    _logger.handlers.clear()
+    _logger.propagate = False
+
+
+# Template directory
+TEMPLATES_DIR = Path(__file__).parent / "web" / "templates"
 
 
 class ApiSonorium(api.Base):
@@ -20,19 +26,117 @@ class ApiSonorium(api.Base):
     def __init__(self, client: mqtt.Client):
         super().__init__()
         self.client = client
+        
+        # v2 components (initialized lazily)
+        self._v2_initialized = False
+        self._state_store = None
+        self._ha_registry = None
+        self._media_controller = None
+        self._session_manager = None
+        self._group_manager = None
+        self._mqtt_manager = None
 
     def get_endpoints(self):
         endpoints = [
+            # Web UI
             api.Endpoint(method_http=self.app.get, path='/', method=self.web_ui),
+            api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
+            
+            # Streaming
             api.Endpoint(method_http=self.app.get, path='/stream/{id}', method=self.stream),
+            
+            # Theme API (used by both v1 and v2 UI)
+            api.Endpoint(method_http=self.app.get, path='/api/themes', method=self.list_themes),
+            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}', method=self.get_theme),
             api.Endpoint(method_http=self.app.post, path='/api/enable_all/{theme_id}', method=self.enable_all),
             api.Endpoint(method_http=self.app.post, path='/api/disable_all/{theme_id}', method=self.disable_all),
             api.Endpoint(method_http=self.app.get, path='/api/status', method=self.status),
         ]
         return endpoints
+    
+    def initialize_v2(self):
+        """
+        Initialize v2 components after MQTT client is ready.
+        Call this after themes are loaded.
+        """
+        if self._v2_initialized:
+            return
+        
+        try:
+            from sonorium.core.state import StateStore
+            from sonorium.core.session_manager import SessionManager
+            from sonorium.core.group_manager import GroupManager
+            from sonorium.ha.registry import HARegistry
+            from sonorium.ha.media_controller import HAMediaController
+            from sonorium.web.api_v2 import create_api_router
+            from sonorium.settings import settings
+            
+            logger.info("Initializing Sonorium v2 components...")
+            
+            # Initialize state store
+            self._state_store = StateStore()
+            self._state_store.load()
+            logger.info(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
+            
+            # Initialize HA registry
+            api_url = f"{settings.ha_supervisor_api.replace('/core', '')}/core/api"
+            self._ha_registry = HARegistry(api_url, settings.token)
+            try:
+                self._ha_registry.refresh()
+                logger.info(f"  HA registry loaded: {len(self._ha_registry.hierarchy.floors)} floors")
+            except Exception as e:
+                logger.warning(f"  Could not load HA registry (floors/areas may not work): {e}")
+            
+            # Initialize media controller
+            self._media_controller = HAMediaController(api_url, settings.token)
+            
+            # Determine stream base URL
+            # In addon context, use ingress URL or localhost
+            port = getattr(settings, 'port', 8080)
+            stream_base_url = f"http://localhost:{port}"
+            
+            # Initialize managers
+            self._session_manager = SessionManager(
+                self._state_store,
+                self._ha_registry,
+                self._media_controller,
+                stream_base_url,
+            )
+            
+            self._group_manager = GroupManager(
+                self._state_store,
+                self._ha_registry,
+            )
+            
+            # Create and mount v2 API router
+            api_router = create_api_router(
+                session_manager=self._session_manager,
+                group_manager=self._group_manager,
+                ha_registry=self._ha_registry,
+                state_store=self._state_store,
+            )
+            self.app.include_router(api_router)
+            
+            self._v2_initialized = True
+            logger.info("  Sonorium v2 initialization complete!")
+            
+        except ImportError as e:
+            logger.error(f"  Failed to import v2 modules: {e}")
+        except Exception as e:
+            logger.error(f"  Failed to initialize v2 components: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def web_ui(self):
-        """Serve a simple web UI for controlling Sonorium"""
+        """Serve the main web UI (v2 if available, else v1)."""
+        template_path = TEMPLATES_DIR / "index.html"
+        if template_path.exists() and self._v2_initialized:
+            return HTMLResponse(content=template_path.read_text())
+        else:
+            return await self.legacy_ui()
+
+    async def legacy_ui(self):
+        """Serve the legacy v1 web UI."""
         device = self.client.device
         themes = device.themes
         
@@ -66,6 +170,10 @@ class ApiSonorium(api.Base):
             </div>
             '''
         
+        v2_link = ""
+        if self._v2_initialized:
+            v2_link = '<p class="version-switch"><a href="/">→ Try the new v2 UI with multi-zone support</a></p>'
+        
         html = f'''<!DOCTYPE html>
 <html>
 <head>
@@ -92,6 +200,14 @@ class ApiSonorium(api.Base):
             text-align: center;
             color: #888;
             margin-bottom: 30px;
+        }}
+        .version-switch {{
+            text-align: center;
+            margin-bottom: 20px;
+        }}
+        .version-switch a {{
+            color: #00d4ff;
+            text-decoration: none;
         }}
         .theme-card {{
             background: rgba(255,255,255,0.08);
@@ -184,6 +300,7 @@ class ApiSonorium(api.Base):
     <div class="container">
         <h1>🎵 Sonorium {__version__}</h1>
         <p class="subtitle">Ambient Soundscape Mixer • Auto-refreshes every 10s</p>
+        {v2_link}
         {theme_cards}
     </div>
     <div class="status-msg" id="status"></div>
@@ -223,6 +340,39 @@ class ApiSonorium(api.Base):
         response = StreamingResponse(stream, media_type="audio/mpeg")
         return response
 
+    async def list_themes(self):
+        """List all available themes."""
+        device = self.client.device
+        themes = []
+        for theme in device.themes:
+            enabled_count = sum(1 for i in theme.instances if i.is_enabled)
+            themes.append({
+                "id": theme.id,
+                "name": theme.name,
+                "total_tracks": len(theme.instances),
+                "enabled_tracks": enabled_count,
+                "url": theme.url,
+            })
+        return themes
+
+    async def get_theme(self, theme_id: str):
+        """Get theme details."""
+        theme = self.client.device.themes.id.get(theme_id)
+        if not theme:
+            return {"error": "Theme not found"}
+        
+        return {
+            "id": theme.id,
+            "name": theme.name,
+            "total_tracks": len(theme.instances),
+            "enabled_tracks": sum(1 for i in theme.instances if i.is_enabled),
+            "url": theme.url,
+            "tracks": [
+                {"name": i.name, "enabled": i.is_enabled}
+                for i in theme.instances
+            ],
+        }
+
     async def enable_all(self, theme_id: str):
         """Enable all recordings in a theme"""
         theme_def: ThemeDefinition = self.client.device.themes.id[theme_id]
@@ -250,11 +400,20 @@ class ApiSonorium(api.Base):
                 "enabled_tracks": enabled_count,
                 "url": theme.url
             })
-        return {
+        
+        status_data = {
             "version": __version__,
             "current_theme": device.themes.current.name if device.themes.current else None,
-            "themes": themes_data
+            "themes": themes_data,
+            "v2_enabled": self._v2_initialized,
         }
+        
+        # Add v2 status if initialized
+        if self._v2_initialized:
+            status_data["sessions"] = len(self._state_store.sessions)
+            status_data["speaker_groups"] = len(self._state_store.speaker_groups)
+        
+        return status_data
 
 
 if __name__ == '__main__':
