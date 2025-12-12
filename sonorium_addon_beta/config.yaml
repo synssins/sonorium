@@ -12,6 +12,13 @@ init: false
 homeassistant_api: true
 audio: false
 
+# Ingress - enables sidebar integration
+ingress: true
+ingress_port: 8080
+ingress_stream: true
+panel_icon: mdi:music-circle
+panel_title: Sonorium
+
 services:
   - mqtt:need
 
@@ -22,10 +29,7 @@ map:
 ports:
   8080/tcp: 8008
 ports_description:
-  8080/tcp: "Sonorium Beta Web UI and streaming API"
-
-panel_icon: mdi:waveform
-webui: http://[HOST]:[PORT:8080]/
+  8080/tcp: "Sonorium Web UI and streaming API (direct access)"
 
 options:
   sonorium__stream_url: "http://homeassistant.local:8008"
@@ -39,3 +43,6 @@ schema:
 
 startup: application
 stage: experimental
+
+# Direct web UI access (bypasses ingress)
+webui: http://[HOST]:[PORT:8080]/
