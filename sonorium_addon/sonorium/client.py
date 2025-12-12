@@ -16,14 +16,34 @@ class ClientSonorium(ClientHaco):
 
     def __init__(self, device: Sonorium, *args, **kwargs):
         super().__init__(device=device, *args, **kwargs)
+        self._api_instance = None
 
     @logger.instrument('Connecting MQTT client to {self._client.username}@{self._hostname}:{self._port}...')
     async def start(self):
+        # Create API instance
+        self._api_instance = self.API_CLASS(self)
+        
         # Start the base haco client and API
         await asyncio.gather(
             super().start(),
-            self.API_CLASS.launch_async(self)
+            self._launch_api_with_v2_init()
         )
+    
+    async def _launch_api_with_v2_init(self):
+        """Launch the API and then initialize v2 components."""
+        # Start the API server in background
+        api_task = asyncio.create_task(self._api_instance.launch_async_instance())
+        
+        # Wait a moment for API to be ready, then initialize v2
+        await asyncio.sleep(2)
+        
+        try:
+            self._api_instance.initialize_v2()
+        except Exception as e:
+            logger.error(f"Failed to initialize v2: {e}")
+        
+        # Wait for API task to complete (it won't unless server stops)
+        await api_task
 
     @classmethod
     @logger.instrument('Instantiating MQTT client from Supervisor API...')
