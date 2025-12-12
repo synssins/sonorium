@@ -3,7 +3,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, HTMLResponse
-from starlette.responses import Response
 
 from sonorium.theme import ThemeDefinition
 from sonorium.version import __version__
@@ -18,20 +17,6 @@ for name in ["uvicorn.access", "uvicorn.error", "uvicorn"]:
 
 # Template directory
 TEMPLATES_DIR = Path(__file__).parent / "web" / "templates"
-
-
-class AudioStreamingResponse(StreamingResponse):
-    """StreamingResponse with headers optimized for audio streaming to network speakers."""
-    
-    def __init__(self, content, **kwargs):
-        super().__init__(content, **kwargs)
-        # Add headers that help network speakers handle the stream
-        self.headers["Accept-Ranges"] = "none"
-        self.headers["Cache-Control"] = "no-cache, no-store"
-        self.headers["Connection"] = "keep-alive"
-        self.headers["Transfer-Encoding"] = "chunked"
-        # ICY metadata header (common for audio streams)
-        self.headers["icy-name"] = "Sonorium"
 
 
 class ApiSonorium(api.Base):
@@ -355,10 +340,10 @@ class ApiSonorium(api.Base):
         return HTMLResponse(content=html)
 
     async def stream(self, id: str):
+        """Stream audio - identical to v1 stable."""
         theme_def: ThemeDefinition = self.client.device.themes.id[id]
         stream = theme_def.get_stream()
-        # Use custom response with audio-friendly headers
-        response = AudioStreamingResponse(stream, media_type="audio/mpeg")
+        response = StreamingResponse(stream, media_type="audio/mpeg")
         return response
 
     async def list_themes(self):
