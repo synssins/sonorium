@@ -35,6 +35,12 @@ class ApiSonorium(api.Base):
         self._session_manager = None
         self._group_manager = None
         self._mqtt_manager = None
+        
+        # Register startup event to initialize v2
+        @self.app.on_event("startup")
+        async def startup_event():
+            logger.info("FastAPI startup event triggered")
+            self.initialize_v2()
 
     def get_endpoints(self):
         endpoints = [
