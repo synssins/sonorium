@@ -4,7 +4,7 @@ This document tracks planned features, known issues, and the development roadmap
 
 ## Current Version
 - **Stable (v1):** 1.3.2 - Single theme streaming, basic web UI
-- **Beta (v2):** 2.0.0b3 - Multi-zone sessions, channel-based streaming
+- **Beta (v2):** 2.0.0b4 - Multi-zone sessions, channel-based streaming
 
 ---
 
@@ -21,9 +21,9 @@ This document tracks planned features, known issues, and the development roadmap
 - [x] Seamless theme crossfading within channels
 - [x] Remove track enable/disable feature (all tracks always active)
 - [x] Auto-naming sessions based on speaker selection
+- [x] Fix channel concurrency (each client gets independent stream)
 
 ### In Progress 🔄
-- [ ] Fix channel concurrency (multiple clients sharing generator)
 - [ ] Theme cycling with configurable interval
 - [ ] Theme randomization option
 
@@ -65,10 +65,12 @@ This document tracks planned features, known issues, and the development roadmap
 
 ## Known Issues 🐛
 
-### v2.0.0b3
-1. **Generator concurrency error** - Multiple speakers connecting to same channel causes "generator already executing" error. Need per-client chunk generators.
-2. **{count} formatting warning** - Logfire template issue in session_manager.py line 499
-3. **Floor/area API JSON parse errors** - Non-fatal warnings during HA registry refresh
+### v2.0.0b4
+1. **{count} formatting warning** - Logfire template issue in session_manager.py line 499
+2. **Floor/area API JSON parse errors** - Non-fatal warnings during HA registry refresh
+
+### v2.0.0b3 (Fixed in b4)
+1. ~~**Generator concurrency error** - Multiple speakers connecting to same channel causes "generator already executing" error.~~ Fixed: Each client now gets independent audio stream.
 
 ### v1.3.x
 - None actively tracked (stable)
@@ -132,13 +134,13 @@ Theme Definition
     └── Recording Instances (tracks)
          └── CrossfadeStream (per-track looping with crossfade)
               └── ThemeStream (mixes all tracks)
-                   └── Channel (handles theme transitions)
-                        └── ChannelStream (MP3 encoding per client)
-                             └── HTTP StreamingResponse
+                   └── Channel (tracks current theme, version counter)
+                        └── ChannelStream (independent per-client, handles crossfade)
+                             └── HTTP StreamingResponse (MP3 encoding)
 ```
 
 ### Key Files
-- `sonorium/core/channel.py` - Channel streaming with crossfade
+- `sonorium/core/channel.py` - Channel streaming with per-client crossfade
 - `sonorium/core/session_manager.py` - Session CRUD and playback
 - `sonorium/core/state.py` - Persistence layer
 - `sonorium/theme.py` - Theme definitions and track mixing
@@ -147,10 +149,10 @@ Theme Definition
 - `sonorium/web/api_v2.py` - v2 REST API router
 
 ### Testing Checklist
-- [ ] Single speaker playback
-- [ ] Multi-speaker playback (same theme)
-- [ ] Theme switching while playing (crossfade)
-- [ ] Multiple simultaneous sessions
+- [x] Single speaker playback
+- [x] Multi-speaker playback (same theme)
+- [x] Theme switching while playing (crossfade)
+- [ ] Multiple simultaneous sessions (different themes)
 - [ ] Session persistence across restart
 - [ ] Speaker group creation/editing
 - [ ] Volume control during playback
@@ -158,6 +160,11 @@ Theme Definition
 ---
 
 ## Version History
+
+### 2.0.0b4 (2024-12-11)
+- Fixed multi-client concurrency: each client gets independent audio generator
+- Per-client crossfading when theme changes
+- Thread-safe theme changes with version counter
 
 ### 2.0.0b3 (2024-12-11)
 - Fixed route ordering for channel endpoints
