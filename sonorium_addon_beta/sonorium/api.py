@@ -35,13 +35,20 @@ class ApiSonorium(api.Base):
         self._session_manager = None
         self._group_manager = None
         self._channel_manager = None
+        self._cycle_manager = None
         self._mqtt_manager = None
         
         # Register startup event to initialize v2
         @self.app.on_event("startup")
         async def startup_event():
             logger.info("FastAPI startup event triggered")
-            self.initialize_v2()
+            await self.initialize_v2()
+        
+        # Register shutdown event to stop cycle manager
+        @self.app.on_event("shutdown")
+        async def shutdown_event():
+            logger.info("FastAPI shutdown event triggered")
+            await self.shutdown_v2()
 
     def get_endpoints(self):
         # IMPORTANT: More specific routes must come BEFORE catch-all routes!
@@ -68,7 +75,7 @@ class ApiSonorium(api.Base):
         ]
         return endpoints
     
-    def initialize_v2(self):
+    async def initialize_v2(self):
         """
         Initialize v2 components after MQTT client is ready.
         Call this after themes are loaded.
@@ -81,6 +88,7 @@ class ApiSonorium(api.Base):
             from sonorium.core.session_manager import SessionManager
             from sonorium.core.group_manager import GroupManager
             from sonorium.core.channel import ChannelManager
+            from sonorium.core.cycle_manager import CycleManager
             from sonorium.ha.registry import HARegistry
             from sonorium.ha.media_controller import HAMediaController
             from sonorium.web.api_v2 import create_api_router
@@ -114,15 +122,26 @@ class ApiSonorium(api.Base):
             stream_base_url = settings.stream_url
             logger.info(f"  Stream base URL: {stream_base_url}")
             
-            # Initialize managers
+            # Initialize cycle manager
+            self._cycle_manager = CycleManager(
+                session_manager=None,  # Will set after session_manager is created
+                themes=self.client.device.themes,
+                check_interval=10.0,  # Check every 10 seconds
+            )
+            
+            # Initialize session manager (with cycle manager)
             self._session_manager = SessionManager(
                 self._state_store,
                 self._ha_registry,
                 self._media_controller,
                 stream_base_url,
                 channel_manager=self._channel_manager,
+                cycle_manager=self._cycle_manager,
                 themes=self.client.device.themes,
             )
+            
+            # Connect cycle manager to session manager
+            self._cycle_manager.set_session_manager(self._session_manager)
             
             self._group_manager = GroupManager(
                 self._state_store,
@@ -136,8 +155,13 @@ class ApiSonorium(api.Base):
                 ha_registry=self._ha_registry,
                 state_store=self._state_store,
                 channel_manager=self._channel_manager,
+                cycle_manager=self._cycle_manager,
             )
             self.app.include_router(api_router)
+            
+            # Start cycle manager background task
+            await self._cycle_manager.start()
+            logger.info("  CycleManager started")
             
             self._v2_initialized = True
             logger.info("  Sonorium v2 initialization complete!")
@@ -148,6 +172,12 @@ class ApiSonorium(api.Base):
             logger.error(f"  Failed to initialize v2 components: {e}")
             import traceback
             traceback.print_exc()
+    
+    async def shutdown_v2(self):
+        """Shutdown v2 components gracefully."""
+        if self._cycle_manager:
+            await self._cycle_manager.stop()
+            logger.info("CycleManager stopped")
 
     async def web_ui(self):
         """Serve the main web UI (v2 if available, else v1)."""
@@ -423,6 +453,13 @@ class ApiSonorium(api.Base):
             if self._channel_manager:
                 status_data["channels"] = self._channel_manager.max_channels
                 status_data["active_channels"] = self._channel_manager.get_active_count()
+            
+            # Count sessions with cycling enabled
+            cycling_count = sum(
+                1 for s in self._state_store.sessions.values() 
+                if s.cycle_config and s.cycle_config.enabled
+            )
+            status_data["cycling_sessions"] = cycling_count
         
         return status_data
 
