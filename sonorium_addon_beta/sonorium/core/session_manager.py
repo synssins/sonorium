@@ -4,8 +4,9 @@ Session Manager
 Handles CRUD operations for playback sessions, including:
 - Creating sessions with auto-naming
 - Updating session configuration
-- Play/pause/stop control
+- Play/pause/stop control with channel-based streaming
 - Volume management
+- Seamless theme transitions via channel crossfading
 """
 
 from __future__ import annotations
@@ -25,6 +26,9 @@ from sonorium.obs import logger
 if TYPE_CHECKING:
     from sonorium.ha.registry import HARegistry
     from sonorium.ha.media_controller import HAMediaController
+    from sonorium.core.channel import ChannelManager, Channel
+    from sonorium.theme import ThemeDefinition
+    from fmtr.tools.iterator_tools import IndexList
 
 
 class SessionManager:
@@ -32,7 +36,7 @@ class SessionManager:
     Manages playback sessions.
     
     Each session represents one theme playing to one set of speakers.
-    Multiple sessions can run simultaneously.
+    Multiple sessions can run simultaneously on different channels.
     """
     
     def __init__(
@@ -41,6 +45,8 @@ class SessionManager:
         ha_registry: HARegistry,
         media_controller: HAMediaController = None,
         stream_base_url: str = None,
+        channel_manager: ChannelManager = None,
+        themes: IndexList[ThemeDefinition] = None,
     ):
         """
         Initialize SessionManager.
@@ -49,12 +55,19 @@ class SessionManager:
             state_store: StateStore for persistence
             ha_registry: HARegistry for speaker resolution
             media_controller: HAMediaController for playback (optional, for testing)
-            stream_base_url: Base URL for audio streams (e.g., "http://192.168.1.104:8007")
+            stream_base_url: Base URL for audio streams (e.g., "http://192.168.1.104:8008")
+            channel_manager: ChannelManager for channel-based streaming
+            themes: List of available themes
         """
         self.state = state_store
         self.registry = ha_registry
         self.media_controller = media_controller
         self.stream_base_url = stream_base_url or "http://localhost:8080"
+        self.channel_manager = channel_manager
+        self.themes = themes
+        
+        # Track which session is using which channel: session_id -> channel_id
+        self._session_channels: dict[str, int] = {}
     
     def set_media_controller(self, controller: HAMediaController):
         """Set the media controller (for deferred initialization)."""
@@ -64,9 +77,58 @@ class SessionManager:
         """Set the stream base URL."""
         self.stream_base_url = url.rstrip("/")
     
-    def get_stream_url(self, theme_id: str) -> str:
-        """Get the stream URL for a theme."""
-        return f"{self.stream_base_url}/stream/{theme_id}"
+    def get_theme(self, theme_id: str) -> Optional[ThemeDefinition]:
+        """Get a theme by ID."""
+        if not self.themes:
+            return None
+        return self.themes.id.get(theme_id)
+    
+    def get_stream_url(self, session: Session) -> str:
+        """
+        Get the stream URL for a session.
+        
+        Uses channel-based URL if channel is assigned, otherwise falls back to theme URL.
+        """
+        channel_id = self._session_channels.get(session.id)
+        if channel_id:
+            return f"{self.stream_base_url}/stream/channel{channel_id}"
+        # Fallback to theme-based URL (legacy)
+        return f"{self.stream_base_url}/stream/{session.theme_id}"
+    
+    def _assign_channel(self, session: Session) -> Optional[Channel]:
+        """
+        Assign an available channel to a session.
+        
+        Returns the assigned channel, or None if no channels available.
+        """
+        if not self.channel_manager:
+            return None
+        
+        # Check if session already has a channel
+        existing_id = self._session_channels.get(session.id)
+        if existing_id:
+            return self.channel_manager.get_channel(existing_id)
+        
+        # Get an available channel
+        channel = self.channel_manager.get_available_channel()
+        if channel:
+            self._session_channels[session.id] = channel.id
+            logger.info(f"  Assigned channel {channel.id} to session {session.id}")
+        
+        return channel
+    
+    def _release_channel(self, session_id: str):
+        """Release a channel from a session."""
+        channel_id = self._session_channels.pop(session_id, None)
+        if channel_id and self.channel_manager:
+            channel = self.channel_manager.get_channel(channel_id)
+            if channel:
+                channel.stop()
+                logger.info(f"  Released channel {channel_id} from session {session_id}")
+    
+    def get_session_channel(self, session_id: str) -> Optional[int]:
+        """Get the channel ID assigned to a session."""
+        return self._session_channels.get(session_id)
     
     # --- Auto-naming ---
     
@@ -227,6 +289,7 @@ class SessionManager:
         Update an existing session.
         
         Only provided fields are updated.
+        If theme changes on a playing session, triggers seamless crossfade.
         
         Returns:
             Updated session, or None if not found
@@ -235,6 +298,9 @@ class SessionManager:
         if not session:
             logger.warning(f"  Session {session_id} not found")
             return None
+        
+        # Track if theme is changing
+        theme_changed = theme_id is not None and theme_id != session.theme_id
         
         # Update fields if provided
         if theme_id is not None:
@@ -265,8 +331,30 @@ class SessionManager:
             )
         
         self.state.save()
+        
+        # If session is playing and theme changed, trigger crossfade
+        if session.is_playing and theme_changed and session.theme_id:
+            self._trigger_theme_crossfade(session)
+        
         logger.info(f"  Updated session '{session.name}'")
         return session
+    
+    def _trigger_theme_crossfade(self, session: Session):
+        """Trigger a theme crossfade on the session's channel."""
+        channel_id = self._session_channels.get(session.id)
+        if not channel_id or not self.channel_manager:
+            return
+        
+        channel = self.channel_manager.get_channel(channel_id)
+        if not channel:
+            return
+        
+        theme = self.get_theme(session.theme_id)
+        if not theme:
+            return
+        
+        logger.info(f"  Triggering crossfade to '{theme.name}' on channel {channel_id}")
+        channel.set_theme(theme)
     
     @logger.instrument("Deleting session {session_id}...")
     def delete(self, session_id: str) -> bool:
@@ -279,6 +367,9 @@ class SessionManager:
         if session_id not in self.state.sessions:
             logger.warning(f"  Session {session_id} not found")
             return False
+        
+        # Release channel if assigned
+        self._release_channel(session_id)
         
         session = self.state.sessions.pop(session_id)
         self.state.save()
@@ -356,7 +447,7 @@ class SessionManager:
         """
         Start playback for a session.
         
-        Sends the stream URL to all resolved speakers and sets volume.
+        Assigns a channel, sets the theme, and sends stream URL to speakers.
         
         Returns:
             True if started successfully, False otherwise
@@ -379,29 +470,43 @@ class SessionManager:
             logger.warning(f"  No media controller available")
             return False
         
-        # Build stream URL
-        stream_url = self.get_stream_url(session.theme_id)
+        # Assign channel and set theme
+        channel = self._assign_channel(session)
+        if channel:
+            theme = self.get_theme(session.theme_id)
+            if theme:
+                channel.set_theme(theme)
+                logger.info(f"  Channel {channel.id}: theme '{theme.name}'")
+        
+        # Build stream URL (channel-based if available)
+        stream_url = self.get_stream_url(session)
         logger.info(f"  Stream URL: {stream_url}")
         
-        # Play on all speakers
-        results = await self.media_controller.play_media_multi(speakers, stream_url)
-        
-        # Set volume on all speakers
-        volume_level = session.volume / 100.0
-        await self.media_controller.set_volume_multi(speakers, volume_level)
-        
-        # Check if at least one speaker started
-        success_count = sum(1 for v in results.values() if v)
-        if success_count == 0:
-            logger.error(f"  Failed to start playback on any speaker")
-            return False
-        
+        # Mark as playing immediately (optimistic update)
         session.is_playing = True
         session.mark_played()
         self.state.save()
         
-        logger.info(f"  Started playback on {success_count}/{len(speakers)} speakers")
+        # Play on all speakers (fire-and-forget)
+        import asyncio
+        asyncio.create_task(self._play_on_speakers(session, speakers, stream_url))
+        
         return True
+    
+    async def _play_on_speakers(self, session: Session, speakers: list[str], stream_url: str):
+        """Background task to play media on speakers."""
+        try:
+            results = await self.media_controller.play_media_multi(speakers, stream_url)
+            
+            # Set volume on all speakers
+            volume_level = session.volume / 100.0
+            await self.media_controller.set_volume_multi(speakers, volume_level)
+            
+            success_count = sum(1 for v in results.values() if v)
+            logger.info(f"  Started playback on {success_count}/{len(speakers)} speakers")
+            
+        except Exception as e:
+            logger.error(f"  Error starting playback: {e}")
     
     @logger.instrument("Pausing session {session_id}...")
     async def pause(self, session_id: str) -> bool:
@@ -432,6 +537,8 @@ class SessionManager:
         """
         Stop playback for a session.
         
+        Releases the channel and stops speakers.
+        
         Returns:
             True if stopped, False if session not found
         """
@@ -444,6 +551,9 @@ class SessionManager:
         
         if self.media_controller and speakers:
             await self.media_controller.stop_multi(speakers)
+        
+        # Release channel
+        self._release_channel(session_id)
         
         session.is_playing = False
         self.state.save()
