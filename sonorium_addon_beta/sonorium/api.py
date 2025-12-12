@@ -96,10 +96,9 @@ class ApiSonorium(api.Base):
             # Initialize media controller
             self._media_controller = HAMediaController(api_url, settings.token)
             
-            # Determine stream base URL
-            # In addon context, use ingress URL or localhost
-            port = getattr(settings, 'port', 8080)
-            stream_base_url = f"http://localhost:{port}"
+            # Use configured stream URL (from SONORIUM__STREAM_URL env var)
+            stream_base_url = settings.stream_url
+            logger.info(f"  Stream base URL: {stream_base_url}")
             
             # Initialize managers
             self._session_manager = SessionManager(
