@@ -92,11 +92,7 @@ class Sonorium(Device):
         if self.themes:
             self.themes.current = self.themes[0]
             logger.info(f'Set default theme to: "{self.themes.current.name}"')
-            # Enable ALL recordings by default for seamless mixing
-            if self.themes.current.instances:
-                for inst in self.themes.current.instances:
-                    inst.is_enabled = True
-                logger.info(f'Auto-enabled all {len(self.themes.current.instances)} recordings in theme')
+            logger.info(f'All {len(self.themes)} themes loaded with all tracks active')
 
         try:
             media_players_data = [state for state in self.client_ha.get_states() if state.entity_id.startswith("media_player.")]
