@@ -4,7 +4,7 @@ This document tracks planned features, known issues, and the development roadmap
 
 ## Current Version
 - **Stable (v1):** 1.3.2 - Single theme streaming, basic web UI
-- **Beta (v2):** 2.0.0b4 - Multi-zone sessions, channel-based streaming
+- **Beta (v2):** 2.0.0b5 - Multi-zone sessions, channel-based streaming, theme cycling
 
 ---
 
@@ -22,11 +22,15 @@ This document tracks planned features, known issues, and the development roadmap
 - [x] Remove track enable/disable feature (all tracks always active)
 - [x] Auto-naming sessions based on speaker selection
 - [x] Fix channel concurrency (each client gets independent stream)
+- [x] Theme cycling with configurable interval (1 min to 24 hours)
+- [x] Theme randomization option for cycling
+- [x] Skip to next theme in cycle
+- [x] Per-session cycle configuration
+- [x] CycleManager background task for automatic transitions
 
 ### In Progress 🔄
-- [ ] Theme cycling with configurable interval
-- [ ] Theme randomization option
 - [ ] UI redesign with left navigation menu
+- [ ] Theme cycling UI controls
 
 ### Planned 📋
 
@@ -37,10 +41,11 @@ This document tracks planned features, known issues, and the development roadmap
 - [ ] Session duplication (clone existing session)
 
 #### Theme Cycling & Scheduling
-- [ ] Auto-cycle themes on timer (10 min, 30 min, 1 hr, 2 hr, etc.)
-- [ ] Randomize theme order during cycling
+- [x] Auto-cycle themes on timer (1 min to 24 hours)
+- [x] Randomize theme order during cycling
 - [ ] Schedule-based playback (e.g., "play rain forest 6am-8am")
 - [ ] Crossfade duration per-session setting
+- [ ] Include/exclude specific themes from rotation
 
 #### Home Assistant Integration
 - [ ] Expose sessions as media_player entities
@@ -109,7 +114,7 @@ All user-facing features should be configurable through the Sonorium web interfa
 │     • System Info                                   │
 │                                                     │
 ├─────────────────────────────────────────────────────┤
-│  v2.0.0b4                       [?] Help           │
+│  v2.0.0b5                       [?] Help           │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -163,9 +168,12 @@ All user-facing features should be configurable through the Sonorium web interfa
 
 ## Known Issues 🐛
 
-### v2.0.0b4
+### v2.0.0b5
 1. **{count} formatting warning** - Logfire template issue in session_manager.py line 499
 2. **Floor/area API JSON parse errors** - Non-fatal warnings during HA registry refresh
+
+### v2.0.0b4 (Fixed in b5)
+- None - cycling feature addition only
 
 ### v2.0.0b3 (Fixed in b4)
 1. ~~**Generator concurrency error** - Multiple speakers connecting to same channel causes "generator already executing" error.~~ Fixed: Each client now gets independent audio stream.
@@ -184,16 +192,23 @@ sonorium__path_audio: "/media/sonorium"
 sonorium__max_channels: 6  # 1-10 concurrent channels (hardware-dependent)
 ```
 
-### User Settings (Web UI - Planned)
+### User Settings (Web UI)
 ```yaml
-# Stored in /config/sonorium/settings.json
-default_volume: 50
-default_crossfade: 3.0
-theme_cycle_enabled: false
-theme_cycle_interval: 60  # minutes
-theme_cycle_random: false
-ui_theme: "dark"
-ui_density: "comfortable"
+# Stored in /config/sonorium/state.json under "settings"
+default_volume: 60
+crossfade_duration: 3.0
+default_cycle_interval: 60  # minutes
+default_cycle_randomize: false
+```
+
+### Per-Session Cycle Config
+```yaml
+# Each session can have its own cycle configuration
+cycle_config:
+  enabled: false
+  interval_minutes: 60  # 1 to 1440 (24 hours)
+  randomize: false
+  theme_ids: []  # Empty = all themes, or specific theme IDs
 ```
 
 ---
@@ -214,6 +229,11 @@ ui_density: "comfortable"
 - `POST /api/sessions/{id}/stop` - Stop playback
 - `POST /api/sessions/{id}/volume` - Set volume
 
+### Theme Cycling
+- `GET /api/sessions/{id}/cycle` - Get cycle status (includes next change time)
+- `PUT /api/sessions/{id}/cycle` - Update cycle configuration
+- `POST /api/sessions/{id}/cycle/skip` - Skip to next theme
+
 ### Channels
 - `GET /api/channels` - List all channels
 - `GET /api/channels/{id}` - Get channel status
@@ -227,7 +247,7 @@ ui_density: "comfortable"
 - `GET /api/speakers/hierarchy` - Floor/area/speaker tree
 - `POST /api/speakers/refresh` - Refresh from HA
 
-### Settings (Planned)
+### Settings
 - `GET /api/settings` - Get user settings
 - `PUT /api/settings` - Update user settings
 
@@ -246,14 +266,25 @@ Theme Definition
                              └── HTTP StreamingResponse (MP3 encoding)
 ```
 
+### Theme Cycling Pipeline
+```
+CycleManager (background task, 10s interval)
+    └── Check each playing session
+         └── If cycle_config.enabled and interval elapsed
+              └── Get next theme (sequential or random)
+                   └── SessionManager.update(theme_id=next)
+                        └── Channel.set_theme() triggers crossfade
+```
+
 ### Key Files
 - `sonorium/core/channel.py` - Channel streaming with per-client crossfade
+- `sonorium/core/cycle_manager.py` - Background task for theme cycling
 - `sonorium/core/session_manager.py` - Session CRUD and playback
-- `sonorium/core/state.py` - Persistence layer
+- `sonorium/core/state.py` - Persistence layer (includes CycleConfig)
 - `sonorium/theme.py` - Theme definitions and track mixing
 - `sonorium/recording.py` - Individual track streaming
-- `sonorium/api.py` - FastAPI endpoints
-- `sonorium/web/api_v2.py` - v2 REST API router
+- `sonorium/api.py` - FastAPI endpoints, initializes CycleManager
+- `sonorium/web/api_v2.py` - v2 REST API router with cycling endpoints
 - `sonorium/web/static/` - Web UI assets (planned restructure)
 
 ### Testing Checklist
@@ -264,12 +295,23 @@ Theme Definition
 - [ ] Session persistence across restart
 - [ ] Speaker group creation/editing
 - [ ] Volume control during playback
-- [ ] Theme cycling
+- [ ] Theme cycling (automatic interval)
+- [ ] Theme cycling (skip to next)
+- [ ] Theme cycling (random vs sequential)
 - [ ] UI navigation menu
 
 ---
 
 ## Version History
+
+### 2.0.0b5 (2024-12-11)
+- Added CycleManager for automatic theme cycling
+- Added CycleConfig to Session model
+- Added cycling API endpoints (get/update/skip)
+- Background task checks every 10 seconds for needed cycles
+- Support for random or sequential cycling
+- Configurable interval from 1 minute to 24 hours
+- Optional theme whitelist for cycling
 
 ### 2.0.0b4 (2024-12-11)
 - Fixed multi-client concurrency: each client gets independent audio generator
