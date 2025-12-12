@@ -26,11 +26,12 @@ This document tracks planned features, known issues, and the development roadmap
 ### In Progress 🔄
 - [ ] Theme cycling with configurable interval
 - [ ] Theme randomization option
+- [ ] UI redesign with left navigation menu
 
 ### Planned 📋
 
 #### Core Features
-- [ ] Speaker group UI in web interface
+- [ ] Speaker group management UI
 - [ ] Volume per-speaker overrides within a session
 - [ ] Pause/resume functionality (currently only play/stop)
 - [ ] Session duplication (clone existing session)
@@ -55,11 +56,108 @@ This document tracks planned features, known issues, and the development roadmap
 - [ ] Icecast/Shoutcast protocol support
 
 #### UI/UX Improvements
+- [ ] Left navigation menu (see UI Design below)
 - [ ] Dark/light theme toggle
 - [ ] Mobile-optimized responsive design
 - [ ] Drag-and-drop speaker assignment
 - [ ] Quick play buttons for favorite themes
 - [ ] Session templates/presets
+
+---
+
+## UI Design Specification
+
+### Configuration Philosophy
+
+**Hardware Settings (HA Addon Config Only)**
+These settings affect system resources and should only be configured through the Home Assistant addon configuration panel:
+- `max_channels` - Maximum concurrent streaming channels
+- `path_audio` - Audio file storage location
+- `stream_url` - Base URL for streaming
+
+**User Settings (Web UI)**
+All user-facing features should be configurable through the Sonorium web interface.
+
+### Left Navigation Menu Structure
+
+```
+┌─────────────────────────────────────────────────────┐
+│  🎵 SONORIUM                              [≡]      │
+├─────────────────────────────────────────────────────┤
+│                                                     │
+│  📻 Sessions                    ← Main dashboard    │
+│     • Now Playing                                   │
+│     • All Sessions                                  │
+│     • Create New                                    │
+│                                                     │
+│  🔊 Speakers                                        │
+│     • All Speakers                                  │
+│     • Speaker Groups            ← Group management  │
+│     • Refresh from HA                               │
+│                                                     │
+│  🎨 Themes                                          │
+│     • Browse Themes                                 │
+│     • Theme Cycling             ← Cycling settings  │
+│                                                     │
+│  ⚙️ Settings                                        │
+│     • Playback Defaults         ← Default volume,   │
+│     • Crossfade Duration           crossfade time   │
+│     • UI Preferences            ← Dark/light mode   │
+│                                                     │
+│  📊 Status                                          │
+│     • Active Channels                               │
+│     • System Info                                   │
+│                                                     │
+├─────────────────────────────────────────────────────┤
+│  v2.0.0b4                       [?] Help           │
+└─────────────────────────────────────────────────────┘
+```
+
+### Menu Sections Detail
+
+#### 📻 Sessions
+- **Now Playing**: Quick view of active sessions with play/pause/stop controls
+- **All Sessions**: Full list with edit/delete capabilities
+- **Create New**: Wizard for new session (theme → speakers → settings)
+
+#### 🔊 Speakers
+- **All Speakers**: Flat list of all discovered speakers with status
+- **Speaker Groups**: Create, edit, delete speaker groups
+  - Group name
+  - Include by: Floor, Area, or Individual speakers
+  - Exclude specific speakers
+  - Preview which speakers are selected
+- **Refresh from HA**: Manual refresh of speaker discovery
+
+#### 🎨 Themes
+- **Browse Themes**: Grid/list view of available themes with track counts
+- **Theme Cycling**: Configure auto-rotation
+  - Enable/disable cycling per session
+  - Cycle interval (10m, 30m, 1h, 2h, custom)
+  - Randomize order toggle
+  - Include/exclude themes from rotation
+
+#### ⚙️ Settings
+- **Playback Defaults**: 
+  - Default volume for new sessions
+  - Default theme (optional)
+- **Crossfade Duration**: Global default (3s), per-session override option
+- **UI Preferences**:
+  - Dark/light mode toggle
+  - Compact/comfortable view density
+  - Show/hide advanced options
+
+#### 📊 Status
+- **Active Channels**: Real-time channel usage and client counts
+- **System Info**: Version, uptime, resource usage hints
+
+### Responsive Behavior
+
+| Viewport | Menu Behavior |
+|----------|---------------|
+| Desktop (>1024px) | Fixed left sidebar, always visible |
+| Tablet (768-1024px) | Collapsible sidebar with hamburger toggle |
+| Mobile (<768px) | Bottom navigation bar with key sections |
 
 ---
 
@@ -79,18 +177,23 @@ This document tracks planned features, known issues, and the development roadmap
 
 ## Configuration Options
 
-### Current (v2 Beta)
+### Hardware Settings (HA Addon Config)
 ```yaml
 sonorium__stream_url: "http://192.168.1.104:8008"  # Must use IP, not mDNS
 sonorium__path_audio: "/media/sonorium"
-sonorium__max_channels: 6  # 1-10 concurrent channels
+sonorium__max_channels: 6  # 1-10 concurrent channels (hardware-dependent)
 ```
 
-### Planned
+### User Settings (Web UI - Planned)
 ```yaml
-sonorium__default_crossfade: 3.0  # seconds
-sonorium__theme_cycle_interval: 0  # 0=disabled, minutes
-sonorium__theme_cycle_random: false
+# Stored in /config/sonorium/settings.json
+default_volume: 50
+default_crossfade: 3.0
+theme_cycle_enabled: false
+theme_cycle_interval: 60  # minutes
+theme_cycle_random: false
+ui_theme: "dark"
+ui_density: "comfortable"
 ```
 
 ---
@@ -124,6 +227,10 @@ sonorium__theme_cycle_random: false
 - `GET /api/speakers/hierarchy` - Floor/area/speaker tree
 - `POST /api/speakers/refresh` - Refresh from HA
 
+### Settings (Planned)
+- `GET /api/settings` - Get user settings
+- `PUT /api/settings` - Update user settings
+
 ---
 
 ## Development Notes
@@ -147,6 +254,7 @@ Theme Definition
 - `sonorium/recording.py` - Individual track streaming
 - `sonorium/api.py` - FastAPI endpoints
 - `sonorium/web/api_v2.py` - v2 REST API router
+- `sonorium/web/static/` - Web UI assets (planned restructure)
 
 ### Testing Checklist
 - [x] Single speaker playback
@@ -156,6 +264,8 @@ Theme Definition
 - [ ] Session persistence across restart
 - [ ] Speaker group creation/editing
 - [ ] Volume control during playback
+- [ ] Theme cycling
+- [ ] UI navigation menu
 
 ---
 
