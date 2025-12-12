@@ -62,14 +62,14 @@ class RecordingMetadata:
 
 class RecordingThemeInstance:
     """
-    Wraps the metadata, but with some extra state, to represent how that recording is set up within a given theme.
-    Every theme gets one of these for each recording.
+    Wraps the metadata with per-theme state for a recording.
+    Every theme gets one of these for each recording file.
+    All tracks are always active - no enable/disable feature.
     """
 
     def __init__(self, meta: RecordingMetadata):
         self.meta = meta
         self.volume = 1.0  # Default to full volume - mixing will handle the blend
-        self.is_enabled = True  # All tracks enabled by default
         self.crossfade_enabled = True  # Enable crossfade looping by default
 
     def get_stream(self):
