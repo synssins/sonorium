@@ -1,0 +1,56 @@
+<<<<<<< HEAD
+name: Sonorium Beta
+version: "2.0.0b1"
+slug: sonorium_beta
+description: "BETA: Multi-zone ambient soundscape mixer with session management"
+=======
+name: Sonorium
+version: "2.0.0b1"
+slug: sonorium
+description: Ambient soundscape mixer with crossfade looping for Home Assistant
+>>>>>>> 2893e14 (Add Sonorium Beta addon with v2 multi-zone support)
+url: https://github.com/synssins/sonorium
+
+arch:
+  - aarch64
+  - amd64
+
+init: false
+homeassistant_api: true
+audio: false
+
+services:
+  - mqtt:need
+
+map:
+  - media:rw
+  - config:rw
+
+ports:
+<<<<<<< HEAD
+  8080/tcp: 8008
+ports_description:
+  8080/tcp: "Sonorium Beta Web UI and streaming API"
+=======
+  8080/tcp: 8007
+ports_description:
+  8080/tcp: "Sonorium Web UI and streaming API"
+>>>>>>> 2893e14 (Add Sonorium Beta addon with v2 multi-zone support)
+
+panel_icon: mdi:waveform
+webui: http://[HOST]:[PORT:8080]/
+
+options:
+<<<<<<< HEAD
+  sonorium__stream_url: "http://homeassistant.local:8008"
+=======
+  sonorium__stream_url: "http://homeassistant.local:8007"
+>>>>>>> 2893e14 (Add Sonorium Beta addon with v2 multi-zone support)
+  sonorium__path_audio: "/media/sonorium"
+
+schema:
+  sonorium__stream_url: str
+  sonorium__path_audio: str
+
+startup: application
+stage: experimental
