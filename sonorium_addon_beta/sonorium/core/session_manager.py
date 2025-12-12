@@ -7,6 +7,7 @@ Handles CRUD operations for playback sessions, including:
 - Play/pause/stop control with channel-based streaming
 - Volume management
 - Seamless theme transitions via channel crossfading
+- Theme cycling integration
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from sonorium.core.state import (
     Session,
     SpeakerSelection,
     SpeakerGroup,
+    CycleConfig,
     NameSource,
     StateStore,
 )
@@ -27,6 +29,7 @@ if TYPE_CHECKING:
     from sonorium.ha.registry import HARegistry
     from sonorium.ha.media_controller import HAMediaController
     from sonorium.core.channel import ChannelManager, Channel
+    from sonorium.core.cycle_manager import CycleManager
     from sonorium.theme import ThemeDefinition
     from fmtr.tools.iterator_tools import IndexList
 
@@ -46,6 +49,7 @@ class SessionManager:
         media_controller: HAMediaController = None,
         stream_base_url: str = None,
         channel_manager: ChannelManager = None,
+        cycle_manager: CycleManager = None,
         themes: IndexList[ThemeDefinition] = None,
     ):
         """
@@ -57,6 +61,7 @@ class SessionManager:
             media_controller: HAMediaController for playback (optional, for testing)
             stream_base_url: Base URL for audio streams (e.g., "http://192.168.1.104:8008")
             channel_manager: ChannelManager for channel-based streaming
+            cycle_manager: CycleManager for theme cycling
             themes: List of available themes
         """
         self.state = state_store
@@ -64,6 +69,7 @@ class SessionManager:
         self.media_controller = media_controller
         self.stream_base_url = stream_base_url or "http://localhost:8080"
         self.channel_manager = channel_manager
+        self.cycle_manager = cycle_manager
         self.themes = themes
         
         # Track which session is using which channel: session_id -> channel_id
@@ -76,6 +82,10 @@ class SessionManager:
     def set_stream_base_url(self, url: str):
         """Set the stream base URL."""
         self.stream_base_url = url.rstrip("/")
+    
+    def set_cycle_manager(self, cycle_manager: CycleManager):
+        """Set the cycle manager (for deferred initialization)."""
+        self.cycle_manager = cycle_manager
     
     def get_theme(self, theme_id: str) -> Optional[ThemeDefinition]:
         """Get a theme by ID."""
@@ -207,6 +217,7 @@ class SessionManager:
         adhoc_selection: SpeakerSelection = None,
         custom_name: str = None,
         volume: int = None,
+        cycle_config: CycleConfig = None,
     ) -> Session:
         """
         Create a new session.
@@ -217,6 +228,7 @@ class SessionManager:
             adhoc_selection: Ad-hoc speaker selection (if not using group)
             custom_name: Custom name (overrides auto-naming)
             volume: Initial volume (uses default if not specified)
+            cycle_config: Theme cycling configuration (optional)
         
         Returns:
             Created session
@@ -246,6 +258,14 @@ class SessionManager:
         if volume is None:
             volume = self.state.settings.default_volume
         
+        # Use provided cycle_config or create default
+        if cycle_config is None:
+            cycle_config = CycleConfig(
+                enabled=False,
+                interval_minutes=self.state.settings.default_cycle_interval,
+                randomize=self.state.settings.default_cycle_randomize,
+            )
+        
         # Create session
         session = Session(
             id=session_id,
@@ -256,6 +276,7 @@ class SessionManager:
             adhoc_selection=adhoc_selection,
             volume=volume,
             is_playing=False,
+            cycle_config=cycle_config,
         )
         
         # Store and save
@@ -284,6 +305,7 @@ class SessionManager:
         adhoc_selection: SpeakerSelection = None,
         custom_name: str = None,
         volume: int = None,
+        cycle_config: CycleConfig = None,
     ) -> Optional[Session]:
         """
         Update an existing session.
@@ -321,6 +343,9 @@ class SessionManager:
         if volume is not None:
             session.volume = max(0, min(100, volume))
         
+        if cycle_config is not None:
+            session.cycle_config = cycle_config
+        
         # Re-generate auto-name if needed
         if custom_name is None and session.name_source != NameSource.CUSTOM:
             group = None
@@ -335,8 +360,51 @@ class SessionManager:
         # If session is playing and theme changed, trigger crossfade
         if session.is_playing and theme_changed and session.theme_id:
             self._trigger_theme_crossfade(session)
+            
+            # Reset cycle timer since theme was manually changed
+            if self.cycle_manager:
+                self.cycle_manager.reset_cycle(session_id)
         
         logger.info(f"  Updated session '{session.name}'")
+        return session
+    
+    def update_cycle_config(
+        self,
+        session_id: str,
+        enabled: bool = None,
+        interval_minutes: int = None,
+        randomize: bool = None,
+        theme_ids: list[str] = None,
+    ) -> Optional[Session]:
+        """
+        Update just the cycle configuration for a session.
+        
+        Convenience method for updating cycle settings without
+        affecting other session properties.
+        """
+        session = self.state.sessions.get(session_id)
+        if not session:
+            return None
+        
+        if enabled is not None:
+            session.cycle_config.enabled = enabled
+        
+        if interval_minutes is not None:
+            session.cycle_config.interval_minutes = max(1, interval_minutes)
+        
+        if randomize is not None:
+            session.cycle_config.randomize = randomize
+        
+        if theme_ids is not None:
+            session.cycle_config.theme_ids = theme_ids
+        
+        self.state.save()
+        
+        # Reset cycle timer if cycling was just enabled
+        if enabled and self.cycle_manager:
+            self.cycle_manager.reset_cycle(session_id)
+        
+        logger.info(f"  Updated cycle config for '{session.name}': enabled={session.cycle_config.enabled}, interval={session.cycle_config.interval_minutes}m")
         return session
     
     def _trigger_theme_crossfade(self, session: Session):
@@ -448,6 +516,7 @@ class SessionManager:
         Start playback for a session.
         
         Assigns a channel, sets the theme, and sends stream URL to speakers.
+        Also initializes the cycle timer if cycling is enabled.
         
         Returns:
             True if started successfully, False otherwise
@@ -486,6 +555,11 @@ class SessionManager:
         session.is_playing = True
         session.mark_played()
         self.state.save()
+        
+        # Initialize cycle timer if enabled
+        if session.cycle_config.enabled and self.cycle_manager:
+            self.cycle_manager.reset_cycle(session_id)
+            logger.info(f"  Cycle enabled: every {session.cycle_config.interval_minutes}m")
         
         # Play on all speakers (fire-and-forget)
         import asyncio
