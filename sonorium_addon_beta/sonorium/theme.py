@@ -15,23 +15,10 @@ DEFAULT_OUTPUT_GAIN = 6.0
 
 class ThemeDefinition:
     """
-
-    Run-time only. A ephemeral mix defined by the user.
-
-    ThemeDefinition: What recordings are involved, volumes. User defines these via the UI, then selects a media player entity to stream from it.
-    ThemeStream: One instance per client/connection. Has a RecordingStream for each recording in the ThemeDefinition.
-
-    When a user selectes a media player for this theme, then clicks play, HA tells the player to play URL /theme/name.
-     - On the API side, the ThemeDefinition with ID "name" is selected, and a new ThemeStream initialized.
-
-    When a user modifies a themeDefinition, like change recording volume, all live ThemeStreams are updated.
-
-    Every ThemeDefinition needs an inited RecordingStream for each recording. That way we can have per-theme, per-recording state (volume, playing, etc).
-    Not really. Cos each connection needs its own Stream.
-
-
-    recording (immutable, one per-path) -> recording_instance (mutable, contains addition vol, is_enabled, etc) -> recording_stream (one per-connection)
-
+    A theme containing multiple audio recordings that are mixed together.
+    
+    Each theme represents a soundscape (e.g., "Thunder", "Rain Forest") with
+    multiple layered audio tracks that play simultaneously.
     """
 
     def __init__(self, sonorium, name):
@@ -46,7 +33,6 @@ class ThemeDefinition:
             theme_metas = self.sonorium.metas
         
         self.instances = IndexList(meta.get_instance() for meta in theme_metas)
-
         self.streams: list[ThemeStream] = []
 
     @cached_property
@@ -58,7 +44,6 @@ class ThemeDefinition:
     def id(self):
         return sanitize(self.name)
 
-
     def get_stream(self):
         theme = ThemeStream(self)
         self.streams.append(theme)
@@ -67,21 +52,15 @@ class ThemeDefinition:
 
 class ThemeStream:
     """
-
-    Run-time only. A ephemeral mix defined by the user.
-
-    ThemeDefinition: What recordings are involved, volumes. User defines these via the UI, then selects a media player entity to stream from it.
-    ThemeStream: One instance per client/connection. Has a RecordingStream for each recording in the ThemeDefinition.
-
-    When a user selectes a media player for this theme, then clicks play, HA tells the player to play URL /theme/name.
-     - On the API side, the ThemeDefinition with ID "name" is selected, and a new ThemeStream initialized.
-
-    When a user modifies a themeDefinition, like change recording volume, all live ThemeStreams are updated.
-
+    A streaming instance for a theme.
+    
+    One ThemeStream is created per client/connection. Each stream has its own
+    set of recording streams that are mixed together in real-time.
     """
 
     def __init__(self, theme_def: ThemeDefinition):
         self.theme_def = theme_def
+        # Create streams for ALL recordings - no enable/disable filtering
         self.recording_streams = [instance.get_stream() for instance in theme_def.instances]
 
     @cached_property
@@ -91,11 +70,12 @@ class ThemeStream:
         return data
 
     def iter_chunks(self):
-
         while True:
-            data_recs = [next(streams) for streams in self.recording_streams if streams.instance.is_enabled]
+            # Get chunks from ALL recording streams (no is_enabled check)
+            data_recs = [next(stream) for stream in self.recording_streams]
+            
             if not data_recs:
-                # logger.debug(f'Theme "{self.theme_def.name}" has no enabled recordings. Streaming silence...')
+                # Shouldn't happen, but safety fallback
                 data_recs.append(self.chunk_silence)
             
             # Stack all recordings
@@ -152,7 +132,6 @@ class ThemeStream:
 
                     if i % LOG_THRESHOLD == 0:
                         logger.debug(f'Waiting {ahead:.5f} seconds to maintain real-time pacing {audio_time=}...')
-
 
         finally:
             logger.info('Closing transcoder...')
