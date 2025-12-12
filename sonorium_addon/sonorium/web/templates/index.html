@@ -1,0 +1,1364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonorium</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-card: #1f2937;
+            --bg-card-hover: #283548;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent-primary: #06d6a0;
+            --accent-secondary: #8b5cf6;
+            --accent-warning: #f59e0b;
+            --accent-danger: #ef4444;
+            --border-color: #334155;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+        }
+
+        /* Header */
+        .header {
+            background: var(--bg-secondary);
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-title {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .header-title svg {
+            width: 32px;
+            height: 32px;
+            color: var(--accent-secondary);
+        }
+
+        .header-title h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent-secondary), var(--accent-primary));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 0.75rem;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.625rem 1rem;
+            border-radius: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: none;
+            text-decoration: none;
+        }
+
+        .btn-primary {
+            background: var(--accent-primary);
+            color: var(--bg-primary);
+        }
+
+        .btn-primary:hover {
+            background: #05c090;
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-card-hover);
+        }
+
+        .btn-icon {
+            padding: 0.625rem;
+        }
+
+        .btn-play {
+            background: var(--accent-primary);
+            color: var(--bg-primary);
+            width: 100%;
+            justify-content: center;
+            padding: 0.875rem;
+            font-size: 1rem;
+        }
+
+        .btn-play:hover {
+            background: #05c090;
+        }
+
+        .btn-play.playing {
+            background: var(--accent-warning);
+        }
+
+        .btn-danger {
+            background: var(--accent-danger);
+            color: white;
+        }
+
+        /* Main Content */
+        .main {
+            padding: 1.5rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        /* Session Grid */
+        .session-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1.25rem;
+        }
+
+        /* Session Card */
+        .session-card {
+            background: var(--bg-card);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            border: 1px solid var(--border-color);
+            transition: all 0.2s;
+        }
+
+        .session-card:hover {
+            border-color: var(--accent-secondary);
+            box-shadow: var(--shadow);
+        }
+
+        .session-card.playing {
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 20px rgba(6, 214, 160, 0.15);
+        }
+
+        .session-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .session-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .session-icon {
+            font-size: 1.5rem;
+        }
+
+        .session-name {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .session-status {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+            background: var(--bg-secondary);
+            color: var(--text-muted);
+        }
+
+        .session-status.playing {
+            background: rgba(6, 214, 160, 0.2);
+            color: var(--accent-primary);
+        }
+
+        /* Theme Selector */
+        .session-field {
+            margin-bottom: 1rem;
+        }
+
+        .session-field label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 0.375rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .session-field select,
+        .session-field input {
+            width: 100%;
+            padding: 0.625rem 0.875rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+
+        .session-field select:focus,
+        .session-field input:focus {
+            outline: none;
+            border-color: var(--accent-secondary);
+        }
+
+        /* Speaker List */
+        .speaker-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.375rem;
+            margin-bottom: 1rem;
+        }
+
+        .speaker-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            background: var(--bg-secondary);
+            border-radius: 0.375rem;
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .speaker-chip.excluded {
+            text-decoration: line-through;
+            opacity: 0.5;
+        }
+
+        .speaker-chip svg {
+            width: 12px;
+            height: 12px;
+        }
+
+        /* Volume Slider */
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .volume-control svg {
+            width: 20px;
+            height: 20px;
+            color: var(--text-secondary);
+        }
+
+        .volume-slider {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 6px;
+            background: var(--bg-secondary);
+            border-radius: 3px;
+            outline: none;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            background: var(--accent-primary);
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+
+        .volume-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        .volume-value {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            min-width: 3rem;
+            text-align: right;
+        }
+
+        /* Session Actions */
+        .session-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        .session-actions .btn {
+            flex: 1;
+        }
+
+        /* New Session Card */
+        .new-session-card {
+            background: var(--bg-card);
+            border: 2px dashed var(--border-color);
+            border-radius: 0.75rem;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            min-height: 280px;
+        }
+
+        .new-session-card:hover {
+            border-color: var(--accent-primary);
+            background: var(--bg-card-hover);
+        }
+
+        .new-session-card svg {
+            width: 48px;
+            height: 48px;
+            color: var(--text-muted);
+            margin-bottom: 1rem;
+        }
+
+        .new-session-card:hover svg {
+            color: var(--accent-primary);
+        }
+
+        .new-session-card h3 {
+            font-size: 1rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .new-session-card p {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+
+        /* Modal */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s;
+        }
+
+        .modal-backdrop.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border-radius: 0.75rem;
+            width: 100%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow-y: auto;
+            transform: translateY(20px);
+            transition: transform 0.2s;
+        }
+
+        .modal-backdrop.active .modal {
+            transform: translateY(0);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .modal-header h2 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            padding: 0.25rem;
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            padding: 1.25rem;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+            padding: 1.25rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        /* Speaker Tree */
+        .speaker-tree {
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .tree-floor {
+            margin-bottom: 0.75rem;
+        }
+
+        .tree-floor:last-child {
+            margin-bottom: 0;
+        }
+
+        .tree-floor-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            cursor: pointer;
+            border-radius: 0.375rem;
+            transition: background 0.1s;
+        }
+
+        .tree-floor-header:hover {
+            background: var(--bg-card);
+        }
+
+        .tree-floor-header input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--accent-primary);
+        }
+
+        .tree-floor-name {
+            font-weight: 500;
+            flex: 1;
+        }
+
+        .tree-floor-action {
+            font-size: 0.75rem;
+            color: var(--accent-primary);
+            cursor: pointer;
+        }
+
+        .tree-areas {
+            margin-left: 1.5rem;
+            border-left: 1px solid var(--border-color);
+            padding-left: 0.75rem;
+        }
+
+        .tree-area {
+            margin: 0.25rem 0;
+        }
+
+        .tree-area-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.375rem;
+            cursor: pointer;
+            border-radius: 0.375rem;
+        }
+
+        .tree-area-header:hover {
+            background: var(--bg-card);
+        }
+
+        .tree-speakers {
+            margin-left: 1.5rem;
+        }
+
+        .tree-speaker {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.25rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .tree-speaker input[type="checkbox"] {
+            width: 14px;
+            height: 14px;
+            accent-color: var(--accent-primary);
+        }
+
+        /* Theme Cards */
+        .theme-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 0.75rem;
+        }
+
+        .theme-card {
+            background: var(--bg-secondary);
+            border: 2px solid transparent;
+            border-radius: 0.5rem;
+            padding: 1rem 0.75rem;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .theme-card:hover {
+            background: var(--bg-card-hover);
+        }
+
+        .theme-card.selected {
+            border-color: var(--accent-primary);
+            background: rgba(6, 214, 160, 0.1);
+        }
+
+        .theme-card-icon {
+            font-size: 1.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .theme-card-name {
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        /* Loading */
+        .loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+
+        .spinner {
+            width: 24px;
+            height: 24px;
+            border: 2px solid var(--border-color);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 0.75rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Toast Notifications */
+        .toast-container {
+            position: fixed;
+            bottom: 1.5rem;
+            right: 1.5rem;
+            z-index: 300;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .toast {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            padding: 0.875rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            box-shadow: var(--shadow);
+            animation: slideIn 0.2s ease-out;
+        }
+
+        .toast.success {
+            border-color: var(--accent-primary);
+        }
+
+        .toast.error {
+            border-color: var(--accent-danger);
+        }
+
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 640px) {
+            .header {
+                padding: 1rem;
+            }
+
+            .header-title h1 {
+                font-size: 1.25rem;
+            }
+
+            .main {
+                padding: 1rem;
+            }
+
+            .session-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .modal {
+                margin: 1rem;
+                max-height: calc(100vh - 2rem);
+            }
+        }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="header-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 18V5l12-2v13"/>
+                <circle cx="6" cy="18" r="3"/>
+                <circle cx="18" cy="16" r="3"/>
+            </svg>
+            <h1>Sonorium</h1>
+        </div>
+        <div class="header-actions">
+            <button class="btn btn-secondary btn-icon" onclick="openSettings()" title="Settings">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+                </svg>
+            </button>
+            <button class="btn btn-primary" onclick="openNewSessionModal()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                New Session
+            </button>
+        </div>
+    </header>
+
+    <main class="main">
+        <div id="sessions-container" class="session-grid">
+            <div class="loading">
+                <div class="spinner"></div>
+                Loading sessions...
+            </div>
+        </div>
+    </main>
+
+    <!-- New/Edit Session Modal -->
+    <div id="session-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 id="modal-title">New Session</h2>
+                <button class="modal-close" onclick="closeSessionModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-session-id" value="">
+                
+                <div class="session-field">
+                    <label>Session Name</label>
+                    <div style="display: flex; gap: 0.5rem;">
+                        <input type="text" id="session-name" placeholder="Auto-generated from selection">
+                        <select id="name-mode" style="width: auto;">
+                            <option value="auto">Auto</option>
+                            <option value="custom">Custom</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="session-field">
+                    <label>Select Theme</label>
+                    <div id="theme-selector" class="theme-grid">
+                        <!-- Themes loaded dynamically -->
+                    </div>
+                </div>
+
+                <div class="session-field">
+                    <label>Select Speakers</label>
+                    <div style="margin-bottom: 0.5rem;">
+                        <select id="speaker-group-select" style="width: 100%;">
+                            <option value="">Select manually below...</option>
+                            <!-- Groups loaded dynamically -->
+                        </select>
+                    </div>
+                    <div id="speaker-tree" class="speaker-tree">
+                        <!-- Speaker hierarchy loaded dynamically -->
+                    </div>
+                </div>
+
+                <div class="session-field">
+                    <label>Volume</label>
+                    <div class="volume-control">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                        </svg>
+                        <input type="range" id="modal-volume" class="volume-slider" min="0" max="100" value="60">
+                        <span id="modal-volume-value" class="volume-value">60%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button id="delete-session-btn" class="btn btn-danger" onclick="deleteSession()" style="display: none;">Delete</button>
+                <div style="flex: 1;"></div>
+                <button class="btn btn-secondary" onclick="closeSessionModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveSession()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script>
+        // State
+        let sessions = [];
+        let themes = [];
+        let speakerHierarchy = null;
+        let speakerGroups = [];
+        let selectedTheme = null;
+        let selectedSpeakers = {
+            floors: [],
+            areas: [],
+            speakers: [],
+            excludeAreas: [],
+            excludeSpeakers: []
+        };
+
+        // Theme icons mapping
+        const themeIcons = {
+            'primeval-forest': '🌲',
+            'stormy-weather': '⛈️',
+            'ocean-waves': '🌊',
+            'furry-friend': '🐱',
+            'thunder': '⚡',
+            'waterfall': '💧',
+            'rain': '🌧️',
+            'fireplace': '🔥',
+            'wind': '💨',
+            'birds': '🐦',
+            'default': '🎵'
+        };
+
+        // API calls
+        async function api(method, endpoint, data = null) {
+            const options = {
+                method,
+                headers: { 'Content-Type': 'application/json' }
+            };
+            if (data) options.body = JSON.stringify(data);
+            
+            const response = await fetch(`/api${endpoint}`, options);
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
+                throw new Error(error.detail || 'Request failed');
+            }
+            if (response.status === 204) return null;
+            return response.json();
+        }
+
+        // Initialize
+        async function init() {
+            try {
+                await Promise.all([
+                    loadSessions(),
+                    loadThemes(),
+                    loadSpeakerHierarchy(),
+                    loadSpeakerGroups()
+                ]);
+                renderSessions();
+            } catch (error) {
+                console.error('Init error:', error);
+                showToast('Failed to load data', 'error');
+            }
+        }
+
+        async function loadSessions() {
+            sessions = await api('GET', '/sessions');
+        }
+
+        async function loadThemes() {
+            themes = await api('GET', '/themes');
+        }
+
+        async function loadSpeakerHierarchy() {
+            speakerHierarchy = await api('GET', '/speakers/hierarchy');
+        }
+
+        async function loadSpeakerGroups() {
+            speakerGroups = await api('GET', '/groups');
+        }
+
+        // Render sessions
+        function renderSessions() {
+            const container = document.getElementById('sessions-container');
+            
+            if (sessions.length === 0) {
+                container.innerHTML = `
+                    <div class="new-session-card" onclick="openNewSessionModal()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="12" y1="5" x2="12" y2="19"/>
+                            <line x1="5" y1="12" x2="19" y2="12"/>
+                        </svg>
+                        <h3>Create Your First Session</h3>
+                        <p>Click to add an ambient soundscape</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = sessions.map(session => renderSessionCard(session)).join('') + `
+                <div class="new-session-card" onclick="openNewSessionModal()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    <h3>New Session</h3>
+                    <p>Add another soundscape</p>
+                </div>
+            `;
+        }
+
+        function renderSessionCard(session) {
+            const icon = getThemeIcon(session.theme_id);
+            const isPlaying = session.is_playing;
+            
+            return `
+                <div class="session-card ${isPlaying ? 'playing' : ''}" data-session-id="${session.id}">
+                    <div class="session-header">
+                        <div class="session-title">
+                            <span class="session-icon">${icon}</span>
+                            <span class="session-name">${escapeHtml(session.name)}</span>
+                        </div>
+                        <span class="session-status ${isPlaying ? 'playing' : ''}">
+                            ${isPlaying ? '● Playing' : 'Stopped'}
+                        </span>
+                    </div>
+
+                    <div class="session-field">
+                        <label>Theme</label>
+                        <select onchange="updateSessionTheme('${session.id}', this.value)">
+                            <option value="">Select theme...</option>
+                            ${themes.map(t => `
+                                <option value="${t.id}" ${session.theme_id === t.id ? 'selected' : ''}>
+                                    ${escapeHtml(t.name)}
+                                </option>
+                            `).join('')}
+                        </select>
+                    </div>
+
+                    <div class="session-field">
+                        <label>Speakers</label>
+                        <div class="speaker-list">
+                            ${session.speakers.slice(0, 3).map(s => `
+                                <span class="speaker-chip">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                                        <circle cx="12" cy="14" r="4"/>
+                                        <line x1="12" y1="6" x2="12" y2="6"/>
+                                    </svg>
+                                    ${escapeHtml(getSpeakerName(s))}
+                                </span>
+                            `).join('')}
+                            ${session.speakers.length > 3 ? `
+                                <span class="speaker-chip">+${session.speakers.length - 3} more</span>
+                            ` : ''}
+                            ${session.speakers.length === 0 ? `
+                                <span class="speaker-chip">No speakers selected</span>
+                            ` : ''}
+                        </div>
+                    </div>
+
+                    <div class="volume-control">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                        </svg>
+                        <input type="range" class="volume-slider" min="0" max="100" 
+                               value="${session.volume}" 
+                               onchange="updateSessionVolume('${session.id}', this.value)">
+                        <span class="volume-value">${session.volume}%</span>
+                    </div>
+
+                    <button class="btn btn-play ${isPlaying ? 'playing' : ''}" 
+                            onclick="togglePlayback('${session.id}')">
+                        ${isPlaying ? '⏸ Pause' : '▶ Play'}
+                    </button>
+
+                    <div class="session-actions">
+                        <button class="btn btn-secondary" onclick="editSession('${session.id}')">
+                            ✏️ Edit
+                        </button>
+                        <button class="btn btn-secondary" onclick="stopSession('${session.id}')">
+                            ⏹ Stop
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function getThemeIcon(themeId) {
+            if (!themeId) return themeIcons.default;
+            const key = themeId.toLowerCase().replace(/[^a-z-]/g, '');
+            return themeIcons[key] || themeIcons.default;
+        }
+
+        function getSpeakerName(entityId) {
+            if (!speakerHierarchy) return entityId;
+            const allSpeakers = [
+                ...speakerHierarchy.floors.flatMap(f => f.areas.flatMap(a => a.speakers)),
+                ...speakerHierarchy.unassigned_areas.flatMap(a => a.speakers),
+                ...speakerHierarchy.unassigned_speakers
+            ];
+            const speaker = allSpeakers.find(s => s.entity_id === entityId);
+            return speaker ? speaker.name : entityId.replace('media_player.', '');
+        }
+
+        // Session actions
+        async function togglePlayback(sessionId) {
+            const session = sessions.find(s => s.id === sessionId);
+            if (!session) return;
+
+            try {
+                if (session.is_playing) {
+                    await api('POST', `/sessions/${sessionId}/pause`);
+                    showToast('Paused', 'success');
+                } else {
+                    await api('POST', `/sessions/${sessionId}/play`);
+                    showToast('Playing', 'success');
+                }
+                await loadSessions();
+                renderSessions();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function stopSession(sessionId) {
+            try {
+                await api('POST', `/sessions/${sessionId}/stop`);
+                await loadSessions();
+                renderSessions();
+                showToast('Stopped', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function updateSessionTheme(sessionId, themeId) {
+            try {
+                await api('PUT', `/sessions/${sessionId}`, { theme_id: themeId || null });
+                await loadSessions();
+                renderSessions();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function updateSessionVolume(sessionId, volume) {
+            try {
+                await api('POST', `/sessions/${sessionId}/volume`, { volume: parseInt(volume) });
+                // Update local state
+                const session = sessions.find(s => s.id === sessionId);
+                if (session) session.volume = parseInt(volume);
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Modal functions
+        function openNewSessionModal() {
+            document.getElementById('modal-title').textContent = 'New Session';
+            document.getElementById('edit-session-id').value = '';
+            document.getElementById('session-name').value = '';
+            document.getElementById('name-mode').value = 'auto';
+            document.getElementById('modal-volume').value = 60;
+            document.getElementById('modal-volume-value').textContent = '60%';
+            document.getElementById('delete-session-btn').style.display = 'none';
+            
+            selectedTheme = null;
+            selectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
+            
+            renderThemeSelector();
+            renderSpeakerTree();
+            renderGroupSelector();
+            
+            document.getElementById('session-modal').classList.add('active');
+        }
+
+        function editSession(sessionId) {
+            const session = sessions.find(s => s.id === sessionId);
+            if (!session) return;
+
+            document.getElementById('modal-title').textContent = 'Edit Session';
+            document.getElementById('edit-session-id').value = sessionId;
+            document.getElementById('session-name').value = session.name;
+            document.getElementById('name-mode').value = session.name_source === 'custom' ? 'custom' : 'auto';
+            document.getElementById('modal-volume').value = session.volume;
+            document.getElementById('modal-volume-value').textContent = session.volume + '%';
+            document.getElementById('delete-session-btn').style.display = 'block';
+            
+            selectedTheme = session.theme_id;
+            
+            // Restore speaker selection
+            if (session.adhoc_selection) {
+                selectedSpeakers = {
+                    floors: session.adhoc_selection.include_floors || [],
+                    areas: session.adhoc_selection.include_areas || [],
+                    speakers: session.adhoc_selection.include_speakers || [],
+                    excludeAreas: session.adhoc_selection.exclude_areas || [],
+                    excludeSpeakers: session.adhoc_selection.exclude_speakers || []
+                };
+            } else {
+                selectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
+            }
+            
+            renderThemeSelector();
+            renderSpeakerTree();
+            renderGroupSelector();
+            
+            document.getElementById('session-modal').classList.add('active');
+        }
+
+        function closeSessionModal() {
+            document.getElementById('session-modal').classList.remove('active');
+        }
+
+        function closeModalOnBackdrop(event) {
+            if (event.target.classList.contains('modal-backdrop')) {
+                closeSessionModal();
+            }
+        }
+
+        async function saveSession() {
+            const sessionId = document.getElementById('edit-session-id').value;
+            const nameMode = document.getElementById('name-mode').value;
+            const name = document.getElementById('session-name').value;
+            const volume = parseInt(document.getElementById('modal-volume').value);
+
+            const data = {
+                theme_id: selectedTheme,
+                adhoc_selection: {
+                    include_floors: selectedSpeakers.floors,
+                    include_areas: selectedSpeakers.areas,
+                    include_speakers: selectedSpeakers.speakers,
+                    exclude_areas: selectedSpeakers.excludeAreas,
+                    exclude_speakers: selectedSpeakers.excludeSpeakers
+                },
+                volume
+            };
+
+            if (nameMode === 'custom' && name) {
+                data.custom_name = name;
+            }
+
+            try {
+                if (sessionId) {
+                    await api('PUT', `/sessions/${sessionId}`, data);
+                    showToast('Session updated', 'success');
+                } else {
+                    await api('POST', '/sessions', data);
+                    showToast('Session created', 'success');
+                }
+                closeSessionModal();
+                await loadSessions();
+                renderSessions();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function deleteSession() {
+            const sessionId = document.getElementById('edit-session-id').value;
+            if (!sessionId) return;
+
+            if (!confirm('Delete this session?')) return;
+
+            try {
+                await api('DELETE', `/sessions/${sessionId}`);
+                closeSessionModal();
+                await loadSessions();
+                renderSessions();
+                showToast('Session deleted', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Render modal components
+        function renderThemeSelector() {
+            const container = document.getElementById('theme-selector');
+            container.innerHTML = themes.map(theme => `
+                <div class="theme-card ${selectedTheme === theme.id ? 'selected' : ''}" 
+                     onclick="selectTheme('${theme.id}')">
+                    <div class="theme-card-icon">${getThemeIcon(theme.id)}</div>
+                    <div class="theme-card-name">${escapeHtml(theme.name)}</div>
+                </div>
+            `).join('');
+        }
+
+        function selectTheme(themeId) {
+            selectedTheme = themeId;
+            renderThemeSelector();
+        }
+
+        function renderGroupSelector() {
+            const select = document.getElementById('speaker-group-select');
+            select.innerHTML = `
+                <option value="">Select manually below...</option>
+                ${speakerGroups.map(g => `
+                    <option value="${g.id}">${escapeHtml(g.name)} (${g.speaker_count} speakers)</option>
+                `).join('')}
+            `;
+        }
+
+        function renderSpeakerTree() {
+            const container = document.getElementById('speaker-tree');
+            if (!speakerHierarchy) {
+                container.innerHTML = '<p>Loading speakers...</p>';
+                return;
+            }
+
+            let html = '';
+
+            // Render floors
+            for (const floor of speakerHierarchy.floors) {
+                const floorChecked = selectedSpeakers.floors.includes(floor.floor_id);
+                html += `
+                    <div class="tree-floor">
+                        <div class="tree-floor-header">
+                            <input type="checkbox" ${floorChecked ? 'checked' : ''} 
+                                   onchange="toggleFloor('${floor.floor_id}', this.checked)">
+                            <span class="tree-floor-name">📁 ${escapeHtml(floor.name)}</span>
+                            <span class="tree-floor-action" onclick="toggleFloor('${floor.floor_id}', true)">Select All</span>
+                        </div>
+                        <div class="tree-areas">
+                            ${floor.areas.map(area => renderArea(area, floorChecked)).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Unassigned areas
+            if (speakerHierarchy.unassigned_areas.length > 0) {
+                html += `
+                    <div class="tree-floor">
+                        <div class="tree-floor-header">
+                            <span class="tree-floor-name">📁 Other Areas</span>
+                        </div>
+                        <div class="tree-areas">
+                            ${speakerHierarchy.unassigned_areas.map(area => renderArea(area, false)).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Unassigned speakers
+            if (speakerHierarchy.unassigned_speakers.length > 0) {
+                html += `
+                    <div class="tree-floor">
+                        <div class="tree-floor-header">
+                            <span class="tree-floor-name">📁 Unassigned Speakers</span>
+                        </div>
+                        <div class="tree-speakers">
+                            ${speakerHierarchy.unassigned_speakers.map(speaker => renderSpeaker(speaker, false)).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderArea(area, parentSelected) {
+            const areaChecked = selectedSpeakers.areas.includes(area.area_id) || parentSelected;
+            const areaExcluded = selectedSpeakers.excludeAreas.includes(area.area_id);
+            
+            return `
+                <div class="tree-area">
+                    <div class="tree-area-header">
+                        <input type="checkbox" ${areaChecked && !areaExcluded ? 'checked' : ''} 
+                               onchange="toggleArea('${area.area_id}', this.checked)">
+                        <span>🏠 ${escapeHtml(area.name)}</span>
+                    </div>
+                    <div class="tree-speakers">
+                        ${area.speakers.map(speaker => renderSpeaker(speaker, areaChecked && !areaExcluded)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSpeaker(speaker, parentSelected) {
+            const speakerChecked = selectedSpeakers.speakers.includes(speaker.entity_id) || parentSelected;
+            const speakerExcluded = selectedSpeakers.excludeSpeakers.includes(speaker.entity_id);
+            
+            return `
+                <div class="tree-speaker">
+                    <input type="checkbox" ${speakerChecked && !speakerExcluded ? 'checked' : ''} 
+                           onchange="toggleSpeaker('${speaker.entity_id}', this.checked)">
+                    <span>🔊 ${escapeHtml(speaker.name)}</span>
+                </div>
+            `;
+        }
+
+        function toggleFloor(floorId, checked) {
+            if (checked) {
+                if (!selectedSpeakers.floors.includes(floorId)) {
+                    selectedSpeakers.floors.push(floorId);
+                }
+            } else {
+                selectedSpeakers.floors = selectedSpeakers.floors.filter(f => f !== floorId);
+            }
+            renderSpeakerTree();
+        }
+
+        function toggleArea(areaId, checked) {
+            if (checked) {
+                if (!selectedSpeakers.areas.includes(areaId)) {
+                    selectedSpeakers.areas.push(areaId);
+                }
+                selectedSpeakers.excludeAreas = selectedSpeakers.excludeAreas.filter(a => a !== areaId);
+            } else {
+                selectedSpeakers.areas = selectedSpeakers.areas.filter(a => a !== areaId);
+                // If parent floor is selected, add to exclusions
+                const area = findArea(areaId);
+                if (area && selectedSpeakers.floors.includes(area.floor_id)) {
+                    if (!selectedSpeakers.excludeAreas.includes(areaId)) {
+                        selectedSpeakers.excludeAreas.push(areaId);
+                    }
+                }
+            }
+            renderSpeakerTree();
+        }
+
+        function toggleSpeaker(entityId, checked) {
+            if (checked) {
+                if (!selectedSpeakers.speakers.includes(entityId)) {
+                    selectedSpeakers.speakers.push(entityId);
+                }
+                selectedSpeakers.excludeSpeakers = selectedSpeakers.excludeSpeakers.filter(s => s !== entityId);
+            } else {
+                selectedSpeakers.speakers = selectedSpeakers.speakers.filter(s => s !== entityId);
+                // If parent area/floor is selected, add to exclusions
+                const speaker = findSpeaker(entityId);
+                if (speaker) {
+                    const areaSelected = selectedSpeakers.areas.includes(speaker.area_id);
+                    const floorSelected = selectedSpeakers.floors.includes(speaker.floor_id);
+                    if (areaSelected || floorSelected) {
+                        if (!selectedSpeakers.excludeSpeakers.includes(entityId)) {
+                            selectedSpeakers.excludeSpeakers.push(entityId);
+                        }
+                    }
+                }
+            }
+            renderSpeakerTree();
+        }
+
+        function findArea(areaId) {
+            for (const floor of speakerHierarchy.floors) {
+                const area = floor.areas.find(a => a.area_id === areaId);
+                if (area) return { ...area, floor_id: floor.floor_id };
+            }
+            return speakerHierarchy.unassigned_areas.find(a => a.area_id === areaId);
+        }
+
+        function findSpeaker(entityId) {
+            for (const floor of speakerHierarchy.floors) {
+                for (const area of floor.areas) {
+                    const speaker = area.speakers.find(s => s.entity_id === entityId);
+                    if (speaker) return { ...speaker, area_id: area.area_id, floor_id: floor.floor_id };
+                }
+            }
+            for (const area of speakerHierarchy.unassigned_areas) {
+                const speaker = area.speakers.find(s => s.entity_id === entityId);
+                if (speaker) return { ...speaker, area_id: area.area_id };
+            }
+            return speakerHierarchy.unassigned_speakers.find(s => s.entity_id === entityId);
+        }
+
+        // Volume slider update
+        document.getElementById('modal-volume').addEventListener('input', function() {
+            document.getElementById('modal-volume-value').textContent = this.value + '%';
+        });
+
+        // Settings
+        function openSettings() {
+            // TODO: Implement settings modal
+            showToast('Settings coming soon', 'success');
+        }
+
+        // Toast notifications
+        function showToast(message, type = 'success') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = `
+                <span>${type === 'success' ? '✓' : '✕'}</span>
+                <span>${escapeHtml(message)}</span>
+            `;
+            container.appendChild(toast);
+            setTimeout(() => toast.remove(), 3000);
+        }
+
+        // Utility
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text || '';
+            return div.innerHTML;
+        }
+
+        // Initialize on load
+        init();
+    </script>
+</body>
+</html>
