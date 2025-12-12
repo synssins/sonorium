@@ -17,6 +17,7 @@
             --accent-secondary: #8b5cf6;
             --accent-warning: #f59e0b;
             --accent-danger: #ef4444;
+            --accent-cycle: #3b82f6;
             --border-color: #334155;
             --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
         }
@@ -134,6 +135,20 @@
             color: white;
         }
 
+        .btn-cycle {
+            background: var(--accent-cycle);
+            color: white;
+        }
+
+        .btn-cycle:hover {
+            background: #2563eb;
+        }
+
+        .btn-small {
+            padding: 0.375rem 0.625rem;
+            font-size: 0.75rem;
+        }
+
         /* Main Content */
         .main {
             padding: 1.5rem;
@@ -144,7 +159,7 @@
         /* Session Grid */
         .session-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
             gap: 1.25rem;
         }
 
@@ -165,6 +180,11 @@
         .session-card.playing {
             border-color: var(--accent-primary);
             box-shadow: 0 0 20px rgba(6, 214, 160, 0.15);
+        }
+
+        .session-card.cycling {
+            border-color: var(--accent-cycle);
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.15);
         }
 
         .session-header {
@@ -189,6 +209,11 @@
             font-weight: 600;
         }
 
+        .session-badges {
+            display: flex;
+            gap: 0.375rem;
+        }
+
         .session-status {
             font-size: 0.75rem;
             padding: 0.25rem 0.5rem;
@@ -200,6 +225,11 @@
         .session-status.playing {
             background: rgba(6, 214, 160, 0.2);
             color: var(--accent-primary);
+        }
+
+        .session-status.cycling {
+            background: rgba(59, 130, 246, 0.2);
+            color: var(--accent-cycle);
         }
 
         /* Theme Selector */
@@ -218,7 +248,8 @@
         }
 
         .session-field select,
-        .session-field input {
+        .session-field input[type="text"],
+        .session-field input[type="number"] {
             width: 100%;
             padding: 0.625rem 0.875rem;
             background: var(--bg-secondary);
@@ -232,6 +263,104 @@
         .session-field input:focus {
             outline: none;
             border-color: var(--accent-secondary);
+        }
+
+        /* Cycle Control Panel */
+        .cycle-panel {
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            padding: 0.875rem;
+            margin-bottom: 1rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .cycle-panel.active {
+            border-color: var(--accent-cycle);
+            background: rgba(59, 130, 246, 0.1);
+        }
+
+        .cycle-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .cycle-header label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .cycle-header input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--accent-cycle);
+        }
+
+        .cycle-status {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .cycle-status.active {
+            color: var(--accent-cycle);
+        }
+
+        .cycle-controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr auto;
+            gap: 0.5rem;
+            margin-top: 0.75rem;
+        }
+
+        .cycle-controls.hidden {
+            display: none;
+        }
+
+        .cycle-field {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+
+        .cycle-field label {
+            font-size: 0.625rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+        }
+
+        .cycle-field select,
+        .cycle-field input {
+            padding: 0.375rem 0.5rem;
+            font-size: 0.75rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            color: var(--text-primary);
+        }
+
+        .cycle-countdown {
+            text-align: center;
+            padding: 0.5rem;
+            background: var(--bg-card);
+            border-radius: 0.375rem;
+            margin-top: 0.5rem;
+        }
+
+        .cycle-countdown .time {
+            font-size: 1.25rem;
+            font-weight: 600;
+            color: var(--accent-cycle);
+        }
+
+        .cycle-countdown .label {
+            font-size: 0.625rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
         }
 
         /* Speaker List */
@@ -629,6 +758,54 @@
             }
         }
 
+        /* Toggle Switch */
+        .toggle-switch {
+            position: relative;
+            width: 40px;
+            height: 22px;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-secondary);
+            border-radius: 22px;
+            transition: 0.3s;
+            border: 1px solid var(--border-color);
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            transition: 0.3s;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background: var(--accent-cycle);
+            border-color: var(--accent-cycle);
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(18px);
+            background: white;
+        }
+
         /* Responsive */
         @media (max-width: 640px) {
             .header {
@@ -650,6 +827,14 @@
             .modal {
                 margin: 1rem;
                 max-height: calc(100vh - 2rem);
+            }
+
+            .cycle-controls {
+                grid-template-columns: 1fr 1fr;
+            }
+
+            .cycle-controls .btn {
+                grid-column: span 2;
             }
         }
     </style>
@@ -747,6 +932,41 @@
                         <span id="modal-volume-value" class="volume-value">60%</span>
                     </div>
                 </div>
+
+                <!-- Cycling Configuration -->
+                <div class="session-field">
+                    <label>Theme Cycling</label>
+                    <div class="cycle-panel" id="modal-cycle-panel">
+                        <div class="cycle-header">
+                            <label>
+                                <input type="checkbox" id="modal-cycle-enabled">
+                                Enable auto-cycling
+                            </label>
+                        </div>
+                        <div class="cycle-controls" id="modal-cycle-controls">
+                            <div class="cycle-field">
+                                <label>Interval</label>
+                                <select id="modal-cycle-interval">
+                                    <option value="1">1 min</option>
+                                    <option value="5">5 min</option>
+                                    <option value="10">10 min</option>
+                                    <option value="15">15 min</option>
+                                    <option value="30">30 min</option>
+                                    <option value="60" selected>1 hour</option>
+                                    <option value="120">2 hours</option>
+                                    <option value="240">4 hours</option>
+                                </select>
+                            </div>
+                            <div class="cycle-field">
+                                <label>Order</label>
+                                <select id="modal-cycle-randomize">
+                                    <option value="false">Sequential</option>
+                                    <option value="true">Random</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button id="delete-session-btn" class="btn btn-danger" onclick="deleteSession()" style="display: none;">Delete</button>
@@ -774,6 +994,7 @@
             excludeAreas: [],
             excludeSpeakers: []
         };
+        let cycleTimers = {}; // Track countdown timers
 
         // Theme icons mapping
         const themeIcons = {
@@ -817,6 +1038,7 @@
                     loadSpeakerGroups()
                 ]);
                 renderSessions();
+                startCycleStatusPolling();
             } catch (error) {
                 console.error('Init error:', error);
                 showToast('Failed to load data', 'error');
@@ -837,6 +1059,48 @@
 
         async function loadSpeakerGroups() {
             speakerGroups = await api('GET', '/groups');
+        }
+
+        // Cycle status polling
+        function startCycleStatusPolling() {
+            // Update cycle countdowns every second
+            setInterval(updateCycleCountdowns, 1000);
+            // Refresh full status every 30 seconds
+            setInterval(refreshCycleStatuses, 30000);
+        }
+
+        async function refreshCycleStatuses() {
+            for (const session of sessions) {
+                if (session.is_playing && session.cycle_config?.enabled) {
+                    try {
+                        const status = await api('GET', `/sessions/${session.id}/cycle`);
+                        if (status.seconds_until_change !== null) {
+                            cycleTimers[session.id] = status.seconds_until_change;
+                        }
+                    } catch (e) {
+                        // Ignore errors
+                    }
+                }
+            }
+        }
+
+        function updateCycleCountdowns() {
+            for (const sessionId in cycleTimers) {
+                if (cycleTimers[sessionId] > 0) {
+                    cycleTimers[sessionId]--;
+                    const el = document.getElementById(`cycle-countdown-${sessionId}`);
+                    if (el) {
+                        el.textContent = formatTime(cycleTimers[sessionId]);
+                    }
+                }
+            }
+        }
+
+        function formatTime(seconds) {
+            if (seconds <= 0) return '0:00';
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
         }
 
         // Render sessions
@@ -867,22 +1131,33 @@
                     <p>Add another soundscape</p>
                 </div>
             `;
+
+            // Initialize cycle countdowns
+            refreshCycleStatuses();
         }
 
         function renderSessionCard(session) {
             const icon = getThemeIcon(session.theme_id);
             const isPlaying = session.is_playing;
+            const isCycling = session.cycle_config?.enabled && isPlaying;
+            
+            const cardClasses = ['session-card'];
+            if (isPlaying) cardClasses.push('playing');
+            if (isCycling) cardClasses.push('cycling');
             
             return `
-                <div class="session-card ${isPlaying ? 'playing' : ''}" data-session-id="${session.id}">
+                <div class="${cardClasses.join(' ')}" data-session-id="${session.id}">
                     <div class="session-header">
                         <div class="session-title">
                             <span class="session-icon">${icon}</span>
                             <span class="session-name">${escapeHtml(session.name)}</span>
                         </div>
-                        <span class="session-status ${isPlaying ? 'playing' : ''}">
-                            ${isPlaying ? '● Playing' : 'Stopped'}
-                        </span>
+                        <div class="session-badges">
+                            ${isCycling ? '<span class="session-status cycling">🔄 Cycling</span>' : ''}
+                            <span class="session-status ${isPlaying ? 'playing' : ''}">
+                                ${isPlaying ? '● Playing' : 'Stopped'}
+                            </span>
+                        </div>
                     </div>
 
                     <div class="session-field">
@@ -895,6 +1170,52 @@
                                 </option>
                             `).join('')}
                         </select>
+                    </div>
+
+                    <!-- Inline Cycle Controls -->
+                    <div class="cycle-panel ${isCycling ? 'active' : ''}" id="cycle-panel-${session.id}">
+                        <div class="cycle-header">
+                            <label>
+                                <input type="checkbox" 
+                                       ${session.cycle_config?.enabled ? 'checked' : ''} 
+                                       onchange="toggleCycling('${session.id}', this.checked)">
+                                Auto-cycle themes
+                            </label>
+                            <span class="cycle-status ${isCycling ? 'active' : ''}">
+                                ${isCycling ? `Every ${session.cycle_config.interval_minutes}m` : 'Off'}
+                            </span>
+                        </div>
+                        ${session.cycle_config?.enabled ? `
+                        <div class="cycle-controls">
+                            <div class="cycle-field">
+                                <label>Interval</label>
+                                <select onchange="updateCycleInterval('${session.id}', this.value)">
+                                    ${[1,5,10,15,30,60,120,240].map(m => `
+                                        <option value="${m}" ${session.cycle_config.interval_minutes === m ? 'selected' : ''}>
+                                            ${m < 60 ? m + ' min' : (m/60) + ' hr'}
+                                        </option>
+                                    `).join('')}
+                                </select>
+                            </div>
+                            <div class="cycle-field">
+                                <label>Order</label>
+                                <select onchange="updateCycleRandomize('${session.id}', this.value)">
+                                    <option value="false" ${!session.cycle_config.randomize ? 'selected' : ''}>Sequential</option>
+                                    <option value="true" ${session.cycle_config.randomize ? 'selected' : ''}>Random</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-cycle btn-small" onclick="skipToNext('${session.id}')" 
+                                    ${!isPlaying ? 'disabled' : ''}>
+                                ⏭ Skip
+                            </button>
+                        </div>
+                        ${isPlaying ? `
+                        <div class="cycle-countdown">
+                            <div class="time" id="cycle-countdown-${session.id}">--:--</div>
+                            <div class="label">until next theme</div>
+                        </div>
+                        ` : ''}
+                        ` : ''}
                     </div>
 
                     <div class="session-field">
@@ -964,6 +1285,49 @@
             return speaker ? speaker.name : entityId.replace('media_player.', '');
         }
 
+        // Cycle controls
+        async function toggleCycling(sessionId, enabled) {
+            try {
+                await api('PUT', `/sessions/${sessionId}/cycle`, { enabled });
+                await loadSessions();
+                renderSessions();
+                showToast(enabled ? 'Cycling enabled' : 'Cycling disabled', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function updateCycleInterval(sessionId, interval) {
+            try {
+                await api('PUT', `/sessions/${sessionId}/cycle`, { interval_minutes: parseInt(interval) });
+                await loadSessions();
+                renderSessions();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function updateCycleRandomize(sessionId, randomize) {
+            try {
+                await api('PUT', `/sessions/${sessionId}/cycle`, { randomize: randomize === 'true' });
+                await loadSessions();
+                renderSessions();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function skipToNext(sessionId) {
+            try {
+                const result = await api('POST', `/sessions/${sessionId}/cycle/skip`);
+                await loadSessions();
+                renderSessions();
+                showToast('Skipped to next theme', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
         // Session actions
         async function togglePlayback(sessionId) {
             const session = sessions.find(s => s.id === sessionId);
@@ -987,6 +1351,7 @@
         async function stopSession(sessionId) {
             try {
                 await api('POST', `/sessions/${sessionId}/stop`);
+                delete cycleTimers[sessionId];
                 await loadSessions();
                 renderSessions();
                 showToast('Stopped', 'success');
@@ -1026,6 +1391,12 @@
             document.getElementById('modal-volume-value').textContent = '60%';
             document.getElementById('delete-session-btn').style.display = 'none';
             
+            // Reset cycling config
+            document.getElementById('modal-cycle-enabled').checked = false;
+            document.getElementById('modal-cycle-interval').value = '60';
+            document.getElementById('modal-cycle-randomize').value = 'false';
+            updateModalCycleControls();
+            
             selectedTheme = null;
             selectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
             
@@ -1047,6 +1418,13 @@
             document.getElementById('modal-volume').value = session.volume;
             document.getElementById('modal-volume-value').textContent = session.volume + '%';
             document.getElementById('delete-session-btn').style.display = 'block';
+            
+            // Set cycling config
+            const cycleConfig = session.cycle_config || {};
+            document.getElementById('modal-cycle-enabled').checked = cycleConfig.enabled || false;
+            document.getElementById('modal-cycle-interval').value = cycleConfig.interval_minutes || 60;
+            document.getElementById('modal-cycle-randomize').value = cycleConfig.randomize ? 'true' : 'false';
+            updateModalCycleControls();
             
             selectedTheme = session.theme_id;
             
@@ -1070,6 +1448,23 @@
             document.getElementById('session-modal').classList.add('active');
         }
 
+        function updateModalCycleControls() {
+            const enabled = document.getElementById('modal-cycle-enabled').checked;
+            const controls = document.getElementById('modal-cycle-controls');
+            const panel = document.getElementById('modal-cycle-panel');
+            
+            if (enabled) {
+                controls.classList.remove('hidden');
+                panel.classList.add('active');
+            } else {
+                controls.classList.add('hidden');
+                panel.classList.remove('active');
+            }
+        }
+
+        // Attach event listener for cycling checkbox
+        document.getElementById('modal-cycle-enabled').addEventListener('change', updateModalCycleControls);
+
         function closeSessionModal() {
             document.getElementById('session-modal').classList.remove('active');
         }
@@ -1086,6 +1481,10 @@
             const name = document.getElementById('session-name').value;
             const volume = parseInt(document.getElementById('modal-volume').value);
 
+            const cycleEnabled = document.getElementById('modal-cycle-enabled').checked;
+            const cycleInterval = parseInt(document.getElementById('modal-cycle-interval').value);
+            const cycleRandomize = document.getElementById('modal-cycle-randomize').value === 'true';
+
             const data = {
                 theme_id: selectedTheme,
                 adhoc_selection: {
@@ -1095,7 +1494,13 @@
                     exclude_areas: selectedSpeakers.excludeAreas,
                     exclude_speakers: selectedSpeakers.excludeSpeakers
                 },
-                volume
+                volume,
+                cycle_config: {
+                    enabled: cycleEnabled,
+                    interval_minutes: cycleInterval,
+                    randomize: cycleRandomize,
+                    theme_ids: []  // All themes
+                }
             };
 
             if (nameMode === 'custom' && name) {
