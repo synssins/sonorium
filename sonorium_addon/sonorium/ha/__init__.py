@@ -21,6 +21,11 @@ from sonorium.ha.media_controller import (
     create_media_controller_from_supervisor,
 )
 
+from sonorium.ha.mqtt_entities import (
+    SessionMQTTEntities,
+    SonoriumMQTTManager,
+)
+
 __all__ = [
     # Registry
     "Speaker",
@@ -32,4 +37,7 @@ __all__ = [
     # Media Control
     "HAMediaController",
     "create_media_controller_from_supervisor",
+    # MQTT Entities
+    "SessionMQTTEntities",
+    "SonoriumMQTTManager",
 ]
