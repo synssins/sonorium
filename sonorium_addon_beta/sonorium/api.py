@@ -44,16 +44,18 @@ class ApiSonorium(api.Base):
             self.initialize_v2()
 
     def get_endpoints(self):
+        # IMPORTANT: More specific routes must come BEFORE catch-all routes!
+        # /stream/channel{n} must be registered before /stream/{id}
         endpoints = [
             # Web UI
             api.Endpoint(method_http=self.app.get, path='/', method=self.web_ui),
             api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
             
+            # Streaming - channel-based (new) - MUST come before theme-based!
+            api.Endpoint(method_http=self.app.get, path='/stream/channel{channel_id:int}', method=self.stream_channel),
+            
             # Streaming - theme-based (legacy, still supported)
             api.Endpoint(method_http=self.app.get, path='/stream/{id}', method=self.stream),
-            
-            # Streaming - channel-based (new)
-            api.Endpoint(method_http=self.app.get, path='/stream/channel{channel_id:int}', method=self.stream_channel),
             
             # Theme API
             api.Endpoint(method_http=self.app.get, path='/api/themes', method=self.list_themes),
