@@ -12,8 +12,14 @@ from __future__ import annotations
 from typing import Optional
 import asyncio
 
-from fmtr.tools import http
+import httpx
 from sonorium.obs import logger
+
+
+# Timeout for media playback operations (longer because speakers can be slow)
+MEDIA_TIMEOUT = 30.0
+# Timeout for quick operations like pause/stop/volume
+QUICK_TIMEOUT = 10.0
 
 
 class HAMediaController:
@@ -38,7 +44,7 @@ class HAMediaController:
             "Content-Type": "application/json",
         }
     
-    def _post_service(self, domain: str, service: str, data: dict) -> bool:
+    def _post_service(self, domain: str, service: str, data: dict, timeout: float = QUICK_TIMEOUT) -> bool:
         """
         Call a Home Assistant service.
         
@@ -46,26 +52,32 @@ class HAMediaController:
             domain: Service domain (e.g., "media_player")
             service: Service name (e.g., "play_media")
             data: Service data
+            timeout: Request timeout in seconds
         
         Returns:
             True if successful, False otherwise
         """
         url = f"{self.api_url}/services/{domain}/{service}"
         try:
-            with http.Client() as client:
+            with httpx.Client(timeout=timeout) as client:
                 response = client.post(url, headers=self.headers, json=data)
                 return response.status_code in (200, 201)
+        except httpx.TimeoutException:
+            # For play_media, timeout often just means the speaker is slow to respond
+            # The playback may still have started successfully
+            logger.warning(f"Service call timed out: {domain}.{service} (may still have succeeded)")
+            return True  # Assume success on timeout for media operations
         except Exception as e:
             logger.error(f"Service call failed: {domain}.{service} - {e}")
             return False
     
-    async def _post_service_async(self, domain: str, service: str, data: dict) -> bool:
+    async def _post_service_async(self, domain: str, service: str, data: dict, timeout: float = QUICK_TIMEOUT) -> bool:
         """Async wrapper for service calls."""
         # Run sync HTTP call in thread pool
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(
             None, 
-            lambda: self._post_service(domain, service, data)
+            lambda: self._post_service(domain, service, data, timeout)
         )
     
     # --- Playback Control ---
@@ -93,7 +105,8 @@ class HAMediaController:
             "media_content_id": media_url,
             "media_content_type": media_type,
         }
-        success = await self._post_service_async("media_player", "play_media", data)
+        # Use longer timeout for media playback
+        success = await self._post_service_async("media_player", "play_media", data, timeout=MEDIA_TIMEOUT)
         if success:
             logger.info(f"  Started playback on {entity_id}")
         else:
@@ -230,7 +243,7 @@ class HAMediaController:
         """
         url = f"{self.api_url}/states/{entity_id}"
         try:
-            with http.Client() as client:
+            with httpx.Client(timeout=QUICK_TIMEOUT) as client:
                 response = client.get(url, headers=self.headers)
                 if response.status_code == 200:
                     return response.json()
