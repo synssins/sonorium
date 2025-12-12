@@ -51,11 +51,9 @@ class ApiSonorium(api.Base):
             # Streaming
             api.Endpoint(method_http=self.app.get, path='/stream/{id}', method=self.stream),
             
-            # Theme API (used by both v1 and v2 UI)
+            # Theme API
             api.Endpoint(method_http=self.app.get, path='/api/themes', method=self.list_themes),
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}', method=self.get_theme),
-            api.Endpoint(method_http=self.app.post, path='/api/enable_all/{theme_id}', method=self.enable_all),
-            api.Endpoint(method_http=self.app.post, path='/api/disable_all/{theme_id}', method=self.disable_all),
             api.Endpoint(method_http=self.app.get, path='/api/status', method=self.status),
         ]
         return endpoints
@@ -148,28 +146,23 @@ class ApiSonorium(api.Base):
         # Build theme cards
         theme_cards = ""
         for theme in themes:
-            enabled_count = sum(1 for inst in theme.instances if inst.is_enabled)
             total = len(theme.instances)
             is_current = theme == themes.current
             current_class = "current" if is_current else ""
             
             recordings_list = ""
             for inst in theme.instances:
-                status = "✓" if inst.is_enabled else "○"
-                status_class = "enabled" if inst.is_enabled else "disabled"
-                recordings_list += f'<div class="rec {status_class}"><span class="status">{status}</span> {inst.name}</div>'
+                recordings_list += f'<div class="rec"><span class="status">✓</span> {inst.name}</div>'
             
             theme_cards += f'''
             <div class="theme-card {current_class}">
                 <div class="theme-header">
                     <h3>{theme.name}</h3>
-                    <span class="track-count">{enabled_count}/{total} enabled</span>
+                    <span class="track-count">{total} tracks</span>
                 </div>
                 <div class="recordings">{recordings_list}</div>
                 <div class="theme-actions">
-                    <button onclick="enableAll('{theme.id}')">Enable All</button>
-                    <button onclick="disableAll('{theme.id}')" class="secondary">Disable All</button>
-                    <button onclick="playTheme('{theme.id}')" class="play">▶ Play</button>
+                    <button onclick="playTheme('{theme.id}')" class="play">▶ Play in Browser</button>
                 </div>
                 <div class="stream-url">Stream: {theme.url}</div>
             </div>
@@ -177,14 +170,13 @@ class ApiSonorium(api.Base):
         
         v2_link = ""
         if self._v2_initialized:
-            v2_link = '<p class="version-switch"><a href="/">→ Try the new v2 UI with multi-zone support</a></p>'
+            v2_link = '<p class="version-switch"><a href="/">→ Use the v2 UI with multi-zone support</a></p>'
         
         html = f'''<!DOCTYPE html>
 <html>
 <head>
     <title>Sonorium {__version__}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="refresh" content="10">
     <style>
         * {{ box-sizing: border-box; }}
         body {{ 
@@ -254,9 +246,8 @@ class ApiSonorium(api.Base):
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            color: #00ff88;
         }}
-        .rec.enabled {{ color: #00ff88; }}
-        .rec.disabled {{ color: #666; }}
         .rec .status {{ margin-right: 5px; }}
         .theme-actions {{
             display: flex;
@@ -273,10 +264,6 @@ class ApiSonorium(api.Base):
             font-weight: bold;
         }}
         button:hover {{ opacity: 0.9; }}
-        button.secondary {{
-            background: rgba(255,255,255,0.2);
-            color: #fff;
-        }}
         button.play {{
             background: #00ff88;
             flex: 1;
@@ -304,7 +291,7 @@ class ApiSonorium(api.Base):
 <body>
     <div class="container">
         <h1>🎵 Sonorium {__version__}</h1>
-        <p class="subtitle">Ambient Soundscape Mixer • Auto-refreshes every 10s</p>
+        <p class="subtitle">Ambient Soundscape Mixer</p>
         {v2_link}
         {theme_cards}
     </div>
@@ -318,18 +305,6 @@ class ApiSonorium(api.Base):
             setTimeout(() => el.classList.remove('show'), 2000);
         }}
         
-        async function enableAll(themeId) {{
-            await fetch('/api/enable_all/' + themeId, {{method: 'POST'}});
-            showStatus('All recordings enabled!');
-            setTimeout(() => location.reload(), 500);
-        }}
-        
-        async function disableAll(themeId) {{
-            await fetch('/api/disable_all/' + themeId, {{method: 'POST'}});
-            showStatus('All recordings disabled');
-            setTimeout(() => location.reload(), 500);
-        }}
-        
         function playTheme(themeId) {{
             window.open('/stream/' + themeId, '_blank');
             showStatus('Opening audio stream...');
@@ -340,7 +315,7 @@ class ApiSonorium(api.Base):
         return HTMLResponse(content=html)
 
     async def stream(self, id: str):
-        """Stream audio - identical to v1 stable."""
+        """Stream audio."""
         theme_def: ThemeDefinition = self.client.device.themes.id[id]
         stream = theme_def.get_stream()
         response = StreamingResponse(stream, media_type="audio/mpeg")
@@ -351,12 +326,10 @@ class ApiSonorium(api.Base):
         device = self.client.device
         themes = []
         for theme in device.themes:
-            enabled_count = sum(1 for i in theme.instances if i.is_enabled)
             themes.append({
                 "id": theme.id,
                 "name": theme.name,
-                "total_tracks": len(theme.instances),
-                "enabled_tracks": enabled_count,
+                "track_count": len(theme.instances),
                 "url": theme.url,
             })
         return themes
@@ -370,40 +343,20 @@ class ApiSonorium(api.Base):
         return {
             "id": theme.id,
             "name": theme.name,
-            "total_tracks": len(theme.instances),
-            "enabled_tracks": sum(1 for i in theme.instances if i.is_enabled),
+            "track_count": len(theme.instances),
             "url": theme.url,
-            "tracks": [
-                {"name": i.name, "enabled": i.is_enabled}
-                for i in theme.instances
-            ],
+            "tracks": [{"name": i.name} for i in theme.instances],
         }
-
-    async def enable_all(self, theme_id: str):
-        """Enable all recordings in a theme"""
-        theme_def: ThemeDefinition = self.client.device.themes.id[theme_id]
-        for instance in theme_def.instances:
-            instance.is_enabled = True
-        return {"status": "ok", "theme": theme_id, "enabled": len(theme_def.instances)}
-
-    async def disable_all(self, theme_id: str):
-        """Disable all recordings in a theme"""
-        theme_def: ThemeDefinition = self.client.device.themes.id[theme_id]
-        for instance in theme_def.instances:
-            instance.is_enabled = False
-        return {"status": "ok", "theme": theme_id, "disabled": len(theme_def.instances)}
 
     async def status(self):
         """Get current status"""
         device = self.client.device
         themes_data = []
         for theme in device.themes:
-            enabled_count = sum(1 for i in theme.instances if i.is_enabled)
             themes_data.append({
                 "name": theme.name,
                 "id": theme.id,
-                "total_tracks": len(theme.instances),
-                "enabled_tracks": enabled_count,
+                "track_count": len(theme.instances),
                 "url": theme.url
             })
         
