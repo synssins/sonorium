@@ -1,7 +1,7 @@
 name: Sonorium
-version: "1.3.2"
+version: "2.0.0b5"
 slug: sonorium
-description: Ambient soundscape mixer with crossfade looping for Home Assistant
+description: "Multi-zone ambient soundscape mixer with session management"
 url: https://github.com/synssins/sonorium
 
 arch:
@@ -12,6 +12,13 @@ init: false
 homeassistant_api: true
 audio: false
 
+# Ingress - enables sidebar integration
+ingress: true
+ingress_port: 8080
+ingress_stream: true
+panel_icon: mdi:music-circle
+panel_title: Sonorium
+
 services:
   - mqtt:need
 
@@ -20,20 +27,22 @@ map:
   - config:rw
 
 ports:
-  8080/tcp: 8007
+  8080/tcp: 8008
 ports_description:
-  8080/tcp: "Sonorium Web UI and streaming API"
-
-panel_icon: mdi:waveform
-webui: http://[HOST]:[PORT:8080]/
+  8080/tcp: "Sonorium Web UI and streaming API (direct access)"
 
 options:
-  sonorium__stream_url: "http://homeassistant.local:8007"
+  sonorium__stream_url: "http://homeassistant.local:8008"
   sonorium__path_audio: "/media/sonorium"
+  sonorium__max_channels: 6
 
 schema:
   sonorium__stream_url: str
   sonorium__path_audio: str
+  sonorium__max_channels: int(1,10)
 
 startup: application
 stage: experimental
+
+# Direct web UI access (bypasses ingress)
+webui: http://[HOST]:[PORT:8080]/
