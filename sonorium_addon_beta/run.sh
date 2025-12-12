@@ -1,10 +1,10 @@
 #!/usr/bin/with-contenv bashio
 # shellcheck shell=bash
 # ==============================================================================
-# Sonorium Addon Startup Script
+# Sonorium Beta Addon Startup Script
 # ==============================================================================
 
-bashio::log.info "Starting Sonorium addon..."
+bashio::log.info "Starting Sonorium Beta addon..."
 
 # Log environment for debugging
 bashio::log.debug "Environment variables:"
@@ -31,7 +31,7 @@ if ! command -v sonorium &> /dev/null; then
     exec python3 -m sonorium.entrypoint
 fi
 
-bashio::log.info "Launching Sonorium..."
+bashio::log.info "Launching Sonorium Beta..."
 
 # Run sonorium
 exec sonorium
