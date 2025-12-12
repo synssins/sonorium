@@ -69,7 +69,7 @@ class RecordingThemeInstance:
     def __init__(self, meta: RecordingMetadata):
         self.meta = meta
         self.volume = 1.0  # Default to full volume - mixing will handle the blend
-        self.is_enabled = False
+        self.is_enabled = True  # All tracks enabled by default
         self.crossfade_enabled = True  # Enable crossfade looping by default
 
     def get_stream(self):
