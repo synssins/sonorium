@@ -24,11 +24,7 @@
             --sidebar-width: 260px;
         }
 
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
 
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -38,7 +34,6 @@
             display: flex;
         }
 
-        /* Sidebar */
         .sidebar {
             width: var(--sidebar-width);
             background: var(--bg-sidebar);
@@ -46,1665 +41,429 @@
             display: flex;
             flex-direction: column;
             position: fixed;
-            top: 0;
-            left: 0;
-            bottom: 0;
+            top: 0; left: 0; bottom: 0;
             z-index: 100;
             transition: transform 0.3s ease;
         }
 
-        .sidebar-header {
-            padding: 1.25rem;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .sidebar-logo {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .sidebar-logo svg {
-            width: 32px;
-            height: 32px;
-            color: var(--accent-secondary);
-        }
-
+        .sidebar-header { padding: 1.25rem; border-bottom: 1px solid var(--border-color); }
+        .sidebar-logo { display: flex; align-items: center; gap: 0.75rem; }
+        .sidebar-logo svg { width: 32px; height: 32px; color: var(--accent-secondary); }
         .sidebar-logo h1 {
-            font-size: 1.375rem;
-            font-weight: 700;
+            font-size: 1.375rem; font-weight: 700;
             background: linear-gradient(135deg, var(--accent-secondary), var(--accent-primary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
         }
 
-        .sidebar-nav {
-            flex: 1;
-            overflow-y: auto;
-            padding: 1rem 0;
-        }
-
-        .nav-section {
-            margin-bottom: 0.5rem;
-        }
-
+        .sidebar-nav { flex: 1; overflow-y: auto; padding: 1rem 0; }
+        .nav-section { margin-bottom: 0.5rem; }
         .nav-section-title {
-            padding: 0.5rem 1.25rem;
-            font-size: 0.625rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: var(--text-muted);
+            padding: 0.5rem 1.25rem; font-size: 0.625rem; font-weight: 600;
+            text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted);
         }
-
         .nav-item {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            padding: 0.75rem 1.25rem;
-            color: var(--text-secondary);
-            text-decoration: none;
-            cursor: pointer;
-            transition: all 0.15s;
-            border-left: 3px solid transparent;
-        }
-
-        .nav-item:hover {
-            background: rgba(255,255,255,0.05);
-            color: var(--text-primary);
-        }
-
-        .nav-item.active {
-            background: rgba(139, 92, 246, 0.15);
-            color: var(--accent-secondary);
-            border-left-color: var(--accent-secondary);
-        }
-
-        .nav-item svg {
-            width: 20px;
-            height: 20px;
-            flex-shrink: 0;
-        }
-
-        .nav-item .badge {
-            margin-left: auto;
-            background: var(--accent-primary);
-            color: var(--bg-primary);
-            font-size: 0.625rem;
-            font-weight: 600;
-            padding: 0.125rem 0.5rem;
-            border-radius: 9999px;
-        }
-
-        .nav-item .badge.warning {
-            background: var(--accent-warning);
-        }
-
-        .sidebar-footer {
-            padding: 1rem 1.25rem;
-            border-top: 1px solid var(--border-color);
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
-
-        .sidebar-footer a {
-            color: var(--accent-secondary);
-            text-decoration: none;
-        }
-
-        /* Mobile menu toggle */
-        .menu-toggle {
-            display: none;
-            position: fixed;
-            top: 1rem;
-            left: 1rem;
-            z-index: 200;
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 0.5rem;
-            padding: 0.75rem;
-            color: var(--text-primary);
-            cursor: pointer;
-        }
-
-        .menu-toggle svg {
-            width: 24px;
-            height: 24px;
-        }
-
-        .sidebar-overlay {
-            display: none;
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.5);
-            z-index: 99;
-        }
-
-        /* Main Content */
-        .main-content {
-            flex: 1;
-            margin-left: var(--sidebar-width);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .page-header {
-            padding: 1.5rem 2rem;
-            background: var(--bg-secondary);
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            position: sticky;
-            top: 0;
-            z-index: 50;
-        }
-
-        .page-header h2 {
-            font-size: 1.5rem;
-            font-weight: 600;
-        }
-
-        .page-header-actions {
-            display: flex;
-            gap: 0.75rem;
-        }
-
-        .page-content {
-            flex: 1;
-            padding: 1.5rem 2rem;
-            overflow-y: auto;
-        }
-
-        /* Buttons */
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            padding: 0.625rem 1.25rem;
-            border-radius: 0.5rem;
-            font-size: 0.875rem;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.15s;
-            border: none;
-            text-decoration: none;
-        }
-
-        .btn-primary {
-            background: var(--accent-primary);
-            color: var(--bg-primary);
-        }
-
-        .btn-primary:hover {
-            background: #16a34a;
-        }
-
-        .btn-secondary {
-            background: var(--bg-card);
-            color: var(--text-primary);
-            border: 1px solid var(--border-color);
-        }
-
-        .btn-secondary:hover {
-            background: var(--bg-card-hover);
-        }
-
-        .btn-danger {
-            background: var(--accent-danger);
-            color: white;
-        }
-
-        .btn-cycle {
-            background: var(--accent-cycle);
-            color: white;
-        }
-
-        .btn-icon {
-            padding: 0.625rem;
-        }
-
-        .btn-small {
-            padding: 0.375rem 0.75rem;
-            font-size: 0.75rem;
-        }
-
-        .btn-large {
-            padding: 0.875rem 1.5rem;
-            font-size: 1rem;
-        }
-
-        /* Cards */
-        .card {
-            background: var(--bg-secondary);
-            border-radius: 0.75rem;
-            border: 1px solid var(--border-color);
-            overflow: hidden;
-        }
-
-        .card-header {
-            padding: 1rem 1.25rem;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .card-header h3 {
-            font-size: 1rem;
-            font-weight: 600;
-        }
-
-        .card-body {
-            padding: 1.25rem;
-        }
-
-        /* Grid layouts */
-        .grid-sessions {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-            gap: 1.25rem;
-        }
-
-        .grid-themes {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-            gap: 1rem;
-        }
-
-        .grid-speakers {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 1rem;
-        }
-
-        /* Session Card */
-        .session-card {
-            background: var(--bg-secondary);
-            border-radius: 0.75rem;
-            border: 1px solid var(--border-color);
-            transition: all 0.2s;
-        }
-
-        .session-card:hover {
-            border-color: var(--accent-secondary);
-        }
-
-        .session-card.playing {
-            border-color: var(--accent-primary);
-            box-shadow: 0 0 20px rgba(34, 197, 94, 0.15);
-        }
-
-        .session-card.cycling {
-            border-color: var(--accent-cycle);
-        }
-
-        .session-card-header {
-            padding: 1rem 1.25rem;
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .session-title {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .session-icon {
-            font-size: 1.75rem;
-        }
-
-        .session-name {
-            font-size: 1.125rem;
-            font-weight: 600;
-        }
-
-        .session-meta {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-top: 0.25rem;
-        }
-
-        .session-badges {
-            display: flex;
-            gap: 0.375rem;
-        }
-
-        .badge {
-            font-size: 0.625rem;
-            font-weight: 600;
-            padding: 0.25rem 0.5rem;
-            border-radius: 9999px;
-            text-transform: uppercase;
-        }
-
-        .badge-playing {
-            background: rgba(34, 197, 94, 0.2);
-            color: var(--accent-primary);
-        }
-
-        .badge-stopped {
-            background: var(--bg-card);
-            color: var(--text-muted);
-        }
-
-        .badge-cycling {
-            background: rgba(59, 130, 246, 0.2);
-            color: var(--accent-cycle);
-        }
-
-        .session-card-body {
-            padding: 1.25rem;
-        }
-
-        /* Form fields */
-        .form-group {
-            margin-bottom: 1rem;
-        }
-
-        .form-group:last-child {
-            margin-bottom: 0;
-        }
-
-        .form-label {
-            display: block;
-            font-size: 0.75rem;
-            font-weight: 500;
-            color: var(--text-secondary);
-            margin-bottom: 0.375rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .form-control {
-            width: 100%;
-            padding: 0.625rem 0.875rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 0.5rem;
-            color: var(--text-primary);
-            font-size: 0.875rem;
-            transition: border-color 0.15s;
-        }
-
-        .form-control:focus {
-            outline: none;
-            border-color: var(--accent-secondary);
-        }
-
-        .form-control::placeholder {
-            color: var(--text-muted);
-        }
-
-        /* Volume control */
-        .volume-control {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .volume-control svg {
-            width: 18px;
-            height: 18px;
-            color: var(--text-muted);
-        }
-
-        .volume-slider {
-            flex: 1;
-            -webkit-appearance: none;
-            height: 6px;
-            background: var(--bg-card);
-            border-radius: 3px;
-            outline: none;
-        }
-
-        .volume-slider::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 16px;
-            height: 16px;
-            background: var(--accent-primary);
-            border-radius: 50%;
-            cursor: pointer;
-        }
-
-        .volume-value {
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-            min-width: 2.5rem;
-            text-align: right;
-        }
-
-        /* Cycle panel */
-        .cycle-panel {
-            background: var(--bg-card);
-            border-radius: 0.5rem;
-            padding: 0.875rem;
-            margin-top: 1rem;
-        }
-
-        .cycle-panel.active {
-            background: rgba(59, 130, 246, 0.1);
-            border: 1px solid var(--accent-cycle);
-        }
-
-        .cycle-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .cycle-toggle {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.875rem;
-            cursor: pointer;
-        }
-
-        .cycle-toggle input {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--accent-cycle);
-        }
-
-        .cycle-status {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
-
-        .cycle-status.active {
-            color: var(--accent-cycle);
-        }
-
-        .cycle-controls {
-            display: grid;
-            grid-template-columns: 1fr 1fr auto;
-            gap: 0.5rem;
-            margin-top: 0.75rem;
-        }
-
-        .cycle-field {
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-        }
-
-        .cycle-field label {
-            font-size: 0.625rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-        }
-
-        .cycle-field select {
-            padding: 0.375rem 0.5rem;
-            font-size: 0.75rem;
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 0.375rem;
-            color: var(--text-primary);
-        }
-
-        .cycle-countdown {
-            text-align: center;
-            padding: 0.5rem;
-            background: var(--bg-secondary);
-            border-radius: 0.375rem;
-            margin-top: 0.5rem;
-        }
-
-        .cycle-countdown .time {
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: var(--accent-cycle);
-            font-variant-numeric: tabular-nums;
-        }
-
-        .cycle-countdown .label {
-            font-size: 0.625rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-        }
-
-        /* Playback controls */
-        .playback-controls {
-            display: flex;
-            gap: 0.5rem;
-            margin-top: 1rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--border-color);
-        }
-
-        .playback-controls .btn {
-            flex: 1;
-        }
-
-        .btn-play {
-            background: var(--accent-primary);
-            color: var(--bg-primary);
-        }
-
-        .btn-play:hover {
-            background: #16a34a;
-        }
-
-        .btn-play.playing {
-            background: var(--accent-warning);
-        }
-
-        /* Speaker chips */
-        .speaker-chips {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.375rem;
-        }
-
-        .speaker-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.25rem;
-            padding: 0.25rem 0.5rem;
-            background: var(--bg-card);
-            border-radius: 0.375rem;
-            font-size: 0.75rem;
-            color: var(--text-secondary);
-        }
-
-        .speaker-chip svg {
-            width: 12px;
-            height: 12px;
-        }
-
-        /* Theme card */
-        .theme-card {
-            background: var(--bg-secondary);
-            border: 2px solid transparent;
-            border-radius: 0.75rem;
-            padding: 1.25rem;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .theme-card:hover {
-            background: var(--bg-card);
-            border-color: var(--border-color);
-        }
-
-        .theme-card.selected {
-            border-color: var(--accent-primary);
-            background: rgba(34, 197, 94, 0.1);
-        }
-
-        .theme-card-icon {
-            font-size: 2.5rem;
-            margin-bottom: 0.75rem;
-        }
-
-        .theme-card-name {
-            font-size: 0.875rem;
-            font-weight: 500;
-        }
-
-        .theme-card-tracks {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            margin-top: 0.25rem;
-        }
-
-        /* Speaker group card */
-        .group-card {
-            background: var(--bg-secondary);
-            border-radius: 0.75rem;
-            border: 1px solid var(--border-color);
-            padding: 1.25rem;
-            transition: all 0.2s;
-        }
-
-        .group-card:hover {
-            border-color: var(--accent-secondary);
-        }
-
-        .group-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 0.75rem;
-        }
-
-        .group-card-title {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .group-card-icon {
-            font-size: 1.25rem;
-        }
-
-        .group-card-name {
-            font-size: 1rem;
-            font-weight: 600;
-        }
-
-        .group-card-count {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
-
-        .group-card-actions {
-            display: flex;
-            gap: 0.25rem;
-        }
-
-        /* Speaker tree */
-        .speaker-tree {
-            background: var(--bg-card);
-            border-radius: 0.5rem;
-            padding: 1rem;
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .tree-floor {
-            margin-bottom: 0.75rem;
-        }
-
-        .tree-floor:last-child {
-            margin-bottom: 0;
-        }
-
-        .tree-floor-header {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.625rem;
-            cursor: pointer;
-            border-radius: 0.375rem;
-            transition: background 0.1s;
-        }
-
-        .tree-floor-header:hover {
-            background: var(--bg-card-hover);
-        }
-
-        .tree-floor-header input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--accent-primary);
-        }
-
-        .tree-floor-name {
-            font-weight: 500;
-            flex: 1;
-        }
-
-        .tree-floor-count {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
-
-        .tree-areas {
-            margin-left: 1.5rem;
-            border-left: 1px solid var(--border-color);
-            padding-left: 0.75rem;
-        }
-
-        .tree-area {
-            margin: 0.25rem 0;
-        }
-
-        .tree-area-header {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.5rem;
-            cursor: pointer;
-            border-radius: 0.375rem;
-        }
-
-        .tree-area-header:hover {
-            background: var(--bg-card-hover);
-        }
-
-        .tree-speakers {
-            margin-left: 1.5rem;
-        }
-
-        .tree-speaker {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.375rem;
-            font-size: 0.875rem;
-            color: var(--text-secondary);
-        }
-
-        .tree-speaker input[type="checkbox"] {
-            width: 14px;
-            height: 14px;
-            accent-color: var(--accent-primary);
-        }
-
-        /* Settings form */
-        .settings-section {
-            margin-bottom: 2rem;
-        }
-
-        .settings-section:last-child {
-            margin-bottom: 0;
-        }
-
-        .settings-section h3 {
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 1rem;
-            padding-bottom: 0.5rem;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .settings-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 0.75rem 0;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .settings-row:last-child {
-            border-bottom: none;
-        }
-
-        .settings-label {
-            display: flex;
-            flex-direction: column;
-            gap: 0.25rem;
-        }
-
-        .settings-label span {
-            font-size: 0.875rem;
-            font-weight: 500;
-        }
-
-        .settings-label small {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-        }
-
-        .settings-control {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-        }
-
-        .settings-control input[type="number"],
-        .settings-control select {
-            width: 100px;
-            padding: 0.5rem;
-            background: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 0.375rem;
-            color: var(--text-primary);
-            font-size: 0.875rem;
-        }
-
-        /* Status cards */
-        .status-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-            gap: 1rem;
-            margin-bottom: 2rem;
-        }
-
-        .status-card {
-            background: var(--bg-secondary);
-            border-radius: 0.75rem;
-            border: 1px solid var(--border-color);
-            padding: 1.25rem;
-        }
-
-        .status-card-label {
-            font-size: 0.75rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            margin-bottom: 0.5rem;
-        }
-
-        .status-card-value {
-            font-size: 1.75rem;
-            font-weight: 600;
-        }
-
-        .status-card-value.success {
-            color: var(--accent-primary);
-        }
-
-        .status-card-value.warning {
-            color: var(--accent-warning);
-        }
-
-        /* Channel list */
-        .channel-list {
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .channel-item {
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-            padding: 0.875rem 1rem;
-            background: var(--bg-card);
-            border-radius: 0.5rem;
-        }
-
-        .channel-id {
-            font-weight: 600;
-            color: var(--accent-secondary);
-        }
-
-        .channel-theme {
-            flex: 1;
-        }
-
-        .channel-clients {
-            font-size: 0.875rem;
-            color: var(--text-muted);
-        }
-
-        .channel-status {
-            padding: 0.25rem 0.5rem;
-            border-radius: 9999px;
-            font-size: 0.625rem;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-
-        .channel-status.active {
-            background: rgba(34, 197, 94, 0.2);
-            color: var(--accent-primary);
-        }
-
-        .channel-status.idle {
-            background: var(--bg-secondary);
-            color: var(--text-muted);
-        }
-
-        /* Modal */
-        .modal-backdrop {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.7);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 200;
-            opacity: 0;
-            visibility: hidden;
-            transition: all 0.2s;
-        }
-
-        .modal-backdrop.active {
-            opacity: 1;
-            visibility: visible;
-        }
-
-        .modal {
-            background: var(--bg-secondary);
-            border-radius: 0.75rem;
-            width: 100%;
-            max-width: 600px;
-            max-height: 90vh;
-            overflow-y: auto;
-            transform: translateY(20px);
-            transition: transform 0.2s;
-            border: 1px solid var(--border-color);
-        }
-
-        .modal-backdrop.active .modal {
-            transform: translateY(0);
-        }
-
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1.25rem;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .modal-header h2 {
-            font-size: 1.25rem;
-            font-weight: 600;
-        }
-
-        .modal-close {
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-            padding: 0.25rem;
-        }
-
-        .modal-close:hover {
-            color: var(--text-primary);
-        }
-
-        .modal-body {
-            padding: 1.25rem;
-        }
-
-        .modal-footer {
-            display: flex;
-            justify-content: flex-end;
-            gap: 0.75rem;
-            padding: 1.25rem;
-            border-top: 1px solid var(--border-color);
-        }
-
-        /* Empty state */
-        .empty-state {
-            text-align: center;
-            padding: 3rem;
-            color: var(--text-muted);
-        }
-
-        .empty-state svg {
-            width: 64px;
-            height: 64px;
-            margin-bottom: 1rem;
-            opacity: 0.5;
-        }
-
-        .empty-state h3 {
-            font-size: 1.125rem;
-            font-weight: 500;
-            margin-bottom: 0.5rem;
-            color: var(--text-secondary);
-        }
-
-        .empty-state p {
-            font-size: 0.875rem;
-            margin-bottom: 1.5rem;
-        }
-
-        /* Loading */
-        .loading {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 3rem;
-            color: var(--text-muted);
-        }
-
-        .spinner {
-            width: 24px;
-            height: 24px;
-            border: 2px solid var(--border-color);
-            border-top-color: var(--accent-primary);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin-right: 0.75rem;
-        }
-
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-
-        /* Toast */
-        .toast-container {
-            position: fixed;
-            bottom: 1.5rem;
-            right: 1.5rem;
-            z-index: 300;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-
-        .toast {
-            background: var(--bg-secondary);
-            border: 1px solid var(--border-color);
-            border-radius: 0.5rem;
-            padding: 0.875rem 1rem;
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            box-shadow: var(--shadow);
-            animation: slideIn 0.2s ease-out;
-        }
-
-        .toast.success {
-            border-color: var(--accent-primary);
-        }
-
-        .toast.error {
-            border-color: var(--accent-danger);
-        }
-
-        @keyframes slideIn {
-            from {
-                transform: translateX(100%);
-                opacity: 0;
-            }
-            to {
-                transform: translateX(0);
-                opacity: 1;
-            }
-        }
-
-        /* Hide views */
-        .view {
-            display: none;
-        }
-
-        .view.active {
-            display: block;
-        }
+            display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem 1.25rem;
+            color: var(--text-secondary); text-decoration: none; cursor: pointer;
+            transition: all 0.15s; border-left: 3px solid transparent;
+        }
+        .nav-item:hover { background: rgba(255,255,255,0.05); color: var(--text-primary); }
+        .nav-item.active { background: rgba(139, 92, 246, 0.15); color: var(--accent-secondary); border-left-color: var(--accent-secondary); }
+        .nav-item svg { width: 20px; height: 20px; flex-shrink: 0; }
+        .nav-item .badge { margin-left: auto; background: var(--accent-primary); color: var(--bg-primary); font-size: 0.625rem; font-weight: 600; padding: 0.125rem 0.5rem; border-radius: 9999px; }
+
+        .sidebar-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border-color); font-size: 0.75rem; color: var(--text-muted); }
+        .sidebar-footer a { color: var(--accent-secondary); text-decoration: none; }
+
+        .menu-toggle { display: none; position: fixed; top: 1rem; left: 1rem; z-index: 200; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 0.75rem; color: var(--text-primary); cursor: pointer; }
+        .menu-toggle svg { width: 24px; height: 24px; }
+        .sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 99; }
+
+        .main-content { flex: 1; margin-left: var(--sidebar-width); min-height: 100vh; display: flex; flex-direction: column; }
+        .page-header { padding: 1.5rem 2rem; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 50; }
+        .page-header h2 { font-size: 1.5rem; font-weight: 600; }
+        .page-header-actions { display: flex; gap: 0.75rem; }
+        .page-content { flex: 1; padding: 1.5rem 2rem; overflow-y: auto; }
+
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.625rem 1.25rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; cursor: pointer; transition: all 0.15s; border: none; text-decoration: none; }
+        .btn-primary { background: var(--accent-primary); color: var(--bg-primary); }
+        .btn-primary:hover { background: #16a34a; }
+        .btn-secondary { background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-color); }
+        .btn-secondary:hover { background: var(--bg-card-hover); }
+        .btn-danger { background: var(--accent-danger); color: white; }
+        .btn-cycle { background: var(--accent-cycle); color: white; }
+        .btn-small { padding: 0.375rem 0.75rem; font-size: 0.75rem; }
+
+        .card { background: var(--bg-secondary); border-radius: 0.75rem; border: 1px solid var(--border-color); overflow: hidden; }
+        .card-header { padding: 1rem 1.25rem; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center; }
+        .card-header h3 { font-size: 1rem; font-weight: 600; }
+        .card-body { padding: 1.25rem; }
+
+        .grid-sessions { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 1.25rem; }
+        .grid-themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 1rem; }
+        .grid-speakers { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem; }
+
+        .session-card { background: var(--bg-secondary); border-radius: 0.75rem; border: 1px solid var(--border-color); transition: all 0.2s; }
+        .session-card:hover { border-color: var(--accent-secondary); }
+        .session-card.playing { border-color: var(--accent-primary); box-shadow: 0 0 20px rgba(34, 197, 94, 0.15); }
+        .session-card.cycling { border-color: var(--accent-cycle); }
+        .session-card-header { padding: 1rem 1.25rem; display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid var(--border-color); }
+        .session-title { display: flex; align-items: center; gap: 0.75rem; }
+        .session-icon { font-size: 1.75rem; }
+        .session-name { font-size: 1.125rem; font-weight: 600; }
+        .session-meta { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+        .session-badges { display: flex; gap: 0.375rem; }
+        .badge { font-size: 0.625rem; font-weight: 600; padding: 0.25rem 0.5rem; border-radius: 9999px; text-transform: uppercase; }
+        .badge-playing { background: rgba(34, 197, 94, 0.2); color: var(--accent-primary); }
+        .badge-stopped { background: var(--bg-card); color: var(--text-muted); }
+        .badge-cycling { background: rgba(59, 130, 246, 0.2); color: var(--accent-cycle); }
+        .session-card-body { padding: 1.25rem; }
+
+        .form-group { margin-bottom: 1rem; }
+        .form-group:last-child { margin-bottom: 0; }
+        .form-label { display: block; font-size: 0.75rem; font-weight: 500; color: var(--text-secondary); margin-bottom: 0.375rem; text-transform: uppercase; letter-spacing: 0.05em; }
+        .form-control { width: 100%; padding: 0.625rem 0.875rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 0.5rem; color: var(--text-primary); font-size: 0.875rem; transition: border-color 0.15s; }
+        .form-control:focus { outline: none; border-color: var(--accent-secondary); }
+
+        .volume-control { display: flex; align-items: center; gap: 0.75rem; }
+        .volume-control svg { width: 18px; height: 18px; color: var(--text-muted); }
+        .volume-slider { flex: 1; -webkit-appearance: none; height: 6px; background: var(--bg-card); border-radius: 3px; outline: none; }
+        .volume-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; background: var(--accent-primary); border-radius: 50%; cursor: pointer; }
+        .volume-value { font-size: 0.875rem; color: var(--text-secondary); min-width: 2.5rem; text-align: right; }
+
+        .cycle-panel { background: var(--bg-card); border-radius: 0.5rem; padding: 0.875rem; margin-top: 1rem; }
+        .cycle-panel.active { background: rgba(59, 130, 246, 0.1); border: 1px solid var(--accent-cycle); }
+        .cycle-header { display: flex; justify-content: space-between; align-items: center; }
+        .cycle-toggle { display: flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; cursor: pointer; }
+        .cycle-toggle input { width: 16px; height: 16px; accent-color: var(--accent-cycle); }
+        .cycle-status { font-size: 0.75rem; color: var(--text-muted); }
+        .cycle-status.active { color: var(--accent-cycle); }
+        .cycle-controls { display: grid; grid-template-columns: 1fr 1fr auto; gap: 0.5rem; margin-top: 0.75rem; }
+        .cycle-field { display: flex; flex-direction: column; gap: 0.25rem; }
+        .cycle-field label { font-size: 0.625rem; color: var(--text-muted); text-transform: uppercase; }
+        .cycle-field select { padding: 0.375rem 0.5rem; font-size: 0.75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 0.375rem; color: var(--text-primary); }
+        .cycle-countdown { text-align: center; padding: 0.5rem; background: var(--bg-secondary); border-radius: 0.375rem; margin-top: 0.5rem; }
+        .cycle-countdown .time { font-size: 1.25rem; font-weight: 600; color: var(--accent-cycle); font-variant-numeric: tabular-nums; }
+        .cycle-countdown .label { font-size: 0.625rem; color: var(--text-muted); text-transform: uppercase; }
+
+        .playback-controls { display: flex; gap: 0.5rem; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border-color); }
+        .playback-controls .btn { flex: 1; }
+        .btn-play { background: var(--accent-primary); color: var(--bg-primary); }
+        .btn-play:hover { background: #16a34a; }
+        .btn-play.playing { background: var(--accent-warning); }
+
+        .speaker-chips { display: flex; flex-wrap: wrap; gap: 0.375rem; }
+        .speaker-chip { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.25rem 0.5rem; background: var(--bg-card); border-radius: 0.375rem; font-size: 0.75rem; color: var(--text-secondary); }
+
+        .theme-card { background: var(--bg-secondary); border: 2px solid transparent; border-radius: 0.75rem; padding: 1.25rem; text-align: center; cursor: pointer; transition: all 0.2s; }
+        .theme-card:hover { background: var(--bg-card); border-color: var(--border-color); }
+        .theme-card.selected { border-color: var(--accent-primary); background: rgba(34, 197, 94, 0.1); }
+        .theme-card-icon { font-size: 2.5rem; margin-bottom: 0.75rem; }
+        .theme-card-name { font-size: 0.875rem; font-weight: 500; }
+        .theme-card-tracks { font-size: 0.75rem; color: var(--text-muted); margin-top: 0.25rem; }
+
+        .group-card { background: var(--bg-secondary); border-radius: 0.75rem; border: 1px solid var(--border-color); padding: 1.25rem; transition: all 0.2s; }
+        .group-card:hover { border-color: var(--accent-secondary); }
+        .group-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem; }
+        .group-card-title { display: flex; align-items: center; gap: 0.5rem; }
+        .group-card-icon { font-size: 1.25rem; }
+        .group-card-name { font-size: 1rem; font-weight: 600; }
+        .group-card-count { font-size: 0.75rem; color: var(--text-muted); }
+
+        .speaker-tree { background: var(--bg-card); border-radius: 0.5rem; padding: 1rem; max-height: 400px; overflow-y: auto; }
+        .tree-floor { margin-bottom: 0.75rem; }
+        .tree-floor:last-child { margin-bottom: 0; }
+        .tree-floor-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.625rem; cursor: pointer; border-radius: 0.375rem; transition: background 0.1s; }
+        .tree-floor-header:hover { background: var(--bg-card-hover); }
+        .tree-floor-header input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--accent-primary); }
+        .tree-floor-name { font-weight: 500; flex: 1; }
+        .tree-floor-count { font-size: 0.75rem; color: var(--text-muted); }
+        .tree-areas { margin-left: 1.5rem; border-left: 1px solid var(--border-color); padding-left: 0.75rem; }
+        .tree-area { margin: 0.25rem 0; }
+        .tree-area-header { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; cursor: pointer; border-radius: 0.375rem; }
+        .tree-area-header:hover { background: var(--bg-card-hover); }
+        .tree-speakers { margin-left: 1.5rem; }
+        .tree-speaker { display: flex; align-items: center; gap: 0.5rem; padding: 0.375rem; font-size: 0.875rem; color: var(--text-secondary); }
+        .tree-speaker input[type="checkbox"] { width: 14px; height: 14px; accent-color: var(--accent-primary); }
+
+        .settings-section { margin-bottom: 2rem; }
+        .settings-section:last-child { margin-bottom: 0; }
+        .settings-section h3 { font-size: 1rem; font-weight: 600; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border-color); }
+        .settings-row { display: flex; justify-content: space-between; align-items: center; padding: 0.75rem 0; border-bottom: 1px solid var(--border-color); }
+        .settings-row:last-child { border-bottom: none; }
+        .settings-label { display: flex; flex-direction: column; gap: 0.25rem; }
+        .settings-label span { font-size: 0.875rem; font-weight: 500; }
+        .settings-label small { font-size: 0.75rem; color: var(--text-muted); }
+        .settings-control { display: flex; align-items: center; gap: 0.5rem; }
+        .settings-control input[type="number"], .settings-control select { width: 100px; padding: 0.5rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 0.375rem; color: var(--text-primary); font-size: 0.875rem; }
+
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+        .status-card { background: var(--bg-secondary); border-radius: 0.75rem; border: 1px solid var(--border-color); padding: 1.25rem; }
+        .status-card-label { font-size: 0.75rem; color: var(--text-muted); text-transform: uppercase; margin-bottom: 0.5rem; }
+        .status-card-value { font-size: 1.75rem; font-weight: 600; }
+        .status-card-value.success { color: var(--accent-primary); }
+        .status-card-value.warning { color: var(--accent-warning); }
+
+        .channel-list { display: flex; flex-direction: column; gap: 0.5rem; }
+        .channel-item { display: flex; align-items: center; gap: 1rem; padding: 0.875rem 1rem; background: var(--bg-card); border-radius: 0.5rem; }
+        .channel-id { font-weight: 600; color: var(--accent-secondary); }
+        .channel-theme { flex: 1; }
+        .channel-clients { font-size: 0.875rem; color: var(--text-muted); }
+        .channel-status { padding: 0.25rem 0.5rem; border-radius: 9999px; font-size: 0.625rem; font-weight: 600; text-transform: uppercase; }
+        .channel-status.active { background: rgba(34, 197, 94, 0.2); color: var(--accent-primary); }
+        .channel-status.idle { background: var(--bg-secondary); color: var(--text-muted); }
+
+        .modal-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.7); display: flex; align-items: center; justify-content: center; z-index: 200; opacity: 0; visibility: hidden; transition: all 0.2s; }
+        .modal-backdrop.active { opacity: 1; visibility: visible; }
+        .modal { background: var(--bg-secondary); border-radius: 0.75rem; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; transform: translateY(20px); transition: transform 0.2s; border: 1px solid var(--border-color); }
+        .modal-backdrop.active .modal { transform: translateY(0); }
+        .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 1.25rem; border-bottom: 1px solid var(--border-color); }
+        .modal-header h2 { font-size: 1.25rem; font-weight: 600; }
+        .modal-close { background: none; border: none; color: var(--text-secondary); cursor: pointer; padding: 0.25rem; }
+        .modal-close:hover { color: var(--text-primary); }
+        .modal-body { padding: 1.25rem; }
+        .modal-footer { display: flex; justify-content: flex-end; gap: 0.75rem; padding: 1.25rem; border-top: 1px solid var(--border-color); }
+
+        .empty-state { text-align: center; padding: 3rem; color: var(--text-muted); }
+        .empty-state svg { width: 64px; height: 64px; margin-bottom: 1rem; opacity: 0.5; }
+        .empty-state h3 { font-size: 1.125rem; font-weight: 500; margin-bottom: 0.5rem; color: var(--text-secondary); }
+        .empty-state p { font-size: 0.875rem; margin-bottom: 1.5rem; }
+
+        .loading { display: flex; align-items: center; justify-content: center; padding: 3rem; color: var(--text-muted); }
+        .spinner { width: 24px; height: 24px; border: 2px solid var(--border-color); border-top-color: var(--accent-primary); border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 0.75rem; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .toast-container { position: fixed; bottom: 1.5rem; right: 1.5rem; z-index: 300; display: flex; flex-direction: column; gap: 0.5rem; }
+        .toast { background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 0.5rem; padding: 0.875rem 1rem; display: flex; align-items: center; gap: 0.75rem; box-shadow: var(--shadow); animation: slideIn 0.2s ease-out; }
+        .toast.success { border-color: var(--accent-primary); }
+        .toast.error { border-color: var(--accent-danger); }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+
+        .view { display: none; }
+        .view.active { display: block; }
 
-        /* Responsive */
         @media (max-width: 1024px) {
-            .sidebar {
-                transform: translateX(-100%);
-            }
-
-            .sidebar.open {
-                transform: translateX(0);
-            }
-
-            .sidebar-overlay.active {
-                display: block;
-            }
-
-            .menu-toggle {
-                display: flex;
-            }
-
-            .main-content {
-                margin-left: 0;
-            }
-
-            .page-header {
-                padding-left: 4rem;
-            }
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.open { transform: translateX(0); }
+            .sidebar-overlay.active { display: block; }
+            .menu-toggle { display: flex; }
+            .main-content { margin-left: 0; }
+            .page-header { padding-left: 4rem; }
         }
-
         @media (max-width: 640px) {
-            .page-header {
-                padding: 1rem;
-                padding-left: 4rem;
-            }
-
-            .page-content {
-                padding: 1rem;
-            }
-
-            .grid-sessions {
-                grid-template-columns: 1fr;
-            }
-
-            .cycle-controls {
-                grid-template-columns: 1fr 1fr;
-            }
-
-            .cycle-controls .btn {
-                grid-column: span 2;
-            }
+            .page-header { padding: 1rem; padding-left: 4rem; }
+            .page-content { padding: 1rem; }
+            .grid-sessions { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
-    <!-- Mobile menu toggle -->
     <button class="menu-toggle" onclick="toggleSidebar()">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="3" y1="12" x2="21" y2="12"/>
-            <line x1="3" y1="6" x2="21" y2="6"/>
-            <line x1="3" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/>
         </svg>
     </button>
-
-    <!-- Sidebar overlay for mobile -->
     <div class="sidebar-overlay" onclick="toggleSidebar()"></div>
 
-    <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
             <div class="sidebar-logo">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M9 18V5l12-2v13"/>
-                    <circle cx="6" cy="18" r="3"/>
-                    <circle cx="18" cy="16" r="3"/>
+                    <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
                 </svg>
                 <h1>Sonorium</h1>
             </div>
         </div>
-
         <nav class="sidebar-nav">
             <div class="nav-section">
                 <div class="nav-section-title">Playback</div>
                 <a class="nav-item active" data-view="sessions" onclick="showView('sessions')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polygon points="5 3 19 12 5 21 5 3"/>
-                    </svg>
-                    Sessions
-                    <span class="badge" id="playing-count">0</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                    Sessions<span class="badge" id="playing-count">0</span>
                 </a>
             </div>
-
             <div class="nav-section">
                 <div class="nav-section-title">Configuration</div>
                 <a class="nav-item" data-view="speakers" onclick="showView('speakers')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
-                        <circle cx="12" cy="14" r="4"/>
-                        <line x1="12" y1="6" x2="12.01" y2="6"/>
-                    </svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><circle cx="12" cy="14" r="4"/><line x1="12" y1="6" x2="12.01" y2="6"/></svg>
                     Speakers
                 </a>
                 <a class="nav-item" data-view="groups" onclick="showView('groups')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                        <circle cx="9" cy="7" r="4"/>
-                        <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
-                        <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
-                    </svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
                     Speaker Groups
                 </a>
                 <a class="nav-item" data-view="themes" onclick="showView('themes')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <polygon points="10 8 16 12 10 16 10 8"/>
-                    </svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
                     Themes
                 </a>
             </div>
-
             <div class="nav-section">
                 <div class="nav-section-title">System</div>
                 <a class="nav-item" data-view="settings" onclick="showView('settings')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="3"/>
-                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                    </svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
                     Settings
                 </a>
                 <a class="nav-item" data-view="status" onclick="showView('status')">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
-                    </svg>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
                     Status
                 </a>
             </div>
         </nav>
-
-        <div class="sidebar-footer">
-            <div>v2.0.0b5 Beta</div>
-            <a href="https://github.com/synssins/sonorium" target="_blank">GitHub</a>
-        </div>
+        <div class="sidebar-footer"><div>v2.0.0b5 Beta</div><a href="https://github.com/synssins/sonorium" target="_blank">GitHub</a></div>
     </aside>
 
-    <!-- Main Content -->
     <main class="main-content">
-        <!-- Sessions View -->
         <div id="view-sessions" class="view active">
             <header class="page-header">
                 <h2>Sessions</h2>
                 <div class="page-header-actions">
-                    <button class="btn btn-secondary" onclick="stopAllSessions()">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="6" y="6" width="12" height="12"/>
-                        </svg>
-                        Stop All
-                    </button>
-                    <button class="btn btn-primary" onclick="openNewSessionModal()">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="12" y1="5" x2="12" y2="19"/>
-                            <line x1="5" y1="12" x2="19" y2="12"/>
-                        </svg>
-                        New Session
-                    </button>
+                    <button class="btn btn-secondary" onclick="stopAllSessions()">⏹ Stop All</button>
+                    <button class="btn btn-primary" onclick="openNewSessionModal()">+ New Session</button>
                 </div>
             </header>
-            <div class="page-content">
-                <div id="sessions-container" class="grid-sessions">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        Loading sessions...
-                    </div>
-                </div>
-            </div>
+            <div class="page-content"><div id="sessions-container" class="grid-sessions"><div class="loading"><div class="spinner"></div>Loading...</div></div></div>
         </div>
 
-        <!-- Speakers View -->
         <div id="view-speakers" class="view">
             <header class="page-header">
                 <h2>Speakers</h2>
-                <div class="page-header-actions">
-                    <button class="btn btn-secondary" onclick="refreshSpeakers()">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="23 4 23 10 17 10"/>
-                            <polyline points="1 20 1 14 7 14"/>
-                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                        </svg>
-                        Refresh from HA
-                    </button>
-                </div>
+                <div class="page-header-actions"><button class="btn btn-secondary" onclick="refreshSpeakers()">🔄 Refresh from HA</button></div>
             </header>
-            <div class="page-content">
-                <div id="speakers-container">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        Loading speakers...
-                    </div>
-                </div>
-            </div>
+            <div class="page-content"><div id="speakers-container"><div class="loading"><div class="spinner"></div>Loading...</div></div></div>
         </div>
 
-        <!-- Speaker Groups View -->
         <div id="view-groups" class="view">
             <header class="page-header">
                 <h2>Speaker Groups</h2>
-                <div class="page-header-actions">
-                    <button class="btn btn-primary" onclick="openNewGroupModal()">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <line x1="12" y1="5" x2="12" y2="19"/>
-                            <line x1="5" y1="12" x2="19" y2="12"/>
-                        </svg>
-                        New Group
-                    </button>
-                </div>
+                <div class="page-header-actions"><button class="btn btn-primary" onclick="openNewGroupModal()">+ New Group</button></div>
             </header>
-            <div class="page-content">
-                <div id="groups-container" class="grid-speakers">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        Loading groups...
-                    </div>
-                </div>
-            </div>
+            <div class="page-content"><div id="groups-container" class="grid-speakers"><div class="loading"><div class="spinner"></div>Loading...</div></div></div>
         </div>
 
-        <!-- Themes View -->
         <div id="view-themes" class="view">
-            <header class="page-header">
-                <h2>Themes</h2>
-            </header>
-            <div class="page-content">
-                <div id="themes-container" class="grid-themes">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        Loading themes...
-                    </div>
-                </div>
-            </div>
+            <header class="page-header"><h2>Themes</h2></header>
+            <div class="page-content"><div id="themes-container" class="grid-themes"><div class="loading"><div class="spinner"></div>Loading...</div></div></div>
         </div>
 
-        <!-- Settings View -->
         <div id="view-settings" class="view">
             <header class="page-header">
                 <h2>Settings</h2>
-                <div class="page-header-actions">
-                    <button class="btn btn-primary" onclick="saveSettings()">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
-                            <polyline points="17 21 17 13 7 13 7 21"/>
-                            <polyline points="7 3 7 8 15 8"/>
-                        </svg>
-                        Save Changes
-                    </button>
-                </div>
+                <div class="page-header-actions"><button class="btn btn-primary" onclick="saveSettings()">💾 Save Changes</button></div>
             </header>
             <div class="page-content">
                 <div class="card" style="max-width: 600px;">
                     <div class="card-body">
                         <div class="settings-section">
                             <h3>Playback Defaults</h3>
-                            <div class="settings-row">
-                                <div class="settings-label">
-                                    <span>Default Volume</span>
-                                    <small>Initial volume for new sessions</small>
-                                </div>
-                                <div class="settings-control">
-                                    <input type="number" id="setting-default-volume" min="0" max="100" value="60">
-                                    <span>%</span>
-                                </div>
-                            </div>
-                            <div class="settings-row">
-                                <div class="settings-label">
-                                    <span>Crossfade Duration</span>
-                                    <small>Transition time between themes</small>
-                                </div>
-                                <div class="settings-control">
-                                    <input type="number" id="setting-crossfade" min="0.5" max="10" step="0.5" value="3">
-                                    <span>sec</span>
-                                </div>
-                            </div>
+                            <div class="settings-row"><div class="settings-label"><span>Default Volume</span><small>Initial volume for new sessions</small></div><div class="settings-control"><input type="number" id="setting-default-volume" min="0" max="100" value="60"><span>%</span></div></div>
+                            <div class="settings-row"><div class="settings-label"><span>Crossfade Duration</span><small>Transition time between themes</small></div><div class="settings-control"><input type="number" id="setting-crossfade" min="0.5" max="10" step="0.5" value="3"><span>sec</span></div></div>
                         </div>
-
                         <div class="settings-section">
                             <h3>Theme Cycling Defaults</h3>
-                            <div class="settings-row">
-                                <div class="settings-label">
-                                    <span>Default Interval</span>
-                                    <small>How often to change themes when cycling</small>
-                                </div>
-                                <div class="settings-control">
-                                    <select id="setting-cycle-interval">
-                                        <option value="10">10 min</option>
-                                        <option value="15">15 min</option>
-                                        <option value="30">30 min</option>
-                                        <option value="60">1 hour</option>
-                                        <option value="120">2 hours</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="settings-row">
-                                <div class="settings-label">
-                                    <span>Default Order</span>
-                                    <small>Theme selection order when cycling</small>
-                                </div>
-                                <div class="settings-control">
-                                    <select id="setting-cycle-randomize">
-                                        <option value="false">Sequential</option>
-                                        <option value="true">Random</option>
-                                    </select>
-                                </div>
-                            </div>
+                            <div class="settings-row"><div class="settings-label"><span>Default Interval</span><small>How often to change themes</small></div><div class="settings-control"><select id="setting-cycle-interval"><option value="10">10 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60">1 hour</option><option value="120">2 hours</option></select></div></div>
+                            <div class="settings-row"><div class="settings-label"><span>Default Order</span><small>Theme selection order</small></div><div class="settings-control"><select id="setting-cycle-randomize"><option value="false">Sequential</option><option value="true">Random</option></select></div></div>
                         </div>
-
                         <div class="settings-section">
                             <h3>Limits</h3>
-                            <div class="settings-row">
-                                <div class="settings-label">
-                                    <span>Max Sessions</span>
-                                    <small>Maximum concurrent sessions allowed</small>
-                                </div>
-                                <div class="settings-control">
-                                    <input type="number" id="setting-max-sessions" min="1" max="20" value="10">
-                                </div>
-                            </div>
-                            <div class="settings-row">
-                                <div class="settings-label">
-                                    <span>Max Speaker Groups</span>
-                                    <small>Maximum saved speaker groups</small>
-                                </div>
-                                <div class="settings-control">
-                                    <input type="number" id="setting-max-groups" min="1" max="50" value="20">
-                                </div>
-                            </div>
+                            <div class="settings-row"><div class="settings-label"><span>Max Sessions</span><small>Maximum concurrent sessions</small></div><div class="settings-control"><input type="number" id="setting-max-sessions" min="1" max="20" value="10"></div></div>
+                            <div class="settings-row"><div class="settings-label"><span>Max Speaker Groups</span><small>Maximum saved groups</small></div><div class="settings-control"><input type="number" id="setting-max-groups" min="1" max="50" value="20"></div></div>
                         </div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Status View -->
         <div id="view-status" class="view">
             <header class="page-header">
                 <h2>System Status</h2>
-                <div class="page-header-actions">
-                    <button class="btn btn-secondary" onclick="refreshStatus()">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="23 4 23 10 17 10"/>
-                            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                        </svg>
-                        Refresh
-                    </button>
-                </div>
+                <div class="page-header-actions"><button class="btn btn-secondary" onclick="refreshStatus()">🔄 Refresh</button></div>
             </header>
             <div class="page-content">
-                <div class="status-grid" id="status-cards">
-                    <!-- Status cards loaded dynamically -->
-                </div>
-                
-                <div class="card">
-                    <div class="card-header">
-                        <h3>Active Channels</h3>
-                    </div>
-                    <div class="card-body">
-                        <div id="channel-list" class="channel-list">
-                            <!-- Channels loaded dynamically -->
-                        </div>
-                    </div>
-                </div>
+                <div class="status-grid" id="status-cards"></div>
+                <div class="card"><div class="card-header"><h3>Active Channels</h3></div><div class="card-body"><div id="channel-list" class="channel-list"></div></div></div>
             </div>
         </div>
     </main>
 
-    <!-- Session Modal -->
     <div id="session-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event, 'session-modal')">
         <div class="modal" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <h2 id="session-modal-title">New Session</h2>
-                <button class="modal-close" onclick="closeModal('session-modal')">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                </button>
-            </div>
+            <div class="modal-header"><h2 id="session-modal-title">New Session</h2><button class="modal-close" onclick="closeModal('session-modal')">✕</button></div>
             <div class="modal-body">
                 <input type="hidden" id="edit-session-id" value="">
-                
-                <div class="form-group">
-                    <label class="form-label">Session Name</label>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <input type="text" class="form-control" id="session-name" placeholder="Auto-generated from selection">
-                        <select class="form-control" id="name-mode" style="width: auto;">
-                            <option value="auto">Auto</option>
-                            <option value="custom">Custom</option>
-                        </select>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Theme</label>
-                    <div id="modal-theme-selector" class="grid-themes" style="max-height: 200px; overflow-y: auto;">
-                        <!-- Themes loaded dynamically -->
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Speakers</label>
-                    <select class="form-control" id="speaker-group-select" style="margin-bottom: 0.5rem;">
-                        <option value="">Select manually below...</option>
-                    </select>
-                    <div id="modal-speaker-tree" class="speaker-tree">
-                        <!-- Speaker tree loaded dynamically -->
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Volume</label>
-                    <div class="volume-control">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-                        </svg>
-                        <input type="range" class="volume-slider" id="modal-volume" min="0" max="100" value="60">
-                        <span class="volume-value" id="modal-volume-value">60%</span>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Theme Cycling</label>
-                    <div class="cycle-panel" id="modal-cycle-panel">
-                        <div class="cycle-header">
-                            <label class="cycle-toggle">
-                                <input type="checkbox" id="modal-cycle-enabled">
-                                Enable auto-cycling
-                            </label>
-                        </div>
-                        <div class="cycle-controls" id="modal-cycle-controls" style="display: none;">
-                            <div class="cycle-field">
-                                <label>Interval</label>
-                                <select id="modal-cycle-interval">
-                                    <option value="1">1 min</option>
-                                    <option value="5">5 min</option>
-                                    <option value="10">10 min</option>
-                                    <option value="15">15 min</option>
-                                    <option value="30">30 min</option>
-                                    <option value="60" selected>1 hour</option>
-                                    <option value="120">2 hours</option>
-                                    <option value="240">4 hours</option>
-                                </select>
-                            </div>
-                            <div class="cycle-field">
-                                <label>Order</label>
-                                <select id="modal-cycle-randomize">
-                                    <option value="false">Sequential</option>
-                                    <option value="true">Random</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <div class="form-group"><label class="form-label">Session Name</label><div style="display: flex; gap: 0.5rem;"><input type="text" class="form-control" id="session-name" placeholder="Auto-generated"><select class="form-control" id="name-mode" style="width: auto;"><option value="auto">Auto</option><option value="custom">Custom</option></select></div></div>
+                <div class="form-group"><label class="form-label">Theme</label><div id="modal-theme-selector" class="grid-themes" style="max-height: 200px; overflow-y: auto;"></div></div>
+                <div class="form-group"><label class="form-label">Speakers</label><select class="form-control" id="speaker-group-select" style="margin-bottom: 0.5rem;" onchange="applyGroupSelection(this.value)"><option value="">Select manually below...</option></select><div id="modal-speaker-tree" class="speaker-tree"></div></div>
+                <div class="form-group"><label class="form-label">Volume</label><div class="volume-control"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg><input type="range" class="volume-slider" id="modal-volume" min="0" max="100" value="60"><span class="volume-value" id="modal-volume-value">60%</span></div></div>
+                <div class="form-group"><label class="form-label">Theme Cycling</label><div class="cycle-panel" id="modal-cycle-panel"><div class="cycle-header"><label class="cycle-toggle"><input type="checkbox" id="modal-cycle-enabled">Enable auto-cycling</label></div><div class="cycle-controls" id="modal-cycle-controls" style="display: none;"><div class="cycle-field"><label>Interval</label><select id="modal-cycle-interval"><option value="1">1 min</option><option value="5">5 min</option><option value="10">10 min</option><option value="15">15 min</option><option value="30">30 min</option><option value="60" selected>1 hour</option><option value="120">2 hours</option></select></div><div class="cycle-field"><label>Order</label><select id="modal-cycle-randomize"><option value="false">Sequential</option><option value="true">Random</option></select></div></div></div></div>
             </div>
-            <div class="modal-footer">
-                <button id="delete-session-btn" class="btn btn-danger" onclick="deleteSession()" style="display: none;">Delete</button>
-                <div style="flex: 1;"></div>
-                <button class="btn btn-secondary" onclick="closeModal('session-modal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveSession()">Save</button>
-            </div>
+            <div class="modal-footer"><button id="delete-session-btn" class="btn btn-danger" onclick="deleteSession()" style="display: none;">Delete</button><div style="flex: 1;"></div><button class="btn btn-secondary" onclick="closeModal('session-modal')">Cancel</button><button class="btn btn-primary" onclick="saveSession()">Save</button></div>
         </div>
     </div>
 
-    <!-- Group Modal -->
     <div id="group-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event, 'group-modal')">
         <div class="modal" onclick="event.stopPropagation()">
-            <div class="modal-header">
-                <h2 id="group-modal-title">New Speaker Group</h2>
-                <button class="modal-close" onclick="closeModal('group-modal')">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="18" y1="6" x2="6" y2="18"/>
-                        <line x1="6" y1="6" x2="18" y2="18"/>
-                    </svg>
-                </button>
-            </div>
+            <div class="modal-header"><h2 id="group-modal-title">New Speaker Group</h2><button class="modal-close" onclick="closeModal('group-modal')">✕</button></div>
             <div class="modal-body">
                 <input type="hidden" id="edit-group-id" value="">
-                
-                <div class="form-group">
-                    <label class="form-label">Group Name</label>
-                    <input type="text" class="form-control" id="group-name" placeholder="e.g., Living Room Speakers">
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">Select Speakers</label>
-                    <div id="group-speaker-tree" class="speaker-tree">
-                        <!-- Speaker tree loaded dynamically -->
-                    </div>
-                </div>
+                <div class="form-group"><label class="form-label">Group Name</label><input type="text" class="form-control" id="group-name" placeholder="e.g., Living Room Speakers"></div>
+                <div class="form-group"><label class="form-label">Select Speakers</label><div id="group-speaker-tree" class="speaker-tree"></div></div>
             </div>
-            <div class="modal-footer">
-                <button id="delete-group-btn" class="btn btn-danger" onclick="deleteGroup()" style="display: none;">Delete</button>
-                <div style="flex: 1;"></div>
-                <button class="btn btn-secondary" onclick="closeModal('group-modal')">Cancel</button>
-                <button class="btn btn-primary" onclick="saveGroup()">Save</button>
-            </div>
+            <div class="modal-footer"><button id="delete-group-btn" class="btn btn-danger" onclick="deleteGroup()" style="display: none;">Delete</button><div style="flex: 1;"></div><button class="btn btn-secondary" onclick="closeModal('group-modal')">Cancel</button><button class="btn btn-primary" onclick="saveGroup()">Save</button></div>
         </div>
     </div>
 
-    <!-- Toast Container -->
     <div id="toast-container" class="toast-container"></div>
 
     <script>
-        // ============================================================
-        // State Management
-        // ============================================================
-        let sessions = [];
-        let themes = [];
-        let speakerHierarchy = null;
-        let speakerGroups = [];
-        let settings = {};
+        let sessions = [], themes = [], speakerHierarchy = null, speakerGroups = [], settings = {};
         let selectedTheme = null;
-        let selectedSpeakers = {
-            floors: [], areas: [], speakers: [],
-            excludeAreas: [], excludeSpeakers: []
-        };
-        let groupSelectedSpeakers = {
-            floors: [], areas: [], speakers: [],
-            excludeAreas: [], excludeSpeakers: []
-        };
-        let cycleTimers = {};
-        let currentView = 'sessions';
+        let selectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
+        let groupSelectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
+        let cycleTimers = {}, currentView = 'sessions';
 
-        const themeIcons = {
-            'primeval-forest': '🌲', 'stormy-weather': '⛈️', 'ocean-waves': '🌊',
-            'furry-friend': '🐱', 'thunder': '⚡', 'waterfall': '💧',
-            'rain': '🌧️', 'fireplace': '🔥', 'wind': '💨', 'birds': '🐦',
-            'crickets': '🦗', 'night': '🌙', 'cafe': '☕', 'city': '🏙️',
-            'default': '🎵'
-        };
+        const themeIcons = { 'primeval-forest': '🌲', 'stormy-weather': '⛈️', 'ocean-waves': '🌊', 'furry-friend': '🐱', 'thunder': '⚡', 'waterfall': '💧', 'rain': '🌧️', 'fireplace': '🔥', 'wind': '💨', 'birds': '🐦', 'night-wildlife': '🦉', 'default': '🎵' };
 
-        // ============================================================
-        // API Helper
-        // ============================================================
         async function api(method, endpoint, data = null) {
             const options = { method, headers: { 'Content-Type': 'application/json' } };
             if (data) options.body = JSON.stringify(data);
             const response = await fetch(`/api${endpoint}`, options);
-            if (!response.ok) {
-                const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-                throw new Error(error.detail || 'Request failed');
-            }
+            if (!response.ok) { const error = await response.json().catch(() => ({ detail: 'Unknown error' })); throw new Error(error.detail || 'Request failed'); }
             if (response.status === 204) return null;
             return response.json();
         }
 
-        // ============================================================
-        // Initialization
-        // ============================================================
         async function init() {
             try {
-                await Promise.all([
-                    loadSessions(), loadThemes(), loadSpeakerHierarchy(),
-                    loadSpeakerGroups(), loadSettings()
-                ]);
+                await Promise.all([loadSessions(), loadThemes(), loadSpeakerHierarchy(), loadSpeakerGroups(), loadSettings()]);
                 renderCurrentView();
                 startCyclePolling();
                 updatePlayingCount();
+                console.log('Speaker hierarchy:', speakerHierarchy);
             } catch (error) {
                 console.error('Init error:', error);
-                showToast('Failed to load data', 'error');
+                showToast('Failed to load data: ' + error.message, 'error');
             }
         }
 
         async function loadSessions() { sessions = await api('GET', '/sessions'); }
         async function loadThemes() { themes = await api('GET', '/themes'); }
-        async function loadSpeakerHierarchy() { speakerHierarchy = await api('GET', '/speakers/hierarchy'); }
+        async function loadSpeakerHierarchy() { 
+            try {
+                speakerHierarchy = await api('GET', '/speakers/hierarchy');
+                console.log('Loaded speaker hierarchy:', speakerHierarchy);
+            } catch(e) {
+                console.error('Failed to load speaker hierarchy:', e);
+                speakerHierarchy = { floors: [], unassigned_areas: [], unassigned_speakers: [] };
+            }
+        }
         async function loadSpeakerGroups() { speakerGroups = await api('GET', '/groups'); }
         async function loadSettings() { settings = await api('GET', '/settings'); }
 
-        // ============================================================
-        // Navigation
-        // ============================================================
         function showView(viewName) {
             currentView = viewName;
-            
-            // Update nav items
-            document.querySelectorAll('.nav-item').forEach(item => {
-                item.classList.toggle('active', item.dataset.view === viewName);
-            });
-            
-            // Update views
-            document.querySelectorAll('.view').forEach(view => {
-                view.classList.toggle('active', view.id === `view-${viewName}`);
-            });
-            
+            document.querySelectorAll('.nav-item').forEach(item => item.classList.toggle('active', item.dataset.view === viewName));
+            document.querySelectorAll('.view').forEach(view => view.classList.toggle('active', view.id === `view-${viewName}`));
             renderCurrentView();
-            
-            // Close mobile sidebar
-            if (window.innerWidth <= 1024) {
-                document.getElementById('sidebar').classList.remove('open');
-                document.querySelector('.sidebar-overlay').classList.remove('active');
-            }
+            if (window.innerWidth <= 1024) { document.getElementById('sidebar').classList.remove('open'); document.querySelector('.sidebar-overlay').classList.remove('active'); }
         }
 
         function renderCurrentView() {
@@ -1718,33 +477,14 @@
             }
         }
 
-        function toggleSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.querySelector('.sidebar-overlay');
-            sidebar.classList.toggle('open');
-            overlay.classList.toggle('active');
-        }
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); document.querySelector('.sidebar-overlay').classList.toggle('active'); }
 
-        // ============================================================
-        // Sessions View
-        // ============================================================
         function renderSessions() {
             const container = document.getElementById('sessions-container');
-            
             if (sessions.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state" style="grid-column: 1 / -1;">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polygon points="5 3 19 12 5 21 5 3"/>
-                        </svg>
-                        <h3>No Sessions Yet</h3>
-                        <p>Create a session to start playing ambient soundscapes</p>
-                        <button class="btn btn-primary" onclick="openNewSessionModal()">Create First Session</button>
-                    </div>
-                `;
+                container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><h3>No Sessions Yet</h3><p>Create a session to start playing ambient soundscapes</p><button class="btn btn-primary" onclick="openNewSessionModal()">Create First Session</button></div>`;
                 return;
             }
-
             container.innerHTML = sessions.map(renderSessionCard).join('');
             updatePlayingCount();
         }
@@ -1755,254 +495,76 @@
             const isCycling = session.cycle_config?.enabled && isPlaying;
             const themeName = themes.find(t => t.id === session.theme_id)?.name || 'No theme';
             
-            return `
-                <div class="session-card ${isPlaying ? 'playing' : ''} ${isCycling ? 'cycling' : ''}">
-                    <div class="session-card-header">
-                        <div class="session-title">
-                            <span class="session-icon">${icon}</span>
-                            <div>
-                                <div class="session-name">${escapeHtml(session.name)}</div>
-                                <div class="session-meta">${session.speakers.length} speakers • ${themeName}</div>
-                            </div>
-                        </div>
-                        <div class="session-badges">
-                            ${isCycling ? '<span class="badge badge-cycling">Cycling</span>' : ''}
-                            <span class="badge ${isPlaying ? 'badge-playing' : 'badge-stopped'}">
-                                ${isPlaying ? 'Playing' : 'Stopped'}
-                            </span>
-                        </div>
-                    </div>
-                    <div class="session-card-body">
-                        <div class="form-group">
-                            <label class="form-label">Theme</label>
-                            <select class="form-control" onchange="updateSessionTheme('${session.id}', this.value)">
-                                <option value="">Select theme...</option>
-                                ${themes.map(t => `<option value="${t.id}" ${session.theme_id === t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}
-                            </select>
-                        </div>
-
-                        <div class="form-group">
-                            <label class="form-label">Speakers</label>
-                            <div class="speaker-chips">
-                                ${session.speakers.slice(0, 4).map(s => `<span class="speaker-chip">${escapeHtml(getSpeakerName(s))}</span>`).join('')}
-                                ${session.speakers.length > 4 ? `<span class="speaker-chip">+${session.speakers.length - 4} more</span>` : ''}
-                                ${session.speakers.length === 0 ? '<span class="speaker-chip">None selected</span>' : ''}
-                            </div>
-                        </div>
-
-                        <div class="form-group">
-                            <div class="volume-control">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                                </svg>
-                                <input type="range" class="volume-slider" min="0" max="100" value="${session.volume}" 
-                                       onchange="updateSessionVolume('${session.id}', this.value)">
-                                <span class="volume-value">${session.volume}%</span>
-                            </div>
-                        </div>
-
-                        <div class="cycle-panel ${isCycling ? 'active' : ''}">
-                            <div class="cycle-header">
-                                <label class="cycle-toggle">
-                                    <input type="checkbox" ${session.cycle_config?.enabled ? 'checked' : ''} 
-                                           onchange="toggleCycling('${session.id}', this.checked)">
-                                    Auto-cycle themes
-                                </label>
-                                <span class="cycle-status ${isCycling ? 'active' : ''}">
-                                    ${isCycling ? `Every ${session.cycle_config.interval_minutes}m` : 'Off'}
-                                </span>
-                            </div>
-                            ${session.cycle_config?.enabled ? `
-                            <div class="cycle-controls">
-                                <div class="cycle-field">
-                                    <label>Interval</label>
-                                    <select onchange="updateCycleInterval('${session.id}', this.value)">
-                                        ${[1,5,10,15,30,60,120,240].map(m => `<option value="${m}" ${session.cycle_config.interval_minutes === m ? 'selected' : ''}>${m < 60 ? m + 'm' : (m/60) + 'h'}</option>`).join('')}
-                                    </select>
-                                </div>
-                                <div class="cycle-field">
-                                    <label>Order</label>
-                                    <select onchange="updateCycleRandomize('${session.id}', this.value)">
-                                        <option value="false" ${!session.cycle_config.randomize ? 'selected' : ''}>Sequential</option>
-                                        <option value="true" ${session.cycle_config.randomize ? 'selected' : ''}>Random</option>
-                                    </select>
-                                </div>
-                                <button class="btn btn-cycle btn-small" onclick="skipToNext('${session.id}')" ${!isPlaying ? 'disabled' : ''}>⏭ Skip</button>
-                            </div>
-                            ${isPlaying ? `
-                            <div class="cycle-countdown">
-                                <div class="time" id="cycle-countdown-${session.id}">--:--</div>
-                                <div class="label">until next theme</div>
-                            </div>
-                            ` : ''}
-                            ` : ''}
-                        </div>
-
-                        <div class="playback-controls">
-                            <button class="btn btn-play ${isPlaying ? 'playing' : ''}" onclick="togglePlayback('${session.id}')">
-                                ${isPlaying ? '⏸ Pause' : '▶ Play'}
-                            </button>
-                            <button class="btn btn-secondary" onclick="editSession('${session.id}')">✏️ Edit</button>
-                            <button class="btn btn-secondary" onclick="stopSession('${session.id}')">⏹ Stop</button>
-                        </div>
-                    </div>
+            return `<div class="session-card ${isPlaying ? 'playing' : ''} ${isCycling ? 'cycling' : ''}">
+                <div class="session-card-header">
+                    <div class="session-title"><span class="session-icon">${icon}</span><div><div class="session-name">${escapeHtml(session.name)}</div><div class="session-meta">${session.speakers.length} speakers • ${themeName}</div></div></div>
+                    <div class="session-badges">${isCycling ? '<span class="badge badge-cycling">Cycling</span>' : ''}<span class="badge ${isPlaying ? 'badge-playing' : 'badge-stopped'}">${isPlaying ? 'Playing' : 'Stopped'}</span></div>
                 </div>
-            `;
+                <div class="session-card-body">
+                    <div class="form-group"><label class="form-label">Theme</label><select class="form-control" onchange="updateSessionTheme('${session.id}', this.value)"><option value="">Select theme...</option>${themes.map(t => `<option value="${t.id}" ${session.theme_id === t.id ? 'selected' : ''}>${escapeHtml(t.name)}</option>`).join('')}</select></div>
+                    <div class="form-group"><label class="form-label">Speakers</label><div class="speaker-chips">${session.speakers.slice(0, 4).map(s => `<span class="speaker-chip">${escapeHtml(getSpeakerName(s))}</span>`).join('')}${session.speakers.length > 4 ? `<span class="speaker-chip">+${session.speakers.length - 4}</span>` : ''}${session.speakers.length === 0 ? '<span class="speaker-chip">None</span>' : ''}</div></div>
+                    <div class="form-group"><div class="volume-control"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/></svg><input type="range" class="volume-slider" min="0" max="100" value="${session.volume}" onchange="updateSessionVolume('${session.id}', this.value)"><span class="volume-value">${session.volume}%</span></div></div>
+                    <div class="cycle-panel ${isCycling ? 'active' : ''}"><div class="cycle-header"><label class="cycle-toggle"><input type="checkbox" ${session.cycle_config?.enabled ? 'checked' : ''} onchange="toggleCycling('${session.id}', this.checked)">Auto-cycle</label><span class="cycle-status ${isCycling ? 'active' : ''}">${isCycling ? `Every ${session.cycle_config.interval_minutes}m` : 'Off'}</span></div>${session.cycle_config?.enabled ? `<div class="cycle-controls"><div class="cycle-field"><label>Interval</label><select onchange="updateCycleInterval('${session.id}', this.value)">${[1,5,10,15,30,60,120].map(m => `<option value="${m}" ${session.cycle_config.interval_minutes === m ? 'selected' : ''}>${m < 60 ? m + 'm' : (m/60) + 'h'}</option>`).join('')}</select></div><div class="cycle-field"><label>Order</label><select onchange="updateCycleRandomize('${session.id}', this.value)"><option value="false" ${!session.cycle_config.randomize ? 'selected' : ''}>Sequential</option><option value="true" ${session.cycle_config.randomize ? 'selected' : ''}>Random</option></select></div><button class="btn btn-cycle btn-small" onclick="skipToNext('${session.id}')" ${!isPlaying ? 'disabled' : ''}>⏭</button></div>${isPlaying ? `<div class="cycle-countdown"><div class="time" id="cycle-countdown-${session.id}">--:--</div><div class="label">next theme</div></div>` : ''}` : ''}</div>
+                    <div class="playback-controls"><button class="btn btn-play ${isPlaying ? 'playing' : ''}" onclick="togglePlayback('${session.id}')">${isPlaying ? '⏸ Pause' : '▶ Play'}</button><button class="btn btn-secondary" onclick="editSession('${session.id}')">✏️</button><button class="btn btn-secondary" onclick="stopSession('${session.id}')">⏹</button></div>
+                </div>
+            </div>`;
         }
 
-        function updatePlayingCount() {
-            const count = sessions.filter(s => s.is_playing).length;
-            document.getElementById('playing-count').textContent = count;
-        }
+        function updatePlayingCount() { document.getElementById('playing-count').textContent = sessions.filter(s => s.is_playing).length; }
 
-        // ============================================================
-        // Speakers View
-        // ============================================================
         function renderSpeakers() {
             const container = document.getElementById('speakers-container');
-            if (!speakerHierarchy) {
-                container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+            if (!speakerHierarchy) { container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>'; return; }
+            
+            const totalSpeakers = getTotalSpeakerCount();
+            if (totalSpeakers === 0) {
+                container.innerHTML = `<div class="empty-state"><h3>No Speakers Found</h3><p>Make sure Home Assistant has media_player entities configured. Click Refresh to rescan.</p><button class="btn btn-primary" onclick="refreshSpeakers()">Refresh from HA</button></div>`;
                 return;
             }
-
-            let html = '<div class="speaker-tree" style="max-height: none;">';
             
-            for (const floor of speakerHierarchy.floors) {
+            let html = '<div class="speaker-tree" style="max-height: none;">';
+            for (const floor of (speakerHierarchy.floors || [])) {
                 const speakerCount = floor.areas.reduce((sum, a) => sum + a.speakers.length, 0);
-                html += `
-                    <div class="tree-floor">
-                        <div class="tree-floor-header">
-                            <span class="tree-floor-name">🏢 ${escapeHtml(floor.name)}</span>
-                            <span class="tree-floor-count">${speakerCount} speakers</span>
-                        </div>
-                        <div class="tree-areas">
-                            ${floor.areas.map(area => `
-                                <div class="tree-area">
-                                    <div class="tree-area-header">
-                                        <span>🏠 ${escapeHtml(area.name)}</span>
-                                        <span class="tree-floor-count">${area.speakers.length}</span>
-                                    </div>
-                                    <div class="tree-speakers">
-                                        ${area.speakers.map(s => `
-                                            <div class="tree-speaker">🔊 ${escapeHtml(s.name)}</div>
-                                        `).join('')}
-                                    </div>
-                                </div>
-                            `).join('')}
-                        </div>
-                    </div>
-                `;
+                html += `<div class="tree-floor"><div class="tree-floor-header"><span class="tree-floor-name">🏢 ${escapeHtml(floor.name)}</span><span class="tree-floor-count">${speakerCount} speakers</span></div><div class="tree-areas">${floor.areas.map(area => `<div class="tree-area"><div class="tree-area-header"><span>🏠 ${escapeHtml(area.name)}</span><span class="tree-floor-count">${area.speakers.length}</span></div><div class="tree-speakers">${area.speakers.map(s => `<div class="tree-speaker">🔊 ${escapeHtml(s.name)}</div>`).join('')}</div></div>`).join('')}</div></div>`;
             }
-
-            if (speakerHierarchy.unassigned_speakers.length > 0) {
-                html += `
-                    <div class="tree-floor">
-                        <div class="tree-floor-header">
-                            <span class="tree-floor-name">📦 Unassigned</span>
-                            <span class="tree-floor-count">${speakerHierarchy.unassigned_speakers.length}</span>
-                        </div>
-                        <div class="tree-speakers" style="margin-left: 1.5rem;">
-                            ${speakerHierarchy.unassigned_speakers.map(s => `
-                                <div class="tree-speaker">🔊 ${escapeHtml(s.name)}</div>
-                            `).join('')}
-                        </div>
-                    </div>
-                `;
+            for (const area of (speakerHierarchy.unassigned_areas || [])) {
+                html += `<div class="tree-floor"><div class="tree-floor-header"><span class="tree-floor-name">🏠 ${escapeHtml(area.name)}</span><span class="tree-floor-count">${area.speakers.length}</span></div><div class="tree-speakers" style="margin-left: 1.5rem;">${area.speakers.map(s => `<div class="tree-speaker">🔊 ${escapeHtml(s.name)}</div>`).join('')}</div></div>`;
             }
-
+            if ((speakerHierarchy.unassigned_speakers || []).length > 0) {
+                html += `<div class="tree-floor"><div class="tree-floor-header"><span class="tree-floor-name">📦 Unassigned</span><span class="tree-floor-count">${speakerHierarchy.unassigned_speakers.length}</span></div><div class="tree-speakers" style="margin-left: 1.5rem;">${speakerHierarchy.unassigned_speakers.map(s => `<div class="tree-speaker">🔊 ${escapeHtml(s.name)}</div>`).join('')}</div></div>`;
+            }
             html += '</div>';
             container.innerHTML = html;
         }
 
-        async function refreshSpeakers() {
-            try {
-                await api('POST', '/speakers/refresh');
-                await loadSpeakerHierarchy();
-                renderSpeakers();
-                showToast('Speakers refreshed', 'success');
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
+        function getTotalSpeakerCount() {
+            if (!speakerHierarchy) return 0;
+            let count = 0;
+            for (const floor of (speakerHierarchy.floors || [])) { for (const area of floor.areas) { count += area.speakers.length; } }
+            for (const area of (speakerHierarchy.unassigned_areas || [])) { count += area.speakers.length; }
+            count += (speakerHierarchy.unassigned_speakers || []).length;
+            return count;
         }
 
-        // ============================================================
-        // Groups View
-        // ============================================================
+        async function refreshSpeakers() {
+            try { await api('POST', '/speakers/refresh'); await loadSpeakerHierarchy(); renderSpeakers(); showToast('Speakers refreshed', 'success'); }
+            catch (error) { showToast(error.message, 'error'); }
+        }
+
         function renderGroups() {
             const container = document.getElementById('groups-container');
-            
-            if (speakerGroups.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state" style="grid-column: 1 / -1;">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
-                            <circle cx="9" cy="7" r="4"/>
-                        </svg>
-                        <h3>No Speaker Groups</h3>
-                        <p>Create groups to quickly select multiple speakers</p>
-                        <button class="btn btn-primary" onclick="openNewGroupModal()">Create First Group</button>
-                    </div>
-                `;
-                return;
-            }
-
-            container.innerHTML = speakerGroups.map(group => `
-                <div class="group-card">
-                    <div class="group-card-header">
-                        <div class="group-card-title">
-                            <span class="group-card-icon">🔊</span>
-                            <span class="group-card-name">${escapeHtml(group.name)}</span>
-                        </div>
-                        <div class="group-card-actions">
-                            <button class="btn btn-secondary btn-small" onclick="editGroup('${group.id}')">Edit</button>
-                        </div>
-                    </div>
-                    <div class="group-card-count">${group.speaker_count} speakers</div>
-                    <div class="speaker-chips" style="margin-top: 0.75rem;">
-                        ${group.speakers.slice(0, 3).map(s => `<span class="speaker-chip">${escapeHtml(getSpeakerName(s))}</span>`).join('')}
-                        ${group.speakers.length > 3 ? `<span class="speaker-chip">+${group.speakers.length - 3}</span>` : ''}
-                    </div>
-                </div>
-            `).join('');
+            if (speakerGroups.length === 0) { container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><h3>No Speaker Groups</h3><p>Create groups to quickly select multiple speakers</p><button class="btn btn-primary" onclick="openNewGroupModal()">Create First Group</button></div>`; return; }
+            container.innerHTML = speakerGroups.map(group => `<div class="group-card"><div class="group-card-header"><div class="group-card-title"><span class="group-card-icon">🔊</span><span class="group-card-name">${escapeHtml(group.name)}</span></div><button class="btn btn-secondary btn-small" onclick="editGroup('${group.id}')">Edit</button></div><div class="group-card-count">${group.speaker_count} speakers</div><div class="speaker-chips" style="margin-top: 0.75rem;">${group.speakers.slice(0, 3).map(s => `<span class="speaker-chip">${escapeHtml(getSpeakerName(s))}</span>`).join('')}${group.speakers.length > 3 ? `<span class="speaker-chip">+${group.speakers.length - 3}</span>` : ''}</div></div>`).join('');
         }
 
-        // ============================================================
-        // Themes View
-        // ============================================================
         function renderThemes() {
             const container = document.getElementById('themes-container');
-            
-            if (themes.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state" style="grid-column: 1 / -1;">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <circle cx="12" cy="12" r="10"/>
-                            <polygon points="10 8 16 12 10 16 10 8"/>
-                        </svg>
-                        <h3>No Themes Found</h3>
-                        <p>Add audio files to /media/sonorium to create themes</p>
-                    </div>
-                `;
-                return;
-            }
-
-            container.innerHTML = themes.map(theme => `
-                <div class="theme-card" onclick="playThemePreview('${theme.id}')">
-                    <div class="theme-card-icon">${getThemeIcon(theme.id)}</div>
-                    <div class="theme-card-name">${escapeHtml(theme.name)}</div>
-                    <div class="theme-card-tracks">${theme.track_count} tracks</div>
-                </div>
-            `).join('');
+            if (themes.length === 0) { container.innerHTML = `<div class="empty-state" style="grid-column: 1 / -1;"><h3>No Themes Found</h3><p>Add audio files to /media/sonorium to create themes</p></div>`; return; }
+            container.innerHTML = themes.map(theme => `<div class="theme-card" onclick="playThemePreview('${theme.id}')"><div class="theme-card-icon">${getThemeIcon(theme.id)}</div><div class="theme-card-name">${escapeHtml(theme.name)}</div><div class="theme-card-tracks">${theme.track_count} tracks</div></div>`).join('');
         }
 
-        function playThemePreview(themeId) {
-            window.open(`/stream/${themeId}`, '_blank');
-            showToast('Opening audio stream...', 'success');
-        }
+        function playThemePreview(themeId) { window.open(`/stream/${themeId}`, '_blank'); }
 
-        // ============================================================
-        // Settings View
-        // ============================================================
         function renderSettings() {
             document.getElementById('setting-default-volume').value = settings.default_volume || 60;
             document.getElementById('setting-crossfade').value = settings.crossfade_duration || 3;
@@ -2014,215 +576,38 @@
 
         async function saveSettings() {
             try {
-                await api('PUT', '/settings', {
-                    default_volume: parseInt(document.getElementById('setting-default-volume').value),
-                    crossfade_duration: parseFloat(document.getElementById('setting-crossfade').value),
-                    default_cycle_interval: parseInt(document.getElementById('setting-cycle-interval').value),
-                    default_cycle_randomize: document.getElementById('setting-cycle-randomize').value === 'true',
-                    max_sessions: parseInt(document.getElementById('setting-max-sessions').value),
-                    max_groups: parseInt(document.getElementById('setting-max-groups').value)
-                });
+                await api('PUT', '/settings', { default_volume: parseInt(document.getElementById('setting-default-volume').value), crossfade_duration: parseFloat(document.getElementById('setting-crossfade').value), default_cycle_interval: parseInt(document.getElementById('setting-cycle-interval').value), default_cycle_randomize: document.getElementById('setting-cycle-randomize').value === 'true', max_sessions: parseInt(document.getElementById('setting-max-sessions').value), max_groups: parseInt(document.getElementById('setting-max-groups').value) });
                 showToast('Settings saved', 'success');
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
+            } catch (error) { showToast(error.message, 'error'); }
         }
 
-        // ============================================================
-        // Status View
-        // ============================================================
         async function renderStatus() {
             try {
                 const status = await api('GET', '/status');
                 const channels = await api('GET', '/channels');
-                
-                document.getElementById('status-cards').innerHTML = `
-                    <div class="status-card">
-                        <div class="status-card-label">Version</div>
-                        <div class="status-card-value">${status.version}</div>
-                    </div>
-                    <div class="status-card">
-                        <div class="status-card-label">Sessions</div>
-                        <div class="status-card-value">${status.sessions || 0}</div>
-                    </div>
-                    <div class="status-card">
-                        <div class="status-card-label">Active Channels</div>
-                        <div class="status-card-value ${status.active_channels > 0 ? 'success' : ''}">${status.active_channels || 0} / ${status.channels || 6}</div>
-                    </div>
-                    <div class="status-card">
-                        <div class="status-card-label">Themes</div>
-                        <div class="status-card-value">${status.themes?.length || 0}</div>
-                    </div>
-                    <div class="status-card">
-                        <div class="status-card-label">Cycling Sessions</div>
-                        <div class="status-card-value ${status.cycling_sessions > 0 ? 'warning' : ''}">${status.cycling_sessions || 0}</div>
-                    </div>
-                `;
-
-                document.getElementById('channel-list').innerHTML = channels.length > 0 
-                    ? channels.map(ch => `
-                        <div class="channel-item">
-                            <span class="channel-id">CH${ch.id}</span>
-                            <span class="channel-theme">${ch.current_theme_name || 'No theme'}</span>
-                            <span class="channel-clients">${ch.client_count} clients</span>
-                            <span class="channel-status ${ch.state === 'active' ? 'active' : 'idle'}">${ch.state}</span>
-                        </div>
-                    `).join('')
-                    : '<div style="color: var(--text-muted); padding: 1rem;">No channels active</div>';
-            } catch (error) {
-                showToast('Failed to load status', 'error');
-            }
+                document.getElementById('status-cards').innerHTML = `<div class="status-card"><div class="status-card-label">Version</div><div class="status-card-value">${status.version || 'unknown'}</div></div><div class="status-card"><div class="status-card-label">Sessions</div><div class="status-card-value">${status.sessions || 0}</div></div><div class="status-card"><div class="status-card-label">Active Channels</div><div class="status-card-value ${status.active_channels > 0 ? 'success' : ''}">${status.active_channels || 0} / ${status.channels || 6}</div></div><div class="status-card"><div class="status-card-label">Speakers</div><div class="status-card-value">${getTotalSpeakerCount()}</div></div>`;
+                document.getElementById('channel-list').innerHTML = channels.length > 0 ? channels.map(ch => `<div class="channel-item"><span class="channel-id">CH${ch.id}</span><span class="channel-theme">${ch.current_theme_name || 'No theme'}</span><span class="channel-clients">${ch.client_count} clients</span><span class="channel-status ${ch.state === 'active' ? 'active' : 'idle'}">${ch.state}</span></div>`).join('') : '<div style="color: var(--text-muted); padding: 1rem;">No channels active</div>';
+            } catch (error) { showToast('Failed to load status', 'error'); }
         }
 
-        async function refreshStatus() {
-            await renderStatus();
-            showToast('Status refreshed', 'success');
-        }
+        async function refreshStatus() { await renderStatus(); showToast('Status refreshed', 'success'); }
 
-        // ============================================================
-        // Session Actions
-        // ============================================================
-        async function togglePlayback(sessionId) {
-            const session = sessions.find(s => s.id === sessionId);
-            if (!session) return;
-            try {
-                if (session.is_playing) {
-                    await api('POST', `/sessions/${sessionId}/pause`);
-                } else {
-                    await api('POST', `/sessions/${sessionId}/play`);
-                }
-                await loadSessions();
-                renderSessions();
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
+        async function togglePlayback(sessionId) { const session = sessions.find(s => s.id === sessionId); if (!session) return; try { if (session.is_playing) { await api('POST', `/sessions/${sessionId}/pause`); } else { await api('POST', `/sessions/${sessionId}/play`); } await loadSessions(); renderSessions(); } catch (error) { showToast(error.message, 'error'); } }
+        async function stopSession(sessionId) { try { await api('POST', `/sessions/${sessionId}/stop`); delete cycleTimers[sessionId]; await loadSessions(); renderSessions(); } catch (error) { showToast(error.message, 'error'); } }
+        async function stopAllSessions() { try { await api('POST', '/sessions/stop-all'); cycleTimers = {}; await loadSessions(); renderSessions(); showToast('All stopped', 'success'); } catch (error) { showToast(error.message, 'error'); } }
+        async function updateSessionTheme(sessionId, themeId) { try { await api('PUT', `/sessions/${sessionId}`, { theme_id: themeId || null }); await loadSessions(); renderSessions(); } catch (error) { showToast(error.message, 'error'); } }
+        async function updateSessionVolume(sessionId, volume) { try { await api('POST', `/sessions/${sessionId}/volume`, { volume: parseInt(volume) }); const session = sessions.find(s => s.id === sessionId); if (session) session.volume = parseInt(volume); } catch (error) { showToast(error.message, 'error'); } }
 
-        async function stopSession(sessionId) {
-            try {
-                await api('POST', `/sessions/${sessionId}/stop`);
-                delete cycleTimers[sessionId];
-                await loadSessions();
-                renderSessions();
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
+        async function toggleCycling(sessionId, enabled) { try { await api('PUT', `/sessions/${sessionId}/cycle`, { enabled }); await loadSessions(); renderSessions(); } catch (error) { showToast(error.message, 'error'); } }
+        async function updateCycleInterval(sessionId, interval) { try { await api('PUT', `/sessions/${sessionId}/cycle`, { interval_minutes: parseInt(interval) }); await loadSessions(); renderSessions(); } catch (error) { showToast(error.message, 'error'); } }
+        async function updateCycleRandomize(sessionId, randomize) { try { await api('PUT', `/sessions/${sessionId}/cycle`, { randomize: randomize === 'true' }); await loadSessions(); renderSessions(); } catch (error) { showToast(error.message, 'error'); } }
+        async function skipToNext(sessionId) { try { await api('POST', `/sessions/${sessionId}/cycle/skip`); await loadSessions(); renderSessions(); showToast('Skipped', 'success'); } catch (error) { showToast(error.message, 'error'); } }
 
-        async function stopAllSessions() {
-            try {
-                await api('POST', '/sessions/stop-all');
-                cycleTimers = {};
-                await loadSessions();
-                renderSessions();
-                showToast('All sessions stopped', 'success');
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
+        function startCyclePolling() { setInterval(updateCycleCountdowns, 1000); setInterval(refreshCycleStatuses, 30000); }
+        async function refreshCycleStatuses() { for (const session of sessions) { if (session.is_playing && session.cycle_config?.enabled) { try { const status = await api('GET', `/sessions/${session.id}/cycle`); if (status.seconds_until_change !== null) { cycleTimers[session.id] = status.seconds_until_change; } } catch (e) {} } } }
+        function updateCycleCountdowns() { for (const sessionId in cycleTimers) { if (cycleTimers[sessionId] > 0) { cycleTimers[sessionId]--; const el = document.getElementById(`cycle-countdown-${sessionId}`); if (el) el.textContent = formatTime(cycleTimers[sessionId]); } } }
+        function formatTime(seconds) { if (seconds <= 0) return '0:00'; return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`; }
 
-        async function updateSessionTheme(sessionId, themeId) {
-            try {
-                await api('PUT', `/sessions/${sessionId}`, { theme_id: themeId || null });
-                await loadSessions();
-                renderSessions();
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
-
-        async function updateSessionVolume(sessionId, volume) {
-            try {
-                await api('POST', `/sessions/${sessionId}/volume`, { volume: parseInt(volume) });
-                const session = sessions.find(s => s.id === sessionId);
-                if (session) session.volume = parseInt(volume);
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
-
-        // ============================================================
-        // Cycling Actions
-        // ============================================================
-        async function toggleCycling(sessionId, enabled) {
-            try {
-                await api('PUT', `/sessions/${sessionId}/cycle`, { enabled });
-                await loadSessions();
-                renderSessions();
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
-
-        async function updateCycleInterval(sessionId, interval) {
-            try {
-                await api('PUT', `/sessions/${sessionId}/cycle`, { interval_minutes: parseInt(interval) });
-                await loadSessions();
-                renderSessions();
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
-
-        async function updateCycleRandomize(sessionId, randomize) {
-            try {
-                await api('PUT', `/sessions/${sessionId}/cycle`, { randomize: randomize === 'true' });
-                await loadSessions();
-                renderSessions();
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
-
-        async function skipToNext(sessionId) {
-            try {
-                await api('POST', `/sessions/${sessionId}/cycle/skip`);
-                await loadSessions();
-                renderSessions();
-                showToast('Skipped to next theme', 'success');
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
-
-        function startCyclePolling() {
-            setInterval(updateCycleCountdowns, 1000);
-            setInterval(refreshCycleStatuses, 30000);
-        }
-
-        async function refreshCycleStatuses() {
-            for (const session of sessions) {
-                if (session.is_playing && session.cycle_config?.enabled) {
-                    try {
-                        const status = await api('GET', `/sessions/${session.id}/cycle`);
-                        if (status.seconds_until_change !== null) {
-                            cycleTimers[session.id] = status.seconds_until_change;
-                        }
-                    } catch (e) {}
-                }
-            }
-        }
-
-        function updateCycleCountdowns() {
-            for (const sessionId in cycleTimers) {
-                if (cycleTimers[sessionId] > 0) {
-                    cycleTimers[sessionId]--;
-                    const el = document.getElementById(`cycle-countdown-${sessionId}`);
-                    if (el) el.textContent = formatTime(cycleTimers[sessionId]);
-                }
-            }
-        }
-
-        function formatTime(seconds) {
-            if (seconds <= 0) return '0:00';
-            const mins = Math.floor(seconds / 60);
-            const secs = seconds % 60;
-            return `${mins}:${secs.toString().padStart(2, '0')}`;
-        }
-
-        // ============================================================
-        // Session Modal
-        // ============================================================
         function openNewSessionModal() {
             document.getElementById('session-modal-title').textContent = 'New Session';
             document.getElementById('edit-session-id').value = '';
@@ -2235,21 +620,17 @@
             document.getElementById('modal-cycle-interval').value = settings.default_cycle_interval || 60;
             document.getElementById('modal-cycle-randomize').value = settings.default_cycle_randomize ? 'true' : 'false';
             document.getElementById('modal-cycle-controls').style.display = 'none';
-            
             selectedTheme = null;
             selectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
-            
             renderModalThemeSelector();
             renderModalSpeakerTree();
             renderGroupSelect();
-            
             openModal('session-modal');
         }
 
         function editSession(sessionId) {
             const session = sessions.find(s => s.id === sessionId);
             if (!session) return;
-
             document.getElementById('session-modal-title').textContent = 'Edit Session';
             document.getElementById('edit-session-id').value = sessionId;
             document.getElementById('session-name').value = session.name;
@@ -2257,349 +638,166 @@
             document.getElementById('modal-volume').value = session.volume;
             document.getElementById('modal-volume-value').textContent = session.volume + '%';
             document.getElementById('delete-session-btn').style.display = 'block';
-            
             const cc = session.cycle_config || {};
             document.getElementById('modal-cycle-enabled').checked = cc.enabled || false;
             document.getElementById('modal-cycle-interval').value = cc.interval_minutes || 60;
             document.getElementById('modal-cycle-randomize').value = cc.randomize ? 'true' : 'false';
             document.getElementById('modal-cycle-controls').style.display = cc.enabled ? 'grid' : 'none';
-            
             selectedTheme = session.theme_id;
-            selectedSpeakers = session.adhoc_selection ? {
-                floors: session.adhoc_selection.include_floors || [],
-                areas: session.adhoc_selection.include_areas || [],
-                speakers: session.adhoc_selection.include_speakers || [],
-                excludeAreas: session.adhoc_selection.exclude_areas || [],
-                excludeSpeakers: session.adhoc_selection.exclude_speakers || []
-            } : { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
-            
+            selectedSpeakers = session.adhoc_selection ? { floors: session.adhoc_selection.include_floors || [], areas: session.adhoc_selection.include_areas || [], speakers: session.adhoc_selection.include_speakers || [], excludeAreas: session.adhoc_selection.exclude_areas || [], excludeSpeakers: session.adhoc_selection.exclude_speakers || [] } : { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
             renderModalThemeSelector();
             renderModalSpeakerTree();
             renderGroupSelect();
-            
             openModal('session-modal');
         }
 
         async function saveSession() {
             const sessionId = document.getElementById('edit-session-id').value;
-            const data = {
-                theme_id: selectedTheme,
-                adhoc_selection: {
-                    include_floors: selectedSpeakers.floors,
-                    include_areas: selectedSpeakers.areas,
-                    include_speakers: selectedSpeakers.speakers,
-                    exclude_areas: selectedSpeakers.excludeAreas,
-                    exclude_speakers: selectedSpeakers.excludeSpeakers
-                },
-                volume: parseInt(document.getElementById('modal-volume').value),
-                cycle_config: {
-                    enabled: document.getElementById('modal-cycle-enabled').checked,
-                    interval_minutes: parseInt(document.getElementById('modal-cycle-interval').value),
-                    randomize: document.getElementById('modal-cycle-randomize').value === 'true',
-                    theme_ids: []
-                }
-            };
-            
-            if (document.getElementById('name-mode').value === 'custom') {
-                data.custom_name = document.getElementById('session-name').value;
+            const data = { theme_id: selectedTheme, adhoc_selection: { include_floors: selectedSpeakers.floors, include_areas: selectedSpeakers.areas, include_speakers: selectedSpeakers.speakers, exclude_areas: selectedSpeakers.excludeAreas, exclude_speakers: selectedSpeakers.excludeSpeakers }, volume: parseInt(document.getElementById('modal-volume').value), cycle_config: { enabled: document.getElementById('modal-cycle-enabled').checked, interval_minutes: parseInt(document.getElementById('modal-cycle-interval').value), randomize: document.getElementById('modal-cycle-randomize').value === 'true', theme_ids: [] } };
+            if (document.getElementById('name-mode').value === 'custom') { data.custom_name = document.getElementById('session-name').value; }
+            try { if (sessionId) { await api('PUT', `/sessions/${sessionId}`, data); } else { await api('POST', '/sessions', data); } closeModal('session-modal'); await loadSessions(); renderSessions(); showToast(sessionId ? 'Updated' : 'Created', 'success'); } catch (error) { showToast(error.message, 'error'); }
+        }
+
+        async function deleteSession() { const sessionId = document.getElementById('edit-session-id').value; if (!sessionId || !confirm('Delete this session?')) return; try { await api('DELETE', `/sessions/${sessionId}`); closeModal('session-modal'); await loadSessions(); renderSessions(); showToast('Deleted', 'success'); } catch (error) { showToast(error.message, 'error'); } }
+
+        function renderModalThemeSelector() { document.getElementById('modal-theme-selector').innerHTML = themes.map(t => `<div class="theme-card ${selectedTheme === t.id ? 'selected' : ''}" onclick="selectTheme('${t.id}')"><div class="theme-card-icon">${getThemeIcon(t.id)}</div><div class="theme-card-name">${escapeHtml(t.name)}</div></div>`).join(''); }
+        function selectTheme(themeId) { selectedTheme = themeId; renderModalThemeSelector(); }
+        function renderGroupSelect() { document.getElementById('speaker-group-select').innerHTML = `<option value="">Select manually below...</option>${speakerGroups.map(g => `<option value="${g.id}">${escapeHtml(g.name)} (${g.speaker_count})</option>`).join('')}`; }
+        
+        function applyGroupSelection(groupId) {
+            if (!groupId) return;
+            const group = speakerGroups.find(g => g.id === groupId);
+            if (group) {
+                selectedSpeakers = {
+                    floors: group.include_floors || [],
+                    areas: group.include_areas || [],
+                    speakers: group.include_speakers || [],
+                    excludeAreas: group.exclude_areas || [],
+                    excludeSpeakers: group.exclude_speakers || []
+                };
+                renderModalSpeakerTree();
             }
-
-            try {
-                if (sessionId) {
-                    await api('PUT', `/sessions/${sessionId}`, data);
-                } else {
-                    await api('POST', '/sessions', data);
-                }
-                closeModal('session-modal');
-                await loadSessions();
-                renderSessions();
-                showToast(sessionId ? 'Session updated' : 'Session created', 'success');
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
-
-        async function deleteSession() {
-            const sessionId = document.getElementById('edit-session-id').value;
-            if (!sessionId || !confirm('Delete this session?')) return;
-            try {
-                await api('DELETE', `/sessions/${sessionId}`);
-                closeModal('session-modal');
-                await loadSessions();
-                renderSessions();
-                showToast('Session deleted', 'success');
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
-
-        function renderModalThemeSelector() {
-            document.getElementById('modal-theme-selector').innerHTML = themes.map(t => `
-                <div class="theme-card ${selectedTheme === t.id ? 'selected' : ''}" onclick="selectTheme('${t.id}')">
-                    <div class="theme-card-icon">${getThemeIcon(t.id)}</div>
-                    <div class="theme-card-name">${escapeHtml(t.name)}</div>
-                </div>
-            `).join('');
-        }
-
-        function selectTheme(themeId) {
-            selectedTheme = themeId;
-            renderModalThemeSelector();
-        }
-
-        function renderGroupSelect() {
-            document.getElementById('speaker-group-select').innerHTML = `
-                <option value="">Select manually below...</option>
-                ${speakerGroups.map(g => `<option value="${g.id}">${escapeHtml(g.name)} (${g.speaker_count})</option>`).join('')}
-            `;
         }
 
         function renderModalSpeakerTree() {
             const container = document.getElementById('modal-speaker-tree');
-            if (!speakerHierarchy) {
-                container.innerHTML = '<p>Loading...</p>';
-                return;
-            }
-            container.innerHTML = buildSpeakerTree(selectedSpeakers, 'session');
+            if (!speakerHierarchy) { container.innerHTML = '<p style="color: var(--text-muted);">Loading speakers...</p>'; return; }
+            const html = buildSpeakerTree(selectedSpeakers, 'session');
+            container.innerHTML = html || '<p style="color: var(--text-muted);">No speakers found. Click "Refresh from HA" in the Speakers tab.</p>';
         }
 
-        // ============================================================
-        // Group Modal
-        // ============================================================
         function openNewGroupModal() {
             document.getElementById('group-modal-title').textContent = 'New Speaker Group';
             document.getElementById('edit-group-id').value = '';
             document.getElementById('group-name').value = '';
             document.getElementById('delete-group-btn').style.display = 'none';
-            
             groupSelectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
             renderGroupSpeakerTree();
-            
             openModal('group-modal');
         }
 
         function editGroup(groupId) {
             const group = speakerGroups.find(g => g.id === groupId);
             if (!group) return;
-
             document.getElementById('group-modal-title').textContent = 'Edit Speaker Group';
             document.getElementById('edit-group-id').value = groupId;
             document.getElementById('group-name').value = group.name;
             document.getElementById('delete-group-btn').style.display = 'block';
-            
-            groupSelectedSpeakers = {
-                floors: group.include_floors || [],
-                areas: group.include_areas || [],
-                speakers: group.include_speakers || [],
-                excludeAreas: group.exclude_areas || [],
-                excludeSpeakers: group.exclude_speakers || []
-            };
+            groupSelectedSpeakers = { floors: group.include_floors || [], areas: group.include_areas || [], speakers: group.include_speakers || [], excludeAreas: group.exclude_areas || [], excludeSpeakers: group.exclude_speakers || [] };
             renderGroupSpeakerTree();
-            
             openModal('group-modal');
         }
 
         async function saveGroup() {
             const groupId = document.getElementById('edit-group-id').value;
             const name = document.getElementById('group-name').value;
-            
-            if (!name) {
-                showToast('Please enter a group name', 'error');
-                return;
-            }
-
-            const data = {
-                name,
-                include_floors: groupSelectedSpeakers.floors,
-                include_areas: groupSelectedSpeakers.areas,
-                include_speakers: groupSelectedSpeakers.speakers,
-                exclude_areas: groupSelectedSpeakers.excludeAreas,
-                exclude_speakers: groupSelectedSpeakers.excludeSpeakers
-            };
-
-            try {
-                if (groupId) {
-                    await api('PUT', `/groups/${groupId}`, data);
-                } else {
-                    await api('POST', '/groups', data);
-                }
-                closeModal('group-modal');
-                await loadSpeakerGroups();
-                renderGroups();
-                showToast(groupId ? 'Group updated' : 'Group created', 'success');
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
+            if (!name) { showToast('Please enter a name', 'error'); return; }
+            const data = { name, include_floors: groupSelectedSpeakers.floors, include_areas: groupSelectedSpeakers.areas, include_speakers: groupSelectedSpeakers.speakers, exclude_areas: groupSelectedSpeakers.excludeAreas, exclude_speakers: groupSelectedSpeakers.excludeSpeakers };
+            try { if (groupId) { await api('PUT', `/groups/${groupId}`, data); } else { await api('POST', '/groups', data); } closeModal('group-modal'); await loadSpeakerGroups(); renderGroups(); showToast(groupId ? 'Updated' : 'Created', 'success'); } catch (error) { showToast(error.message, 'error'); }
         }
 
-        async function deleteGroup() {
-            const groupId = document.getElementById('edit-group-id').value;
-            if (!groupId || !confirm('Delete this group?')) return;
-            try {
-                await api('DELETE', `/groups/${groupId}`);
-                closeModal('group-modal');
-                await loadSpeakerGroups();
-                renderGroups();
-                showToast('Group deleted', 'success');
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
+        async function deleteGroup() { const groupId = document.getElementById('edit-group-id').value; if (!groupId || !confirm('Delete this group?')) return; try { await api('DELETE', `/groups/${groupId}`); closeModal('group-modal'); await loadSpeakerGroups(); renderGroups(); showToast('Deleted', 'success'); } catch (error) { showToast(error.message, 'error'); } }
+        function renderGroupSpeakerTree() { document.getElementById('group-speaker-tree').innerHTML = buildSpeakerTree(groupSelectedSpeakers, 'group') || '<p style="color: var(--text-muted);">No speakers found.</p>'; }
 
-        function renderGroupSpeakerTree() {
-            document.getElementById('group-speaker-tree').innerHTML = buildSpeakerTree(groupSelectedSpeakers, 'group');
-        }
-
-        // ============================================================
-        // Shared Speaker Tree Builder
-        // ============================================================
         function buildSpeakerTree(selection, type) {
-            if (!speakerHierarchy) return '<p>Loading...</p>';
-            
+            if (!speakerHierarchy) return '';
             let html = '';
-            for (const floor of speakerHierarchy.floors) {
+            
+            // Floors with areas
+            for (const floor of (speakerHierarchy.floors || [])) {
                 const floorChecked = selection.floors.includes(floor.floor_id);
-                html += `
-                    <div class="tree-floor">
-                        <div class="tree-floor-header">
-                            <input type="checkbox" ${floorChecked ? 'checked' : ''} 
-                                   onchange="toggleFloor('${floor.floor_id}', this.checked, '${type}')">
-                            <span class="tree-floor-name">🏢 ${escapeHtml(floor.name)}</span>
-                        </div>
-                        <div class="tree-areas">
-                            ${floor.areas.map(area => {
-                                const areaChecked = selection.areas.includes(area.area_id) || floorChecked;
-                                const areaExcluded = selection.excludeAreas.includes(area.area_id);
-                                return `
-                                    <div class="tree-area">
-                                        <div class="tree-area-header">
-                                            <input type="checkbox" ${areaChecked && !areaExcluded ? 'checked' : ''} 
-                                                   onchange="toggleArea('${area.area_id}', '${floor.floor_id}', this.checked, '${type}')">
-                                            <span>🏠 ${escapeHtml(area.name)}</span>
-                                        </div>
-                                        <div class="tree-speakers">
-                                            ${area.speakers.map(s => {
-                                                const spkChecked = selection.speakers.includes(s.entity_id) || areaChecked;
-                                                const spkExcluded = selection.excludeSpeakers.includes(s.entity_id);
-                                                return `
-                                                    <div class="tree-speaker">
-                                                        <input type="checkbox" ${spkChecked && !spkExcluded && !areaExcluded ? 'checked' : ''} 
-                                                               onchange="toggleSpeaker('${s.entity_id}', '${area.area_id}', '${floor.floor_id}', this.checked, '${type}')">
-                                                        <span>🔊 ${escapeHtml(s.name)}</span>
-                                                    </div>
-                                                `;
-                                            }).join('')}
-                                        </div>
-                                    </div>
-                                `;
-                            }).join('')}
-                        </div>
-                    </div>
-                `;
+                html += `<div class="tree-floor"><div class="tree-floor-header"><input type="checkbox" ${floorChecked ? 'checked' : ''} onchange="toggleFloor('${floor.floor_id}', this.checked, '${type}')"><span class="tree-floor-name">🏢 ${escapeHtml(floor.name)}</span></div><div class="tree-areas">${floor.areas.map(area => {
+                    const areaChecked = selection.areas.includes(area.area_id) || floorChecked;
+                    const areaExcluded = selection.excludeAreas.includes(area.area_id);
+                    return `<div class="tree-area"><div class="tree-area-header"><input type="checkbox" ${areaChecked && !areaExcluded ? 'checked' : ''} onchange="toggleArea('${area.area_id}', '${floor.floor_id}', this.checked, '${type}')"><span>🏠 ${escapeHtml(area.name)}</span></div><div class="tree-speakers">${area.speakers.map(s => {
+                        const spkChecked = selection.speakers.includes(s.entity_id) || areaChecked;
+                        const spkExcluded = selection.excludeSpeakers.includes(s.entity_id);
+                        return `<div class="tree-speaker"><input type="checkbox" ${spkChecked && !spkExcluded && !areaExcluded ? 'checked' : ''} onchange="toggleSpeaker('${s.entity_id}', '${area.area_id}', '${floor.floor_id}', this.checked, '${type}')"><span>🔊 ${escapeHtml(s.name)}</span></div>`;
+                    }).join('')}</div></div>`;
+                }).join('')}</div></div>`;
             }
+            
+            // Unassigned areas (areas without floors)
+            for (const area of (speakerHierarchy.unassigned_areas || [])) {
+                const areaChecked = selection.areas.includes(area.area_id);
+                const areaExcluded = selection.excludeAreas.includes(area.area_id);
+                html += `<div class="tree-floor"><div class="tree-floor-header"><input type="checkbox" ${areaChecked && !areaExcluded ? 'checked' : ''} onchange="toggleArea('${area.area_id}', '', this.checked, '${type}')"><span class="tree-floor-name">🏠 ${escapeHtml(area.name)}</span></div><div class="tree-speakers" style="margin-left: 1.5rem;">${area.speakers.map(s => {
+                    const spkChecked = selection.speakers.includes(s.entity_id) || areaChecked;
+                    const spkExcluded = selection.excludeSpeakers.includes(s.entity_id);
+                    return `<div class="tree-speaker"><input type="checkbox" ${spkChecked && !spkExcluded && !areaExcluded ? 'checked' : ''} onchange="toggleSpeaker('${s.entity_id}', '${area.area_id}', '', this.checked, '${type}')"><span>🔊 ${escapeHtml(s.name)}</span></div>`;
+                }).join('')}</div></div>`;
+            }
+            
+            // Unassigned speakers (speakers without areas)
+            const unassigned = speakerHierarchy.unassigned_speakers || [];
+            if (unassigned.length > 0) {
+                html += `<div class="tree-floor"><div class="tree-floor-header"><span class="tree-floor-name">📦 Unassigned Speakers</span></div><div class="tree-speakers" style="margin-left: 1.5rem;">${unassigned.map(s => {
+                    const spkChecked = selection.speakers.includes(s.entity_id);
+                    return `<div class="tree-speaker"><input type="checkbox" ${spkChecked ? 'checked' : ''} onchange="toggleSpeaker('${s.entity_id}', '', '', this.checked, '${type}')"><span>🔊 ${escapeHtml(s.name)}</span></div>`;
+                }).join('')}</div></div>`;
+            }
+            
             return html;
         }
 
         function toggleFloor(floorId, checked, type) {
             const sel = type === 'group' ? groupSelectedSpeakers : selectedSpeakers;
-            if (checked) {
-                if (!sel.floors.includes(floorId)) sel.floors.push(floorId);
-            } else {
-                sel.floors = sel.floors.filter(f => f !== floorId);
-            }
+            if (checked) { if (!sel.floors.includes(floorId)) sel.floors.push(floorId); }
+            else { sel.floors = sel.floors.filter(f => f !== floorId); }
             type === 'group' ? renderGroupSpeakerTree() : renderModalSpeakerTree();
         }
 
         function toggleArea(areaId, floorId, checked, type) {
             const sel = type === 'group' ? groupSelectedSpeakers : selectedSpeakers;
-            if (checked) {
-                if (!sel.areas.includes(areaId)) sel.areas.push(areaId);
-                sel.excludeAreas = sel.excludeAreas.filter(a => a !== areaId);
-            } else {
-                sel.areas = sel.areas.filter(a => a !== areaId);
-                if (sel.floors.includes(floorId) && !sel.excludeAreas.includes(areaId)) {
-                    sel.excludeAreas.push(areaId);
-                }
-            }
+            if (checked) { if (!sel.areas.includes(areaId)) sel.areas.push(areaId); sel.excludeAreas = sel.excludeAreas.filter(a => a !== areaId); }
+            else { sel.areas = sel.areas.filter(a => a !== areaId); if (floorId && sel.floors.includes(floorId) && !sel.excludeAreas.includes(areaId)) { sel.excludeAreas.push(areaId); } }
             type === 'group' ? renderGroupSpeakerTree() : renderModalSpeakerTree();
         }
 
         function toggleSpeaker(entityId, areaId, floorId, checked, type) {
             const sel = type === 'group' ? groupSelectedSpeakers : selectedSpeakers;
-            if (checked) {
-                if (!sel.speakers.includes(entityId)) sel.speakers.push(entityId);
-                sel.excludeSpeakers = sel.excludeSpeakers.filter(s => s !== entityId);
-            } else {
-                sel.speakers = sel.speakers.filter(s => s !== entityId);
-                if ((sel.areas.includes(areaId) || sel.floors.includes(floorId)) && !sel.excludeSpeakers.includes(entityId)) {
-                    sel.excludeSpeakers.push(entityId);
-                }
-            }
+            if (checked) { if (!sel.speakers.includes(entityId)) sel.speakers.push(entityId); sel.excludeSpeakers = sel.excludeSpeakers.filter(s => s !== entityId); }
+            else { sel.speakers = sel.speakers.filter(s => s !== entityId); if ((areaId && sel.areas.includes(areaId)) || (floorId && sel.floors.includes(floorId))) { if (!sel.excludeSpeakers.includes(entityId)) { sel.excludeSpeakers.push(entityId); } } }
             type === 'group' ? renderGroupSpeakerTree() : renderModalSpeakerTree();
         }
 
-        // ============================================================
-        // Modal Helpers
-        // ============================================================
-        function openModal(id) {
-            document.getElementById(id).classList.add('active');
-        }
+        function openModal(id) { document.getElementById(id).classList.add('active'); }
+        function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+        function closeModalOnBackdrop(event, id) { if (event.target.classList.contains('modal-backdrop')) closeModal(id); }
 
-        function closeModal(id) {
-            document.getElementById(id).classList.remove('active');
-        }
-
-        function closeModalOnBackdrop(event, id) {
-            if (event.target.classList.contains('modal-backdrop')) {
-                closeModal(id);
-            }
-        }
-
-        // ============================================================
-        // Utilities
-        // ============================================================
-        function getThemeIcon(themeId) {
-            if (!themeId) return themeIcons.default;
-            const key = themeId.toLowerCase().replace(/[^a-z-]/g, '');
-            return themeIcons[key] || themeIcons.default;
-        }
-
+        function getThemeIcon(themeId) { if (!themeId) return themeIcons.default; const key = themeId.toLowerCase().replace(/[^a-z-]/g, ''); return themeIcons[key] || themeIcons.default; }
         function getSpeakerName(entityId) {
             if (!speakerHierarchy) return entityId;
-            const all = [
-                ...speakerHierarchy.floors.flatMap(f => f.areas.flatMap(a => a.speakers)),
-                ...speakerHierarchy.unassigned_areas.flatMap(a => a.speakers),
-                ...speakerHierarchy.unassigned_speakers
-            ];
+            const all = [...(speakerHierarchy.floors || []).flatMap(f => f.areas.flatMap(a => a.speakers)), ...(speakerHierarchy.unassigned_areas || []).flatMap(a => a.speakers), ...(speakerHierarchy.unassigned_speakers || [])];
             const s = all.find(x => x.entity_id === entityId);
             return s ? s.name : entityId.replace('media_player.', '');
         }
+        function escapeHtml(text) { const div = document.createElement('div'); div.textContent = text || ''; return div.innerHTML; }
+        function showToast(message, type = 'success') { const container = document.getElementById('toast-container'); const toast = document.createElement('div'); toast.className = `toast ${type}`; toast.innerHTML = `<span>${type === 'success' ? '✓' : '✕'}</span><span>${escapeHtml(message)}</span>`; container.appendChild(toast); setTimeout(() => toast.remove(), 3000); }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text || '';
-            return div.innerHTML;
-        }
+        document.getElementById('modal-volume').addEventListener('input', function() { document.getElementById('modal-volume-value').textContent = this.value + '%'; });
+        document.getElementById('modal-cycle-enabled').addEventListener('change', function() { document.getElementById('modal-cycle-controls').style.display = this.checked ? 'grid' : 'none'; });
 
-        function showToast(message, type = 'success') {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            toast.className = `toast ${type}`;
-            toast.innerHTML = `<span>${type === 'success' ? '✓' : '✕'}</span><span>${escapeHtml(message)}</span>`;
-            container.appendChild(toast);
-            setTimeout(() => toast.remove(), 3000);
-        }
-
-        // Event listeners
-        document.getElementById('modal-volume').addEventListener('input', function() {
-            document.getElementById('modal-volume-value').textContent = this.value + '%';
-        });
-
-        document.getElementById('modal-cycle-enabled').addEventListener('change', function() {
-            document.getElementById('modal-cycle-controls').style.display = this.checked ? 'grid' : 'none';
-        });
-
-        // Initialize
         init();
     </script>
 </body>
