@@ -34,6 +34,7 @@ class ApiSonorium(api.Base):
         self._media_controller = None
         self._session_manager = None
         self._group_manager = None
+        self._channel_manager = None
         self._mqtt_manager = None
         
         # Register startup event to initialize v2
@@ -48,13 +49,20 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.get, path='/', method=self.web_ui),
             api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
             
-            # Streaming
+            # Streaming - theme-based (legacy, still supported)
             api.Endpoint(method_http=self.app.get, path='/stream/{id}', method=self.stream),
+            
+            # Streaming - channel-based (new)
+            api.Endpoint(method_http=self.app.get, path='/stream/channel{channel_id:int}', method=self.stream_channel),
             
             # Theme API
             api.Endpoint(method_http=self.app.get, path='/api/themes', method=self.list_themes),
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}', method=self.get_theme),
             api.Endpoint(method_http=self.app.get, path='/api/status', method=self.status),
+            
+            # Channel API
+            api.Endpoint(method_http=self.app.get, path='/api/channels', method=self.list_channels),
+            api.Endpoint(method_http=self.app.get, path='/api/channels/{channel_id}', method=self.get_channel),
         ]
         return endpoints
     
@@ -70,6 +78,7 @@ class ApiSonorium(api.Base):
             from sonorium.core.state import StateStore
             from sonorium.core.session_manager import SessionManager
             from sonorium.core.group_manager import GroupManager
+            from sonorium.core.channel import ChannelManager
             from sonorium.ha.registry import HARegistry
             from sonorium.ha.media_controller import HAMediaController
             from sonorium.web.api_v2 import create_api_router
@@ -81,6 +90,11 @@ class ApiSonorium(api.Base):
             self._state_store = StateStore()
             self._state_store.load()
             logger.info(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
+            
+            # Initialize channel manager
+            max_channels = getattr(settings, 'max_channels', 6)
+            self._channel_manager = ChannelManager(max_channels=max_channels)
+            logger.info(f"  Channel manager: {max_channels} channels available")
             
             # Initialize HA registry
             api_url = f"{settings.ha_supervisor_api.replace('/core', '')}/core/api"
@@ -104,6 +118,8 @@ class ApiSonorium(api.Base):
                 self._ha_registry,
                 self._media_controller,
                 stream_base_url,
+                channel_manager=self._channel_manager,
+                themes=self.client.device.themes,
             )
             
             self._group_manager = GroupManager(
@@ -117,6 +133,7 @@ class ApiSonorium(api.Base):
                 group_manager=self._group_manager,
                 ha_registry=self._ha_registry,
                 state_store=self._state_store,
+                channel_manager=self._channel_manager,
             )
             self.app.include_router(api_router)
             
@@ -315,9 +332,22 @@ class ApiSonorium(api.Base):
         return HTMLResponse(content=html)
 
     async def stream(self, id: str):
-        """Stream audio."""
+        """Stream audio by theme ID (legacy endpoint)."""
         theme_def: ThemeDefinition = self.client.device.themes.id[id]
         stream = theme_def.get_stream()
+        response = StreamingResponse(stream, media_type="audio/mpeg")
+        return response
+
+    async def stream_channel(self, channel_id: int):
+        """Stream audio from a channel (new endpoint)."""
+        if not self._channel_manager:
+            return HTMLResponse(content="Channel system not initialized", status_code=503)
+        
+        channel = self._channel_manager.get_channel(channel_id)
+        if not channel:
+            return HTMLResponse(content=f"Channel {channel_id} not found", status_code=404)
+        
+        stream = channel.get_stream()
         response = StreamingResponse(stream, media_type="audio/mpeg")
         return response
 
@@ -348,6 +378,23 @@ class ApiSonorium(api.Base):
             "tracks": [{"name": i.name} for i in theme.instances],
         }
 
+    async def list_channels(self):
+        """List all available channels."""
+        if not self._channel_manager:
+            return {"error": "Channel system not initialized"}
+        return self._channel_manager.list_channels()
+
+    async def get_channel(self, channel_id: int):
+        """Get channel details."""
+        if not self._channel_manager:
+            return {"error": "Channel system not initialized"}
+        
+        channel = self._channel_manager.get_channel(channel_id)
+        if not channel:
+            return {"error": f"Channel {channel_id} not found"}
+        
+        return channel.to_dict()
+
     async def status(self):
         """Get current status"""
         device = self.client.device
@@ -371,6 +418,9 @@ class ApiSonorium(api.Base):
         if self._v2_initialized:
             status_data["sessions"] = len(self._state_store.sessions)
             status_data["speaker_groups"] = len(self._state_store.speaker_groups)
+            if self._channel_manager:
+                status_data["channels"] = self._channel_manager.max_channels
+                status_data["active_channels"] = self._channel_manager.get_active_count()
         
         return status_data
 
