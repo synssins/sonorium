@@ -17,12 +17,14 @@ class Settings(sets.Base):
 
     token: str = Field(alias=ha.constants.SUPERVISOR_TOKEN_KEY)
 
-
     stream_url: str
     name: str = Sonorium.__name__
     mqtt: tools.mqtt.Client.Args | None = None
 
     path_audio: str = str(paths.audio)
+    
+    # Channel configuration - number of concurrent streaming channels
+    max_channels: int = Field(default=6, ge=1, le=10)
 
     def run(self):
         super().run()
