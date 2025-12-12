@@ -10,7 +10,7 @@ This allows speakers to stay connected while themes change seamlessly.
 
 from __future__ import annotations
 
-import asyncio
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -41,7 +41,6 @@ class ChannelState(str, Enum):
     """Current state of a channel."""
     IDLE = "idle"              # No theme assigned, outputting silence
     PLAYING = "playing"        # Playing a theme
-    CROSSFADING = "crossfading"  # Transitioning between themes
 
 
 @dataclass
@@ -50,41 +49,38 @@ class Channel:
     A persistent audio stream channel.
     
     Speakers connect to channels, not themes. When a theme changes,
-    the channel handles crossfading internally without interrupting
-    the stream connection.
+    each connected client handles crossfading independently.
+    
+    The Channel just tracks WHAT theme is playing - each client
+    gets its own independent audio generator.
     """
     
     id: int
     name: str = ""
     
-    # Current and next theme streams (chunk iterators)
-    _current_chunks: Optional[Generator] = field(default=None, repr=False)
-    _next_chunks: Optional[Generator] = field(default=None, repr=False)
-    
-    # Theme references
+    # Current theme reference
     _current_theme: Optional[ThemeDefinition] = field(default=None, repr=False)
-    _next_theme: Optional[ThemeDefinition] = field(default=None, repr=False)
+    
+    # Theme version - increments when theme changes, clients use this to detect changes
+    _theme_version: int = 0
     
     # State tracking
     state: ChannelState = ChannelState.IDLE
-    _crossfade_position: int = 0
     
     # Active client count (for resource management)
     _client_count: int = 0
     
-    # Output gain
-    output_gain: float = DEFAULT_OUTPUT_GAIN
+    # Lock for thread-safe theme changes
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     
     def __post_init__(self):
         if not self.name:
             self.name = f"Channel {self.id}"
-        
-        # Pre-generate crossfade curves (equal-power)
-        self._fade_out = np.cos(np.linspace(0, np.pi/2, THEME_CROSSFADE_SAMPLES)).astype(np.float32)
-        self._fade_in = np.sin(np.linspace(0, np.pi/2, THEME_CROSSFADE_SAMPLES)).astype(np.float32)
-        
-        # Silence chunk for idle state
-        self._silence = np.zeros((1, CHUNK_SIZE), dtype=np.int16)
+    
+    @property
+    def current_theme(self) -> Optional[ThemeDefinition]:
+        """Get the current theme."""
+        return self._current_theme
     
     @property
     def current_theme_id(self) -> Optional[str]:
@@ -95,6 +91,11 @@ class Channel:
     def current_theme_name(self) -> Optional[str]:
         """Get the current theme name."""
         return self._current_theme.name if self._current_theme else None
+    
+    @property
+    def theme_version(self) -> int:
+        """Get current theme version (for change detection)."""
+        return self._theme_version
     
     @property
     def is_active(self) -> bool:
@@ -110,163 +111,45 @@ class Channel:
         """
         Set or change the theme for this channel.
         
-        If already playing, initiates a crossfade transition.
-        If idle, starts playing immediately.
+        Connected clients will detect the change via theme_version
+        and handle crossfading independently.
         """
-        if theme == self._current_theme:
-            logger.info(f"Channel {self.id}: Theme '{theme.name}' already active, no change needed")
-            return
-        
-        if self.state == ChannelState.IDLE:
-            # First theme - start immediately
-            logger.info(f"Channel {self.id}: Starting theme '{theme.name}'")
+        with self._lock:
+            if theme == self._current_theme:
+                logger.info(f"Channel {self.id}: Theme '{theme.name}' already active, no change needed")
+                return
+            
+            old_theme = self._current_theme.name if self._current_theme else "none"
+            logger.info(f"Channel {self.id}: Changing theme from '{old_theme}' to '{theme.name}'")
+            
             self._current_theme = theme
-            stream = theme.get_stream()
-            self._current_chunks = stream.iter_chunks()
+            self._theme_version += 1
             self.state = ChannelState.PLAYING
-            
-        elif self.state == ChannelState.PLAYING:
-            # Initiate crossfade to new theme
-            logger.info(f"Channel {self.id}: Crossfading from '{self._current_theme.name}' to '{theme.name}'")
-            self._next_theme = theme
-            stream = theme.get_stream()
-            self._next_chunks = stream.iter_chunks()
-            self._crossfade_position = 0
-            self.state = ChannelState.CROSSFADING
-            
-        elif self.state == ChannelState.CROSSFADING:
-            # Already crossfading - update the target
-            logger.info(f"Channel {self.id}: Redirecting crossfade to '{theme.name}'")
-            self._next_theme = theme
-            stream = theme.get_stream()
-            self._next_chunks = stream.iter_chunks()
-            # Keep current crossfade position for smooth transition
     
     def stop(self) -> None:
         """Stop the channel and return to idle."""
-        logger.info(f"Channel {self.id}: Stopping playback")
-        self._current_chunks = None
-        self._current_theme = None
-        self._next_chunks = None
-        self._next_theme = None
-        self.state = ChannelState.IDLE
-        self._crossfade_position = 0
+        with self._lock:
+            logger.info(f"Channel {self.id}: Stopping playback")
+            self._current_theme = None
+            self._theme_version += 1
+            self.state = ChannelState.IDLE
     
     def client_connected(self) -> None:
         """Track a new client connection."""
         self._client_count += 1
-        logger.debug(f"Channel {self.id}: Client connected ({self._client_count} total)")
+        logger.info(f"Channel {self.id}: Client connected ({self._client_count} total)")
     
     def client_disconnected(self) -> None:
         """Track a client disconnection."""
         self._client_count = max(0, self._client_count - 1)
-        logger.debug(f"Channel {self.id}: Client disconnected ({self._client_count} remaining)")
-    
-    def iter_chunks(self) -> Generator[np.ndarray, None, None]:
-        """
-        Generate audio chunks for this channel.
-        
-        Handles idle silence, theme playback, and crossfade transitions.
-        """
-        while True:
-            if self.state == ChannelState.IDLE:
-                # Output silence when no theme is playing
-                yield self._silence
-                
-            elif self.state == ChannelState.PLAYING:
-                # Normal playback from current theme
-                if self._current_chunks:
-                    try:
-                        chunk = next(self._current_chunks)
-                        yield chunk
-                    except StopIteration:
-                        # Theme ended unexpectedly
-                        self.state = ChannelState.IDLE
-                        yield self._silence
-                else:
-                    yield self._silence
-                    
-            elif self.state == ChannelState.CROSSFADING:
-                # Crossfade between current and next theme
-                if self._current_chunks and self._next_chunks:
-                    try:
-                        current_chunk = next(self._current_chunks)
-                        next_chunk = next(self._next_chunks)
-                        
-                        # Apply crossfade
-                        mixed = self._apply_crossfade(current_chunk, next_chunk)
-                        yield mixed
-                        
-                        # Check if crossfade is complete
-                        if self._crossfade_position >= THEME_CROSSFADE_SAMPLES:
-                            self._complete_crossfade()
-                            
-                    except StopIteration:
-                        # One stream ended - just switch
-                        self._complete_crossfade()
-                        yield self._silence
-                else:
-                    yield self._silence
-    
-    def _apply_crossfade(self, current: np.ndarray, next_chunk: np.ndarray) -> np.ndarray:
-        """Apply crossfade mixing between two chunks."""
-        chunk_size = current.shape[1]
-        
-        # Get fade positions
-        fade_start = self._crossfade_position
-        fade_end = min(fade_start + chunk_size, THEME_CROSSFADE_SAMPLES)
-        fade_len = fade_end - fade_start
-        
-        if fade_len <= 0 or fade_start >= THEME_CROSSFADE_SAMPLES:
-            # Crossfade complete, just return next
-            self._crossfade_position += chunk_size
-            return next_chunk
-        
-        # Convert to float for mixing
-        current_f = current.astype(np.float32).flatten()
-        next_f = next_chunk.astype(np.float32).flatten()
-        
-        # Get fade curves for this chunk
-        if fade_len < chunk_size:
-            # Partial fade at end
-            fade_out = np.concatenate([
-                self._fade_out[fade_start:fade_end],
-                np.zeros(chunk_size - fade_len, dtype=np.float32)
-            ])
-            fade_in = np.concatenate([
-                self._fade_in[fade_start:fade_end],
-                np.ones(chunk_size - fade_len, dtype=np.float32)
-            ])
-        else:
-            fade_out = self._fade_out[fade_start:fade_start + chunk_size]
-            fade_in = self._fade_in[fade_start:fade_start + chunk_size]
-        
-        # Mix with crossfade
-        mixed = current_f * fade_out + next_f * fade_in
-        
-        # Convert back to int16
-        mixed = np.clip(mixed, -32768, 32767).astype(np.int16)
-        
-        self._crossfade_position += chunk_size
-        return mixed.reshape(1, -1)
-    
-    def _complete_crossfade(self) -> None:
-        """Complete the crossfade transition."""
-        logger.info(f"Channel {self.id}: Crossfade complete, now playing '{self._next_theme.name}'")
-        
-        # Swap next to current
-        self._current_theme = self._next_theme
-        self._current_chunks = self._next_chunks
-        self._next_theme = None
-        self._next_chunks = None
-        self._crossfade_position = 0
-        self.state = ChannelState.PLAYING
+        logger.info(f"Channel {self.id}: Client disconnected ({self._client_count} remaining)")
     
     def get_stream(self):
         """
         Get an MP3 stream iterator for this channel.
         
-        This is what gets sent to the HTTP response.
+        Each call creates a NEW independent stream - multiple clients
+        can connect without sharing generators.
         """
         return ChannelStream(self)
     
@@ -287,44 +170,149 @@ class ChannelStream:
     """
     MP3 streaming wrapper for a Channel.
     
-    Encodes raw audio chunks from the channel into MP3 packets.
+    Each ChannelStream has its OWN independent audio generator.
+    When the channel's theme changes, this stream handles crossfading
+    from the old theme to the new one independently.
     """
     
     def __init__(self, channel: Channel):
         self.channel = channel
         self.channel.client_connected()
+        
+        # Pre-generate crossfade curves (equal-power)
+        self._fade_out = np.cos(np.linspace(0, np.pi/2, THEME_CROSSFADE_SAMPLES)).astype(np.float32)
+        self._fade_in = np.sin(np.linspace(0, np.pi/2, THEME_CROSSFADE_SAMPLES)).astype(np.float32)
+        
+        # Silence chunk for idle state
+        self._silence = np.zeros((1, CHUNK_SIZE), dtype=np.int16)
     
     def __iter__(self):
         output = av.open(file='.mp3', mode="w")
         bitrate = 128_000
         out_stream = output.add_stream(codec_name='mp3', rate=SAMPLE_RATE, bit_rate=bitrate)
-        chunk_iter = self.channel.iter_chunks()
 
         start_time = time.time()
         audio_time = 0.0
+        
+        # Track which theme version we're playing
+        current_version = -1
+        current_chunks = None
+        
+        # For crossfading
+        old_chunks = None
+        crossfade_position = 0
+        is_crossfading = False
 
         try:
             while True:
-                for i, data in enumerate(chunk_iter):
-                    frame = av.AudioFrame.from_ndarray(data, format='s16', layout='mono')
-                    frame.rate = SAMPLE_RATE
+                # Check if theme has changed
+                channel_version = self.channel.theme_version
+                if channel_version != current_version:
+                    # Theme changed!
+                    if current_chunks is not None and self.channel.current_theme is not None:
+                        # We have an old stream - start crossfading
+                        old_chunks = current_chunks
+                        crossfade_position = 0
+                        is_crossfading = True
+                        logger.info(f"Channel {self.channel.id} client: Starting crossfade to new theme")
+                    
+                    # Get new theme stream
+                    current_version = channel_version
+                    if self.channel.current_theme:
+                        stream = self.channel.current_theme.get_stream()
+                        current_chunks = stream.iter_chunks()
+                    else:
+                        current_chunks = None
+                
+                # Generate audio chunk
+                if current_chunks is None:
+                    # No theme - output silence
+                    data = self._silence
+                elif is_crossfading and old_chunks is not None:
+                    # Crossfading between old and new theme
+                    try:
+                        old_chunk = next(old_chunks)
+                        new_chunk = next(current_chunks)
+                        data = self._apply_crossfade(old_chunk, new_chunk, crossfade_position)
+                        crossfade_position += data.shape[1]
+                        
+                        if crossfade_position >= THEME_CROSSFADE_SAMPLES:
+                            # Crossfade complete
+                            is_crossfading = False
+                            old_chunks = None
+                            logger.info(f"Channel {self.channel.id} client: Crossfade complete")
+                    except StopIteration:
+                        # Old stream ended - just use new
+                        is_crossfading = False
+                        old_chunks = None
+                        data = next(current_chunks) if current_chunks else self._silence
+                else:
+                    # Normal playback
+                    try:
+                        data = next(current_chunks)
+                    except StopIteration:
+                        data = self._silence
+                
+                # Encode to MP3
+                frame = av.AudioFrame.from_ndarray(data, format='s16', layout='mono')
+                frame.rate = SAMPLE_RATE
 
-                    frame_duration = frame.samples / frame.rate
-                    audio_time += frame_duration
+                frame_duration = frame.samples / frame.rate
+                audio_time += frame_duration
 
-                    for packet in out_stream.encode(frame):
-                        yield bytes(packet)
+                for packet in out_stream.encode(frame):
+                    yield bytes(packet)
 
-                    # Maintain real-time pacing
-                    now = time.time()
-                    ahead = audio_time - (now - start_time)
-                    if ahead > 0:
-                        time.sleep(ahead)
+                # Maintain real-time pacing
+                now = time.time()
+                ahead = audio_time - (now - start_time)
+                if ahead > 0:
+                    time.sleep(ahead)
 
         finally:
             logger.info(f'Channel {self.channel.id}: Stream closed')
             self.channel.client_disconnected()
             output.close()
+    
+    def _apply_crossfade(self, old_chunk: np.ndarray, new_chunk: np.ndarray, position: int) -> np.ndarray:
+        """Apply crossfade mixing between two chunks."""
+        chunk_size = old_chunk.shape[1]
+        
+        # Get fade positions
+        fade_start = position
+        fade_end = min(fade_start + chunk_size, THEME_CROSSFADE_SAMPLES)
+        fade_len = fade_end - fade_start
+        
+        if fade_len <= 0 or fade_start >= THEME_CROSSFADE_SAMPLES:
+            # Crossfade complete, just return new
+            return new_chunk
+        
+        # Convert to float for mixing
+        old_f = old_chunk.astype(np.float32).flatten()
+        new_f = new_chunk.astype(np.float32).flatten()
+        
+        # Get fade curves for this chunk
+        if fade_len < chunk_size:
+            # Partial fade at end
+            fade_out = np.concatenate([
+                self._fade_out[fade_start:fade_end],
+                np.zeros(chunk_size - fade_len, dtype=np.float32)
+            ])
+            fade_in = np.concatenate([
+                self._fade_in[fade_start:fade_end],
+                np.ones(chunk_size - fade_len, dtype=np.float32)
+            ])
+        else:
+            fade_out = self._fade_out[fade_start:fade_start + chunk_size]
+            fade_in = self._fade_in[fade_start:fade_start + chunk_size]
+        
+        # Mix with crossfade
+        mixed = old_f * fade_out + new_f * fade_in
+        
+        # Convert back to int16
+        mixed = np.clip(mixed, -32768, 32767).astype(np.int16)
+        
+        return mixed.reshape(1, -1)
 
 
 class ChannelManager:
