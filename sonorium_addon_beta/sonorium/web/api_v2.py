@@ -68,6 +68,7 @@ class SessionResponse(BaseModel):
     is_playing: bool
     speakers: list[str]  # Resolved speaker list
     speaker_summary: str  # Human-readable summary
+    channel_id: Optional[int] = None  # Assigned channel (if playing)
     created_at: str
     last_played_at: Optional[str]
 
@@ -138,9 +139,27 @@ class UpdateSettingsRequest(BaseModel):
     auto_create_quick_play: Optional[bool] = None
 
 
+class ChannelResponse(BaseModel):
+    """Channel status response."""
+    id: int
+    name: str
+    state: str
+    current_theme: Optional[str]
+    current_theme_name: Optional[str]
+    client_count: int
+    stream_path: str
+
+
 # --- API Router Factory ---
 
-def create_api_router(session_manager, group_manager, ha_registry, state_store, theme_manager=None) -> APIRouter:
+def create_api_router(
+    session_manager, 
+    group_manager, 
+    ha_registry, 
+    state_store, 
+    theme_manager=None,
+    channel_manager=None,
+) -> APIRouter:
     """
     Create the API router with all endpoints.
     
@@ -150,6 +169,7 @@ def create_api_router(session_manager, group_manager, ha_registry, state_store, 
         ha_registry: HARegistry instance
         state_store: StateStore instance
         theme_manager: Optional theme manager for theme endpoints
+        channel_manager: Optional ChannelManager for channel-based streaming
     
     Returns:
         Configured APIRouter
@@ -174,6 +194,7 @@ def create_api_router(session_manager, group_manager, ha_registry, state_store, 
                 is_playing=s.is_playing,
                 speakers=session_manager.get_resolved_speakers(s),
                 speaker_summary=session_manager.get_speaker_summary(s),
+                channel_id=session_manager.get_session_channel(s.id),
                 created_at=s.created_at,
                 last_played_at=s.last_played_at,
             )
@@ -202,6 +223,7 @@ def create_api_router(session_manager, group_manager, ha_registry, state_store, 
                 is_playing=session.is_playing,
                 speakers=session_manager.get_resolved_speakers(session),
                 speaker_summary=session_manager.get_speaker_summary(session),
+                channel_id=session_manager.get_session_channel(session.id),
                 created_at=session.created_at,
                 last_played_at=session.last_played_at,
             )
@@ -225,6 +247,7 @@ def create_api_router(session_manager, group_manager, ha_registry, state_store, 
             is_playing=session.is_playing,
             speakers=session_manager.get_resolved_speakers(session),
             speaker_summary=session_manager.get_speaker_summary(session),
+            channel_id=session_manager.get_session_channel(session.id),
             created_at=session.created_at,
             last_played_at=session.last_played_at,
         )
@@ -253,6 +276,7 @@ def create_api_router(session_manager, group_manager, ha_registry, state_store, 
             is_playing=session.is_playing,
             speakers=session_manager.get_resolved_speakers(session),
             speaker_summary=session_manager.get_speaker_summary(session),
+            channel_id=session_manager.get_session_channel(session.id),
             created_at=session.created_at,
             last_played_at=session.last_played_at,
         )
@@ -285,7 +309,7 @@ def create_api_router(session_manager, group_manager, ha_registry, state_store, 
         # Fire the play command in the background - don't wait for it
         asyncio.create_task(session_manager.play(session_id))
         
-        return {"status": "playing"}
+        return {"status": "playing", "channel_id": session_manager.get_session_channel(session_id)}
     
     @router.post("/sessions/{session_id}/pause")
     async def pause_session(session_id: str) -> dict:
@@ -316,6 +340,18 @@ def create_api_router(session_manager, group_manager, ha_registry, state_store, 
         """Stop all playing sessions."""
         count = await session_manager.stop_all()
         return {"stopped": count}
+    
+    # --- Channel Endpoints ---
+    
+    @router.get("/channels")
+    async def list_channels() -> list[ChannelResponse]:
+        """List all channels."""
+        if not channel_manager:
+            return []
+        return [
+            ChannelResponse(**ch)
+            for ch in channel_manager.list_channels()
+        ]
     
     # --- Speaker Group Endpoints ---
     
