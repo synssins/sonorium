@@ -7,10 +7,11 @@ and retrieve speaker hierarchy from Home Assistant.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks
 from pydantic import BaseModel, Field
 
 from sonorium.core.state import SpeakerSelection, NameSource
@@ -264,10 +265,26 @@ def create_api_router(session_manager, group_manager, ha_registry, state_store, 
     
     @router.post("/sessions/{session_id}/play")
     async def play_session(session_id: str) -> dict:
-        """Start playback for a session."""
-        success = await session_manager.play(session_id)
-        if not success:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Could not start playback")
+        """Start playback for a session (fire-and-forget, returns immediately)."""
+        session = session_manager.get(session_id)
+        if not session:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        
+        if not session.theme_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No theme selected")
+        
+        speakers = session_manager.get_resolved_speakers(session)
+        if not speakers:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No speakers selected")
+        
+        # Mark as playing immediately (optimistic update)
+        session.is_playing = True
+        session.mark_played()
+        state_store.save()
+        
+        # Fire the play command in the background - don't wait for it
+        asyncio.create_task(session_manager.play(session_id))
+        
         return {"status": "playing"}
     
     @router.post("/sessions/{session_id}/pause")
