@@ -31,6 +31,42 @@ class NameSource(str, Enum):
 
 
 @dataclass
+class CycleConfig:
+    """
+    Theme cycling configuration for a session.
+    
+    When enabled, the session will automatically rotate through themes
+    at the specified interval.
+    """
+    
+    enabled: bool = False
+    interval_minutes: int = 60  # How often to change themes
+    randomize: bool = False     # True = random order, False = sequential
+    
+    # Optional: specific themes to cycle through (empty = all themes)
+    theme_ids: list[str] = field(default_factory=list)
+    
+    # Runtime state (not persisted)
+    current_index: int = 0      # Current position in theme list
+    last_change: Optional[str] = None  # ISO timestamp of last theme change
+    
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "interval_minutes": self.interval_minutes,
+            "randomize": self.randomize,
+            "theme_ids": self.theme_ids,
+            # Don't persist runtime state
+        }
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> CycleConfig:
+        if data is None:
+            return cls()
+        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+@dataclass
 class SonoriumSettings:
     """Global settings for Sonorium."""
     
@@ -41,6 +77,10 @@ class SonoriumSettings:
     entity_prefix: str = "sonorium"
     show_in_sidebar: bool = True
     auto_create_quick_play: bool = True
+    
+    # Default cycling settings (applied to new sessions)
+    default_cycle_interval: int = 60  # minutes
+    default_cycle_randomize: bool = False
     
     def to_dict(self) -> dict:
         return asdict(self)
@@ -158,6 +198,9 @@ class Session:
     volume: int = 60
     is_playing: bool = False
     
+    # Theme cycling configuration
+    cycle_config: CycleConfig = field(default_factory=CycleConfig)
+    
     # Metadata
     created_at: str = ""  # ISO format
     last_played_at: Optional[str] = None  # ISO format
@@ -173,6 +216,10 @@ class Session:
         # Convert adhoc_selection from dict if needed
         if isinstance(self.adhoc_selection, dict):
             self.adhoc_selection = SpeakerSelection.from_dict(self.adhoc_selection)
+        
+        # Convert cycle_config from dict if needed
+        if isinstance(self.cycle_config, dict):
+            self.cycle_config = CycleConfig.from_dict(self.cycle_config)
     
     def get_entity_slug(self) -> str:
         """Generate HA entity slug from name."""
@@ -195,6 +242,8 @@ class Session:
     def to_dict(self) -> dict:
         data = asdict(self)
         data['name_source'] = self.name_source.value
+        # Handle cycle_config separately to avoid nested asdict issues
+        data['cycle_config'] = self.cycle_config.to_dict() if self.cycle_config else None
         return data
     
     @classmethod
@@ -203,6 +252,9 @@ class Session:
         if 'adhoc_selection' in data and data['adhoc_selection'] is not None:
             if isinstance(data['adhoc_selection'], dict):
                 data['adhoc_selection'] = SpeakerSelection.from_dict(data['adhoc_selection'])
+        if 'cycle_config' in data and data['cycle_config'] is not None:
+            if isinstance(data['cycle_config'], dict):
+                data['cycle_config'] = CycleConfig.from_dict(data['cycle_config'])
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
 
