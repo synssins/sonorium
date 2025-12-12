@@ -256,6 +256,89 @@ def create_api_router(
     """
     router = APIRouter(prefix="/api", tags=["api"])
     
+    # --- Debug Endpoint ---
+    
+    @router.get("/debug/speakers")
+    async def debug_speakers() -> dict:
+        """Debug endpoint to show raw speaker discovery data."""
+        from fmtr.tools import http
+        from sonorium.settings import settings
+        
+        debug_info = {
+            "api_url": ha_registry.api_url,
+            "token_present": bool(ha_registry.token),
+            "token_preview": ha_registry.token[:20] + "..." if ha_registry.token else None,
+            "cached_floors": len(ha_registry._floors),
+            "cached_areas": len(ha_registry._areas),
+            "cached_speakers": len(ha_registry._speakers),
+            "hierarchy": None,
+            "errors": [],
+            "raw_states_sample": [],
+        }
+        
+        # Try to get raw states
+        try:
+            url = f"{ha_registry.api_url}/states"
+            with http.Client() as client:
+                response = client.get(url, headers=ha_registry.headers)
+                states = response.json()
+                
+                # Filter to media_player entities
+                media_players = [
+                    {
+                        "entity_id": s.get("entity_id"),
+                        "state": s.get("state"),
+                        "friendly_name": s.get("attributes", {}).get("friendly_name"),
+                    }
+                    for s in states
+                    if s.get("entity_id", "").startswith("media_player.")
+                ]
+                debug_info["raw_states_sample"] = media_players[:20]  # Limit to 20
+                debug_info["total_media_players_in_states"] = len(media_players)
+        except Exception as e:
+            debug_info["errors"].append(f"Failed to fetch states: {str(e)}")
+        
+        # Get hierarchy
+        try:
+            hierarchy = ha_registry.hierarchy
+            debug_info["hierarchy"] = {
+                "floors": len(hierarchy.floors),
+                "unassigned_areas": len(hierarchy.unassigned_areas),
+                "unassigned_speakers": len(hierarchy.unassigned_speakers),
+                "total_speakers": len(hierarchy.get_all_speakers()),
+                "floor_details": [
+                    {
+                        "name": f.name,
+                        "floor_id": f.floor_id,
+                        "areas": [
+                            {
+                                "name": a.name,
+                                "area_id": a.area_id,
+                                "speakers": [s.entity_id for s in a.speakers]
+                            }
+                            for a in f.areas
+                        ]
+                    }
+                    for f in hierarchy.floors
+                ],
+                "unassigned_area_details": [
+                    {
+                        "name": a.name,
+                        "area_id": a.area_id,
+                        "speakers": [s.entity_id for s in a.speakers]
+                    }
+                    for a in hierarchy.unassigned_areas
+                ],
+                "unassigned_speaker_details": [
+                    {"entity_id": s.entity_id, "name": s.name}
+                    for s in hierarchy.unassigned_speakers
+                ],
+            }
+        except Exception as e:
+            debug_info["errors"].append(f"Failed to get hierarchy: {str(e)}")
+        
+        return debug_info
+    
     # --- Session Endpoints ---
     
     @router.get("/sessions")
@@ -616,7 +699,9 @@ def create_api_router(
         hierarchy = ha_registry.refresh()
         return {
             "floors": len(hierarchy.floors),
-            "speakers": len(hierarchy.get_all_speakers()),
+            "unassigned_areas": len(hierarchy.unassigned_areas),
+            "unassigned_speakers": len(hierarchy.unassigned_speakers),
+            "total_speakers": len(hierarchy.get_all_speakers()),
         }
     
     @router.post("/speakers/resolve")
