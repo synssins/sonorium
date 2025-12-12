@@ -12,8 +12,12 @@ from __future__ import annotations
 from typing import Optional
 import asyncio
 
-from fmtr.tools import http
+import httpx
 from sonorium.obs import logger
+
+
+# Short timeout - we just want to fire the request, not wait for completion
+REQUEST_TIMEOUT = 5.0
 
 
 class HAMediaController:
@@ -37,10 +41,11 @@ class HAMediaController:
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         }
+        logger.info(f"HAMediaController initialized with API URL: {self.api_url}")
     
-    def _post_service(self, domain: str, service: str, data: dict) -> bool:
+    async def _post_service(self, domain: str, service: str, data: dict) -> bool:
         """
-        Call a Home Assistant service.
+        Call a Home Assistant service (fire-and-forget style).
         
         Args:
             domain: Service domain (e.g., "media_player")
@@ -48,25 +53,24 @@ class HAMediaController:
             data: Service data
         
         Returns:
-            True if successful, False otherwise
+            True if request was sent, False on immediate failure
         """
         url = f"{self.api_url}/services/{domain}/{service}"
+        logger.info(f"  POST {url}")
+        logger.debug(f"    Data: {data}")
+        
         try:
-            with http.Client() as client:
-                response = client.post(url, headers=self.headers, json=data)
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                response = await client.post(url, headers=self.headers, json=data)
+                logger.debug(f"    Response: {response.status_code}")
                 return response.status_code in (200, 201)
+        except httpx.TimeoutException:
+            # Timeout is OK - request was sent, speaker might just be slow
+            logger.debug(f"    Request sent (timed out waiting for response)")
+            return True
         except Exception as e:
-            logger.error(f"Service call failed: {domain}.{service} - {e}")
+            logger.error(f"    Service call failed: {e}")
             return False
-    
-    async def _post_service_async(self, domain: str, service: str, data: dict) -> bool:
-        """Async wrapper for service calls."""
-        # Run sync HTTP call in thread pool
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(
-            None, 
-            lambda: self._post_service(domain, service, data)
-        )
     
     # --- Playback Control ---
     
@@ -86,18 +90,16 @@ class HAMediaController:
             media_type: Media content type (default: "music")
         
         Returns:
-            True if successful
+            True if request was sent successfully
         """
         data = {
             "entity_id": entity_id,
             "media_content_id": media_url,
             "media_content_type": media_type,
         }
-        success = await self._post_service_async("media_player", "play_media", data)
+        success = await self._post_service("media_player", "play_media", data)
         if success:
             logger.info(f"  Started playback on {entity_id}")
-        else:
-            logger.warning(f"  Failed to start playback on {entity_id}")
         return success
     
     @logger.instrument("Playing media on {count} speakers...")
@@ -145,7 +147,7 @@ class HAMediaController:
     async def pause(self, entity_id: str) -> bool:
         """Pause playback on a speaker."""
         data = {"entity_id": entity_id}
-        return await self._post_service_async("media_player", "media_pause", data)
+        return await self._post_service("media_player", "media_pause", data)
     
     async def pause_multi(self, entity_ids: list[str]) -> dict[str, bool]:
         """Pause playback on multiple speakers."""
@@ -162,7 +164,7 @@ class HAMediaController:
     async def stop(self, entity_id: str) -> bool:
         """Stop playback on a speaker."""
         data = {"entity_id": entity_id}
-        return await self._post_service_async("media_player", "media_stop", data)
+        return await self._post_service("media_player", "media_stop", data)
     
     async def stop_multi(self, entity_ids: list[str]) -> dict[str, bool]:
         """Stop playback on multiple speakers."""
@@ -193,7 +195,7 @@ class HAMediaController:
             "entity_id": entity_id,
             "volume_level": max(0.0, min(1.0, volume_level)),
         }
-        return await self._post_service_async("media_player", "volume_set", data)
+        return await self._post_service("media_player", "volume_set", data)
     
     async def set_volume_multi(
         self, 
@@ -217,11 +219,11 @@ class HAMediaController:
             "entity_id": entity_id,
             "is_volume_muted": mute,
         }
-        return await self._post_service_async("media_player", "volume_mute", data)
+        return await self._post_service("media_player", "volume_mute", data)
     
     # --- State Queries ---
     
-    def get_state(self, entity_id: str) -> Optional[dict]:
+    async def get_state(self, entity_id: str) -> Optional[dict]:
         """
         Get current state of a media player.
         
@@ -230,22 +232,17 @@ class HAMediaController:
         """
         url = f"{self.api_url}/states/{entity_id}"
         try:
-            with http.Client() as client:
-                response = client.get(url, headers=self.headers)
+            async with httpx.AsyncClient(timeout=REQUEST_TIMEOUT) as client:
+                response = await client.get(url, headers=self.headers)
                 if response.status_code == 200:
                     return response.json()
         except Exception as e:
             logger.error(f"Failed to get state for {entity_id}: {e}")
         return None
     
-    async def get_state_async(self, entity_id: str) -> Optional[dict]:
-        """Async wrapper for get_state."""
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, lambda: self.get_state(entity_id))
-    
-    def is_playing(self, entity_id: str) -> bool:
+    async def is_playing(self, entity_id: str) -> bool:
         """Check if a media player is currently playing."""
-        state = self.get_state(entity_id)
+        state = await self.get_state(entity_id)
         if state:
             return state.get("state") == "playing"
         return False
@@ -254,7 +251,7 @@ class HAMediaController:
         """Check playing state for multiple speakers."""
         if not entity_ids:
             return {}
-        tasks = [self.get_state_async(eid) for eid in entity_ids]
+        tasks = [self.get_state(eid) for eid in entity_ids]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         return {
             eid: (r.get("state") == "playing" if isinstance(r, dict) else False)
