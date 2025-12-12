@@ -132,76 +132,94 @@ class HARegistry:
     def _get(self, endpoint: str) -> dict | list:
         """Make GET request to HA API."""
         url = f"{self.api_url}/{endpoint.lstrip('/')}"
+        logger.debug(f"HARegistry GET: {url}")
         with http.Client() as client:
             response = client.get(url, headers=self.headers)
-            return response.json()
+            data = response.json()
+            logger.debug(f"HARegistry response: {type(data)} with {len(data) if isinstance(data, list) else 'N/A'} items")
+            return data
     
-    @logger.instrument("Fetching floors from HA...")
     def _fetch_floors(self) -> dict[str, Floor]:
         """Fetch floor registry."""
         floors = {}
         try:
+            logger.info("Fetching floors from HA...")
             # Try the config API endpoint
-            data = self._get("/config/floor_registry/items")
-            for item in data:
-                floor = Floor(
-                    floor_id=item.get("floor_id", ""),
-                    name=item.get("name", ""),
-                    level=item.get("level", 0),
-                )
-                floors[floor.floor_id] = floor
+            data = self._get("/config/floor_registry")
+            if isinstance(data, list):
+                for item in data:
+                    floor = Floor(
+                        floor_id=item.get("floor_id", ""),
+                        name=item.get("name", ""),
+                        level=item.get("level", 0),
+                    )
+                    floors[floor.floor_id] = floor
             logger.info(f"  Found {len(floors)} floors")
         except Exception as e:
-            logger.warning(f"  Could not fetch floors: {e}")
+            logger.warning(f"  Could not fetch floors (this is OK if floors aren't configured): {e}")
         return floors
     
-    @logger.instrument("Fetching areas from HA...")
     def _fetch_areas(self) -> dict[str, Area]:
         """Fetch area registry."""
         areas = {}
         try:
-            data = self._get("/config/area_registry/items")
-            for item in data:
-                area = Area(
-                    area_id=item.get("area_id", ""),
-                    name=item.get("name", ""),
-                    floor_id=item.get("floor_id"),
-                )
-                areas[area.area_id] = area
+            logger.info("Fetching areas from HA...")
+            data = self._get("/config/area_registry")
+            if isinstance(data, list):
+                for item in data:
+                    area = Area(
+                        area_id=item.get("area_id", ""),
+                        name=item.get("name", ""),
+                        floor_id=item.get("floor_id"),
+                    )
+                    areas[area.area_id] = area
             logger.info(f"  Found {len(areas)} areas")
         except Exception as e:
-            logger.warning(f"  Could not fetch areas: {e}")
+            logger.warning(f"  Could not fetch areas (this is OK if areas aren't configured): {e}")
         return areas
     
-    @logger.instrument("Fetching media players from HA...")
-    def _fetch_speakers(self) -> dict[str, Speaker]:
-        """Fetch media_player entities from entity registry and states."""
+    def _fetch_entity_registry(self) -> dict[str, dict]:
+        """Fetch entity registry for area assignments."""
+        entity_map = {}
+        try:
+            logger.info("Fetching entity registry from HA...")
+            data = self._get("/config/entity_registry")
+            if isinstance(data, list):
+                for entity in data:
+                    entity_id = entity.get("entity_id", "")
+                    if entity_id.startswith("media_player."):
+                        entity_map[entity_id] = entity
+                logger.info(f"  Found {len(entity_map)} media_player entities in registry")
+        except Exception as e:
+            logger.warning(f"  Could not fetch entity registry: {e}")
+        return entity_map
+    
+    def _fetch_speakers(self, entity_registry: dict[str, dict] = None) -> dict[str, Speaker]:
+        """Fetch media_player entities from states."""
         speakers = {}
+        entity_registry = entity_registry or {}
         
         try:
-            # Get entity registry for area assignments
-            entity_registry = {}
-            try:
-                entities = self._get("/config/entity_registry/items")
-                for entity in entities:
-                    if entity.get("entity_id", "").startswith("media_player."):
-                        entity_registry[entity["entity_id"]] = entity
-            except Exception as e:
-                logger.warning(f"  Could not fetch entity registry: {e}")
-            
-            # Get states for friendly names and to discover all media players
+            logger.info("Fetching media players from HA states...")
             states = self._get("/states")
             
+            if not isinstance(states, list):
+                logger.error(f"  Unexpected states response type: {type(states)}")
+                return speakers
+            
+            media_player_count = 0
             for state in states:
                 entity_id = state.get("entity_id", "")
                 if not entity_id.startswith("media_player."):
                     continue
                 
+                media_player_count += 1
+                
                 # Get friendly name from state attributes
                 attributes = state.get("attributes", {})
                 name = attributes.get("friendly_name", entity_id.replace("media_player.", "").replace("_", " ").title())
                 
-                # Get area from entity registry
+                # Get area from entity registry if available
                 area_id = None
                 if entity_id in entity_registry:
                     area_id = entity_registry[entity_id].get("area_id")
@@ -213,23 +231,27 @@ class HARegistry:
                 )
                 speakers[entity_id] = speaker
             
-            logger.info(f"  Found {len(speakers)} media players")
+            logger.info(f"  Found {len(speakers)} media players (from {media_player_count} total)")
             
         except Exception as e:
-            logger.error(f"  Failed to fetch media players: {e}")
+            logger.error(f"  Failed to fetch media players from states: {e}")
+            import traceback
+            traceback.print_exc()
         
         return speakers
     
-    @logger.instrument("Building speaker hierarchy...")
     def refresh(self) -> SpeakerHierarchy:
         """
         Refresh all data from HA and rebuild hierarchy.
         Call this to update after HA configuration changes.
         """
+        logger.info("Building speaker hierarchy from Home Assistant...")
+        
         # Fetch all data
         self._floors = self._fetch_floors()
         self._areas = self._fetch_areas()
-        self._speakers = self._fetch_speakers()
+        entity_registry = self._fetch_entity_registry()
+        self._speakers = self._fetch_speakers(entity_registry)
         
         # Build hierarchy
         hierarchy = SpeakerHierarchy()
@@ -252,6 +274,9 @@ class HARegistry:
                 # Speaker has no area assignment
                 hierarchy.unassigned_speakers.append(speaker)
         
+        # Sort unassigned speakers by name
+        hierarchy.unassigned_speakers.sort(key=lambda s: s.name)
+        
         # Build floor list with their areas
         for floor in sorted(self._floors.values(), key=lambda f: f.level):
             floor.areas = []
@@ -270,7 +295,7 @@ class HARegistry:
         self._hierarchy = hierarchy
         
         total_speakers = len(hierarchy.get_all_speakers())
-        logger.info(f"  Built hierarchy: {len(hierarchy.floors)} floors, {total_speakers} speakers")
+        logger.info(f"  Hierarchy complete: {len(hierarchy.floors)} floors, {len(hierarchy.unassigned_areas)} unassigned areas, {len(hierarchy.unassigned_speakers)} unassigned speakers, {total_speakers} total speakers")
         
         return hierarchy
     
