@@ -1,14 +1,14 @@
-# Sonorium Dev
+# Sonorium
 
-![Sonorium](https://raw.githubusercontent.com/synssins/sonorium-dev/main/logo.png)
+![Sonorium](https://raw.githubusercontent.com/synssins/sonorium/main/logo.png)
 
-**Multi-Zone Ambient Soundscape Mixer for Home Assistant - Development Build**
+**Multi-Zone Ambient Soundscape Mixer for Home Assistant**
 
-[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium-dev)
+[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium)
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
-## What's New (v1.1.16-dev)
+## What's New in v1.1
 
 ### Track Mixer with Advanced Controls
 Fine-tune how each audio file plays within a theme:
@@ -55,22 +55,22 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 ### Channels View
 Create and manage multiple audio channels, each streaming to different speakers.
 
-![Channels](https://raw.githubusercontent.com/synssins/sonorium-dev/main/screenshots/Channels.png)
+![Channels](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channels.png)
 
 ### Theme Selection
 Choose from your library of ambient themes for each channel.
 
-![Theme Selection](https://raw.githubusercontent.com/synssins/sonorium-dev/main/screenshots/Channels_Theme_Selection.png)
+![Theme Selection](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channels_Theme_Selection.png)
 
 ### Themes Library
 Organize your audio files into themes with favorites and categories.
 
-![Themes](https://raw.githubusercontent.com/synssins/sonorium-dev/main/screenshots/Themes.png)
+![Themes](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Themes.png)
 
 ### Settings
 Configure speakers, volume defaults, and other preferences.
 
-![Settings](https://raw.githubusercontent.com/synssins/sonorium-dev/main/screenshots/Settings.png)
+![Settings](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings.png)
 
 ## Features
 

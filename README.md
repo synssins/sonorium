@@ -1,14 +1,14 @@
-# Sonorium Dev
+# Sonorium
 
 ![Sonorium](logo.png)
 
-**Multi-Zone Ambient Soundscape Mixer for Home Assistant - Development Build**
+**Multi-Zone Ambient Soundscape Mixer for Home Assistant**
 
-[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium-dev)
+[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium)
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
-## What's New (v1.1.16-dev)
+## What's New in v1.1
 
 ### Track Mixer with Advanced Controls
 Fine-tune how each audio file plays within a theme:
