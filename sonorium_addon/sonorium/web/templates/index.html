@@ -1075,32 +1075,67 @@
             gap: 0.25rem;
         }
 
-        .track-volume-slider {
+        .track-volume-wrapper {
+            position: relative;
             flex: 1;
-            height: 4px;
+            height: 8px;
+        }
+
+        .track-volume-track {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            left: 0;
+            right: 0;
+            height: 6px;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+
+        .track-volume-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            background: var(--accent-primary);
+            border-radius: 2px 0 0 2px;
+            transition: width 0.05s ease-out;
+        }
+
+        .track-volume-slider {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             -webkit-appearance: none;
             appearance: none;
-            background: var(--bg-tertiary);
-            border-radius: 2px;
+            background: transparent;
             cursor: pointer;
+            z-index: 2;
+            margin: 0;
         }
 
         .track-volume-slider::-webkit-slider-thumb {
             -webkit-appearance: none;
-            width: 10px;
-            height: 10px;
+            width: 12px;
+            height: 12px;
             background: var(--text-primary);
             border-radius: 50%;
             cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4);
         }
 
         .track-volume-slider::-moz-range-thumb {
-            width: 10px;
-            height: 10px;
+            width: 12px;
+            height: 12px;
             background: var(--text-primary);
             border-radius: 50%;
             cursor: pointer;
             border: none;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.4);
         }
 
         .track-volume-value {
@@ -3631,10 +3666,15 @@
                             <div class="track-advanced-row">
                                 <span class="track-advanced-label">Volume</span>
                                 <div class="track-volume-control">
-                                    <input type="range" class="track-volume-slider"
-                                           min="0" max="100" value="${volumePercent}"
-                                           onchange="setTrackVolume('${escapeHtml(track.name)}', this.value)"
-                                           oninput="updateTrackVolumeDisplay(this)">
+                                    <div class="track-volume-wrapper">
+                                        <div class="track-volume-track">
+                                            <div class="track-volume-fill" style="width: ${volumePercent}%"></div>
+                                        </div>
+                                        <input type="range" class="track-volume-slider"
+                                               min="0" max="100" value="${volumePercent}"
+                                               onchange="setTrackVolume('${escapeHtml(track.name)}', this.value)"
+                                               oninput="updateTrackVolumeDisplay(this)">
+                                    </div>
                                     <span class="track-volume-value">${volumePercent}%</span>
                                 </div>
                             </div>
@@ -3729,7 +3769,11 @@
         function updateTrackVolumeDisplay(slider) {
             const control = slider.closest('.track-volume-control');
             const valueSpan = control.querySelector('.track-volume-value');
+            const fillDiv = control.querySelector('.track-volume-fill');
             valueSpan.textContent = slider.value + '%';
+            if (fillDiv) {
+                fillDiv.style.width = slider.value + '%';
+            }
         }
 
         async function setTrackVolume(trackName, volumePercent) {
