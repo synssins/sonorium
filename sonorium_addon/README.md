@@ -28,6 +28,28 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 
 - **Work & Study**: The "coffee shop effect"—moderate ambient noise can boost creative thinking and sustained attention.
 
+## Screenshots
+
+### Channels View
+Create and manage multiple audio channels, each streaming to different speakers.
+
+![Channels](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channels.png)
+
+### Theme Selection
+Choose from your library of ambient themes for each channel.
+
+![Theme Selection](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channels_Theme_Selection.png)
+
+### Themes Library
+Organize your audio files into themes with favorites and categories.
+
+![Themes](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Themes.png)
+
+### Settings
+Configure speakers, volume defaults, and other preferences.
+
+![Settings](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings.png)
+
 ## Features
 
 ### Multi-Zone Audio
