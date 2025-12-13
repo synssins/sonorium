@@ -103,10 +103,10 @@ class SonoriumSettings:
     # Format: {"area_name": ["media_player.entity1", "media_player.entity2"]}
     custom_speaker_areas: dict[str, list[str]] = field(default_factory=dict)
 
-    # Per-track volume settings for themes
-    # Format: {"theme_id": {"track_name": 0.8, "track_name2": 1.2}}
-    # Volume is a multiplier: 1.0 = default, 0.5 = half, 1.5 = 150%
-    track_volumes: dict[str, dict[str, float]] = field(default_factory=dict)
+    # Per-track presence settings for themes (how often track plays in mix)
+    # Format: {"theme_id": {"track_name": 0.5, "track_name2": 1.0}}
+    # Presence: 1.0 = always playing, 0.5 = plays ~50% of time, 0.0 = never plays
+    track_presence: dict[str, dict[str, float]] = field(default_factory=dict)
 
     # Per-track mute/enabled settings for themes
     # Format: {"theme_id": {"track_name": false}} - only stores disabled tracks

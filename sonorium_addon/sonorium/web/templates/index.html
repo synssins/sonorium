@@ -827,7 +827,7 @@
             border-color: var(--accent-primary);
         }
 
-        /* Track Mixer */
+        /* Track Mixer - Vertical Fader Style */
         .track-mixer {
             margin-top: 1rem;
             border-top: 1px solid var(--border-color);
@@ -854,29 +854,36 @@
 
         .track-list {
             display: flex;
-            flex-direction: column;
+            flex-direction: row;
             gap: 0.5rem;
-            max-height: 300px;
-            overflow-y: auto;
+            overflow-x: auto;
+            padding-bottom: 0.5rem;
         }
 
         .track-item {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 0.75rem;
-            padding: 0.5rem 0.75rem;
+            gap: 0.5rem;
+            padding: 0.75rem 0.5rem;
             background: var(--bg-secondary);
             border-radius: 0.5rem;
             border: 1px solid var(--border-color);
+            min-width: 60px;
+            max-width: 80px;
         }
 
         .track-item.muted {
             opacity: 0.5;
         }
 
+        .track-item.muted .track-presence-slider {
+            opacity: 0.3;
+        }
+
         .track-mute-btn {
-            width: 28px;
-            height: 28px;
+            width: 32px;
+            height: 32px;
             border-radius: 4px;
             border: 1px solid var(--border-color);
             background: var(--bg-tertiary);
@@ -884,8 +891,9 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 0.9rem;
+            font-size: 1rem;
             transition: all 0.15s ease;
+            flex-shrink: 0;
         }
 
         .track-mute-btn:hover {
@@ -899,55 +907,65 @@
         }
 
         .track-name {
-            flex: 1;
-            font-size: 0.85rem;
+            font-size: 0.7rem;
             color: var(--text-primary);
-            white-space: nowrap;
+            text-align: center;
             overflow: hidden;
             text-overflow: ellipsis;
-            min-width: 0;
+            white-space: nowrap;
+            width: 100%;
+            order: 3;
         }
 
-        .track-volume-control {
+        .track-presence-control {
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 0.5rem;
-            min-width: 150px;
+            gap: 0.25rem;
+            height: 140px;
         }
 
-        .track-volume-slider {
-            flex: 1;
-            height: 4px;
+        .track-presence-slider {
+            writing-mode: vertical-lr;
+            direction: rtl;
+            width: 6px;
+            height: 100px;
             -webkit-appearance: none;
             appearance: none;
-            background: var(--bg-tertiary);
-            border-radius: 2px;
+            background: linear-gradient(to top, var(--accent-primary) 0%, var(--bg-tertiary) 0%);
+            border-radius: 3px;
             cursor: pointer;
         }
 
-        .track-volume-slider::-webkit-slider-thumb {
+        .track-presence-slider::-webkit-slider-thumb {
             -webkit-appearance: none;
-            width: 14px;
-            height: 14px;
-            background: var(--accent-primary);
-            border-radius: 50%;
-            cursor: pointer;
+            width: 18px;
+            height: 10px;
+            background: var(--text-primary);
+            border-radius: 2px;
+            cursor: grab;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
 
-        .track-volume-slider::-moz-range-thumb {
-            width: 14px;
-            height: 14px;
-            background: var(--accent-primary);
-            border-radius: 50%;
-            cursor: pointer;
+        .track-presence-slider::-webkit-slider-thumb:active {
+            cursor: grabbing;
+        }
+
+        .track-presence-slider::-moz-range-thumb {
+            width: 18px;
+            height: 10px;
+            background: var(--text-primary);
+            border-radius: 2px;
+            cursor: grab;
             border: none;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
 
-        .track-volume-value {
-            font-size: 0.75rem;
+        .track-presence-value {
+            font-size: 0.65rem;
             color: var(--text-muted);
-            min-width: 36px;
-            text-align: right;
+            text-align: center;
+            min-width: 32px;
         }
 
         .track-mixer-empty {
@@ -1952,7 +1970,7 @@
                             <!-- Track Mixer Section -->
                             <div class="track-mixer">
                                 <div class="track-mixer-header">
-                                    <h4>Track Mixer</h4>
+                                    <h4>Track Presence <span style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(how often each track plays)</span></h4>
                                     <button class="btn btn-sm btn-secondary track-mixer-reset" onclick="resetTrackMixer()" title="Reset all tracks to default">
                                         Reset All
                                     </button>
@@ -3418,43 +3436,51 @@
                     return;
                 }
 
-                container.innerHTML = tracks.map(track => `
+                container.innerHTML = tracks.map(track => {
+                    const presencePercent = Math.round(track.presence * 100);
+                    const fillPercent = presencePercent; // 0-100% range now
+                    return `
                     <div class="track-item ${track.muted ? 'muted' : ''}" data-track="${escapeHtml(track.name)}">
+                        <span class="track-presence-value">${presencePercent}%</span>
+                        <div class="track-presence-control">
+                            <input type="range" class="track-presence-slider"
+                                   min="0" max="100" value="${presencePercent}"
+                                   style="background: linear-gradient(to top, var(--accent-primary) ${fillPercent}%, var(--bg-tertiary) ${fillPercent}%)"
+                                   onchange="setTrackPresence('${escapeHtml(track.name)}', this.value)"
+                                   oninput="updateTrackPresenceDisplay(this)">
+                        </div>
                         <button class="track-mute-btn ${track.muted ? 'muted' : ''}"
                                 onclick="toggleTrackMute('${escapeHtml(track.name)}')"
                                 title="${track.muted ? 'Unmute' : 'Mute'}">
                             ${track.muted ? '🔇' : '🔊'}
                         </button>
                         <span class="track-name" title="${escapeHtml(track.name)}">${escapeHtml(track.name)}</span>
-                        <div class="track-volume-control">
-                            <input type="range" class="track-volume-slider"
-                                   min="0" max="200" value="${Math.round(track.volume * 100)}"
-                                   onchange="setTrackVolume('${escapeHtml(track.name)}', this.value)"
-                                   oninput="updateTrackVolumeDisplay(this)">
-                            <span class="track-volume-value">${Math.round(track.volume * 100)}%</span>
-                        </div>
-                    </div>
-                `).join('');
+                    </div>`;
+                }).join('');
             } catch (error) {
                 console.error('Failed to load tracks:', error);
                 container.innerHTML = '<div class="track-mixer-empty">Failed to load tracks</div>';
             }
         }
 
-        function updateTrackVolumeDisplay(slider) {
-            const valueSpan = slider.parentElement.querySelector('.track-volume-value');
+        function updateTrackPresenceDisplay(slider) {
+            const trackItem = slider.closest('.track-item');
+            const valueSpan = trackItem.querySelector('.track-presence-value');
             valueSpan.textContent = slider.value + '%';
+            // Update the fill gradient (0-100% range)
+            const fillPercent = parseFloat(slider.value);
+            slider.style.background = `linear-gradient(to top, var(--accent-primary) ${fillPercent}%, var(--bg-tertiary) ${fillPercent}%)`;
         }
 
-        async function setTrackVolume(trackName, volumePercent) {
+        async function setTrackPresence(trackName, presencePercent) {
             if (!currentTrackMixerThemeId) return;
 
-            const volume = parseFloat(volumePercent) / 100;
+            const presence = parseFloat(presencePercent) / 100;
             try {
-                await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/volume`, { volume });
+                await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/presence`, { presence });
             } catch (error) {
-                console.error('Failed to set track volume:', error);
-                showToast('Failed to set track volume', 'error');
+                console.error('Failed to set track presence:', error);
+                showToast('Failed to set track presence', 'error');
             }
         }
 
@@ -3486,7 +3512,7 @@
         async function resetTrackMixer() {
             if (!currentTrackMixerThemeId) return;
 
-            if (!confirm('Reset all track volumes and mutes to defaults?')) return;
+            if (!confirm('Reset all track presence settings and mutes to defaults?')) return;
 
             try {
                 await api('POST', `/themes/${currentTrackMixerThemeId}/tracks/reset`);

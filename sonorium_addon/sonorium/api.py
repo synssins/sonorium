@@ -77,7 +77,7 @@ class ApiSonorium(api.Base):
 
             # Track Mixer API
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks', method=self.get_theme_tracks),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/volume', method=self.set_track_volume),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/presence', method=self.set_track_presence),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/muted', method=self.set_track_muted),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
 
@@ -589,15 +589,15 @@ class ApiSonorium(api.Base):
             for theme in device.themes:
                 if theme.instances:
                     # Get saved settings for this theme
-                    saved_volumes = {}
+                    saved_presence = {}
                     saved_muted = {}
                     if self._state_store:
-                        saved_volumes = self._state_store.settings.track_volumes.get(theme.id, {})
+                        saved_presence = self._state_store.settings.track_presence.get(theme.id, {})
                         saved_muted = self._state_store.settings.track_muted.get(theme.id, {})
 
                     for inst in theme.instances:
-                        # Apply saved volume or default to 1.0
-                        inst.volume = saved_volumes.get(inst.name, 1.0)
+                        # Apply saved presence or default to 1.0 (always playing)
+                        inst.presence = saved_presence.get(inst.name, 1.0)
                         # Apply saved muted state (default to enabled/not muted)
                         inst.is_enabled = not saved_muted.get(inst.name, False)
 
@@ -624,7 +624,7 @@ class ApiSonorium(api.Base):
         }
 
     async def get_theme_tracks(self, theme_id: str):
-        """Get all tracks for a theme with volume/mute settings."""
+        """Get all tracks for a theme with presence/mute settings."""
         theme = self.client.device.themes.id.get(theme_id)
         if not theme:
             return {"error": "Theme not found"}
@@ -633,17 +633,20 @@ class ApiSonorium(api.Base):
             return {"error": "State not available"}
 
         # Get saved settings
-        track_volumes = self._state_store.settings.track_volumes.get(theme_id, {})
+        track_presence = self._state_store.settings.track_presence.get(theme_id, {})
         track_muted = self._state_store.settings.track_muted.get(theme_id, {})
 
         tracks = []
         for inst in theme.instances:
             tracks.append({
                 "name": inst.name,
-                "volume": track_volumes.get(inst.name, 1.0),
+                "presence": track_presence.get(inst.name, 1.0),
                 "muted": track_muted.get(inst.name, False),
                 "is_enabled": inst.is_enabled,
             })
+
+        # Sort tracks alphabetically by name
+        tracks.sort(key=lambda t: t["name"].lower())
 
         return {
             "theme_id": theme_id,
@@ -651,8 +654,14 @@ class ApiSonorium(api.Base):
             "tracks": tracks,
         }
 
-    async def set_track_volume(self, theme_id: str, track_name: str, request: Request):
-        """Set volume for a specific track in a theme."""
+    async def set_track_presence(self, theme_id: str, track_name: str, request: Request):
+        """Set presence (frequency) for a specific track in a theme.
+
+        Presence controls how often a track plays in the mix:
+        - 1.0 = always playing (100% of the time)
+        - 0.5 = plays about half the time
+        - 0.0 = never plays (disabled)
+        """
         theme = self.client.device.themes.id.get(theme_id)
         if not theme:
             return {"error": "Theme not found"}
@@ -665,12 +674,12 @@ class ApiSonorium(api.Base):
         except Exception:
             return {"error": "Invalid JSON body"}
 
-        volume = body.get("volume")
-        if volume is None:
-            return {"error": "Volume is required"}
+        presence = body.get("presence")
+        if presence is None:
+            return {"error": "Presence is required"}
 
-        # Clamp volume to 0.0 - 2.0 range (0% to 200%)
-        volume = max(0.0, min(2.0, float(volume)))
+        # Clamp presence to 0.0 - 1.0 range
+        presence = max(0.0, min(1.0, float(presence)))
 
         # Find the track instance
         track_inst = None
@@ -682,16 +691,16 @@ class ApiSonorium(api.Base):
         if not track_inst:
             return {"error": "Track not found"}
 
-        # Update the live instance volume
-        track_inst.volume = volume
+        # Update the live instance presence
+        track_inst.presence = presence
 
         # Persist to settings
-        if theme_id not in self._state_store.settings.track_volumes:
-            self._state_store.settings.track_volumes[theme_id] = {}
-        self._state_store.settings.track_volumes[theme_id][track_name] = volume
+        if theme_id not in self._state_store.settings.track_presence:
+            self._state_store.settings.track_presence[theme_id] = {}
+        self._state_store.settings.track_presence[theme_id][track_name] = presence
         self._state_store.save()
 
-        return {"status": "ok", "track": track_name, "volume": volume}
+        return {"status": "ok", "track": track_name, "presence": presence}
 
     async def set_track_muted(self, theme_id: str, track_name: str, request: Request):
         """Set muted state for a specific track in a theme."""
@@ -735,7 +744,7 @@ class ApiSonorium(api.Base):
         return {"status": "ok", "track": track_name, "muted": muted}
 
     async def reset_theme_tracks(self, theme_id: str):
-        """Reset all track volumes/mutes to defaults for a theme."""
+        """Reset all track presence/mutes to defaults for a theme."""
         theme = self.client.device.themes.id.get(theme_id)
         if not theme:
             return {"error": "Theme not found"}
@@ -745,12 +754,12 @@ class ApiSonorium(api.Base):
 
         # Reset live instances
         for inst in theme.instances:
-            inst.volume = 1.0
+            inst.presence = 1.0
             inst.is_enabled = True
 
         # Clear persisted settings
-        if theme_id in self._state_store.settings.track_volumes:
-            del self._state_store.settings.track_volumes[theme_id]
+        if theme_id in self._state_store.settings.track_presence:
+            del self._state_store.settings.track_presence[theme_id]
         if theme_id in self._state_store.settings.track_muted:
             del self._state_store.settings.track_muted[theme_id]
         self._state_store.save()

@@ -5,10 +5,15 @@ from fmtr.tools import av
 
 LOG_THRESHOLD = 500
 
-# Crossfade duration in seconds
-CROSSFADE_DURATION = 3.0
+# Crossfade duration in seconds for loop transitions
+LOOP_CROSSFADE_DURATION = 3.0
+# Fade duration for tracks fading in/out of the mix
+TRACK_FADE_DURATION = 6.0
+# Sample rate
 SAMPLE_RATE = 44100
-CROSSFADE_SAMPLES = int(CROSSFADE_DURATION * SAMPLE_RATE)
+# Calculated sample counts
+CROSSFADE_SAMPLES = int(LOOP_CROSSFADE_DURATION * SAMPLE_RATE)
+TRACK_FADE_SAMPLES = int(TRACK_FADE_DURATION * SAMPLE_RATE)
 
 
 class RecordingMetadata:
@@ -68,14 +73,24 @@ class RecordingThemeInstance:
 
     def __init__(self, meta: RecordingMetadata):
         self.meta = meta
-        self.volume = 1.0  # Default to full volume - mixing will handle the blend
-        self.is_enabled = False
+        self.volume = 1.0  # Amplitude multiplier (keep at 1.0 for now)
+        self.presence = 1.0  # How often this track plays: 1.0 = always, 0.5 = half the time, 0 = never
+        self.is_enabled = True  # Master enable/disable (mute)
         self.crossfade_enabled = True  # Enable crossfade looping by default
 
     def get_stream(self):
+        # Get base stream (with or without crossfade looping)
         if self.crossfade_enabled:
-            return CrossfadeRecordingStream(self)
-        return RecordingThemeStream(self)
+            base_stream = CrossfadeRecordingStream(self)
+        else:
+            base_stream = RecordingThemeStream(self)
+
+        # Wrap with presence-based mixing if presence < 1.0
+        # This allows tracks to fade in/out of the mix based on presence setting
+        if self.presence < 1.0:
+            return PresenceMixingStream(base_stream, self)
+
+        return base_stream
 
     @property
     def name(self):
@@ -277,8 +292,149 @@ class CrossfadeRecordingStream:
                 vol_mean = round(abs(output_chunk).mean())
                 status = "XFADE" if in_crossfade else "PLAY"
                 logger.info(f'CrossfadeStream [{status}]: chunk #{chunk_count}, samples={samples_played}, vol={vol_mean}')
-            
+
             yield output_data
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.gen)
+
+
+class PresenceMixingStream:
+    """
+    Wrapper stream that controls track presence in the mix.
+
+    Instead of controlling amplitude, the 'presence' value (0.0-1.0) controls
+    how often this track is audible in the mix:
+    - presence=1.0: Track plays continuously (always in mix)
+    - presence=0.5: Track plays ~50% of the time, fading in/out
+    - presence=0.0: Track never plays (always silent)
+
+    Uses randomized timing so tracks don't all fade in/out together.
+    """
+    CHUNK_SIZE = 1_024
+
+    def __init__(self, base_stream, instance: RecordingThemeInstance):
+        self.base_stream = base_stream
+        self.instance = instance
+        self.gen = self._gen()
+
+    def _gen(self):
+        """Generator that applies presence-based fading"""
+        import random
+
+        # State for presence fading
+        is_active = True  # Start active
+        current_gain = 1.0 if self.instance.presence >= 1.0 else 0.0
+        target_gain = 1.0 if self.instance.presence >= 1.0 else 0.0
+        fade_position = 0
+        samples_until_change = 0
+
+        # Timing parameters (in samples)
+        min_active_duration = int(30 * SAMPLE_RATE)  # Min 30 seconds active
+        max_active_duration = int(120 * SAMPLE_RATE)  # Max 2 minutes active
+        min_inactive_duration = int(20 * SAMPLE_RATE)  # Min 20 seconds inactive
+        max_inactive_duration = int(90 * SAMPLE_RATE)  # Max 90 seconds inactive
+
+        def get_next_duration(presence, is_active):
+            """Calculate how long to stay in current state based on presence"""
+            if presence >= 1.0:
+                return float('inf')  # Always active
+            if presence <= 0.0:
+                return float('inf')  # Always inactive
+
+            if is_active:
+                # Higher presence = longer active periods
+                base_duration = min_active_duration + (max_active_duration - min_active_duration) * presence
+                variation = random.uniform(0.7, 1.3)
+                return int(base_duration * variation)
+            else:
+                # Higher presence = shorter inactive periods
+                base_duration = max_inactive_duration - (max_inactive_duration - min_inactive_duration) * presence
+                variation = random.uniform(0.7, 1.3)
+                return int(base_duration * variation)
+
+        # Initialize timing
+        presence = self.instance.presence
+        if presence >= 1.0:
+            is_active = True
+            current_gain = 1.0
+            target_gain = 1.0
+        elif presence <= 0.0:
+            is_active = False
+            current_gain = 0.0
+            target_gain = 0.0
+        else:
+            # Start randomly based on presence
+            is_active = random.random() < presence
+            current_gain = 1.0 if is_active else 0.0
+            target_gain = current_gain
+
+        samples_until_change = get_next_duration(presence, is_active)
+
+        chunk_count = 0
+
+        while True:
+            # Get base audio chunk
+            try:
+                chunk = next(self.base_stream)
+            except StopIteration:
+                return
+
+            # Check for presence value changes
+            new_presence = self.instance.presence
+            if new_presence != presence:
+                presence = new_presence
+                # Recalculate state for new presence
+                if presence >= 1.0 and target_gain < 1.0:
+                    target_gain = 1.0
+                    fade_position = 0
+                elif presence <= 0.0 and target_gain > 0.0:
+                    target_gain = 0.0
+                    fade_position = 0
+
+            # Check if it's time to change state
+            samples_until_change -= self.CHUNK_SIZE
+            if samples_until_change <= 0 and 0 < presence < 1.0:
+                is_active = not is_active
+                target_gain = 1.0 if is_active else 0.0
+                fade_position = 0
+                samples_until_change = get_next_duration(presence, is_active)
+                if chunk_count % LOG_THRESHOLD == 0:
+                    logger.debug(f'PresenceMixingStream: {self.instance.name} {"fading in" if is_active else "fading out"}')
+
+            # Apply fade if current_gain != target_gain
+            if current_gain != target_gain:
+                # Calculate fade progress
+                fade_progress = fade_position / TRACK_FADE_SAMPLES
+                fade_progress = min(1.0, fade_progress)
+
+                if target_gain > current_gain:
+                    # Fading in - equal power curve
+                    applied_gain = np.sin(fade_progress * np.pi / 2)
+                else:
+                    # Fading out - equal power curve
+                    applied_gain = np.cos(fade_progress * np.pi / 2)
+
+                fade_position += self.CHUNK_SIZE
+
+                # Check if fade complete
+                if fade_progress >= 1.0:
+                    current_gain = target_gain
+                    applied_gain = target_gain
+            else:
+                applied_gain = current_gain
+
+            # Apply gain to chunk
+            if applied_gain < 1.0:
+                # Convert to float, apply gain, convert back
+                chunk_float = chunk.astype(np.float32) * applied_gain
+                chunk = np.clip(chunk_float, -32768, 32767).astype(np.int16)
+
+            chunk_count += 1
+            yield chunk
 
     def __iter__(self):
         return self

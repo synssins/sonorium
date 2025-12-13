@@ -1,7 +1,7 @@
 name: Sonorium Dev
-version: "1.1.0-dev"
+version: "1.1.1-dev"
 slug: sonorium_dev
-description: "Sonorium development build - Per-track volume control and experimental features"
+description: "Sonorium development build - Track presence control and experimental features"
 url: https://github.com/synssins/sonorium-dev
 
 arch:
