@@ -926,40 +926,83 @@
             height: 140px;
         }
 
+        .track-slider-wrapper {
+            position: relative;
+            width: 24px;
+            height: 100px;
+        }
+
+        .track-slider-track {
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 8px;
+            height: 100%;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+
+        .track-slider-fill {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: var(--accent-primary);
+            border-radius: 0 0 3px 3px;
+            transition: height 0.05s ease-out;
+        }
+
         .track-presence-slider {
+            position: absolute;
+            top: 0;
+            left: 0;
             writing-mode: vertical-lr;
             direction: rtl;
-            width: 6px;
+            width: 24px;
             height: 100px;
             -webkit-appearance: none;
             appearance: none;
-            background: linear-gradient(to top, var(--accent-primary) 0%, var(--bg-tertiary) 0%);
-            border-radius: 3px;
+            background: transparent;
             cursor: pointer;
+            z-index: 2;
+        }
+
+        .track-presence-slider::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 100%;
+            background: transparent;
         }
 
         .track-presence-slider::-webkit-slider-thumb {
             -webkit-appearance: none;
-            width: 18px;
+            width: 22px;
             height: 10px;
             background: var(--text-primary);
-            border-radius: 2px;
+            border-radius: 3px;
             cursor: grab;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
         }
 
         .track-presence-slider::-webkit-slider-thumb:active {
             cursor: grabbing;
         }
 
+        .track-presence-slider::-moz-range-track {
+            width: 100%;
+            height: 100%;
+            background: transparent;
+        }
+
         .track-presence-slider::-moz-range-thumb {
-            width: 18px;
+            width: 22px;
             height: 10px;
             background: var(--text-primary);
-            border-radius: 2px;
+            border-radius: 3px;
             cursor: grab;
             border: none;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.4);
         }
 
         .track-presence-value {
@@ -3440,16 +3483,19 @@
 
                 container.innerHTML = tracks.map(track => {
                     const presencePercent = Math.round(track.presence * 100);
-                    const fillPercent = presencePercent; // 0-100% range now
                     return `
                     <div class="track-item ${track.muted ? 'muted' : ''}" data-track="${escapeHtml(track.name)}">
                         <span class="track-presence-value">${presencePercent}%</span>
                         <div class="track-presence-control">
-                            <input type="range" class="track-presence-slider"
-                                   min="0" max="100" value="${presencePercent}"
-                                   style="background: linear-gradient(to top, var(--accent-primary) ${fillPercent}%, var(--bg-tertiary) ${fillPercent}%)"
-                                   onchange="setTrackPresence('${escapeHtml(track.name)}', this.value)"
-                                   oninput="updateTrackPresenceDisplay(this)">
+                            <div class="track-slider-wrapper">
+                                <div class="track-slider-track">
+                                    <div class="track-slider-fill" style="height: ${presencePercent}%"></div>
+                                </div>
+                                <input type="range" class="track-presence-slider"
+                                       min="0" max="100" value="${presencePercent}"
+                                       onchange="setTrackPresence('${escapeHtml(track.name)}', this.value)"
+                                       oninput="updateTrackPresenceDisplay(this)">
+                            </div>
                         </div>
                         <button class="track-mute-btn ${track.muted ? 'muted' : ''}"
                                 onclick="toggleTrackMute('${escapeHtml(track.name)}')"
@@ -3468,10 +3514,10 @@
         function updateTrackPresenceDisplay(slider) {
             const trackItem = slider.closest('.track-item');
             const valueSpan = trackItem.querySelector('.track-presence-value');
+            const fillDiv = trackItem.querySelector('.track-slider-fill');
             valueSpan.textContent = slider.value + '%';
-            // Update the fill gradient (0-100% range)
-            const fillPercent = parseFloat(slider.value);
-            slider.style.background = `linear-gradient(to top, var(--accent-primary) ${fillPercent}%, var(--bg-tertiary) ${fillPercent}%)`;
+            // Update the fill bar height
+            fillDiv.style.height = slider.value + '%';
         }
 
         async function setTrackPresence(trackName, presencePercent) {
