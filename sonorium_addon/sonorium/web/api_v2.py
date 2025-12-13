@@ -1196,6 +1196,19 @@ def create_api_router(
         if "description" in body:
             metadata["description"] = body["description"]
 
+        if "short_file_threshold" in body:
+            threshold = float(body["short_file_threshold"])
+            if threshold < 0:
+                raise HTTPException(status_code=400, detail="short_file_threshold must be >= 0")
+            metadata["short_file_threshold"] = threshold
+
+            # Also update the live theme object if it exists
+            if themes:
+                theme = themes.id.get(theme_id)
+                if theme:
+                    theme.short_file_threshold = threshold
+                    logger.info(f"Updated short_file_threshold for '{theme_id}' to {threshold}s")
+
         # Write back
         try:
             metadata_path.write_text(json.dumps(metadata, indent=2))

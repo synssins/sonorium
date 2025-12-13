@@ -12,6 +12,9 @@ from fmtr.tools.string_tools import sanitize
 # Default output gain multiplier (now controlled via device.master_volume)
 DEFAULT_OUTPUT_GAIN = 6.0
 
+# Default threshold for short file detection (seconds)
+DEFAULT_SHORT_FILE_THRESHOLD = 15.0
+
 
 class ThemeDefinition:
     """
@@ -38,14 +41,19 @@ class ThemeDefinition:
         self.sonorium = sonorium
         self.name = name
 
+        # Short file threshold (seconds) - files shorter than this use sparse playback
+        # Can be customized per theme via metadata.json
+        self.short_file_threshold = DEFAULT_SHORT_FILE_THRESHOLD
+
         # Use theme-specific recordings instead of all recordings
         if name in self.sonorium.theme_metas:
             theme_metas = self.sonorium.theme_metas[name]
         else:
             # Fallback to all recordings for backwards compatibility
             theme_metas = self.sonorium.metas
-        
-        self.instances = IndexList(meta.get_instance() for meta in theme_metas)
+
+        # Pass theme reference to instances so they can access threshold
+        self.instances = IndexList(meta.get_instance(theme=self) for meta in theme_metas)
 
         self.streams: list[ThemeStream] = []
 

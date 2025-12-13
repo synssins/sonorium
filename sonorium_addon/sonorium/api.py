@@ -464,6 +464,10 @@ class ApiSonorium(api.Base):
             # Try to read metadata.json from theme folder
             metadata = self._read_theme_metadata(theme.id)
 
+            # Apply short_file_threshold from metadata if present
+            if "short_file_threshold" in metadata:
+                theme.short_file_threshold = float(metadata["short_file_threshold"])
+
             # Track the folder name
             theme_folder = self._find_theme_folder(theme.id)
             if theme_folder:
@@ -480,6 +484,7 @@ class ApiSonorium(api.Base):
                 "is_favorite": theme.id in favorites,
                 "has_audio": True,
                 "categories": category_assignments.get(theme.id, []),
+                "short_file_threshold": theme.short_file_threshold,
             })
 
         # Then scan for empty theme folders
@@ -648,7 +653,7 @@ class ApiSonorium(api.Base):
                 "muted": track_muted.get(inst.name, False),
                 "is_enabled": inst.is_enabled,
                 "duration_seconds": round(inst.meta.duration_seconds, 1),
-                "is_short_file": inst.meta.is_short_file,
+                "is_short_file": inst.meta.is_short_file(theme.short_file_threshold),
             })
 
         # Sort tracks alphabetically by name
@@ -657,6 +662,7 @@ class ApiSonorium(api.Base):
         return {
             "theme_id": theme_id,
             "theme_name": theme.name,
+            "short_file_threshold": theme.short_file_threshold,
             "tracks": tracks,
         }
 

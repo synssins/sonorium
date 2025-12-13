@@ -31,8 +31,8 @@ class RecordingMetadata:
         self.path = path
         self._duration_samples = None
 
-    def get_instance(self):
-        return RecordingThemeInstance(self)
+    def get_instance(self, theme=None):
+        return RecordingThemeInstance(self, theme=theme)
 
     @property
     def name(self):
@@ -63,10 +63,9 @@ class RecordingMetadata:
         """Get total duration in seconds"""
         return self.duration_samples / SAMPLE_RATE
 
-    @property
-    def is_short_file(self):
+    def is_short_file(self, threshold: float = SHORT_FILE_THRESHOLD_SECONDS) -> bool:
         """Check if this is a short audio file that should use sparse playback"""
-        return self.duration_seconds < SHORT_FILE_THRESHOLD_SECONDS
+        return self.duration_seconds < threshold
     
     def _count_samples(self):
         """Fallback: decode entire file to count samples"""
@@ -87,17 +86,25 @@ class RecordingThemeInstance:
     Every theme gets one of these for each recording.
     """
 
-    def __init__(self, meta: RecordingMetadata):
+    def __init__(self, meta: RecordingMetadata, theme=None):
         self.meta = meta
+        self.theme = theme  # Reference to parent ThemeDefinition for threshold access
         self.volume = 1.0  # Amplitude multiplier (keep at 1.0 for now)
         self.presence = 1.0  # How often this track plays: 1.0 = always, 0.5 = half the time, 0 = never
         self.is_enabled = True  # Master enable/disable (mute)
         self.crossfade_enabled = True  # Enable crossfade looping by default
 
+    @property
+    def short_file_threshold(self) -> float:
+        """Get the short file threshold from theme, or use default"""
+        if self.theme is not None:
+            return self.theme.short_file_threshold
+        return SHORT_FILE_THRESHOLD_SECONDS
+
     def get_stream(self):
         # For short files with presence < 1.0, use sparse playback
         # This prevents short sounds (like a horse whinny) from looping repeatedly
-        if self.meta.is_short_file and self.presence < 1.0:
+        if self.meta.is_short_file(self.short_file_threshold) and self.presence < 1.0:
             return SparsePlaybackStream(self)
 
         # Get base stream (with or without crossfade looping)
