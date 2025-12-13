@@ -1,7 +1,7 @@
 name: Sonorium
-version: "2.0.0b5"
+version: "1.0.0"
 slug: sonorium
-description: "Multi-zone ambient soundscape mixer with session management"
+description: "Multi-zone ambient soundscape mixer for focus, relaxation, and sound sensitivity support"
 url: https://github.com/synssins/sonorium
 
 arch:
@@ -42,7 +42,7 @@ schema:
   sonorium__max_channels: int(1,10)
 
 startup: application
-stage: experimental
+stage: stable
 
 # Direct web UI access (bypasses ingress)
 webui: http://[HOST]:[PORT:8080]/

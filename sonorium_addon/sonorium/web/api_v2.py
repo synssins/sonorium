@@ -11,7 +11,7 @@ import asyncio
 from typing import Optional
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Request
 from pydantic import BaseModel, Field
 
 from sonorium.core.state import SpeakerSelection, CycleConfig, NameSource
@@ -167,11 +167,11 @@ class SettingsResponse(BaseModel):
     """Settings response."""
     default_volume: int
     crossfade_duration: float
-    max_sessions: int
     max_groups: int
     entity_prefix: str
     show_in_sidebar: bool
     auto_create_quick_play: bool
+    master_gain: int
     default_cycle_interval: int
     default_cycle_randomize: bool
 
@@ -179,14 +179,47 @@ class SettingsResponse(BaseModel):
 class UpdateSettingsRequest(BaseModel):
     """Request to update settings."""
     default_volume: Optional[int] = Field(default=None, ge=0, le=100)
-    crossfade_duration: Optional[float] = Field(default=None, ge=0.5, le=10.0)
-    max_sessions: Optional[int] = Field(default=None, ge=1, le=20)
+    crossfade_duration: Optional[float] = Field(default=None, ge=0, le=10.0)
     max_groups: Optional[int] = Field(default=None, ge=1, le=50)
     entity_prefix: Optional[str] = None
     show_in_sidebar: Optional[bool] = None
     auto_create_quick_play: Optional[bool] = None
+    master_gain: Optional[int] = Field(default=None, ge=0, le=100)
     default_cycle_interval: Optional[int] = Field(default=None, ge=1, le=1440)
     default_cycle_randomize: Optional[bool] = None
+
+
+class SpeakerSettingsResponse(BaseModel):
+    """Speaker settings response with hierarchy."""
+    enabled_speakers: list[str]  # Empty = all enabled
+    hierarchy: Optional[dict] = None  # Full speaker hierarchy
+
+
+class UpdateSpeakerSettingsRequest(BaseModel):
+    """Request to update enabled speakers."""
+    enabled_speakers: list[str]
+
+
+class SingleSpeakerRequest(BaseModel):
+    """Request to enable/disable a single speaker."""
+    entity_id: str
+
+
+class CustomAreasRequest(BaseModel):
+    """Request to update all custom speaker areas."""
+    custom_areas: dict[str, list[str]] = Field(default_factory=dict)
+
+
+class CreateCustomAreaRequest(BaseModel):
+    """Request to create a custom speaker area."""
+    name: str
+    speakers: list[str] = Field(default_factory=list)
+
+
+class UpdateCustomAreaRequest(BaseModel):
+    """Request to update a custom speaker area."""
+    name: Optional[str] = None
+    speakers: Optional[list[str]] = None
 
 
 class ChannelResponse(BaseModel):
@@ -728,26 +761,24 @@ def create_api_router(
         return SettingsResponse(
             default_volume=settings.default_volume,
             crossfade_duration=settings.crossfade_duration,
-            max_sessions=settings.max_sessions,
             max_groups=settings.max_groups,
             entity_prefix=settings.entity_prefix,
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
+            master_gain=settings.master_gain,
             default_cycle_interval=settings.default_cycle_interval,
             default_cycle_randomize=settings.default_cycle_randomize,
         )
-    
+
     @router.put("/settings")
     async def update_settings(request: UpdateSettingsRequest) -> SettingsResponse:
         """Update settings."""
         settings = state_store.settings
-        
+
         if request.default_volume is not None:
             settings.default_volume = request.default_volume
         if request.crossfade_duration is not None:
             settings.crossfade_duration = request.crossfade_duration
-        if request.max_sessions is not None:
-            settings.max_sessions = request.max_sessions
         if request.max_groups is not None:
             settings.max_groups = request.max_groups
         if request.entity_prefix is not None:
@@ -756,34 +787,447 @@ def create_api_router(
             settings.show_in_sidebar = request.show_in_sidebar
         if request.auto_create_quick_play is not None:
             settings.auto_create_quick_play = request.auto_create_quick_play
+        if request.master_gain is not None:
+            settings.master_gain = request.master_gain
         if request.default_cycle_interval is not None:
             settings.default_cycle_interval = request.default_cycle_interval
         if request.default_cycle_randomize is not None:
             settings.default_cycle_randomize = request.default_cycle_randomize
-        
+
         state_store.save()
-        
+
         return SettingsResponse(
             default_volume=settings.default_volume,
             crossfade_duration=settings.crossfade_duration,
-            max_sessions=settings.max_sessions,
             max_groups=settings.max_groups,
             entity_prefix=settings.entity_prefix,
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
+            master_gain=settings.master_gain,
             default_cycle_interval=settings.default_cycle_interval,
             default_cycle_randomize=settings.default_cycle_randomize,
         )
-    
-    # --- Theme Endpoints (placeholder) ---
-    
-    @router.get("/themes")
-    async def list_themes() -> list[dict]:
-        """List all available themes."""
-        # TODO: Integrate with existing theme scanning
-        # For now, return empty list - will be connected to existing theme logic
-        if theme_manager:
-            return theme_manager.list_themes()
-        return []
-    
+
+    # --- Speaker Settings Endpoints ---
+
+    @router.get("/settings/speakers")
+    async def get_speaker_settings() -> SpeakerSettingsResponse:
+        """Get enabled speakers and full hierarchy."""
+        settings = state_store.settings
+        hierarchy = None
+        if ha_registry:
+            hierarchy = ha_registry.get_hierarchy_dict()
+        return SpeakerSettingsResponse(
+            enabled_speakers=settings.enabled_speakers,
+            hierarchy=hierarchy,
+        )
+
+    @router.put("/settings/speakers")
+    async def update_speaker_settings(request: UpdateSpeakerSettingsRequest) -> SpeakerSettingsResponse:
+        """Update enabled speakers list."""
+        settings = state_store.settings
+        settings.enabled_speakers = request.enabled_speakers
+        state_store.save()
+
+        hierarchy = None
+        if ha_registry:
+            hierarchy = ha_registry.get_hierarchy_dict()
+        return SpeakerSettingsResponse(
+            enabled_speakers=settings.enabled_speakers,
+            hierarchy=hierarchy,
+        )
+
+    @router.post("/settings/speakers/enable")
+    async def enable_speaker(request: SingleSpeakerRequest) -> SpeakerSettingsResponse:
+        """Enable a single speaker."""
+        settings = state_store.settings
+        entity_id = request.entity_id
+
+        # If enabled_speakers is empty, all are enabled - nothing to do
+        if not settings.enabled_speakers:
+            # Need to switch to explicit mode: add all speakers except this one... wait no
+            # Actually if empty = all enabled, then enabling one speaker doesn't change anything
+            pass
+        else:
+            # Add to enabled list if not already there
+            if entity_id not in settings.enabled_speakers:
+                settings.enabled_speakers.append(entity_id)
+                state_store.save()
+
+        hierarchy = None
+        if ha_registry:
+            hierarchy = ha_registry.get_hierarchy_dict()
+        return SpeakerSettingsResponse(
+            enabled_speakers=settings.enabled_speakers,
+            hierarchy=hierarchy,
+        )
+
+    @router.post("/settings/speakers/disable")
+    async def disable_speaker(request: SingleSpeakerRequest) -> SpeakerSettingsResponse:
+        """Disable a single speaker."""
+        settings = state_store.settings
+        entity_id = request.entity_id
+
+        # If enabled_speakers is empty, all are enabled - need to switch to explicit mode
+        if not settings.enabled_speakers:
+            # Get all speakers and add all except the one being disabled
+            if ha_registry:
+                all_speakers = ha_registry.get_all_speaker_ids()
+                settings.enabled_speakers = [s for s in all_speakers if s != entity_id]
+            else:
+                # Can't disable without knowing all speakers
+                raise HTTPException(status_code=400, detail="Cannot disable speaker: speaker list not available")
+        else:
+            # Remove from enabled list
+            if entity_id in settings.enabled_speakers:
+                settings.enabled_speakers.remove(entity_id)
+
+        state_store.save()
+
+        hierarchy = None
+        if ha_registry:
+            hierarchy = ha_registry.get_hierarchy_dict()
+        return SpeakerSettingsResponse(
+            enabled_speakers=settings.enabled_speakers,
+            hierarchy=hierarchy,
+        )
+
+    @router.post("/settings/speakers/enable-all")
+    async def enable_all_speakers() -> SpeakerSettingsResponse:
+        """Enable all speakers (clear the enabled list)."""
+        settings = state_store.settings
+        settings.enabled_speakers = []  # Empty = all enabled
+        state_store.save()
+
+        hierarchy = None
+        if ha_registry:
+            hierarchy = ha_registry.get_hierarchy_dict()
+        return SpeakerSettingsResponse(
+            enabled_speakers=settings.enabled_speakers,
+            hierarchy=hierarchy,
+        )
+
+    # --- Custom Speaker Areas (fallback when HA areas unavailable) ---
+
+    @router.get("/settings/speaker-areas")
+    async def get_custom_speaker_areas() -> dict:
+        """Get custom speaker area assignments."""
+        settings = state_store.settings
+        return {
+            "custom_areas": settings.custom_speaker_areas,
+        }
+
+    @router.put("/settings/speaker-areas")
+    async def update_custom_speaker_areas(request: CustomAreasRequest) -> dict:
+        """Update all custom speaker area assignments."""
+        settings = state_store.settings
+        settings.custom_speaker_areas = request.custom_areas
+        state_store.save()
+        return {
+            "custom_areas": settings.custom_speaker_areas,
+        }
+
+    @router.post("/settings/speaker-areas/create")
+    async def create_custom_area(request: CreateCustomAreaRequest) -> dict:
+        """Create a new custom speaker area."""
+        settings = state_store.settings
+        area_name = request.name.strip()
+        if not area_name:
+            raise HTTPException(status_code=400, detail="Area name is required")
+        if area_name in settings.custom_speaker_areas:
+            raise HTTPException(status_code=400, detail="Area already exists")
+
+        settings.custom_speaker_areas[area_name] = request.speakers
+        state_store.save()
+        return {
+            "name": area_name,
+            "speakers": settings.custom_speaker_areas[area_name],
+        }
+
+    @router.put("/settings/speaker-areas/{area_name}")
+    async def update_custom_area(area_name: str, request: UpdateCustomAreaRequest) -> dict:
+        """Update a custom speaker area."""
+        settings = state_store.settings
+        if area_name not in settings.custom_speaker_areas:
+            raise HTTPException(status_code=404, detail="Area not found")
+
+        # Handle rename
+        new_name = (request.name or area_name).strip()
+        speakers = request.speakers if request.speakers is not None else settings.custom_speaker_areas[area_name]
+
+        if new_name != area_name:
+            # Rename: delete old, create new
+            del settings.custom_speaker_areas[area_name]
+            settings.custom_speaker_areas[new_name] = speakers
+        else:
+            settings.custom_speaker_areas[area_name] = speakers
+
+        state_store.save()
+        return {
+            "name": new_name,
+            "speakers": speakers,
+        }
+
+    @router.delete("/settings/speaker-areas/{area_name}")
+    async def delete_custom_area(area_name: str) -> dict:
+        """Delete a custom speaker area."""
+        settings = state_store.settings
+        if area_name not in settings.custom_speaker_areas:
+            raise HTTPException(status_code=404, detail="Area not found")
+
+        del settings.custom_speaker_areas[area_name]
+        state_store.save()
+        return {"deleted": area_name}
+
+    @router.post("/settings/speaker-areas/{area_name}/add-speaker")
+    async def add_speaker_to_area(area_name: str, request: SingleSpeakerRequest) -> dict:
+        """Add a speaker to a custom area."""
+        settings = state_store.settings
+        if area_name not in settings.custom_speaker_areas:
+            raise HTTPException(status_code=404, detail="Area not found")
+
+        if request.entity_id not in settings.custom_speaker_areas[area_name]:
+            settings.custom_speaker_areas[area_name].append(request.entity_id)
+            state_store.save()
+
+        return {
+            "name": area_name,
+            "speakers": settings.custom_speaker_areas[area_name],
+        }
+
+    @router.post("/settings/speaker-areas/{area_name}/remove-speaker")
+    async def remove_speaker_from_area(area_name: str, request: SingleSpeakerRequest) -> dict:
+        """Remove a speaker from a custom area."""
+        settings = state_store.settings
+        if area_name not in settings.custom_speaker_areas:
+            raise HTTPException(status_code=404, detail="Area not found")
+
+        if request.entity_id in settings.custom_speaker_areas[area_name]:
+            settings.custom_speaker_areas[area_name].remove(request.entity_id)
+            state_store.save()
+
+        return {
+            "name": area_name,
+            "speakers": settings.custom_speaker_areas[area_name],
+        }
+
+    # --- Theme Endpoints ---
+    # NOTE: GET /themes is handled by app.py with full metadata support
+    # api_v2.py only handles theme management (create, upload, delete, metadata)
+
+    @router.post("/themes/create")
+    async def create_theme(request: Request):
+        """Create a new theme folder."""
+        from pathlib import Path
+        import re
+        import json
+
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        name = body.get("name", "").strip()
+        description = body.get("description", "").strip()
+        icon = body.get("icon", "🎵").strip()
+
+        if not name:
+            raise HTTPException(status_code=400, detail="Theme name is required")
+
+        # Generate a safe folder name from the theme name
+        folder_name = re.sub(r'[^\w\s-]', '', name.lower())
+        folder_name = re.sub(r'[-\s]+', '_', folder_name).strip('_')
+
+        if not folder_name:
+            raise HTTPException(status_code=400, detail="Invalid theme name - could not generate folder name")
+
+        # Find the media path
+        media_paths = [
+            Path("/media/sonorium"),
+            Path("/share/sonorium"),
+        ]
+
+        media_path = None
+        for mp in media_paths:
+            if mp.exists():
+                media_path = mp
+                break
+
+        if not media_path:
+            # Try to create the default media path
+            media_path = Path("/media/sonorium")
+            try:
+                media_path.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                logger.error(f"Failed to create media path: {e}")
+                raise HTTPException(status_code=500, detail="Media path not available")
+
+        # Create the theme folder
+        theme_path = media_path / folder_name
+        if theme_path.exists():
+            raise HTTPException(status_code=409, detail=f"Theme folder '{folder_name}' already exists")
+
+        try:
+            theme_path.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created theme folder: {theme_path}")
+
+            # Write metadata.json with description and icon
+            metadata = {}
+            if description:
+                metadata["description"] = description
+            if icon and icon != "🎵":  # Only store non-default icons
+                metadata["icon"] = icon
+            if metadata:
+                metadata_path = theme_path / "metadata.json"
+                metadata_path.write_text(json.dumps(metadata, indent=2))
+
+            return {
+                "status": "ok",
+                "theme_id": folder_name,
+                "path": str(theme_path),
+                "message": f"Theme '{name}' created successfully"
+            }
+        except Exception as e:
+            logger.error(f"Failed to create theme folder: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/themes/{theme_id}/upload")
+    async def upload_theme_file(theme_id: str, request: Request):
+        """Upload an audio file to a theme folder."""
+        theme_path = _find_theme_folder(theme_id)
+        if not theme_path:
+            raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
+
+        # Parse multipart form data
+        try:
+            form = await request.form()
+            file = form.get("file")
+            if not file:
+                raise HTTPException(status_code=400, detail="No file provided")
+
+            # Validate file extension
+            valid_extensions = ['.mp3', '.wav', '.flac', '.ogg']
+            filename = file.filename
+            ext = '.' + filename.split('.')[-1].lower() if '.' in filename else ''
+
+            if ext not in valid_extensions:
+                raise HTTPException(status_code=400, detail=f"Invalid file type. Supported: {', '.join(valid_extensions)}")
+
+            # Save the file
+            file_path = theme_path / filename
+
+            # Read and write the file content
+            content = await file.read()
+            file_path.write_bytes(content)
+
+            logger.info(f"Uploaded file to theme '{theme_id}': {filename} ({len(content)} bytes)")
+
+            return {
+                "status": "ok",
+                "filename": filename,
+                "size": len(content),
+                "theme_id": theme_id
+            }
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to upload file: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    def _find_theme_folder(theme_id: str):
+        """Find theme folder by ID, handling sanitized names."""
+        from pathlib import Path
+
+        media_paths = [
+            Path("/media/sonorium"),
+            Path("/share/sonorium"),
+        ]
+
+        for mp in media_paths:
+            if not mp.exists():
+                continue
+
+            # Try exact match first
+            exact_path = mp / theme_id
+            if exact_path.exists():
+                return exact_path
+
+            # Try to find by comparing sanitized folder names
+            for folder in mp.iterdir():
+                if folder.is_dir():
+                    # Sanitize the folder name the same way ThemeDefinition does
+                    sanitized = folder.name.lower().replace(' ', '-').replace('_', '-')
+                    # Remove non-alphanumeric except dashes
+                    sanitized = ''.join(c for c in sanitized if c.isalnum() or c == '-')
+                    # Collapse multiple dashes
+                    while '--' in sanitized:
+                        sanitized = sanitized.replace('--', '-')
+                    sanitized = sanitized.strip('-')
+
+                    if sanitized == theme_id or sanitized == theme_id.replace('_', '-'):
+                        return folder
+
+        return None
+
+    @router.put("/themes/{theme_id}/metadata")
+    async def update_theme_metadata(theme_id: str, request: Request):
+        """Update theme metadata (description, etc.)."""
+        import json
+
+        theme_path = _find_theme_folder(theme_id)
+        if not theme_path:
+            raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
+
+        # Parse JSON body
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+
+        # Read existing metadata and merge
+        metadata_path = theme_path / "metadata.json"
+        metadata = {}
+        if metadata_path.exists():
+            try:
+                metadata = json.loads(metadata_path.read_text())
+            except Exception:
+                pass
+
+        if "description" in body:
+            metadata["description"] = body["description"]
+
+        # Write back
+        try:
+            metadata_path.write_text(json.dumps(metadata, indent=2))
+            return {"status": "ok", "metadata": metadata}
+        except Exception as e:
+            logger.error(f"Failed to write metadata: {e}")
+            raise HTTPException(status_code=500, detail="Could not write metadata")
+
+    @router.delete("/themes/{theme_id}")
+    async def delete_theme(theme_id: str):
+        """Delete a theme folder and all its contents."""
+        import shutil
+
+        theme_path = _find_theme_folder(theme_id)
+        if not theme_path:
+            raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
+
+        try:
+            shutil.rmtree(theme_path)
+            logger.info(f"Deleted theme folder: {theme_path}")
+
+            # Remove from favorites if present
+            if state_store:
+                favorites = state_store.settings.favorite_themes
+                if theme_id in favorites:
+                    favorites.remove(theme_id)
+                    state_store.save()
+
+            return {"status": "ok", "theme_id": theme_id, "message": "Theme deleted"}
+        except Exception as e:
+            logger.error(f"Failed to delete theme: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     return router

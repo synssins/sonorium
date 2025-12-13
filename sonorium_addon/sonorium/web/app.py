@@ -15,7 +15,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -35,6 +35,10 @@ for name in ["uvicorn.access", "uvicorn.error", "uvicorn"]:
 
 # Template directory
 TEMPLATES_DIR = Path(__file__).parent / "templates"
+
+# Static files (logo, etc.)
+# In Docker container, files are at /app; in development, use relative path
+ADDON_DIR = Path("/app") if Path("/app/logo.png").exists() else Path(__file__).parent.parent.parent
 
 
 class SonoriumApp:
@@ -93,6 +97,38 @@ class SonoriumApp:
         async def legacy_index():
             """Serve the legacy v1 web UI."""
             return await self._legacy_ui()
+
+        # Explicit route for logo.png - more reliable than StaticFiles mount
+        @self.app.get("/logo.png", response_class=FileResponse)
+        async def serve_logo():
+            """Serve the logo file."""
+            logo_paths = [
+                Path("/app/logo.png"),
+                Path(__file__).parent.parent.parent / "logo.png",
+            ]
+            for logo_path in logo_paths:
+                if logo_path.exists():
+                    logger.info(f"Serving logo from: {logo_path}")
+                    return FileResponse(logo_path, media_type="image/png")
+            logger.warning(f"Logo not found. Checked: {logo_paths}")
+            return FileResponse(status_code=404)
+
+        @self.app.get("/static/logo.png", response_class=FileResponse)
+        async def serve_static_logo():
+            """Serve logo from /static/logo.png path."""
+            return await serve_logo()
+
+        @self.app.get("/icon.png", response_class=FileResponse)
+        async def serve_icon():
+            """Serve the icon file."""
+            icon_paths = [
+                Path("/app/icon.png"),
+                Path(__file__).parent.parent.parent / "icon.png",
+            ]
+            for icon_path in icon_paths:
+                if icon_path.exists():
+                    return FileResponse(icon_path, media_type="image/png")
+            return FileResponse(status_code=404)
         
         # --- Streaming (unchanged from v1) ---
         
@@ -110,23 +146,96 @@ class SonoriumApp:
             return StreamingResponse(audio_stream, media_type="audio/mpeg")
         
         # --- Theme API (for web UI) ---
-        
+
         @self.app.get("/api/themes")
         async def list_themes():
-            """List all available themes."""
-            if not self.mqtt_client:
-                return []
-            
+            """List all available themes with metadata, including empty folders."""
+            import json
+
+            # Get favorites from state if available
+            favorites = []
+            if self._state_store:
+                favorites = self._state_store.settings.favorite_themes
+
             themes = []
-            for theme in self.mqtt_client.device.themes:
-                enabled_count = sum(1 for i in theme.instances if i.is_enabled)
-                themes.append({
-                    "id": theme.id,
-                    "name": theme.name,
-                    "total_tracks": len(theme.instances),
-                    "enabled_tracks": enabled_count,
-                    "url": theme.url,
-                })
+            seen_folders = set()
+
+            # First, add themes loaded by the device (have audio files)
+            if self.mqtt_client:
+                for theme in self.mqtt_client.device.themes:
+                    enabled_count = sum(1 for i in theme.instances if i.is_enabled)
+
+                    # Try to read metadata.json from theme folder
+                    metadata = self._read_theme_metadata(theme.id)
+
+                    # Track the actual folder name
+                    theme_folder = self._find_theme_folder(theme.id)
+                    if theme_folder:
+                        seen_folders.add(theme_folder.name)
+
+                    themes.append({
+                        "id": theme.id,
+                        "name": theme.name,
+                        "total_tracks": len(theme.instances),
+                        "enabled_tracks": enabled_count,
+                        "url": theme.url,
+                        "description": metadata.get("description", ""),
+                        "icon": metadata.get("icon", ""),
+                        "is_favorite": theme.id in favorites,
+                        "has_audio": True,
+                    })
+
+            # Then scan for empty theme folders
+            media_paths = [
+                Path("/media/sonorium"),
+                Path("/share/sonorium"),
+            ]
+
+            audio_extensions = {'.mp3', '.wav', '.flac', '.ogg'}
+
+            for mp in media_paths:
+                if not mp.exists():
+                    continue
+
+                for folder in mp.iterdir():
+                    if not folder.is_dir() or folder.name in seen_folders:
+                        continue
+
+                    # Count audio files in this folder
+                    audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in audio_extensions]
+
+                    # Skip if it has audio (already added above)
+                    if audio_files:
+                        continue
+
+                    # Generate sanitized ID like ThemeDefinition does
+                    sanitized_id = folder.name.lower().replace(' ', '-').replace('_', '-')
+                    sanitized_id = ''.join(c for c in sanitized_id if c.isalnum() or c == '-')
+                    while '--' in sanitized_id:
+                        sanitized_id = sanitized_id.replace('--', '-')
+                    sanitized_id = sanitized_id.strip('-')
+
+                    # Read metadata if exists
+                    metadata = {}
+                    meta_path = folder / "metadata.json"
+                    if meta_path.exists():
+                        try:
+                            metadata = json.loads(meta_path.read_text())
+                        except Exception:
+                            pass
+
+                    themes.append({
+                        "id": sanitized_id,
+                        "name": folder.name,
+                        "total_tracks": 0,
+                        "enabled_tracks": 0,
+                        "url": "",
+                        "description": metadata.get("description", ""),
+                        "icon": metadata.get("icon", ""),
+                        "is_favorite": sanitized_id in favorites,
+                        "has_audio": False,
+                    })
+
             return themes
         
         @self.app.get("/api/themes/{theme_id}")
@@ -180,7 +289,52 @@ class SonoriumApp:
             for instance in theme.instances:
                 instance.is_enabled = False
             return {"status": "ok", "theme": theme_id, "disabled": len(theme.instances)}
-        
+
+        @self.app.post("/api/themes/{theme_id}/favorite")
+        async def toggle_favorite(theme_id: str):
+            """Toggle favorite status for a theme."""
+            if not self._state_store:
+                return {"error": "State not available"}
+
+            favorites = self._state_store.settings.favorite_themes
+            if theme_id in favorites:
+                favorites.remove(theme_id)
+                is_favorite = False
+            else:
+                favorites.append(theme_id)
+                is_favorite = True
+
+            self._state_store.save()
+            return {"theme_id": theme_id, "is_favorite": is_favorite}
+
+        @self.app.put("/api/themes/{theme_id}/metadata")
+        async def update_metadata(theme_id: str, request: Request):
+            """Update theme metadata (description, etc.)."""
+            if not self.mqtt_client:
+                return {"error": "Not available"}
+
+            theme = self.mqtt_client.device.themes.id.get(theme_id)
+            if not theme:
+                return {"error": "Theme not found"}
+
+            # Parse JSON body
+            try:
+                body = await request.json()
+            except Exception:
+                return {"error": "Invalid JSON body"}
+
+            # Read existing metadata and merge
+            metadata = self._read_theme_metadata(theme_id)
+            if "description" in body:
+                metadata["description"] = body["description"]
+
+            # Write back
+            if self._write_theme_metadata(theme_id, metadata):
+                return {"status": "ok", "metadata": metadata}
+            return {"error": "Could not write metadata"}
+
+        # Note: Theme create, upload, delete, and metadata update are now in api_v2.py
+
         @self.app.get("/api/status")
         async def status():
             """Get current status."""
@@ -268,7 +422,66 @@ class SonoriumApp:
         except Exception as e:
             logger.error(f"Failed to initialize v2 components: {e}")
             # Continue with v1 functionality only
-    
+
+    def _find_theme_folder(self, theme_id: str) -> Path | None:
+        """Find theme folder by ID, handling sanitized names."""
+        media_paths = [
+            Path("/media/sonorium"),
+            Path("/share/sonorium"),
+        ]
+
+        for mp in media_paths:
+            if not mp.exists():
+                continue
+
+            # Try exact match first
+            exact_path = mp / theme_id
+            if exact_path.exists():
+                return exact_path
+
+            # Try to find by comparing sanitized folder names
+            for folder in mp.iterdir():
+                if folder.is_dir():
+                    # Sanitize the folder name the same way ThemeDefinition does
+                    sanitized = folder.name.lower().replace(' ', '-').replace('_', '-')
+                    # Remove non-alphanumeric except dashes
+                    sanitized = ''.join(c for c in sanitized if c.isalnum() or c == '-')
+                    # Collapse multiple dashes
+                    while '--' in sanitized:
+                        sanitized = sanitized.replace('--', '-')
+                    sanitized = sanitized.strip('-')
+
+                    if sanitized == theme_id or sanitized == theme_id.replace('_', '-'):
+                        return folder
+
+        return None
+
+    def _read_theme_metadata(self, theme_id: str) -> dict:
+        """Read metadata.json from a theme folder."""
+        import json
+        theme_folder = self._find_theme_folder(theme_id)
+        if theme_folder:
+            meta_path = theme_folder / "metadata.json"
+            if meta_path.exists():
+                try:
+                    return json.loads(meta_path.read_text())
+                except Exception as e:
+                    logger.debug(f"Failed to read metadata from {meta_path}: {e}")
+        return {}
+
+    def _write_theme_metadata(self, theme_id: str, metadata: dict) -> bool:
+        """Write metadata.json to a theme folder."""
+        import json
+        theme_folder = self._find_theme_folder(theme_id)
+        if theme_folder:
+            try:
+                meta_path = theme_folder / "metadata.json"
+                meta_path.write_text(json.dumps(metadata, indent=2))
+                return True
+            except Exception as e:
+                logger.error(f"Failed to write metadata to {meta_path}: {e}")
+        return False
+
     async def _legacy_ui(self):
         """Generate the legacy v1 web UI."""
         if not self.mqtt_client:

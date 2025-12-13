@@ -3,15 +3,28 @@ Home Assistant Registry Integration
 
 Queries HA's floor, area, and device registries to build
 the speaker hierarchy for Sonorium's speaker selection UI.
+
+Uses WebSocket API for registry data (floors, areas, entity registry)
+since these are not available via REST API.
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 from dataclasses import dataclass, field
 from typing import Optional
 
 from fmtr.tools import http
 from sonorium.obs import logger
+
+# Try to import websockets, fall back gracefully if not available
+try:
+    import websockets
+    WEBSOCKETS_AVAILABLE = True
+except ImportError:
+    WEBSOCKETS_AVAILABLE = False
+    logger.warning("websockets library not available - floor/area hierarchy will be limited")
 
 
 @dataclass
@@ -129,129 +142,377 @@ class HARegistry:
         self._speakers: dict[str, Speaker] = {}
         self._hierarchy: Optional[SpeakerHierarchy] = None
     
-    def _get(self, endpoint: str) -> dict | list:
+    def _get(self, endpoint: str) -> dict | list | None:
         """Make GET request to HA API."""
+        import json
         url = f"{self.api_url}/{endpoint.lstrip('/')}"
         logger.debug(f"HARegistry GET: {url}")
         with http.Client() as client:
             response = client.get(url, headers=self.headers)
-            data = response.json()
+            # Get raw text first for debugging
+            text = response.text
+
+            # Check for error responses
+            if response.status_code != 200:
+                logger.warning(f"HARegistry got status {response.status_code} for {endpoint}")
+                return None
+
+            # Check if response looks like JSON
+            text_stripped = text.strip()
+            if not text_stripped or text_stripped[0] not in '[{':
+                logger.warning(f"HARegistry got non-JSON response for {endpoint}: {text_stripped[:100]}")
+                return None
+
+            logger.debug(f"HARegistry raw response (first 200 chars): {text[:200]}")
+
+            # Parse JSON
+            try:
+                data = json.loads(text)
+            except json.JSONDecodeError as e:
+                logger.warning(f"HARegistry JSON parse error for {endpoint}: {e}")
+                return None
+
+            # HA API sometimes wraps responses in {"result": "ok", "data": [...]}
+            if isinstance(data, dict) and "data" in data:
+                data = data["data"]
+
             logger.debug(f"HARegistry response: {type(data)} with {len(data) if isinstance(data, list) else 'N/A'} items")
             return data
-    
+
+    def _get_websocket_url(self) -> str:
+        """Convert REST API URL to WebSocket URL."""
+        # api_url is like "http://supervisor/core/api"
+        # WebSocket is at "ws://supervisor/core/websocket"
+        ws_url = self.api_url.replace("http://", "ws://").replace("https://", "wss://")
+        ws_url = ws_url.replace("/api", "/websocket")
+        return ws_url
+
+    async def _ws_fetch_registries(self) -> tuple[list, list, list]:
+        """
+        Fetch floor, area, and entity registries via WebSocket API.
+
+        Returns:
+            Tuple of (floors_data, areas_data, entities_data)
+        """
+        if not WEBSOCKETS_AVAILABLE:
+            logger.warning("WebSocket library not available")
+            return [], [], []
+
+        ws_url = self._get_websocket_url()
+        logger.info(f"Connecting to HA WebSocket: {ws_url}")
+
+        floors_data = []
+        areas_data = []
+        entities_data = []
+
+        try:
+            # Increase max message size to 64MB to handle very large entity registries
+            async with websockets.connect(ws_url, max_size=64 * 1024 * 1024) as websocket:
+                # Step 1: Receive auth_required message
+                auth_required = await asyncio.wait_for(websocket.recv(), timeout=5.0)
+                auth_msg = json.loads(auth_required)
+                if auth_msg.get("type") != "auth_required":
+                    logger.error(f"Unexpected WebSocket message: {auth_msg}")
+                    return [], [], []
+
+                # Step 2: Send auth message
+                await websocket.send(json.dumps({
+                    "type": "auth",
+                    "access_token": self.token
+                }))
+
+                # Step 3: Receive auth result
+                auth_result = await asyncio.wait_for(websocket.recv(), timeout=5.0)
+                auth_result_msg = json.loads(auth_result)
+                if auth_result_msg.get("type") != "auth_ok":
+                    logger.error(f"WebSocket auth failed: {auth_result_msg}")
+                    return [], [], []
+
+                logger.info("  WebSocket authenticated successfully")
+
+                # Step 4: Fetch floor registry
+                await websocket.send(json.dumps({
+                    "id": 1,
+                    "type": "config/floor_registry/list"
+                }))
+                floors_response = await asyncio.wait_for(websocket.recv(), timeout=5.0)
+                floors_msg = json.loads(floors_response)
+                if floors_msg.get("success"):
+                    floors_data = floors_msg.get("result", [])
+                    logger.info(f"  WebSocket: Found {len(floors_data)} floors")
+
+                # Step 5: Fetch area registry
+                await websocket.send(json.dumps({
+                    "id": 2,
+                    "type": "config/area_registry/list"
+                }))
+                areas_response = await asyncio.wait_for(websocket.recv(), timeout=5.0)
+                areas_msg = json.loads(areas_response)
+                if areas_msg.get("success"):
+                    areas_data = areas_msg.get("result", [])
+                    logger.info(f"  WebSocket: Found {len(areas_data)} areas")
+
+                # Step 6: Fetch entity registry (may be very large)
+                try:
+                    await websocket.send(json.dumps({
+                        "id": 3,
+                        "type": "config/entity_registry/list"
+                    }))
+                    # Longer timeout for large entity registries
+                    entities_response = await asyncio.wait_for(websocket.recv(), timeout=30.0)
+                    entities_msg = json.loads(entities_response)
+                    if entities_msg.get("success"):
+                        entities_data = entities_msg.get("result", [])
+                        # Filter to media_player entities only
+                        entities_data = [e for e in entities_data if e.get("entity_id", "").startswith("media_player.")]
+                        logger.info(f"  WebSocket: Found {len(entities_data)} media_player entities")
+                except Exception as entity_err:
+                    logger.warning(f"  WebSocket: Could not fetch entity registry (large install?): {entity_err}")
+                    logger.info("  WebSocket: Will try to match speakers to areas by name instead")
+
+        except asyncio.TimeoutError:
+            logger.error("WebSocket connection timed out")
+        except Exception as e:
+            logger.error(f"WebSocket error: {e}")
+
+        return floors_data, areas_data, entities_data
+
+    def _fetch_registries_via_websocket(self) -> tuple[dict[str, Floor], dict[str, Area], dict[str, dict]]:
+        """
+        Synchronous wrapper for WebSocket registry fetch.
+
+        Handles the case where we're already inside an async event loop
+        (e.g., during FastAPI startup) by running in a separate thread.
+
+        Returns:
+            Tuple of (floors_dict, areas_dict, entity_registry_dict)
+        """
+        import concurrent.futures
+
+        floors = {}
+        areas = {}
+        entity_registry = {}
+
+        if not WEBSOCKETS_AVAILABLE:
+            return floors, areas, entity_registry
+
+        def run_in_thread():
+            """Run the async WebSocket fetch in a new thread with its own event loop."""
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self._ws_fetch_registries())
+            finally:
+                loop.close()
+
+        try:
+            # Run in a separate thread to avoid "event loop already running" error
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(run_in_thread)
+                floors_data, areas_data, entities_data = future.result(timeout=30)
+
+            # Process floors
+            for item in floors_data:
+                floor = Floor(
+                    floor_id=item.get("floor_id", ""),
+                    name=item.get("name", ""),
+                    level=item.get("level", 0),
+                )
+                floors[floor.floor_id] = floor
+
+            # Process areas
+            for item in areas_data:
+                area = Area(
+                    area_id=item.get("area_id", ""),
+                    name=item.get("name", ""),
+                    floor_id=item.get("floor_id"),
+                )
+                areas[area.area_id] = area
+
+            # Process entity registry (keep as dict for area lookups)
+            for item in entities_data:
+                entity_id = item.get("entity_id", "")
+                entity_registry[entity_id] = item
+
+        except concurrent.futures.TimeoutError:
+            logger.error("WebSocket fetch timed out after 30 seconds")
+        except Exception as e:
+            logger.error(f"Failed to fetch registries via WebSocket: {e}")
+
+        return floors, areas, entity_registry
+
     def _fetch_floors(self) -> dict[str, Floor]:
         """Fetch floor registry."""
         floors = {}
-        try:
-            logger.info("Fetching floors from HA...")
-            # Try the config API endpoint
-            data = self._get("/config/floor_registry")
-            if isinstance(data, list):
-                for item in data:
-                    floor = Floor(
-                        floor_id=item.get("floor_id", ""),
-                        name=item.get("name", ""),
-                        level=item.get("level", 0),
-                    )
-                    floors[floor.floor_id] = floor
+        logger.info("Fetching floors from HA...")
+        # Try the config API endpoint (may not be available via REST)
+        data = self._get("/config/floor_registry")
+        if data and isinstance(data, list):
+            for item in data:
+                floor = Floor(
+                    floor_id=item.get("floor_id", ""),
+                    name=item.get("name", ""),
+                    level=item.get("level", 0),
+                )
+                floors[floor.floor_id] = floor
             logger.info(f"  Found {len(floors)} floors")
-        except Exception as e:
-            logger.warning(f"  Could not fetch floors (this is OK if floors aren't configured): {e}")
+        else:
+            logger.info("  Floor registry not available via REST API (this is normal - floors may need WebSocket API)")
         return floors
     
     def _fetch_areas(self) -> dict[str, Area]:
         """Fetch area registry."""
         areas = {}
-        try:
-            logger.info("Fetching areas from HA...")
-            data = self._get("/config/area_registry")
-            if isinstance(data, list):
-                for item in data:
-                    area = Area(
-                        area_id=item.get("area_id", ""),
-                        name=item.get("name", ""),
-                        floor_id=item.get("floor_id"),
-                    )
-                    areas[area.area_id] = area
+        logger.info("Fetching areas from HA...")
+        data = self._get("/config/area_registry")
+        if data and isinstance(data, list):
+            for item in data:
+                area = Area(
+                    area_id=item.get("area_id", ""),
+                    name=item.get("name", ""),
+                    floor_id=item.get("floor_id"),
+                )
+                areas[area.area_id] = area
             logger.info(f"  Found {len(areas)} areas")
-        except Exception as e:
-            logger.warning(f"  Could not fetch areas (this is OK if areas aren't configured): {e}")
+        else:
+            logger.info("  Area registry not available via REST API (this is normal - areas may need WebSocket API)")
         return areas
     
     def _fetch_entity_registry(self) -> dict[str, dict]:
         """Fetch entity registry for area assignments."""
         entity_map = {}
-        try:
-            logger.info("Fetching entity registry from HA...")
-            data = self._get("/config/entity_registry")
-            if isinstance(data, list):
-                for entity in data:
-                    entity_id = entity.get("entity_id", "")
-                    if entity_id.startswith("media_player."):
-                        entity_map[entity_id] = entity
-                logger.info(f"  Found {len(entity_map)} media_player entities in registry")
-        except Exception as e:
-            logger.warning(f"  Could not fetch entity registry: {e}")
+        logger.info("Fetching entity registry from HA...")
+        data = self._get("/config/entity_registry")
+        if data and isinstance(data, list):
+            for entity in data:
+                entity_id = entity.get("entity_id", "")
+                if entity_id.startswith("media_player."):
+                    entity_map[entity_id] = entity
+            logger.info(f"  Found {len(entity_map)} media_player entities in registry")
+        else:
+            logger.info("  Entity registry not available via REST API (area assignments may be unavailable)")
         return entity_map
     
-    def _fetch_speakers(self, entity_registry: dict[str, dict] = None) -> dict[str, Speaker]:
+    def _match_speaker_to_area_by_name(self, speaker_name: str, areas: dict[str, Area]) -> Optional[str]:
+        """
+        Try to match a speaker to an area by name similarity.
+
+        This is a fallback when entity registry isn't available.
+        Looks for area names contained in the speaker's friendly name.
+        Prefers longer (more specific) area name matches.
+        """
+        speaker_name_lower = speaker_name.lower()
+        best_match = None
+        best_match_len = 0
+
+        # Try containment, preferring longer area names (more specific)
+        # e.g., "Home Theater 2" should match "Home Theater" over "Theater" if both exist
+        for area_id, area in areas.items():
+            area_name_lower = area.name.lower()
+            if area_name_lower in speaker_name_lower:
+                if len(area_name_lower) > best_match_len:
+                    best_match = area_id
+                    best_match_len = len(area_name_lower)
+
+        if best_match:
+            logger.debug(f"  Name match: '{speaker_name}' -> area '{areas[best_match].name}'")
+            return best_match
+
+        # Fallback: Try word matching (e.g., "Kitchen" matches "Kitchen Sonos")
+        speaker_words = set(speaker_name_lower.split())
+        for area_id, area in areas.items():
+            area_words = set(area.name.lower().split())
+            # If ALL area words are in speaker name words (more precise)
+            if area_words and area_words.issubset(speaker_words):
+                logger.debug(f"  Word match: '{speaker_name}' -> area '{area.name}'")
+                return area_id
+
+        return None
+
+    def _fetch_speakers(self, entity_registry: dict[str, dict] = None, areas: dict[str, Area] = None) -> dict[str, Speaker]:
         """Fetch media_player entities from states."""
         speakers = {}
         entity_registry = entity_registry or {}
-        
+        areas = areas or {}
+
         try:
             logger.info("Fetching media players from HA states...")
             states = self._get("/states")
-            
+
             if not isinstance(states, list):
                 logger.error(f"  Unexpected states response type: {type(states)}")
                 return speakers
-            
+
             media_player_count = 0
+            matched_by_name = 0
             for state in states:
                 entity_id = state.get("entity_id", "")
                 if not entity_id.startswith("media_player."):
                     continue
-                
+
                 media_player_count += 1
-                
+
                 # Get friendly name from state attributes
                 attributes = state.get("attributes", {})
                 name = attributes.get("friendly_name", entity_id.replace("media_player.", "").replace("_", " ").title())
-                
+
                 # Get area from entity registry if available
                 area_id = None
                 if entity_id in entity_registry:
                     area_id = entity_registry[entity_id].get("area_id")
-                
+
+                # Fallback: try to match by name if no entity registry data
+                if not area_id and areas:
+                    area_id = self._match_speaker_to_area_by_name(name, areas)
+                    if area_id:
+                        matched_by_name += 1
+
                 speaker = Speaker(
                     entity_id=entity_id,
                     name=name,
                     area_id=area_id,
                 )
                 speakers[entity_id] = speaker
-            
+
             logger.info(f"  Found {len(speakers)} media players (from {media_player_count} total)")
-            
+            if matched_by_name > 0:
+                logger.info(f"  Matched {matched_by_name} speakers to areas by name")
+
         except Exception as e:
             logger.error(f"  Failed to fetch media players from states: {e}")
             import traceback
             traceback.print_exc()
-        
+
         return speakers
     
     def refresh(self) -> SpeakerHierarchy:
         """
         Refresh all data from HA and rebuild hierarchy.
         Call this to update after HA configuration changes.
+
+        Tries WebSocket API first (required for floor/area/entity registries),
+        falls back to REST API for states.
         """
         logger.info("Building speaker hierarchy from Home Assistant...")
-        
-        # Fetch all data
-        self._floors = self._fetch_floors()
-        self._areas = self._fetch_areas()
-        entity_registry = self._fetch_entity_registry()
-        self._speakers = self._fetch_speakers(entity_registry)
+
+        # Try WebSocket API first for registries (floors, areas, entity registry)
+        ws_floors, ws_areas, ws_entity_registry = self._fetch_registries_via_websocket()
+
+        if ws_floors or ws_areas or ws_entity_registry:
+            logger.info("  Using WebSocket API data for hierarchy")
+            self._floors = ws_floors
+            self._areas = ws_areas
+            entity_registry = ws_entity_registry
+        else:
+            # Fall back to REST API (will likely fail for registries, but try anyway)
+            logger.info("  WebSocket unavailable, trying REST API fallback...")
+            self._floors = self._fetch_floors()
+            self._areas = self._fetch_areas()
+            entity_registry = self._fetch_entity_registry()
+
+        # Always fetch speakers from states (REST API works for this)
+        # Pass areas for name-based matching fallback when entity registry is unavailable
+        self._speakers = self._fetch_speakers(entity_registry, self._areas)
         
         # Build hierarchy
         hierarchy = SpeakerHierarchy()
@@ -263,6 +524,7 @@ class HARegistry:
                 area.floor_name = floor.name
         
         # Link speakers to areas, and track area/floor names
+        linked_count = 0
         for speaker in self._speakers.values():
             if speaker.area_id and speaker.area_id in self._areas:
                 area = self._areas[speaker.area_id]
@@ -270,9 +532,17 @@ class HARegistry:
                 speaker.floor_id = area.floor_id
                 speaker.floor_name = area.floor_name
                 area.speakers.append(speaker)
+                linked_count += 1
             else:
+                if speaker.area_id:
+                    logger.debug(f"  Speaker '{speaker.name}' has area_id '{speaker.area_id}' but area not found in self._areas")
                 # Speaker has no area assignment
                 hierarchy.unassigned_speakers.append(speaker)
+
+        if linked_count > 0:
+            logger.info(f"  Linked {linked_count} speakers to areas")
+        elif self._areas:
+            logger.warning(f"  No speakers linked to areas! Area keys sample: {list(self._areas.keys())[:5]}")
         
         # Sort unassigned speakers by name
         hierarchy.unassigned_speakers.sort(key=lambda s: s.name)
@@ -293,12 +563,65 @@ class HARegistry:
         hierarchy.unassigned_areas.sort(key=lambda a: a.name)
         
         self._hierarchy = hierarchy
-        
+
         total_speakers = len(hierarchy.get_all_speakers())
         logger.info(f"  Hierarchy complete: {len(hierarchy.floors)} floors, {len(hierarchy.unassigned_areas)} unassigned areas, {len(hierarchy.unassigned_speakers)} unassigned speakers, {total_speakers} total speakers")
-        
+
         return hierarchy
-    
+
+    def apply_custom_areas(self, custom_areas: dict[str, list[str]]) -> SpeakerHierarchy:
+        """
+        Apply custom speaker area assignments to the hierarchy.
+
+        This creates "custom" areas for speakers that aren't assigned to HA areas,
+        useful as a fallback when WebSocket is unavailable.
+
+        Args:
+            custom_areas: Dict of {"Area Name": ["media_player.entity1", ...]}
+
+        Returns:
+            Updated hierarchy with custom areas applied
+        """
+        if not custom_areas:
+            return self._hierarchy
+
+        hierarchy = self._hierarchy
+        if not hierarchy:
+            return hierarchy
+
+        # Build a set of speakers in custom areas
+        speakers_in_custom = set()
+        for speaker_ids in custom_areas.values():
+            speakers_in_custom.update(speaker_ids)
+
+        # Create custom areas and move speakers from unassigned
+        for area_name, speaker_ids in custom_areas.items():
+            custom_area = Area(
+                area_id=f"custom_{area_name.lower().replace(' ', '_')}",
+                name=area_name,
+                floor_id=None,
+                floor_name=None,
+            )
+
+            # Find and move speakers to this custom area
+            for entity_id in speaker_ids:
+                # Check if speaker is in unassigned_speakers
+                for i, speaker in enumerate(hierarchy.unassigned_speakers):
+                    if speaker.entity_id == entity_id:
+                        speaker.area_id = custom_area.area_id
+                        speaker.area_name = custom_area.name
+                        custom_area.speakers.append(speaker)
+                        hierarchy.unassigned_speakers.pop(i)
+                        break
+
+            if custom_area.speakers:
+                hierarchy.unassigned_areas.append(custom_area)
+
+        # Re-sort unassigned areas
+        hierarchy.unassigned_areas.sort(key=lambda a: a.name)
+
+        return hierarchy
+
     @property
     def hierarchy(self) -> SpeakerHierarchy:
         """Get cached hierarchy, refreshing if needed."""
@@ -351,7 +674,15 @@ class HARegistry:
             return []
         return [s.entity_id for s in area.speakers]
     
-    def resolve_selection(self, 
+    def get_hierarchy_dict(self) -> dict:
+        """Get hierarchy as a dictionary for API responses."""
+        return self.hierarchy.to_dict()
+
+    def get_all_speaker_ids(self) -> list[str]:
+        """Get all speaker entity IDs as a flat list."""
+        return [s.entity_id for s in self.hierarchy.get_all_speakers()]
+
+    def resolve_selection(self,
                           include_floors: list[str] = None,
                           include_areas: list[str] = None,
                           include_speakers: list[str] = None,

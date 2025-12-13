@@ -10,6 +10,7 @@
             --bg-secondary: #16213e;
             --bg-card: #1f2937;
             --bg-card-hover: #283548;
+            --bg-sidebar: #0f172a;
             --text-primary: #f8fafc;
             --text-secondary: #94a3b8;
             --text-muted: #64748b;
@@ -19,6 +20,7 @@
             --accent-danger: #ef4444;
             --border-color: #334155;
             --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);
+            --sidebar-width: 240px;
         }
 
         * {
@@ -32,10 +34,112 @@
             background: var(--bg-primary);
             color: var(--text-primary);
             min-height: 100vh;
+            display: flex;
         }
 
-        /* Header */
-        .header {
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border-color);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            height: 100vh;
+            z-index: 100;
+        }
+
+        .sidebar-header {
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .sidebar-logo {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .sidebar-logo img {
+            height: 40px;
+            width: auto;
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            padding: 1rem 0;
+            overflow-y: auto;
+        }
+
+        .nav-section {
+            margin-bottom: 0.5rem;
+        }
+
+        .nav-section-title {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            padding: 0.75rem 1.25rem 0.5rem;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.625rem 1.25rem;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.15s;
+            border-left: 3px solid transparent;
+            font-size: 0.875rem;
+        }
+
+        .nav-item:hover {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+
+        .nav-item.active {
+            background: var(--bg-card);
+            color: var(--accent-primary);
+            border-left-color: var(--accent-primary);
+        }
+
+        .nav-item svg {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        .nav-item-badge {
+            margin-left: auto;
+            background: var(--accent-primary);
+            color: var(--bg-primary);
+            font-size: 0.7rem;
+            font-weight: 600;
+            padding: 0.125rem 0.5rem;
+            border-radius: 9999px;
+        }
+
+        .sidebar-footer {
+            padding: 1rem 1.25rem;
+            border-top: 1px solid var(--border-color);
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Main Content */
+        .main-wrapper {
+            margin-left: var(--sidebar-width);
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        .main-header {
             background: var(--bg-secondary);
             padding: 1rem 1.5rem;
             display: flex;
@@ -44,33 +148,32 @@
             border-bottom: 1px solid var(--border-color);
             position: sticky;
             top: 0;
-            z-index: 100;
+            z-index: 50;
         }
 
-        .header-title {
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
-        }
-
-        .header-title svg {
-            width: 32px;
-            height: 32px;
-            color: var(--accent-secondary);
-        }
-
-        .header-title h1 {
-            font-size: 1.5rem;
+        .main-header h2 {
+            font-size: 1.25rem;
             font-weight: 600;
-            background: linear-gradient(135deg, var(--accent-secondary), var(--accent-primary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            background-clip: text;
         }
 
         .header-actions {
             display: flex;
             gap: 0.75rem;
+        }
+
+        .main-content {
+            flex: 1;
+            padding: 1.5rem;
+            overflow-y: auto;
+        }
+
+        /* Views */
+        .view {
+            display: none;
+        }
+
+        .view.active {
+            display: block;
         }
 
         /* Buttons */
@@ -108,47 +211,27 @@
             background: var(--bg-card-hover);
         }
 
-        .btn-icon {
-            padding: 0.625rem;
-        }
-
-        .btn-play {
-            background: var(--accent-primary);
-            color: var(--bg-primary);
-            width: 100%;
-            justify-content: center;
-            padding: 0.875rem;
-            font-size: 1rem;
-        }
-
-        .btn-play:hover {
-            background: #05c090;
-        }
-
-        .btn-play.playing {
-            background: var(--accent-warning);
-        }
-
         .btn-danger {
             background: var(--accent-danger);
             color: white;
         }
 
-        /* Main Content */
-        .main {
-            padding: 1.5rem;
-            max-width: 1400px;
-            margin: 0 auto;
+        .btn-icon {
+            padding: 0.5rem;
+        }
+
+        .btn-sm {
+            padding: 0.375rem 0.75rem;
+            font-size: 0.75rem;
         }
 
         /* Session Grid */
         .session-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-            gap: 1.25rem;
+            gap: 1rem;
         }
 
-        /* Session Card */
         .session-card {
             background: var(--bg-card);
             border-radius: 0.75rem;
@@ -159,12 +242,13 @@
 
         .session-card:hover {
             border-color: var(--accent-secondary);
+            transform: translateY(-2px);
             box-shadow: var(--shadow);
         }
 
         .session-card.playing {
             border-color: var(--accent-primary);
-            box-shadow: 0 0 20px rgba(6, 214, 160, 0.15);
+            box-shadow: 0 0 0 1px var(--accent-primary), var(--shadow);
         }
 
         .session-header {
@@ -185,24 +269,23 @@
         }
 
         .session-name {
-            font-size: 1.125rem;
             font-weight: 600;
+            font-size: 1rem;
         }
 
         .session-status {
             font-size: 0.75rem;
-            padding: 0.25rem 0.5rem;
+            padding: 0.25rem 0.625rem;
             border-radius: 9999px;
             background: var(--bg-secondary);
             color: var(--text-muted);
         }
 
         .session-status.playing {
-            background: rgba(6, 214, 160, 0.2);
+            background: rgba(6, 214, 160, 0.15);
             color: var(--accent-primary);
         }
 
-        /* Theme Selector */
         .session-field {
             margin-bottom: 1rem;
         }
@@ -210,20 +293,19 @@
         .session-field label {
             display: block;
             font-size: 0.75rem;
-            font-weight: 500;
-            color: var(--text-secondary);
+            color: var(--text-muted);
             margin-bottom: 0.375rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
 
         .session-field select,
-        .session-field input {
+        .session-field input[type="text"] {
             width: 100%;
-            padding: 0.625rem 0.875rem;
+            padding: 0.5rem 0.75rem;
             background: var(--bg-secondary);
             border: 1px solid var(--border-color);
-            border-radius: 0.5rem;
+            border-radius: 0.375rem;
             color: var(--text-primary);
             font-size: 0.875rem;
         }
@@ -231,36 +313,13 @@
         .session-field select:focus,
         .session-field input:focus {
             outline: none;
-            border-color: var(--accent-secondary);
+            border-color: var(--accent-primary);
         }
 
-        /* Speaker List */
-        .speaker-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.375rem;
-            margin-bottom: 1rem;
-        }
-
-        .speaker-chip {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.25rem;
-            padding: 0.25rem 0.5rem;
-            background: var(--bg-secondary);
-            border-radius: 0.375rem;
-            font-size: 0.75rem;
+        .speaker-summary {
+            font-size: 0.875rem;
             color: var(--text-secondary);
-        }
-
-        .speaker-chip.excluded {
-            text-decoration: line-through;
-            opacity: 0.5;
-        }
-
-        .speaker-chip svg {
-            width: 12px;
-            height: 12px;
+            padding: 0.5rem 0;
         }
 
         /* Volume Slider */
@@ -272,34 +331,26 @@
         }
 
         .volume-control svg {
-            width: 20px;
-            height: 20px;
-            color: var(--text-secondary);
+            width: 18px;
+            height: 18px;
+            color: var(--text-muted);
         }
 
         .volume-slider {
             flex: 1;
             -webkit-appearance: none;
-            appearance: none;
             height: 6px;
-            background: var(--bg-secondary);
             border-radius: 3px;
-            outline: none;
+            background: var(--bg-secondary);
         }
 
         .volume-slider::-webkit-slider-thumb {
             -webkit-appearance: none;
-            appearance: none;
             width: 16px;
             height: 16px;
-            background: var(--accent-primary);
             border-radius: 50%;
+            background: var(--accent-primary);
             cursor: pointer;
-            transition: transform 0.1s;
-        }
-
-        .volume-slider::-webkit-slider-thumb:hover {
-            transform: scale(1.2);
         }
 
         .volume-value {
@@ -309,149 +360,96 @@
             text-align: right;
         }
 
-        /* Session Actions */
+        /* Play Button */
+        .btn-play {
+            width: 100%;
+            justify-content: center;
+            padding: 0.75rem;
+            font-size: 1rem;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            margin-bottom: 0.75rem;
+        }
+
+        .btn-play:hover {
+            background: var(--accent-primary);
+            color: var(--bg-primary);
+            border-color: var(--accent-primary);
+        }
+
+        .btn-play.playing {
+            background: var(--accent-primary);
+            color: var(--bg-primary);
+            border-color: var(--accent-primary);
+        }
+
         .session-actions {
             display: flex;
             gap: 0.5rem;
-            margin-top: 1rem;
-            padding-top: 1rem;
-            border-top: 1px solid var(--border-color);
         }
 
         .session-actions .btn {
             flex: 1;
-        }
-
-        /* New Session Card */
-        .new-session-card {
-            background: var(--bg-card);
-            border: 2px dashed var(--border-color);
-            border-radius: 0.75rem;
-            padding: 2rem;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
             justify-content: center;
-            text-align: center;
-            cursor: pointer;
-            transition: all 0.2s;
-            min-height: 280px;
-        }
-
-        .new-session-card:hover {
-            border-color: var(--accent-primary);
-            background: var(--bg-card-hover);
-        }
-
-        .new-session-card svg {
-            width: 48px;
-            height: 48px;
-            color: var(--text-muted);
-            margin-bottom: 1rem;
-        }
-
-        .new-session-card:hover svg {
-            color: var(--accent-primary);
-        }
-
-        .new-session-card h3 {
-            font-size: 1rem;
-            font-weight: 500;
-            color: var(--text-secondary);
-            margin-bottom: 0.5rem;
-        }
-
-        .new-session-card p {
-            font-size: 0.875rem;
-            color: var(--text-muted);
-        }
-
-        /* Modal */
-        .modal-backdrop {
-            position: fixed;
-            inset: 0;
-            background: rgba(0, 0, 0, 0.7);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 200;
-            opacity: 0;
-            visibility: hidden;
-            transition: all 0.2s;
-        }
-
-        .modal-backdrop.active {
-            opacity: 1;
-            visibility: visible;
-        }
-
-        .modal {
-            background: var(--bg-card);
-            border-radius: 0.75rem;
-            width: 100%;
-            max-width: 600px;
-            max-height: 90vh;
-            overflow-y: auto;
-            transform: translateY(20px);
-            transition: transform 0.2s;
-        }
-
-        .modal-backdrop.active .modal {
-            transform: translateY(0);
-        }
-
-        .modal-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 1.25rem;
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .modal-header h2 {
-            font-size: 1.25rem;
-            font-weight: 600;
-        }
-
-        .modal-close {
-            background: none;
-            border: none;
-            color: var(--text-secondary);
-            cursor: pointer;
-            padding: 0.25rem;
-        }
-
-        .modal-close:hover {
-            color: var(--text-primary);
-        }
-
-        .modal-body {
-            padding: 1.25rem;
-        }
-
-        .modal-footer {
-            display: flex;
-            justify-content: flex-end;
-            gap: 0.75rem;
-            padding: 1.25rem;
-            border-top: 1px solid var(--border-color);
         }
 
         /* Speaker Tree */
-        .speaker-tree {
+        .speaker-dropdown {
+            position: relative;
+        }
+
+        .speaker-dropdown-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
             background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
             border-radius: 0.5rem;
-            padding: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .speaker-dropdown-header:hover {
+            border-color: var(--accent-secondary);
+        }
+
+        .speaker-dropdown.open .speaker-dropdown-header {
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+            border-color: var(--accent-primary);
+        }
+
+        .speaker-dropdown.open .speaker-dropdown-header svg {
+            transform: rotate(180deg);
+        }
+
+        .speaker-dropdown-header svg {
+            transition: transform 0.2s;
+            color: var(--text-secondary);
+        }
+
+        .speaker-dropdown-content {
+            display: none;
+            border: 1px solid var(--accent-primary);
+            border-top: none;
+            border-radius: 0 0 0.5rem 0.5rem;
+            background: var(--bg-secondary);
             max-height: 300px;
             overflow-y: auto;
         }
 
-        .tree-floor {
-            margin-bottom: 0.75rem;
+        .speaker-dropdown.open .speaker-dropdown-content {
+            display: block;
         }
 
-        .tree-floor:last-child {
-            margin-bottom: 0;
+        .speaker-tree {
+            padding: 0.75rem;
+        }
+
+        .tree-floor {
+            margin-bottom: 0.5rem;
         }
 
         .tree-floor-header {
@@ -459,19 +457,9 @@
             align-items: center;
             gap: 0.5rem;
             padding: 0.5rem;
-            cursor: pointer;
-            border-radius: 0.375rem;
-            transition: background 0.1s;
-        }
-
-        .tree-floor-header:hover {
             background: var(--bg-card);
-        }
-
-        .tree-floor-header input[type="checkbox"] {
-            width: 16px;
-            height: 16px;
-            accent-color: var(--accent-primary);
+            border-radius: 0.375rem;
+            margin-bottom: 0.25rem;
         }
 
         .tree-floor-name {
@@ -486,9 +474,7 @@
         }
 
         .tree-areas {
-            margin-left: 1.5rem;
-            border-left: 1px solid var(--border-color);
-            padding-left: 0.75rem;
+            margin-left: 1.25rem;
         }
 
         .tree-area {
@@ -499,9 +485,8 @@
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            padding: 0.375rem;
-            cursor: pointer;
-            border-radius: 0.375rem;
+            padding: 0.375rem 0.5rem;
+            border-radius: 0.25rem;
         }
 
         .tree-area-header:hover {
@@ -516,36 +501,34 @@
             display: flex;
             align-items: center;
             gap: 0.5rem;
-            padding: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 0.25rem;
             font-size: 0.875rem;
-            color: var(--text-secondary);
         }
 
-        .tree-speaker input[type="checkbox"] {
-            width: 14px;
-            height: 14px;
-            accent-color: var(--accent-primary);
+        .tree-speaker:hover {
+            background: var(--bg-card);
         }
 
-        /* Theme Cards */
+        /* Theme Grid */
         .theme-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
             gap: 0.75rem;
         }
 
         .theme-card {
             background: var(--bg-secondary);
-            border: 2px solid transparent;
+            border: 2px solid var(--border-color);
             border-radius: 0.5rem;
-            padding: 1rem 0.75rem;
+            padding: 1rem;
             text-align: center;
             cursor: pointer;
             transition: all 0.2s;
         }
 
         .theme-card:hover {
-            background: var(--bg-card-hover);
+            border-color: var(--accent-secondary);
         }
 
         .theme-card.selected {
@@ -553,45 +536,1035 @@
             background: rgba(6, 214, 160, 0.1);
         }
 
-        .theme-card-icon {
-            font-size: 1.75rem;
+        .theme-icon {
+            font-size: 2rem;
             margin-bottom: 0.5rem;
         }
 
-        .theme-card-name {
-            font-size: 0.75rem;
+        .theme-name {
+            font-size: 0.875rem;
             font-weight: 500;
+        }
+
+        /* Enhanced Themes Browser */
+        .themes-browser-enhanced {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .theme-category-section {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .theme-category-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 1rem;
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            border-left: 3px solid var(--accent-primary);
+        }
+
+        .theme-category-name {
+            font-weight: 600;
+            font-size: 1.1rem;
+            color: var(--text-primary);
+        }
+
+        .theme-category-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .theme-category-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 1rem;
+        }
+
+        .theme-browser-card {
+            background: var(--bg-card);
+            border-radius: 0.75rem;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            transition: all 0.2s;
+            min-height: 140px;
+            max-height: 200px;
+        }
+
+        .theme-browser-card:hover {
+            background: var(--bg-secondary);
+            transform: translateY(-2px);
+        }
+
+        .theme-browser-card.no-audio {
+            opacity: 0.7;
+            border: 1px dashed var(--border-color);
+        }
+
+        .theme-browser-card.no-audio:hover {
+            opacity: 1;
+        }
+
+        .theme-browser-card-header {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+        }
+
+        .theme-browser-icon {
+            font-size: 2.5rem;
+            flex-shrink: 0;
+        }
+
+        .theme-browser-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .theme-browser-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .theme-browser-name {
+            font-size: 1rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .theme-browser-favorite {
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: color 0.2s;
+        }
+
+        .theme-browser-favorite:hover {
+            color: #ffc107;
+        }
+
+        .theme-browser-favorite.active {
+            color: #ffc107;
+        }
+
+        .theme-browser-meta {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.75rem;
             color: var(--text-secondary);
         }
 
-        /* Loading */
-        .loading {
+        .theme-browser-description {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            line-height: 1.4;
+        }
+
+        .theme-browser-description-empty {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            font-style: italic;
+        }
+
+        .theme-browser-actions {
             display: flex;
             align-items: center;
-            justify-content: center;
-            padding: 3rem;
+            gap: 0.5rem;
+            flex-shrink: 0;
+        }
+
+        .theme-browser-edit-btn {
+            padding: 0.375rem;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+        }
+
+        .theme-browser-edit-btn:hover {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .theme-browser-delete-btn {
+            padding: 0.375rem;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.2s;
+        }
+
+        .theme-browser-delete-btn:hover {
+            background: rgba(255, 71, 87, 0.1);
+            border-color: var(--accent-danger);
+            color: var(--accent-danger);
+        }
+
+        /* Category UI */
+        .category-checkboxes {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .category-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            padding: 0.25rem 0.5rem;
+            background: var(--bg-secondary);
+            border-radius: 0.25rem;
+            font-size: 0.875rem;
+            cursor: pointer;
+        }
+
+        .category-checkbox:hover {
+            background: var(--bg-card);
+        }
+
+        .category-checkbox input {
+            margin: 0;
+        }
+
+        .category-add-row {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+
+        .category-add-row input {
+            flex: 1;
+        }
+
+        .category-select-row {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .category-select-row select {
+            width: 100%;
+        }
+
+        .category-theme-list {
+            max-height: 250px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            background: var(--bg-secondary);
+        }
+
+        .category-theme-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+        }
+
+        .category-theme-item:last-child {
+            border-bottom: none;
+        }
+
+        .category-theme-item:hover {
+            background: var(--bg-card);
+        }
+
+        .category-theme-item input {
+            margin: 0;
+        }
+
+        .category-theme-item-name {
+            flex: 1;
+        }
+
+        .category-theme-item-meta {
+            font-size: 0.75rem;
             color: var(--text-muted);
         }
 
-        .spinner {
-            width: 24px;
-            height: 24px;
-            border: 2px solid var(--border-color);
-            border-top-color: var(--accent-primary);
+        /* Theme Edit Modal */
+        .theme-edit-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .theme-edit-form label {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+        }
+
+        .theme-edit-form textarea {
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            color: var(--text-primary);
+            resize: vertical;
+            min-height: 100px;
+        }
+
+        .theme-edit-form textarea:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        /* Themes View Header */
+        .themes-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .themes-header h2 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+
+        .themes-header-actions {
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        /* Theme Create Modal */
+        .theme-create-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+
+        .theme-create-form label {
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+            margin-bottom: 0.25rem;
+            display: block;
+        }
+
+        .theme-create-form input[type="text"],
+        .theme-create-form textarea,
+        .theme-create-form select {
+            width: 100%;
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+            color: var(--text-primary);
+            font-size: 0.875rem;
+        }
+
+        .theme-create-form input[type="text"]:focus,
+        .theme-create-form textarea:focus,
+        .theme-create-form select:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .theme-create-form select option {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+
+        .theme-create-form textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        /* Icon Picker */
+        .icon-picker {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 0.5rem;
+        }
+
+        .icon-option {
+            width: 2.5rem;
+            height: 2.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.15s;
+            background: var(--bg-card);
+            border: 2px solid transparent;
+        }
+
+        .icon-option:hover {
+            background: var(--bg-card-hover);
+            transform: scale(1.1);
+        }
+
+        .icon-option.selected {
+            border-color: var(--accent-primary);
+            background: var(--bg-card-hover);
+        }
+
+        /* File Upload Area */
+        .file-upload-area {
+            border: 2px dashed var(--border-color);
+            border-radius: 0.75rem;
+            padding: 2rem;
+            text-align: center;
+            transition: all 0.2s;
+            cursor: pointer;
+            background: var(--bg-secondary);
+        }
+
+        .file-upload-area:hover,
+        .file-upload-area.dragover {
+            border-color: var(--accent-primary);
+            background: rgba(0, 212, 255, 0.05);
+        }
+
+        .file-upload-area.has-files {
+            border-color: var(--accent-success);
+            background: rgba(0, 255, 136, 0.05);
+        }
+
+        .file-upload-icon {
+            font-size: 2.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .file-upload-text {
+            color: var(--text-secondary);
+            margin-bottom: 0.5rem;
+        }
+
+        .file-upload-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .file-upload-input {
+            display: none;
+        }
+
+        /* File List */
+        .file-list {
+            margin-top: 1rem;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 0.375rem;
+            margin-bottom: 0.5rem;
+            font-size: 0.875rem;
+        }
+
+        .file-item-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: var(--text-primary);
+        }
+
+        .file-item-size {
+            color: var(--text-muted);
+            font-size: 0.75rem;
+            margin: 0 0.75rem;
+        }
+
+        .file-item-remove {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.25rem;
+            border-radius: 0.25rem;
+            transition: all 0.2s;
+        }
+
+        .file-item-remove:hover {
+            color: var(--accent-danger);
+            background: rgba(255, 71, 87, 0.1);
+        }
+
+        /* Upload Progress */
+        .upload-progress {
+            margin-top: 1rem;
+        }
+
+        .upload-progress-bar {
+            height: 4px;
+            background: var(--bg-secondary);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .upload-progress-fill {
+            height: 100%;
+            background: var(--accent-primary);
+            transition: width 0.3s;
+            width: 0%;
+        }
+
+        .upload-progress-text {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.5rem;
+            text-align: center;
+        }
+
+        /* Modal */
+        .modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 200;
+            padding: 1rem;
+        }
+
+        .modal-backdrop.active {
+            display: flex;
+        }
+
+        .modal {
+            background: var(--bg-card);
+            border-radius: 0.75rem;
+            width: 100%;
+            max-width: 600px;
+            max-height: 90vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .modal-header h2 {
+            font-size: 1.125rem;
+            font-weight: 600;
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0.25rem;
+        }
+
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+
+        .modal-body {
+            padding: 1.25rem;
+            overflow-y: auto;
+            flex: 1;
+        }
+
+        .modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+            padding: 1rem 1.25rem;
+            border-top: 1px solid var(--border-color);
+        }
+
+        /* Settings */
+        .settings-section {
+            background: var(--bg-card);
+            border-radius: 0.75rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .settings-section h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+        }
+
+        .settings-section p {
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+            margin-bottom: 1rem;
+        }
+
+        .settings-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+
+        /* Settings Form */
+        .settings-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .settings-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            gap: 1rem;
+        }
+
+        .settings-label {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .settings-label label {
+            display: block;
+            font-weight: 500;
+            color: var(--text-primary);
+            margin-bottom: 0.125rem;
+        }
+
+        .settings-hint {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        .settings-control {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-shrink: 0;
+        }
+
+        .settings-control input[type="range"] {
+            width: 150px;
+            accent-color: var(--accent-primary);
+        }
+
+        .settings-control input[type="number"] {
+            width: 80px;
+            padding: 0.5rem;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            color: var(--text-primary);
+            text-align: center;
+        }
+
+        .settings-control input[type="number"]:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        .settings-value {
+            min-width: 50px;
+            text-align: right;
+            font-family: monospace;
+            font-size: 0.875rem;
+            color: var(--accent-primary);
+        }
+
+        .settings-number {
+            -moz-appearance: textfield;
+        }
+
+        .settings-number::-webkit-outer-spin-button,
+        .settings-number::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+
+        .settings-speaker-tree {
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .settings-floor {
+            margin-bottom: 0.75rem;
+        }
+
+        .settings-floor:last-child {
+            margin-bottom: 0;
+        }
+
+        .settings-floor-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem;
+            font-weight: 500;
+        }
+
+        .settings-floor-header svg {
+            width: 16px;
+            height: 16px;
+            min-width: 16px;
+            min-height: 16px;
+            flex-shrink: 0;
+            color: var(--text-secondary);
+        }
+
+        .settings-area-header svg {
+            width: 14px;
+            height: 14px;
+            min-width: 14px;
+            min-height: 14px;
+            flex-shrink: 0;
+            color: var(--text-secondary);
+        }
+
+        .settings-areas {
+            margin-left: 1.5rem;
+            border-left: 1px solid var(--border-color);
+            padding-left: 0.75rem;
+        }
+
+        .settings-area {
+            margin: 0.25rem 0;
+        }
+
+        .settings-area-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.375rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .settings-speakers {
+            margin-left: 1.5rem;
+        }
+
+        .settings-speaker {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.375rem 0.5rem;
+            border-radius: 0.375rem;
+            transition: background 0.1s;
+        }
+
+        .settings-speaker:hover {
+            background: var(--bg-card);
+        }
+
+        .settings-speaker-info {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.875rem;
+            color: var(--text-secondary);
+        }
+
+        .settings-speaker-info svg {
+            width: 14px;
+            height: 14px;
+        }
+
+        .settings-speaker.disabled .settings-speaker-info {
+            opacity: 0.5;
+        }
+
+        /* Speaker Groups List */
+        .settings-groups-list {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .settings-group-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            transition: background 0.15s;
+        }
+
+        .settings-group-item:hover {
+            background: var(--bg-card);
+        }
+
+        .settings-group-icon {
+            font-size: 1.25rem;
+            flex-shrink: 0;
+        }
+
+        .settings-group-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .settings-group-name {
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .settings-group-meta {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-top: 0.125rem;
+        }
+
+        .settings-group-actions {
+            display: flex;
+            gap: 0.25rem;
+        }
+
+        .settings-group-actions button {
+            padding: 0.375rem;
+            background: transparent;
+            border: 1px solid var(--border-color);
+            border-radius: 0.375rem;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+        }
+
+        .settings-group-actions button:hover {
+            background: var(--bg-card-hover);
+            color: var(--text-primary);
+        }
+
+        .settings-group-actions button.delete:hover {
+            background: rgba(239, 68, 68, 0.2);
+            border-color: var(--accent-danger);
+            color: var(--accent-danger);
+        }
+
+        .settings-groups-empty {
+            text-align: center;
+            padding: 2rem;
+            color: var(--text-muted);
+            font-size: 0.875rem;
+        }
+
+        /* Toggle Switch */
+        .toggle-switch {
+            position: relative;
+            width: 40px;
+            height: 22px;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            inset: 0;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 22px;
+            transition: 0.2s;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 16px;
+            width: 16px;
+            left: 2px;
+            bottom: 2px;
+            background: var(--text-secondary);
             border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin-right: 0.75rem;
+            transition: 0.2s;
         }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        .toggle-switch input:checked + .toggle-slider {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
         }
 
-        /* Toast Notifications */
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(18px);
+            background: white;
+        }
+
+        /* Speakers View */
+        .speaker-list-card {
+            background: var(--bg-card);
+            border-radius: 0.75rem;
+            overflow: hidden;
+        }
+
+        .speaker-list-header {
+            padding: 1rem 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .speaker-list-header h3 {
+            font-size: 0.875rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .speaker-list-content {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        .speaker-list-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1.25rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .speaker-list-item:last-child {
+            border-bottom: none;
+        }
+
+        .speaker-list-item:hover {
+            background: var(--bg-card-hover);
+        }
+
+        .speaker-list-icon {
+            width: 36px;
+            height: 36px;
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+        }
+
+        .speaker-list-info {
+            flex: 1;
+        }
+
+        .speaker-list-name {
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+
+        .speaker-list-area {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Status View */
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+        }
+
+        .status-card {
+            background: var(--bg-card);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .status-card h4 {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+        }
+
+        .status-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .channel-list {
+            margin-top: 1rem;
+        }
+
+        .channel-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem;
+            background: var(--bg-secondary);
+            border-radius: 0.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .channel-status {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--text-muted);
+        }
+
+        .channel-status.active {
+            background: var(--accent-primary);
+        }
+
+        .channel-info {
+            flex: 1;
+        }
+
+        .channel-name {
+            font-weight: 500;
+            font-size: 0.875rem;
+        }
+
+        .channel-theme {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+
+        /* Toast */
         .toast-container {
             position: fixed;
-            bottom: 1.5rem;
-            right: 1.5rem;
+            top: 1rem;
+            right: 1rem;
             z-index: 300;
             display: flex;
             flex-direction: column;
@@ -629,72 +1602,459 @@
             }
         }
 
-        /* Responsive */
-        @media (max-width: 640px) {
-            .header {
-                padding: 1rem;
+        /* Loading */
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+
+        .spinner {
+            width: 32px;
+            height: 32px;
+            border: 3px solid var(--border-color);
+            border-top-color: var(--accent-primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-muted);
+        }
+
+        .empty-state svg {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        .empty-state h3 {
+            font-size: 1.125rem;
+            margin-bottom: 0.5rem;
+            color: var(--text-secondary);
+        }
+
+        /* Mobile */
+        @media (max-width: 768px) {
+            .sidebar {
+                transform: translateX(-100%);
+                transition: transform 0.2s;
             }
 
-            .header-title h1 {
-                font-size: 1.25rem;
+            .sidebar.open {
+                transform: translateX(0);
             }
 
-            .main {
-                padding: 1rem;
+            .main-wrapper {
+                margin-left: 0;
             }
 
-            .session-grid {
-                grid-template-columns: 1fr;
+            .mobile-menu-btn {
+                display: flex;
             }
+        }
 
-            .modal {
-                margin: 1rem;
-                max-height: calc(100vh - 2rem);
+        @media (min-width: 769px) {
+            .mobile-menu-btn {
+                display: none;
             }
         }
     </style>
 </head>
 <body>
-    <header class="header">
-        <div class="header-title">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 18V5l12-2v13"/>
-                <circle cx="6" cy="18" r="3"/>
-                <circle cx="18" cy="16" r="3"/>
-            </svg>
-            <h1>Sonorium</h1>
-        </div>
-        <div class="header-actions">
-            <button class="btn btn-secondary btn-icon" onclick="openSettings()" title="Settings">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="3"/>
-                    <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
-                </svg>
-            </button>
-            <button class="btn btn-primary" onclick="openNewSessionModal()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="12" y1="5" x2="12" y2="19"/>
-                    <line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                New Session
-            </button>
-        </div>
-    </header>
-
-    <main class="main">
-        <div id="sessions-container" class="session-grid">
-            <div class="loading">
-                <div class="spinner"></div>
-                Loading sessions...
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <img id="sidebar-logo-img" src="logo.png" alt="Sonorium">
             </div>
         </div>
-    </main>
 
-    <!-- New/Edit Session Modal -->
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Playback</div>
+                <div class="nav-item active" onclick="showView('sessions')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"/>
+                        <rect x="14" y="3" width="7" height="7"/>
+                        <rect x="14" y="14" width="7" height="7"/>
+                        <rect x="3" y="14" width="7" height="7"/>
+                    </svg>
+                    <span>Channels</span>
+                    <span id="playing-badge" class="nav-item-badge" style="display: none;">0</span>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Configuration</div>
+                <div class="nav-item" onclick="showView('themes')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 18V5l12-2v13"/>
+                        <circle cx="6" cy="18" r="3"/>
+                        <circle cx="18" cy="16" r="3"/>
+                    </svg>
+                    <span>Themes</span>
+                </div>
+                <div class="nav-item" onclick="showView('settings')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"/>
+                        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                    </svg>
+                    <span>Settings</span>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">System</div>
+                <div class="nav-item" onclick="showView('status')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                    </svg>
+                    <span>Status</span>
+                </div>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <span id="version-text">v1.0.0</span>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="main-wrapper">
+        <header class="main-header">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <button class="btn btn-icon mobile-menu-btn" onclick="toggleSidebar()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"/>
+                        <line x1="3" y1="6" x2="21" y2="6"/>
+                        <line x1="3" y1="18" x2="21" y2="18"/>
+                    </svg>
+                </button>
+                <h2 id="view-title">Channels</h2>
+            </div>
+            <div class="header-actions" id="view-actions">
+                <button class="btn btn-primary" onclick="openNewSessionModal()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    New Channel
+                </button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <!-- Channels View -->
+            <div id="view-sessions" class="view active">
+                <div id="sessions-container" class="session-grid">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading channels...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Themes View -->
+            <div id="view-themes" class="view">
+                <div class="themes-header">
+                    <h2>Themes</h2>
+                    <div class="themes-header-actions">
+                        <button class="btn btn-secondary" onclick="refreshThemes()" title="Rescan theme folders">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 4v6h-6"/>
+                                <path d="M1 20v-6h6"/>
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                            </svg>
+                            Refresh
+                        </button>
+                        <button class="btn btn-secondary" onclick="openCategoryCreateModal()">
+                            + Category
+                        </button>
+                        <button class="btn btn-primary" onclick="openThemeCreateModal()">
+                            + Create Theme
+                        </button>
+                    </div>
+                </div>
+                <div id="themes-browser" class="themes-browser-enhanced">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading themes...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme Edit Modal -->
+            <div id="theme-edit-modal" class="modal-backdrop" onclick="if(event.target===this) closeThemeEditModal()">
+                <div class="modal">
+                    <div class="modal-header">
+                        <h3 id="theme-edit-title">Edit Theme</h3>
+                        <button class="modal-close" onclick="closeThemeEditModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-edit-form">
+                            <input type="hidden" id="theme-edit-id">
+                            <div>
+                                <label>Description</label>
+                                <textarea id="theme-edit-description" placeholder="Enter a description for this theme..."></textarea>
+                            </div>
+                            <div>
+                                <label>Categories</label>
+                                <div id="theme-edit-categories" class="category-checkboxes"></div>
+                                <div class="category-add-row">
+                                    <input type="text" id="theme-edit-new-category" placeholder="New category name...">
+                                    <button class="btn btn-sm btn-secondary" onclick="addNewCategoryFromEdit()">Add</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeThemeEditModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="saveThemeMetadata()">Save</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme Create Modal -->
+            <div id="theme-create-modal" class="modal-backdrop" onclick="if(event.target===this) closeThemeCreateModal()">
+                <div class="modal" style="max-width: 700px;">
+                    <div class="modal-header">
+                        <h3>Create New Theme</h3>
+                        <button class="modal-close" onclick="closeThemeCreateModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label for="theme-create-name">Theme Name *</label>
+                                <input type="text" id="theme-create-name" placeholder="e.g., Rain Forest, Ocean Waves, Coffee Shop...">
+                            </div>
+                            <div>
+                                <label for="theme-create-description">Description</label>
+                                <textarea id="theme-create-description" placeholder="Describe the ambiance this theme creates..."></textarea>
+                            </div>
+                            <div>
+                                <label>Icon</label>
+                                <div class="icon-picker" id="theme-icon-picker">
+                                    <div class="icon-option selected" data-icon="🎵" onclick="selectThemeIcon(this)">🎵</div>
+                                    <div class="icon-option" data-icon="🌧️" onclick="selectThemeIcon(this)">🌧️</div>
+                                    <div class="icon-option" data-icon="🌊" onclick="selectThemeIcon(this)">🌊</div>
+                                    <div class="icon-option" data-icon="🌲" onclick="selectThemeIcon(this)">🌲</div>
+                                    <div class="icon-option" data-icon="🔥" onclick="selectThemeIcon(this)">🔥</div>
+                                    <div class="icon-option" data-icon="☕" onclick="selectThemeIcon(this)">☕</div>
+                                    <div class="icon-option" data-icon="🌙" onclick="selectThemeIcon(this)">🌙</div>
+                                    <div class="icon-option" data-icon="⛈️" onclick="selectThemeIcon(this)">⛈️</div>
+                                    <div class="icon-option" data-icon="🏙️" onclick="selectThemeIcon(this)">🏙️</div>
+                                    <div class="icon-option" data-icon="🐦" onclick="selectThemeIcon(this)">🐦</div>
+                                    <div class="icon-option" data-icon="🌿" onclick="selectThemeIcon(this)">🌿</div>
+                                    <div class="icon-option" data-icon="💧" onclick="selectThemeIcon(this)">💧</div>
+                                    <div class="icon-option" data-icon="❄️" onclick="selectThemeIcon(this)">❄️</div>
+                                    <div class="icon-option" data-icon="🌅" onclick="selectThemeIcon(this)">🌅</div>
+                                    <div class="icon-option" data-icon="🎹" onclick="selectThemeIcon(this)">🎹</div>
+                                    <div class="icon-option" data-icon="🎸" onclick="selectThemeIcon(this)">🎸</div>
+                                </div>
+                                <input type="hidden" id="theme-create-icon" value="🎵">
+                            </div>
+                            <div>
+                                <label>Category (optional)</label>
+                                <div class="category-select-row">
+                                    <select id="theme-create-category" onchange="handleCategorySelectChange(this)">
+                                        <option value="">No category</option>
+                                    </select>
+                                    <input type="text" id="theme-create-new-category" placeholder="New category name..." style="display: none;">
+                                </div>
+                            </div>
+                            <div>
+                                <label>Audio Files</label>
+                                <div id="theme-file-upload-area" class="file-upload-area"
+                                     onclick="document.getElementById('theme-file-input').click()">
+                                    <div class="file-upload-icon">🎵</div>
+                                    <div class="file-upload-text">
+                                        Drag & drop audio files here or click to browse
+                                    </div>
+                                    <div class="file-upload-hint">
+                                        Supports MP3, WAV, FLAC, OGG (max 50MB per file)
+                                    </div>
+                                </div>
+                                <input type="file" id="theme-file-input" class="file-upload-input"
+                                       multiple accept=".mp3,.wav,.flac,.ogg,audio/*"
+                                       onchange="handleThemeFileSelect(this.files)">
+                                <div id="theme-file-list" class="file-list"></div>
+                                <div id="theme-upload-progress" class="upload-progress" style="display: none;">
+                                    <div class="upload-progress-bar">
+                                        <div id="theme-progress-fill" class="upload-progress-fill"></div>
+                                    </div>
+                                    <div id="theme-progress-text" class="upload-progress-text">Uploading...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeThemeCreateModal()">Cancel</button>
+                        <button class="btn btn-primary" id="theme-create-submit" onclick="createTheme()">Create Theme</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Category Create Modal -->
+            <div id="category-create-modal" class="modal-backdrop" onclick="if(event.target===this) closeCategoryCreateModal()">
+                <div class="modal" style="max-width: 500px;">
+                    <div class="modal-header">
+                        <h3>Create Category</h3>
+                        <button class="modal-close" onclick="closeCategoryCreateModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label for="category-create-name">Category Name *</label>
+                                <input type="text" id="category-create-name" placeholder="e.g., Weather, Nature, Urban...">
+                            </div>
+                            <div>
+                                <label>Add Themes to Category (optional)</label>
+                                <div id="category-theme-list" class="category-theme-list">
+                                    <!-- Populated dynamically -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeCategoryCreateModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="createCategory()">Create Category</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <div id="view-settings" class="view">
+                <!-- Audio Settings Section -->
+                <div class="settings-section">
+                    <h3>Audio Settings</h3>
+                    <p>Configure playback and mixing parameters.</p>
+
+                    <div class="settings-form">
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <label for="settings-crossfade">Crossfade Duration</label>
+                                <span class="settings-hint">Smooth transition when changing themes</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="range" id="settings-crossfade" min="0" max="10" step="0.5" value="3"
+                                       oninput="updateCrossfadeDisplay(this.value)">
+                                <span id="settings-crossfade-value" class="settings-value">3.0s</span>
+                            </div>
+                        </div>
+
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <label for="settings-default-volume">Default Volume</label>
+                                <span class="settings-hint">Initial volume for new channels</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="range" id="settings-default-volume" min="0" max="100" step="5" value="60"
+                                       oninput="updateDefaultVolumeDisplay(this.value)">
+                                <span id="settings-default-volume-value" class="settings-value">60%</span>
+                            </div>
+                        </div>
+
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <label for="settings-master-gain">Master Output Gain</label>
+                                <span class="settings-hint">Global volume multiplier for all streams</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="range" id="settings-master-gain" min="0" max="100" step="5" value="60"
+                                       oninput="updateMasterGainDisplay(this.value)">
+                                <span id="settings-master-gain-value" class="settings-value">60%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-actions" style="margin-top: 1rem;">
+                        <button class="btn btn-primary btn-sm" onclick="saveAudioSettings()">Save Settings</button>
+                        <button class="btn btn-secondary btn-sm" onclick="resetAudioSettings()">Reset to Defaults</button>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Available Speakers</h3>
+                    <p>Select which speakers Sonorium can use. Disabled speakers won't appear when creating channels.</p>
+                    <div class="settings-actions">
+                        <button class="btn btn-secondary btn-sm" onclick="enableAllSpeakers()">Enable All</button>
+                        <button class="btn btn-secondary btn-sm" onclick="disableAllSpeakers()">Disable All</button>
+                        <button class="btn btn-secondary btn-sm" onclick="refreshSpeakersFromHA()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 4v6h-6"/>
+                                <path d="M1 20v-6h6"/>
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                            </svg>
+                            Refresh from HA
+                        </button>
+                    </div>
+                    <div id="settings-speaker-tree" class="settings-speaker-tree">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            Loading speakers...
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Speaker Groups Section -->
+                <div class="settings-section">
+                    <h3>Speaker Groups</h3>
+                    <p>Create reusable speaker configurations for quick channel setup.</p>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary btn-sm" onclick="openGroupModal()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19"/>
+                                <line x1="5" y1="12" x2="19" y2="12"/>
+                            </svg>
+                            New Group
+                        </button>
+                    </div>
+                    <div id="settings-groups-list" class="settings-groups-list">
+                        <!-- Groups loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status View -->
+            <div id="view-status" class="view">
+                <div class="status-grid">
+                    <div class="status-card">
+                        <h4>Active Channels</h4>
+                        <div id="status-active-channels" class="status-value">0</div>
+                    </div>
+                    <div class="status-card">
+                        <h4>Total Speakers</h4>
+                        <div id="status-total-speakers" class="status-value">0</div>
+                    </div>
+                </div>
+                <div class="settings-section" style="margin-top: 1.5rem;">
+                    <h3>Channels</h3>
+                    <div id="channel-list" class="channel-list">
+                        <!-- Channels loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- New/Edit Channel Modal -->
     <div id="session-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
         <div class="modal" onclick="event.stopPropagation()">
             <div class="modal-header">
-                <h2 id="modal-title">New Session</h2>
+                <h2 id="modal-title">New Channel</h2>
                 <button class="modal-close" onclick="closeSessionModal()">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"/>
@@ -704,16 +2064,10 @@
             </div>
             <div class="modal-body">
                 <input type="hidden" id="edit-session-id" value="">
-                
+
                 <div class="session-field">
-                    <label>Session Name</label>
-                    <div style="display: flex; gap: 0.5rem;">
-                        <input type="text" id="session-name" placeholder="Auto-generated from selection">
-                        <select id="name-mode" style="width: auto;">
-                            <option value="auto">Auto</option>
-                            <option value="custom">Custom</option>
-                        </select>
-                    </div>
+                    <label>Channel Name</label>
+                    <input type="text" id="session-name" placeholder="Leave empty to auto-generate from selection">
                 </div>
 
                 <div class="session-field">
@@ -725,14 +2079,26 @@
 
                 <div class="session-field">
                     <label>Select Speakers</label>
-                    <div style="margin-bottom: 0.5rem;">
-                        <select id="speaker-group-select" style="width: 100%;">
-                            <option value="">Select manually below...</option>
-                            <!-- Groups loaded dynamically -->
-                        </select>
-                    </div>
-                    <div id="speaker-tree" class="speaker-tree">
-                        <!-- Speaker hierarchy loaded dynamically -->
+                    <select id="session-speaker-group" onchange="onSpeakerGroupChange()">
+                        <option value="">-- Select manually below --</option>
+                        <!-- Groups loaded dynamically -->
+                    </select>
+                </div>
+
+                <div class="session-field" id="manual-speaker-selection">
+                    <label>Manual Selection</label>
+                    <div class="speaker-dropdown" id="speaker-dropdown">
+                        <div class="speaker-dropdown-header" onclick="toggleSpeakerDropdown(event)">
+                            <span id="speaker-dropdown-text">Click to select speakers...</span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                        </div>
+                        <div class="speaker-dropdown-content" id="speaker-dropdown-content">
+                            <div id="speaker-tree" class="speaker-tree">
+                                <!-- Speaker tree loaded dynamically -->
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -743,16 +2109,62 @@
                             <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
                             <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
                         </svg>
-                        <input type="range" id="modal-volume" class="volume-slider" min="0" max="100" value="60">
-                        <span id="modal-volume-value" class="volume-value">60%</span>
+                        <input type="range" id="session-volume" class="volume-slider" min="0" max="100" value="60">
+                        <span id="volume-display" class="volume-value">60%</span>
                     </div>
                 </div>
             </div>
             <div class="modal-footer">
-                <button id="delete-session-btn" class="btn btn-danger" onclick="deleteSession()" style="display: none;">Delete</button>
-                <div style="flex: 1;"></div>
                 <button class="btn btn-secondary" onclick="closeSessionModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="saveSession()">Save</button>
+                <button class="btn btn-primary" onclick="saveSession()">
+                    <span id="save-btn-text">Create Channel</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Speaker Group Modal -->
+    <div id="group-modal" class="modal-backdrop" onclick="if(event.target===this) closeGroupModal()">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="group-modal-title">New Speaker Group</h2>
+                <button class="modal-close" onclick="closeGroupModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-group-id" value="">
+
+                <div class="session-field">
+                    <label>Group Name</label>
+                    <input type="text" id="group-name" placeholder="e.g., Downstairs, Party Mode">
+                </div>
+
+                <div class="session-field">
+                    <label>Select Speakers</label>
+                    <div class="speaker-dropdown" id="group-speaker-dropdown">
+                        <div class="speaker-dropdown-header" onclick="toggleGroupSpeakerDropdown(event)">
+                            <span id="group-speaker-dropdown-text">Click to select speakers...</span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                        </div>
+                        <div class="speaker-dropdown-content" id="group-speaker-dropdown-content">
+                            <div id="group-speaker-tree" class="speaker-tree">
+                                <!-- Speaker tree loaded dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeGroupModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveGroup()">
+                    <span id="group-save-btn-text">Create Group</span>
+                </button>
             </div>
         </div>
     </div>
@@ -766,6 +2178,8 @@
         let themes = [];
         let speakerHierarchy = null;
         let speakerGroups = [];
+        let enabledSpeakers = [];
+        let channels = [];
         let selectedTheme = null;
         let selectedSpeakers = {
             floors: [],
@@ -774,37 +2188,41 @@
             excludeAreas: [],
             excludeSpeakers: []
         };
+        let currentView = 'sessions';
 
-        // Theme icons mapping
-        const themeIcons = {
-            'primeval-forest': '🌲',
-            'stormy-weather': '⛈️',
-            'ocean-waves': '🌊',
-            'furry-friend': '🐱',
-            'thunder': '⚡',
-            'waterfall': '💧',
-            'rain': '🌧️',
-            'fireplace': '🔥',
-            'wind': '💨',
-            'birds': '🐦',
-            'default': '🎵'
-        };
+        // API Helper - works with both direct access and HA ingress
+        function getBasePath() {
+            // For ingress, the page URL includes the ingress path
+            // We need to use relative paths from wherever we're served
+            const path = window.location.pathname;
+            // Remove trailing slash and index.html if present
+            let base = path.replace(/\/?(index\.html)?$/, '');
+            return base || '';
+        }
 
-        // API calls
-        async function api(method, endpoint, data = null) {
+        const BASE_PATH = getBasePath();
+
+        async function api(method, endpoint, body = null) {
             const options = {
                 method,
                 headers: { 'Content-Type': 'application/json' }
             };
-            if (data) options.body = JSON.stringify(data);
-            
-            const response = await fetch(`/api${endpoint}`, options);
+            if (body) options.body = JSON.stringify(body);
+
+            // Use relative path from current location
+            const url = `${BASE_PATH}/api${endpoint}`;
+            const response = await fetch(url, options);
             if (!response.ok) {
-                const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-                throw new Error(error.detail || 'Request failed');
+                const error = await response.json().catch(() => ({ detail: 'Request failed' }));
+                throw new Error(error.detail || error.error || 'Request failed');
             }
             if (response.status === 204) return null;
-            return response.json();
+            const result = await response.json();
+            // Handle API-level errors (200 response with error field)
+            if (result && result.error) {
+                throw new Error(result.error);
+            }
+            return result;
         }
 
         // Initialize
@@ -813,22 +2231,40 @@
                 await Promise.all([
                     loadSessions(),
                     loadThemes(),
+                    loadCategories(),
                     loadSpeakerHierarchy(),
-                    loadSpeakerGroups()
+                    loadSpeakerGroups(),
+                    loadEnabledSpeakers(),
+                    loadChannels(),
+                    loadAudioSettings()
                 ]);
                 renderSessions();
+                updatePlayingBadge();
             } catch (error) {
                 console.error('Init error:', error);
                 showToast('Failed to load data', 'error');
             }
         }
 
+        // Data Loading
         async function loadSessions() {
             sessions = await api('GET', '/sessions');
         }
 
         async function loadThemes() {
             themes = await api('GET', '/themes');
+        }
+
+        async function refreshThemes() {
+            try {
+                showToast('Rescanning themes...', 'success');
+                await api('POST', '/themes/refresh');
+                await loadThemes();
+                renderThemesBrowser();
+                showToast('Themes refreshed', 'success');
+            } catch (error) {
+                showToast(error.message || 'Failed to refresh themes', 'error');
+            }
         }
 
         async function loadSpeakerHierarchy() {
@@ -839,40 +2275,128 @@
             speakerGroups = await api('GET', '/groups');
         }
 
-        // Render sessions
-        function renderSessions() {
-            const container = document.getElementById('sessions-container');
-            
-            if (sessions.length === 0) {
-                container.innerHTML = `
-                    <div class="new-session-card" onclick="openNewSessionModal()">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        async function loadEnabledSpeakers() {
+            try {
+                const response = await api('GET', '/settings/speakers');
+                enabledSpeakers = response.enabled_speakers || [];
+            } catch (error) {
+                console.error('Failed to load enabled speakers:', error);
+                enabledSpeakers = [];
+            }
+        }
+
+        async function loadChannels() {
+            try {
+                channels = await api('GET', '/channels');
+            } catch (error) {
+                console.error('Failed to load channels:', error);
+                channels = [];
+            }
+        }
+
+        // View Navigation
+        function showView(viewName) {
+            currentView = viewName;
+
+            // Update nav items
+            document.querySelectorAll('.nav-item').forEach(item => {
+                item.classList.remove('active');
+            });
+            event.currentTarget.classList.add('active');
+
+            // Show/hide views
+            document.querySelectorAll('.view').forEach(view => {
+                view.classList.remove('active');
+            });
+            document.getElementById(`view-${viewName}`).classList.add('active');
+
+            // Update header
+            const titles = {
+                sessions: 'Channels',
+                speakers: 'Speakers',
+                themes: 'Themes',
+                settings: 'Settings',
+                status: 'Status'
+            };
+            document.getElementById('view-title').textContent = titles[viewName];
+
+            // Update actions
+            const actionsHtml = {
+                sessions: `
+                    <button class="btn btn-primary" onclick="openNewSessionModal()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="12" y1="5" x2="12" y2="19"/>
                             <line x1="5" y1="12" x2="19" y2="12"/>
                         </svg>
-                        <h3>Create Your First Session</h3>
-                        <p>Click to add an ambient soundscape</p>
+                        New Channel
+                    </button>
+                `,
+                speakers: `
+                    <button class="btn btn-secondary" onclick="refreshSpeakers()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 4v6h-6"/>
+                            <path d="M1 20v-6h6"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                        Refresh
+                    </button>
+                `,
+                themes: '',
+                settings: '',
+                status: `
+                    <button class="btn btn-secondary" onclick="refreshStatus()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M23 4v6h-6"/>
+                            <path d="M1 20v-6h6"/>
+                            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                        </svg>
+                        Refresh
+                    </button>
+                `
+            };
+            document.getElementById('view-actions').innerHTML = actionsHtml[viewName];
+
+            // Load view-specific data
+            if (viewName === 'speakers') renderSpeakersList();
+            if (viewName === 'themes') renderThemesBrowser();
+            if (viewName === 'settings') {
+                renderSettingsSpeakerTree();
+                renderSettingsGroupsList();
+            }
+            if (viewName === 'status') renderStatus();
+        }
+
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+
+        // Sessions
+        function renderSessions() {
+            const container = document.getElementById('sessions-container');
+
+            if (sessions.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M9 18V5l12-2v13"/>
+                            <circle cx="6" cy="18" r="3"/>
+                            <circle cx="18" cy="16" r="3"/>
+                        </svg>
+                        <h3>No channels yet</h3>
+                        <p>Create a new channel to start playing ambient sounds</p>
                     </div>
                 `;
                 return;
             }
 
-            container.innerHTML = sessions.map(session => renderSessionCard(session)).join('') + `
-                <div class="new-session-card" onclick="openNewSessionModal()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="12" y1="5" x2="12" y2="19"/>
-                        <line x1="5" y1="12" x2="19" y2="12"/>
-                    </svg>
-                    <h3>New Session</h3>
-                    <p>Add another soundscape</p>
-                </div>
-            `;
+            container.innerHTML = sessions.map(renderSessionCard).join('');
+            updatePlayingBadge();
         }
 
         function renderSessionCard(session) {
             const icon = getThemeIcon(session.theme_id);
             const isPlaying = session.is_playing;
-            
+
             return `
                 <div class="session-card ${isPlaying ? 'playing' : ''}" data-session-id="${session.id}">
                     <div class="session-header">
@@ -899,23 +2423,8 @@
 
                     <div class="session-field">
                         <label>Speakers</label>
-                        <div class="speaker-list">
-                            ${session.speakers.slice(0, 3).map(s => `
-                                <span class="speaker-chip">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                        <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
-                                        <circle cx="12" cy="14" r="4"/>
-                                        <line x1="12" y1="6" x2="12" y2="6"/>
-                                    </svg>
-                                    ${escapeHtml(getSpeakerName(s))}
-                                </span>
-                            `).join('')}
-                            ${session.speakers.length > 3 ? `
-                                <span class="speaker-chip">+${session.speakers.length - 3} more</span>
-                            ` : ''}
-                            ${session.speakers.length === 0 ? `
-                                <span class="speaker-chip">No speakers selected</span>
-                            ` : ''}
+                        <div class="speaker-summary">
+                            ${session.speaker_summary || (session.speakers?.length === 0 ? 'No speakers selected' : `${session.speakers?.length || 0} speaker${(session.speakers?.length || 0) !== 1 ? 's' : ''}`)}
                         </div>
                     </div>
 
@@ -924,58 +2433,70 @@
                             <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
                             <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
                         </svg>
-                        <input type="range" class="volume-slider" min="0" max="100" 
-                               value="${session.volume}" 
+                        <input type="range" class="volume-slider" min="0" max="100"
+                               value="${session.volume}"
                                onchange="updateSessionVolume('${session.id}', this.value)">
                         <span class="volume-value">${session.volume}%</span>
                     </div>
 
-                    <button class="btn btn-play ${isPlaying ? 'playing' : ''}" 
+                    <button class="btn btn-play ${isPlaying ? 'playing' : ''}"
                             onclick="togglePlayback('${session.id}')">
                         ${isPlaying ? '⏸ Pause' : '▶ Play'}
                     </button>
 
                     <div class="session-actions">
                         <button class="btn btn-secondary" onclick="editSession('${session.id}')">
-                            ✏️ Edit
+                            Edit
                         </button>
-                        <button class="btn btn-secondary" onclick="stopSession('${session.id}')">
-                            ⏹ Stop
+                        <button class="btn btn-secondary" onclick="deleteSession('${session.id}')">
+                            Delete
                         </button>
                     </div>
                 </div>
             `;
         }
 
+        function updatePlayingBadge() {
+            const playingCount = sessions.filter(s => s.is_playing).length;
+            const badge = document.getElementById('playing-badge');
+            if (playingCount > 0) {
+                badge.textContent = playingCount;
+                badge.style.display = 'inline';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
         function getThemeIcon(themeId) {
-            if (!themeId) return themeIcons.default;
-            const key = themeId.toLowerCase().replace(/[^a-z-]/g, '');
-            return themeIcons[key] || themeIcons.default;
+            const iconMap = {
+                'rain': '🌧️',
+                'forest': '🌲',
+                'ocean': '🌊',
+                'fire': '🔥',
+                'thunder': '⛈️',
+                'wind': '💨',
+                'birds': '🐦',
+                'night': '🌙',
+                'cafe': '☕',
+                'city': '🏙️'
+            };
+            if (!themeId) return '🎵';
+            const lower = themeId.toLowerCase();
+            for (const [key, icon] of Object.entries(iconMap)) {
+                if (lower.includes(key)) return icon;
+            }
+            return '🎵';
         }
 
-        function getSpeakerName(entityId) {
-            if (!speakerHierarchy) return entityId;
-            const allSpeakers = [
-                ...speakerHierarchy.floors.flatMap(f => f.areas.flatMap(a => a.speakers)),
-                ...speakerHierarchy.unassigned_areas.flatMap(a => a.speakers),
-                ...speakerHierarchy.unassigned_speakers
-            ];
-            const speaker = allSpeakers.find(s => s.entity_id === entityId);
-            return speaker ? speaker.name : entityId.replace('media_player.', '');
-        }
-
-        // Session actions
         async function togglePlayback(sessionId) {
             const session = sessions.find(s => s.id === sessionId);
             if (!session) return;
 
             try {
                 if (session.is_playing) {
-                    await api('POST', `/sessions/${sessionId}/pause`);
-                    showToast('Paused', 'success');
+                    await api('POST', `/sessions/${sessionId}/stop`);
                 } else {
                     await api('POST', `/sessions/${sessionId}/play`);
-                    showToast('Playing', 'success');
                 }
                 await loadSessions();
                 renderSessions();
@@ -984,22 +2505,11 @@
             }
         }
 
-        async function stopSession(sessionId) {
-            try {
-                await api('POST', `/sessions/${sessionId}/stop`);
-                await loadSessions();
-                renderSessions();
-                showToast('Stopped', 'success');
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
-
         async function updateSessionTheme(sessionId, themeId) {
             try {
-                await api('PUT', `/sessions/${sessionId}`, { theme_id: themeId || null });
+                await api('PUT', `/sessions/${sessionId}`, { theme_id: themeId });
                 await loadSessions();
-                renderSessions();
+                showToast('Theme updated', 'success');
             } catch (error) {
                 showToast(error.message, 'error');
             }
@@ -1008,7 +2518,6 @@
         async function updateSessionVolume(sessionId, volume) {
             try {
                 await api('POST', `/sessions/${sessionId}/volume`, { volume: parseInt(volume) });
-                // Update local state
                 const session = sessions.find(s => s.id === sessionId);
                 if (session) session.volume = parseInt(volume);
             } catch (error) {
@@ -1016,23 +2525,35 @@
             }
         }
 
-        // Modal functions
+        async function deleteSession(sessionId) {
+            if (!confirm('Delete this channel?')) return;
+            try {
+                await api('DELETE', `/sessions/${sessionId}`);
+                await loadSessions();
+                renderSessions();
+                showToast('Channel deleted', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Session Modal
         function openNewSessionModal() {
-            document.getElementById('modal-title').textContent = 'New Session';
             document.getElementById('edit-session-id').value = '';
+            document.getElementById('modal-title').textContent = 'New Channel';
+            document.getElementById('save-btn-text').textContent = 'Create Channel';
             document.getElementById('session-name').value = '';
-            document.getElementById('name-mode').value = 'auto';
-            document.getElementById('modal-volume').value = 60;
-            document.getElementById('modal-volume-value').textContent = '60%';
-            document.getElementById('delete-session-btn').style.display = 'none';
-            
+            document.getElementById('session-volume').value = 60;
+            document.getElementById('volume-display').textContent = '60%';
+
             selectedTheme = null;
+            selectedSpeakerGroupId = null;
             selectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
-            
+
             renderThemeSelector();
             renderSpeakerTree();
-            renderGroupSelector();
-            
+            renderSpeakerGroupSelect();
+
             document.getElementById('session-modal').classList.add('active');
         }
 
@@ -1040,17 +2561,16 @@
             const session = sessions.find(s => s.id === sessionId);
             if (!session) return;
 
-            document.getElementById('modal-title').textContent = 'Edit Session';
-            document.getElementById('edit-session-id').value = sessionId;
+            document.getElementById('edit-session-id').value = session.id;
+            document.getElementById('modal-title').textContent = 'Edit Channel';
+            document.getElementById('save-btn-text').textContent = 'Save Channel';
             document.getElementById('session-name').value = session.name;
-            document.getElementById('name-mode').value = session.name_source === 'custom' ? 'custom' : 'auto';
-            document.getElementById('modal-volume').value = session.volume;
-            document.getElementById('modal-volume-value').textContent = session.volume + '%';
-            document.getElementById('delete-session-btn').style.display = 'block';
-            
+            document.getElementById('session-volume').value = session.volume;
+            document.getElementById('volume-display').textContent = `${session.volume}%`;
+
             selectedTheme = session.theme_id;
-            
-            // Restore speaker selection
+            selectedSpeakerGroupId = session.speaker_group_id || null;
+
             if (session.adhoc_selection) {
                 selectedSpeakers = {
                     floors: session.adhoc_selection.include_floors || [],
@@ -1062,11 +2582,11 @@
             } else {
                 selectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
             }
-            
+
             renderThemeSelector();
             renderSpeakerTree();
-            renderGroupSelector();
-            
+            renderSpeakerGroupSelect();
+
             document.getElementById('session-modal').classList.add('active');
         }
 
@@ -1081,34 +2601,40 @@
         }
 
         async function saveSession() {
-            const sessionId = document.getElementById('edit-session-id').value;
-            const nameMode = document.getElementById('name-mode').value;
-            const name = document.getElementById('session-name').value;
-            const volume = parseInt(document.getElementById('modal-volume').value);
+            const editId = document.getElementById('edit-session-id').value;
+            const customName = document.getElementById('session-name').value.trim();
+            const volume = parseInt(document.getElementById('session-volume').value);
 
             const data = {
                 theme_id: selectedTheme,
-                adhoc_selection: {
+                volume: volume
+            };
+
+            // Use speaker group OR adhoc selection, not both
+            if (selectedSpeakerGroupId) {
+                data.speaker_group_id = selectedSpeakerGroupId;
+                data.adhoc_selection = null;
+            } else {
+                data.speaker_group_id = null;
+                data.adhoc_selection = {
                     include_floors: selectedSpeakers.floors,
                     include_areas: selectedSpeakers.areas,
                     include_speakers: selectedSpeakers.speakers,
                     exclude_areas: selectedSpeakers.excludeAreas,
                     exclude_speakers: selectedSpeakers.excludeSpeakers
-                },
-                volume
-            };
-
-            if (nameMode === 'custom' && name) {
-                data.custom_name = name;
+                };
             }
 
+            // Only set custom_name if user provided one (otherwise auto-generate)
+            if (customName) data.custom_name = customName;
+
             try {
-                if (sessionId) {
-                    await api('PUT', `/sessions/${sessionId}`, data);
-                    showToast('Session updated', 'success');
+                if (editId) {
+                    await api('PUT', `/sessions/${editId}`, data);
+                    showToast('Channel updated', 'success');
                 } else {
                     await api('POST', '/sessions', data);
-                    showToast('Session created', 'success');
+                    showToast('Channel created', 'success');
                 }
                 closeSessionModal();
                 await loadSessions();
@@ -1118,31 +2644,14 @@
             }
         }
 
-        async function deleteSession() {
-            const sessionId = document.getElementById('edit-session-id').value;
-            if (!sessionId) return;
-
-            if (!confirm('Delete this session?')) return;
-
-            try {
-                await api('DELETE', `/sessions/${sessionId}`);
-                closeSessionModal();
-                await loadSessions();
-                renderSessions();
-                showToast('Session deleted', 'success');
-            } catch (error) {
-                showToast(error.message, 'error');
-            }
-        }
-
-        // Render modal components
+        // Theme Selector
         function renderThemeSelector() {
             const container = document.getElementById('theme-selector');
             container.innerHTML = themes.map(theme => `
-                <div class="theme-card ${selectedTheme === theme.id ? 'selected' : ''}" 
+                <div class="theme-card ${selectedTheme === theme.id ? 'selected' : ''}"
                      onclick="selectTheme('${theme.id}')">
-                    <div class="theme-card-icon">${getThemeIcon(theme.id)}</div>
-                    <div class="theme-card-name">${escapeHtml(theme.name)}</div>
+                    <div class="theme-icon">${getThemeIcon(theme.id)}</div>
+                    <div class="theme-name">${escapeHtml(theme.name)}</div>
                 </div>
             `).join('');
         }
@@ -1152,14 +2661,18 @@
             renderThemeSelector();
         }
 
-        function renderGroupSelector() {
-            const select = document.getElementById('speaker-group-select');
-            select.innerHTML = `
-                <option value="">Select manually below...</option>
-                ${speakerGroups.map(g => `
-                    <option value="${g.id}">${escapeHtml(g.name)} (${g.speaker_count} speakers)</option>
-                `).join('')}
-            `;
+        // Speaker Tree
+        function isSpeakerEnabled(entityId) {
+            if (!enabledSpeakers || enabledSpeakers.length === 0) return true;
+            return enabledSpeakers.includes(entityId);
+        }
+
+        function getEnabledSpeakersInArea(area) {
+            return (area.speakers || []).filter(s => isSpeakerEnabled(s.entity_id));
+        }
+
+        function getEnabledAreasInFloor(floor) {
+            return (floor.areas || []).filter(area => getEnabledSpeakersInArea(area).length > 0);
         }
 
         function renderSpeakerTree() {
@@ -1171,80 +2684,96 @@
 
             let html = '';
 
-            // Render floors
-            for (const floor of speakerHierarchy.floors) {
+            // Render floors (only those with enabled speakers)
+            for (const floor of speakerHierarchy.floors || []) {
+                const enabledAreas = getEnabledAreasInFloor(floor);
+                if (enabledAreas.length === 0) continue;
+
                 const floorChecked = selectedSpeakers.floors.includes(floor.floor_id);
                 html += `
                     <div class="tree-floor">
                         <div class="tree-floor-header">
-                            <input type="checkbox" ${floorChecked ? 'checked' : ''} 
+                            <input type="checkbox" ${floorChecked ? 'checked' : ''}
                                    onchange="toggleFloor('${floor.floor_id}', this.checked)">
-                            <span class="tree-floor-name">📁 ${escapeHtml(floor.name)}</span>
+                            <span class="tree-floor-name">🏢 ${escapeHtml(floor.name)}</span>
                             <span class="tree-floor-action" onclick="toggleFloor('${floor.floor_id}', true)">Select All</span>
                         </div>
                         <div class="tree-areas">
-                            ${floor.areas.map(area => renderArea(area, floorChecked)).join('')}
+                            ${enabledAreas.map(area => renderArea(area, floorChecked)).join('')}
                         </div>
                     </div>
                 `;
             }
 
             // Unassigned areas
-            if (speakerHierarchy.unassigned_areas.length > 0) {
+            const enabledUnassignedAreas = (speakerHierarchy.unassigned_areas || [])
+                .filter(area => getEnabledSpeakersInArea(area).length > 0);
+            if (enabledUnassignedAreas.length > 0) {
                 html += `
                     <div class="tree-floor">
                         <div class="tree-floor-header">
-                            <span class="tree-floor-name">📁 Other Areas</span>
+                            <span class="tree-floor-name">🏠 Other Areas</span>
                         </div>
                         <div class="tree-areas">
-                            ${speakerHierarchy.unassigned_areas.map(area => renderArea(area, false)).join('')}
+                            ${enabledUnassignedAreas.map(area => renderArea(area, false)).join('')}
                         </div>
                     </div>
                 `;
             }
 
             // Unassigned speakers
-            if (speakerHierarchy.unassigned_speakers.length > 0) {
+            const enabledUnassignedSpeakers = (speakerHierarchy.unassigned_speakers || [])
+                .filter(s => isSpeakerEnabled(s.entity_id));
+            if (enabledUnassignedSpeakers.length > 0) {
                 html += `
                     <div class="tree-floor">
                         <div class="tree-floor-header">
-                            <span class="tree-floor-name">📁 Unassigned Speakers</span>
+                            <span class="tree-floor-name">📦 Unassigned Speakers</span>
                         </div>
                         <div class="tree-speakers">
-                            ${speakerHierarchy.unassigned_speakers.map(speaker => renderSpeaker(speaker, false)).join('')}
+                            ${enabledUnassignedSpeakers.map(speaker => renderSpeaker(speaker, false)).join('')}
                         </div>
                     </div>
                 `;
+            }
+
+            if (!html) {
+                html = '<p style="color: var(--text-muted); padding: 0.5rem;">No speakers available. Enable speakers in Settings.</p>';
             }
 
             container.innerHTML = html;
         }
 
         function renderArea(area, parentSelected) {
+            const enabledSpeakersInArea = getEnabledSpeakersInArea(area);
+            if (enabledSpeakersInArea.length === 0) return '';
+
             const areaChecked = selectedSpeakers.areas.includes(area.area_id) || parentSelected;
             const areaExcluded = selectedSpeakers.excludeAreas.includes(area.area_id);
-            
+
             return `
                 <div class="tree-area">
                     <div class="tree-area-header">
-                        <input type="checkbox" ${areaChecked && !areaExcluded ? 'checked' : ''} 
+                        <input type="checkbox" ${areaChecked && !areaExcluded ? 'checked' : ''}
                                onchange="toggleArea('${area.area_id}', this.checked)">
                         <span>🏠 ${escapeHtml(area.name)}</span>
                     </div>
                     <div class="tree-speakers">
-                        ${area.speakers.map(speaker => renderSpeaker(speaker, areaChecked && !areaExcluded)).join('')}
+                        ${enabledSpeakersInArea.map(speaker => renderSpeaker(speaker, areaChecked && !areaExcluded)).join('')}
                     </div>
                 </div>
             `;
         }
 
         function renderSpeaker(speaker, parentSelected) {
+            if (!isSpeakerEnabled(speaker.entity_id)) return '';
+
             const speakerChecked = selectedSpeakers.speakers.includes(speaker.entity_id) || parentSelected;
             const speakerExcluded = selectedSpeakers.excludeSpeakers.includes(speaker.entity_id);
-            
+
             return `
                 <div class="tree-speaker">
-                    <input type="checkbox" ${speakerChecked && !speakerExcluded ? 'checked' : ''} 
+                    <input type="checkbox" ${speakerChecked && !speakerExcluded ? 'checked' : ''}
                            onchange="toggleSpeaker('${speaker.entity_id}', this.checked)">
                     <span>🔊 ${escapeHtml(speaker.name)}</span>
                 </div>
@@ -1257,9 +2786,10 @@
                     selectedSpeakers.floors.push(floorId);
                 }
             } else {
-                selectedSpeakers.floors = selectedSpeakers.floors.filter(f => f !== floorId);
+                selectedSpeakers.floors = selectedSpeakers.floors.filter(id => id !== floorId);
             }
             renderSpeakerTree();
+            updateSpeakerDropdownText();
         }
 
         function toggleArea(areaId, checked) {
@@ -1267,18 +2797,12 @@
                 if (!selectedSpeakers.areas.includes(areaId)) {
                     selectedSpeakers.areas.push(areaId);
                 }
-                selectedSpeakers.excludeAreas = selectedSpeakers.excludeAreas.filter(a => a !== areaId);
+                selectedSpeakers.excludeAreas = selectedSpeakers.excludeAreas.filter(id => id !== areaId);
             } else {
-                selectedSpeakers.areas = selectedSpeakers.areas.filter(a => a !== areaId);
-                // If parent floor is selected, add to exclusions
-                const area = findArea(areaId);
-                if (area && selectedSpeakers.floors.includes(area.floor_id)) {
-                    if (!selectedSpeakers.excludeAreas.includes(areaId)) {
-                        selectedSpeakers.excludeAreas.push(areaId);
-                    }
-                }
+                selectedSpeakers.areas = selectedSpeakers.areas.filter(id => id !== areaId);
             }
             renderSpeakerTree();
+            updateSpeakerDropdownText();
         }
 
         function toggleSpeaker(entityId, checked) {
@@ -1286,78 +2810,1378 @@
                 if (!selectedSpeakers.speakers.includes(entityId)) {
                     selectedSpeakers.speakers.push(entityId);
                 }
-                selectedSpeakers.excludeSpeakers = selectedSpeakers.excludeSpeakers.filter(s => s !== entityId);
+                selectedSpeakers.excludeSpeakers = selectedSpeakers.excludeSpeakers.filter(id => id !== entityId);
             } else {
-                selectedSpeakers.speakers = selectedSpeakers.speakers.filter(s => s !== entityId);
-                // If parent area/floor is selected, add to exclusions
-                const speaker = findSpeaker(entityId);
-                if (speaker) {
-                    const areaSelected = selectedSpeakers.areas.includes(speaker.area_id);
-                    const floorSelected = selectedSpeakers.floors.includes(speaker.floor_id);
-                    if (areaSelected || floorSelected) {
-                        if (!selectedSpeakers.excludeSpeakers.includes(entityId)) {
-                            selectedSpeakers.excludeSpeakers.push(entityId);
-                        }
-                    }
+                selectedSpeakers.speakers = selectedSpeakers.speakers.filter(id => id !== entityId);
+                if (!selectedSpeakers.excludeSpeakers.includes(entityId)) {
+                    selectedSpeakers.excludeSpeakers.push(entityId);
                 }
             }
             renderSpeakerTree();
+            updateSpeakerDropdownText();
         }
 
-        function findArea(areaId) {
-            for (const floor of speakerHierarchy.floors) {
-                const area = floor.areas.find(a => a.area_id === areaId);
-                if (area) return { ...area, floor_id: floor.floor_id };
+        let selectedSpeakerGroupId = null;
+
+        function renderSpeakerGroupSelect() {
+            const select = document.getElementById('session-speaker-group');
+            if (!select) return;
+
+            // Build options
+            let html = '<option value="">-- Select manually below --</option>';
+            for (const group of speakerGroups) {
+                const selected = selectedSpeakerGroupId === group.id ? 'selected' : '';
+                html += `<option value="${group.id}" ${selected}>${escapeHtml(group.name)}</option>`;
             }
-            return speakerHierarchy.unassigned_areas.find(a => a.area_id === areaId);
+            select.innerHTML = html;
+
+            // Show/hide manual selection based on group selection
+            updateManualSelectionVisibility();
+            updateSpeakerDropdownText();
         }
 
-        function findSpeaker(entityId) {
-            for (const floor of speakerHierarchy.floors) {
-                for (const area of floor.areas) {
-                    const speaker = area.speakers.find(s => s.entity_id === entityId);
-                    if (speaker) return { ...speaker, area_id: area.area_id, floor_id: floor.floor_id };
-                }
+        function onSpeakerGroupChange() {
+            const select = document.getElementById('session-speaker-group');
+            selectedSpeakerGroupId = select.value || null;
+
+            if (selectedSpeakerGroupId) {
+                // Clear manual selections when a group is selected
+                selectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
+                renderSpeakerTree();
             }
-            for (const area of speakerHierarchy.unassigned_areas) {
-                const speaker = area.speakers.find(s => s.entity_id === entityId);
-                if (speaker) return { ...speaker, area_id: area.area_id };
-            }
-            return speakerHierarchy.unassigned_speakers.find(s => s.entity_id === entityId);
+
+            updateManualSelectionVisibility();
+            updateSpeakerDropdownText();
         }
 
-        // Volume slider update
-        document.getElementById('modal-volume').addEventListener('input', function() {
-            document.getElementById('modal-volume-value').textContent = this.value + '%';
+        function updateManualSelectionVisibility() {
+            const manualSection = document.getElementById('manual-speaker-selection');
+            if (!manualSection) return;
+
+            if (selectedSpeakerGroupId) {
+                manualSection.style.display = 'none';
+            } else {
+                manualSection.style.display = 'block';
+            }
+        }
+
+        function toggleSpeakerDropdown(event) {
+            event.stopPropagation();
+            const dropdown = document.getElementById('speaker-dropdown');
+            dropdown.classList.toggle('open');
+        }
+
+        function closeSpeakerDropdown() {
+            const dropdown = document.getElementById('speaker-dropdown');
+            dropdown.classList.remove('open');
+        }
+
+        function updateSpeakerDropdownText() {
+            const text = document.getElementById('speaker-dropdown-text');
+            if (!text) return;
+
+            // Count selected speakers from the selectedSpeakers object
+            const floorCount = selectedSpeakers.floors.length;
+            const areaCount = selectedSpeakers.areas.length;
+            const speakerCount = selectedSpeakers.speakers.length;
+
+            if (floorCount === 0 && areaCount === 0 && speakerCount === 0) {
+                text.textContent = 'Click to select speakers...';
+                text.style.color = 'var(--text-muted)';
+            } else {
+                const parts = [];
+                if (floorCount > 0) parts.push(`${floorCount} floor${floorCount > 1 ? 's' : ''}`);
+                if (areaCount > 0) parts.push(`${areaCount} area${areaCount > 1 ? 's' : ''}`);
+                if (speakerCount > 0) parts.push(`${speakerCount} speaker${speakerCount > 1 ? 's' : ''}`);
+                text.textContent = parts.join(', ');
+                text.style.color = 'var(--text-primary)';
+            }
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('speaker-dropdown');
+            if (dropdown && !dropdown.contains(event.target)) {
+                dropdown.classList.remove('open');
+            }
         });
 
-        // Settings
-        function openSettings() {
-            // TODO: Implement settings modal
-            showToast('Settings coming soon', 'success');
+        // Speakers View
+        function renderSpeakersList() {
+            const container = document.getElementById('speaker-list-content');
+            if (!speakerHierarchy) {
+                container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+                return;
+            }
+
+            const allSpeakers = getAllSpeakersFlat();
+            if (allSpeakers.length === 0) {
+                container.innerHTML = '<div class="empty-state"><p>No speakers found</p></div>';
+                return;
+            }
+
+            container.innerHTML = allSpeakers.map(speaker => `
+                <div class="speaker-list-item">
+                    <div class="speaker-list-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                            <circle cx="12" cy="14" r="4"/>
+                            <line x1="12" y1="6" x2="12.01" y2="6"/>
+                        </svg>
+                    </div>
+                    <div class="speaker-list-info">
+                        <div class="speaker-list-name">${escapeHtml(speaker.name)}</div>
+                        <div class="speaker-list-area">${speaker.area || 'Unassigned'}</div>
+                    </div>
+                </div>
+            `).join('');
         }
 
-        // Toast notifications
+        function getAllSpeakersFlat() {
+            if (!speakerHierarchy) return [];
+            const speakers = [];
+
+            for (const floor of speakerHierarchy.floors || []) {
+                for (const area of floor.areas || []) {
+                    for (const speaker of area.speakers || []) {
+                        speakers.push({ ...speaker, area: area.name, floor: floor.name });
+                    }
+                }
+            }
+            for (const area of speakerHierarchy.unassigned_areas || []) {
+                for (const speaker of area.speakers || []) {
+                    speakers.push({ ...speaker, area: area.name });
+                }
+            }
+            for (const speaker of speakerHierarchy.unassigned_speakers || []) {
+                speakers.push({ ...speaker, area: 'Unassigned' });
+            }
+            return speakers;
+        }
+
+        async function refreshSpeakers() {
+            try {
+                showToast('Refreshing speakers...', 'success');
+                await api('POST', '/speakers/refresh');
+                await loadSpeakerHierarchy();
+                renderSpeakersList();
+                showToast('Speakers refreshed', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Themes Browser - grouped by categories
+        let themeCategories = [];
+
+        async function loadCategories() {
+            try {
+                const result = await api('GET', '/categories');
+                themeCategories = result.categories || [];
+            } catch (error) {
+                console.error('Failed to load categories:', error);
+                themeCategories = [];
+            }
+        }
+
+        function renderThemeCard(theme) {
+            const hasAudio = theme.has_audio !== false && theme.total_tracks > 0;
+            const trackCount = theme.total_tracks || 0;
+            const trackText = trackCount === 0 ? 'No audio files' : `${trackCount} audio file${trackCount !== 1 ? 's' : ''}`;
+
+            return `
+            <div class="theme-browser-card ${!hasAudio ? 'no-audio' : ''}">
+                <div class="theme-browser-card-header">
+                    <div class="theme-browser-icon">${theme.icon || getThemeIcon(theme.id)}</div>
+                    <div class="theme-browser-content">
+                        <div class="theme-browser-header">
+                            <span class="theme-browser-name">${escapeHtml(theme.name)}</span>
+                            <span class="theme-browser-favorite ${theme.is_favorite ? 'active' : ''}"
+                                  onclick="toggleThemeFavorite('${theme.id}')"
+                                  title="${theme.is_favorite ? 'Remove from favorites' : 'Add to favorites'}">
+                                ${theme.is_favorite ? '★' : '☆'}
+                            </span>
+                        </div>
+                        <div class="theme-browser-meta">
+                            <span>${trackText}</span>
+                            ${!hasAudio ? '<span style="color: var(--accent-warning);">Upload files to enable</span>' : ''}
+                        </div>
+                    </div>
+                </div>
+                ${theme.description
+                    ? `<div class="theme-browser-description">${escapeHtml(theme.description)}</div>`
+                    : `<div class="theme-browser-description-empty">No description</div>`
+                }
+                <div class="theme-browser-actions">
+                    <button class="theme-browser-edit-btn" onclick="openThemeEditModal('${theme.id}')" title="Edit theme">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                        </svg>
+                    </button>
+                    <button class="theme-browser-delete-btn" onclick="confirmDeleteTheme('${theme.id}', '${escapeHtml(theme.name)}')" title="Delete theme">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="3 6 5 6 21 6"/>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            <line x1="10" y1="11" x2="10" y2="17"/>
+                            <line x1="14" y1="11" x2="14" y2="17"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>`;
+        }
+
+        function renderCategorySection(categoryName, categoryThemes, isDeletable = true) {
+            const isFavorites = categoryName === '★ Favorites';
+            return `
+            <div class="theme-category-section">
+                <div class="theme-category-header">
+                    <span class="theme-category-name">${escapeHtml(categoryName)}</span>
+                    ${isDeletable && !isFavorites ? `
+                    <div class="theme-category-actions">
+                        <button class="btn btn-sm btn-danger" onclick="confirmDeleteCategory('${escapeHtml(categoryName)}')" title="Delete category">
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                        </button>
+                    </div>` : ''}
+                </div>
+                <div class="theme-category-grid">
+                    ${categoryThemes.map(theme => renderThemeCard(theme)).join('')}
+                </div>
+            </div>`;
+        }
+
+        function renderThemesBrowser() {
+            const container = document.getElementById('themes-browser');
+            if (!themes || themes.length === 0) {
+                container.innerHTML = '<p style="color: var(--text-muted); padding: 1rem;">No themes found. Click "Create Theme" or add theme folders to /media/sonorium.</p>';
+                return;
+            }
+
+            let html = '';
+
+            // 1. Favorites section (always at top if any exist)
+            const favoriteThemes = themes.filter(t => t.is_favorite).sort((a, b) => a.name.localeCompare(b.name));
+            if (favoriteThemes.length > 0) {
+                html += renderCategorySection('★ Favorites', favoriteThemes, false);
+            }
+
+            // 2. Category sections (only show categories that have themes)
+            const usedCategories = new Set();
+            themes.forEach(t => (t.categories || []).forEach(c => usedCategories.add(c)));
+
+            for (const category of themeCategories) {
+                if (!usedCategories.has(category)) continue;
+                const categoryThemes = themes
+                    .filter(t => (t.categories || []).includes(category))
+                    .sort((a, b) => a.name.localeCompare(b.name));
+                if (categoryThemes.length > 0) {
+                    html += renderCategorySection(category, categoryThemes, true);
+                }
+            }
+
+            // 3. Uncategorized section (themes not in any category, excluding favorites-only)
+            const uncategorizedThemes = themes
+                .filter(t => (!t.categories || t.categories.length === 0))
+                .sort((a, b) => {
+                    // Sort: themes with audio first, then alphabetically
+                    if (a.has_audio && !b.has_audio) return -1;
+                    if (!a.has_audio && b.has_audio) return 1;
+                    return a.name.localeCompare(b.name);
+                });
+
+            if (uncategorizedThemes.length > 0) {
+                // If there are categories, show "Uncategorized" header; otherwise no header
+                if (html) {
+                    html += renderCategorySection('Uncategorized', uncategorizedThemes, false);
+                } else {
+                    // No categories exist, just show grid without header
+                    html += `<div class="theme-category-grid">${uncategorizedThemes.map(theme => renderThemeCard(theme)).join('')}</div>`;
+                }
+            }
+
+            container.innerHTML = html || '<p style="color: var(--text-muted); padding: 1rem;">No themes found.</p>';
+        }
+
+        async function confirmDeleteCategory(categoryName) {
+            if (confirm(`Delete category "${categoryName}"?\n\nThemes in this category will not be deleted, only the category grouping.`)) {
+                try {
+                    await api('DELETE', `/categories/${encodeURIComponent(categoryName)}`);
+                    await loadCategories();
+                    await loadThemes();
+                    renderThemesBrowser();
+                    showToast(`Category "${categoryName}" deleted`, 'success');
+                } catch (error) {
+                    showToast(error.message || 'Failed to delete category', 'error');
+                }
+            }
+        }
+
+        // Category Create Modal
+        function openCategoryCreateModal() {
+            document.getElementById('category-create-name').value = '';
+
+            // Render theme checkboxes
+            const container = document.getElementById('category-theme-list');
+            if (themes && themes.length > 0) {
+                container.innerHTML = themes
+                    .filter(t => t.has_audio)
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map(theme => `
+                        <label class="category-theme-item">
+                            <input type="checkbox" value="${theme.id}">
+                            <span class="category-theme-item-name">${escapeHtml(theme.name)}</span>
+                            <span class="category-theme-item-meta">${theme.total_tracks} files</span>
+                        </label>
+                    `).join('');
+            } else {
+                container.innerHTML = '<p style="color: var(--text-muted); padding: 1rem;">No themes available</p>';
+            }
+
+            document.getElementById('category-create-modal').style.display = 'flex';
+        }
+
+        function closeCategoryCreateModal() {
+            document.getElementById('category-create-modal').style.display = 'none';
+        }
+
+        async function createCategory() {
+            const name = document.getElementById('category-create-name').value.trim();
+
+            if (!name) {
+                showToast('Please enter a category name', 'error');
+                return;
+            }
+
+            try {
+                // Create the category
+                await api('POST', '/categories', { name });
+
+                // Get selected themes
+                const selectedThemes = Array.from(
+                    document.querySelectorAll('#category-theme-list input[type="checkbox"]:checked')
+                ).map(cb => cb.value);
+
+                // Assign selected themes to this category
+                for (const themeId of selectedThemes) {
+                    const theme = themes.find(t => t.id === themeId);
+                    const existingCats = theme?.categories || [];
+                    await api('POST', `/themes/${themeId}/categories`, {
+                        categories: [...existingCats, name]
+                    });
+                }
+
+                await loadCategories();
+                await loadThemes();
+                renderThemesBrowser();
+                closeCategoryCreateModal();
+                showToast(`Category "${name}" created`, 'success');
+            } catch (error) {
+                showToast(error.message || 'Failed to create category', 'error');
+            }
+        }
+
+        // Theme Favorites
+        async function toggleThemeFavorite(themeId) {
+            try {
+                const result = await api('POST', `/themes/${themeId}/favorite`);
+                // Update local state
+                const theme = themes.find(t => t.id === themeId);
+                if (theme) {
+                    theme.is_favorite = result.is_favorite;
+                }
+                renderThemesBrowser();
+                showToast(result.is_favorite ? 'Added to favorites' : 'Removed from favorites', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Theme Delete
+        function confirmDeleteTheme(themeId, themeName) {
+            if (confirm(`Delete theme "${themeName}"?\n\nThis will permanently delete the theme folder and all audio files. This action cannot be undone.`)) {
+                deleteTheme(themeId, themeName);
+            }
+        }
+
+        async function deleteTheme(themeId, themeName) {
+            try {
+                await api('DELETE', `/themes/${themeId}`);
+                // Remove from local state
+                themes = themes.filter(t => t.id !== themeId);
+                renderThemesBrowser();
+                renderThemeSelector();
+                showToast(`Theme "${themeName}" deleted`, 'success');
+            } catch (error) {
+                showToast(error.message || 'Failed to delete theme', 'error');
+            }
+        }
+
+        // Theme Edit Modal
+        function openThemeEditModal(themeId) {
+            const theme = themes.find(t => t.id === themeId);
+            if (!theme) return;
+
+            document.getElementById('theme-edit-id').value = themeId;
+            document.getElementById('theme-edit-title').textContent = `Edit: ${theme.name}`;
+            document.getElementById('theme-edit-description').value = theme.description || '';
+
+            // Render category checkboxes
+            const categoriesContainer = document.getElementById('theme-edit-categories');
+            const themeCats = theme.categories || [];
+
+            if (themeCategories && themeCategories.length > 0) {
+                categoriesContainer.innerHTML = themeCategories.map(cat => `
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="${escapeHtml(cat)}" ${themeCats.includes(cat) ? 'checked' : ''}>
+                        ${escapeHtml(cat)}
+                    </label>
+                `).join('');
+            } else {
+                categoriesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.875rem;">No categories created yet</span>';
+            }
+
+            document.getElementById('theme-edit-new-category').value = '';
+            document.getElementById('theme-edit-modal').style.display = 'flex';
+        }
+
+        function closeThemeEditModal() {
+            document.getElementById('theme-edit-modal').style.display = 'none';
+        }
+
+        async function addNewCategoryFromEdit() {
+            const input = document.getElementById('theme-edit-new-category');
+            const name = input.value.trim();
+            if (!name) return;
+
+            try {
+                await api('POST', '/categories', { name });
+                await loadCategories();
+                // Re-render checkboxes with new category
+                const themeId = document.getElementById('theme-edit-id').value;
+                const theme = themes.find(t => t.id === themeId);
+                const themeCats = theme?.categories || [];
+
+                const categoriesContainer = document.getElementById('theme-edit-categories');
+                categoriesContainer.innerHTML = themeCategories.map(cat => `
+                    <label class="category-checkbox">
+                        <input type="checkbox" value="${escapeHtml(cat)}" ${themeCats.includes(cat) || cat === name ? 'checked' : ''}>
+                        ${escapeHtml(cat)}
+                    </label>
+                `).join('');
+
+                input.value = '';
+                showToast(`Category "${name}" created`, 'success');
+            } catch (error) {
+                showToast(error.message || 'Failed to create category', 'error');
+            }
+        }
+
+        function getSelectedEditCategories() {
+            const checkboxes = document.querySelectorAll('#theme-edit-categories input[type="checkbox"]:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        }
+
+        async function saveThemeMetadata() {
+            const themeId = document.getElementById('theme-edit-id').value;
+            const description = document.getElementById('theme-edit-description').value.trim();
+            const selectedCategories = getSelectedEditCategories();
+
+            try {
+                // Save description
+                await api('PUT', `/themes/${themeId}/metadata`, { description });
+                // Save categories
+                await api('POST', `/themes/${themeId}/categories`, { categories: selectedCategories });
+
+                // Update local state
+                const theme = themes.find(t => t.id === themeId);
+                if (theme) {
+                    theme.description = description;
+                    theme.categories = selectedCategories;
+                }
+                closeThemeEditModal();
+                renderThemesBrowser();
+                showToast('Theme saved', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Theme Creation
+        let pendingThemeFiles = [];
+
+        function openThemeCreateModal() {
+            // Reset form
+            document.getElementById('theme-create-name').value = '';
+            document.getElementById('theme-create-description').value = '';
+            document.getElementById('theme-file-list').innerHTML = '';
+            document.getElementById('theme-upload-progress').style.display = 'none';
+            document.getElementById('theme-file-upload-area').classList.remove('has-files');
+            document.getElementById('theme-create-submit').disabled = false;
+            pendingThemeFiles = [];
+
+            // Reset icon picker to default
+            document.querySelectorAll('#theme-icon-picker .icon-option').forEach(opt => {
+                opt.classList.remove('selected');
+            });
+            document.querySelector('#theme-icon-picker .icon-option[data-icon="🎵"]').classList.add('selected');
+            document.getElementById('theme-create-icon').value = '🎵';
+
+            // Populate category dropdown
+            const categorySelect = document.getElementById('theme-create-category');
+            categorySelect.innerHTML = '<option value="">No category</option>';
+            if (themeCategories && themeCategories.length > 0) {
+                themeCategories.forEach(cat => {
+                    categorySelect.innerHTML += `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`;
+                });
+            }
+            categorySelect.innerHTML += '<option value="__new__">+ New Category...</option>';
+            document.getElementById('theme-create-new-category').style.display = 'none';
+            document.getElementById('theme-create-new-category').value = '';
+
+            // Setup drag and drop
+            const uploadArea = document.getElementById('theme-file-upload-area');
+            uploadArea.ondragover = (e) => {
+                e.preventDefault();
+                uploadArea.classList.add('dragover');
+            };
+            uploadArea.ondragleave = () => {
+                uploadArea.classList.remove('dragover');
+            };
+            uploadArea.ondrop = (e) => {
+                e.preventDefault();
+                uploadArea.classList.remove('dragover');
+                handleThemeFileSelect(e.dataTransfer.files);
+            };
+
+            document.getElementById('theme-create-modal').style.display = 'flex';
+        }
+
+        function handleCategorySelectChange(select) {
+            const newCategoryInput = document.getElementById('theme-create-new-category');
+            if (select.value === '__new__') {
+                newCategoryInput.style.display = 'block';
+                newCategoryInput.focus();
+            } else {
+                newCategoryInput.style.display = 'none';
+            }
+        }
+
+        function closeThemeCreateModal() {
+            document.getElementById('theme-create-modal').style.display = 'none';
+            pendingThemeFiles = [];
+        }
+
+        function selectThemeIcon(element) {
+            // Remove selected from all icons
+            document.querySelectorAll('#theme-icon-picker .icon-option').forEach(opt => {
+                opt.classList.remove('selected');
+            });
+            // Add selected to clicked icon
+            element.classList.add('selected');
+            // Update hidden input
+            document.getElementById('theme-create-icon').value = element.dataset.icon;
+        }
+
+        function handleThemeFileSelect(fileList) {
+            const validExtensions = ['.mp3', '.wav', '.flac', '.ogg'];
+            const maxSize = 50 * 1024 * 1024; // 50MB
+
+            for (const file of fileList) {
+                const ext = '.' + file.name.split('.').pop().toLowerCase();
+                if (!validExtensions.includes(ext)) {
+                    showToast(`Invalid file type: ${file.name}`, 'error');
+                    continue;
+                }
+                if (file.size > maxSize) {
+                    showToast(`File too large: ${file.name} (max 50MB)`, 'error');
+                    continue;
+                }
+                // Avoid duplicates
+                if (!pendingThemeFiles.some(f => f.name === file.name)) {
+                    pendingThemeFiles.push(file);
+                }
+            }
+
+            renderThemeFileList();
+        }
+
+        function renderThemeFileList() {
+            const container = document.getElementById('theme-file-list');
+            const uploadArea = document.getElementById('theme-file-upload-area');
+
+            if (pendingThemeFiles.length === 0) {
+                container.innerHTML = '';
+                uploadArea.classList.remove('has-files');
+                return;
+            }
+
+            uploadArea.classList.add('has-files');
+
+            container.innerHTML = pendingThemeFiles.map((file, index) => `
+                <div class="file-item">
+                    <span class="file-item-name">${escapeHtml(file.name)}</span>
+                    <span class="file-item-size">${formatFileSize(file.size)}</span>
+                    <button class="file-item-remove" onclick="removeThemeFile(${index})" title="Remove">&times;</button>
+                </div>
+            `).join('');
+        }
+
+        function removeThemeFile(index) {
+            pendingThemeFiles.splice(index, 1);
+            renderThemeFileList();
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        async function createTheme() {
+            const name = document.getElementById('theme-create-name').value.trim();
+            const description = document.getElementById('theme-create-description').value.trim();
+            const icon = document.getElementById('theme-create-icon').value;
+
+            // Get category selection
+            const categorySelect = document.getElementById('theme-create-category');
+            let category = categorySelect.value;
+            if (category === '__new__') {
+                category = document.getElementById('theme-create-new-category').value.trim();
+            }
+
+            if (!name) {
+                showToast('Please enter a theme name', 'error');
+                return;
+            }
+
+            // Disable submit button during creation
+            const submitBtn = document.getElementById('theme-create-submit');
+            submitBtn.disabled = true;
+            submitBtn.textContent = 'Creating...';
+
+            try {
+                // Step 1: Create the theme folder
+                const createResult = await api('POST', '/themes/create', { name, description, icon });
+                const themeId = createResult.theme_id;
+
+                // Step 2: Set category if selected
+                if (category) {
+                    // If it's a new category, create it first
+                    if (categorySelect.value === '__new__') {
+                        await api('POST', '/categories', { name: category });
+                    }
+                    await api('POST', `/themes/${themeId}/categories`, { categories: [category] });
+                    // Reload categories to update the list
+                    await loadCategories();
+                }
+
+                // Step 3: Upload files if any
+                if (pendingThemeFiles.length > 0) {
+                    const progressEl = document.getElementById('theme-upload-progress');
+                    const progressFill = document.getElementById('theme-progress-fill');
+                    const progressText = document.getElementById('theme-progress-text');
+                    progressEl.style.display = 'block';
+
+                    let uploaded = 0;
+                    for (const file of pendingThemeFiles) {
+                        progressText.textContent = `Uploading ${file.name}...`;
+                        progressFill.style.width = `${(uploaded / pendingThemeFiles.length) * 100}%`;
+
+                        await uploadThemeFile(themeId, file);
+                        uploaded++;
+                    }
+
+                    progressFill.style.width = '100%';
+                    progressText.textContent = 'Upload complete!';
+                }
+
+                // Refresh themes list
+                await loadThemes();
+                renderThemesBrowser();
+
+                closeThemeCreateModal();
+                showToast(`Theme "${name}" created successfully!`, 'success');
+
+            } catch (error) {
+                showToast(error.message || 'Failed to create theme', 'error');
+            } finally {
+                submitBtn.disabled = false;
+                submitBtn.textContent = 'Create Theme';
+            }
+        }
+
+        async function uploadThemeFile(themeId, file) {
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch(`${BASE_PATH}/api/themes/${themeId}/upload`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || error.error || 'Upload failed');
+            }
+
+            return response.json();
+        }
+
+        // Audio Settings
+        let audioSettings = {
+            crossfade_duration: 3.0,
+            default_volume: 60,
+            master_gain: 60
+        };
+
+        function updateCrossfadeDisplay(value) {
+            document.getElementById('settings-crossfade-value').textContent = `${parseFloat(value).toFixed(1)}s`;
+        }
+
+        function updateDefaultVolumeDisplay(value) {
+            document.getElementById('settings-default-volume-value').textContent = `${value}%`;
+        }
+
+        function updateMasterGainDisplay(value) {
+            document.getElementById('settings-master-gain-value').textContent = `${value}%`;
+        }
+
+        async function loadAudioSettings() {
+            try {
+                const result = await api('GET', '/settings');
+                if (result && !result.error) {
+                    audioSettings = {
+                        crossfade_duration: result.crossfade_duration || 3.0,
+                        default_volume: result.default_volume || 60,
+                        master_gain: result.master_gain || 60
+                    };
+                    applyAudioSettingsToUI();
+                }
+            } catch (error) {
+                console.log('Could not load audio settings, using defaults');
+            }
+        }
+
+        function applyAudioSettingsToUI() {
+            document.getElementById('settings-crossfade').value = audioSettings.crossfade_duration;
+            updateCrossfadeDisplay(audioSettings.crossfade_duration);
+
+            document.getElementById('settings-default-volume').value = audioSettings.default_volume;
+            updateDefaultVolumeDisplay(audioSettings.default_volume);
+
+            document.getElementById('settings-master-gain').value = audioSettings.master_gain;
+            updateMasterGainDisplay(audioSettings.master_gain);
+        }
+
+        async function saveAudioSettings() {
+            const settings = {
+                crossfade_duration: parseFloat(document.getElementById('settings-crossfade').value),
+                default_volume: parseInt(document.getElementById('settings-default-volume').value),
+                master_gain: parseInt(document.getElementById('settings-master-gain').value)
+            };
+
+            try {
+                await api('PUT', '/settings', settings);
+                audioSettings = settings;
+                showToast('Audio settings saved', 'success');
+            } catch (error) {
+                showToast(error.message || 'Failed to save settings', 'error');
+            }
+        }
+
+        function resetAudioSettings() {
+            audioSettings = {
+                crossfade_duration: 3.0,
+                default_volume: 60,
+                master_gain: 60
+            };
+            applyAudioSettingsToUI();
+            showToast('Settings reset to defaults (not saved yet)', 'info');
+        }
+
+        // Settings - Speaker Enable/Disable
+        function renderSettingsSpeakerTree() {
+            const container = document.getElementById('settings-speaker-tree');
+            if (!speakerHierarchy) {
+                container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
+                return;
+            }
+
+            const allSpeakers = getAllSpeakersFlat();
+            const isAllEnabled = enabledSpeakers.length === 0;
+
+            let html = '';
+
+            // Render floors
+            for (const floor of speakerHierarchy.floors || []) {
+                html += `
+                    <div class="settings-floor">
+                        <div class="settings-floor-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                            </svg>
+                            <span>${escapeHtml(floor.name)}</span>
+                        </div>
+                        <div class="settings-areas">
+                            ${(floor.areas || []).map(area => renderSettingsArea(area, isAllEnabled)).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Unassigned areas
+            if ((speakerHierarchy.unassigned_areas || []).length > 0) {
+                html += `
+                    <div class="settings-floor">
+                        <div class="settings-floor-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            </svg>
+                            <span>Other Areas</span>
+                        </div>
+                        <div class="settings-areas">
+                            ${speakerHierarchy.unassigned_areas.map(area => renderSettingsArea(area, isAllEnabled)).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Unassigned speakers
+            if ((speakerHierarchy.unassigned_speakers || []).length > 0) {
+                html += `
+                    <div class="settings-floor">
+                        <div class="settings-floor-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                            <span>Unassigned</span>
+                        </div>
+                        <div class="settings-speakers" style="margin-left: 1.5rem;">
+                            ${speakerHierarchy.unassigned_speakers.map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
+                        </div>
+                    </div>
+                `;
+            }
+
+            if (!html) {
+                html = '<p style="color: var(--text-muted); padding: 1rem;">No speakers found. Click "Refresh from HA" to discover speakers.</p>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        function renderSettingsArea(area, isAllEnabled) {
+            return `
+                <div class="settings-area">
+                    <div class="settings-area-header">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                        </svg>
+                        <span>${escapeHtml(area.name)}</span>
+                    </div>
+                    <div class="settings-speakers">
+                        ${(area.speakers || []).map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSettingsSpeaker(speaker, isAllEnabled) {
+            const isEnabled = isAllEnabled || enabledSpeakers.includes(speaker.entity_id);
+            return `
+                <div class="settings-speaker ${isEnabled ? '' : 'disabled'}">
+                    <label class="toggle-switch">
+                        <input type="checkbox" ${isEnabled ? 'checked' : ''}
+                               onchange="toggleSpeakerEnabled('${speaker.entity_id}', this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <div class="settings-speaker-info">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                            <circle cx="12" cy="14" r="4"/>
+                            <line x1="12" y1="6" x2="12.01" y2="6"/>
+                        </svg>
+                        <span>${escapeHtml(speaker.name)}</span>
+                    </div>
+                </div>
+            `;
+        }
+
+        async function toggleSpeakerEnabled(entityId, enabled) {
+            try {
+                if (enabled) {
+                    await api('POST', '/settings/speakers/enable', { entity_id: entityId });
+                } else {
+                    await api('POST', '/settings/speakers/disable', { entity_id: entityId });
+                }
+                await loadEnabledSpeakers();
+                renderSettingsSpeakerTree();
+            } catch (error) {
+                showToast(error.message, 'error');
+                renderSettingsSpeakerTree();
+            }
+        }
+
+        async function enableAllSpeakers() {
+            try {
+                await api('POST', '/settings/speakers/enable-all');
+                await loadEnabledSpeakers();
+                renderSettingsSpeakerTree();
+                showToast('All speakers enabled', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function disableAllSpeakers() {
+            try {
+                await api('PUT', '/settings/speakers', { enabled_speakers: ['__none__'] });
+                await loadEnabledSpeakers();
+                renderSettingsSpeakerTree();
+                showToast('All speakers disabled', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function refreshSpeakersFromHA() {
+            try {
+                showToast('Refreshing speakers...', 'success');
+                await api('POST', '/speakers/refresh');
+                await loadSpeakerHierarchy();
+                await loadEnabledSpeakers();
+                renderSettingsSpeakerTree();
+                showToast('Speakers refreshed', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        // Status View
+        async function renderStatus() {
+            const activePlayingSessions = sessions.filter(s => s.is_playing).length;
+            document.getElementById('status-active-channels').textContent = activePlayingSessions;
+
+            const allSpeakers = getAllSpeakersFlat();
+            document.getElementById('status-total-speakers').textContent = allSpeakers.length;
+
+            await loadChannels();
+            const channelList = document.getElementById('channel-list');
+            channelList.innerHTML = channels.map(ch => `
+                <div class="channel-item">
+                    <div class="channel-status ${ch.state === 'playing' ? 'active' : ''}"></div>
+                    <div class="channel-info">
+                        <div class="channel-name">${escapeHtml(ch.name)}</div>
+                        <div class="channel-theme">${ch.current_theme_name || 'Idle'}</div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function refreshStatus() {
+            await loadSessions();
+            await loadChannels();
+            renderStatus();
+            showToast('Status refreshed', 'success');
+        }
+
+        // Volume Slider
+        document.getElementById('session-volume')?.addEventListener('input', function() {
+            document.getElementById('volume-display').textContent = `${this.value}%`;
+        });
+
+        // Toast
         function showToast(message, type = 'success') {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
             toast.className = `toast ${type}`;
             toast.innerHTML = `
-                <span>${type === 'success' ? '✓' : '✕'}</span>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    ${type === 'success'
+                        ? '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>'
+                        : '<circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>'
+                    }
+                </svg>
                 <span>${escapeHtml(message)}</span>
             `;
             container.appendChild(toast);
             setTimeout(() => toast.remove(), 3000);
         }
 
+        // ============================================
+        // Speaker Groups Management
+        // ============================================
+
+        let selectedGroupSpeakers = {
+            floors: [],
+            areas: [],
+            speakers: []
+        };
+
+        function renderSettingsGroupsList() {
+            const container = document.getElementById('settings-groups-list');
+            if (!container) return;
+
+            if (speakerGroups.length === 0) {
+                container.innerHTML = '<div class="settings-groups-empty">No speaker groups created yet. Click "New Group" to create one.</div>';
+                return;
+            }
+
+            let html = '';
+            for (const group of speakerGroups) {
+                const speakerCount = (group.include_floors?.length || 0) +
+                                    (group.include_areas?.length || 0) +
+                                    (group.include_speakers?.length || 0);
+                const speakerText = speakerCount === 1 ? '1 selection' : `${speakerCount} selections`;
+
+                html += `
+                    <div class="settings-group-item">
+                        <div class="settings-group-icon">🔊</div>
+                        <div class="settings-group-info">
+                            <div class="settings-group-name">${escapeHtml(group.name)}</div>
+                            <div class="settings-group-meta">${speakerText}</div>
+                        </div>
+                        <div class="settings-group-actions">
+                            <button onclick="editGroup('${group.id}')" title="Edit">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                                </svg>
+                            </button>
+                            <button class="delete" onclick="deleteGroup('${group.id}')" title="Delete">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <polyline points="3 6 5 6 21 6"/>
+                                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }
+            container.innerHTML = html;
+        }
+
+        function openGroupModal(groupId = null) {
+            const modal = document.getElementById('group-modal');
+            const title = document.getElementById('group-modal-title');
+            const saveBtn = document.getElementById('group-save-btn-text');
+            const editIdField = document.getElementById('edit-group-id');
+            const nameInput = document.getElementById('group-name');
+
+            // Reset selection
+            selectedGroupSpeakers = { floors: [], areas: [], speakers: [] };
+
+            if (groupId) {
+                // Editing existing group
+                const group = speakerGroups.find(g => g.id === groupId);
+                if (!group) {
+                    showToast('Group not found', 'error');
+                    return;
+                }
+                title.textContent = 'Edit Speaker Group';
+                saveBtn.textContent = 'Save Changes';
+                editIdField.value = groupId;
+                nameInput.value = group.name;
+
+                // Restore selections
+                selectedGroupSpeakers.floors = [...(group.include_floors || [])];
+                selectedGroupSpeakers.areas = [...(group.include_areas || [])];
+                selectedGroupSpeakers.speakers = [...(group.include_speakers || [])];
+            } else {
+                // Creating new group
+                title.textContent = 'New Speaker Group';
+                saveBtn.textContent = 'Create Group';
+                editIdField.value = '';
+                nameInput.value = '';
+            }
+
+            renderGroupSpeakerTree();
+            updateGroupSpeakerDropdownText();
+            modal.style.display = 'flex';
+        }
+
+        function closeGroupModal() {
+            document.getElementById('group-modal').style.display = 'none';
+        }
+
+        function editGroup(groupId) {
+            openGroupModal(groupId);
+        }
+
+        async function deleteGroup(groupId) {
+            const group = speakerGroups.find(g => g.id === groupId);
+            if (!confirm(`Delete speaker group "${group?.name || groupId}"?`)) return;
+
+            try {
+                await api('DELETE', `/groups/${groupId}`);
+                await loadSpeakerGroups();
+                renderSettingsGroupsList();
+                showToast('Group deleted', 'success');
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        async function saveGroup() {
+            const editId = document.getElementById('edit-group-id').value;
+            const name = document.getElementById('group-name').value.trim();
+
+            if (!name) {
+                showToast('Please enter a group name', 'error');
+                return;
+            }
+
+            if (selectedGroupSpeakers.floors.length === 0 &&
+                selectedGroupSpeakers.areas.length === 0 &&
+                selectedGroupSpeakers.speakers.length === 0) {
+                showToast('Please select at least one speaker', 'error');
+                return;
+            }
+
+            const payload = {
+                name,
+                include_floors: selectedGroupSpeakers.floors,
+                include_areas: selectedGroupSpeakers.areas,
+                include_speakers: selectedGroupSpeakers.speakers
+            };
+
+            try {
+                if (editId) {
+                    await api('PUT', `/groups/${editId}`, payload);
+                    showToast('Group updated', 'success');
+                } else {
+                    await api('POST', '/groups', payload);
+                    showToast('Group created', 'success');
+                }
+                closeGroupModal();
+                await loadSpeakerGroups();
+                renderSettingsGroupsList();
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+
+        function toggleGroupSpeakerDropdown(event) {
+            event.stopPropagation();
+            const dropdown = document.getElementById('group-speaker-dropdown');
+            dropdown.classList.toggle('open');
+        }
+
+        function updateGroupSpeakerDropdownText() {
+            const text = document.getElementById('group-speaker-dropdown-text');
+            if (!text) return;
+
+            const floorCount = selectedGroupSpeakers.floors.length;
+            const areaCount = selectedGroupSpeakers.areas.length;
+            const speakerCount = selectedGroupSpeakers.speakers.length;
+
+            if (floorCount === 0 && areaCount === 0 && speakerCount === 0) {
+                text.textContent = 'Click to select speakers...';
+                text.style.color = 'var(--text-muted)';
+            } else {
+                const parts = [];
+                if (floorCount > 0) parts.push(`${floorCount} floor${floorCount > 1 ? 's' : ''}`);
+                if (areaCount > 0) parts.push(`${areaCount} area${areaCount > 1 ? 's' : ''}`);
+                if (speakerCount > 0) parts.push(`${speakerCount} speaker${speakerCount > 1 ? 's' : ''}`);
+                text.textContent = parts.join(', ');
+                text.style.color = 'var(--text-primary)';
+            }
+        }
+
+        function renderGroupSpeakerTree() {
+            const container = document.getElementById('group-speaker-tree');
+            if (!speakerHierarchy || !container) return;
+
+            let html = '';
+
+            // Render floors with areas
+            for (const floor of speakerHierarchy.floors || []) {
+                const floorChecked = selectedGroupSpeakers.floors.includes(floor.floor_id);
+                html += `
+                    <div class="tree-floor">
+                        <div class="tree-floor-header">
+                            <input type="checkbox" ${floorChecked ? 'checked' : ''}
+                                   onchange="toggleGroupFloor('${floor.floor_id}', this.checked)">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                            </svg>
+                            <span class="tree-floor-name">${escapeHtml(floor.name)}</span>
+                        </div>
+                        <div class="tree-areas">
+                `;
+
+                for (const area of floor.areas || []) {
+                    const areaChecked = selectedGroupSpeakers.areas.includes(area.area_id);
+                    html += `
+                        <div class="tree-area">
+                            <div class="tree-area-header">
+                                <input type="checkbox" ${areaChecked ? 'checked' : ''}
+                                       onchange="toggleGroupArea('${area.area_id}', this.checked)">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                </svg>
+                                <span>${escapeHtml(area.name)}</span>
+                            </div>
+                            <div class="tree-speakers">
+                    `;
+
+                    for (const speaker of area.speakers || []) {
+                        const speakerChecked = selectedGroupSpeakers.speakers.includes(speaker.entity_id);
+                        html += `
+                            <div class="tree-speaker">
+                                <input type="checkbox" ${speakerChecked ? 'checked' : ''}
+                                       onchange="toggleGroupSpeaker('${speaker.entity_id}', this.checked)">
+                                <span>${escapeHtml(speaker.name)}</span>
+                            </div>
+                        `;
+                    }
+
+                    html += `</div></div>`;
+                }
+
+                html += `</div></div>`;
+            }
+
+            // Unassigned areas
+            if ((speakerHierarchy.unassigned_areas || []).length > 0) {
+                html += `
+                    <div class="tree-floor">
+                        <div class="tree-floor-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                            </svg>
+                            <span class="tree-floor-name">Other Areas</span>
+                        </div>
+                        <div class="tree-areas">
+                `;
+
+                for (const area of speakerHierarchy.unassigned_areas) {
+                    if ((area.speakers || []).length === 0) continue;
+                    const areaChecked = selectedGroupSpeakers.areas.includes(area.area_id);
+                    html += `
+                        <div class="tree-area">
+                            <div class="tree-area-header">
+                                <input type="checkbox" ${areaChecked ? 'checked' : ''}
+                                       onchange="toggleGroupArea('${area.area_id}', this.checked)">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                                </svg>
+                                <span>${escapeHtml(area.name)}</span>
+                            </div>
+                            <div class="tree-speakers">
+                    `;
+
+                    for (const speaker of area.speakers || []) {
+                        const speakerChecked = selectedGroupSpeakers.speakers.includes(speaker.entity_id);
+                        html += `
+                            <div class="tree-speaker">
+                                <input type="checkbox" ${speakerChecked ? 'checked' : ''}
+                                       onchange="toggleGroupSpeaker('${speaker.entity_id}', this.checked)">
+                                <span>${escapeHtml(speaker.name)}</span>
+                            </div>
+                        `;
+                    }
+
+                    html += `</div></div>`;
+                }
+
+                html += `</div></div>`;
+            }
+
+            // Unassigned speakers
+            if ((speakerHierarchy.unassigned_speakers || []).length > 0) {
+                html += `
+                    <div class="tree-floor">
+                        <div class="tree-floor-header">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"/>
+                                <line x1="12" y1="8" x2="12" y2="12"/>
+                                <line x1="12" y1="16" x2="12.01" y2="16"/>
+                            </svg>
+                            <span class="tree-floor-name">Unassigned</span>
+                        </div>
+                        <div class="tree-speakers" style="margin-left: 1.5rem;">
+                `;
+
+                for (const speaker of speakerHierarchy.unassigned_speakers) {
+                    const speakerChecked = selectedGroupSpeakers.speakers.includes(speaker.entity_id);
+                    html += `
+                        <div class="tree-speaker">
+                            <input type="checkbox" ${speakerChecked ? 'checked' : ''}
+                                   onchange="toggleGroupSpeaker('${speaker.entity_id}', this.checked)">
+                            <span>${escapeHtml(speaker.name)}</span>
+                        </div>
+                    `;
+                }
+
+                html += `</div></div>`;
+            }
+
+            container.innerHTML = html || '<p style="color: var(--text-muted); padding: 0.5rem;">No speakers available</p>';
+        }
+
+        function toggleGroupFloor(floorId, checked) {
+            if (checked) {
+                if (!selectedGroupSpeakers.floors.includes(floorId)) {
+                    selectedGroupSpeakers.floors.push(floorId);
+                }
+            } else {
+                selectedGroupSpeakers.floors = selectedGroupSpeakers.floors.filter(f => f !== floorId);
+            }
+            updateGroupSpeakerDropdownText();
+        }
+
+        function toggleGroupArea(areaId, checked) {
+            if (checked) {
+                if (!selectedGroupSpeakers.areas.includes(areaId)) {
+                    selectedGroupSpeakers.areas.push(areaId);
+                }
+            } else {
+                selectedGroupSpeakers.areas = selectedGroupSpeakers.areas.filter(a => a !== areaId);
+            }
+            updateGroupSpeakerDropdownText();
+        }
+
+        function toggleGroupSpeaker(entityId, checked) {
+            if (checked) {
+                if (!selectedGroupSpeakers.speakers.includes(entityId)) {
+                    selectedGroupSpeakers.speakers.push(entityId);
+                }
+            } else {
+                selectedGroupSpeakers.speakers = selectedGroupSpeakers.speakers.filter(s => s !== entityId);
+            }
+            updateGroupSpeakerDropdownText();
+        }
+
+        // Close group dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const dropdown = document.getElementById('group-speaker-dropdown');
+            if (dropdown && !dropdown.contains(event.target)) {
+                dropdown.classList.remove('open');
+            }
+        });
+
+        // ============================================
+        // End Speaker Groups Management
+        // ============================================
+
         // Utility
         function escapeHtml(text) {
+            if (!text) return '';
             const div = document.createElement('div');
-            div.textContent = text || '';
+            div.textContent = text;
             return div.innerHTML;
         }
 
-        // Initialize on load
+        // Fix logo path for ingress - use direct /logo.png route
+        document.getElementById('sidebar-logo-img').src = `${BASE_PATH}/logo.png`;
+
+        // Start
         init();
     </script>
 </body>

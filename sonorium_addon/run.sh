@@ -1,8 +1,11 @@
-#!/usr/bin/with-contenv bashio
+#!/usr/bin/with-contenv bash
 # shellcheck shell=bash
 # ==============================================================================
 # Sonorium Addon Startup Script
 # ==============================================================================
+
+# Source bashio library
+source /usr/lib/bashio/bashio.sh
 
 bashio::log.info "Starting Sonorium addon..."
 
@@ -13,10 +16,12 @@ bashio::log.debug "  SUPERVISOR_TOKEN present: $([ -n "${SUPERVISOR_TOKEN:-}" ] 
 # Export addon configuration as environment variables
 export SONORIUM__STREAM_URL="$(bashio::config 'sonorium__stream_url')"
 export SONORIUM__PATH_AUDIO="$(bashio::config 'sonorium__path_audio')"
+export SONORIUM__MAX_CHANNELS="$(bashio::config 'sonorium__max_channels')"
 
 bashio::log.info "Configuration:"
 bashio::log.info "  Stream URL: ${SONORIUM__STREAM_URL}"
 bashio::log.info "  Audio Path: ${SONORIUM__PATH_AUDIO}"
+bashio::log.info "  Max Channels: ${SONORIUM__MAX_CHANNELS}"
 
 # Create audio directory if it doesn't exist
 if [ ! -d "${SONORIUM__PATH_AUDIO}" ]; then

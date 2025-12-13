@@ -22,7 +22,9 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     numpy \
     pydantic \
     httpx \
-    homeassistant_api
+    homeassistant_api \
+    websockets \
+    python-multipart
 
 # Install fmtr.tools and haco from PyPI
 RUN pip3 install --no-cache-dir --break-system-packages \
@@ -32,6 +34,9 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 # Copy local sonorium source code
 COPY sonorium/ /app/sonorium/
 COPY setup.py pyproject.toml README.md /app/
+
+# Copy logo and icon
+COPY logo.png icon.png /app/
 
 # Install sonorium from local source
 RUN pip3 install --no-cache-dir --break-system-packages -e /app

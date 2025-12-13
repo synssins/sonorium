@@ -1,8 +1,8 @@
 import logging
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse, HTMLResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 
 from sonorium.theme import ThemeDefinition
 from sonorium.version import __version__
@@ -17,6 +17,10 @@ for name in ["uvicorn.access", "uvicorn.error", "uvicorn"]:
 
 # Template directory
 TEMPLATES_DIR = Path(__file__).parent / "web" / "templates"
+
+# Static assets (relative to package root)
+PACKAGE_ROOT = Path(__file__).parent.parent
+LOGO_PATH = PACKAGE_ROOT / "logo.png"
 
 
 class ApiSonorium(api.Base):
@@ -57,6 +61,7 @@ class ApiSonorium(api.Base):
             # Web UI
             api.Endpoint(method_http=self.app.get, path='/', method=self.web_ui),
             api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
+            api.Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
             
             # Streaming - channel-based (new) - MUST come before theme-based!
             api.Endpoint(method_http=self.app.get, path='/stream/channel{channel_id:int}', method=self.stream_channel),
@@ -66,7 +71,16 @@ class ApiSonorium(api.Base):
             
             # Theme API
             api.Endpoint(method_http=self.app.get, path='/api/themes', method=self.list_themes),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/refresh', method=self.refresh_themes),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/favorite', method=self.toggle_favorite),
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}', method=self.get_theme),
+
+            # Category API
+            api.Endpoint(method_http=self.app.get, path='/api/categories', method=self.list_categories),
+            api.Endpoint(method_http=self.app.post, path='/api/categories', method=self.create_category),
+            api.Endpoint(method_http=self.app.delete, path='/api/categories/{category_name}', method=self.delete_category),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/categories', method=self.set_theme_categories),
+
             api.Endpoint(method_http=self.app.get, path='/api/status', method=self.status),
             
             # Channel API
@@ -183,6 +197,12 @@ class ApiSonorium(api.Base):
             return HTMLResponse(content=template_path.read_text())
         else:
             return await self.legacy_ui()
+
+    async def serve_logo(self):
+        """Serve the logo.png file."""
+        if LOGO_PATH.exists():
+            return FileResponse(LOGO_PATH, media_type="image/png")
+        raise HTTPException(status_code=404, detail="Logo not found")
 
     async def legacy_ui(self):
         """Serve the legacy v1 web UI."""
@@ -371,27 +391,207 @@ class ApiSonorium(api.Base):
         """Stream audio from a channel (new endpoint)."""
         if not self._channel_manager:
             return HTMLResponse(content="Channel system not initialized", status_code=503)
-        
+
         channel = self._channel_manager.get_channel(channel_id)
         if not channel:
             return HTMLResponse(content=f"Channel {channel_id} not found", status_code=404)
-        
+
         stream = channel.get_stream()
         response = StreamingResponse(stream, media_type="audio/mpeg")
         return response
 
+    def _find_theme_folder(self, theme_id: str) -> Path | None:
+        """Find theme folder by ID, handling sanitized names."""
+        media_paths = [Path("/media/sonorium"), Path("/share/sonorium")]
+        for mp in media_paths:
+            if not mp.exists():
+                continue
+            # Try exact match first
+            exact_path = mp / theme_id
+            if exact_path.exists():
+                return exact_path
+            # Try scanning folders and comparing sanitized names
+            for folder in mp.iterdir():
+                if folder.is_dir():
+                    sanitized = folder.name.lower().replace(' ', '-').replace('_', '-')
+                    sanitized = ''.join(c for c in sanitized if c.isalnum() or c == '-')
+                    while '--' in sanitized:
+                        sanitized = sanitized.replace('--', '-')
+                    sanitized = sanitized.strip('-')
+                    if sanitized == theme_id or sanitized == theme_id.replace('_', '-'):
+                        return folder
+        return None
+
+    def _read_theme_metadata(self, theme_id: str) -> dict:
+        """Read metadata.json from theme folder."""
+        import json
+        folder = self._find_theme_folder(theme_id)
+        if folder:
+            meta_path = folder / "metadata.json"
+            if meta_path.exists():
+                try:
+                    return json.loads(meta_path.read_text())
+                except Exception:
+                    pass
+        return {}
+
     async def list_themes(self):
-        """List all available themes."""
+        """List all available themes with full metadata."""
+        import json
         device = self.client.device
+
+        # Get favorites and categories from state if available
+        favorites = []
+        category_assignments = {}
+        if self._state_store:
+            favorites = self._state_store.settings.favorite_themes
+            category_assignments = self._state_store.settings.theme_category_assignments
+
         themes = []
+        seen_folders = set()
+        audio_extensions = {'.mp3', '.wav', '.flac', '.ogg'}
+
+        # First, add themes loaded by the device (have audio files)
         for theme in device.themes:
+            enabled_count = sum(1 for i in theme.instances if i.is_enabled)
+
+            # Try to read metadata.json from theme folder
+            metadata = self._read_theme_metadata(theme.id)
+
+            # Track the folder name
+            theme_folder = self._find_theme_folder(theme.id)
+            if theme_folder:
+                seen_folders.add(theme_folder.name)
+
             themes.append({
                 "id": theme.id,
                 "name": theme.name,
-                "track_count": len(theme.instances),
+                "total_tracks": len(theme.instances),
+                "enabled_tracks": enabled_count,
                 "url": theme.url,
+                "description": metadata.get("description", ""),
+                "icon": metadata.get("icon", ""),
+                "is_favorite": theme.id in favorites,
+                "has_audio": True,
+                "categories": category_assignments.get(theme.id, []),
             })
+
+        # Then scan for empty theme folders
+        media_paths = [
+            Path("/media/sonorium"),
+            Path("/share/sonorium"),
+        ]
+
+        for mp in media_paths:
+            if not mp.exists():
+                continue
+
+            for folder in mp.iterdir():
+                if not folder.is_dir() or folder.name in seen_folders:
+                    continue
+
+                # Count audio files in this folder
+                audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in audio_extensions]
+
+                # Skip if it has audio (already added above)
+                if audio_files:
+                    continue
+
+                # Generate sanitized ID
+                sanitized_id = folder.name.lower().replace(' ', '-').replace('_', '-')
+                sanitized_id = ''.join(c for c in sanitized_id if c.isalnum() or c == '-')
+                while '--' in sanitized_id:
+                    sanitized_id = sanitized_id.replace('--', '-')
+                sanitized_id = sanitized_id.strip('-')
+
+                # Read metadata if exists
+                metadata = {}
+                meta_path = folder / "metadata.json"
+                if meta_path.exists():
+                    try:
+                        metadata = json.loads(meta_path.read_text())
+                    except Exception:
+                        pass
+
+                themes.append({
+                    "id": sanitized_id,
+                    "name": folder.name,
+                    "total_tracks": 0,
+                    "enabled_tracks": 0,
+                    "url": "",
+                    "description": metadata.get("description", ""),
+                    "icon": metadata.get("icon", ""),
+                    "is_favorite": sanitized_id in favorites,
+                    "has_audio": False,
+                    "categories": category_assignments.get(sanitized_id, []),
+                })
+
         return themes
+
+    async def refresh_themes(self):
+        """Rescan theme folders and reload themes."""
+        from sonorium.theme import ThemeDefinition
+        from sonorium.recording import RecordingMetadata
+        from fmtr.tools.iterator_tools import IndexList
+
+        device = self.client.device
+        path_audio = device.path_audio
+        audio_extensions = ['.mp3', '.wav', '.flac', '.ogg']
+
+        logger.info(f'Rescanning themes in "{path_audio}"...')
+
+        # Scan for theme folders
+        theme_folders = [folder for folder in path_audio.iterdir() if folder.is_dir()]
+        logger.info(f'Found {len(theme_folders)} theme folder(s)')
+
+        # Step 1: Build theme_metas FIRST (before creating ThemeDefinitions)
+        new_theme_metas = {}
+        theme_names_with_audio = []
+
+        for folder in theme_folders:
+            audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in audio_extensions]
+
+            if audio_files:
+                theme_name = folder.name
+                new_theme_metas[theme_name] = IndexList(RecordingMetadata(path) for path in audio_files)
+                theme_names_with_audio.append(theme_name)
+                logger.info(f'Found theme "{theme_name}" with {len(audio_files)} audio files')
+
+        # Step 2: Update device.theme_metas BEFORE creating ThemeDefinitions
+        # This is critical because ThemeDefinition.__init__ looks up theme_metas[name]
+        device.theme_metas = new_theme_metas
+
+        # Rebuild metas list
+        device.metas = IndexList()
+        for theme_recordings in device.theme_metas.values():
+            device.metas.extend(theme_recordings)
+
+        # Step 3: NOW create ThemeDefinition objects (they will find their metas correctly)
+        new_themes = IndexList()
+        for theme_name in theme_names_with_audio:
+            theme_def = ThemeDefinition(sonorium=device, name=theme_name)
+            new_themes.append(theme_def)
+            logger.info(f'Created ThemeDefinition "{theme_name}" with {len(theme_def.instances)} instances')
+
+        # Step 4: Update device.themes
+        device.themes = new_themes
+
+        # Set current theme if we have themes
+        if device.themes:
+            device.themes.current = device.themes[0]
+            # Enable all recordings
+            for theme in device.themes:
+                if theme.instances:
+                    for inst in theme.instances:
+                        inst.is_enabled = True
+
+        logger.info(f'Theme refresh complete: {len(device.themes)} themes loaded')
+
+        return {
+            "status": "ok",
+            "themes_count": len(device.themes),
+            "message": f"Refreshed {len(device.themes)} themes"
+        }
 
     async def get_theme(self, theme_id: str):
         """Get theme details."""
@@ -406,6 +606,102 @@ class ApiSonorium(api.Base):
             "url": theme.url,
             "tracks": [{"name": i.name} for i in theme.instances],
         }
+
+    async def toggle_favorite(self, theme_id: str):
+        """Toggle favorite status for a theme."""
+        if not self._state_store:
+            return {"error": "State not available"}
+
+        favorites = self._state_store.settings.favorite_themes
+        if theme_id in favorites:
+            favorites.remove(theme_id)
+            is_favorite = False
+        else:
+            favorites.append(theme_id)
+            is_favorite = True
+
+        self._state_store.save()
+        return {"theme_id": theme_id, "is_favorite": is_favorite}
+
+    async def list_categories(self):
+        """List all theme categories."""
+        if not self._state_store:
+            return {"error": "State not available"}
+
+        return {
+            "categories": self._state_store.settings.theme_categories
+        }
+
+    async def create_category(self, request: Request):
+        """Create a new theme category."""
+        if not self._state_store:
+            return {"error": "State not available"}
+
+        try:
+            body = await request.json()
+        except Exception:
+            return {"error": "Invalid JSON body"}
+
+        name = body.get("name", "").strip()
+        if not name:
+            return {"error": "Category name is required"}
+
+        categories = self._state_store.settings.theme_categories
+        if name in categories:
+            return {"error": "Category already exists"}
+
+        categories.append(name)
+        self._state_store.save()
+
+        return {"status": "ok", "category": name, "categories": categories}
+
+    async def delete_category(self, category_name: str):
+        """Delete a theme category."""
+        if not self._state_store:
+            return {"error": "State not available"}
+
+        import urllib.parse
+        category_name = urllib.parse.unquote(category_name)
+
+        categories = self._state_store.settings.theme_categories
+        if category_name not in categories:
+            return {"error": "Category not found"}
+
+        categories.remove(category_name)
+
+        # Also remove from all theme assignments
+        assignments = self._state_store.settings.theme_category_assignments
+        for theme_id in assignments:
+            if category_name in assignments[theme_id]:
+                assignments[theme_id].remove(category_name)
+
+        self._state_store.save()
+
+        return {"status": "ok", "deleted": category_name, "categories": categories}
+
+    async def set_theme_categories(self, theme_id: str, request: Request):
+        """Set categories for a theme."""
+        if not self._state_store:
+            return {"error": "State not available"}
+
+        try:
+            body = await request.json()
+        except Exception:
+            return {"error": "Invalid JSON body"}
+
+        new_categories = body.get("categories", [])
+
+        # Ensure all categories exist (auto-create if needed)
+        existing_categories = self._state_store.settings.theme_categories
+        for cat in new_categories:
+            if cat not in existing_categories:
+                existing_categories.append(cat)
+
+        # Update theme's category assignments
+        self._state_store.settings.theme_category_assignments[theme_id] = new_categories
+        self._state_store.save()
+
+        return {"theme_id": theme_id, "categories": new_categories}
 
     async def list_channels(self):
         """List all available channels."""
