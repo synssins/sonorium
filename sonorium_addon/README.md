@@ -1,6 +1,6 @@
 # Sonorium
 
-![Sonorium](logo.png)
+![Sonorium](https://raw.githubusercontent.com/synssins/sonorium/main/logo.png)
 
 **Multi-Zone Ambient Soundscape Mixer for Home Assistant**
 
