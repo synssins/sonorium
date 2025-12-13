@@ -30,8 +30,25 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 
 ## Screenshots
 
-<!-- Add your screenshots here -->
-*Screenshots coming soon - place images in the `screenshots/` folder*
+### Channels View
+Create and manage multiple audio channels, each streaming to different speakers.
+
+![Channels](screenshots/Channels.png)
+
+### Theme Selection
+Choose from your library of ambient themes for each channel.
+
+![Theme Selection](screenshots/Channels_Theme_Selection.png)
+
+### Themes Library
+Organize your audio files into themes with favorites and categories.
+
+![Themes](screenshots/Themes.png)
+
+### Settings
+Configure speakers, volume defaults, and other preferences.
+
+![Settings](screenshots/Settings.png)
 
 ## Features
 
