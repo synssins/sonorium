@@ -85,6 +85,9 @@ class Channel:
     _theme_stream: Optional[ThemeStream] = field(default=None, repr=False)
     _chunk_generator: Optional[Generator] = field(default=None, repr=False)
 
+    # Pending theme change (for thread-safe crossfade)
+    _pending_theme: Optional[ThemeDefinition] = field(default=None, repr=False)
+
     # Broadcast buffer - recent chunks for all clients
     _broadcast_buffer: deque = field(default_factory=lambda: deque(maxlen=BROADCAST_BUFFER_SIZE), repr=False)
     _chunk_sequence: int = 0  # Incrementing ID for each chunk
@@ -141,7 +144,7 @@ class Channel:
     def set_theme(self, theme: ThemeDefinition) -> None:
         """
         Set or change the theme for this channel.
-        Starts/restarts the shared audio generator.
+        If generator is running, queues a crossfade; otherwise starts immediately.
         """
         with self._lock:
             if theme == self._current_theme:
@@ -151,47 +154,19 @@ class Channel:
             old_theme = self._current_theme.name if self._current_theme else "none"
             logger.info(f"Channel {self.id}: Changing theme from '{old_theme}' to '{theme.name}'")
 
-            # Store old generator for crossfade
-            old_generator = self._chunk_generator
-
-            self._current_theme = theme
             self._theme_version += 1
-            self.state = ChannelState.PLAYING
 
-            # Create new shared stream
-            self._theme_stream = theme.get_stream()
-            new_generator = self._theme_stream.iter_chunks()
-
-            # If we had an old generator, do crossfade
-            if old_generator is not None:
-                self._do_crossfade(old_generator, new_generator)
-
-            self._chunk_generator = new_generator
-
-            # Start generator thread if not running
-            self._ensure_generator_running()
-
-    def _do_crossfade(self, old_gen, new_gen):
-        """Perform crossfade from old to new generator."""
-        logger.info(f"Channel {self.id}: Performing crossfade")
-        crossfade_position = 0
-
-        while crossfade_position < THEME_CROSSFADE_SAMPLES:
-            try:
-                old_chunk = next(old_gen)
-                new_chunk = next(new_gen)
-
-                # Apply crossfade
-                mixed = self._apply_crossfade(old_chunk, new_chunk, crossfade_position)
-                crossfade_position += mixed.shape[1]
-
-                # Add to broadcast buffer
-                self._add_to_buffer(mixed)
-
-            except StopIteration:
-                break
-
-        logger.info(f"Channel {self.id}: Crossfade complete")
+            if self._generator_running:
+                # Queue the theme change - generator thread will handle crossfade
+                self._pending_theme = theme
+                logger.info(f"Channel {self.id}: Queued theme change for crossfade")
+            else:
+                # No generator running, start fresh
+                self._current_theme = theme
+                self.state = ChannelState.PLAYING
+                self._theme_stream = theme.get_stream()
+                self._chunk_generator = self._theme_stream.iter_chunks()
+                self._ensure_generator_running()
 
     def _apply_crossfade(self, old_chunk: np.ndarray, new_chunk: np.ndarray, position: int) -> np.ndarray:
         """Apply crossfade mixing between two chunks."""
@@ -252,6 +227,10 @@ class Channel:
 
         try:
             while self._generator_running and self.state == ChannelState.PLAYING:
+                # Check for pending theme change
+                if self._pending_theme is not None:
+                    self._do_crossfade_in_thread()
+
                 # Get next chunk from current generator
                 if self._chunk_generator is None:
                     chunk = self._silence
@@ -282,6 +261,47 @@ class Channel:
                 self._data_available.notify_all()
             logger.info(f"Channel {self.id}: Generator loop stopped")
 
+    def _do_crossfade_in_thread(self):
+        """Perform crossfade to pending theme (called from generator thread)."""
+        theme = self._pending_theme
+        self._pending_theme = None
+
+        if theme is None:
+            return
+
+        logger.info(f"Channel {self.id}: Performing crossfade to '{theme.name}'")
+
+        # Create new stream
+        new_stream = theme.get_stream()
+        new_generator = new_stream.iter_chunks()
+
+        # Get references to old generator
+        old_generator = self._chunk_generator
+
+        # Do crossfade
+        crossfade_position = 0
+        while crossfade_position < THEME_CROSSFADE_SAMPLES:
+            try:
+                old_chunk = next(old_generator) if old_generator else self._silence
+                new_chunk = next(new_generator)
+
+                # Apply crossfade
+                mixed = self._apply_crossfade(old_chunk, new_chunk, crossfade_position)
+                crossfade_position += mixed.shape[1]
+
+                # Add to broadcast buffer
+                self._add_to_buffer(mixed)
+
+            except StopIteration:
+                break
+
+        # Switch to new theme
+        self._current_theme = theme
+        self._theme_stream = new_stream
+        self._chunk_generator = new_generator
+
+        logger.info(f"Channel {self.id}: Crossfade complete")
+
     def stop(self) -> None:
         """Stop the channel and return to idle."""
         with self._lock:
@@ -290,6 +310,7 @@ class Channel:
             self._current_theme = None
             self._theme_stream = None
             self._chunk_generator = None
+            self._pending_theme = None
             self._theme_version += 1
             self.state = ChannelState.IDLE
             self._broadcast_buffer.clear()
