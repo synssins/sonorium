@@ -2,9 +2,9 @@
 
 This document outlines the planned features and development direction for Sonorium. Features are organized by priority and complexity.
 
-## Current State (v1.0.0)
+## Current State (v1.1.5-dev)
 
-Sonorium v1.0.0 is a fully functional multi-zone ambient soundscape mixer for Home Assistant with:
+Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assistant with:
 
 - Multi-channel audio streaming (up to 6 concurrent channels)
 - Theme-based audio organization with favorites and categories
@@ -12,6 +12,23 @@ Sonorium v1.0.0 is a fully functional multi-zone ambient soundscape mixer for Ho
 - Modern web interface with dark theme
 - Home Assistant sidebar integration via ingress
 - REST API for automation
+- **Broadcast audio model** - All speakers on a channel hear the same stream
+- **Track presence control** - Per-track frequency settings for dynamic mixes
+
+---
+
+## Recently Completed
+
+### Broadcast Audio Model (v1.1.5-dev)
+Radio-station style streaming where all speakers tuned to the same channel hear identical audio. New speakers join at the current playback position rather than starting independent streams.
+
+### Track Presence Control (v1.1.4-dev)
+Per-track "presence" setting (0-100%) that controls how often a track appears in the mix, independent of volume. Low presence tracks fade in and out naturally using equal-power crossfades.
+
+### UI Improvements (v1.1.4-dev)
+- Track mixer modal adapts width to content
+- Visible fill bars on presence sliders
+- Reduced loop crossfade to 1.5 seconds for smoother single-track themes
 
 ---
 
@@ -63,8 +80,11 @@ Sonorium v1.0.0 is a fully functional multi-zone ambient soundscape mixer for Ho
 
 **Goal:** Modify speakers on an active channel without disrupting playback.
 
+**Status:** Partially implemented via Broadcast Audio Model (v1.1.5-dev). New speakers join at current playback position.
+
 **Features:**
-- Add speakers to a playing channel—new speakers immediately pick up the stream
+- ✅ Add speakers to a playing channel—new speakers immediately pick up the stream
+- ✅ All speakers hear identical audio (broadcast model)
 - Remove speakers from a playing channel—remaining speakers continue uninterrupted
 - Real-time speaker status showing which speakers are actively receiving the stream
 - Graceful handling of speaker disconnections
@@ -100,9 +120,12 @@ Sonorium v1.0.0 is a fully functional multi-zone ambient soundscape mixer for Ho
 
 **Goal:** Fine-tune the mix by adjusting individual track volumes within a theme.
 
+**Status:** Partially implemented via Track Presence Control (v1.1.4-dev). Presence controls track frequency in the mix. Full volume control per-track is planned.
+
 **Features:**
+- ✅ Presence slider for each track (controls frequency in mix)
+- ✅ Enable/disable individual tracks
 - Volume slider for each track in a theme
-- Mute/unmute individual tracks
 - Save custom mix settings per theme
 - Reset to default mix option
 
