@@ -27,12 +27,12 @@ map:
   - config:rw
 
 ports:
-  8080/tcp: 8008
+  8080/tcp: 8009
 ports_description:
-  8080/tcp: "Sonorium Web UI and streaming API (direct access)"
+  8080/tcp: "Sonorium Dev Web UI and streaming API (direct access)"
 
 options:
-  sonorium__stream_url: "http://homeassistant.local:8008"
+  sonorium__stream_url: "http://homeassistant.local:8009"
   sonorium__path_audio: "/media/sonorium"
   sonorium__max_channels: 6
 
