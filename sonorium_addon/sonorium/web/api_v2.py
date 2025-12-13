@@ -1143,6 +1143,7 @@ def create_api_router(
     def _find_theme_folder(theme_id: str):
         """Find theme folder by ID, handling sanitized names."""
         from pathlib import Path
+        from fmtr.tools.string_tools import sanitize
 
         media_paths = [
             Path("/media/sonorium"),
@@ -1159,18 +1160,11 @@ def create_api_router(
                 return exact_path
 
             # Try to find by comparing sanitized folder names
+            # Use the same sanitize function as ThemeDefinition.id
             for folder in mp.iterdir():
                 if folder.is_dir():
-                    # Sanitize the folder name the same way ThemeDefinition does
-                    sanitized = folder.name.lower().replace(' ', '-').replace('_', '-')
-                    # Remove non-alphanumeric except dashes
-                    sanitized = ''.join(c for c in sanitized if c.isalnum() or c == '-')
-                    # Collapse multiple dashes
-                    while '--' in sanitized:
-                        sanitized = sanitized.replace('--', '-')
-                    sanitized = sanitized.strip('-')
-
-                    if sanitized == theme_id or sanitized == theme_id.replace('_', '-'):
+                    sanitized = sanitize(folder.name)
+                    if sanitized == theme_id:
                         return folder
 
         return None
