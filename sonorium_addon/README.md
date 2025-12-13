@@ -8,7 +8,7 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
-## What's New in v1.1
+## What's New (v1.1.15-dev)
 
 ### Track Mixer with Advanced Controls
 Fine-tune how each audio file plays within a theme:
