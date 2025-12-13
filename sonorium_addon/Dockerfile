@@ -48,6 +48,6 @@ RUN python3 -c "from sonorium.version import __version__; print(f'Sonorium {__ve
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 
-LABEL io.hass.version="1.1.0-dev"
+LABEL io.hass.version="1.1.5-dev"
 
 CMD [ "/run.sh" ]

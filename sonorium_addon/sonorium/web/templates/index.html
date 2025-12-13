@@ -1921,7 +1921,7 @@
         </nav>
 
         <div class="sidebar-footer">
-            <span id="version-text">v1.0.0</span>
+            <span id="version-text">v...</span>
         </div>
     </aside>
 
@@ -2442,13 +2442,25 @@
                     loadSpeakerGroups(),
                     loadEnabledSpeakers(),
                     loadChannels(),
-                    loadAudioSettings()
+                    loadAudioSettings(),
+                    loadVersion()
                 ]);
                 renderSessions();
                 updatePlayingBadge();
             } catch (error) {
                 console.error('Init error:', error);
                 showToast('Failed to load data', 'error');
+            }
+        }
+
+        async function loadVersion() {
+            try {
+                const status = await api('GET', '/status');
+                if (status && status.version) {
+                    document.getElementById('version-text').textContent = 'v' + status.version;
+                }
+            } catch (e) {
+                console.error('Failed to load version:', e);
             }
         }
 
