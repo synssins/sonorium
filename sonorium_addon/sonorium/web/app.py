@@ -165,19 +165,28 @@ class SonoriumApp:
             return result
 
         # Mount static files (CSS, JS)
+        print(f"[STATIC] About to mount. STATIC_DIR={STATIC_DIR}, exists={STATIC_DIR.exists()}", flush=True)
         logger.info(f"About to mount static files. STATIC_DIR={STATIC_DIR}, exists={STATIC_DIR.exists()}")
         if STATIC_DIR.exists():
             # List contents for debugging
             try:
                 contents = list(STATIC_DIR.rglob("*"))
                 file_list = [str(p.relative_to(STATIC_DIR)) for p in contents if p.is_file()]
+                print(f"[STATIC] Dir contains {len(file_list)} files: {file_list}", flush=True)
                 logger.info(f"Static dir contains {len(file_list)} files: {file_list}")
             except Exception as e:
+                print(f"[STATIC] Error listing dir: {e}", flush=True)
                 logger.warning(f"Could not list static dir: {e}")
 
-            self.app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-            logger.info(f"Successfully mounted static files from: {STATIC_DIR}")
+            try:
+                self.app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+                print(f"[STATIC] Successfully mounted from: {STATIC_DIR}", flush=True)
+                logger.info(f"Successfully mounted static files from: {STATIC_DIR}")
+            except Exception as e:
+                print(f"[STATIC] Mount failed: {e}", flush=True)
+                logger.error(f"Failed to mount static files: {e}")
         else:
+            print(f"[STATIC] Directory not found: {STATIC_DIR}", flush=True)
             logger.error(f"Static directory not found: {STATIC_DIR}")
             logger.error(f"Checked candidates: {_static_candidates}")
 
