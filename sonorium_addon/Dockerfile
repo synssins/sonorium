@@ -38,16 +38,19 @@ COPY setup.py pyproject.toml README.md /app/
 # Copy logo and icon
 COPY logo.png icon.png /app/
 
-# Install sonorium from local source
-RUN pip3 install --no-cache-dir --break-system-packages -e /app
+# Set PYTHONPATH instead of pip install -e (avoids caching issues)
+ENV PYTHONPATH="/app:${PYTHONPATH}"
 
 # Verify installation
 RUN python3 -c "from sonorium.version import __version__; print(f'Sonorium {__version__} imported successfully')"
+
+# Debug: List files in web directory
+RUN ls -la /app/sonorium/web/ && ls -la /app/sonorium/web/static/ 2>/dev/null || echo "No static dir"
 
 # Copy the run script
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 
-LABEL io.hass.version="1.1.22-dev"
+LABEL io.hass.version="1.1.23-dev"
 
 CMD [ "/run.sh" ]
