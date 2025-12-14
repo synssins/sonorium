@@ -291,6 +291,17 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 - WebSocket support for real-time updates
 - SDK for building integrations
 
+### Documentation
+- **GitHub Wiki** - Comprehensive documentation including:
+  - Fresh installation guide
+  - Initial setup and configuration
+  - Theme creation and organization
+  - Speaker setup and grouping
+  - Track mixer settings (volume, presence, playback modes)
+  - Known limitations (e.g., sparse mode volume changes apply on next play cycle)
+  - Troubleshooting guide
+  - API reference
+
 ### Quality of Life
 - Theme import/export
 - Backup and restore functionality
