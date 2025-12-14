@@ -113,7 +113,7 @@ class SonoriumApp:
             return await self._legacy_ui()
 
         # Explicit route for logo.png - more reliable than StaticFiles mount
-        @self.app.get("/logo.png", response_class=FileResponse)
+        @self.app.get("/logo.png")
         async def serve_logo():
             """Serve the logo file."""
             logo_paths = [
@@ -125,14 +125,15 @@ class SonoriumApp:
                     logger.info(f"Serving logo from: {logo_path}")
                     return FileResponse(logo_path, media_type="image/png")
             logger.warning(f"Logo not found. Checked: {logo_paths}")
-            return FileResponse(status_code=404)
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Logo not found")
 
         @self.app.get("/static/logo.png", response_class=FileResponse)
         async def serve_static_logo():
             """Serve logo from /static/logo.png path."""
             return await serve_logo()
 
-        @self.app.get("/icon.png", response_class=FileResponse)
+        @self.app.get("/icon.png")
         async def serve_icon():
             """Serve the icon file."""
             icon_paths = [
@@ -142,7 +143,8 @@ class SonoriumApp:
             for icon_path in icon_paths:
                 if icon_path.exists():
                     return FileResponse(icon_path, media_type="image/png")
-            return FileResponse(status_code=404)
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Icon not found")
 
         # Debug endpoint to check static files
         @self.app.get("/debug/static")
