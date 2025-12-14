@@ -250,6 +250,9 @@
             flex: 1;
             padding: 1.5rem;
             overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
         }
 
         /* Views */
@@ -259,6 +262,27 @@
 
         .view.active {
             display: block;
+        }
+
+        /* Full-height views */
+        #view-settings-speakers.active {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        #view-settings-speakers .settings-section {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+            margin-bottom: 0;
+        }
+
+        #view-settings-speakers .settings-speaker-tree {
+            flex: 1;
+            overflow-y: auto;
+            min-height: 0;
         }
 
         /* Buttons */
