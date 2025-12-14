@@ -1,8 +1,8 @@
-name: Sonorium
-version: "1.1.2"
-slug: sonorium
-description: "Multi-zone ambient soundscape mixer for Home Assistant"
-url: https://github.com/synssins/sonorium
+name: Sonorium Dev
+version: "1.1.18-dev"
+slug: sonorium_dev
+description: "Sonorium development build - Track presence control and experimental features"
+url: https://github.com/synssins/sonorium-dev
 
 arch:
   - aarch64
@@ -17,7 +17,7 @@ ingress: true
 ingress_port: 8080
 ingress_stream: true
 panel_icon: mdi:music-circle
-panel_title: Sonorium
+panel_title: Sonorium Dev
 
 services:
   - mqtt:need
@@ -27,12 +27,12 @@ map:
   - config:rw
 
 ports:
-  8080/tcp: 8008
+  8080/tcp: 8009
 ports_description:
-  8080/tcp: "Sonorium Web UI and streaming API (direct access)"
+  8080/tcp: "Sonorium Dev Web UI and streaming API (direct access)"
 
 options:
-  sonorium__stream_url: "http://homeassistant.local:8008"
+  sonorium__stream_url: "http://homeassistant.local:8009"
   sonorium__path_audio: "/media/sonorium"
   sonorium__max_channels: 6
 
@@ -42,7 +42,7 @@ schema:
   sonorium__max_channels: int(1,10)
 
 startup: application
-stage: stable
+stage: experimental
 
 # Direct web UI access (bypasses ingress)
 webui: http://[HOST]:[PORT:8080]/
