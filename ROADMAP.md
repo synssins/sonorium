@@ -303,7 +303,7 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
   - API reference
 
 ### Quality of Life
-- Theme import/export
+- Theme import/export with track presets (includes per-track volume, presence, playback mode, seamless loop settings)
 - Backup and restore functionality
 - Usage statistics and analytics
 - Multi-language support
