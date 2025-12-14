@@ -1058,80 +1058,61 @@
         }
 
         .track-slider-wrapper {
-            position: relative;
             flex: 1;
-            height: 16px;
             min-width: 0;
-        }
-
-        .track-slider-track {
-            position: absolute;
-            top: 50%;
-            transform: translateY(-50%);
-            left: 0;
-            right: 0;
-            height: 6px;
-            background: var(--bg-tertiary);
-            border-radius: 3px;
-            border: 1px solid var(--border-color);
-            overflow: hidden;
-        }
-
-        .track-slider-fill {
-            position: absolute;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            background: var(--accent-primary);
-            border-radius: 2px 0 0 2px;
-            transition: width 0.05s ease-out;
+            display: flex;
+            align-items: center;
         }
 
         .track-slider {
-            position: absolute;
-            top: 50%;
-            left: 0;
-            transform: translateY(-50%);
             width: 100%;
-            height: 16px;
+            height: 6px;
             -webkit-appearance: none;
             appearance: none;
-            background: transparent;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
             cursor: pointer;
-            z-index: 2;
             margin: 0;
             padding: 0;
         }
 
         .track-slider::-webkit-slider-runnable-track {
             height: 6px;
-            background: transparent;
+            background: linear-gradient(to right, var(--accent-primary) var(--slider-percent, 0%), var(--bg-tertiary) var(--slider-percent, 0%));
+            border-radius: 3px;
         }
 
         .track-slider::-webkit-slider-thumb {
             -webkit-appearance: none;
-            width: 14px;
-            height: 14px;
+            width: 16px;
+            height: 16px;
             background: #fff;
             border-radius: 50%;
             cursor: pointer;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.5);
-            margin-top: -4px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+            margin-top: -5px;
         }
 
         .track-slider::-moz-range-track {
             height: 6px;
-            background: transparent;
+            background: var(--bg-tertiary);
+            border-radius: 3px;
+        }
+
+        .track-slider::-moz-range-progress {
+            height: 6px;
+            background: var(--accent-primary);
+            border-radius: 3px 0 0 3px;
         }
 
         .track-slider::-moz-range-thumb {
-            width: 14px;
-            height: 14px;
+            width: 16px;
+            height: 16px;
             background: #fff;
             border-radius: 50%;
             cursor: pointer;
             border: none;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.5);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.5);
         }
 
         .track-slider-value {
@@ -3837,26 +3818,22 @@
                             <div class="track-slider-row">
                                 <span class="track-slider-label">Vol</span>
                                 <div class="track-slider-wrapper">
-                                    <div class="track-slider-track">
-                                        <div class="track-slider-fill track-volume-fill" style="width: ${volumePercent}%"></div>
-                                    </div>
                                     <input type="range" class="track-slider track-volume-slider"
                                            min="0" max="100" value="${volumePercent}"
+                                           style="--slider-percent: ${volumePercent}%"
                                            onchange="setTrackVolume('${escapeHtml(track.name)}', this.value)"
-                                           oninput="updateSliderDisplay(this, 'volume')">
+                                           oninput="updateSliderDisplay(this)">
                                 </div>
                                 <span class="track-slider-value track-volume-value">${volumePercent}%</span>
                             </div>
                             <div class="track-slider-row">
                                 <span class="track-slider-label">Pres</span>
                                 <div class="track-slider-wrapper">
-                                    <div class="track-slider-track">
-                                        <div class="track-slider-fill track-presence-fill" style="width: ${presencePercent}%"></div>
-                                    </div>
                                     <input type="range" class="track-slider track-presence-slider"
                                            min="0" max="100" value="${presencePercent}"
+                                           style="--slider-percent: ${presencePercent}%"
                                            onchange="setTrackPresence('${escapeHtml(track.name)}', this.value)"
-                                           oninput="updateSliderDisplay(this, 'presence')">
+                                           oninput="updateSliderDisplay(this)">
                                 </div>
                                 <span class="track-slider-value track-presence-value">${presencePercent}%</span>
                             </div>
@@ -3876,12 +3853,11 @@
             }
         }
 
-        function updateSliderDisplay(slider, type) {
+        function updateSliderDisplay(slider) {
             const row = slider.closest('.track-slider-row');
             const valueSpan = row.querySelector('.track-slider-value');
-            const fillDiv = row.querySelector('.track-slider-fill');
             valueSpan.textContent = slider.value + '%';
-            fillDiv.style.width = slider.value + '%';
+            slider.style.setProperty('--slider-percent', slider.value + '%');
         }
 
         // Legacy function for backwards compatibility
