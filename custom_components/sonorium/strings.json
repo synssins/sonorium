@@ -1,0 +1,22 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Sonorium",
+        "description": "Enter the URL of your Sonorium instance. This is typically the Home Assistant URL with the Sonorium port (default: 8009).",
+        "data": {
+          "url": "Sonorium URL"
+        },
+        "data_description": {
+          "url": "The URL to your Sonorium addon (e.g., http://homeassistant.local:8009)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Sonorium. Please check the URL and ensure the addon is running."
+    },
+    "abort": {
+      "already_configured": "Sonorium is already configured."
+    }
+  }
+}
