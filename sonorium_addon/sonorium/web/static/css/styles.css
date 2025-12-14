@@ -2093,6 +2093,63 @@ body {
     margin-top: 1rem;
 }
 
+/* Plugin Upload Section */
+.plugin-upload-section {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.plugin-upload-section h4 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1rem;
+    color: var(--text-primary);
+}
+
+.upload-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.upload-controls .btn {
+    display: flex;
+    align-items: center;
+}
+
+/* Built-in badge for plugins */
+.plugin-builtin {
+    font-size: 0.7rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(103, 58, 183, 0.2);
+    color: #b39ddb;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Danger button */
+.btn-danger {
+    background: rgba(239, 83, 80, 0.2);
+    color: #ef5350;
+    border: 1px solid rgba(239, 83, 80, 0.3);
+}
+
+.btn-danger:hover {
+    background: rgba(239, 83, 80, 0.3);
+    border-color: rgba(239, 83, 80, 0.5);
+}
+
+/* Plugin actions spacing */
+.plugin-actions {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
 /* Mobile */
 @media (max-width: 768px) {
     .sidebar {

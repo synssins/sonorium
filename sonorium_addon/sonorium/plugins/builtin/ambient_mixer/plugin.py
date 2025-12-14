@@ -2,24 +2,88 @@
 Ambient Mixer Importer Plugin for Sonorium
 
 Imports soundscapes from ambient-mixer.com by:
-1. Fetching the page HTML
-2. Parsing audio sources and metadata
-3. Downloading audio files
-4. Creating a theme folder with proper attribution
+1. Extracting the template ID from the page
+2. Fetching the XML configuration from the API
+3. Parsing audio channel information
+4. Downloading audio files with proper attribution
+
+Uses the same XML API that ambient-mixer.com's player uses for reliable extraction.
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
-from urllib.parse import urlparse, urljoin
+from urllib.parse import urlparse
 
 from sonorium.plugins.base import BasePlugin
 from sonorium.obs import logger
+
+
+# Constants
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+XML_API_BASE = "http://xml.ambient-mixer.com/audio-template?player=html5&id_template="
+
+
+@dataclass
+class AudioChannel:
+    """Represents a single audio channel from an ambient-mixer template."""
+    channel_num: int
+    name: str
+    audio_id: str
+    url: str
+    volume: int = 100
+    balance: int = 0
+    is_random: bool = False
+    random_counter: int = 1
+    random_unit: str = "1h"
+    crossfade: bool = False
+    mute: bool = False
+
+    # Post-download info
+    local_filename: Optional[str] = None
+    file_hash: Optional[str] = None
+
+
+@dataclass
+class AmbientMix:
+    """Represents a complete ambient-mixer template/mix."""
+    template_id: str
+    source_url: str
+    name: str = ""
+    channels: list = field(default_factory=list)
+
+    # Metadata
+    creator: str = ""
+    category: str = ""
+    harvested_at: str = ""
+
+    def to_manifest(self) -> dict:
+        """Convert to manifest dict for JSON export."""
+        return {
+            "source": {
+                "site": "ambient-mixer.com",
+                "url": self.source_url,
+                "template_id": self.template_id,
+                "creator": self.creator,
+                "harvested_at": self.harvested_at,
+            },
+            "license": {
+                "name": "Creative Commons Sampling Plus 1.0",
+                "url": "https://creativecommons.org/licenses/sampling+/1.0/",
+                "requires_attribution": True,
+            },
+            "mix_name": self.name,
+            "category": self.category,
+            "channels": [asdict(ch) for ch in self.channels if ch.url],
+        }
 
 
 class AmbientMixerPlugin(BasePlugin):
@@ -28,12 +92,14 @@ class AmbientMixerPlugin(BasePlugin):
 
     This plugin allows users to paste an Ambient-Mixer URL and import
     all audio tracks as a new Sonorium theme with proper attribution.
+
+    Uses the XML API for reliable audio extraction.
     """
 
     id = "ambient_mixer"
     name = "Ambient Mixer Importer"
-    version = "1.0.0"
-    description = "Import soundscapes from Ambient-Mixer.com"
+    version = "2.0.0"
+    description = "Import soundscapes from Ambient-Mixer.com using the XML API"
     author = "Sonorium"
 
     def get_ui_schema(self) -> dict:
@@ -68,11 +134,6 @@ class AmbientMixerPlugin(BasePlugin):
     def get_settings_schema(self) -> dict:
         """Return the settings schema for persistent configuration."""
         return {
-            "download_path": {
-                "type": "string",
-                "default": "/media/sonorium",
-                "label": "Download Path",
-            },
             "auto_create_metadata": {
                 "type": "boolean",
                 "default": True,
@@ -88,7 +149,7 @@ class AmbientMixerPlugin(BasePlugin):
 
     async def _import_soundscape(self, data: dict) -> dict:
         """
-        Import a soundscape from Ambient-Mixer.
+        Import a soundscape from Ambient-Mixer using the XML API.
 
         Args:
             data: Form data with 'url' and optional 'theme_name'
@@ -111,7 +172,7 @@ class AmbientMixerPlugin(BasePlugin):
             }
 
         try:
-            # Import dependencies
+            # Import httpx for async HTTP requests
             try:
                 import httpx
             except ImportError:
@@ -120,182 +181,245 @@ class AmbientMixerPlugin(BasePlugin):
                     "message": "httpx library not available. Please install it.",
                 }
 
-            # Fetch the page
-            logger.info(f"Fetching Ambient Mixer page: {url}")
-            async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                timeout=30.0,
+                headers={"User-Agent": USER_AGENT}
+            ) as client:
+                # Step 1: Fetch the page to get template ID
+                logger.info(f"Fetching Ambient Mixer page: {url}")
                 response = await client.get(url)
                 response.raise_for_status()
                 html = response.text
 
-            # Parse the page
-            page_data = self._parse_ambient_mixer_page(html, url)
+                template_id = self._extract_template_id(html)
+                if not template_id:
+                    return {
+                        "success": False,
+                        "message": "Could not find template ID in page. The URL may be invalid.",
+                    }
 
-            if not page_data["tracks"]:
-                return {
-                    "success": False,
-                    "message": "No audio tracks found on the page. The page format may have changed.",
-                }
+                logger.info(f"Found template ID: {template_id}")
 
-            # Use custom name or page title
-            theme_name = custom_name or page_data["title"] or "Imported Soundscape"
+                # Step 2: Fetch the XML configuration
+                xml_url = f"{XML_API_BASE}{template_id}"
+                logger.info(f"Fetching XML config: {xml_url}")
+                xml_response = await client.get(xml_url)
+                xml_response.raise_for_status()
 
-            # Create theme folder
-            download_path = Path(self.get_setting("download_path", "/media/sonorium"))
-            theme_folder = download_path / self._sanitize_folder_name(theme_name)
-            theme_folder.mkdir(parents=True, exist_ok=True)
+                # Step 3: Parse the XML
+                mix = self._parse_template_xml(xml_response.text, url, template_id)
+                if not mix or not mix.channels:
+                    return {
+                        "success": False,
+                        "message": "No audio channels found in the template.",
+                    }
 
-            # Download tracks
-            logger.info(f"Downloading {len(page_data['tracks'])} tracks to {theme_folder}")
-            downloaded = 0
-            track_metadata = {}
+                logger.info(f"Parsed mix: {mix.name} with {len(mix.channels)} channels")
 
-            async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as client:
-                for track in page_data["tracks"]:
-                    track_url = track["url"]
-                    track_name = track.get("name", f"track_{downloaded + 1}")
+                # Step 4: Determine theme folder name
+                theme_name = custom_name or mix.name or f"ambient_mix_{template_id}"
+                safe_theme_name = self._sanitize_folder_name(theme_name)
 
-                    # Determine filename
-                    filename = self._get_safe_filename(track_name, track_url)
-                    filepath = theme_folder / filename
+                # Use the audio_path from the plugin (injected from addon config)
+                theme_folder = self.audio_path / safe_theme_name
+                theme_folder.mkdir(parents=True, exist_ok=True)
 
-                    try:
-                        logger.debug(f"Downloading: {track_url}")
-                        resp = await client.get(track_url)
-                        resp.raise_for_status()
+                logger.info(f"Downloading to: {theme_folder}")
 
-                        filepath.write_bytes(resp.content)
+                # Step 5: Download audio files
+                downloaded = 0
+                track_metadata = {}
+
+                for channel in mix.channels:
+                    if not channel.url:
+                        continue
+
+                    success = await self._download_audio(client, channel, theme_folder)
+                    if success:
                         downloaded += 1
-
                         # Store track metadata for attribution
-                        track_metadata[filename] = {
-                            "attribution": {
-                                "original_name": track.get("name", ""),
-                                "source_url": track_url,
+                        if channel.local_filename:
+                            track_metadata[channel.local_filename] = {
+                                "attribution": {
+                                    "original_name": channel.name,
+                                    "audio_id": channel.audio_id,
+                                    "source_url": channel.url,
+                                },
+                                "default_volume": channel.volume / 100.0,
+                                "default_balance": channel.balance,
                             }
-                        }
-                    except Exception as e:
-                        logger.warning(f"Failed to download {track_url}: {e}")
 
-            if downloaded == 0:
+                    # Small delay between downloads
+                    await asyncio.sleep(0.3)
+
+                if downloaded == 0:
+                    return {
+                        "success": False,
+                        "message": "Failed to download any audio files.",
+                    }
+
+                # Step 6: Create metadata.json
+                if self.get_setting("auto_create_metadata", True):
+                    metadata = {
+                        "description": f"Imported from {url}",
+                        "icon": "mdi:music",
+                        "attribution": {
+                            "source": "Ambient-Mixer.com",
+                            "source_url": url,
+                            "template_id": template_id,
+                            "license": "Creative Commons Sampling Plus 1.0",
+                            "license_url": "https://creativecommons.org/licenses/sampling+/1.0/",
+                            "imported_date": datetime.utcnow().isoformat() + "Z",
+                            "imported_by": self.id,
+                        },
+                        "tracks": track_metadata,
+                    }
+
+                    metadata_path = theme_folder / "metadata.json"
+                    metadata_path.write_text(json.dumps(metadata, indent=2))
+                    logger.info(f"Created metadata.json for {theme_name}")
+
+                # Step 7: Write MANIFEST.json (detailed harvest info)
+                manifest_path = theme_folder / "MANIFEST.json"
+                manifest_path.write_text(json.dumps(mix.to_manifest(), indent=2))
+
+                # Step 8: Write ATTRIBUTION.md
+                self._write_attribution(mix, theme_folder / "ATTRIBUTION.md")
+
                 return {
-                    "success": False,
-                    "message": "Failed to download any audio files.",
-                }
-
-            # Create metadata.json if enabled
-            if self.get_setting("auto_create_metadata", True):
-                metadata = {
-                    "description": page_data.get("description", ""),
-                    "icon": "mdi:music",
-                    "attribution": {
-                        "source": "Ambient-Mixer.com",
-                        "source_url": url,
-                        "imported_date": datetime.utcnow().isoformat() + "Z",
-                        "imported_by": self.id,
+                    "success": True,
+                    "message": f"Successfully imported '{theme_name}' with {downloaded} track(s). Refresh themes to see it.",
+                    "data": {
+                        "theme_name": theme_name,
+                        "folder": str(theme_folder),
+                        "tracks_downloaded": downloaded,
+                        "template_id": template_id,
                     },
-                    "tracks": track_metadata,
                 }
 
-                metadata_path = theme_folder / "metadata.json"
-                metadata_path.write_text(json.dumps(metadata, indent=2))
-                logger.info(f"Created metadata.json for {theme_name}")
-
-            return {
-                "success": True,
-                "message": f"Successfully imported '{theme_name}' with {downloaded} track(s). Refresh themes to see it.",
-                "data": {
-                    "theme_name": theme_name,
-                    "folder": str(theme_folder),
-                    "tracks_downloaded": downloaded,
-                },
-            }
-
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error importing soundscape: {e}")
-            return {
-                "success": False,
-                "message": f"Failed to fetch page: {e}",
-            }
         except Exception as e:
-            logger.error(f"Error importing soundscape: {e}")
+            logger.error(f"Error importing soundscape: {e}", exc_info=True)
             return {
                 "success": False,
                 "message": f"Import failed: {e}",
             }
 
-    def _parse_ambient_mixer_page(self, html: str, base_url: str) -> dict:
-        """
-        Parse an Ambient-Mixer page to extract audio sources.
+    def _extract_template_id(self, html: str) -> Optional[str]:
+        """Extract template ID from ambient-mixer page HTML."""
+        # Try AmbientMixer.setup() pattern first
+        match = re.search(r'AmbientMixer\.setup\((\d+)\)', html)
+        if match:
+            return match.group(1)
 
-        This is a simplified parser that looks for common patterns.
-        The actual page structure may vary.
+        # Try vote link pattern
+        match = re.search(r'/vote/(\d+)', html)
+        if match:
+            return match.group(1)
 
-        Args:
-            html: Page HTML content
-            base_url: Base URL for resolving relative paths
+        # Try id_template parameter
+        match = re.search(r'id_template[=:][\s"\']*(\d+)', html)
+        if match:
+            return match.group(1)
 
-        Returns:
-            Dict with title, description, and tracks list
-        """
-        result = {
-            "title": "",
-            "description": "",
-            "tracks": [],
-        }
+        return None
 
-        # Try to extract title
-        title_match = re.search(r'<title>([^<]+)</title>', html, re.IGNORECASE)
-        if title_match:
-            result["title"] = title_match.group(1).strip()
-            # Clean up common suffixes
-            result["title"] = re.sub(r'\s*[-|]\s*Ambient.*$', '', result["title"])
-            result["title"] = result["title"].strip()
+    def _parse_template_xml(self, xml_content: str, source_url: str, template_id: str) -> Optional[AmbientMix]:
+        """Parse XML content into an AmbientMix object."""
+        try:
+            root = ET.fromstring(xml_content)
+        except ET.ParseError as e:
+            logger.error(f"Failed to parse XML: {e}")
+            return None
 
-        # Try to find meta description
-        desc_match = re.search(
-            r'<meta\s+name=["\']description["\']\s+content=["\']([^"\']+)["\']',
-            html,
-            re.IGNORECASE,
+        mix = AmbientMix(
+            template_id=template_id,
+            source_url=source_url,
+            harvested_at=datetime.now().isoformat(),
         )
-        if desc_match:
-            result["description"] = desc_match.group(1).strip()
 
-        # Look for audio sources - Ambient Mixer typically uses various patterns
-        # Pattern 1: Direct audio URLs in data attributes or src
-        audio_patterns = [
-            # Direct MP3 links
-            r'(?:src|href|data-src|data-audio|url)[=:]\s*["\']?(https?://[^"\'>\s]+\.mp3)["\']?',
-            # Audio elements
-            r'<audio[^>]*src=["\']([^"\']+)["\']',
-            r'<source[^>]*src=["\']([^"\']+\.(?:mp3|ogg|wav))["\']',
-            # JavaScript audio URLs
-            r'["\']?(https?://[^"\'>\s]+/sounds?/[^"\'>\s]+\.mp3)["\']?',
-        ]
+        # Extract mix name from URL
+        parsed = urlparse(source_url)
+        mix.name = parsed.path.strip('/').split('/')[-1].replace('-', '_')
+        mix.category = parsed.netloc.split('.')[0]  # e.g., "christmas" from christmas.ambient-mixer.com
 
-        found_urls = set()
-        for pattern in audio_patterns:
-            matches = re.findall(pattern, html, re.IGNORECASE)
-            for match in matches:
-                url = match if isinstance(match, str) else match[0]
-                if url and url not in found_urls:
-                    # Make absolute if relative
-                    if not url.startswith('http'):
-                        url = urljoin(base_url, url)
-                    found_urls.add(url)
+        # Parse channels (ambient-mixer has up to 8 channels)
+        for i in range(1, 9):
+            channel_elem = root.find(f'channel{i}')
+            if channel_elem is None:
+                continue
 
-        # Convert to track list
-        for i, url in enumerate(found_urls, 1):
-            # Try to extract a name from the URL
-            path = urlparse(url).path
-            name = Path(path).stem or f"Track {i}"
-            name = name.replace('_', ' ').replace('-', ' ').title()
+            url_elem = channel_elem.find('url_audio')
+            if url_elem is None or not url_elem.text or not url_elem.text.strip():
+                continue
 
-            result["tracks"].append({
-                "url": url,
-                "name": name,
-            })
+            def get_text(elem_name: str, default: str = "") -> str:
+                elem = channel_elem.find(elem_name)
+                return elem.text.strip() if elem is not None and elem.text else default
 
-        return result
+            def get_int(elem_name: str, default: int = 0) -> int:
+                try:
+                    return int(get_text(elem_name, str(default)))
+                except ValueError:
+                    return default
+
+            def get_bool(elem_name: str, default: bool = False) -> bool:
+                val = get_text(elem_name, "").lower()
+                return val in ("true", "1", "yes")
+
+            channel = AudioChannel(
+                channel_num=i,
+                name=get_text('name_audio', f'channel_{i}'),
+                audio_id=get_text('id_audio'),
+                url=get_text('url_audio'),
+                volume=get_int('volume', 100),
+                balance=get_int('balance', 0),
+                is_random=get_bool('random'),
+                random_counter=get_int('random_counter', 1),
+                random_unit=get_text('random_unit', '1h'),
+                crossfade=get_bool('crossfade'),
+                mute=get_bool('mute'),
+            )
+
+            mix.channels.append(channel)
+            logger.debug(f"  Channel {i}: {channel.name} ({channel.audio_id})")
+
+        return mix
+
+    async def _download_audio(self, client, channel: AudioChannel, dest_dir: Path) -> bool:
+        """Download a single audio file."""
+        if not channel.url:
+            return False
+
+        # Generate filename: sanitized name + audio_id + extension
+        ext = Path(urlparse(channel.url).path).suffix or '.mp3'
+        safe_name = re.sub(r'[^\w\s-]', '', channel.name).strip().replace(' ', '_')[:50]
+        filename = f"{safe_name}_{channel.audio_id}{ext}"
+        dest_path = dest_dir / filename
+
+        # Skip if already exists
+        if dest_path.exists():
+            logger.info(f"  Skipping (exists): {filename}")
+            channel.local_filename = filename
+            return True
+
+        logger.info(f"  Downloading: {channel.name} -> {filename}")
+
+        try:
+            response = await client.get(channel.url, timeout=60.0)
+            response.raise_for_status()
+
+            dest_path.write_bytes(response.content)
+
+            # Calculate hash
+            channel.file_hash = hashlib.md5(response.content).hexdigest()
+            channel.local_filename = filename
+
+            return True
+
+        except Exception as e:
+            logger.warning(f"  Failed to download {channel.name}: {e}")
+            return False
 
     def _sanitize_folder_name(self, name: str) -> str:
         """Create a safe folder name from a string."""
@@ -304,24 +428,46 @@ class AmbientMixerPlugin(BasePlugin):
         safe = safe.strip('. ')
         # Collapse multiple spaces
         safe = re.sub(r'\s+', ' ', safe)
-        return safe or "Imported Theme"
+        # Replace spaces with underscores for cleaner paths
+        safe = safe.replace(' ', '_')
+        return safe or "Imported_Theme"
 
-    def _get_safe_filename(self, name: str, url: str) -> str:
-        """Generate a safe filename for a track."""
-        # Try to use the name
-        if name:
-            filename = re.sub(r'[<>:"/\\|?*]', '', name)
-            filename = filename.strip('. ')[:50]  # Limit length
-        else:
-            # Fall back to URL filename
-            path = urlparse(url).path
-            filename = Path(path).stem or "track"
+    def _write_attribution(self, mix: AmbientMix, filepath: Path):
+        """Write human-readable attribution file."""
+        lines = [
+            f"# Attribution for {mix.name}",
+            "",
+            f"**Source:** [{mix.source_url}]({mix.source_url})",
+            f"**Harvested:** {mix.harvested_at}",
+            "",
+            "## License",
+            "",
+            "All audio files in this folder are licensed under:",
+            "[Creative Commons Sampling Plus 1.0](https://creativecommons.org/licenses/sampling+/1.0/)",
+            "",
+            "This license permits:",
+            "- Sampling and remixing (including commercial use)",
+            "- Distribution of derivative works",
+            "",
+            "**Attribution is required.** Credit ambient-mixer.com when using these sounds.",
+            "",
+            "## Audio Files",
+            "",
+        ]
 
-        # Ensure we have an extension
-        url_ext = Path(urlparse(url).path).suffix.lower()
-        if url_ext in ('.mp3', '.ogg', '.wav', '.flac'):
-            ext = url_ext
-        else:
-            ext = '.mp3'
+        for ch in mix.channels:
+            if ch.local_filename:
+                lines.append(f"- **{ch.local_filename}**")
+                lines.append(f"  - Original name: {ch.name}")
+                lines.append(f"  - Source ID: {ch.audio_id}")
+                lines.append(f"  - Default volume: {ch.volume}%")
+                if ch.balance != 0:
+                    lines.append(f"  - Balance: {ch.balance}")
+                lines.append("")
 
-        return f"{filename}{ext}"
+        lines.extend([
+            "---",
+            "*Generated by Sonorium Ambient Mixer Plugin*",
+        ])
+
+        filepath.write_text('\n'.join(lines))

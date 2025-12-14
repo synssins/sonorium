@@ -219,6 +219,7 @@ def instantiate_plugin(
     plugin_class: Type[BasePlugin],
     plugin_dir: Path,
     settings: dict,
+    audio_path: Optional[Path] = None,
 ) -> Optional[BasePlugin]:
     """
     Create an instance of a plugin.
@@ -227,12 +228,17 @@ def instantiate_plugin(
         plugin_class: The plugin class to instantiate
         plugin_dir: Path to the plugin directory
         settings: Plugin settings from state store
+        audio_path: Path to audio/themes directory
 
     Returns:
         Plugin instance if successful, None otherwise
     """
     try:
-        instance = plugin_class(plugin_dir=plugin_dir, settings=settings)
+        instance = plugin_class(
+            plugin_dir=plugin_dir,
+            settings=settings,
+            audio_path=audio_path or Path("/media/sonorium"),
+        )
         logger.info(f"Instantiated plugin: {instance.name} v{instance.version}")
         return instance
     except Exception as e:

@@ -2247,8 +2247,46 @@ function renderPluginsView() {
     const container = document.getElementById('plugins-list');
     if (!container) return;
 
+    // Upload section always visible at top
+    let html = `
+        <div class="plugin-upload-section">
+            <h4>Install Plugin</h4>
+            <p style="color: var(--text-muted); margin-bottom: 0.5rem; font-size: 0.9rem;">
+                Upload a plugin ZIP file containing <code>plugin.py</code> with required class attributes.
+            </p>
+            <details style="margin-bottom: 1rem; font-size: 0.85rem; color: var(--text-muted);">
+                <summary style="cursor: pointer; color: var(--accent-primary);">Plugin Requirements</summary>
+                <div style="margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px;">
+                    <p style="margin: 0 0 0.5rem 0;"><strong>Required in plugin.py:</strong></p>
+                    <pre style="margin: 0; font-size: 0.8rem; overflow-x: auto;">class MyPlugin(BasePlugin):
+    id = "my_plugin"           # Unique identifier
+    name = "My Plugin"         # Display name
+    version = "1.0.0"          # Semantic version (MAJOR.MINOR.PATCH)
+    description = "..."        # Brief description
+    author = "Your Name"       # Plugin author</pre>
+                    <p style="margin: 0.75rem 0 0 0; font-size: 0.8rem;">
+                        Optional: Include <code>manifest.json</code> for additional metadata.
+                    </p>
+                </div>
+            </details>
+            <div class="upload-controls">
+                <input type="file" id="plugin-file-input" accept=".zip" style="display: none;"
+                       onchange="handlePluginFileSelect(event)">
+                <button class="btn btn-primary" onclick="document.getElementById('plugin-file-input').click()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; margin-right: 0.5rem;">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                        <polyline points="17 8 12 3 7 8"/>
+                        <line x1="12" y1="3" x2="12" y2="15"/>
+                    </svg>
+                    Upload Plugin
+                </button>
+                <span id="plugin-upload-status" style="margin-left: 1rem; color: var(--text-muted);"></span>
+            </div>
+        </div>
+    `;
+
     if (plugins.length === 0) {
-        container.innerHTML = `
+        html += `
             <div class="empty-state" style="padding: 2rem;">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 48px; height: 48px; margin-bottom: 1rem; opacity: 0.5;">
                     <path d="M12 2L2 7l10 5 10-5-10-5z"/>
@@ -2256,17 +2294,20 @@ function renderPluginsView() {
                     <path d="M2 12l10 5 10-5"/>
                 </svg>
                 <h3>No Plugins Installed</h3>
-                <p style="color: var(--text-muted);">Plugins can be installed in /config/sonorium/plugins/</p>
+                <p style="color: var(--text-muted);">Upload a plugin or install manually to /config/sonorium/plugins/</p>
             </div>
         `;
+        container.innerHTML = html;
         return;
     }
 
-    let html = '';
+    html += '<h4 style="margin-top: 1.5rem; margin-bottom: 1rem;">Installed Plugins</h4>';
+
     for (const plugin of plugins) {
         const statusClass = plugin.enabled ? 'enabled' : 'disabled';
         const statusText = plugin.enabled ? 'Enabled' : 'Disabled';
         const toggleText = plugin.enabled ? 'Disable' : 'Enable';
+        const isBuiltin = plugin.builtin || false;
 
         html += `
             <div class="plugin-card ${statusClass}">
@@ -2275,12 +2316,23 @@ function renderPluginsView() {
                         <h4>${escapeHtml(plugin.name)}</h4>
                         <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
                         <span class="plugin-status ${statusClass}">${statusText}</span>
+                        ${isBuiltin ? '<span class="plugin-builtin">Built-in</span>' : ''}
                     </div>
                     <div class="plugin-actions">
                         <button class="btn btn-sm ${plugin.enabled ? 'btn-secondary' : 'btn-primary'}"
                                 onclick="togglePlugin('${plugin.id}', ${!plugin.enabled})">
                             ${toggleText}
                         </button>
+                        ${!isBuiltin ? `
+                        <button class="btn btn-sm btn-danger"
+                                onclick="uninstallPlugin('${plugin.id}', '${escapeHtml(plugin.name)}')"
+                                title="Uninstall plugin">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
+                                <polyline points="3 6 5 6 21 6"/>
+                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                        </button>
+                        ` : ''}
                     </div>
                 </div>
                 ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
@@ -2426,6 +2478,73 @@ async function executePluginAction(pluginId, actionId) {
         renderThemesBrowser();
     } catch (error) {
         showToast(error.message || 'Failed to execute action', 'error');
+    }
+}
+
+function handlePluginFileSelect(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.zip')) {
+        showToast('Please select a ZIP file', 'error');
+        event.target.value = '';
+        return;
+    }
+
+    uploadPlugin(file);
+}
+
+async function uploadPlugin(file) {
+    const statusEl = document.getElementById('plugin-upload-status');
+    if (statusEl) statusEl.textContent = 'Uploading...';
+
+    try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const response = await fetch(getBasePath() + '/plugins/upload', {
+            method: 'POST',
+            body: formData
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.detail || 'Upload failed');
+        }
+
+        showToast(`Plugin "${result.name}" installed successfully!`, 'success');
+        if (statusEl) statusEl.textContent = '';
+
+        // Reload plugins list
+        await loadPlugins();
+        renderPluginsView();
+
+    } catch (error) {
+        showToast(error.message || 'Failed to upload plugin', 'error');
+        if (statusEl) statusEl.textContent = 'Upload failed';
+    }
+
+    // Clear the file input
+    const fileInput = document.getElementById('plugin-file-input');
+    if (fileInput) fileInput.value = '';
+}
+
+async function uninstallPlugin(pluginId, pluginName) {
+    if (!confirm(`Are you sure you want to uninstall "${pluginName}"?\n\nThis will remove the plugin files permanently.`)) {
+        return;
+    }
+
+    try {
+        await api('DELETE', `/plugins/${pluginId}`);
+        showToast(`Plugin "${pluginName}" uninstalled successfully`, 'success');
+
+        // Reload plugins list
+        await loadPlugins();
+        renderPluginsView();
+
+    } catch (error) {
+        showToast(error.message || 'Failed to uninstall plugin', 'error');
     }
 }
 

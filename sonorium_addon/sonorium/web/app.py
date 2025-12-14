@@ -473,11 +473,18 @@ class SonoriumApp:
             # Initialize plugin manager
             try:
                 from sonorium.plugins.manager import PluginManager
-                self._plugin_manager = PluginManager(self._state_store)
+                # Get audio path from device if available
+                audio_path = None
+                if hasattr(self, 'mqtt_client') and self.mqtt_client and hasattr(self.mqtt_client, 'device'):
+                    audio_path = self.mqtt_client.device.path_audio
+                if audio_path is None:
+                    audio_path = Path("/media/sonorium")
+
+                self._plugin_manager = PluginManager(self._state_store, audio_path=audio_path)
                 # Note: Plugin initialization is async, so we start it in background
                 import asyncio
                 asyncio.create_task(self._plugin_manager.initialize())
-                logger.info("Plugin manager created, initialization started")
+                logger.info(f"Plugin manager created with audio_path={audio_path}, initialization started")
             except Exception as e:
                 logger.warning(f"Failed to initialize plugin manager: {e}")
                 self._plugin_manager = None

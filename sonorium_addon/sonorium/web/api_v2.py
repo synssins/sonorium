@@ -11,7 +11,7 @@ import asyncio
 from typing import Optional
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Request
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Request, UploadFile, File
 from pydantic import BaseModel, Field
 
 from sonorium.core.state import SpeakerSelection, CycleConfig, NameSource
@@ -1360,5 +1360,199 @@ def create_api_router(
 
         await plugin_manager.reload_plugins()
         return {"status": "ok", "message": "Plugins reloaded", "count": len(plugin_manager.plugins)}
+
+    @router.post("/plugins/upload")
+    async def upload_plugin(file: UploadFile = File(...)):
+        """
+        Upload and install a plugin from a ZIP file.
+
+        The ZIP file should contain either:
+        - A single plugin.py file (minimal plugin)
+        - A plugin.py file with optional manifest.json
+        - A directory containing plugin.py (and optionally manifest.json)
+
+        Returns the installed plugin info.
+        """
+        import zipfile
+        import tempfile
+        import shutil
+        from pathlib import Path
+
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail="Plugin system not available")
+
+        # Validate file type
+        if not file.filename or not file.filename.lower().endswith('.zip'):
+            raise HTTPException(status_code=400, detail="File must be a .zip archive")
+
+        try:
+            # Save uploaded file to temp location
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
+                content = await file.read()
+                tmp.write(content)
+                tmp_path = Path(tmp.name)
+
+            # Extract and validate
+            with tempfile.TemporaryDirectory() as extract_dir:
+                extract_path = Path(extract_dir)
+
+                with zipfile.ZipFile(tmp_path, 'r') as zf:
+                    # Security: Check for path traversal
+                    for member in zf.namelist():
+                        if '..' in member or member.startswith('/'):
+                            raise HTTPException(status_code=400, detail=f"Invalid path in zip: {member}")
+                    zf.extractall(extract_path)
+
+                # Find plugin.py - could be at root or in a subdirectory
+                plugin_files = list(extract_path.rglob('plugin.py'))
+
+                if not plugin_files:
+                    raise HTTPException(status_code=400, detail="No plugin.py found in archive")
+
+                # Use the first plugin.py found
+                plugin_file = plugin_files[0]
+                plugin_source_dir = plugin_file.parent
+
+                # Get plugin ID from manifest or directory name
+                manifest_file = plugin_source_dir / 'manifest.json'
+                manifest = {}
+                if manifest_file.exists():
+                    import json
+                    manifest = json.loads(manifest_file.read_text())
+                    plugin_id = manifest.get('id', plugin_source_dir.name)
+                else:
+                    # Generate ID from directory name or zip filename
+                    plugin_id = plugin_source_dir.name
+                    if plugin_id in ('.', extract_path.name):
+                        # Plugin files at root of zip - use zip filename
+                        plugin_id = Path(file.filename).stem.lower().replace(' ', '_').replace('-', '_')
+
+                # Sanitize plugin ID
+                plugin_id = ''.join(c for c in plugin_id if c.isalnum() or c == '_').lower()
+                if not plugin_id:
+                    plugin_id = 'imported_plugin'
+
+                # Check if plugin already exists
+                target_dir = plugin_manager.plugins_dir / plugin_id
+                if target_dir.exists():
+                    # Remove old version
+                    shutil.rmtree(target_dir)
+                    logger.info(f"Replacing existing plugin: {plugin_id}")
+
+                # Validate required plugin attributes by parsing the plugin.py file
+                plugin_py_content = plugin_file.read_text()
+
+                # Check for version attribute (required)
+                import re
+                version_match = re.search(r'^\s*version\s*[=:]\s*["\']([^"\']+)["\']', plugin_py_content, re.MULTILINE)
+                manifest_version = manifest.get('version')
+
+                if not version_match and not manifest_version:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Plugin must define a 'version' attribute (e.g., version = \"1.0.0\"). "
+                               "Use semantic versioning: MAJOR.MINOR.PATCH"
+                    )
+
+                # Validate semantic versioning format
+                version_str = version_match.group(1) if version_match else manifest_version
+                if version_str and not re.match(r'^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$', version_str):
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid version format '{version_str}'. "
+                               f"Use semantic versioning: MAJOR.MINOR.PATCH (e.g., 1.0.0, 2.1.3-beta)"
+                    )
+
+                # Copy plugin files to plugins directory
+                if plugin_source_dir == extract_path:
+                    # Files at root - create directory
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    for item in extract_path.iterdir():
+                        if item.is_file():
+                            shutil.copy2(item, target_dir / item.name)
+                else:
+                    # Copy the directory
+                    shutil.copytree(plugin_source_dir, target_dir)
+
+                logger.info(f"Installed plugin to: {target_dir}")
+
+            # Clean up temp file
+            tmp_path.unlink()
+
+            # Reload plugins to pick up the new one
+            await plugin_manager.reload_plugins()
+
+            # Get the newly installed plugin info
+            plugin = plugin_manager.get_plugin(plugin_id)
+            if plugin:
+                return {
+                    "status": "ok",
+                    "message": f"Plugin '{plugin.name}' installed successfully",
+                    "plugin": plugin.to_dict()
+                }
+            else:
+                return {
+                    "status": "warning",
+                    "message": f"Plugin files installed but failed to load. Check logs for errors.",
+                    "plugin_id": plugin_id
+                }
+
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail="Invalid or corrupted ZIP file")
+        except Exception as e:
+            logger.error(f"Failed to install plugin: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to install plugin: {str(e)}")
+
+    @router.delete("/plugins/{plugin_id}")
+    async def uninstall_plugin(plugin_id: str):
+        """
+        Uninstall a plugin by removing its directory.
+
+        This will:
+        1. Disable the plugin if enabled
+        2. Unload the plugin
+        3. Delete the plugin directory
+        4. Remove plugin settings from state
+        """
+        import shutil
+
+        if not plugin_manager:
+            raise HTTPException(status_code=503, detail="Plugin system not available")
+
+        plugin = plugin_manager.get_plugin(plugin_id)
+        plugin_dir = plugin_manager.plugins_dir / plugin_id
+
+        # Check if plugin exists (either loaded or as directory)
+        if not plugin and not plugin_dir.exists():
+            raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
+
+        try:
+            # Disable and unload if loaded
+            if plugin:
+                if plugin.enabled:
+                    await plugin_manager.disable_plugin(plugin_id)
+                await plugin_manager._unload_plugin(plugin_id)
+                del plugin_manager.plugins[plugin_id]
+
+            # Remove plugin directory
+            if plugin_dir.exists():
+                shutil.rmtree(plugin_dir)
+                logger.info(f"Removed plugin directory: {plugin_dir}")
+
+            # Remove plugin settings from state
+            if plugin_id in plugin_manager.state_store.settings.plugin_settings:
+                del plugin_manager.state_store.settings.plugin_settings[plugin_id]
+            if plugin_id in plugin_manager.state_store.settings.enabled_plugins:
+                plugin_manager.state_store.settings.enabled_plugins.remove(plugin_id)
+            plugin_manager.state_store.save()
+
+            return {
+                "status": "ok",
+                "message": f"Plugin '{plugin_id}' uninstalled successfully"
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to uninstall plugin {plugin_id}: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to uninstall plugin: {str(e)}")
 
     return router

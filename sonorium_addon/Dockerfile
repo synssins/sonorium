@@ -51,6 +51,6 @@ RUN ls -la /app/sonorium/web/ && ls -la /app/sonorium/web/static/ 2>/dev/null ||
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 
-LABEL io.hass.version="1.1.24-dev"
+LABEL io.hass.version="1.1.25-dev"
 
 CMD [ "/run.sh" ]

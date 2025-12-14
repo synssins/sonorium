@@ -41,6 +41,7 @@ class PluginManager:
         self,
         state_store: StateStore,
         plugins_dir: Path = DEFAULT_PLUGINS_DIR,
+        audio_path: Optional[Path] = None,
     ):
         """
         Initialize the plugin manager.
@@ -48,9 +49,11 @@ class PluginManager:
         Args:
             state_store: State store for persisting settings
             plugins_dir: Directory containing plugins
+            audio_path: Path to audio/themes directory (from addon config)
         """
         self.state_store = state_store
         self.plugins_dir = plugins_dir
+        self.audio_path = audio_path or Path("/media/sonorium")
         self.plugins: dict[str, BasePlugin] = {}
         self._initialized = False
 
@@ -102,10 +105,14 @@ class PluginManager:
             if plugin_class is None:
                 return None
 
-            # Instantiate plugin
-            plugin = instantiate_plugin(plugin_class, plugin_dir, settings)
+            # Instantiate plugin with audio_path
+            plugin = instantiate_plugin(plugin_class, plugin_dir, settings, self.audio_path)
             if plugin is None:
                 return None
+
+            # Set builtin flag from manifest if present
+            if manifest.get("builtin", False):
+                plugin._builtin = True
 
             # Update manifest with plugin info if it was auto-generated
             if not manifest.get("plugin_class"):

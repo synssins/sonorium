@@ -35,18 +35,22 @@ class BasePlugin(ABC):
     version: str = "1.0.0"
     description: str = ""
     author: str = ""
+    builtin: bool = False  # True for plugins shipped with Sonorium
 
-    def __init__(self, plugin_dir: Path, settings: dict):
+    def __init__(self, plugin_dir: Path, settings: dict, audio_path: Optional[Path] = None):
         """
         Initialize the plugin.
 
         Args:
             plugin_dir: Path to the plugin directory
             settings: Plugin settings from state store
+            audio_path: Path to audio/themes directory (from addon config)
         """
         self.plugin_dir = plugin_dir
         self.settings = settings
+        self.audio_path = audio_path or Path("/media/sonorium")
         self._enabled = False
+        self._builtin = self.builtin  # Can be overridden by manifest
 
     @property
     def enabled(self) -> bool:
@@ -199,6 +203,7 @@ class BasePlugin(ABC):
             "description": self.description,
             "author": self.author,
             "enabled": self.enabled,
+            "builtin": self._builtin,
             "settings": self.settings,
             "ui_schema": self.get_ui_schema(),
             "settings_schema": self.get_settings_schema(),

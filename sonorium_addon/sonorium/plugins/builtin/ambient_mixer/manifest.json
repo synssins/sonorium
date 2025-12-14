@@ -1,17 +1,13 @@
 {
   "id": "ambient_mixer",
   "name": "Ambient Mixer Importer",
-  "version": "1.0.0",
-  "description": "Import soundscapes from Ambient-Mixer.com",
+  "version": "2.0.0",
+  "description": "Import soundscapes from Ambient-Mixer.com using the XML API",
   "author": "Sonorium",
   "entry_point": "plugin.py",
   "plugin_class": "AmbientMixerPlugin",
+  "builtin": true,
   "settings_schema": {
-    "download_path": {
-      "type": "string",
-      "default": "/media/sonorium",
-      "label": "Download Path"
-    },
     "auto_create_metadata": {
       "type": "boolean",
       "default": true,
