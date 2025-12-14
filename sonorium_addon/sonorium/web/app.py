@@ -94,9 +94,10 @@ class SonoriumApp:
     
     def _setup_routes(self):
         """Configure all routes."""
-        
+        print("[ROUTES] _setup_routes() called", flush=True)
+
         # --- Web UI ---
-        
+
         @self.app.get("/", response_class=HTMLResponse)
         async def index():
             """Serve the main web UI."""
@@ -145,6 +146,8 @@ class SonoriumApp:
                     return FileResponse(icon_path, media_type="image/png")
             from fastapi import HTTPException
             raise HTTPException(status_code=404, detail="Icon not found")
+
+        print("[ROUTES] After icon route, before debug endpoint", flush=True)
 
         # Debug endpoint to check static files
         @self.app.get("/debug/static")
