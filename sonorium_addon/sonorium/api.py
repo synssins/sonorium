@@ -772,6 +772,7 @@ class ApiSonorium(api.Base):
     async def get_track_audio(self, theme_id: str, track_name: str):
         """Serve an individual track audio file for browser preview playback."""
         from fastapi.responses import FileResponse
+        from fastapi import HTTPException
         from urllib.parse import unquote
 
         # URL decode the track name
@@ -779,7 +780,7 @@ class ApiSonorium(api.Base):
 
         theme = self.client.device.themes.id.get(theme_id)
         if not theme:
-            return {"error": "Theme not found"}
+            raise HTTPException(status_code=404, detail="Theme not found")
 
         # Find the track instance
         track_inst = None
@@ -789,12 +790,12 @@ class ApiSonorium(api.Base):
                 break
 
         if not track_inst:
-            return {"error": f"Track not found: {track_name}"}
+            raise HTTPException(status_code=404, detail=f"Track not found: {track_name}")
 
-        # Get the file path
-        audio_path = track_inst.path
+        # Get the file path from the metadata
+        audio_path = track_inst.meta.path
         if not audio_path or not audio_path.exists():
-            return {"error": "Audio file not found"}
+            raise HTTPException(status_code=404, detail="Audio file not found")
 
         # Determine media type based on extension
         suffix = audio_path.suffix.lower()
