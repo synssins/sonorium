@@ -1351,27 +1351,44 @@ function toggleTrackPreview(trackName) {
     trackPreviewAudio.play().catch(err => {
         console.error('Failed to play track preview:', err);
         showToast('Failed to play track', 'error');
-        stopTrackPreview();
+        cleanupTrackPreviewAudio();
+        updatePreviewButtonState(trackName, false);
+        currentPreviewTrack = null;
     });
 
     // When playback ends, reset the button
     trackPreviewAudio.onended = () => {
-        stopTrackPreview();
+        cleanupTrackPreviewAudio();
+        if (currentPreviewTrack) {
+            updatePreviewButtonState(currentPreviewTrack, false);
+            currentPreviewTrack = null;
+        }
     };
 
-    trackPreviewAudio.onerror = () => {
-        console.error('Audio playback error');
+    trackPreviewAudio.onerror = (e) => {
+        // Ignore errors from intentional stops (when src is cleared)
+        if (!trackPreviewAudio || !trackPreviewAudio.src) return;
+        console.error('Audio playback error:', e);
         showToast('Failed to load audio', 'error');
-        stopTrackPreview();
+        cleanupTrackPreviewAudio();
+        if (currentPreviewTrack) {
+            updatePreviewButtonState(currentPreviewTrack, false);
+            currentPreviewTrack = null;
+        }
     };
 }
 
-function stopTrackPreview() {
+function cleanupTrackPreviewAudio() {
     if (trackPreviewAudio) {
+        trackPreviewAudio.onended = null;
+        trackPreviewAudio.onerror = null;
         trackPreviewAudio.pause();
-        trackPreviewAudio.src = '';
         trackPreviewAudio = null;
     }
+}
+
+function stopTrackPreview() {
+    cleanupTrackPreviewAudio();
 
     if (currentPreviewTrack) {
         updatePreviewButtonState(currentPreviewTrack, false);
@@ -1448,6 +1465,8 @@ function startThemePreview(themeId, themeName) {
     });
 
     themePreviewAudio.onerror = () => {
+        // Ignore errors from intentional stops
+        if (!themePreviewAudio || !themePreviewAudio.src) return;
         console.error('Theme audio playback error');
         showToast('Failed to load theme stream', 'error');
         closeThemePreview();
@@ -1471,12 +1490,16 @@ function toggleThemePreview() {
     }
 }
 
-function stopThemePreview() {
+function cleanupThemePreviewAudio() {
     if (themePreviewAudio) {
+        themePreviewAudio.onerror = null;
         themePreviewAudio.pause();
-        themePreviewAudio.src = '';
         themePreviewAudio = null;
     }
+}
+
+function stopThemePreview() {
+    cleanupThemePreviewAudio();
     themePreviewIsPlaying = false;
     currentPreviewThemeId = null;
 }
