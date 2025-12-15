@@ -191,7 +191,7 @@ class ApiSonorium(api.Base):
                 check_interval=10.0,  # Check every 10 seconds
             )
             
-            # Initialize session manager (with cycle manager)
+            # Initialize session manager (with cycle manager and metadata manager)
             self._session_manager = SessionManager(
                 self._state_store,
                 self._ha_registry,
@@ -200,8 +200,9 @@ class ApiSonorium(api.Base):
                 channel_manager=self._channel_manager,
                 cycle_manager=self._cycle_manager,
                 themes=self.client.device.themes,
+                theme_metadata_manager=self._theme_metadata_manager,
             )
-            
+
             # Connect cycle manager to session manager
             self._cycle_manager.set_session_manager(self._session_manager)
             

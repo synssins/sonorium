@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from sonorium.ha.media_controller import HAMediaController
     from sonorium.core.channel import ChannelManager, Channel
     from sonorium.core.cycle_manager import CycleManager
+    from sonorium.core.theme_metadata import ThemeMetadataManager
     from sonorium.theme import ThemeDefinition
     from fmtr.tools.iterator_tools import IndexList
 
@@ -43,14 +44,15 @@ class SessionManager:
     """
     
     def __init__(
-        self, 
-        state_store: StateStore, 
+        self,
+        state_store: StateStore,
         ha_registry: HARegistry,
         media_controller: HAMediaController = None,
         stream_base_url: str = None,
         channel_manager: ChannelManager = None,
         cycle_manager: CycleManager = None,
         themes: IndexList[ThemeDefinition] = None,
+        theme_metadata_manager: ThemeMetadataManager = None,
     ):
         self.state = state_store
         self.registry = ha_registry
@@ -59,7 +61,8 @@ class SessionManager:
         self.channel_manager = channel_manager
         self.cycle_manager = cycle_manager
         self.themes = themes
-        
+        self.theme_metadata_manager = theme_metadata_manager
+
         # Track which session is using which channel: session_id -> channel_id
         self._session_channels: dict[str, int] = {}
     
@@ -79,6 +82,88 @@ class SessionManager:
         """Update themes reference (called after theme refresh)."""
         self.themes = themes
         logger.info(f"  SessionManager: Updated themes reference ({len(themes)} themes)")
+
+    def set_theme_metadata_manager(self, manager: ThemeMetadataManager):
+        """Set the theme metadata manager (for deferred initialization)."""
+        self.theme_metadata_manager = manager
+
+    def apply_preset_to_theme(self, theme_id: str, preset_id: str) -> bool:
+        """
+        Apply a preset's track settings to a theme.
+
+        This modifies the live theme instances so audio generation reflects
+        the preset's track settings (enabled/disabled, volume, presence, etc.).
+
+        Returns True if preset was applied successfully.
+        """
+        from sonorium.recording import PlaybackMode
+
+        if not preset_id:
+            return False
+
+        theme = self.get_theme(theme_id)
+        if not theme:
+            logger.warning(f"  Cannot apply preset: theme '{theme_id}' not found")
+            return False
+
+        # Get preset data from metadata manager or file
+        preset_tracks = None
+
+        if self.theme_metadata_manager:
+            # Use metadata manager (has the cache)
+            folder = self.theme_metadata_manager.get_folder_for_id(theme_id)
+            if folder:
+                metadata = self.theme_metadata_manager.get_metadata_by_folder(folder)
+                if metadata and preset_id in metadata.presets:
+                    preset_tracks = metadata.presets[preset_id].get("tracks", {})
+
+        if preset_tracks is None:
+            # Fallback: read directly from file
+            import json
+            from pathlib import Path
+
+            # Find theme folder
+            if self.themes and len(self.themes) > 0:
+                first_theme = self.themes[0]
+                if hasattr(first_theme, 'sonorium') and hasattr(first_theme.sonorium, 'path_audio'):
+                    audio_path = first_theme.sonorium.path_audio
+                    for folder in audio_path.iterdir():
+                        if folder.is_dir():
+                            metadata_path = folder / "metadata.json"
+                            if metadata_path.exists():
+                                try:
+                                    metadata = json.loads(metadata_path.read_text())
+                                    if metadata.get("id") == theme_id:
+                                        presets = metadata.get("presets", {})
+                                        if preset_id in presets:
+                                            preset_tracks = presets[preset_id].get("tracks", {})
+                                        break
+                                except Exception:
+                                    pass
+
+        if not preset_tracks:
+            logger.warning(f"  Preset '{preset_id}' not found for theme '{theme_id}'")
+            return False
+
+        # Apply preset settings to live theme instances
+        applied_count = 0
+        for inst in theme.instances:
+            if inst.name in preset_tracks:
+                settings = preset_tracks[inst.name]
+                inst.volume = settings.get("volume", 1.0)
+                inst.presence = settings.get("presence", 1.0)
+                mode_str = settings.get("playback_mode", "auto")
+                try:
+                    inst.playback_mode = PlaybackMode(mode_str)
+                except ValueError:
+                    inst.playback_mode = PlaybackMode.AUTO
+                inst.crossfade_enabled = not settings.get("seamless_loop", False)
+                inst.exclusive = settings.get("exclusive", False)
+                inst.is_enabled = not settings.get("muted", False)
+                applied_count += 1
+
+        logger.info(f"  Applied preset '{preset_id}' to theme '{theme.name}' ({applied_count} tracks)")
+        return True
 
     def get_theme(self, theme_id: str) -> Optional[ThemeDefinition]:
         """Get a theme by ID, handling both UUID-based and folder-based IDs."""
@@ -356,8 +441,9 @@ class SessionManager:
             logger.warning(f"  Session {session_id} not found")
             return None, set(), set()
 
-        # Track if theme is changing
+        # Track if theme or preset is changing
         theme_changed = theme_id is not None and theme_id != session.theme_id
+        preset_changed = preset_id is not None and preset_id != session.preset_id
 
         # Get old speakers before update (for live speaker management)
         old_speakers = set(self.get_resolved_speakers(session)) if session.is_playing else set()
@@ -401,11 +487,21 @@ class SessionManager:
 
         # If session is playing and theme changed, trigger crossfade
         if session.is_playing and theme_changed and session.theme_id:
+            # Apply preset before crossfade if session has one
+            if session.preset_id:
+                self.apply_preset_to_theme(session.theme_id, session.preset_id)
+
             self._trigger_theme_crossfade(session)
 
             # Reset cycle timer since theme was manually changed
             if self.cycle_manager:
                 self.cycle_manager.reset_cycle(session_id)
+
+        # If session is playing and preset changed (same theme), apply the preset
+        elif session.is_playing and preset_changed and session.theme_id:
+            if session.preset_id:
+                self.apply_preset_to_theme(session.theme_id, session.preset_id)
+                logger.info(f"  Applied preset change for playing session")
 
         # Calculate speaker changes for live management
         added_speakers = set()
@@ -621,6 +717,10 @@ class SessionManager:
             logger.warning(f"  No media controller available")
             return False
         
+        # Apply session's preset to theme BEFORE assigning to channel
+        if session.preset_id:
+            self.apply_preset_to_theme(session.theme_id, session.preset_id)
+
         # Assign channel and set theme
         channel = self._assign_channel(session)
         if channel:
