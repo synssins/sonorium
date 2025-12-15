@@ -576,8 +576,10 @@ class ApiSonorium(api.Base):
         return HTMLResponse(content=html)
 
     async def stream(self, id: str):
-        """Stream audio by theme ID (legacy endpoint)."""
-        theme_def: ThemeDefinition = self.client.device.themes.id[id]
+        """Stream audio by theme ID (supports both UUID and legacy slug IDs)."""
+        theme_def, _ = self._get_theme_by_id(id)
+        if not theme_def:
+            raise HTTPException(status_code=404, detail=f"Theme '{id}' not found")
         stream = theme_def.get_stream()
         response = StreamingResponse(stream, media_type="audio/mpeg")
         return response
