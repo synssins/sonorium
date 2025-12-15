@@ -2536,6 +2536,96 @@ async function uploadThemeFile(themeId, file) {
     return response.json();
 }
 
+// Theme Export/Import
+async function exportThemeZip() {
+    const themeId = document.getElementById('theme-edit-id').value;
+    if (!themeId) {
+        showToast('No theme selected', 'error');
+        return;
+    }
+
+    try {
+        showToast('Preparing export...', 'info');
+
+        const response = await fetch(`${BASE_PATH}/api/themes/${themeId}/export`);
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Export failed');
+        }
+
+        // Get filename from Content-Disposition header or use default
+        const contentDisposition = response.headers.get('Content-Disposition');
+        let filename = 'theme.zip';
+        if (contentDisposition) {
+            const match = contentDisposition.match(/filename="?([^"]+)"?/);
+            if (match) {
+                filename = match[1];
+            }
+        }
+
+        // Download the file
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+
+        showToast(`Exported: ${filename}`, 'success');
+    } catch (error) {
+        console.error('Export failed:', error);
+        showToast(error.message || 'Failed to export theme', 'error');
+    }
+}
+
+function importThemeZip() {
+    // Create a hidden file input
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip';
+    input.style.display = 'none';
+
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        try {
+            showToast('Importing theme...', 'info');
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch(`${BASE_PATH}/api/themes/import`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Import failed');
+            }
+
+            const result = await response.json();
+
+            // Refresh themes list
+            await loadThemes();
+            renderThemesBrowser();
+
+            showToast(`Imported "${result.theme_folder}" (${result.files_extracted} files)`, 'success');
+        } catch (error) {
+            console.error('Import failed:', error);
+            showToast(error.message || 'Failed to import theme', 'error');
+        }
+    };
+
+    document.body.appendChild(input);
+    input.click();
+    document.body.removeChild(input);
+}
+
 // Audio Settings
 let audioSettings = {
     crossfade_duration: 3.0,

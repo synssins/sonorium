@@ -1375,6 +1375,176 @@ def create_api_router(
             logger.error(f"Failed to delete theme: {e}")
             raise HTTPException(status_code=500, detail=str(e))
 
+    @router.get("/themes/{theme_id}/export")
+    async def export_theme(theme_id: str):
+        """Export a theme as a zip file containing all audio files and metadata."""
+        import zipfile
+        import io
+        from fastapi.responses import StreamingResponse
+
+        theme_path = _find_theme_folder(theme_id)
+        if not theme_path:
+            raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
+
+        try:
+            # Create zip in memory
+            zip_buffer = io.BytesIO()
+            theme_name = theme_path.name
+
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                # Walk through all files in the theme folder
+                for file_path in theme_path.rglob('*'):
+                    if file_path.is_file():
+                        # Use relative path within the theme folder
+                        arcname = f"{theme_name}/{file_path.relative_to(theme_path)}"
+                        zip_file.write(file_path, arcname)
+                        logger.debug(f"Added to zip: {arcname}")
+
+            zip_buffer.seek(0)
+
+            # Generate filename
+            safe_name = "".join(c if c.isalnum() or c in "._- " else "_" for c in theme_name)
+            filename = f"{safe_name}.zip"
+
+            logger.info(f"Exported theme '{theme_name}' as {filename}")
+
+            return StreamingResponse(
+                zip_buffer,
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{filename}"'
+                }
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to export theme: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    @router.post("/themes/import")
+    async def import_theme(request: Request):
+        """Import a theme from a zip file."""
+        import zipfile
+        import io
+        import json
+        from pathlib import Path
+
+        # Get the audio path
+        audio_path = Path("/media/sonorium")
+        if not audio_path.exists():
+            audio_path = Path("/share/sonorium")
+        if not audio_path.exists():
+            raise HTTPException(status_code=500, detail="No valid audio path found")
+
+        try:
+            # Parse multipart form data
+            form = await request.form()
+            file = form.get("file")
+            if not file:
+                raise HTTPException(status_code=400, detail="No file provided")
+
+            filename = file.filename
+            if not filename.lower().endswith('.zip'):
+                raise HTTPException(status_code=400, detail="File must be a .zip archive")
+
+            # Read zip content
+            content = await file.read()
+            zip_buffer = io.BytesIO(content)
+
+            # Validate and extract
+            with zipfile.ZipFile(zip_buffer, 'r') as zip_file:
+                # Get the list of files
+                namelist = zip_file.namelist()
+                if not namelist:
+                    raise HTTPException(status_code=400, detail="Zip file is empty")
+
+                # Determine theme folder name from zip structure
+                # Expected: theme_name/file1.mp3, theme_name/metadata.json, etc.
+                first_entry = namelist[0]
+                if '/' in first_entry:
+                    theme_folder_name = first_entry.split('/')[0]
+                else:
+                    # No folder structure, use zip filename without extension
+                    theme_folder_name = filename.rsplit('.', 1)[0]
+
+                # Check if theme already exists
+                target_path = audio_path / theme_folder_name
+                if target_path.exists():
+                    # Generate unique name
+                    counter = 1
+                    while target_path.exists():
+                        target_path = audio_path / f"{theme_folder_name}_{counter}"
+                        counter += 1
+                    theme_folder_name = target_path.name
+
+                # Extract files
+                target_path.mkdir(parents=True, exist_ok=True)
+                files_extracted = 0
+                audio_extensions = {'.mp3', '.wav', '.flac', '.ogg'}
+
+                for zip_info in zip_file.infolist():
+                    if zip_info.is_dir():
+                        continue
+
+                    # Get the path relative to the theme folder in the zip
+                    parts = zip_info.filename.split('/')
+                    if len(parts) > 1:
+                        # Remove the original theme folder prefix
+                        relative_path = '/'.join(parts[1:])
+                    else:
+                        relative_path = zip_info.filename
+
+                    if not relative_path:
+                        continue
+
+                    # Determine output path
+                    output_path = target_path / relative_path
+
+                    # Create parent directories if needed
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+                    # Extract file
+                    with zip_file.open(zip_info) as src:
+                        output_path.write_bytes(src.read())
+                    files_extracted += 1
+                    logger.debug(f"Extracted: {relative_path}")
+
+                # Generate new UUID for imported theme if metadata.json exists
+                metadata_path = target_path / "metadata.json"
+                if metadata_path.exists():
+                    try:
+                        metadata = json.loads(metadata_path.read_text())
+                        # Generate new UUID to avoid conflicts
+                        import uuid
+                        metadata["id"] = str(uuid.uuid4())
+                        metadata_path.write_text(json.dumps(metadata, indent=2))
+                    except Exception as e:
+                        logger.warning(f"Could not update metadata UUID: {e}")
+                else:
+                    # Create basic metadata
+                    import uuid
+                    metadata = {
+                        "id": str(uuid.uuid4()),
+                        "name": theme_folder_name
+                    }
+                    metadata_path.write_text(json.dumps(metadata, indent=2))
+
+                logger.info(f"Imported theme '{theme_folder_name}' with {files_extracted} files")
+
+                return {
+                    "status": "ok",
+                    "theme_folder": theme_folder_name,
+                    "files_extracted": files_extracted,
+                    "path": str(target_path)
+                }
+
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=400, detail="Invalid zip file")
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to import theme: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
     # --- Plugin Endpoints ---
 
     @router.get("/plugins", response_model=list[PluginResponse])
