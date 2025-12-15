@@ -236,25 +236,26 @@ class Session:
     An active or configured playback session.
     Each session plays one theme to one speaker group/selection.
     """
-    
+
     id: str
     name: str
     name_source: NameSource = NameSource.AUTO_AREA
-    
+
     # What to play
     theme_id: Optional[str] = None
-    
+    preset_id: Optional[str] = None  # Theme preset to apply
+
     # Where to play - either a saved group OR ad-hoc selection
     speaker_group_id: Optional[str] = None
     adhoc_selection: Optional[SpeakerSelection] = None
-    
+
     # Playback state
     volume: int = 60
     is_playing: bool = False
-    
+
     # Theme cycling configuration
     cycle_config: CycleConfig = field(default_factory=CycleConfig)
-    
+
     # Metadata
     created_at: str = ""  # ISO format
     last_played_at: Optional[str] = None  # ISO format

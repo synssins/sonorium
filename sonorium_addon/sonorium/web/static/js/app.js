@@ -575,6 +575,11 @@ function openNewSessionModal() {
     selectedSpeakerGroupId = null;
     selectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
 
+    // Reset preset selection
+    channelPresets = [];
+    selectedChannelPreset = '';
+    document.getElementById('channel-preset-field').style.display = 'none';
+
     renderThemeSelector();
     renderSpeakerTree();
     renderSpeakerGroupSelect();
@@ -596,6 +601,9 @@ function editSession(sessionId) {
     selectedTheme = session.theme_id;
     selectedSpeakerGroupId = session.speaker_group_id || null;
 
+    // Store the session's preset to restore after loading presets
+    selectedChannelPreset = session.preset_id || '';
+
     if (session.adhoc_selection) {
         selectedSpeakers = {
             floors: session.adhoc_selection.include_floors || [],
@@ -611,6 +619,13 @@ function editSession(sessionId) {
     renderThemeSelector();
     renderSpeakerTree();
     renderSpeakerGroupSelect();
+
+    // Load presets for the selected theme
+    if (selectedTheme) {
+        loadChannelPresets(selectedTheme);
+    } else {
+        document.getElementById('channel-preset-field').style.display = 'none';
+    }
 
     document.getElementById('session-modal').classList.add('active');
 }
@@ -632,7 +647,8 @@ async function saveSession() {
 
     const data = {
         theme_id: selectedTheme,
-        volume: volume
+        volume: volume,
+        preset_id: selectedChannelPreset || null
     };
 
     // Use speaker group OR adhoc selection, not both
@@ -684,6 +700,68 @@ function renderThemeSelector() {
 function selectTheme(themeId) {
     selectedTheme = themeId;
     renderThemeSelector();
+    loadChannelPresets(themeId);
+}
+
+// Channel Preset Functions
+let channelPresets = [];
+let selectedChannelPreset = '';
+
+async function loadChannelPresets(themeId) {
+    const presetField = document.getElementById('channel-preset-field');
+    const presetSelect = document.getElementById('channel-preset-select');
+
+    if (!themeId) {
+        presetField.style.display = 'none';
+        channelPresets = [];
+        selectedChannelPreset = '';
+        return;
+    }
+
+    try {
+        const result = await api('GET', `/themes/${themeId}/presets`);
+        channelPresets = result.presets || [];
+        updateChannelPresetDropdown();
+        presetField.style.display = 'block';
+    } catch (error) {
+        console.error('Failed to load channel presets:', error);
+        channelPresets = [];
+        updateChannelPresetDropdown();
+        presetField.style.display = 'block';
+    }
+}
+
+function updateChannelPresetDropdown() {
+    const select = document.getElementById('channel-preset-select');
+    if (!select) return;
+
+    if (channelPresets.length === 0) {
+        select.innerHTML = '<option value="" disabled>No presets - edit theme to create</option>';
+        select.value = '';
+        selectedChannelPreset = '';
+    } else {
+        select.innerHTML = '<option value="">-- Default Settings --</option>';
+        channelPresets.forEach(preset => {
+            const option = document.createElement('option');
+            option.value = preset.id;
+            option.textContent = preset.name + (preset.is_default ? ' ★' : '');
+            select.appendChild(option);
+        });
+
+        // Auto-select default preset if one exists
+        const defaultPreset = channelPresets.find(p => p.is_default);
+        if (defaultPreset && !selectedChannelPreset) {
+            select.value = defaultPreset.id;
+            selectedChannelPreset = defaultPreset.id;
+        } else if (selectedChannelPreset) {
+            select.value = selectedChannelPreset;
+        }
+    }
+}
+
+function onChannelPresetChange() {
+    const select = document.getElementById('channel-preset-select');
+    selectedChannelPreset = select.value;
 }
 
 // Speaker Tree

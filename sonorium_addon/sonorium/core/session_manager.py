@@ -206,6 +206,7 @@ class SessionManager:
     def create(
         self,
         theme_id: str = None,
+        preset_id: str = None,
         speaker_group_id: str = None,
         adhoc_selection: SpeakerSelection = None,
         custom_name: str = None,
@@ -214,18 +215,19 @@ class SessionManager:
     ) -> Session:
         """
         Create a new session.
-        
+
         Args:
             theme_id: Theme to play (optional, can set later)
+            preset_id: Theme preset to apply (optional)
             speaker_group_id: Saved speaker group to use
             adhoc_selection: Ad-hoc speaker selection (if not using group)
             custom_name: Custom name (overrides auto-naming)
             volume: Initial volume (uses default if not specified)
             cycle_config: Theme cycling configuration (optional)
-        
+
         Returns:
             Created session
-        
+
         Raises:
             ValueError: If max sessions exceeded
         """
@@ -233,10 +235,10 @@ class SessionManager:
         max_sessions = 20
         if len(self.state.sessions) >= max_sessions:
             raise ValueError(f"Maximum of {max_sessions} sessions allowed")
-        
+
         # Generate ID
         session_id = str(uuid.uuid4())[:8]
-        
+
         # Determine name
         if custom_name:
             name = custom_name
@@ -246,11 +248,11 @@ class SessionManager:
             if speaker_group_id:
                 group = self.state.speaker_groups.get(speaker_group_id)
             name, name_source = self.generate_session_name(adhoc_selection, group)
-        
+
         # Use default volume if not specified
         if volume is None:
             volume = self.state.settings.default_volume
-        
+
         # Use provided cycle_config or create default
         if cycle_config is None:
             cycle_config = CycleConfig(
@@ -258,13 +260,14 @@ class SessionManager:
                 interval_minutes=self.state.settings.default_cycle_interval,
                 randomize=self.state.settings.default_cycle_randomize,
             )
-        
+
         # Create session
         session = Session(
             id=session_id,
             name=name,
             name_source=name_source,
             theme_id=theme_id,
+            preset_id=preset_id,
             speaker_group_id=speaker_group_id,
             adhoc_selection=adhoc_selection,
             volume=volume,
@@ -294,6 +297,7 @@ class SessionManager:
         self,
         session_id: str,
         theme_id: str = None,
+        preset_id: str = None,
         speaker_group_id: str = None,
         adhoc_selection: SpeakerSelection = None,
         custom_name: str = None,
@@ -325,6 +329,9 @@ class SessionManager:
         # Update fields if provided
         if theme_id is not None:
             session.theme_id = theme_id
+
+        if preset_id is not None:
+            session.preset_id = preset_id
 
         if speaker_group_id is not None:
             session.speaker_group_id = speaker_group_id

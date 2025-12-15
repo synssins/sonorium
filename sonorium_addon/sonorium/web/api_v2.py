@@ -76,6 +76,7 @@ class CycleStatusResponse(BaseModel):
 class CreateSessionRequest(BaseModel):
     """Request to create a new session."""
     theme_id: Optional[str] = None
+    preset_id: Optional[str] = None
     speaker_group_id: Optional[str] = None
     adhoc_selection: Optional[SpeakerSelectionModel] = None
     custom_name: Optional[str] = None
@@ -86,6 +87,7 @@ class CreateSessionRequest(BaseModel):
 class UpdateSessionRequest(BaseModel):
     """Request to update an existing session."""
     theme_id: Optional[str] = None
+    preset_id: Optional[str] = None
     speaker_group_id: Optional[str] = None
     adhoc_selection: Optional[SpeakerSelectionModel] = None
     custom_name: Optional[str] = None
@@ -107,6 +109,7 @@ class SessionResponse(BaseModel):
     name: str
     name_source: str
     theme_id: Optional[str]
+    preset_id: Optional[str] = None
     speaker_group_id: Optional[str]
     adhoc_selection: Optional[dict]
     volume: int
@@ -269,6 +272,7 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         name=session.name,
         name_source=session.name_source.value,
         theme_id=session.theme_id,
+        preset_id=getattr(session, 'preset_id', None),
         speaker_group_id=session.speaker_group_id,
         adhoc_selection=asdict(session.adhoc_selection) if session.adhoc_selection else None,
         volume=session.volume,
@@ -414,6 +418,7 @@ def create_api_router(
         try:
             session = session_manager.create(
                 theme_id=request.theme_id,
+                preset_id=request.preset_id,
                 speaker_group_id=request.speaker_group_id,
                 adhoc_selection=request.adhoc_selection.to_selection() if request.adhoc_selection else None,
                 custom_name=request.custom_name,
@@ -438,6 +443,7 @@ def create_api_router(
         session, added_speakers, removed_speakers = session_manager.update(
             session_id=session_id,
             theme_id=request.theme_id,
+            preset_id=request.preset_id,
             speaker_group_id=request.speaker_group_id,
             adhoc_selection=request.adhoc_selection.to_selection() if request.adhoc_selection else None,
             custom_name=request.custom_name,

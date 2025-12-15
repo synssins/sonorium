@@ -684,6 +684,13 @@ Example:
                     </div>
                 </div>
 
+                <div class="session-field" id="channel-preset-field" style="display: none;">
+                    <label>Theme Preset</label>
+                    <select id="channel-preset-select" onchange="onChannelPresetChange()">
+                        <option value="">-- Default Settings --</option>
+                    </select>
+                </div>
+
                 <div class="session-field">
                     <label>Select Speakers</label>
                     <select id="session-speaker-group" onchange="onSpeakerGroupChange()">
