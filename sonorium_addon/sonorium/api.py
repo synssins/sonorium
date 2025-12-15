@@ -1278,13 +1278,20 @@ class ApiSonorium(api.Base):
 
         return {"theme_id": theme_id, "presets": result}
 
-    async def create_preset(self, theme_id: str, name: str = None):
+    async def create_preset(self, theme_id: str, request: Request):
         """Create a new preset from current track settings."""
         import re
 
         theme = self.client.device.themes.id.get(theme_id)
         if not theme:
             raise HTTPException(status_code=404, detail="Theme not found")
+
+        # Get name from request body
+        try:
+            body = await request.json()
+            name = body.get("name")
+        except Exception:
+            name = None
 
         # Generate preset ID from name
         if not name:
@@ -1388,7 +1395,7 @@ class ApiSonorium(api.Base):
 
         return {"status": "ok", "preset_id": preset_id, "is_default": True}
 
-    async def import_preset(self, theme_id: str, preset_json: str = None, name: str = None):
+    async def import_preset(self, theme_id: str, request: Request):
         """Import a preset from JSON."""
         import json
         import re
@@ -1396,6 +1403,14 @@ class ApiSonorium(api.Base):
         theme = self.client.device.themes.id.get(theme_id)
         if not theme:
             raise HTTPException(status_code=404, detail="Theme not found")
+
+        # Get preset_json and name from request body
+        try:
+            body = await request.json()
+            preset_json = body.get("preset_json")
+            name = body.get("name")
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid request body")
 
         if not preset_json:
             raise HTTPException(status_code=400, detail="No preset JSON provided")

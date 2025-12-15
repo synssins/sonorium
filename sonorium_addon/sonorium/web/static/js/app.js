@@ -1119,17 +1119,35 @@ function closeThemeEditModal() {
 // Track Mixer Functions
 let currentTrackMixerThemeId = null;
 
-async function loadTrackMixer(themeId) {
+async function loadTrackMixer(themeId, preservePresetSelection = false) {
     currentTrackMixerThemeId = themeId;
     const container = document.getElementById('track-mixer-list');
     container.innerHTML = '<div class="track-mixer-empty">Loading tracks...</div>';
 
-    // Load presets for this theme
-    loadPresets(themeId);
-    // Reset preset dropdown selection
+    // Save current preset selection if preserving
     const presetSelect = document.getElementById('preset-select');
-    if (presetSelect) presetSelect.value = '';
-    onPresetSelectChange('');
+    const currentPresetId = preservePresetSelection && presetSelect ? presetSelect.value : '';
+
+    // Load presets for this theme
+    await loadPresets(themeId);
+
+    // Restore or reset preset dropdown selection
+    if (presetSelect) {
+        presetSelect.value = currentPresetId;
+        // Update button visibility without triggering load
+        const defaultBtn = document.getElementById('preset-default-btn');
+        const deleteBtn = document.getElementById('preset-delete-btn');
+        const exportBtn = document.getElementById('preset-export-btn');
+        if (currentPresetId) {
+            defaultBtn.style.display = '';
+            deleteBtn.style.display = '';
+            exportBtn.style.display = '';
+        } else {
+            defaultBtn.style.display = 'none';
+            deleteBtn.style.display = 'none';
+            exportBtn.style.display = 'none';
+        }
+    }
 
     try {
         const result = await api('GET', `/themes/${themeId}/tracks`);
@@ -1377,7 +1395,7 @@ function updatePresetDropdown() {
     });
 }
 
-function onPresetSelectChange(presetId) {
+async function onPresetSelectChange(presetId) {
     const defaultBtn = document.getElementById('preset-default-btn');
     const deleteBtn = document.getElementById('preset-delete-btn');
     const exportBtn = document.getElementById('preset-export-btn');
@@ -1386,6 +1404,19 @@ function onPresetSelectChange(presetId) {
         defaultBtn.style.display = '';
         deleteBtn.style.display = '';
         exportBtn.style.display = '';
+
+        // Auto-load the preset when selected
+        if (currentTrackMixerThemeId) {
+            try {
+                const result = await api('POST', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/load`);
+                // Reload track mixer to show new settings, preserve preset selection
+                await loadTrackMixer(currentTrackMixerThemeId, true);
+                showToast(`Loaded: ${result.name}`, 'success');
+            } catch (error) {
+                console.error('Failed to load preset:', error);
+                showToast('Failed to load preset', 'error');
+            }
+        }
     } else {
         defaultBtn.style.display = 'none';
         deleteBtn.style.display = 'none';
