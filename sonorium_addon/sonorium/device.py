@@ -53,18 +53,33 @@ class Sonorium(Device):
         if not self.path_audio.exists():
             logger.warning(f'Audio path "{self.path_audio}" does not exist. Will be created.')
             self.path_audio.mkdir(parents=True, exist_ok=True)
-        
+
         theme_folders = [folder for folder in self.path_audio.iterdir() if folder.is_dir()]
-        
+
         logger.info(f'Scanning for themes in "{self.path_audio}"...')
         logger.info(f'Found {len(theme_folders)} theme folder(s): {[f.name for f in theme_folders]}')
-        
+
         if not theme_folders:
-            logger.warning(f'No theme folders found in "{self.path_audio}". Creating example structure...')
-            example_theme = self.path_audio / 'example_theme'
-            example_theme.mkdir(exist_ok=True)
-            logger.info(f'Created example theme folder: {example_theme}')
-            theme_folders = [example_theme]
+            # Install bundled themes on first run
+            bundled_themes_path = Path('/app/themes')
+            if bundled_themes_path.exists():
+                bundled_folders = [f for f in bundled_themes_path.iterdir() if f.is_dir()]
+                if bundled_folders:
+                    logger.info(f'Installing {len(bundled_folders)} bundled theme(s) on first run...')
+                    import shutil
+                    for src_folder in bundled_folders:
+                        dst_folder = self.path_audio / src_folder.name
+                        shutil.copytree(str(src_folder), str(dst_folder))
+                        logger.info(f'Installed bundled theme: {src_folder.name}')
+                    theme_folders = [folder for folder in self.path_audio.iterdir() if folder.is_dir()]
+
+            # Fallback: create empty example folder if no bundled themes
+            if not theme_folders:
+                logger.warning(f'No bundled themes found. Creating example structure...')
+                example_theme = self.path_audio / 'example_theme'
+                example_theme.mkdir(exist_ok=True)
+                logger.info(f'Created example theme folder: {example_theme}')
+                theme_folders = [example_theme]
         
         self.themes = IndexList()
         self.theme_metas = {}

@@ -38,6 +38,9 @@ COPY setup.py pyproject.toml README.md /app/
 # Copy logo and icon
 COPY logo.png icon.png /app/
 
+# Copy bundled themes (installed on first run if /media/sonorium is empty)
+COPY themes/ /app/themes/
+
 # Set PYTHONPATH instead of pip install -e (avoids caching issues)
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 
@@ -51,6 +54,6 @@ RUN ls -la /app/sonorium/web/ && ls -la /app/sonorium/web/static/ 2>/dev/null ||
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 
-LABEL io.hass.version="1.1.28-dev"
+LABEL io.hass.version="1.1.55-dev"
 
 CMD [ "/run.sh" ]
