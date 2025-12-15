@@ -14,7 +14,7 @@
 #
 # rest_command:
 #   sonorium_create_session:
-#     url: "http://homeassistant.local:8009/v2/sessions"
+#     url: "http://homeassistant.local:8009/api/sessions"
 #     method: POST
 #     content_type: "application/json"
 #     payload: >
@@ -25,31 +25,31 @@
 #       }
 #
 #   sonorium_play_session:
-#     url: "http://homeassistant.local:8009/v2/sessions/{{ session_id }}/play"
+#     url: "http://homeassistant.local:8009/api/sessions/{{ session_id }}/play"
 #     method: POST
 #     content_type: "application/json"
 #     payload: '{"theme_id": "{{ theme_id | default(\\'\\') }}"}'
 #
 #   sonorium_stop_session:
-#     url: "http://homeassistant.local:8009/v2/sessions/{{ session_id }}/stop"
+#     url: "http://homeassistant.local:8009/api/sessions/{{ session_id }}/stop"
 #     method: POST
 #
 #   sonorium_pause_session:
-#     url: "http://homeassistant.local:8009/v2/sessions/{{ session_id }}/pause"
+#     url: "http://homeassistant.local:8009/api/sessions/{{ session_id }}/pause"
 #     method: POST
 #
 #   sonorium_stop_all:
-#     url: "http://homeassistant.local:8009/v2/sessions/stop-all"
+#     url: "http://homeassistant.local:8009/api/sessions/stop-all"
 #     method: POST
 #
 #   sonorium_set_volume:
-#     url: "http://homeassistant.local:8009/v2/sessions/{{ session_id }}/volume"
+#     url: "http://homeassistant.local:8009/api/sessions/{{ session_id }}/volume"
 #     method: POST
 #     content_type: "application/json"
 #     payload: '{"volume": {{ volume }}}'
 #
 #   sonorium_delete_session:
-#     url: "http://homeassistant.local:8009/v2/sessions/{{ session_id }}"
+#     url: "http://homeassistant.local:8009/api/sessions/{{ session_id }}"
 #     method: DELETE
 #
 # rest:
@@ -65,7 +65,7 @@
 #           - sessions
 #           - active_channels
 #
-#   - resource: "http://homeassistant.local:8009/v2/sessions"
+#   - resource: "http://homeassistant.local:8009/api/sessions"
 #     scan_interval: 10
 #     sensor:
 #       - name: "Sonorium Sessions"

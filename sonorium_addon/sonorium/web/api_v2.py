@@ -605,7 +605,87 @@ def create_api_router(
             ChannelResponse(**ch)
             for ch in channel_manager.list_channels()
         ]
-    
+
+    @router.get("/channels/{channel_id}")
+    async def get_channel(channel_id: int) -> ChannelResponse:
+        """Get a specific channel."""
+        if not channel_manager:
+            raise HTTPException(status_code=503, detail="Channel system not initialized")
+        channel = channel_manager.get_channel(channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail=f"Channel {channel_id} not found")
+        return ChannelResponse(**channel.to_dict())
+
+    @router.post("/channels/{channel_id}/play")
+    async def play_channel(channel_id: int, request: dict = None):
+        """Play a theme on a specific channel."""
+        if not channel_manager:
+            raise HTTPException(status_code=503, detail="Channel system not initialized")
+
+        channel = channel_manager.get_channel(channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail=f"Channel {channel_id} not found")
+
+        # Get theme_id from request body
+        theme_id = None
+        if request:
+            theme_id = request.get("theme_id")
+
+        if not theme_id:
+            raise HTTPException(status_code=400, detail="theme_id is required")
+
+        # Get the theme from session_manager's theme registry
+        theme = session_manager.get_theme(theme_id)
+        if not theme:
+            raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
+
+        # Set theme on channel
+        channel.set_theme(theme)
+
+        return {
+            "status": "playing",
+            "channel_id": channel_id,
+            "theme_id": theme_id,
+        }
+
+    @router.post("/channels/{channel_id}/stop")
+    async def stop_channel(channel_id: int):
+        """Stop playback on a specific channel."""
+        if not channel_manager:
+            raise HTTPException(status_code=503, detail="Channel system not initialized")
+
+        channel = channel_manager.get_channel(channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail=f"Channel {channel_id} not found")
+
+        channel.stop()
+
+        return {
+            "status": "stopped",
+            "channel_id": channel_id,
+        }
+
+    @router.post("/channels/{channel_id}/volume")
+    async def set_channel_volume(channel_id: int, request: dict):
+        """Set volume for a channel (placeholder - channels don't have individual volume yet)."""
+        if not channel_manager:
+            raise HTTPException(status_code=503, detail="Channel system not initialized")
+
+        channel = channel_manager.get_channel(channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail=f"Channel {channel_id} not found")
+
+        volume = request.get("volume", 50)
+
+        # Note: Channel volume is not yet implemented in the core
+        # This is a placeholder that acknowledges the request
+        return {
+            "status": "acknowledged",
+            "channel_id": channel_id,
+            "volume": volume,
+            "note": "Channel-level volume control not yet implemented",
+        }
+
     # --- Speaker Group Endpoints ---
     
     @router.get("/groups")

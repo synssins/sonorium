@@ -22,6 +22,13 @@ Sonorium is a fully functional multi-zone ambient soundscape mixer for Home Assi
 
 ## Recently Completed
 
+### Home Assistant Entity Integration (v1.1.28-dev)
+- Custom integration exposes channels as `media_player` entities
+- `media_player.sonorium_channel_1` through `media_player.sonorium_channel_6`
+- Control channels from HA dashboards, automations, and scripts
+- Select source (theme) from dropdown, play/stop controls
+- Dashboard YAML examples included
+
 ### Plugin System (v1.1.28-dev)
 - Extensible plugin architecture with hot-loading
 - Built-in Ambient Mixer plugin for importing soundscapes from ambient-mixer.com
@@ -55,6 +62,42 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 ---
 
 ## Near-Term Goals
+
+### Theme Presets
+
+**Goal:** Save and restore named configurations of theme settings.
+
+**Features:**
+- Named presets storing all adjustable settings (layers, volumes, mix, playback modes)
+- Global to theme (not zone-specific)
+- Operations: save current as new preset, select preset, delete preset
+- Default preset flag (auto-loads when theme first selected)
+- State persistence across reboots/upgrades
+- UI: Preset dropdown in channel playback, beneath theme selector
+- Separate field/modal for pasting preset JSON into existing themes
+- Validate pasted JSON: fail gracefully with clear message if references non-existent layers/settings
+- Copy/paste JSON friendly for community sharing (forums, Reddit)
+
+**Use Cases:**
+- "Sleep" preset with lower volumes and sparse presence
+- "Focus" preset with continuous background layers
+- Share preset configurations with the community
+
+### Theme Export/Import
+
+**Goal:** Package themes for sharing and backup.
+
+**Features:**
+- Zip archive format containing audio files + metadata JSON
+- Self-contained, shareable packages
+- Presets bundled in export, travel with theme
+- Versioning in export metadata for future compatibility
+- Graceful validation on import with clear error messages
+
+**Use Cases:**
+- Share custom themes with other Sonorium users
+- Backup themes before system changes
+- Migrate themes between instances
 
 ### Collapsible Navigation Menu
 
@@ -93,30 +136,6 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 - Quickly compare settings across tracks
 - More intuitive control layout
 
-### Home Assistant Entity Integration
-
-**Goal:** Expose each configured channel as a controllable Home Assistant entity.
-
-**Features:**
-- Each channel becomes a `media_player` entity in Home Assistant
-- Control channels directly from HA dashboards, automations, and scripts
-- Entity attributes include:
-  - Current theme
-  - Volume level
-  - Playback state (playing/stopped/paused)
-  - Target speakers
-- Services for:
-  - `sonorium.play` / `sonorium.stop`
-  - `sonorium.set_theme`
-  - `sonorium.set_volume`
-  - `sonorium.set_speakers`
-
-**Use Cases:**
-- Add Sonorium controls to any Lovelace dashboard
-- Create automations like "Play rain sounds when it's bedtime"
-- Voice control via Google Home / Alexa: "Hey Google, play forest sounds in the bedroom"
-- Include in scenes: "Movie Night" scene stops all ambient audio
-
 ### Automatic Theme Cycling
 
 **Goal:** Automatically rotate through themes on a schedule.
@@ -151,6 +170,31 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 ---
 
 ## Medium-Term Goals
+
+### Quality of Life Features
+
+**UI/UX:**
+- Keyboard shortcuts (space=play/pause, arrows=volume, number keys=switch channels)
+- Channel quick-duplicate (copy current channel config to new channel)
+- "Now playing" toast/notification when theme changes
+- Waveform or activity visualization showing active tracks in mix
+- Mobile-friendly bottom nav or swipe gestures
+- Drag to reorder channels
+
+**Audio Playback:**
+- Fade-to-stop option (gradual fadeout vs abrupt stop)
+- Sleep timer per channel (stop playback after X minutes)
+- Schedule/automation hooks (play theme at sunset, stop at midnight)
+- Audio ducking when HA announces (TTS integration) - HA addon only
+- Crossfade between themes when switching (not just hard cut)
+
+**Theme Management:**
+- Bulk import from folder/zip
+- Theme preview (30-second sample without committing to a channel)
+- "Random theme" mode within a category
+- Theme tagging beyond categories (mood tags: focus, sleep, energy, calm)
+- Search/filter themes by name, category, tag
+- Sort themes: alphabetical, recently used, favorites first
 
 ### Standalone Docker Deployment
 
@@ -198,6 +242,42 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
 - Local audio playback (no streaming required)
 - Cloud sync for themes and settings (optional)
 - Mobile companion app for remote control
+- System tray/menu bar presence (minimize to tray)
+- Headless/daemon mode for server deployments
+- Config file import/export (migration between instances)
+- Built-in audio normalization on import (optional loudness leveling)
+- Auto-start on boot option
+- Web UI served locally (localhost:port) for configuration
+- CLI controls for scripting (`sonorium play channel1 --theme Forest`)
+
+**Cast Device Discovery:**
+- **Google Cast (Chromecast)**: mDNS/DNS-SD discovery via `_googlecast._tcp.local`
+- **AirPlay 2**: mDNS via `_airplay._tcp.local` and `_raop._tcp.local`
+- **DLNA/UPnP**: SSDP discovery on `239.255.255.250:1900`
+- **Snapcast**: JSON-RPC API over TCP (port 1705) for self-hosted multi-room
+- Unified discovery service scanning all protocols
+- Manual IP/port entry fallback for edge cases
+
+### Raspberry Pi Deployment
+
+**Mode 1: Streaming Server**
+- Hosts Sonorium backend, serves HTTP audio streams to cast devices
+- Run as systemd service or Docker container
+- Pi 4 recommended for multiple concurrent channels
+- Pi Zero 2 W minimum (single channel, light load)
+- Wired ethernet preferred for multi-zone
+
+**Mode 2: Dedicated Audio Output**
+- Pi acts as endpoint with direct audio to amplifier
+- DAC/Amp HAT options: HiFiBerry Amp2, IQaudio DigiAMP+, JustBoom Amp HAT
+- I2S connection for high-quality audio (bypasses onboard audio)
+- Can run headless as dedicated room player
+
+**Hybrid Setup:**
+- Pi 4 runs Sonorium server
+- Multiple Pi Zeros with amp HATs as room endpoints
+- Snapcast for synchronized multi-room from single source
+- Or each Pi Zero tunes into Sonorium HTTP stream independently
 
 ### Multi-Room Synchronization
 
@@ -265,11 +345,10 @@ Per-track "presence" setting (0-100%) that controls how often a track appears in
   - Troubleshooting guide
   - API reference
 
-### Quality of Life
-- Theme import/export with track presets (includes per-track volume, presence, playback mode, seamless loop settings)
-- Backup and restore functionality
-- Usage statistics and analytics
-- Multi-language support
+### Data & Sync
+- Backup/restore all settings, themes, presets
+- Optional cloud sync for presets across instances (future consideration)
+- Usage stats: most played themes, average session length (privacy-respecting, local only)
 
 ---
 

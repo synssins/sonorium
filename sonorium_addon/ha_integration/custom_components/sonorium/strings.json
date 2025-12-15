@@ -1,0 +1,47 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to Sonorium",
+        "description": "Enter the connection details for your Sonorium addon.",
+        "data": {
+          "host": "Host",
+          "port": "Port"
+        },
+        "data_description": {
+          "host": "The hostname or IP address of your Home Assistant (e.g., localhost, homeassistant.local, or 192.168.1.x)",
+          "port": "The port Sonorium is running on (default: 8009)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to Sonorium. Please check the host and port.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This Sonorium instance is already configured."
+    }
+  },
+  "entity": {
+    "media_player": {
+      "channel_1": {
+        "name": "Channel 1"
+      },
+      "channel_2": {
+        "name": "Channel 2"
+      },
+      "channel_3": {
+        "name": "Channel 3"
+      },
+      "channel_4": {
+        "name": "Channel 4"
+      },
+      "channel_5": {
+        "name": "Channel 5"
+      },
+      "channel_6": {
+        "name": "Channel 6"
+      }
+    }
+  }
+}

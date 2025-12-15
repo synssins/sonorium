@@ -2,135 +2,165 @@
 # Sonorium Dashboard for Home Assistant
 # =============================================================================
 #
-# This is a manual Lovelace dashboard configuration for controlling Sonorium.
+# This dashboard uses the Sonorium custom integration which creates
+# media_player entities for each channel.
+#
+# PREREQUISITES:
+# 1. Install the Sonorium custom integration from ha_integration/custom_components/
+# 2. Configure the integration with your Sonorium host/port
 #
 # INSTALLATION:
-# 1. Copy this file to your Home Assistant config directory
-# 2. In HA, go to Settings > Dashboards > Add Dashboard
-# 3. Choose "New dashboard from scratch" with YAML mode
-# 4. Paste the contents of this file (or use !include dashboard.yaml)
-#
-# CONFIGURATION:
-# - Replace YOUR_SONORIUM_URL with your actual Sonorium URL
-#   (typically http://homeassistant.local:8009 or http://YOUR_HA_IP:8009)
+# 1. In HA, go to Settings > Dashboards > Add Dashboard
+# 2. Choose "New dashboard from scratch" with YAML mode
+# 3. Paste this content (or use !include dashboard.yaml)
 #
 # =============================================================================
 
 title: Sonorium
 views:
-  - title: Ambient Sound
-    path: ambient
+  # ============================================
+  # Channel Control View
+  # ============================================
+  - title: Channels
+    path: channels
     icon: mdi:music-circle
-    type: sections
-    sections:
-      # --------------------------------------------------
-      # Main Control Panel - Embedded Sonorium UI
-      # --------------------------------------------------
-      - type: grid
+    cards:
+      # Header
+      - type: markdown
+        content: |
+          # Sonorium Channels
+          Control ambient soundscapes by channel
+
+      # Channel 1
+      - type: media-control
+        entity: media_player.sonorium_channel_1
+
+      # Channel 2
+      - type: media-control
+        entity: media_player.sonorium_channel_2
+
+      # Channel 3
+      - type: media-control
+        entity: media_player.sonorium_channel_3
+
+      # Channel 4
+      - type: media-control
+        entity: media_player.sonorium_channel_4
+
+      # Channel 5
+      - type: media-control
+        entity: media_player.sonorium_channel_5
+
+      # Channel 6
+      - type: media-control
+        entity: media_player.sonorium_channel_6
+
+  # ============================================
+  # Compact Grid View
+  # ============================================
+  - title: Grid
+    path: grid
+    icon: mdi:view-grid
+    cards:
+      - type: markdown
+        content: |
+          # Channel Status
+
+      - type: glance
+        title: Active Channels
+        entities:
+          - entity: media_player.sonorium_channel_1
+            name: Ch 1
+          - entity: media_player.sonorium_channel_2
+            name: Ch 2
+          - entity: media_player.sonorium_channel_3
+            name: Ch 3
+          - entity: media_player.sonorium_channel_4
+            name: Ch 4
+          - entity: media_player.sonorium_channel_5
+            name: Ch 5
+          - entity: media_player.sonorium_channel_6
+            name: Ch 6
+
+      # Quick control buttons
+      - type: horizontal-stack
         cards:
-          - type: iframe
-            title: Sonorium Control Panel
-            url: "http://homeassistant.local:8009"
-            aspect_ratio: "16:10"
+          - type: button
+            name: Stop Ch1
+            icon: mdi:stop
+            tap_action:
+              action: call-service
+              service: media_player.media_stop
+              target:
+                entity_id: media_player.sonorium_channel_1
 
-      # --------------------------------------------------
-      # Quick Controls (Optional - requires REST commands)
-      # --------------------------------------------------
-      # Uncomment and configure the section below if you want
-      # dedicated buttons outside of the iframe.
-      #
-      # First, add these to your configuration.yaml:
-      #
-      # rest_command:
-      #   sonorium_play:
-      #     url: "http://homeassistant.local:8009/v2/sessions/{{ session_id }}/play"
-      #     method: POST
-      #     content_type: "application/json"
-      #     payload: '{"theme_id": "{{ theme_id }}"}'
-      #   sonorium_stop:
-      #     url: "http://homeassistant.local:8009/v2/sessions/{{ session_id }}/stop"
-      #     method: POST
-      #   sonorium_stop_all:
-      #     url: "http://homeassistant.local:8009/v2/sessions/stop-all"
-      #     method: POST
-      #
-      # - type: grid
-      #   cards:
-      #     - type: button
-      #       name: Stop All
-      #       icon: mdi:stop
-      #       tap_action:
-      #         action: call-service
-      #         service: rest_command.sonorium_stop_all
-      #       hold_action:
-      #         action: none
+          - type: button
+            name: Stop Ch2
+            icon: mdi:stop
+            tap_action:
+              action: call-service
+              service: media_player.media_stop
+              target:
+                entity_id: media_player.sonorium_channel_2
 
----
-# =============================================================================
-# ALTERNATIVE: Multi-View Dashboard with Per-Room Controls
-# =============================================================================
-# If you prefer separate views for different rooms/zones, use this structure:
-#
-# title: Sonorium
-# views:
-#   - title: Overview
-#     path: overview
-#     icon: mdi:home
-#     cards:
-#       - type: iframe
-#         url: "http://homeassistant.local:8009"
-#         aspect_ratio: "16:9"
-#
-#   - title: Bedroom
-#     path: bedroom
-#     icon: mdi:bed
-#     cards:
-#       - type: vertical-stack
-#         cards:
-#           - type: markdown
-#             content: "## Bedroom Ambient Sound"
-#           - type: iframe
-#             url: "http://homeassistant.local:8009"
-#             aspect_ratio: "4:3"
-#
-#   - title: Office
-#     path: office
-#     icon: mdi:desk
-#     cards:
-#       - type: vertical-stack
-#         cards:
-#           - type: markdown
-#             content: "## Office Ambient Sound"
-#           - type: iframe
-#             url: "http://homeassistant.local:8009"
-#             aspect_ratio: "4:3"
+          - type: button
+            name: Stop All
+            icon: mdi:stop-circle
+            tap_action:
+              action: call-service
+              service: media_player.media_stop
+              target:
+                entity_id:
+                  - media_player.sonorium_channel_1
+                  - media_player.sonorium_channel_2
+                  - media_player.sonorium_channel_3
+                  - media_player.sonorium_channel_4
+                  - media_player.sonorium_channel_5
+                  - media_player.sonorium_channel_6
+
+  # ============================================
+  # Embedded Web UI
+  # ============================================
+  - title: Full UI
+    path: full
+    icon: mdi:web
+    cards:
+      - type: iframe
+        url: "http://homeassistant.local:8009"
+        aspect_ratio: "16:9"
+        title: Sonorium Control Panel
 
 ---
 # =============================================================================
-# ALTERNATIVE: Compact Card for Existing Dashboard
+# ALTERNATIVE: Mini Player Cards
 # =============================================================================
-# Add this card to any existing dashboard for quick Sonorium access:
+# For a more compact view, use mini-media-player (HACS custom card):
 #
-# type: vertical-stack
-# cards:
-#   - type: markdown
-#     content: |
-#       ## 🎵 Sonorium
-#       Ambient soundscapes for your home
-#   - type: iframe
-#     url: "http://homeassistant.local:8009"
-#     aspect_ratio: "16:9"
+# - type: custom:mini-media-player
+#   entity: media_player.sonorium_channel_1
+#   name: Channel 1
+#   artwork: none
+#   source: icon
+#   sound_mode: icon
+#   info: short
 
 ---
 # =============================================================================
-# ALTERNATIVE: Button to Open Sonorium in New Tab
+# EXAMPLE: Theme Selection Service Calls
 # =============================================================================
-# If you prefer a simple button that opens Sonorium in a new browser tab:
+# To play a specific theme on a channel:
 #
-# type: button
-# name: Open Sonorium
-# icon: mdi:music-circle
-# tap_action:
-#   action: url
-#   url_path: "http://homeassistant.local:8009"
-# icon_height: 50px
+# service: media_player.select_source
+# target:
+#   entity_id: media_player.sonorium_channel_1
+# data:
+#   source: "Rain on Roof"
+#
+# Or by theme ID:
+#
+# service: media_player.play_media
+# target:
+#   entity_id: media_player.sonorium_channel_1
+# data:
+#   media_content_type: music
+#   media_content_id: "rain_roof"
