@@ -104,13 +104,10 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/categories', method=self.set_theme_categories),
 
             api.Endpoint(method_http=self.app.get, path='/api/status', method=self.status),
-
+            
             # Channel API
             api.Endpoint(method_http=self.app.get, path='/api/channels', method=self.list_channels),
             api.Endpoint(method_http=self.app.get, path='/api/channels/{channel_id}', method=self.get_channel),
-
-            # Lovelace Card
-            api.Endpoint(method_http=self.app.get, path='/lovelace/sonorium-card.js', method=self.get_lovelace_card),
         ]
         return endpoints
     
@@ -1234,22 +1231,6 @@ class ApiSonorium(api.Base):
             status_data["cycling_sessions"] = cycling_count
         
         return status_data
-
-    async def get_lovelace_card(self):
-        """Serve the Sonorium Lovelace card JavaScript file."""
-        from fastapi.responses import FileResponse
-        from pathlib import Path
-
-        card_path = Path(__file__).parent / 'web' / 'static' / 'lovelace' / 'sonorium-card.js'
-        if not card_path.exists():
-            from fastapi import HTTPException
-            raise HTTPException(status_code=404, detail="Lovelace card not found")
-
-        return FileResponse(
-            path=str(card_path),
-            media_type='application/javascript',
-            filename='sonorium-card.js'
-        )
 
 
 if __name__ == '__main__':
