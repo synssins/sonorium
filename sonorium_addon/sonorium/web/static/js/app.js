@@ -2610,7 +2610,8 @@ function importThemeZip() {
 
             const result = await response.json();
 
-            // Refresh themes list
+            // Trigger backend theme refresh then reload UI
+            await api('POST', '/themes/refresh');
             await loadThemes();
             renderThemesBrowser();
 
