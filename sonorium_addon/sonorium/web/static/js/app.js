@@ -17,6 +17,9 @@ let selectedSpeakers = {
 };
 let currentView = 'sessions';
 
+// Preset cache for session cards (theme_id -> presets array)
+let sessionPresetsCache = {};
+
 async function init() {
     console.log('Sonorium init() starting...');
     console.log('BASE_PATH:', BASE_PATH);
@@ -57,6 +60,8 @@ async function loadVersion() {
 // Data Loading
 async function loadSessions() {
     sessions = await api('GET', '/sessions');
+    // Load presets for all themes used by sessions
+    await loadAllSessionPresets();
 }
 
 async function loadThemes() {
@@ -252,6 +257,10 @@ function renderSessionCard(session) {
     const icon = getThemeIcon(session.theme_id);
     const isPlaying = session.is_playing;
 
+    // Get presets for this session's theme (cached or empty)
+    const sessionPresets = sessionPresetsCache[session.theme_id] || [];
+    const hasPresets = sessionPresets.length > 0;
+
     return `
         <div class="session-card ${isPlaying ? 'playing' : ''}" data-session-id="${session.id}">
             <div class="session-header">
@@ -273,6 +282,22 @@ function renderSessionCard(session) {
                             ${escapeHtml(t.name)}
                         </option>
                     `).join('')}
+                </select>
+            </div>
+
+            <div class="session-field session-preset-field" data-session-id="${session.id}" style="${session.theme_id ? '' : 'display:none;'}">
+                <label>Preset</label>
+                <select onchange="updateSessionPreset('${session.id}', this.value)" ${!hasPresets ? 'disabled' : ''}>
+                    ${hasPresets ? `
+                        <option value="">Default settings</option>
+                        ${sessionPresets.map(p => `
+                            <option value="${p.id}" ${session.preset_id === p.id ? 'selected' : ''}>
+                                ${escapeHtml(p.name)}${p.is_default ? ' ★' : ''}
+                            </option>
+                        `).join('')}
+                    ` : `
+                        <option value="">No presets available</option>
+                    `}
                 </select>
             </div>
 
@@ -532,12 +557,49 @@ async function togglePlayback(sessionId) {
 
 async function updateSessionTheme(sessionId, themeId) {
     try {
-        await api('PUT', `/sessions/${sessionId}`, { theme_id: themeId });
+        // Clear preset when theme changes
+        await api('PUT', `/sessions/${sessionId}`, { theme_id: themeId, preset_id: null });
+        // Load presets for the new theme
+        if (themeId) {
+            await loadPresetsForTheme(themeId);
+        }
         await loadSessions();
+        renderSessions();
         showToast('Theme updated', 'success');
     } catch (error) {
         showToast(error.message, 'error');
     }
+}
+
+async function updateSessionPreset(sessionId, presetId) {
+    try {
+        await api('PUT', `/sessions/${sessionId}`, { preset_id: presetId || null });
+        // Update local session state
+        const session = sessions.find(s => s.id === sessionId);
+        if (session) {
+            session.preset_id = presetId || null;
+        }
+        showToast(presetId ? 'Preset applied' : 'Using default settings', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+async function loadPresetsForTheme(themeId) {
+    if (!themeId || sessionPresetsCache[themeId]) return;
+    try {
+        const result = await api('GET', `/themes/${themeId}/presets`);
+        sessionPresetsCache[themeId] = result.presets || [];
+    } catch (error) {
+        console.error(`Failed to load presets for theme ${themeId}:`, error);
+        sessionPresetsCache[themeId] = [];
+    }
+}
+
+async function loadAllSessionPresets() {
+    // Load presets for all themes used by sessions
+    const themeIds = [...new Set(sessions.filter(s => s.theme_id).map(s => s.theme_id))];
+    await Promise.all(themeIds.map(loadPresetsForTheme));
 }
 
 async function updateSessionVolume(sessionId, volume) {
