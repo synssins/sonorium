@@ -1360,6 +1360,23 @@ class ApiSonorium(api.Base):
 
     async def list_presets(self, theme_id: str):
         """List all presets for a theme."""
+        _, theme_folder = self._get_theme_by_id(theme_id)
+
+        # Use metadata manager if available (preferred path)
+        if self._theme_metadata_manager and theme_folder:
+            metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata_obj:
+                result = []
+                for preset_id, preset_data in metadata_obj.presets.items():
+                    result.append({
+                        "id": preset_id,
+                        "name": preset_data.get("name", preset_id),
+                        "is_default": preset_data.get("is_default", False),
+                        "track_count": len(preset_data.get("tracks", {})),
+                    })
+                return {"theme_id": theme_id, "presets": result}
+
+        # Fallback to direct file I/O
         metadata = self._read_theme_metadata(theme_id)
         presets = metadata.get("presets", {})
 
@@ -1379,7 +1396,7 @@ class ApiSonorium(api.Base):
         import re
 
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
-        theme, _ = self._get_theme_by_id(theme_id)
+        theme, theme_folder = self._get_theme_by_id(theme_id)
         if not theme:
             raise HTTPException(status_code=404, detail="Theme not found")
 
@@ -1397,7 +1414,41 @@ class ApiSonorium(api.Base):
         if not preset_id:
             preset_id = "preset"
 
-        # Read existing metadata
+        # Capture current settings from live theme instances
+        tracks = self._get_current_track_settings(theme_id)
+
+        # Use metadata manager if available (preferred path)
+        if self._theme_metadata_manager and theme_folder:
+            metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata_obj:
+                # Ensure unique ID
+                base_id = preset_id
+                counter = 1
+                while preset_id in metadata_obj.presets:
+                    preset_id = f"{base_id}_{counter}"
+                    counter += 1
+
+                # Check if this should be default (first preset)
+                is_default = len(metadata_obj.presets) == 0
+
+                metadata_obj.presets[preset_id] = {
+                    "name": name,
+                    "is_default": is_default,
+                    "tracks": tracks,
+                }
+
+                # Save via metadata manager (updates cache and file)
+                if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
+                    raise HTTPException(status_code=500, detail="Failed to save preset")
+
+                return {
+                    "status": "ok",
+                    "preset_id": preset_id,
+                    "name": name,
+                    "is_default": is_default,
+                }
+
+        # Fallback to direct file I/O (legacy path)
         metadata = self._read_theme_metadata(theme_id)
         if "presets" not in metadata:
             metadata["presets"] = {}
@@ -1408,9 +1459,6 @@ class ApiSonorium(api.Base):
         while preset_id in metadata["presets"]:
             preset_id = f"{base_id}_{counter}"
             counter += 1
-
-        # Capture current settings
-        tracks = self._get_current_track_settings(theme_id)
 
         # Check if this should be default (first preset)
         is_default = len(metadata["presets"]) == 0
@@ -1433,6 +1481,31 @@ class ApiSonorium(api.Base):
 
     async def load_preset(self, theme_id: str, preset_id: str):
         """Load a preset and apply its settings to the theme."""
+        theme, theme_folder = self._get_theme_by_id(theme_id)
+        if not theme:
+            raise HTTPException(status_code=404, detail="Theme not found")
+
+        # Use metadata manager if available (preferred path)
+        if self._theme_metadata_manager and theme_folder:
+            metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata_obj:
+                if preset_id not in metadata_obj.presets:
+                    raise HTTPException(status_code=404, detail="Preset not found")
+
+                preset = metadata_obj.presets[preset_id]
+                tracks = preset.get("tracks", {})
+
+                if not self._apply_preset_to_theme(theme_id, tracks):
+                    raise HTTPException(status_code=500, detail="Failed to apply preset")
+
+                return {
+                    "status": "ok",
+                    "preset_id": preset_id,
+                    "name": preset.get("name", preset_id),
+                    "tracks_applied": len(tracks),
+                }
+
+        # Fallback to direct file I/O
         metadata = self._read_theme_metadata(theme_id)
         presets = metadata.get("presets", {})
 
@@ -1455,23 +1528,45 @@ class ApiSonorium(api.Base):
     async def update_preset(self, theme_id: str, preset_id: str):
         """Update an existing preset with current track settings."""
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
-        theme, _ = self._get_theme_by_id(theme_id)
+        theme, theme_folder = self._get_theme_by_id(theme_id)
         if not theme:
             raise HTTPException(status_code=404, detail="Theme not found")
 
+        # Use metadata manager to get cached metadata (avoids cache inconsistency)
+        if self._theme_metadata_manager and theme_folder:
+            metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata_obj:
+                if preset_id not in metadata_obj.presets:
+                    raise HTTPException(status_code=404, detail="Preset not found")
+
+                # Capture current settings from live theme instances
+                tracks = self._get_current_track_settings(theme_id)
+
+                # Update the preset's tracks while preserving name and is_default
+                metadata_obj.presets[preset_id]["tracks"] = tracks
+
+                # Save via metadata manager (updates cache and file)
+                if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
+                    raise HTTPException(status_code=500, detail="Failed to update preset")
+
+                return {
+                    "status": "ok",
+                    "preset_id": preset_id,
+                    "name": metadata_obj.presets[preset_id].get("name", preset_id),
+                    "tracks_updated": len(tracks),
+                }
+
+        # Fallback to direct file I/O (legacy path)
         metadata = self._read_theme_metadata(theme_id)
         presets = metadata.get("presets", {})
 
         if preset_id not in presets:
             raise HTTPException(status_code=404, detail="Preset not found")
 
-        # Capture current settings
         tracks = self._get_current_track_settings(theme_id)
-
-        # Update the preset's tracks while preserving name and is_default
         presets[preset_id]["tracks"] = tracks
-
         metadata["presets"] = presets
+
         if not self._write_theme_metadata(theme_id, metadata):
             raise HTTPException(status_code=500, detail="Failed to update preset")
 
@@ -1484,6 +1579,29 @@ class ApiSonorium(api.Base):
 
     async def delete_preset(self, theme_id: str, preset_id: str):
         """Delete a preset."""
+        theme, theme_folder = self._get_theme_by_id(theme_id)
+
+        # Use metadata manager if available (preferred path)
+        if self._theme_metadata_manager and theme_folder:
+            metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata_obj:
+                if preset_id not in metadata_obj.presets:
+                    raise HTTPException(status_code=404, detail="Preset not found")
+
+                was_default = metadata_obj.presets[preset_id].get("is_default", False)
+                del metadata_obj.presets[preset_id]
+
+                # If we deleted the default, make the first remaining preset default
+                if was_default and metadata_obj.presets:
+                    first_key = next(iter(metadata_obj.presets))
+                    metadata_obj.presets[first_key]["is_default"] = True
+
+                if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
+                    raise HTTPException(status_code=500, detail="Failed to save changes")
+
+                return {"status": "ok", "preset_id": preset_id}
+
+        # Fallback to direct file I/O
         metadata = self._read_theme_metadata(theme_id)
         presets = metadata.get("presets", {})
 
@@ -1506,6 +1624,25 @@ class ApiSonorium(api.Base):
 
     async def set_default_preset(self, theme_id: str, preset_id: str):
         """Set a preset as the default for this theme."""
+        theme, theme_folder = self._get_theme_by_id(theme_id)
+
+        # Use metadata manager if available (preferred path)
+        if self._theme_metadata_manager and theme_folder:
+            metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata_obj:
+                if preset_id not in metadata_obj.presets:
+                    raise HTTPException(status_code=404, detail="Preset not found")
+
+                # Clear existing default and set new one
+                for pid, pdata in metadata_obj.presets.items():
+                    pdata["is_default"] = (pid == preset_id)
+
+                if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
+                    raise HTTPException(status_code=500, detail="Failed to save changes")
+
+                return {"status": "ok", "preset_id": preset_id, "is_default": True}
+
+        # Fallback to direct file I/O
         metadata = self._read_theme_metadata(theme_id)
         presets = metadata.get("presets", {})
 
@@ -1595,7 +1732,43 @@ class ApiSonorium(api.Base):
         if not preset_id:
             preset_id = "imported"
 
-        # Read existing metadata and ensure unique ID
+        # Get theme folder for metadata manager
+        _, theme_folder = self._get_theme_by_id(theme_id)
+
+        # Use metadata manager if available (preferred path)
+        if self._theme_metadata_manager and theme_folder:
+            metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata_obj:
+                # Ensure unique ID
+                base_id = preset_id
+                counter = 1
+                while preset_id in metadata_obj.presets:
+                    preset_id = f"{base_id}_{counter}"
+                    counter += 1
+
+                # Save preset
+                metadata_obj.presets[preset_id] = {
+                    "name": imported_name,
+                    "is_default": False,
+                    "tracks": validated_tracks,
+                }
+
+                if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
+                    raise HTTPException(status_code=500, detail="Failed to save preset")
+
+                result = {
+                    "status": "ok",
+                    "preset_id": preset_id,
+                    "name": imported_name,
+                    "tracks_imported": len(validated_tracks),
+                }
+                if unknown_tracks:
+                    result["unknown_tracks"] = unknown_tracks
+                    result["warning"] = f"{len(unknown_tracks)} track(s) not found in theme"
+
+                return result
+
+        # Fallback to direct file I/O
         metadata = self._read_theme_metadata(theme_id)
         if "presets" not in metadata:
             metadata["presets"] = {}
@@ -1630,6 +1803,22 @@ class ApiSonorium(api.Base):
 
     async def export_preset(self, theme_id: str, preset_id: str):
         """Export a preset as JSON for sharing."""
+        _, theme_folder = self._get_theme_by_id(theme_id)
+
+        # Use metadata manager if available (preferred path)
+        if self._theme_metadata_manager and theme_folder:
+            metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata_obj:
+                if preset_id not in metadata_obj.presets:
+                    raise HTTPException(status_code=404, detail="Preset not found")
+
+                preset = metadata_obj.presets[preset_id]
+                return {
+                    "name": preset.get("name", preset_id),
+                    "tracks": preset.get("tracks", {}),
+                }
+
+        # Fallback to direct file I/O
         metadata = self._read_theme_metadata(theme_id)
         presets = metadata.get("presets", {})
 
@@ -1696,6 +1885,28 @@ class ApiSonorium(api.Base):
         if not new_name:
             raise HTTPException(status_code=400, detail="Name is required")
 
+        _, theme_folder = self._get_theme_by_id(theme_id)
+
+        # Use metadata manager if available (preferred path)
+        if self._theme_metadata_manager and theme_folder:
+            metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata_obj:
+                if preset_id not in metadata_obj.presets:
+                    raise HTTPException(status_code=404, detail="Preset not found")
+
+                # Update the name
+                metadata_obj.presets[preset_id]["name"] = new_name
+
+                if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
+                    raise HTTPException(status_code=500, detail="Failed to save changes")
+
+                return {
+                    "status": "ok",
+                    "preset_id": preset_id,
+                    "name": new_name,
+                }
+
+        # Fallback to direct file I/O
         metadata = self._read_theme_metadata(theme_id)
         presets = metadata.get("presets", {})
 
