@@ -333,7 +333,43 @@ function getThemeIcon(themeId) {
         'birds': '🐦',
         'night': '🌙',
         'cafe': '☕',
-        'city': '🏙️'
+        'city': '🏙️',
+        'christmas': '🎄',
+        'fantasy': '🐉',
+        'tavern': '🍺',
+        'inn': '🍺',
+        'pub': '🍺',
+        'winter': '❄️',
+        'snow': '❄️',
+        'beach': '🏖️',
+        'space': '🚀',
+        'medieval': '🏰',
+        'castle': '🏰',
+        'dungeon': '⚔️',
+        'battle': '⚔️',
+        'library': '📚',
+        'study': '📚',
+        'garden': '🌸',
+        'spring': '🌸',
+        'summer': '☀️',
+        'autumn': '🍂',
+        'fall': '🍂',
+        'halloween': '🎃',
+        'spooky': '👻',
+        'horror': '👻',
+        'train': '🚂',
+        'jazz': '🎷',
+        'piano': '🎹',
+        'meditation': '🧘',
+        'zen': '🧘',
+        'spa': '💆',
+        'waterfall': '💧',
+        'river': '🏞️',
+        'stream': '🏞️',
+        'mountain': '🏔️',
+        'desert': '🏜️',
+        'jungle': '🌴',
+        'tropical': '🌴'
     };
     if (!themeId) return '🎵';
     const lower = themeId.toLowerCase();
@@ -341,6 +377,63 @@ function getThemeIcon(themeId) {
         if (lower.includes(key)) return icon;
     }
     return '🎵';
+}
+
+// Convert MDI icon names to emojis, or use fallback
+function resolveThemeIcon(iconValue, themeId) {
+    // If no icon value, use theme ID lookup
+    if (!iconValue) {
+        return getThemeIcon(themeId);
+    }
+    // If it's an MDI icon string, convert to emoji or use fallback
+    if (typeof iconValue === 'string' && iconValue.startsWith('mdi:')) {
+        const mdiToEmoji = {
+            'mdi:music': '🎵',
+            'mdi:music-note': '🎵',
+            'mdi:music-circle': '🎵',
+            'mdi:weather-rainy': '🌧️',
+            'mdi:pine-tree': '🌲',
+            'mdi:tree': '🌲',
+            'mdi:waves': '🌊',
+            'mdi:fire': '🔥',
+            'mdi:weather-lightning': '⛈️',
+            'mdi:weather-windy': '💨',
+            'mdi:bird': '🐦',
+            'mdi:moon-waning-crescent': '🌙',
+            'mdi:weather-night': '🌙',
+            'mdi:coffee': '☕',
+            'mdi:city': '🏙️',
+            'mdi:snowflake': '❄️',
+            'mdi:beach': '🏖️',
+            'mdi:castle': '🏰',
+            'mdi:sword': '⚔️',
+            'mdi:book': '📚',
+            'mdi:flower': '🌸',
+            'mdi:white-balance-sunny': '☀️',
+            'mdi:leaf': '🍂',
+            'mdi:pumpkin': '🎃',
+            'mdi:ghost': '👻',
+            'mdi:train': '🚂',
+            'mdi:saxophone': '🎷',
+            'mdi:piano': '🎹',
+            'mdi:meditation': '🧘',
+            'mdi:spa': '💆',
+            'mdi:water': '💧',
+            'mdi:image-filter-hdr': '🏔️',
+            'mdi:cactus': '🏜️',
+            'mdi:palm-tree': '🌴',
+            'mdi:glass-mug-variant': '🍺',
+            'mdi:beer': '🍺',
+            'mdi:dragon': '🐉',
+            'mdi:pine-tree-box': '🎄'
+        };
+        const emoji = mdiToEmoji[iconValue];
+        if (emoji) return emoji;
+        // Fallback: try theme ID lookup, then default
+        return getThemeIcon(themeId);
+    }
+    // If it's already an emoji or other string, use it directly
+    return iconValue;
 }
 
 async function togglePlayback(sessionId) {
@@ -847,7 +940,7 @@ function renderThemeCard(theme) {
     return `
     <div class="theme-browser-card ${!hasAudio ? 'no-audio' : ''}">
         <div class="theme-browser-card-header">
-            <div class="theme-browser-icon">${theme.icon || getThemeIcon(theme.id)}</div>
+            <div class="theme-browser-icon">${resolveThemeIcon(theme.icon, theme.id)}</div>
             <div class="theme-browser-content">
                 <div class="theme-browser-header">
                     <span class="theme-browser-name">${escapeHtml(theme.name)}</span>
