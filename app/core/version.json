@@ -1,0 +1,25 @@
+{
+  "version": "1.0.0",
+  "release_date": "2025-12-17",
+  "min_launcher_version": "1.0.0",
+  "changelog": "- Initial release of standalone Sonorium application\n- Multi-zone ambient soundscape mixing\n- Network speaker support (Chromecast, Sonos, DLNA)\n- Theme import/export\n- Preset management",
+  "files": [
+    {"path": "sonorium/__init__.py", "hash": null},
+    {"path": "sonorium/main.py", "hash": null},
+    {"path": "sonorium/app_device.py", "hash": null},
+    {"path": "sonorium/audio_output.py", "hash": null},
+    {"path": "sonorium/config.py", "hash": null},
+    {"path": "sonorium/network_speakers.py", "hash": null},
+    {"path": "sonorium/obs.py", "hash": null},
+    {"path": "sonorium/recording.py", "hash": null},
+    {"path": "sonorium/streaming.py", "hash": null},
+    {"path": "sonorium/theme.py", "hash": null},
+    {"path": "sonorium/update.py", "hash": null},
+    {"path": "sonorium/web_api.py", "hash": null},
+    {"path": "web/templates/index.html", "hash": null},
+    {"path": "web/static/css/styles.css", "hash": null},
+    {"path": "web/static/js/app.js", "hash": null},
+    {"path": "web/static/js/api.js", "hash": null}
+  ],
+  "signature": null
+}

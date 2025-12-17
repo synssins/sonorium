@@ -1,0 +1,22 @@
+{
+  "id": "mynoise",
+  "name": "MyNoise Importer",
+  "version": "1.0.0",
+  "description": "Import soundscapes from MyNoise.net by parsing PHP audio sources",
+  "author": "Sonorium",
+  "entry_point": "plugin.py",
+  "plugin_class": "MyNoisePlugin",
+  "settings_schema": {
+    "auto_create_metadata": {
+      "type": "boolean",
+      "default": true,
+      "label": "Auto-create metadata.json"
+    },
+    "preferred_format": {
+      "type": "string",
+      "default": "ogg",
+      "label": "Preferred audio format (ogg, mp3, wav)"
+    }
+  },
+  "ui_type": "form"
+}

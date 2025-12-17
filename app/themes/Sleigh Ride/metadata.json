@@ -1,0 +1,195 @@
+{
+  "id": "ee0bfdea-631f-4dd1-a2b1-8c01f15c9900",
+  "name": "Sleigh Ride",
+  "description": "It's lovely weather for a sleigh ride together...",
+  "icon": "",
+  "is_favorite": true,
+  "categories": [
+    "Christmas"
+  ],
+  "short_file_threshold": 15.0,
+  "tracks": {
+    "Snow_falling__on_umbrella_7459": {
+      "presence": 1.0,
+      "muted": true,
+      "volume": 1.0,
+      "playback_mode": "auto",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "Horse_Whinnies_2858": {
+      "presence": 0.53,
+      "muted": false,
+      "volume": 0.74,
+      "playback_mode": "sparse",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "Jingle_Bells_2802": {
+      "presence": 0.1,
+      "muted": true,
+      "volume": 1.0,
+      "playback_mode": "sparse",
+      "seamless_loop": true,
+      "exclusive": true
+    },
+    "Christmas_bells_11049": {
+      "presence": 0.75,
+      "muted": false,
+      "volume": 0.65,
+      "playback_mode": "continuous",
+      "seamless_loop": true,
+      "exclusive": true
+    },
+    "Amish_carriages_at_night_2570": {
+      "presence": 0.31,
+      "muted": true,
+      "volume": 1.0,
+      "playback_mode": "sparse",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "Single_Horse_Carriage_7981": {
+      "presence": 0.86,
+      "muted": false,
+      "volume": 1.0,
+      "playback_mode": "continuous",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "light_snow_11298": {
+      "presence": 1.0,
+      "muted": true,
+      "volume": 1.0,
+      "playback_mode": "auto",
+      "seamless_loop": false,
+      "exclusive": false
+    }
+  },
+  "presets": {
+    "just_the_ride": {
+      "name": "Just the ride",
+      "is_default": true,
+      "tracks": {
+        "Snow_falling__on_umbrella_7459": {
+          "volume": 1.0,
+          "presence": 1.0,
+          "playback_mode": "auto",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": false
+        },
+        "Horse_Whinnies_2858": {
+          "volume": 0.74,
+          "presence": 0.53,
+          "playback_mode": "sparse",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": false
+        },
+        "Jingle_Bells_2802": {
+          "volume": 1.0,
+          "presence": 0.1,
+          "playback_mode": "sparse",
+          "seamless_loop": true,
+          "exclusive": true,
+          "muted": true
+        },
+        "Christmas_bells_11049": {
+          "volume": 0.65,
+          "presence": 0.75,
+          "playback_mode": "continuous",
+          "seamless_loop": true,
+          "exclusive": false,
+          "muted": false
+        },
+        "Amish_carriages_at_night_2570": {
+          "volume": 1.0,
+          "presence": 0.31,
+          "playback_mode": "sparse",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": false
+        },
+        "Single_Horse_Carriage_7981": {
+          "volume": 1.0,
+          "presence": 0.86,
+          "playback_mode": "continuous",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": false
+        },
+        "light_snow_11298": {
+          "volume": 1.0,
+          "presence": 1.0,
+          "playback_mode": "auto",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": false
+        }
+      }
+    },
+    "testing": {
+      "name": "Caroling in the sleigh",
+      "is_default": false,
+      "tracks": {
+        "Snow_falling__on_umbrella_7459": {
+          "volume": 1.0,
+          "presence": 1.0,
+          "playback_mode": "auto",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": true
+        },
+        "Horse_Whinnies_2858": {
+          "volume": 0.74,
+          "presence": 0.53,
+          "playback_mode": "sparse",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": false
+        },
+        "Jingle_Bells_2802": {
+          "volume": 1.0,
+          "presence": 0.1,
+          "playback_mode": "sparse",
+          "seamless_loop": true,
+          "exclusive": false,
+          "muted": false
+        },
+        "Christmas_bells_11049": {
+          "volume": 0.65,
+          "presence": 0.75,
+          "playback_mode": "continuous",
+          "seamless_loop": true,
+          "exclusive": true,
+          "muted": false
+        },
+        "Amish_carriages_at_night_2570": {
+          "volume": 1.0,
+          "presence": 0.31,
+          "playback_mode": "sparse",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": false
+        },
+        "Single_Horse_Carriage_7981": {
+          "volume": 1.0,
+          "presence": 0.86,
+          "playback_mode": "continuous",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": false
+        },
+        "light_snow_11298": {
+          "volume": 1.0,
+          "presence": 1.0,
+          "playback_mode": "auto",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": true
+        }
+      }
+    }
+  }
+}

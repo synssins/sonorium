@@ -1,0 +1,861 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonorium</title>
+    <script>
+        // Determine base path for ingress support and store globally
+        (function() {
+            var path = window.location.pathname;
+            window.SONORIUM_BASE = path.replace(/\/?(index\.html)?$/, '') || '';
+
+            // Dynamically load CSS with correct path
+            var link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = window.SONORIUM_BASE + '/static/css/styles.css';
+            document.head.appendChild(link);
+        })();
+    </script>
+</head>
+<body>
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <img id="sidebar-logo-img" src="" alt="Sonorium">
+                <script>document.getElementById('sidebar-logo-img').src = (window.SONORIUM_BASE || '') + '/logo.png';</script>
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Playback</div>
+                <div class="nav-item active" onclick="showView('sessions')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"/>
+                        <rect x="14" y="3" width="7" height="7"/>
+                        <rect x="14" y="14" width="7" height="7"/>
+                        <rect x="3" y="14" width="7" height="7"/>
+                    </svg>
+                    <span>Channels</span>
+                    <span id="playing-badge" class="nav-item-badge" style="display: none;">0</span>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Configuration</div>
+                <div class="nav-item" onclick="showView('themes')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 18V5l12-2v13"/>
+                        <circle cx="6" cy="18" r="3"/>
+                        <circle cx="18" cy="16" r="3"/>
+                    </svg>
+                    <span>Themes</span>
+                </div>
+            </div>
+
+            <div class="nav-section" id="settings-nav-section">
+                <div class="nav-section-header" onclick="toggleNavSection('settings-nav-section')">
+                    <div class="nav-section-left">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"/>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                        </svg>
+                        <span>Settings</span>
+                    </div>
+                    <svg class="nav-section-toggle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                </div>
+                <div class="nav-sub-items">
+                    <div class="nav-sub-item" onclick="showView('settings-audio')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
+                            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/>
+                        </svg>
+                        <span>Audio Settings</span>
+                    </div>
+                    <div class="nav-sub-item" onclick="showView('settings-speakers')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                            <circle cx="12" cy="14" r="4"/>
+                            <line x1="12" y1="6" x2="12" y2="6"/>
+                        </svg>
+                        <span>Speakers</span>
+                    </div>
+                    <div class="nav-sub-item" onclick="showView('settings-groups')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+                            <circle cx="9" cy="7" r="4"/>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                        </svg>
+                        <span>Speaker Groups</span>
+                    </div>
+                    <div class="nav-sub-item" onclick="showView('settings-plugins')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                            <path d="M2 17l10 5 10-5"/>
+                            <path d="M2 12l10 5 10-5"/>
+                        </svg>
+                        <span>Plugins</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">System</div>
+                <div class="nav-item" onclick="showView('status')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+                    </svg>
+                    <span>Status</span>
+                </div>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <span id="version-text">v...</span>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="main-wrapper">
+        <header class="main-header">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                <button class="btn btn-icon mobile-menu-btn" onclick="toggleSidebar()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="12" x2="21" y2="12"/>
+                        <line x1="3" y1="6" x2="21" y2="6"/>
+                        <line x1="3" y1="18" x2="21" y2="18"/>
+                    </svg>
+                </button>
+                <h2 id="view-title">Channels</h2>
+            </div>
+            <div class="header-actions" id="view-actions">
+                <button class="btn btn-primary" onclick="openNewSessionModal()">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"/>
+                        <line x1="5" y1="12" x2="19" y2="12"/>
+                    </svg>
+                    New Channel
+                </button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <!-- Channels View -->
+            <div id="view-sessions" class="view active">
+                <div id="sessions-container" class="session-grid">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading channels...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Themes View -->
+            <div id="view-themes" class="view">
+                <div class="themes-header">
+                    <h2>Themes</h2>
+                    <div class="themes-header-actions">
+                        <button class="btn btn-secondary" onclick="refreshThemes()" title="Rescan theme folders">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M23 4v6h-6"/>
+                                <path d="M1 20v-6h6"/>
+                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                            </svg>
+                            Refresh
+                        </button>
+                        <button class="btn btn-secondary" onclick="openCategoryCreateModal()">
+                            + Category
+                        </button>
+                        <button class="btn btn-secondary" onclick="importThemeZip()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="17 8 12 3 7 8"/>
+                                <line x1="12" y1="3" x2="12" y2="15"/>
+                            </svg>
+                            Import Theme
+                        </button>
+                        <button class="btn btn-primary" onclick="openThemeCreateModal()">
+                            + Create Theme
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Local Theme Preview Player -->
+                <div id="theme-preview-player" class="theme-preview-player" style="display: none;">
+                    <div class="preview-player-info">
+                        <span class="preview-label">Local Preview:</span>
+                        <span id="preview-theme-name" class="preview-theme-name">--</span>
+                    </div>
+                    <div class="preview-player-controls">
+                        <button id="preview-play-btn" class="preview-control-btn" onclick="toggleThemePreview()">
+                            <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                                <path d="M8 5v14l11-7z"/>
+                            </svg>
+                            <svg class="pause-icon" viewBox="0 0 24 24" fill="currentColor" width="20" height="20" style="display:none;">
+                                <rect x="6" y="4" width="4" height="16"/>
+                                <rect x="14" y="4" width="4" height="16"/>
+                            </svg>
+                        </button>
+                        <input type="range" id="preview-volume" class="preview-volume-slider"
+                               min="0" max="100" value="80"
+                               oninput="setThemePreviewVolume(this.value)">
+                        <span id="preview-volume-value" class="preview-volume-value">80%</span>
+                        <button class="preview-close-btn" onclick="closeThemePreview()" title="Close preview">
+                            &times;
+                        </button>
+                    </div>
+                </div>
+
+                <div id="themes-browser" class="themes-browser-enhanced">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading themes...
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme Edit Modal -->
+            <div id="theme-edit-modal" class="modal-backdrop" onclick="if(event.target===this) closeThemeEditModal()">
+                <div class="modal" style="min-width: 700px; max-width: 800px;">
+                    <div class="modal-header">
+                        <h3 id="theme-edit-title">Edit Theme</h3>
+                        <button class="modal-close" onclick="closeThemeEditModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-edit-form">
+                            <input type="hidden" id="theme-edit-id">
+                            <div>
+                                <label>Theme Name</label>
+                                <div class="rename-row">
+                                    <input type="text" id="theme-edit-name" placeholder="Theme name...">
+                                    <button class="btn btn-sm btn-secondary" onclick="renameTheme()">Rename</button>
+                                </div>
+                            </div>
+                            <div>
+                                <label>Icon</label>
+                                <div class="icon-picker">
+                                    <div class="icon-picker-current">
+                                        <span id="theme-edit-icon-preview" class="icon-preview">🎵</span>
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="toggleIconPicker()">Change</button>
+                                        <button type="button" class="btn btn-sm btn-secondary" onclick="clearThemeIcon()" title="Use auto-detected icon">Auto</button>
+                                    </div>
+                                    <input type="hidden" id="theme-edit-icon" value="">
+                                    <div id="icon-picker-dropdown" class="icon-picker-dropdown" style="display: none;">
+                                        <div class="icon-picker-grid" id="icon-picker-grid"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <label>Description</label>
+                                <textarea id="theme-edit-description" placeholder="Enter a description for this theme..."></textarea>
+                            </div>
+                            <div>
+                                <label>Categories</label>
+                                <div id="theme-edit-categories" class="category-checkboxes"></div>
+                                <div class="category-add-row">
+                                    <input type="text" id="theme-edit-new-category" placeholder="New category name...">
+                                    <button class="btn btn-sm btn-secondary" onclick="addNewCategoryFromEdit()">Add</button>
+                                </div>
+                            </div>
+
+                            <!-- Track Mixer Section -->
+                            <div class="track-mixer">
+                                <div class="track-mixer-header">
+                                    <h4>Track Presence <span style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(how often each track plays)</span></h4>
+                                    <button class="btn btn-sm btn-secondary track-mixer-reset" onclick="resetTrackMixer()" title="Reset all tracks to default">
+                                        Reset All
+                                    </button>
+                                </div>
+                                <!-- Preset Bar -->
+                                <div class="preset-bar">
+                                    <div class="preset-select-group">
+                                        <label for="preset-select">Preset:</label>
+                                        <select id="preset-select" onchange="onPresetSelectChange(this.value)">
+                                            <option value="">-- Current Settings --</option>
+                                        </select>
+                                        <button class="btn btn-sm btn-icon" onclick="loadSelectedPreset()" title="Load preset">
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
+                                        </button>
+                                        <button class="btn btn-sm btn-icon" onclick="setPresetAsDefault()" title="Set as default" id="preset-default-btn" style="display: none;">
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
+                                        </button>
+                                        <button class="btn btn-sm btn-icon" onclick="showRenamePresetModal()" title="Rename preset" id="preset-rename-btn" style="display: none;">
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
+                                        </button>
+                                        <button class="btn btn-sm btn-icon btn-danger" onclick="deleteSelectedPreset()" title="Delete preset" id="preset-delete-btn" style="display: none;">
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                                        </button>
+                                        <button class="btn btn-sm btn-icon btn-success" onclick="updateSelectedPreset()" title="Update preset with current settings" id="preset-update-btn" style="display: none;">
+                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
+                                        </button>
+                                    </div>
+                                    <div class="preset-actions">
+                                        <button class="btn btn-sm btn-secondary" onclick="saveCurrentAsPreset()">Save As...</button>
+                                        <button class="btn btn-sm btn-secondary" onclick="showImportPresetModal()">Import</button>
+                                        <button class="btn btn-sm btn-secondary" onclick="exportSelectedPreset()" id="preset-export-btn" style="display: none;">Export</button>
+                                    </div>
+                                </div>
+                                <div id="track-mixer-list" class="track-list">
+                                    <div class="track-mixer-empty">Loading tracks...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="exportThemeZip()" style="margin-right: auto;">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                                <polyline points="7 10 12 15 17 10"/>
+                                <line x1="12" y1="15" x2="12" y2="3"/>
+                            </svg>
+                            Export Theme
+                        </button>
+                        <button class="btn btn-secondary" onclick="closeThemeEditModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="saveThemeMetadata()">Save</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Theme Create Modal -->
+            <div id="theme-create-modal" class="modal-backdrop" onclick="if(event.target===this) closeThemeCreateModal()">
+                <div class="modal" style="max-width: 700px;">
+                    <div class="modal-header">
+                        <h3>Create New Theme</h3>
+                        <button class="modal-close" onclick="closeThemeCreateModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label for="theme-create-name">Theme Name *</label>
+                                <input type="text" id="theme-create-name" placeholder="e.g., Rain Forest, Ocean Waves, Coffee Shop...">
+                            </div>
+                            <div>
+                                <label for="theme-create-description">Description</label>
+                                <textarea id="theme-create-description" placeholder="Describe the ambiance this theme creates..."></textarea>
+                            </div>
+                            <div>
+                                <label>Icon</label>
+                                <div class="icon-picker" id="theme-icon-picker">
+                                    <div class="icon-option selected" data-icon="🎵" onclick="selectThemeIcon(this)">🎵</div>
+                                    <div class="icon-option" data-icon="🌧️" onclick="selectThemeIcon(this)">🌧️</div>
+                                    <div class="icon-option" data-icon="🌊" onclick="selectThemeIcon(this)">🌊</div>
+                                    <div class="icon-option" data-icon="🌲" onclick="selectThemeIcon(this)">🌲</div>
+                                    <div class="icon-option" data-icon="🔥" onclick="selectThemeIcon(this)">🔥</div>
+                                    <div class="icon-option" data-icon="☕" onclick="selectThemeIcon(this)">☕</div>
+                                    <div class="icon-option" data-icon="🌙" onclick="selectThemeIcon(this)">🌙</div>
+                                    <div class="icon-option" data-icon="⛈️" onclick="selectThemeIcon(this)">⛈️</div>
+                                    <div class="icon-option" data-icon="🏙️" onclick="selectThemeIcon(this)">🏙️</div>
+                                    <div class="icon-option" data-icon="🐦" onclick="selectThemeIcon(this)">🐦</div>
+                                    <div class="icon-option" data-icon="🌿" onclick="selectThemeIcon(this)">🌿</div>
+                                    <div class="icon-option" data-icon="💧" onclick="selectThemeIcon(this)">💧</div>
+                                    <div class="icon-option" data-icon="❄️" onclick="selectThemeIcon(this)">❄️</div>
+                                    <div class="icon-option" data-icon="🌅" onclick="selectThemeIcon(this)">🌅</div>
+                                    <div class="icon-option" data-icon="🎹" onclick="selectThemeIcon(this)">🎹</div>
+                                    <div class="icon-option" data-icon="🎸" onclick="selectThemeIcon(this)">🎸</div>
+                                </div>
+                                <input type="hidden" id="theme-create-icon" value="🎵">
+                            </div>
+                            <div>
+                                <label>Category (optional)</label>
+                                <div class="category-select-row">
+                                    <select id="theme-create-category" onchange="handleCategorySelectChange(this)">
+                                        <option value="">No category</option>
+                                    </select>
+                                    <input type="text" id="theme-create-new-category" placeholder="New category name..." style="display: none;">
+                                </div>
+                            </div>
+                            <div>
+                                <label>Audio Files</label>
+                                <div id="theme-file-upload-area" class="file-upload-area"
+                                     onclick="document.getElementById('theme-file-input').click()">
+                                    <div class="file-upload-icon">🎵</div>
+                                    <div class="file-upload-text">
+                                        Drag & drop audio files here or click to browse
+                                    </div>
+                                    <div class="file-upload-hint">
+                                        Supports MP3, WAV, FLAC, OGG (max 50MB per file)
+                                    </div>
+                                </div>
+                                <input type="file" id="theme-file-input" class="file-upload-input"
+                                       multiple accept=".mp3,.wav,.flac,.ogg,audio/*"
+                                       onchange="handleThemeFileSelect(this.files)">
+                                <div id="theme-file-list" class="file-list"></div>
+                                <div id="theme-upload-progress" class="upload-progress" style="display: none;">
+                                    <div class="upload-progress-bar">
+                                        <div id="theme-progress-fill" class="upload-progress-fill"></div>
+                                    </div>
+                                    <div id="theme-progress-text" class="upload-progress-text">Uploading...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeThemeCreateModal()">Cancel</button>
+                        <button class="btn btn-primary" id="theme-create-submit" onclick="createTheme()">Create Theme</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Category Create Modal -->
+            <div id="category-create-modal" class="modal-backdrop" onclick="if(event.target===this) closeCategoryCreateModal()">
+                <div class="modal" style="max-width: 500px;">
+                    <div class="modal-header">
+                        <h3>Create Category</h3>
+                        <button class="modal-close" onclick="closeCategoryCreateModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label for="category-create-name">Category Name *</label>
+                                <input type="text" id="category-create-name" placeholder="e.g., Weather, Nature, Urban...">
+                            </div>
+                            <div>
+                                <label>Add Themes to Category (optional)</label>
+                                <div id="category-theme-list" class="category-theme-list">
+                                    <!-- Populated dynamically -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeCategoryCreateModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="createCategory()">Create Category</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preset Import Modal -->
+            <div id="preset-import-modal" class="modal-backdrop" onclick="if(event.target===this) closeImportPresetModal()">
+                <div class="modal" style="max-width: 600px;">
+                    <div class="modal-header">
+                        <h3>Import Preset</h3>
+                        <button class="modal-close" onclick="closeImportPresetModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label for="preset-import-name">Preset Name</label>
+                                <input type="text" id="preset-import-name" placeholder="e.g., Sleep Mode, Focus Mix...">
+                            </div>
+                            <div>
+                                <label for="preset-import-json">Preset JSON *</label>
+                                <textarea id="preset-import-json" rows="10" placeholder='Paste preset JSON here...
+Example:
+{
+  "name": "Sleep Mode",
+  "tracks": {
+    "rain.mp3": {"volume": 0.8, "presence": 1.0},
+    "thunder.mp3": {"volume": 0.3, "presence": 0.2}
+  }
+}'></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeImportPresetModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="importPreset()">Import</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preset Export Modal -->
+            <div id="preset-export-modal" class="modal-backdrop" onclick="if(event.target===this) closeExportPresetModal()">
+                <div class="modal" style="max-width: 600px;">
+                    <div class="modal-header">
+                        <h3>Export Preset</h3>
+                        <button class="modal-close" onclick="closeExportPresetModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label>Preset JSON</label>
+                                <textarea id="preset-export-json" rows="12" readonly style="font-family: monospace; font-size: 0.8rem;"></textarea>
+                            </div>
+                            <p style="font-size: 0.8rem; color: var(--text-muted);">Copy this JSON to share with others or import into another theme.</p>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeExportPresetModal()">Close</button>
+                        <button class="btn btn-primary" onclick="copyPresetJson()">Copy to Clipboard</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preset Save Modal -->
+            <div id="preset-save-modal" class="modal-backdrop" onclick="if(event.target===this) closePresetSaveModal()">
+                <div class="modal" style="max-width: 400px;">
+                    <div class="modal-header">
+                        <h3>Save Preset</h3>
+                        <button class="modal-close" onclick="closePresetSaveModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label for="preset-save-name">Preset Name *</label>
+                                <input type="text" id="preset-save-name" placeholder="e.g., Sleep Mode, Focus Mix...">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closePresetSaveModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="confirmSavePreset()">Save</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preset Rename Modal -->
+            <div id="preset-rename-modal" class="modal-backdrop" onclick="if(event.target===this) closeRenamePresetModal()">
+                <div class="modal" style="max-width: 400px;">
+                    <div class="modal-header">
+                        <h3>Rename Preset</h3>
+                        <button class="modal-close" onclick="closeRenamePresetModal()">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label for="preset-rename-name">New Name *</label>
+                                <input type="text" id="preset-rename-name" placeholder="Enter new preset name...">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" onclick="closeRenamePresetModal()">Cancel</button>
+                        <button class="btn btn-primary" onclick="confirmRenamePreset()">Rename</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <!-- Settings View (legacy - redirects to audio settings) -->
+            <div id="view-settings" class="view">
+                <div class="settings-section">
+                    <p>Please select a settings category from the menu.</p>
+                </div>
+            </div>
+
+            <!-- Audio Settings View -->
+            <div id="view-settings-audio" class="view">
+                <div class="settings-section">
+                    <h3>Audio Settings</h3>
+                    <p>Configure playback and mixing parameters.</p>
+
+                    <div class="settings-form">
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <label for="settings-crossfade">Crossfade Duration</label>
+                                <span class="settings-hint">Smooth transition when changing themes</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="range" id="settings-crossfade" min="0" max="10" step="0.5" value="3"
+                                       oninput="updateCrossfadeDisplay(this.value); applyCrossfadeLive(this.value)">
+                                <span id="settings-crossfade-value" class="settings-value">3.0s</span>
+                            </div>
+                        </div>
+
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <label for="settings-default-volume">Default Volume</label>
+                                <span class="settings-hint">Initial volume for new channels</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="range" id="settings-default-volume" min="0" max="100" step="5" value="60"
+                                       oninput="updateDefaultVolumeDisplay(this.value); applyDefaultVolumeLive(this.value)">
+                                <span id="settings-default-volume-value" class="settings-value">60%</span>
+                            </div>
+                        </div>
+
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <label for="settings-master-gain">Master Output Gain</label>
+                                <span class="settings-hint">Global volume multiplier for all streams</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="range" id="settings-master-gain" min="0" max="100" step="5" value="60"
+                                       oninput="updateMasterGainDisplay(this.value); applyMasterGainLive(this.value)">
+                                <span id="settings-master-gain-value" class="settings-value">60%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-actions" style="margin-top: 1rem;">
+                        <button class="btn btn-primary btn-sm" onclick="saveAudioSettings()">Save Settings</button>
+                        <button class="btn btn-secondary btn-sm" onclick="resetAudioSettings()">Reset to Defaults</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Speakers Settings View -->
+            <div id="view-settings-speakers" class="view">
+                <!-- Local Playback Device -->
+                <div class="collapsible-section expanded" id="local-devices-section">
+                    <div class="collapsible-header" onclick="toggleCollapsibleSection('local-devices-section')">
+                        <div class="collapsible-header-content">
+                            <svg class="collapse-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                            <h4>Local Playback Device</h4>
+                        </div>
+                        <span class="collapsible-subtitle">Audio output on this computer</span>
+                    </div>
+                    <div class="collapsible-content">
+                        <div id="local-audio-devices" class="local-audio-devices">
+                            <div class="loading-small">
+                                <div class="spinner-small"></div>
+                                Loading...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Network Speakers -->
+                <div class="collapsible-section" id="network-speakers-section">
+                    <div class="collapsible-header" onclick="toggleCollapsibleSection('network-speakers-section')">
+                        <div class="collapsible-header-content">
+                            <svg class="collapse-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                            <h4>Network Speakers</h4>
+                        </div>
+                        <div class="collapsible-header-actions">
+                            <span class="collapsible-subtitle">Chromecast, Sonos, DLNA</span>
+                            <button class="btn btn-icon btn-sm" onclick="event.stopPropagation(); refreshNetworkSpeakers()" title="Scan Network">
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M23 4v6h-6"/>
+                                    <path d="M1 20v-6h6"/>
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="collapsible-content">
+                        <div id="network-speakers-list" class="network-speakers-list">
+                            <p class="text-muted-small">Click the refresh button to scan for devices</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Speaker Groups Settings View -->
+            <div id="view-settings-groups" class="view">
+                <div class="settings-section">
+                    <h3>Speaker Groups</h3>
+                    <p>Create reusable speaker configurations for quick channel setup.</p>
+                    <div class="settings-actions">
+                        <button class="btn btn-primary btn-sm" onclick="openGroupModal()">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <line x1="12" y1="5" x2="12" y2="19"/>
+                                <line x1="5" y1="12" x2="19" y2="12"/>
+                            </svg>
+                            New Group
+                        </button>
+                    </div>
+                    <div id="settings-groups-list" class="settings-groups-list">
+                        <!-- Groups loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Plugins Settings View -->
+            <div id="view-settings-plugins" class="view">
+                <div class="settings-section">
+                    <h3>Plugins</h3>
+                    <p>Extend Sonorium's functionality with plugins.</p>
+                    <div id="plugins-list" class="plugins-list">
+                        <div class="empty-state" style="padding: 2rem;">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 48px; height: 48px; margin-bottom: 1rem; opacity: 0.5;">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                                <path d="M2 17l10 5 10-5"/>
+                                <path d="M2 12l10 5 10-5"/>
+                            </svg>
+                            <h3>Coming Soon</h3>
+                            <p style="color: var(--text-muted);">The plugin system is under development. Check back in a future update!</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status View -->
+            <div id="view-status" class="view">
+                <div class="status-grid">
+                    <div class="status-card">
+                        <h4>Active Channels</h4>
+                        <div id="status-active-channels" class="status-value">0</div>
+                    </div>
+                    <div class="status-card">
+                        <h4>Total Speakers</h4>
+                        <div id="status-total-speakers" class="status-value">0</div>
+                    </div>
+                </div>
+                <div class="settings-section" style="margin-top: 1.5rem;">
+                    <h3>Channels</h3>
+                    <div id="channel-list" class="channel-list">
+                        <!-- Channels loaded dynamically -->
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- New/Edit Channel Modal -->
+    <div id="session-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
+        <div class="modal" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 id="modal-title">New Channel</h2>
+                <button class="modal-close" onclick="closeSessionModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-session-id" value="">
+
+                <div class="session-field">
+                    <label>Channel Name</label>
+                    <input type="text" id="session-name" placeholder="Leave empty to auto-generate from selection">
+                </div>
+
+                <div class="session-field">
+                    <label>Select Theme</label>
+                    <div id="theme-selector" class="theme-grid">
+                        <!-- Themes loaded dynamically -->
+                    </div>
+                </div>
+
+                <div class="session-field" id="channel-preset-field" style="display: none;">
+                    <label>Theme Preset</label>
+                    <select id="channel-preset-select" onchange="onChannelPresetChange()">
+                        <option value="">-- Default Settings --</option>
+                    </select>
+                </div>
+
+                <div class="session-field">
+                    <label>Select Speakers</label>
+                    <select id="session-speaker-group" onchange="onSpeakerGroupChange()">
+                        <option value="">-- Select manually below --</option>
+                        <!-- Groups loaded dynamically -->
+                    </select>
+                </div>
+
+                <div class="session-field" id="manual-speaker-selection">
+                    <label>Manual Selection</label>
+                    <div class="speaker-dropdown" id="speaker-dropdown">
+                        <div class="speaker-dropdown-header" onclick="toggleSpeakerDropdown(event)">
+                            <span id="speaker-dropdown-text">Click to select speakers...</span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                        </div>
+                        <div class="speaker-dropdown-content" id="speaker-dropdown-content">
+                            <div id="speaker-tree" class="speaker-tree">
+                                <!-- Speaker tree loaded dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="session-field">
+                    <label>Volume</label>
+                    <div class="volume-control">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                        </svg>
+                        <input type="range" id="session-volume" class="volume-slider" min="0" max="100" value="60">
+                        <span id="volume-display" class="volume-value">60%</span>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSessionModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveSession()">
+                    <span id="save-btn-text">Create Channel</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Speaker Group Modal -->
+    <div id="group-modal" class="modal-backdrop" onclick="if(event.target===this) closeGroupModal()">
+        <div class="modal">
+            <div class="modal-header">
+                <h2 id="group-modal-title">New Speaker Group</h2>
+                <button class="modal-close" onclick="closeGroupModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-group-id" value="">
+
+                <div class="session-field">
+                    <label>Group Name</label>
+                    <input type="text" id="group-name" placeholder="e.g., Downstairs, Party Mode">
+                </div>
+
+                <div class="session-field">
+                    <label>Select Speakers</label>
+                    <div class="speaker-dropdown" id="group-speaker-dropdown">
+                        <div class="speaker-dropdown-header" onclick="toggleGroupSpeakerDropdown(event)">
+                            <span id="group-speaker-dropdown-text">Click to select speakers...</span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                        </div>
+                        <div class="speaker-dropdown-content" id="group-speaker-dropdown-content">
+                            <div id="group-speaker-tree" class="speaker-tree">
+                                <!-- Speaker tree loaded dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeGroupModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="saveGroup()">
+                    <span id="group-save-btn-text">Create Group</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- JavaScript - dynamically loaded for ingress support -->
+    <script>
+        (function() {
+            var base = window.SONORIUM_BASE || '';
+
+            // Load scripts in order with error handling
+            function loadScript(src, callback) {
+                var script = document.createElement('script');
+                script.src = base + src;
+                script.onload = function() {
+                    console.log('Loaded: ' + src);
+                    if (callback) callback();
+                };
+                script.onerror = function() {
+                    console.error('Failed to load: ' + base + src);
+                };
+                document.body.appendChild(script);
+            }
+
+            console.log('Sonorium loading scripts with base:', base);
+            loadScript('/static/js/api.js', function() {
+                loadScript('/static/js/app.js', function() {
+                    console.log('All scripts loaded');
+                });
+            });
+        })();
+    </script>
+</body>
+</html>

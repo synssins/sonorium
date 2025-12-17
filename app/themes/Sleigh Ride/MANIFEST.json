@@ -1,0 +1,123 @@
+{
+  "source": {
+    "site": "ambient-mixer.com",
+    "url": "https://christmas.ambient-mixer.com/christmas-sleigh-ride",
+    "template_id": "133362",
+    "creator": "",
+    "harvested_at": "2025-12-13T15:43:34.229171"
+  },
+  "license": {
+    "name": "Creative Commons Sampling Plus 1.0",
+    "url": "https://creativecommons.org/licenses/sampling+/1.0/",
+    "requires_attribution": true
+  },
+  "mix_name": "christmas_sleigh_ride",
+  "category": "christmas",
+  "channels": [
+    {
+      "channel_num": 1,
+      "name": "Jingle Bells",
+      "audio_id": "2802",
+      "url": "https://xml.ambient-mixer.com/audio/2/4/b/24bf94f05f3e184c441896b9d6e6d6fd.mp3",
+      "volume": 41,
+      "balance": 0,
+      "is_random": false,
+      "random_counter": 1,
+      "random_unit": "1h",
+      "crossfade": false,
+      "mute": false,
+      "local_filename": "Jingle_Bells_2802.mp3",
+      "file_hash": "f2ccd2110bb7f96242af9c6367a51470"
+    },
+    {
+      "channel_num": 2,
+      "name": "Christmas bells",
+      "audio_id": "11049",
+      "url": "https://xml.ambient-mixer.com/audio/9/0/7/907fd9b729885eefebdbcad69d5de222.mp3",
+      "volume": 23,
+      "balance": 0,
+      "is_random": false,
+      "random_counter": 1,
+      "random_unit": "1h",
+      "crossfade": false,
+      "mute": false,
+      "local_filename": "Christmas_bells_11049.mp3",
+      "file_hash": "5f6c69542ea86b4b8c23360d54c1dab2"
+    },
+    {
+      "channel_num": 3,
+      "name": "Horse Whinnies",
+      "audio_id": "2858",
+      "url": "https://xml.ambient-mixer.com/audio/0/e/e/0eeaf52c6c3b0157a31c8df6feb6baab.mp3",
+      "volume": 50,
+      "balance": 0,
+      "is_random": true,
+      "random_counter": 1,
+      "random_unit": "1m",
+      "crossfade": false,
+      "mute": false,
+      "local_filename": "Horse_Whinnies_2858.mp3",
+      "file_hash": "1ded021cc46157ce8a1f5ff79fed43af"
+    },
+    {
+      "channel_num": 4,
+      "name": "Snow falling  on umbrella",
+      "audio_id": "7459",
+      "url": "https://xml.ambient-mixer.com/audio/f/d/8/fd8bada9ec05a208f05378048417af89.mp3",
+      "volume": 100,
+      "balance": 0,
+      "is_random": false,
+      "random_counter": 1,
+      "random_unit": "1h",
+      "crossfade": false,
+      "mute": false,
+      "local_filename": "Snow_falling__on_umbrella_7459.mp3",
+      "file_hash": "73b667e5038cc9927cdd847194bc2a08"
+    },
+    {
+      "channel_num": 5,
+      "name": "Amish carriages at night",
+      "audio_id": "2570",
+      "url": "https://xml.ambient-mixer.com/audio/2/7/4/274418cbdd8afedb92ceaa4e8a989073.mp3",
+      "volume": 53,
+      "balance": -1,
+      "is_random": false,
+      "random_counter": 1,
+      "random_unit": "1h",
+      "crossfade": false,
+      "mute": false,
+      "local_filename": "Amish_carriages_at_night_2570.mp3",
+      "file_hash": "3b2bfc812b7c1a71230c20b59243faa2"
+    },
+    {
+      "channel_num": 6,
+      "name": "Single Horse Carriage",
+      "audio_id": "7981",
+      "url": "https://xml.ambient-mixer.com/audio/9/e/0/9e0e9599f666d5ad9b10586ba9b85fbf.mp3",
+      "volume": 56,
+      "balance": 0,
+      "is_random": false,
+      "random_counter": 1,
+      "random_unit": "1h",
+      "crossfade": false,
+      "mute": false,
+      "local_filename": "Single_Horse_Carriage_7981.mp3",
+      "file_hash": "5fab947810e4713dd0cd88a2e11cd5de"
+    },
+    {
+      "channel_num": 7,
+      "name": "light snow",
+      "audio_id": "11298",
+      "url": "https://xml.ambient-mixer.com/audio/5/7/8/578ad8575bffdba1e4f627db3f65d673.mp3",
+      "volume": 89,
+      "balance": 0,
+      "is_random": false,
+      "random_counter": 1,
+      "random_unit": "1h",
+      "crossfade": false,
+      "mute": false,
+      "local_filename": "light_snow_11298.mp3",
+      "file_hash": "a4a834b080f392edd91e9578a262e6c6"
+    }
+  ]
+}

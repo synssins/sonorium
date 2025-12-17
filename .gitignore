@@ -31,7 +31,11 @@ MANIFEST
 #  Usually these files are written by a python script from a template
 #  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
-*.spec
+# Keep Sonorium.spec - it's part of the project
+!app/windows/Sonorium.spec
+
+# PyInstaller build artifacts (but keep the final EXE)
+app/windows/build/
 
 # Installer logs
 pip-log.txt
@@ -144,3 +148,10 @@ cython_debug/
 
 /data/
 CLAUDE.md
+
+# Sonorium app user data folders (created at runtime)
+app/backup/
+app/logs/
+app/temp/
+app/plugins/
+app/config/

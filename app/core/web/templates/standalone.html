@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonorium</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 0;
+            border-bottom: 1px solid #333;
+            margin-bottom: 30px;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .logo img {
+            height: 50px;
+        }
+
+        .logo h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .status-bar {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: #2a2a4e;
+            border-radius: 20px;
+            font-size: 0.9rem;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #666;
+        }
+
+        .status-dot.playing {
+            background: #4caf50;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .section {
+            background: #2a2a4e;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #aaa;
+        }
+
+        .controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        .btn-secondary {
+            background: #3a3a5e;
+            color: #eee;
+        }
+
+        .btn-secondary:hover {
+            background: #4a4a6e;
+        }
+
+        .btn-danger {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #c0392b;
+        }
+
+        select {
+            padding: 12px 16px;
+            background: #3a3a5e;
+            border: 1px solid #4a4a6e;
+            border-radius: 8px;
+            color: #eee;
+            font-size: 1rem;
+            min-width: 200px;
+            cursor: pointer;
+        }
+
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .volume-control {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .volume-slider {
+            width: 200px;
+            height: 6px;
+            -webkit-appearance: none;
+            background: #3a3a5e;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+
+        .volume-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #667eea;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+
+        .volume-value {
+            min-width: 50px;
+            text-align: center;
+            color: #aaa;
+        }
+
+        .theme-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .theme-card {
+            background: #3a3a5e;
+            border-radius: 10px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .theme-card:hover {
+            background: #4a4a6e;
+        }
+
+        .theme-card.selected {
+            border-color: #667eea;
+        }
+
+        .theme-card.playing {
+            border-color: #4caf50;
+        }
+
+        .theme-name {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .theme-info {
+            font-size: 0.85rem;
+            color: #888;
+        }
+
+        .device-select {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .device-label {
+            color: #888;
+            font-size: 0.9rem;
+        }
+
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            background: #333;
+            color: white;
+            border-radius: 8px;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.3s;
+            z-index: 1000;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .toast.error {
+            background: #e74c3c;
+        }
+
+        .toast.success {
+            background: #27ae60;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <img src="/logo.png" alt="Sonorium">
+                <h1>Sonorium</h1>
+            </div>
+            <div class="status-bar">
+                <div class="status-indicator">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span id="status-text">Stopped</span>
+                </div>
+            </div>
+        </header>
+
+        <div class="section">
+            <div class="section-title">Playback Controls</div>
+            <div class="controls">
+                <button class="btn btn-primary" id="btn-play" onclick="play()">Play</button>
+                <button class="btn btn-secondary" id="btn-pause" onclick="pause()">Pause</button>
+                <button class="btn btn-danger" id="btn-stop" onclick="stop()">Stop</button>
+
+                <div class="volume-control">
+                    <span>Volume:</span>
+                    <input type="range" class="volume-slider" id="volume-slider" min="0" max="100" value="80" onchange="setVolume(this.value)">
+                    <span class="volume-value" id="volume-value">80%</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Audio Output</div>
+            <div class="device-select">
+                <span class="device-label">Output Device:</span>
+                <select id="device-select" onchange="setDevice(this.value)">
+                    <option value="">Loading devices...</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="section">
+            <div class="section-title">Themes</div>
+            <div class="theme-grid" id="theme-grid">
+                <p style="color: #666;">Loading themes...</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        let currentTheme = null;
+        let playbackState = 'stopped';
+
+        async function api(path, options = {}) {
+            try {
+                const response = await fetch(path, options);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                return await response.json();
+            } catch (error) {
+                showToast('Error: ' + error.message, 'error');
+                throw error;
+            }
+        }
+
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = 'toast show ' + type;
+            setTimeout(() => {
+                toast.className = 'toast';
+            }, 3000);
+        }
+
+        function updateStatus(state) {
+            playbackState = state;
+            const dot = document.getElementById('status-dot');
+            const text = document.getElementById('status-text');
+
+            dot.className = 'status-dot' + (state === 'playing' ? ' playing' : '');
+            text.textContent = state.charAt(0).toUpperCase() + state.slice(1);
+        }
+
+        async function loadThemes() {
+            try {
+                const data = await api('/api/themes');
+                const grid = document.getElementById('theme-grid');
+
+                if (!data.themes || data.themes.length === 0) {
+                    const audioPath = data.audio_path || 'Unknown';
+                    grid.innerHTML = `
+                        <div style="color: #888; grid-column: 1 / -1;">
+                            <p style="margin-bottom: 10px;">No themes found.</p>
+                            <p style="margin-bottom: 10px;">Add audio folders to:</p>
+                            <code style="background: #3a3a5e; padding: 8px 12px; border-radius: 6px; display: inline-block; font-family: monospace; color: #667eea; word-break: break-all;">${audioPath}</code>
+                            <p style="margin-top: 15px; font-size: 0.9rem; color: #666;">Each subfolder becomes a theme. Place audio files (.mp3, .ogg, .wav, .flac) inside.</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                grid.innerHTML = data.themes.map(theme => `
+                    <div class="theme-card ${theme.is_current ? 'selected' : ''}"
+                         data-theme="${theme.id}"
+                         onclick="selectTheme('${theme.id}')">
+                        <div class="theme-name">${theme.icon || ''} ${theme.name}</div>
+                        <div class="theme-info">${theme.track_count || 0} tracks</div>
+                    </div>
+                `).join('');
+
+                // Set current theme
+                const current = data.themes.find(t => t.is_current);
+                if (current) {
+                    currentTheme = current.id;
+                }
+            } catch (error) {
+                console.error('Failed to load themes:', error);
+            }
+        }
+
+        async function loadDevices() {
+            try {
+                const data = await api('/api/devices');
+                const select = document.getElementById('device-select');
+
+                select.innerHTML = data.devices.map(device => `
+                    <option value="${device.id}" ${device.is_current ? 'selected' : ''}>
+                        ${device.name}${device.is_default ? ' (Default)' : ''}
+                    </option>
+                `).join('');
+            } catch (error) {
+                console.error('Failed to load devices:', error);
+            }
+        }
+
+        async function loadStatus() {
+            try {
+                const data = await api('/api/status');
+                updateStatus(data.playback_state);
+                currentTheme = data.current_theme;
+
+                document.getElementById('volume-slider').value = data.master_volume * 100;
+                document.getElementById('volume-value').textContent = Math.round(data.master_volume * 100) + '%';
+
+                // Update theme cards
+                document.querySelectorAll('.theme-card').forEach(card => {
+                    card.classList.toggle('selected', card.dataset.theme === currentTheme);
+                    card.classList.toggle('playing', card.dataset.theme === currentTheme && data.playback_state === 'playing');
+                });
+            } catch (error) {
+                console.error('Failed to load status:', error);
+            }
+        }
+
+        function selectTheme(themeId) {
+            currentTheme = themeId;
+            document.querySelectorAll('.theme-card').forEach(card => {
+                card.classList.toggle('selected', card.dataset.theme === themeId);
+            });
+            showToast('Selected: ' + themeId, 'success');
+        }
+
+        async function play() {
+            try {
+                await api('/api/play', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ theme: currentTheme })
+                });
+                updateStatus('playing');
+                showToast('Playing', 'success');
+                loadStatus();
+            } catch (error) {
+                console.error('Play failed:', error);
+            }
+        }
+
+        async function pause() {
+            try {
+                await api('/api/pause', { method: 'POST' });
+                updateStatus('paused');
+                showToast('Paused', 'success');
+            } catch (error) {
+                console.error('Pause failed:', error);
+            }
+        }
+
+        async function stop() {
+            try {
+                await api('/api/stop', { method: 'POST' });
+                updateStatus('stopped');
+                showToast('Stopped', 'success');
+                loadStatus();
+            } catch (error) {
+                console.error('Stop failed:', error);
+            }
+        }
+
+        async function setVolume(value) {
+            document.getElementById('volume-value').textContent = value + '%';
+            try {
+                await api('/api/volume', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ volume: value / 100 })
+                });
+            } catch (error) {
+                console.error('Volume change failed:', error);
+            }
+        }
+
+        async function setDevice(deviceId) {
+            try {
+                await api('/api/devices/' + deviceId, { method: 'POST' });
+                showToast('Audio device changed', 'success');
+            } catch (error) {
+                console.error('Device change failed:', error);
+            }
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            loadThemes();
+            loadDevices();
+            loadStatus();
+
+            // Refresh status periodically
+            setInterval(loadStatus, 5000);
+        });
+    </script>
+</body>
+</html>
