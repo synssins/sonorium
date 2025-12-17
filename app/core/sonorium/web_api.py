@@ -207,12 +207,12 @@ def _configure_speaker_plugins():
         return
 
     def get_stream_url(theme_id: str) -> str:
-        """Generate stream URL for a theme."""
-        # Use the configured port from config or default
-        from sonorium.config import get_config
+        """Generate stream URL for a theme using detected local IP."""
+        from sonorium.config import get_config, get_stream_base_url
         config = get_config()
-        port = config.port if hasattr(config, 'port') else 8095
-        return f'http://localhost:{port}/stream/{theme_id}'
+        port = config.server_port if hasattr(config, 'server_port') else 8008
+        base_url = get_stream_base_url(port)
+        return f'{base_url}/stream/{theme_id}'
 
     for plugin in _plugin_manager.list_plugins():
         if isinstance(plugin, SpeakerPlugin):
@@ -636,19 +636,19 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
         )
 
     @fastapi_app.get('/api/stream/url')
-    async def get_stream_url(request: Request):
+    async def get_stream_url_endpoint(request: Request):
         """
         Get the base URL for streaming.
 
         Network speaker plugins use this to construct stream URLs for devices.
         Returns the server's base URL that external devices can connect to.
         """
-        # Get the host from the request
-        host = request.headers.get('host', 'localhost:8095')
-        scheme = request.headers.get('x-forwarded-proto', 'http')
+        from sonorium.config import get_stream_base_url
 
-        # Build base stream URL
-        base_url = f'{scheme}://{host}'
+        # Use detected local IP for the stream URL
+        config = get_config()
+        port = config.server_port if hasattr(config, 'server_port') else 8008
+        base_url = get_stream_base_url(port)
 
         return {
             'base_url': base_url,

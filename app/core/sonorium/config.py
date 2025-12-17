@@ -8,11 +8,45 @@ from __future__ import annotations
 
 import json
 import os
+import socket
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any
 
 from sonorium.obs import logger
+
+
+def get_local_ip() -> str:
+    """
+    Get the local network IP address of this machine.
+
+    This is the IP address that network speakers will use to connect
+    to the Sonorium stream endpoint.
+    """
+    try:
+        # Create a UDP socket and connect to an external address
+        # This doesn't actually send data, but determines which interface would be used
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.1)
+        # Connect to Google's DNS - doesn't actually send anything
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception as e:
+        logger.warning(f"Could not detect local IP: {e}, falling back to 127.0.0.1")
+        return "127.0.0.1"
+
+
+def get_stream_base_url(port: int = 8008) -> str:
+    """
+    Get the base URL for the audio stream endpoint.
+
+    Network speakers connect to this URL to receive audio.
+    Uses the detected local IP address so speakers can reach it.
+    """
+    ip = get_local_ip()
+    return f"http://{ip}:{port}"
 
 
 def get_config_dir() -> Path:

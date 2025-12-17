@@ -44,7 +44,13 @@ class NetworkStreamingManager:
     3. Audio is mixed and served in real-time
     """
 
-    def __init__(self, stream_base_url: str = "http://localhost:8095"):
+    def __init__(self, stream_base_url: str | None = None, port: int = 8008):
+        # Auto-detect IP if no URL provided
+        if stream_base_url is None:
+            from sonorium.config import get_stream_base_url
+            stream_base_url = get_stream_base_url(port)
+            logger.info(f"Auto-detected stream URL: {stream_base_url}")
+
         self.stream_base_url = stream_base_url
         self.sessions: dict[str, StreamingSession] = {}
         self._lock = threading.Lock()
@@ -370,8 +376,8 @@ def get_streaming_manager() -> NetworkStreamingManager:
     return _streaming_manager
 
 
-def init_streaming_manager(stream_base_url: str) -> NetworkStreamingManager:
-    """Initialize the streaming manager with the server URL."""
+def init_streaming_manager(stream_base_url: str | None = None, port: int = 8008) -> NetworkStreamingManager:
+    """Initialize the streaming manager with the server URL (auto-detects IP if not provided)."""
     global _streaming_manager
-    _streaming_manager = NetworkStreamingManager(stream_base_url)
+    _streaming_manager = NetworkStreamingManager(stream_base_url, port)
     return _streaming_manager
