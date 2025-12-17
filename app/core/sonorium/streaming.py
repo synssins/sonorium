@@ -358,17 +358,11 @@ class NetworkStreamingManager:
             # This avoids issues with HEAD request failures or missing Content-Type
             logger.info(f"Setting transport URI: {session.stream_url}")
 
-            try:
-                meta_data = await dmr.construct_play_media_metadata(
-                    media_url=session.stream_url,
-                    media_title='Sonorium',
-                    override_mime_type='audio/mpeg',
-                    override_upnp_class='object.item.audioItem.musicTrack',
-                )
-                logger.info(f"Constructed DLNA metadata with audio/mpeg mime type")
-            except Exception as meta_err:
-                logger.warning(f"Failed to construct metadata: {meta_err}, using simple call")
-                meta_data = None
+            # Use our own DIDL-Lite metadata for maximum compatibility
+            # Some devices are picky about the format
+            meta_data = self._create_didl_metadata(session.stream_url, 'Sonorium')
+            logger.info(f"Using custom DIDL-Lite metadata for DLNA")
+            logger.debug(f"DIDL metadata: {meta_data}")
 
             await dmr.async_set_transport_uri(
                 session.stream_url,

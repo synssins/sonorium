@@ -894,6 +894,30 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
 
     # --- HTTP Audio Streaming ---
 
+    @fastapi_app.head('/stream/{theme_id}')
+    async def stream_theme_head(theme_id: str):
+        """
+        HEAD request for stream endpoint - required by some DLNA devices.
+        Returns headers without body so device can check content type.
+        """
+        from fastapi import Response
+
+        theme = _app_instance.get_theme(theme_id)
+        if not theme:
+            raise HTTPException(status_code=404, detail=f'Theme "{theme_id}" not found')
+
+        logger.info(f'HEAD request for stream "{theme_id}" - DLNA device probing')
+
+        return Response(
+            content='',
+            media_type='audio/mpeg',
+            headers={
+                'Accept-Ranges': 'none',
+                'transferMode.dlna.org': 'Streaming',
+                'contentFeatures.dlna.org': 'DLNA.ORG_PN=MP3;DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000',
+            }
+        )
+
     @fastapi_app.get('/stream/{theme_id}')
     async def stream_theme(theme_id: str, preset_id: str = None):
         """
@@ -943,6 +967,10 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
                 'Cache-Control': 'no-cache, no-store',
                 'Connection': 'keep-alive',
                 'X-Content-Type-Options': 'nosniff',
+                # DLNA-specific headers for better compatibility
+                'Accept-Ranges': 'none',
+                'transferMode.dlna.org': 'Streaming',
+                'contentFeatures.dlna.org': 'DLNA.ORG_PN=MP3;DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000',
             }
         )
 
