@@ -39,7 +39,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.1.2-alpha"
+APP_VERSION = "0.1.3-alpha"
 DEFAULT_PORT = 8008
 
 # Global logger instance
@@ -309,97 +309,109 @@ class ServerThread(QThread):
     def __init__(self, port: int = DEFAULT_PORT):
         super().__init__()
         self.port = port
-        self.process: Optional[QProcess] = None
+        self.process: Optional[subprocess.Popen] = None
         self._stop_requested = False
         self.logger = get_logger()
 
     def run(self):
-        """Run the server process."""
-        self.logger.info("ServerThread.run() starting")
-        self.process = QProcess()
-        self.process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        self.process.readyReadStandardOutput.connect(self._handle_output)
-        self.process.finished.connect(self._handle_finished)
+        """Run the server process using subprocess instead of QProcess for thread safety."""
+        try:
+            self.logger.info("ServerThread.run() starting")
 
-        # Set up environment
-        env = self.process.processEnvironment()
-        if env.isEmpty():
-            env = QProcess.systemEnvironment()
+            # Find Python executable
+            app_dir = get_app_dir()
+            core_dir = get_core_dir()
 
-        core_dir = get_core_dir()
-        env.insert('PYTHONPATH', str(core_dir))
-        self.process.setProcessEnvironment(env)
-        self.logger.debug(f"PYTHONPATH set to: {core_dir}")
-
-        # Find Python executable
-        app_dir = get_app_dir()
-        if getattr(sys, 'frozen', False):
-            # Try embedded Python first
-            python_exe = app_dir / 'python' / 'python.exe'
-            if not python_exe.exists():
-                # Fallback to system Python
-                self.logger.info("Embedded Python not found, using system Python")
-                python_exe = 'python'
+            if getattr(sys, 'frozen', False):
+                # Try embedded Python first
+                python_exe = app_dir / 'python' / 'python.exe'
+                if not python_exe.exists():
+                    # Fallback to system Python
+                    self.logger.info("Embedded Python not found, using system Python")
+                    python_exe = 'python'
+                else:
+                    self.logger.info(f"Using embedded Python: {python_exe}")
             else:
-                self.logger.info(f"Using embedded Python: {python_exe}")
-        else:
-            python_exe = sys.executable
-            self.logger.info(f"Using development Python: {python_exe}")
+                python_exe = sys.executable
+                self.logger.info(f"Using development Python: {python_exe}")
 
-        # Start the server
-        main_script = core_dir / 'sonorium' / 'main.py'
+            # Start the server
+            main_script = core_dir / 'sonorium' / 'main.py'
 
-        if not main_script.exists():
-            self.logger.error(f"Core not found: {main_script}")
-            self.error_occurred.emit(f"Core not found: {main_script}")
-            return
+            if not main_script.exists():
+                self.logger.error(f"Core not found: {main_script}")
+                self.error_occurred.emit(f"Core not found: {main_script}")
+                return
 
-        args = [str(main_script), '--no-tray', '--no-browser', '--port', str(self.port)]
-        self.logger.info(f"Launching: {python_exe} {' '.join(args)}")
+            args = [str(python_exe), str(main_script), '--no-tray', '--no-browser', '--port', str(self.port)]
+            self.logger.info(f"Launching: {' '.join(args)}")
 
-        self.output_received.emit(f"Starting server on port {self.port}...")
-        self.process.start(str(python_exe), args)
+            # Set up environment
+            env = os.environ.copy()
+            env['PYTHONPATH'] = str(core_dir)
+            self.logger.debug(f"PYTHONPATH set to: {core_dir}")
 
-        if not self.process.waitForStarted(5000):
-            self.logger.error("Failed to start server process (timeout)")
-            self.error_occurred.emit("Failed to start server process")
-            return
+            self.output_received.emit(f"Starting server on port {self.port}...")
 
-        self.logger.info("Server process started successfully")
-        self.server_started.emit()
+            # Use subprocess.Popen for thread-safe process management
+            self.process = subprocess.Popen(
+                args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                env=env,
+                bufsize=1,
+                universal_newlines=True,
+                creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == 'win32' else 0
+            )
 
-        # Wait for process to finish
-        while not self._stop_requested and self.process.state() != QProcess.ProcessState.NotRunning:
-            self.process.waitForFinished(100)
+            self.logger.info(f"Server process started with PID: {self.process.pid}")
+            self.server_started.emit()
 
-        self.logger.info("Server process exited")
-        self.server_stopped.emit()
+            # Read output line by line
+            while not self._stop_requested:
+                if self.process.poll() is not None:
+                    # Process has exited
+                    break
 
-    def _handle_output(self):
-        """Handle output from server process."""
-        if self.process:
-            data = self.process.readAllStandardOutput().data().decode('utf-8', errors='replace')
-            for line in data.strip().split('\n'):
-                if line:
-                    self.output_received.emit(line)
-                    # Also log server output
-                    self.logger.debug(f"[server] {line}")
+                # Read available output
+                try:
+                    line = self.process.stdout.readline()
+                    if line:
+                        line = line.rstrip()
+                        self.output_received.emit(line)
+                        self.logger.debug(f"[server] {line}")
+                except Exception as e:
+                    self.logger.warning(f"Error reading server output: {e}")
+                    break
 
-    def _handle_finished(self, exit_code, exit_status):
-        """Handle server process finished."""
-        self.logger.info(f"Server process finished: exit_code={exit_code}, status={exit_status}")
-        self.output_received.emit(f"Server stopped (exit code: {exit_code})")
+            # Get exit code
+            exit_code = self.process.poll()
+            if exit_code is None:
+                # Process still running, we're stopping it
+                exit_code = 0
+
+            self.logger.info(f"Server process exited with code: {exit_code}")
+            self.output_received.emit(f"Server stopped (exit code: {exit_code})")
+            self.server_stopped.emit()
+
+        except Exception as e:
+            self.logger.exception(f"ServerThread.run() exception: {e}")
+            self.error_occurred.emit(str(e))
 
     def stop(self):
         """Stop the server process."""
         self.logger.info("ServerThread.stop() called")
         self._stop_requested = True
-        if self.process and self.process.state() != QProcess.ProcessState.NotRunning:
+        if self.process and self.process.poll() is None:
             self.logger.info("Terminating server process...")
             self.process.terminate()
-            if not self.process.waitForFinished(3000):
+            try:
+                self.process.wait(timeout=3)
+                self.logger.info("Server terminated gracefully")
+            except subprocess.TimeoutExpired:
                 self.logger.warning("Server didn't terminate gracefully, killing")
                 self.process.kill()
+                self.process.wait()
 
 
 class SetupDialog(QDialog):
