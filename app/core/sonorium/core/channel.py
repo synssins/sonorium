@@ -146,7 +146,7 @@ class Channel:
     @property
     def stream_path(self) -> str:
         """Get the stream URL path for this channel."""
-        return f"/stream/channel/{self.id}"
+        return f"/stream/channel{self.id}"
 
     def set_theme(self, theme: ThemeDefinition) -> None:
         """

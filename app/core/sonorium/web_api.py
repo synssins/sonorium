@@ -976,7 +976,73 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         return {'status': 'ok', 'count': len(_app_instance.themes)}
 
     # --- HTTP Audio Streaming ---
+    # IMPORTANT: Channel routes must be registered BEFORE theme routes
+    # because /stream/{theme_id} would otherwise match /stream/channel1
 
+    @fastapi_app.head('/stream/channel{channel_id}')
+    async def stream_channel_head(channel_id: int):
+        """
+        HEAD request for channel stream endpoint - required by some DLNA devices.
+        Returns headers without body so device can check content type.
+        """
+        from fastapi import Response
+
+        channel = _channel_manager.get_channel(channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail=f'Channel {channel_id} not found')
+
+        logger.info(f'HEAD request for channel {channel_id} - DLNA device probing')
+
+        return Response(
+            content='',
+            media_type='audio/mpeg',
+            headers={
+                'Accept-Ranges': 'none',
+                'transferMode.dlna.org': 'Streaming',
+                'contentFeatures.dlna.org': 'DLNA.ORG_PN=MP3;DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000',
+            }
+        )
+
+    @fastapi_app.get('/stream/channel{channel_id}')
+    async def stream_channel(channel_id: int):
+        """
+        Stream audio from a persistent channel.
+
+        Channels are persistent audio streams that network speakers connect to.
+        When themes change, the channel handles crossfading without disconnecting
+        the speaker. This provides a seamless listening experience.
+
+        Args:
+            channel_id: The channel ID (1-based)
+        """
+        from fastapi.responses import StreamingResponse
+
+        channel = _channel_manager.get_channel(channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail=f'Channel {channel_id} not found')
+
+        if channel.state == ChannelState.IDLE:
+            raise HTTPException(status_code=404, detail=f'Channel {channel_id} is not active')
+
+        # Get a stream iterator for this client
+        audio_stream = channel.get_stream()
+        logger.info(f'Starting HTTP stream for channel {channel_id} (theme: {channel.current_theme_name})')
+
+        return StreamingResponse(
+            audio_stream,
+            media_type='audio/mpeg',
+            headers={
+                'Cache-Control': 'no-cache, no-store',
+                'Connection': 'keep-alive',
+                'X-Content-Type-Options': 'nosniff',
+                # DLNA-specific headers for better compatibility
+                'Accept-Ranges': 'none',
+                'transferMode.dlna.org': 'Streaming',
+                'contentFeatures.dlna.org': 'DLNA.ORG_PN=MP3;DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000',
+            }
+        )
+
+    # Theme streaming (must come AFTER channel routes)
     @fastapi_app.head('/stream/{theme_id}')
     async def stream_theme_head(theme_id: str):
         """
@@ -1075,75 +1141,12 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         return {
             'base_url': base_url,
             'stream_path': '/stream/{theme_id}',
-            'channel_stream_path': '/stream/channel/{n}',
+            'channel_stream_path': '/stream/channel{n}',
             'example': f'{base_url}/stream/example_theme',
-            'channel_example': f'{base_url}/stream/channel/1'
+            'channel_example': f'{base_url}/stream/channel1'
         }
 
-    # --- Channel Streaming Endpoints ---
-
-    @fastapi_app.head('/stream/channel/{channel_id}')
-    async def stream_channel_head(channel_id: int):
-        """
-        HEAD request for channel stream endpoint - required by some DLNA devices.
-        Returns headers without body so device can check content type.
-        """
-        from fastapi import Response
-
-        channel = _channel_manager.get_channel(channel_id)
-        if not channel:
-            raise HTTPException(status_code=404, detail=f'Channel {channel_id} not found')
-
-        logger.info(f'HEAD request for channel {channel_id} - DLNA device probing')
-
-        return Response(
-            content='',
-            media_type='audio/mpeg',
-            headers={
-                'Accept-Ranges': 'none',
-                'transferMode.dlna.org': 'Streaming',
-                'contentFeatures.dlna.org': 'DLNA.ORG_PN=MP3;DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000',
-            }
-        )
-
-    @fastapi_app.get('/stream/channel/{channel_id}')
-    async def stream_channel(channel_id: int):
-        """
-        Stream audio from a persistent channel.
-
-        Channels are persistent audio streams that network speakers connect to.
-        When themes change, the channel handles crossfading without disconnecting
-        the speaker. This provides a seamless listening experience.
-
-        Args:
-            channel_id: The channel ID (1-based)
-        """
-        from fastapi.responses import StreamingResponse
-
-        channel = _channel_manager.get_channel(channel_id)
-        if not channel:
-            raise HTTPException(status_code=404, detail=f'Channel {channel_id} not found')
-
-        if channel.state == ChannelState.IDLE:
-            raise HTTPException(status_code=404, detail=f'Channel {channel_id} is not active')
-
-        # Get a stream iterator for this client
-        audio_stream = channel.get_stream()
-        logger.info(f'Starting HTTP stream for channel {channel_id} (theme: {channel.current_theme_name})')
-
-        return StreamingResponse(
-            audio_stream,
-            media_type='audio/mpeg',
-            headers={
-                'Cache-Control': 'no-cache, no-store',
-                'Connection': 'keep-alive',
-                'X-Content-Type-Options': 'nosniff',
-                # DLNA-specific headers for better compatibility
-                'Accept-Ranges': 'none',
-                'transferMode.dlna.org': 'Streaming',
-                'contentFeatures.dlna.org': 'DLNA.ORG_PN=MP3;DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000',
-            }
-        )
+    # --- Channel API Endpoints ---
 
     @fastapi_app.get('/api/channels')
     async def get_channels():
