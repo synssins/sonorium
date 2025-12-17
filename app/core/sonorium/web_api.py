@@ -1075,14 +1075,14 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         return {
             'base_url': base_url,
             'stream_path': '/stream/{theme_id}',
-            'channel_stream_path': '/stream/channel{n}',
+            'channel_stream_path': '/stream/channel/{n}',
             'example': f'{base_url}/stream/example_theme',
-            'channel_example': f'{base_url}/stream/channel1'
+            'channel_example': f'{base_url}/stream/channel/1'
         }
 
     # --- Channel Streaming Endpoints ---
 
-    @fastapi_app.head('/stream/channel{channel_id}')
+    @fastapi_app.head('/stream/channel/{channel_id}')
     async def stream_channel_head(channel_id: int):
         """
         HEAD request for channel stream endpoint - required by some DLNA devices.
@@ -1106,7 +1106,7 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             }
         )
 
-    @fastapi_app.get('/stream/channel{channel_id}')
+    @fastapi_app.get('/stream/channel/{channel_id}')
     async def stream_channel(channel_id: int):
         """
         Stream audio from a persistent channel.

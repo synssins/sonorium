@@ -66,7 +66,7 @@ class NetworkStreamingManager:
 
     def get_channel_stream_url(self, channel_id: int) -> str:
         """Get the HTTP stream URL for a channel (persistent streaming)."""
-        return f"{self.stream_base_url}/stream/channel{channel_id}"
+        return f"{self.stream_base_url}/stream/channel/{channel_id}"
 
     async def start_streaming(self, speaker_id: str, speaker_type: str,
                              speaker_info: dict, theme_id: str,
