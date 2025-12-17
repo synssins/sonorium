@@ -155,3 +155,7 @@ app/logs/
 app/temp/
 app/plugins/
 app/config/
+
+# Launcher source files (not distributed, only EXE is committed)
+app/windows/launcher.py
+app/windows/Sonorium.spec
