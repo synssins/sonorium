@@ -354,13 +354,26 @@ class NetworkStreamingManager:
             # Log device capabilities
             logger.info(f"DLNA device transport state: {dmr.transport_state}")
 
-            # Set the media URI - let the library construct metadata automatically
-            # Using minimal parameters for maximum compatibility
+            # Construct metadata with explicit MIME type for reliable playback
+            # This avoids issues with HEAD request failures or missing Content-Type
             logger.info(f"Setting transport URI: {session.stream_url}")
+
+            try:
+                meta_data = await dmr.construct_play_media_metadata(
+                    media_url=session.stream_url,
+                    media_title='Sonorium',
+                    override_mime_type='audio/mpeg',
+                    override_upnp_class='object.item.audioItem.musicTrack',
+                )
+                logger.info(f"Constructed DLNA metadata with audio/mpeg mime type")
+            except Exception as meta_err:
+                logger.warning(f"Failed to construct metadata: {meta_err}, using simple call")
+                meta_data = None
 
             await dmr.async_set_transport_uri(
                 session.stream_url,
-                'Sonorium'
+                'Sonorium',
+                meta_data=meta_data
             )
 
             # Small delay to allow device to process
