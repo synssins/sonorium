@@ -163,6 +163,11 @@ _heartbeat_check_thread = None
 _stop_on_disconnect: bool = False  # Disabled by default - systray provides stop control
 
 
+def _has_local_speaker(speakers: list) -> bool:
+    """Check if speakers list includes local audio (handles 'local' and 'local_audio' formats)."""
+    return 'local' in speakers or 'local_audio' in speakers
+
+
 def _load_sessions_from_config():
     """Load saved sessions from config file."""
     global _sessions
@@ -172,7 +177,7 @@ def _load_sessions_from_config():
             if isinstance(session_data, dict):
                 # Parse speakers list, defaulting to ['local'] for backward compat
                 speakers = session_data.get('speakers', ['local'])
-                use_local = 'local' in speakers
+                use_local = _has_local_speaker(speakers)
 
                 session = Session(
                     id=session_data.get('id', str(uuid.uuid4())[:8]),
@@ -454,7 +459,7 @@ def _session_to_dict(session: Session) -> dict:
     include_areas = []
 
     for speaker_ref in session.speakers:
-        if speaker_ref == 'local':
+        if speaker_ref == 'local' or speaker_ref == 'local_audio':
             # Local speaker selected - use area selection to indicate local audio
             include_areas.append('local_audio')
         elif speaker_ref.startswith('network_speaker.'):
@@ -655,7 +660,7 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
         else:
             speakers = ['local']  # Default to local only
 
-        use_local = 'local' in speakers
+        use_local = _has_local_speaker(speakers)
 
         session = Session(
             id=session_id,
@@ -715,7 +720,7 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
             new_speakers = set(new_speakers_list)
             if old_speakers != new_speakers:
                 session.speakers = new_speakers_list
-                session.use_local_speaker = 'local' in new_speakers_list
+                session.use_local_speaker = _has_local_speaker(new_speakers_list)
                 speakers_changed = True
                 logger.info(f'Session {session_id} speakers changed: {new_speakers_list}')
 
