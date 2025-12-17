@@ -39,7 +39,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.2.7-alpha"
+APP_VERSION = "0.2.8-alpha"
 DEFAULT_PORT = 8008
 
 # Global logger instance
@@ -579,20 +579,35 @@ class UpdateCheckThread(QThread):
                 logger.debug(f"Comparing {tag} ({tag_parsed}) > {current} ({current_parsed})")
 
                 if tag_parsed > current_parsed:
-                    # Found a newer version - check if it has Sonorium.exe
+                    # Found a newer version - check if it has Sonorium.exe AND core.zip
+                    exe_url = None
+                    exe_size = 0
+                    core_url = None
+                    core_size = 0
+
                     for asset in release.get('assets', []):
-                        if asset.get('name', '').lower() == 'sonorium.exe':
-                            logger.info(f"Update available: {tag}")
-                            self.update_available.emit({
-                                'version': tag,
-                                'tag_name': release.get('tag_name'),
-                                'name': release.get('name', f'Version {tag}'),
-                                'body': release.get('body', ''),
-                                'download_url': asset.get('browser_download_url'),
-                                'size': asset.get('size', 0),
-                                'html_url': release.get('html_url', ''),
-                            })
-                            return
+                        name = asset.get('name', '').lower()
+                        if name == 'sonorium.exe':
+                            exe_url = asset.get('browser_download_url')
+                            exe_size = asset.get('size', 0)
+                        elif name == 'core.zip':
+                            core_url = asset.get('browser_download_url')
+                            core_size = asset.get('size', 0)
+
+                    if exe_url:
+                        logger.info(f"Update available: {tag}")
+                        self.update_available.emit({
+                            'version': tag,
+                            'tag_name': release.get('tag_name'),
+                            'name': release.get('name', f'Version {tag}'),
+                            'body': release.get('body', ''),
+                            'download_url': exe_url,
+                            'size': exe_size,
+                            'core_url': core_url,  # May be None if not present
+                            'core_size': core_size,
+                            'html_url': release.get('html_url', ''),
+                        })
+                        return
                     # Has newer version but no Sonorium.exe - continue checking older releases
                     logger.debug(f"Release {tag} has no Sonorium.exe, checking older releases")
                     continue
@@ -790,6 +805,21 @@ class UpdateDialog(QDialog):
                                    "Please download it manually from the releases page.")
                 return
 
+        # Download and extract core.zip if available
+        core_url = self.release_info.get('core_url')
+        if core_url:
+            self.status_label.setText("Downloading core files...")
+            QApplication.processEvents()
+            logger.info(f"Downloading core.zip from: {core_url}")
+
+            if not self._download_and_extract_core(core_url, app_dir):
+                QMessageBox.critical(self, "Error",
+                                   "Could not download core files.\n"
+                                   "The update may be incomplete.")
+                # Continue anyway - at least update the EXE
+        else:
+            logger.warning("No core.zip URL in release info - core files won't be updated")
+
         # Save current playback state for recovery after update
         self.status_label.setText("Saving playback state...")
         QApplication.processEvents()
@@ -822,6 +852,35 @@ class UpdateDialog(QDialog):
         except Exception as e:
             logger.exception(f"Failed to launch updater: {e}")
             QMessageBox.critical(self, "Error", f"Failed to launch updater: {e}")
+
+    def _download_and_extract_core(self, core_url: str, app_dir: Path) -> bool:
+        """Download and extract core.zip to update the core/ folder."""
+        logger = get_logger()
+
+        try:
+            zip_path = app_dir / 'core_update.zip'
+
+            # Download core.zip
+            logger.info(f"Downloading core.zip...")
+            req = urllib.request.Request(core_url, headers={'User-Agent': 'Sonorium-Launcher'})
+            with urllib.request.urlopen(req, timeout=120) as response:
+                with open(zip_path, 'wb') as f:
+                    f.write(response.read())
+            logger.info(f"Downloaded core.zip to {zip_path}")
+
+            # Extract - will overwrite existing core/ and themes/ folders
+            logger.info(f"Extracting core.zip...")
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                zf.extractall(app_dir)
+            logger.info("Core files extracted successfully")
+
+            # Clean up
+            zip_path.unlink(missing_ok=True)
+            return True
+
+        except Exception as e:
+            logger.exception(f"Failed to download/extract core.zip: {e}")
+            return False
 
     def _download_updater(self, target_path: Path) -> bool:
         """Download updater.exe from GitHub releases."""

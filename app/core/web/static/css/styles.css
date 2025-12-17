@@ -404,7 +404,8 @@ body {
 }
 
 .session-field select,
-.session-field input[type="text"] {
+.session-field input[type="text"],
+.settings-select {
     width: 100%;
     padding: 0.5rem 0.75rem;
     background: var(--bg-secondary);
@@ -415,9 +416,15 @@ body {
 }
 
 .session-field select:focus,
-.session-field input:focus {
+.session-field input:focus,
+.settings-select:focus {
     outline: none;
     border-color: var(--accent-primary);
+}
+
+.settings-select option {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
 }
 
 .speaker-summary {
