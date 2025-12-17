@@ -1970,14 +1970,14 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
                 # Persist to config
                 config = get_config()
                 config.audio_device_id = -1
-                save_config(config)
+                save_config()
                 return {'status': 'ok', 'device_index': -1, 'message': 'Local audio disabled'}
             else:
                 _app_instance.set_audio_device(device_index)
                 # Persist to config
                 config = get_config()
                 config.audio_device_id = device_index
-                save_config(config)
+                save_config()
                 return {'status': 'ok', 'device_index': device_index}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
