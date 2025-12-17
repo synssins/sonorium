@@ -61,11 +61,16 @@ class NetworkStreamingManager:
         logger.info(f"Stream base URL set to: {url}")
 
     def get_stream_url(self, theme_id: str) -> str:
-        """Get the HTTP stream URL for a theme."""
+        """Get the HTTP stream URL for a theme (legacy, direct theme streaming)."""
         return f"{self.stream_base_url}/stream/{theme_id}"
 
+    def get_channel_stream_url(self, channel_id: int) -> str:
+        """Get the HTTP stream URL for a channel (persistent streaming)."""
+        return f"{self.stream_base_url}/stream/channel{channel_id}"
+
     async def start_streaming(self, speaker_id: str, speaker_type: str,
-                             speaker_info: dict, theme_id: str) -> bool:
+                             speaker_info: dict, theme_id: str,
+                             channel_id: int | None = None) -> bool:
         """
         Start streaming to a network speaker.
 
@@ -73,12 +78,19 @@ class NetworkStreamingManager:
             speaker_id: Unique speaker identifier
             speaker_type: 'chromecast', 'sonos', or 'dlna'
             speaker_info: Speaker details (host, port, etc.)
-            theme_id: Theme to stream
+            theme_id: Theme to stream (used for legacy direct streaming)
+            channel_id: Channel ID for persistent streaming (preferred over theme_id)
 
         Returns:
             True if streaming started successfully
         """
-        stream_url = self.get_stream_url(theme_id)
+        # Use channel-based URL if channel_id provided, otherwise fall back to theme URL
+        if channel_id is not None:
+            stream_url = self.get_channel_stream_url(channel_id)
+            logger.info(f"Using channel-based streaming: channel {channel_id}")
+        else:
+            stream_url = self.get_stream_url(theme_id)
+            logger.info(f"Using legacy theme-based streaming: {theme_id}")
 
         with self._lock:
             # Stop existing session if any

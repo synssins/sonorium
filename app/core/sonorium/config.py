@@ -171,6 +171,10 @@ class AppConfig:
     # Enabled network speakers (persisted IDs)
     enabled_network_speakers: list = field(default_factory=list)
 
+    # Network streaming settings
+    output_gain: float = 6.0  # Output gain multiplier for network streams (0.0 - 10.0)
+    max_channels: int = 4     # Maximum number of concurrent streaming channels
+
     def __post_init__(self):
         if not self.audio_path:
             self.audio_path = str(get_default_audio_dir())

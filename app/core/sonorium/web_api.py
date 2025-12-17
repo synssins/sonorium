@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from sonorium.obs import logger
+from sonorium.core.channel import ChannelManager, ChannelState
 
 if TYPE_CHECKING:
     from sonorium.app_device import SonoriumApp
@@ -45,6 +46,8 @@ class Session:
     # 'local' for local audio, 'network_speaker.{id}' for network speakers
     speakers: list = field(default_factory=lambda: ['local'])
     use_local_speaker: bool = True  # Whether to play through local audio output
+    # Channel ID for persistent streaming (network speakers stay connected on theme change)
+    channel_id: Optional[int] = None
 
 
 # --- Request Models ---
@@ -155,6 +158,7 @@ class PluginSettingsUpdate(BaseModel):
 _app_instance: 'SonoriumApp | None' = None
 _sessions: dict[str, Session] = {}
 _plugin_manager: 'PluginManager | None' = None
+_channel_manager: ChannelManager | None = None
 
 # Browser connection tracking
 _last_heartbeat: float = 0.0
@@ -308,12 +312,37 @@ def _convert_adhoc_to_speakers(adhoc: 'AdhocSelection') -> list:
 
 
 async def _start_session_speakers(session: 'Session'):
-    """Start streaming to all network speakers in a session."""
+    """Start streaming to all network speakers in a session using channel-based streaming."""
     from sonorium.streaming import get_streaming_manager
     from sonorium.network_speakers import get_speaker, SpeakerStatus
 
     if not session.theme_id:
         return
+
+    # Check if any network speakers are selected
+    has_network_speakers = any(
+        not _is_local_speaker_ref(s) for s in session.speakers
+    )
+
+    if not has_network_speakers:
+        return
+
+    # Acquire a channel for this session
+    channel = _channel_manager.get_available_channel()
+    if not channel:
+        logger.error('No available channels for session')
+        return
+
+    # Get the theme and set it on the channel
+    theme = _app_instance.get_theme(session.theme_id)
+    if not theme:
+        logger.error(f'Theme {session.theme_id} not found')
+        return
+
+    # Set the theme on the channel (this starts the channel's generator)
+    channel.set_theme(theme)
+    session.channel_id = channel.id
+    logger.info(f'Session {session.id} assigned to channel {channel.id}')
 
     manager = get_streaming_manager()
 
@@ -337,17 +366,18 @@ async def _start_session_speakers(session: 'Session'):
             logger.warning(f'Speaker {speaker.name} is unavailable, skipping')
             continue
 
-        # Start streaming to this speaker
-        logger.info(f'Starting stream to network speaker: {speaker.name}')
+        # Start streaming to this speaker using channel-based URL
+        logger.info(f'Starting channel-based stream to network speaker: {speaker.name} (channel {channel.id})')
         try:
             success = await manager.start_streaming(
                 speaker_id=speaker_id,
                 speaker_type=speaker.speaker_type.value,
                 speaker_info=speaker.to_dict(),
-                theme_id=session.theme_id
+                theme_id=session.theme_id,
+                channel_id=channel.id  # Use channel-based streaming
             )
             if success:
-                logger.info(f'Streaming started to {speaker.name}')
+                logger.info(f'Streaming started to {speaker.name} via channel {channel.id}')
             else:
                 logger.error(f'Failed to start streaming to {speaker.name}')
         except Exception as e:
@@ -355,7 +385,7 @@ async def _start_session_speakers(session: 'Session'):
 
 
 async def _stop_session_speakers(session: 'Session'):
-    """Stop streaming to all network speakers in a session."""
+    """Stop streaming to all network speakers in a session and release the channel."""
     from sonorium.streaming import get_streaming_manager
 
     manager = get_streaming_manager()
@@ -376,6 +406,14 @@ async def _stop_session_speakers(session: 'Session'):
             logger.info(f'Stopped streaming to speaker: {speaker_id}')
         except Exception as e:
             logger.error(f'Error stopping stream to {speaker_id}: {e}')
+
+    # Stop the channel if one was assigned
+    if session.channel_id is not None:
+        channel = _channel_manager.get_channel(session.channel_id)
+        if channel:
+            channel.stop()
+            logger.info(f'Stopped channel {session.channel_id}')
+        session.channel_id = None
 
 
 async def _update_session_speakers(session: 'Session'):
@@ -407,30 +445,51 @@ async def _update_session_speakers(session: 'Session'):
         except Exception as e:
             logger.error(f'Error stopping stream to {speaker_id}: {e}')
 
+    # If all network speakers removed, stop the channel
+    if not target_speaker_ids and session.channel_id is not None:
+        channel = _channel_manager.get_channel(session.channel_id)
+        if channel:
+            channel.stop()
+            logger.info(f'Stopped channel {session.channel_id} (no more speakers)')
+        session.channel_id = None
+
     # Start new speakers
     from sonorium.network_speakers import get_speaker, SpeakerStatus
 
-    for speaker_id in target_speaker_ids - active_speaker_ids:
-        speaker = get_speaker(speaker_id)
-        if not speaker:
-            logger.warning(f'Speaker {speaker_id} not found')
-            continue
+    new_speakers = target_speaker_ids - active_speaker_ids
+    if new_speakers:
+        # Ensure we have a channel if adding network speakers
+        if session.channel_id is None:
+            channel = _channel_manager.get_available_channel()
+            if channel and session.theme_id:
+                theme = _app_instance.get_theme(session.theme_id)
+                if theme:
+                    channel.set_theme(theme)
+                    session.channel_id = channel.id
+                    logger.info(f'Session {session.id} assigned to channel {channel.id}')
 
-        if speaker.status == SpeakerStatus.UNAVAILABLE:
-            logger.warning(f'Speaker {speaker.name} is unavailable')
-            continue
+        for speaker_id in new_speakers:
+            speaker = get_speaker(speaker_id)
+            if not speaker:
+                logger.warning(f'Speaker {speaker_id} not found')
+                continue
 
-        try:
-            success = await manager.start_streaming(
-                speaker_id=speaker_id,
-                speaker_type=speaker.speaker_type.value,
-                speaker_info=speaker.to_dict(),
-                theme_id=session.theme_id
-            )
-            if success:
-                logger.info(f'Started streaming to new speaker: {speaker.name}')
-        except Exception as e:
-            logger.error(f'Error starting stream to {speaker.name}: {e}')
+            if speaker.status == SpeakerStatus.UNAVAILABLE:
+                logger.warning(f'Speaker {speaker.name} is unavailable')
+                continue
+
+            try:
+                success = await manager.start_streaming(
+                    speaker_id=speaker_id,
+                    speaker_type=speaker.speaker_type.value,
+                    speaker_info=speaker.to_dict(),
+                    theme_id=session.theme_id,
+                    channel_id=session.channel_id  # Use channel-based streaming
+                )
+                if success:
+                    logger.info(f'Started streaming to new speaker: {speaker.name}')
+            except Exception as e:
+                logger.error(f'Error starting stream to {speaker.name}: {e}')
 
     # Handle local speaker toggle
     if session.use_local_speaker and _app_instance.playback_state != 'playing':
@@ -492,7 +551,7 @@ def _session_to_dict(session: Session) -> dict:
         'is_playing': session.is_playing,
         'speakers': session.speakers,
         'speaker_summary': speaker_summary,
-        'channel_id': 0 if session.is_playing else None,
+        'channel_id': session.channel_id,
         'cycle_config': {
             'enabled': False,
             'interval_minutes': 60,
@@ -504,10 +563,21 @@ def _session_to_dict(session: Session) -> dict:
     }
 
 
-def create_app(app_instance: 'SonoriumApp') -> FastAPI:
+def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | None = None) -> FastAPI:
     """Create the FastAPI application."""
-    global _app_instance, _last_heartbeat, _heartbeat_check_thread
+    global _app_instance, _last_heartbeat, _heartbeat_check_thread, _channel_manager
     _app_instance = app_instance
+
+    # Initialize channel manager (create default if not provided)
+    if channel_manager is not None:
+        _channel_manager = channel_manager
+    else:
+        config = get_config()
+        _channel_manager = ChannelManager(
+            max_channels=config.max_channels,
+            output_gain=config.output_gain
+        )
+    logger.info(f"Channel manager initialized with {_channel_manager.max_channels} channels, gain={_channel_manager.output_gain}")
 
     # Load saved sessions from config
     _load_sessions_from_config()
@@ -743,7 +813,20 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
         # Crossfade to new theme/preset if changed while playing
         if needs_restart and session.is_playing:
             logger.info(f'Crossfading for session {session_id} due to theme/preset change')
-            _app_instance.crossfade_to(session.theme_id, preset_id=session.preset_id)
+
+            # Crossfade local playback if enabled
+            if session.use_local_speaker:
+                _app_instance.crossfade_to(session.theme_id, preset_id=session.preset_id)
+
+            # Crossfade the channel (network speakers) if assigned
+            # This is the key feature: network speakers stay connected, just the audio crossfades
+            if session.channel_id is not None:
+                channel = _channel_manager.get_channel(session.channel_id)
+                if channel:
+                    theme = _app_instance.get_theme(session.theme_id)
+                    if theme:
+                        logger.info(f'Crossfading channel {session.channel_id} to theme {session.theme_id}')
+                        channel.set_theme(theme)  # This triggers crossfade in the channel
 
         # Handle speaker changes while playing
         if speakers_changed and session.is_playing:
@@ -992,8 +1075,120 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
         return {
             'base_url': base_url,
             'stream_path': '/stream/{theme_id}',
-            'example': f'{base_url}/stream/example_theme'
+            'channel_stream_path': '/stream/channel{n}',
+            'example': f'{base_url}/stream/example_theme',
+            'channel_example': f'{base_url}/stream/channel1'
         }
+
+    # --- Channel Streaming Endpoints ---
+
+    @fastapi_app.head('/stream/channel{channel_id}')
+    async def stream_channel_head(channel_id: int):
+        """
+        HEAD request for channel stream endpoint - required by some DLNA devices.
+        Returns headers without body so device can check content type.
+        """
+        from fastapi import Response
+
+        channel = _channel_manager.get_channel(channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail=f'Channel {channel_id} not found')
+
+        logger.info(f'HEAD request for channel {channel_id} - DLNA device probing')
+
+        return Response(
+            content='',
+            media_type='audio/mpeg',
+            headers={
+                'Accept-Ranges': 'none',
+                'transferMode.dlna.org': 'Streaming',
+                'contentFeatures.dlna.org': 'DLNA.ORG_PN=MP3;DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000',
+            }
+        )
+
+    @fastapi_app.get('/stream/channel{channel_id}')
+    async def stream_channel(channel_id: int):
+        """
+        Stream audio from a persistent channel.
+
+        Channels are persistent audio streams that network speakers connect to.
+        When themes change, the channel handles crossfading without disconnecting
+        the speaker. This provides a seamless listening experience.
+
+        Args:
+            channel_id: The channel ID (1-based)
+        """
+        from fastapi.responses import StreamingResponse
+
+        channel = _channel_manager.get_channel(channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail=f'Channel {channel_id} not found')
+
+        if channel.state == ChannelState.IDLE:
+            raise HTTPException(status_code=404, detail=f'Channel {channel_id} is not active')
+
+        # Get a stream iterator for this client
+        audio_stream = channel.get_stream()
+        logger.info(f'Starting HTTP stream for channel {channel_id} (theme: {channel.current_theme_name})')
+
+        return StreamingResponse(
+            audio_stream,
+            media_type='audio/mpeg',
+            headers={
+                'Cache-Control': 'no-cache, no-store',
+                'Connection': 'keep-alive',
+                'X-Content-Type-Options': 'nosniff',
+                # DLNA-specific headers for better compatibility
+                'Accept-Ranges': 'none',
+                'transferMode.dlna.org': 'Streaming',
+                'contentFeatures.dlna.org': 'DLNA.ORG_PN=MP3;DLNA.ORG_OP=01;DLNA.ORG_CI=0;DLNA.ORG_FLAGS=01700000000000000000000000000000',
+            }
+        )
+
+    @fastapi_app.get('/api/channels')
+    async def get_channels():
+        """Get all channels with their current state."""
+        return _channel_manager.list_channels()
+
+    @fastapi_app.get('/api/channels/{channel_id}')
+    async def get_channel_info(channel_id: int):
+        """Get info about a specific channel."""
+        channel = _channel_manager.get_channel(channel_id)
+        if not channel:
+            raise HTTPException(status_code=404, detail=f'Channel {channel_id} not found')
+        return channel.to_dict()
+
+    # --- Output Gain Settings ---
+
+    @fastapi_app.get('/api/settings/gain')
+    async def get_gain_setting():
+        """Get the current output gain setting."""
+        return {
+            'output_gain': _channel_manager.get_output_gain(),
+            'min': 0.0,
+            'max': 10.0,
+            'default': 6.0
+        }
+
+    @fastapi_app.put('/api/settings/gain')
+    async def set_gain_setting(request: dict):
+        """Set the output gain for network streams."""
+        gain = request.get('output_gain')
+        if gain is None:
+            raise HTTPException(status_code=400, detail='output_gain is required')
+
+        # Clamp to valid range
+        gain = max(0.0, min(10.0, float(gain)))
+
+        _channel_manager.set_output_gain(gain)
+
+        # Save to config
+        config = get_config()
+        config.output_gain = gain
+        save_config()
+
+        logger.info(f'Output gain set to {gain}')
+        return {'output_gain': gain}
 
     @fastapi_app.get('/api/themes/{theme_id}')
     async def get_theme(theme_id: str):
