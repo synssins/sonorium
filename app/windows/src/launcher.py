@@ -36,7 +36,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.1.0-alpha"
+APP_VERSION = "0.1.1-alpha"
 DEFAULT_PORT = 8008
 WIKI_URL = "https://github.com/synssins/sonorium/wiki"
 REPO_URL = "https://github.com/synssins/sonorium"
