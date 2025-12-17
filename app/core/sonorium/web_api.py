@@ -168,6 +168,11 @@ def _has_local_speaker(speakers: list) -> bool:
     return 'local' in speakers or 'local_audio' in speakers
 
 
+def _is_local_speaker_ref(speaker_ref: str) -> bool:
+    """Check if a speaker reference is a local speaker (not network)."""
+    return speaker_ref in ('local', 'local_audio')
+
+
 def _load_sessions_from_config():
     """Load saved sessions from config file."""
     global _sessions
@@ -313,8 +318,8 @@ async def _start_session_speakers(session: 'Session'):
     manager = get_streaming_manager()
 
     for speaker_ref in session.speakers:
-        # Skip local speaker
-        if speaker_ref == 'local':
+        # Skip local speaker (handles both 'local' and 'local_audio')
+        if _is_local_speaker_ref(speaker_ref):
             continue
 
         # Extract speaker ID from 'network_speaker.{id}' format
@@ -356,8 +361,8 @@ async def _stop_session_speakers(session: 'Session'):
     manager = get_streaming_manager()
 
     for speaker_ref in session.speakers:
-        # Skip local speaker
-        if speaker_ref == 'local':
+        # Skip local speaker (handles both 'local' and 'local_audio')
+        if _is_local_speaker_ref(speaker_ref):
             continue
 
         # Extract speaker ID
@@ -386,7 +391,8 @@ async def _update_session_speakers(session: 'Session'):
     # Get target speakers (excluding local)
     target_speaker_ids = set()
     for speaker_ref in session.speakers:
-        if speaker_ref == 'local':
+        # Skip local speaker (handles both 'local' and 'local_audio')
+        if _is_local_speaker_ref(speaker_ref):
             continue
         if speaker_ref.startswith('network_speaker.'):
             target_speaker_ids.add(speaker_ref.replace('network_speaker.', ''))
@@ -715,6 +721,7 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
         elif request.speakers is not None:
             new_speakers_list = request.speakers
 
+        old_use_local = session.use_local_speaker
         if new_speakers_list is not None:
             old_speakers = set(session.speakers)
             new_speakers = set(new_speakers_list)
@@ -731,6 +738,19 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
 
         # Handle speaker changes while playing
         if speakers_changed and session.is_playing:
+            # Handle local playback start/stop based on local speaker selection change
+            if old_use_local and not session.use_local_speaker:
+                # Local speaker was removed - stop local playback
+                logger.info(f'Session {session_id}: stopping local playback (local speaker unchecked)')
+                _app_instance.stop()
+            elif not old_use_local and session.use_local_speaker:
+                # Local speaker was added - start local playback
+                logger.info(f'Session {session_id}: starting local playback (local speaker checked)')
+                if session.theme_id:
+                    _app_instance.play(session.theme_id, preset_id=session.preset_id)
+                    _app_instance.set_volume(session.volume / 100.0)
+
+            # Update network speakers
             await _update_session_speakers(session)
 
         # Save sessions to config

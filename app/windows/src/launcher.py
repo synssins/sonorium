@@ -39,7 +39,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.2.2-alpha"
+APP_VERSION = "0.2.3-alpha"
 DEFAULT_PORT = 8008
 
 # Global logger instance
