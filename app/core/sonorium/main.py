@@ -64,7 +64,7 @@ def clear_recovery_state(config_dir: Path):
         logger.info("Cleared recovery state")
 
 
-def run_server(host: str = '127.0.0.1', port: int = 8008, open_browser: bool = True):
+def run_server(host: str = '0.0.0.0', port: int = 8008, open_browser: bool = True):
     """Run the Sonorium web server."""
     import uvicorn
     from sonorium.config import get_config, get_config_dir, copy_bundled_themes
@@ -140,7 +140,7 @@ def run_server(host: str = '127.0.0.1', port: int = 8008, open_browser: bool = T
     uvicorn.run(fastapi_app, host=host, port=port, log_level='info')
 
 
-def run_with_tray(host: str = '127.0.0.1', port: int = 8008):
+def run_with_tray(host: str = '0.0.0.0', port: int = 8008):
     """Run with system tray icon."""
     try:
         import pystray
@@ -201,7 +201,7 @@ def run_with_tray(host: str = '127.0.0.1', port: int = 8008):
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description='Sonorium - Ambient Soundscape Mixer')
-    parser.add_argument('--host', default='127.0.0.1', help='Server host (default: 127.0.0.1)')
+    parser.add_argument('--host', default='0.0.0.0', help='Server host (default: 0.0.0.0 for network access)')
     parser.add_argument('--port', type=int, default=8008, help='Server port (default: 8008)')
     parser.add_argument('--no-browser', action='store_true', help='Do not open browser on start')
     parser.add_argument('--no-tray', action='store_true', help='Run without system tray icon')
