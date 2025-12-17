@@ -3023,42 +3023,41 @@ function renderLocalAudioDevices() {
     const container = document.getElementById('local-audio-devices');
     if (!container) return;
 
-    if (localAudioDevices.length === 0) {
-        container.innerHTML = '<p class="text-muted">No audio output devices found.</p>';
-        return;
+    // Build dropdown with "None" option for network-only streaming
+    let html = `
+        <select id="audio-device-select" class="settings-select" onchange="selectAudioDevice(this.value)">
+            <option value="-1" ${selectedAudioDevice === -1 || selectedAudioDevice === null ? 'selected' : ''}>
+                None (Network speakers only)
+            </option>
+    `;
+
+    for (const device of localAudioDevices) {
+        const selected = device.index === selectedAudioDevice ? 'selected' : '';
+        const info = `${device.channels}ch, ${device.sample_rate}Hz`;
+        html += `<option value="${device.index}" ${selected}>${escapeHtml(device.name)} (${info})</option>`;
     }
 
-    container.innerHTML = localAudioDevices.map(device => `
-        <div class="audio-device-item ${device.index === selectedAudioDevice ? 'selected' : ''}"
-             onclick="selectAudioDevice(${device.index})">
-            <div class="device-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
-                    <circle cx="12" cy="14" r="4"/>
-                    <line x1="12" y1="6" x2="12.01" y2="6"/>
-                </svg>
-            </div>
-            <div class="device-info">
-                <div class="device-name">${escapeHtml(device.name)}</div>
-                <div class="device-type">${device.channels} channels, ${device.sample_rate} Hz</div>
-            </div>
-            <div class="device-check">
-                ${device.index === selectedAudioDevice ? `
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                        <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                ` : ''}
-            </div>
-        </div>
-    `).join('');
+    html += '</select>';
+
+    if (localAudioDevices.length === 0) {
+        html += '<p class="text-muted-small" style="margin-top: 0.5rem;">No audio output devices detected.</p>';
+    }
+
+    container.innerHTML = html;
 }
 
 async function selectAudioDevice(deviceIndex) {
     try {
-        await api('PUT', '/settings/audio-device', { device_index: deviceIndex });
-        selectedAudioDevice = deviceIndex;
+        // Convert string from dropdown to number
+        const index = parseInt(deviceIndex, 10);
+        await api('PUT', '/settings/audio-device', { device_index: index });
+        selectedAudioDevice = index;
         renderLocalAudioDevices();
-        showToast('Audio device changed', 'success');
+        if (index === -1) {
+            showToast('Local audio disabled', 'success');
+        } else {
+            showToast('Audio device changed', 'success');
+        }
     } catch (error) {
         showToast(error.message, 'error');
     }

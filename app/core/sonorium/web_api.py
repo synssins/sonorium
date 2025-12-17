@@ -1954,14 +1954,19 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
 
     @fastapi_app.put('/api/settings/audio-device')
     async def set_audio_device_endpoint(request: dict):
-        """Set the active audio output device."""
+        """Set the active audio output device. Use -1 for no local device."""
         device_index = request.get('device_index')
         if device_index is None:
             raise HTTPException(status_code=400, detail='device_index is required')
 
         try:
-            _app_instance.set_audio_device(device_index)
-            return {'status': 'ok', 'device_index': device_index}
+            if device_index == -1:
+                # Disable local audio output
+                _app_instance.disable_local_audio()
+                return {'status': 'ok', 'device_index': -1, 'message': 'Local audio disabled'}
+            else:
+                _app_instance.set_audio_device(device_index)
+                return {'status': 'ok', 'device_index': device_index}
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
 

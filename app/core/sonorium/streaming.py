@@ -344,7 +344,7 @@ class NetworkStreamingManager:
             factory = UpnpFactory(requester)
 
             device = await factory.async_create_device(location)
-            logger.debug(f"DLNA device created: {device.name}")
+            logger.info(f"DLNA device created: {device.name}")
 
             # Create DMR (Digital Media Renderer) profile
             dmr = DmrDevice(device, None)
@@ -352,39 +352,22 @@ class NetworkStreamingManager:
             session._device = dmr
 
             # Log device capabilities
-            logger.debug(f"DLNA device transport state: {dmr.transport_state}")
+            logger.info(f"DLNA device transport state: {dmr.transport_state}")
 
-            # Use the library's helper to construct proper DIDL-Lite metadata
-            # This sets proper DLNA.ORG_PN and flags for streaming
-            try:
-                didl_metadata = await dmr.construct_play_media_metadata(
-                    media_url=session.stream_url,
-                    media_title='Sonorium',
-                    default_mime_type='audio/mpeg',
-                    default_upnp_class='object.item.audioItem.musicTrack',
-                    # Override DLNA features to indicate live streaming
-                    override_dlna_features='DLNA.ORG_PN=MP3;DLNA.ORG_OP=01;DLNA.ORG_FLAGS=01700000000000000000000000000000'
-                )
-                logger.debug(f"Constructed DIDL metadata via library helper")
-            except Exception as meta_err:
-                # Fallback to our own metadata if library method fails
-                logger.warning(f"Could not construct metadata via library: {meta_err}, using fallback")
-                didl_metadata = self._create_didl_metadata(session.stream_url, 'Sonorium')
+            # Set the media URI - let the library construct metadata automatically
+            # Using minimal parameters for maximum compatibility
+            logger.info(f"Setting transport URI: {session.stream_url}")
 
-            logger.debug(f"Setting transport URI: {session.stream_url}")
-
-            # Set the media URI with metadata (API: media_url, media_title, meta_data)
             await dmr.async_set_transport_uri(
                 session.stream_url,
-                'Sonorium',
-                didl_metadata
+                'Sonorium'
             )
 
             # Small delay to allow device to process
             await asyncio.sleep(0.5)
 
             # Check state after setting URI
-            logger.debug(f"DLNA transport state after SetAVTransportURI: {dmr.transport_state}")
+            logger.info(f"DLNA transport state after SetAVTransportURI: {dmr.transport_state}")
 
             # Send play command
             await dmr.async_play()
@@ -394,7 +377,7 @@ class NetworkStreamingManager:
 
             # Log final state
             logger.info(f"DLNA device now playing {session.stream_url}")
-            logger.debug(f"DLNA transport state after Play: {dmr.transport_state}")
+            logger.info(f"DLNA transport state after Play: {dmr.transport_state}")
 
             return True
 
