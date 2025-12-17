@@ -2082,7 +2082,7 @@ def create_app(app_instance: 'SonoriumApp') -> FastAPI:
             # Persist to config
             config = get_config()
             config.enabled_network_speakers = speaker_ids
-            save_config(config)
+            save_config()
 
             return {'status': 'ok', 'enabled': speaker_ids}
         else:
