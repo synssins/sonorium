@@ -745,10 +745,24 @@ class SparsePlaybackStream:
 
         chunk_count = 0
         silence_chunk = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
+        first_play = True
 
         while True:
             # Check for updated presence
             presence = self.instance.presence
+
+            # On first play, delay with a random portion of the interval
+            # This prevents all sparse tracks from playing at stream start
+            if first_play:
+                first_play = False
+                # Random initial delay: 0% to 100% of the normal interval
+                initial_delay_samples = int(get_silent_interval() * random.uniform(0.0, 1.0))
+                initial_delay_chunks = initial_delay_samples // self.CHUNK_SIZE
+                if initial_delay_chunks > 0:
+                    logger.debug(f'SparsePlaybackStream: {self.instance.name} initial delay: {initial_delay_samples/SAMPLE_RATE:.1f}s')
+                    for _ in range(initial_delay_chunks):
+                        chunk_count += 1
+                        yield silence_chunk
 
             # For exclusive tracks, first check if we're blocked
             if is_blocked_exclusive():
