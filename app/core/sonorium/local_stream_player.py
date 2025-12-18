@@ -34,8 +34,9 @@ except ImportError:
 from sonorium.obs import logger
 
 SAMPLE_RATE = 44100
-BLOCK_SIZE = 1024
-BUFFER_QUEUE_SIZE = 50  # Number of decoded audio blocks to buffer
+BLOCK_SIZE = 2048  # Larger blocks = fewer callbacks = less chance of underrun
+BUFFER_QUEUE_SIZE = 100  # Number of decoded audio blocks to buffer
+PRE_BUFFER_BLOCKS = 30  # Fill this many blocks before starting playback (~1.4 seconds)
 
 
 class LocalStreamPlayer:
@@ -66,6 +67,7 @@ class LocalStreamPlayer:
         self._current_channel_id: Optional[int] = None
         self._volume = 1.0
         self._lock = threading.Lock()
+        self._prebuffering = True  # True until we've buffered enough data
 
     @property
     def volume(self) -> float:
@@ -87,6 +89,11 @@ class LocalStreamPlayer:
         """Callback for sounddevice output stream."""
         if status:
             logger.warning(f"LocalStreamPlayer audio callback status: {status}")
+
+        # During pre-buffering, output silence
+        if self._prebuffering:
+            outdata.fill(0)
+            return
 
         try:
             data = self._audio_queue.get_nowait()
@@ -179,6 +186,12 @@ class LocalStreamPlayer:
                                     try:
                                         # Use timeout to allow checking _running flag
                                         self._audio_queue.put(block, timeout=0.1)
+
+                                        # Check if pre-buffering is complete
+                                        if self._prebuffering and self._audio_queue.qsize() >= PRE_BUFFER_BLOCKS:
+                                            logger.info(f"LocalStreamPlayer: Pre-buffer complete ({self._audio_queue.qsize()} blocks), starting playback")
+                                            self._prebuffering = False
+
                                     except queue.Full:
                                         # Drop old data to keep stream current
                                         try:
@@ -241,6 +254,7 @@ class LocalStreamPlayer:
             self._current_url = stream_url
             self._current_channel_id = channel_id
             self._running = True
+            self._prebuffering = True  # Start in pre-buffering mode
 
             # Clear any old audio data
             while not self._audio_queue.empty():
