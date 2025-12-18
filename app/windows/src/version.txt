@@ -1,13 +1,13 @@
 # UTF-8
 #
 # Auto-generated version info for Sonorium
-# Version: 0.2.28
+# Version: 0.2.29
 #
 
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(0, 2, 28, 0),
-    prodvers=(0, 2, 28, 0),
+    filevers=(0, 2, 29, 0),
+    prodvers=(0, 2, 29, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -23,12 +23,12 @@ VSVersionInfo(
           [
             StringStruct(u'CompanyName', u'Sonorium'),
             StringStruct(u'FileDescription', u'Sonorium - Ambient Soundscape Mixer'),
-            StringStruct(u'FileVersion', u'0.2.28'),
+            StringStruct(u'FileVersion', u'0.2.29'),
             StringStruct(u'InternalName', u'Sonorium'),
             StringStruct(u'LegalCopyright', u'Copyright 2025 Sonorium'),
             StringStruct(u'OriginalFilename', u'Sonorium.exe'),
             StringStruct(u'ProductName', u'Sonorium'),
-            StringStruct(u'ProductVersion', u'0.2.28'),
+            StringStruct(u'ProductVersion', u'0.2.29'),
           ]
         )
       ]

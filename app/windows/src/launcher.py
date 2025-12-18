@@ -39,7 +39,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QAction, QDesktopServices, QFont, QTextC
 
 # Constants
 APP_NAME = "Sonorium"
-APP_VERSION = "0.2.28"
+APP_VERSION = "0.2.29"
 DEFAULT_PORT = 8008
 
 # Global logger instance
@@ -399,13 +399,29 @@ class ServerThread(QThread):
                 self.error_occurred.emit(f"Core not found: {main_script}")
                 return
 
-            args = [str(python_exe), str(main_script), '--no-tray', '--no-browser', '--port', str(self.port)]
-            self.logger.info(f"Launching: {' '.join(args)}")
+            # For embedded Python, we need to inject sys.path since PYTHONPATH is ignored
+            # Use -c to run a bootstrap that adds core_dir to sys.path then runs main.py
+            if getattr(sys, 'frozen', False) and (app_dir / 'python' / 'python.exe').exists():
+                # Embedded Python - use bootstrap code to set up sys.path
+                # Use runpy to properly handle __name__ and sys.argv
+                bootstrap_code = f'''
+import sys
+sys.path.insert(0, r"{core_dir}")
+sys.argv = [r"{main_script}", "--no-tray", "--no-browser", "--port", "{self.port}"]
+import runpy
+runpy.run_path(r"{main_script}", run_name="__main__")
+'''
+                args = [str(python_exe), '-c', bootstrap_code]
+            else:
+                # System Python - PYTHONPATH works fine
+                args = [str(python_exe), str(main_script), '--no-tray', '--no-browser', '--port', str(self.port)]
 
-            # Set up environment
+            self.logger.info(f"Launching with embedded Python: {python_exe}")
+            self.logger.debug(f"Core dir: {core_dir}")
+
+            # Set up environment (still set PYTHONPATH for system Python fallback)
             env = os.environ.copy()
             env['PYTHONPATH'] = str(core_dir)
-            self.logger.debug(f"PYTHONPATH set to: {core_dir}")
 
             self.output_received.emit(f"Starting server on port {self.port}...")
 
