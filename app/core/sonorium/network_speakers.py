@@ -228,6 +228,28 @@ class NetworkSpeakerDiscovery:
             urls_to_try.append(f"http://{speaker.host}:8008/ssdp/device-desc.xml")
         elif speaker.speaker_type == SpeakerType.SONOS:
             urls_to_try.append(f"http://{speaker.host}:1400/xml/device_description.xml")
+        elif speaker.speaker_type == SpeakerType.AIRPLAY:
+            # AirPlay speakers don't have HTTP endpoints - validate via TCP port check
+            port = speaker.port or 7000
+            try:
+                import socket
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(3)
+                result = sock.connect_ex((speaker.host, port))
+                sock.close()
+                if result == 0:
+                    speaker.last_seen = datetime.now().isoformat()
+                    speaker.status = SpeakerStatus.AVAILABLE
+                    logger.debug(f"Speaker {speaker.name} is available at {speaker.host}:{port}")
+                    return True
+                else:
+                    speaker.status = SpeakerStatus.UNAVAILABLE
+                    logger.info(f"Speaker {speaker.name} is unavailable at {speaker.host}:{port}")
+                    return False
+            except Exception as e:
+                logger.debug(f"AirPlay validation error for {speaker.name}: {e}")
+                speaker.status = SpeakerStatus.UNAVAILABLE
+                return False
 
         for url in urls_to_try:
             try:
