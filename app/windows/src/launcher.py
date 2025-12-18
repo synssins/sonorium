@@ -836,9 +836,23 @@ class UpdateDialog(QDialog):
                                    "Please download it manually from the releases page.")
                 return
 
-        # Download and extract core.zip if available
+        # Stop the server before extracting core files
+        # The Python runtime files (.pyd) are locked while the server is running
         core_url = self.release_info.get('core_url')
         if core_url:
+            self.status_label.setText("Stopping server for update...")
+            QApplication.processEvents()
+            logger.info("Stopping server before core extraction...")
+
+            # Get reference to main window to stop server
+            main_window = self.parent()
+            if main_window and hasattr(main_window, 'stop_server'):
+                main_window.stop_server()
+                # Give the server time to fully stop and release file locks
+                import time
+                time.sleep(2)
+                logger.info("Server stopped, proceeding with core extraction")
+
             self.status_label.setText("Downloading core files...")
             QApplication.processEvents()
             logger.info(f"Downloading core.zip from: {core_url}")
