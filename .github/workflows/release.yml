@@ -24,7 +24,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Install dependencies
+      - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
           pip install PyQt6 pyinstaller pillow
@@ -43,10 +43,70 @@ jobs:
           cd app/windows/src
           pyinstaller --distpath .. --workpath ../build --clean Updater.spec
 
-      - name: Create core.zip
+      - name: Download Python embeddable
         run: |
-          # Create zip with core/ and themes/ folders
-          Compress-Archive -Path app/core, app/themes -DestinationPath core.zip
+          # Download Python 3.11 embeddable package (64-bit)
+          $pythonUrl = "https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip"
+          $pipUrl = "https://bootstrap.pypa.io/get-pip.py"
+
+          # Create python directory
+          New-Item -ItemType Directory -Force -Path "python_embed"
+
+          # Download and extract Python embeddable
+          Write-Host "Downloading Python embeddable..."
+          Invoke-WebRequest -Uri $pythonUrl -OutFile "python_embed.zip"
+          Expand-Archive -Path "python_embed.zip" -DestinationPath "python_embed" -Force
+          Remove-Item "python_embed.zip"
+
+          # Enable pip by modifying python311._pth
+          Write-Host "Enabling pip in embedded Python..."
+          $pthFile = "python_embed/python311._pth"
+          $pthContent = Get-Content $pthFile
+          # Uncomment import site line and add Lib\site-packages
+          $newContent = $pthContent -replace '#import site', 'import site'
+          $newContent += "`nLib\site-packages"
+          Set-Content -Path $pthFile -Value $newContent
+
+          # Download and run get-pip.py
+          Write-Host "Installing pip..."
+          Invoke-WebRequest -Uri $pipUrl -OutFile "python_embed/get-pip.py"
+          & "python_embed/python.exe" "python_embed/get-pip.py" --no-warn-script-location
+          Remove-Item "python_embed/get-pip.py"
+        shell: pwsh
+
+      - name: Install core dependencies into embedded Python
+        run: |
+          Write-Host "Installing core dependencies..."
+
+          # Install all dependencies from requirements.txt
+          & "python_embed/python.exe" -m pip install --no-warn-script-location -r app/core/requirements.txt
+
+          # Verify pyatv is installed
+          Write-Host "Verifying pyatv installation..."
+          & "python_embed/python.exe" -c "import pyatv; print(f'pyatv version: {pyatv.__version__}')"
+
+          # List installed packages
+          Write-Host "Installed packages:"
+          & "python_embed/python.exe" -m pip list
+        shell: pwsh
+
+      - name: Create core.zip with embedded Python
+        run: |
+          # Create the zip with:
+          # - core/ (source code)
+          # - themes/ (audio themes)
+          # - python/ (embedded Python with all dependencies)
+
+          # Rename python_embed to python (what the launcher expects)
+          Rename-Item -Path "python_embed" -NewName "python"
+
+          # Create zip with all three folders
+          Compress-Archive -Path "app/core", "app/themes", "python" -DestinationPath core.zip -Force
+
+          # Show zip contents summary
+          Write-Host "core.zip created with embedded Python"
+          $zipSize = (Get-Item "core.zip").Length / 1MB
+          Write-Host "Size: $([math]::Round($zipSize, 2)) MB"
         shell: pwsh
 
       - name: Get version from tag
@@ -81,16 +141,22 @@ jobs:
             ---
 
             ### Downloads
-            - **Sonorium.exe** - Standalone Windows launcher (portable)
-            - **core.zip** - Core files for manual installation or updates
+            - **Sonorium.exe** - Standalone Windows launcher (portable, ~37 MB)
+            - **core.zip** - Core files with embedded Python (~100+ MB)
 
             ### First-time setup
             1. Download `Sonorium.exe` to any folder
             2. Run it - the app will automatically download required files
+            3. No Python installation required - everything is self-contained!
 
             ### Manual installation
             1. Download both files
             2. Extract `core.zip` to the same folder as `Sonorium.exe`
             3. Run `Sonorium.exe`
+
+            ### What's included
+            - Embedded Python 3.11 runtime
+            - All dependencies pre-installed (FastAPI, pyatv, etc.)
+            - AirPlay, DLNA, Chromecast, and Sonos speaker support
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
