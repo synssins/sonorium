@@ -181,23 +181,19 @@ def _is_local_speaker_ref(speaker_ref: str) -> bool:
     return speaker_ref in ('local', 'local_audio')
 
 
-def _get_local_stream_url(channel_id: int) -> str:
-    """Get the stream URL for local playback (localhost)."""
-    config = get_config()
-    port = config.server_port
-    return f"http://127.0.0.1:{port}/stream/channel{channel_id}"
-
-
 def _start_local_playback(channel_id: int, volume: float = 1.0):
     """
-    Start local playback from a channel stream.
+    Start local playback from a channel.
 
-    This treats local audio like a network speaker - it connects to
-    the channel's MP3 stream and plays it through the local audio device.
+    Reads PCM directly from the channel's broadcast buffer for low-latency
+    playback without HTTP/MP3 overhead.
     """
-    stream_url = _get_local_stream_url(channel_id)
-    logger.info(f"Starting local playback from channel {channel_id}: {stream_url}")
-    play_local(stream_url, channel_id, volume)
+    channel = _channel_manager.get_channel(channel_id)
+    if channel is None:
+        logger.error(f"Cannot start local playback: channel {channel_id} not found")
+        return
+    logger.info(f"Starting local playback from channel {channel_id}")
+    play_local(channel, volume)
 
 
 def _stop_local_playback():
