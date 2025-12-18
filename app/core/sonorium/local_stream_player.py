@@ -118,15 +118,21 @@ class LocalStreamPlayer:
 
                     last_sequence = seq
 
-                    # Chunk is int16 numpy array, convert to float32 for sounddevice
-                    # Shape should be (samples,) for mono or (samples, channels) for stereo
+                    # Chunk is int16 numpy array from channel
+                    # Shape is (channels, samples) - typically (1, 1024) for mono
+                    # Convert to float32 for sounddevice
                     audio_float = chunk.astype(np.float32) / 32768.0
 
-                    # Ensure stereo
-                    if audio_float.ndim == 1:
+                    # Channel output is (channels, samples), need (samples, channels) for sounddevice
+                    if audio_float.ndim == 2:
+                        # Transpose from (channels, samples) to (samples, channels)
+                        audio_float = audio_float.T
+                        # If mono (samples, 1), duplicate to stereo (samples, 2)
+                        if audio_float.shape[1] == 1:
+                            audio_float = np.column_stack([audio_float, audio_float])
+                    elif audio_float.ndim == 1:
+                        # 1D array, make stereo
                         audio_float = np.column_stack([audio_float, audio_float])
-                    elif audio_float.ndim == 2 and audio_float.shape[1] == 1:
-                        audio_float = np.column_stack([audio_float.flatten(), audio_float.flatten()])
 
                     # Split into blocks matching our output block size
                     for i in range(0, len(audio_float), BLOCK_SIZE):
