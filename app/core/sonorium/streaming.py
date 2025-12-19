@@ -528,13 +528,33 @@ class NetworkStreamingManager:
 
                     logger.info(f"AirPlay: Streaming started to {speaker_name}")
 
-                    # Create an async generator that yields chunks from the HTTP response
-                    # pyatv's stream_file() accepts an asyncio.StreamReader or file-like object
-                    # We'll use a StreamReader and feed it from the HTTP response
+                    # Create StreamReader and pre-buffer initial MP3 data
+                    # pyatv/miniaudio needs to see MP3 headers immediately
                     reader = asyncio.StreamReader()
 
+                    # Buffer initial chunks before passing to pyatv
+                    # This ensures miniaudio sees valid MP3 data when it starts reading
+                    initial_buffer = bytearray()
+                    min_buffer_size = 32768  # 32KB should contain MP3 headers
+
+                    logger.info(f"AirPlay: Pre-buffering {min_buffer_size} bytes...")
+                    async for chunk in response.content.iter_chunked(8192):
+                        initial_buffer.extend(chunk)
+                        if len(initial_buffer) >= min_buffer_size:
+                            break
+                        if session._airplay_stop_flag:
+                            logger.info("AirPlay: Stop requested during buffering")
+                            return
+
+                    if len(initial_buffer) < min_buffer_size:
+                        logger.warning(f"AirPlay: Only buffered {len(initial_buffer)} bytes")
+
+                    # Feed the initial buffer to the reader
+                    reader.feed_data(bytes(initial_buffer))
+                    logger.info(f"AirPlay: Pre-buffered {len(initial_buffer)} bytes, starting stream")
+
                     async def feed_reader():
-                        """Feed HTTP response chunks into the StreamReader."""
+                        """Continue feeding HTTP response chunks into the StreamReader."""
                         try:
                             async for chunk in response.content.iter_chunked(8192):
                                 if session._airplay_stop_flag:
@@ -547,11 +567,11 @@ class NetworkStreamingManager:
                             logger.error(f"AirPlay: Error feeding stream: {e}")
                             reader.feed_eof()
 
-                    # Start feeding in background
+                    # Start feeding remaining data in background
                     feed_task = asyncio.create_task(feed_reader())
                     session._airplay_feed_task = feed_task
 
-                    # Stream to AirPlay device
+                    # Stream to AirPlay device (now reader has initial data)
                     await atv.stream.stream_file(reader)
                     logger.info(f"AirPlay: Stream completed to {speaker_name}")
 
