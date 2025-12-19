@@ -430,8 +430,17 @@ class NetworkStreamingManager:
         This works for both Apple TV and audio-only AirPlay speakers (HomePod,
         AirPort Express, Linkplay/Arylic, etc.) via the RAOP protocol.
 
+        For Linkplay/Arylic devices, we use their HTTP API instead of pyatv
+        since it's more reliable for these devices.
+
         Fully portable - uses only Python libraries, no system dependencies.
         """
+        # Check if this is a Linkplay/Arylic device - use HTTP API instead
+        if self._is_linkplay_device(speaker_info):
+            speaker_name = speaker_info.get('name', speaker_info.get('host', 'unknown'))
+            logger.info(f"AirPlay: Detected Linkplay device '{speaker_name}', using HTTP API")
+            return await self._start_linkplay_http(session, speaker_info)
+
         try:
             import pyatv
             from pyatv.conf import AppleTV, RaopService
@@ -621,6 +630,11 @@ class NetworkStreamingManager:
 
     async def _stop_airplay(self, session: StreamingSession):
         """Stop AirPlay playback."""
+        # Check if this was a Linkplay HTTP session
+        if hasattr(session, '_linkplay_host') and session._linkplay_host:
+            await self._stop_linkplay_http(session)
+            return
+
         # Set stop flag
         if hasattr(session, '_airplay_stop_flag'):
             session._airplay_stop_flag = True
@@ -663,6 +677,120 @@ class NetworkStreamingManager:
                 await session._device.close()
             except Exception as e:
                 logger.warning(f"Error stopping AirPlay: {e}")
+
+    def _is_linkplay_device(self, speaker_info: dict) -> bool:
+        """Check if the device is a Linkplay/Arylic device that supports HTTP API.
+
+        These devices advertise via AirPlay but work better with their HTTP API.
+        They can be detected by name patterns or manufacturer info.
+        """
+        name = speaker_info.get('name', '').lower()
+        manufacturer = speaker_info.get('manufacturer', '').lower()
+        model = speaker_info.get('model', '').lower()
+        extra = speaker_info.get('extra', {})
+
+        # Check for known Linkplay/Arylic patterns
+        linkplay_patterns = ['arylic', 'linkplay', 'up2stream', 'a50', 'a30', 'office_c']
+
+        for pattern in linkplay_patterns:
+            if pattern in name or pattern in manufacturer or pattern in model:
+                return True
+
+        # Check if device has Linkplay-specific identifiers
+        identifier = extra.get('identifier', '').lower()
+        if 'linkplay' in identifier or 'arylic' in identifier:
+            return True
+
+        return False
+
+    async def _start_linkplay_http(self, session: StreamingSession, speaker_info: dict) -> bool:
+        """Start streaming to Linkplay/Arylic device via HTTP API.
+
+        Uses the Linkplay HTTP API (setPlayerCmd:play:{url}) which is more reliable
+        than AirPlay/RAOP for these devices. The speaker fetches audio from our
+        stream URL (pull model, like DLNA).
+
+        API Reference: https://developer.arylic.com/httpapi/
+        """
+        try:
+            import aiohttp
+
+            host = speaker_info.get('host')
+            if not host:
+                session.error_message = "No host specified for Linkplay"
+                logger.error("Linkplay: No host specified")
+                return False
+
+            speaker_name = speaker_info.get('name', host)
+            logger.info(f"Linkplay HTTP: Starting stream to {speaker_name} at {host}")
+
+            async with aiohttp.ClientSession(
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as http_session:
+                # First, verify the device responds to HTTP API
+                status_url = f"http://{host}/httpapi.asp?command=getStatusEx"
+                try:
+                    async with http_session.get(status_url) as resp:
+                        if resp.status == 200:
+                            import json
+                            try:
+                                status = json.loads(await resp.text())
+                                device_name = status.get('DeviceName', 'Unknown')
+                                logger.info(f"Linkplay HTTP: Device confirmed: {device_name}")
+                            except json.JSONDecodeError:
+                                logger.warning("Linkplay HTTP: Could not parse status, continuing anyway")
+                        else:
+                            logger.warning(f"Linkplay HTTP: Status check returned {resp.status}")
+                except Exception as e:
+                    logger.warning(f"Linkplay HTTP: Status check failed: {e}, continuing anyway")
+
+                # Set volume to reasonable level (optional, can be removed if not desired)
+                # vol_url = f"http://{host}/httpapi.asp?command=setPlayerCmd:vol:50"
+                # await http_session.get(vol_url)
+
+                # Tell device to play our stream URL
+                play_url = f"http://{host}/httpapi.asp?command=setPlayerCmd:play:{session.stream_url}"
+                logger.info(f"Linkplay HTTP: Sending play command: {play_url}")
+
+                async with http_session.get(play_url) as resp:
+                    response_text = await resp.text()
+                    logger.info(f"Linkplay HTTP: Play response: {response_text}")
+
+                    if response_text.strip() == "OK":
+                        logger.info(f"Linkplay HTTP: {speaker_name} now playing {session.stream_url}")
+
+                        # Store connection info for stop command
+                        session._linkplay_host = host
+                        return True
+                    else:
+                        session.error_message = f"Play command failed: {response_text}"
+                        logger.error(f"Linkplay HTTP: Play failed with response: {response_text}")
+                        return False
+
+        except ImportError as e:
+            session.error_message = f"Required library not installed: {e}"
+            logger.error(f"Linkplay HTTP: Import error: {e}")
+            return False
+        except Exception as e:
+            session.error_message = f"Linkplay HTTP error: {e}"
+            logger.error(f"Linkplay HTTP: Error for {speaker_info.get('name', 'unknown')}: {e}", exc_info=True)
+            return False
+
+    async def _stop_linkplay_http(self, session: StreamingSession):
+        """Stop Linkplay HTTP playback."""
+        if hasattr(session, '_linkplay_host') and session._linkplay_host:
+            try:
+                import aiohttp
+                host = session._linkplay_host
+                stop_url = f"http://{host}/httpapi.asp?command=setPlayerCmd:stop"
+
+                async with aiohttp.ClientSession(
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as http_session:
+                    async with http_session.get(stop_url) as resp:
+                        logger.info(f"Linkplay HTTP: Stop command sent to {host}")
+            except Exception as e:
+                logger.warning(f"Linkplay HTTP: Error stopping playback: {e}")
 
 
 # Global streaming manager instance
