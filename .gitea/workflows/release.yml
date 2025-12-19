@@ -44,35 +44,27 @@ jobs:
       - name: Install build dependencies
         shell: powershell
         run: |
-          # Use full path to Python for self-hosted runner
-          $pythonExe = "$env:LOCALAPPDATA\Microsoft\WindowsApps\python.exe"
-          if (-not (Test-Path $pythonExe)) {
-            $pythonExe = "C:\Users\Synthesis\AppData\Local\Microsoft\WindowsApps\python.exe"
-          }
-          Write-Host "Using Python at: $pythonExe"
-          & $pythonExe --version
-          & $pythonExe -m pip install --upgrade pip
-          & $pythonExe -m pip install PyQt6 pyinstaller pillow
+          Write-Host "Python version:"
+          python --version
+          python -m pip install --upgrade pip
+          python -m pip install PyQt6 pyinstaller pillow
 
       - name: Create icon.ico from PNG
         shell: powershell
         run: |
-          $pythonExe = "C:\Users\Synthesis\AppData\Local\Microsoft\WindowsApps\python.exe"
-          & $pythonExe -c "from PIL import Image; img = Image.open('app/core/icon.png'); img.save('app/core/icon.ico', format='ICO', sizes=[(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)])"
+          python -c "from PIL import Image; img = Image.open('app/core/icon.png'); img.save('app/core/icon.ico', format='ICO', sizes=[(16,16), (32,32), (48,48), (64,64), (128,128), (256,256)])"
 
       - name: Build Sonorium.exe
         shell: powershell
         run: |
-          $pythonExe = "C:\Users\Synthesis\AppData\Local\Microsoft\WindowsApps\python.exe"
           cd app/windows/src
-          & $pythonExe -m PyInstaller --distpath .. --workpath ../build --clean Sonorium.spec
+          python -m PyInstaller --distpath .. --workpath ../build --clean Sonorium.spec
 
       - name: Build updater.exe
         shell: powershell
         run: |
-          $pythonExe = "C:\Users\Synthesis\AppData\Local\Microsoft\WindowsApps\python.exe"
           cd app/windows/src
-          & $pythonExe -m PyInstaller --distpath .. --workpath ../build --clean Updater.spec
+          python -m PyInstaller --distpath .. --workpath ../build --clean Updater.spec
 
       - name: Download Python embeddable
         shell: powershell
