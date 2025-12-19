@@ -106,12 +106,12 @@ def get_logger() -> logging.Logger:
 
 
 WIKI_URL = "https://github.com/synssins/sonorium/wiki"
-REPO_URL = "https://github.com/synssins/sonorium"
+REPO_URL = "http://192.168.1.222:3000/Synthesis/sonorium"
 
-# GitHub Releases API URL (includes prereleases)
+# Gitea Releases API URL (includes prereleases)
 # Uses /releases to get all releases including alpha/beta
-RELEASES_API_URL = "https://api.github.com/repos/synssins/sonorium/releases"
-CORE_ZIP_FALLBACK = "https://github.com/synssins/sonorium/releases/download/v0.1.0-alpha/core.zip"
+RELEASES_API_URL = "http://192.168.1.222:3000/api/v1/repos/Synthesis/sonorium/releases"
+CORE_ZIP_FALLBACK = "http://192.168.1.222:3000/Synthesis/sonorium/releases/download/v0.1.0-alpha/core.zip"
 
 # Required folder structure (relative to app root)
 REQUIRED_FOLDERS = ['core', 'config', 'logs', 'themes', 'plugins']
@@ -167,22 +167,35 @@ def create_folder_structure():
 
 def load_config() -> dict:
     """Load configuration from config.json."""
-    config_path = get_config_path()
-    if config_path.exists():
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return {
+    # Default config with all settings
+    defaults = {
         'server_port': DEFAULT_PORT,
         'start_minimized': False,
         'minimize_to_tray': True,
         'auto_start_server': True,
         'master_volume': 0.8,
         'repo_url': REPO_URL,
-        'update_branch': 'dev'
+        'update_branch': 'dev',
+        'check_updates_on_startup': True,
+        'include_prereleases': False,  # Persisted - allows dev/alpha updates
     }
+
+    config_path = get_config_path()
+    if config_path.exists():
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                saved_config = json.load(f)
+                # Merge saved config over defaults (preserves new defaults, keeps saved values)
+                merged = defaults.copy()
+                merged.update(saved_config)
+                return merged
+        except Exception as e:
+            # Log the error so we know if config loading fails
+            try:
+                get_logger().error(f"Failed to load config.json: {e}")
+            except:
+                pass
+    return defaults
 
 
 def save_config(config: dict):
@@ -261,12 +274,12 @@ class SetupThread(QThread):
         self.logger = get_logger()
 
     def _get_download_url(self) -> str:
-        """Get the core.zip download URL from GitHub Releases API."""
+        """Get the core.zip download URL from Gitea Releases API."""
         self.logger.debug(f"Fetching releases from: {RELEASES_API_URL}")
         try:
             req = urllib.request.Request(
                 RELEASES_API_URL,
-                headers={'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Sonorium-Launcher'}
+                headers={'Accept': 'application/json', 'User-Agent': 'Sonorium-Launcher'}
             )
             with urllib.request.urlopen(req, timeout=10) as response:
                 releases = json.loads(response.read().decode('utf-8'))
@@ -276,6 +289,7 @@ class SetupThread(QThread):
                     tag = release.get('tag_name', 'unknown')
                     for asset in release.get('assets', []):
                         if asset.get('name') == 'core.zip':
+                            # Gitea uses 'browser_download_url' like GitHub
                             url = asset.get('browser_download_url')
                             self.logger.info(f"Found core.zip in release {tag}: {url}")
                             return url
@@ -577,14 +591,14 @@ class UpdateCheckThread(QThread):
         return tuple(result)
 
     def run(self):
-        """Check GitHub releases for updates."""
+        """Check Gitea releases for updates."""
         logger = get_logger()
         logger.info(f"Checking for updates (current version: {APP_VERSION}, include_prereleases: {self.include_prereleases})")
 
         try:
             req = urllib.request.Request(
                 RELEASES_API_URL,
-                headers={'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Sonorium-Launcher'}
+                headers={'Accept': 'application/json', 'User-Agent': 'Sonorium-Launcher'}
             )
             with urllib.request.urlopen(req, timeout=15) as response:
                 releases = json.loads(response.read().decode('utf-8'))
@@ -928,14 +942,14 @@ class UpdateDialog(QDialog):
             return False
 
     def _download_updater(self, target_path: Path) -> bool:
-        """Download updater.exe from GitHub releases."""
+        """Download updater.exe from Gitea releases."""
         logger = get_logger()
 
         try:
             # Get the updater.exe URL from the same release
             req = urllib.request.Request(
                 RELEASES_API_URL,
-                headers={'Accept': 'application/vnd.github.v3+json', 'User-Agent': 'Sonorium-Launcher'}
+                headers={'Accept': 'application/json', 'User-Agent': 'Sonorium-Launcher'}
             )
 
             with urllib.request.urlopen(req, timeout=15) as response:
