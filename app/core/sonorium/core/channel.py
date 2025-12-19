@@ -429,8 +429,8 @@ class ChannelStream:
                         else:
                             stereo_chunk = chunk
 
-                        # Encode to MP3
-                        frame = av.AudioFrame.from_ndarray(stereo_chunk, format='s16', layout='stereo')
+                        # Encode to MP3 (s16p = signed 16-bit planar for stereo arrays)
+                        frame = av.AudioFrame.from_ndarray(stereo_chunk, format='s16p', layout='stereo')
                         frame.rate = SAMPLE_RATE
 
                         for packet in out_stream.encode(frame):

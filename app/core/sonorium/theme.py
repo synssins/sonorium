@@ -325,7 +325,7 @@ class ThemeStream:
                     else:
                         stereo_data = data
 
-                    frame = av.AudioFrame.from_ndarray(stereo_data, format='s16', layout='stereo')
+                    frame = av.AudioFrame.from_ndarray(stereo_data, format='s16p', layout='stereo')
                     frame.rate = 44100
 
                     frame_duration = frame.samples / frame.rate
