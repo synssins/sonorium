@@ -402,13 +402,16 @@ class ChannelStream:
 
     def __iter__(self):
         from io import BytesIO
+        import numpy as np
 
-        # Create in-memory MP3 encoder
+        # Create in-memory MP3 encoder (stereo for AirPlay compatibility)
         buffer = BytesIO()
         output = av.open(buffer, mode="w", format='mp3')
         bitrate = 128_000
         out_stream = output.add_stream(codec_name='mp3', rate=SAMPLE_RATE)
         out_stream.bit_rate = bitrate
+        out_stream.channels = 2
+        out_stream.layout = 'stereo'
 
         try:
             while self.channel.state == ChannelState.PLAYING or self.channel._generator_running:
@@ -419,8 +422,15 @@ class ChannelStream:
                     for seq, chunk in chunks:
                         self._last_sequence = seq
 
+                        # Convert mono to stereo for AirPlay/pyatv compatibility
+                        # chunk shape is (1, samples), need (2, samples)
+                        if chunk.shape[0] == 1:
+                            stereo_chunk = np.vstack([chunk, chunk])
+                        else:
+                            stereo_chunk = chunk
+
                         # Encode to MP3
-                        frame = av.AudioFrame.from_ndarray(chunk, format='s16', layout='mono')
+                        frame = av.AudioFrame.from_ndarray(stereo_chunk, format='s16', layout='stereo')
                         frame.rate = SAMPLE_RATE
 
                         for packet in out_stream.encode(frame):

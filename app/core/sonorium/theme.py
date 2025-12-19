@@ -301,12 +301,14 @@ class ThemeStream:
         """Iterate as MP3 stream for HTTP streaming."""
         from io import BytesIO
 
-        # Create in-memory MP3 encoder
+        # Create in-memory MP3 encoder (stereo for AirPlay compatibility)
         buffer = BytesIO()
         output = av.open(buffer, mode="w", format='mp3')
         bitrate = 128_000
         out_stream = output.add_stream(codec_name='mp3', rate=44100)
         out_stream.bit_rate = bitrate
+        out_stream.channels = 2
+        out_stream.layout = 'stereo'
 
         iter_chunks = self.iter_chunks()
 
@@ -316,7 +318,14 @@ class ThemeStream:
         try:
             while True:
                 for i, data in enumerate(iter_chunks):
-                    frame = av.AudioFrame.from_ndarray(data, format='s16', layout='mono')
+                    # Convert mono to stereo for AirPlay/pyatv compatibility
+                    # data shape is (1, samples), need (2, samples)
+                    if data.shape[0] == 1:
+                        stereo_data = np.vstack([data, data])
+                    else:
+                        stereo_data = data
+
+                    frame = av.AudioFrame.from_ndarray(stereo_data, format='s16', layout='stereo')
                     frame.rate = 44100
 
                     frame_duration = frame.samples / frame.rate
