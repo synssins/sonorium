@@ -27,6 +27,18 @@ jobs:
           Write-Host "Current HEAD: $(git rev-parse HEAD)"
           Write-Host "Git describe: $(git describe --tags --always)"
 
+      - name: Set version from tag
+        shell: powershell
+        run: |
+          $ref = "${{ github.ref }}"
+          $version = $ref -replace "refs/tags/", ""
+          Write-Host "Setting APP_VERSION to: $version"
+          $launcherPath = "app/windows/src/launcher.py"
+          $content = Get-Content $launcherPath -Raw
+          $content = $content -replace 'APP_VERSION = "[^"]+"', "APP_VERSION = `"$version`""
+          Set-Content -Path $launcherPath -Value $content -NoNewline
+          Write-Host "Version updated in launcher.py"
+
       - name: Install build dependencies
         shell: powershell
         run: |
