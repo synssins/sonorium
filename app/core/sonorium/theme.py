@@ -307,7 +307,7 @@ class ThemeStream:
         bitrate = 128_000
         out_stream = output.add_stream(codec_name='mp3', rate=44100)
         out_stream.bit_rate = bitrate
-        out_stream.channels = 2
+        # Set stereo layout (channels is read-only in newer PyAV)
         out_stream.layout = 'stereo'
 
         iter_chunks = self.iter_chunks()
