@@ -13,17 +13,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref }}
           fetch-depth: 0
 
-      - name: Fetch tag annotations
-        shell: powershell
-        run: git fetch --tags --force
-
-      - name: Verify checkout
+      - name: Fetch tags and checkout tag commit
         shell: powershell
         run: |
-          Write-Host "Building tag: ${{ github.ref }}"
+          git fetch --tags --force
+          $ref = "${{ github.ref }}"
+          $tag = $ref -replace "refs/tags/", ""
+          Write-Host "Checking out tag: $tag"
+          git checkout $tag
           Write-Host "Current HEAD: $(git rev-parse HEAD)"
           Write-Host "Git describe: $(git describe --tags --always)"
 
