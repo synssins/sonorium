@@ -10,36 +10,33 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Determine source branch
-        id: branch
-        shell: powershell
-        run: |
-          $ref = "${{ github.ref }}"
-          Write-Host "Tag ref: $ref"
-          if ($ref -match "alpha|beta") {
-            echo "SOURCE_BRANCH=dev" >> $env:GITHUB_OUTPUT
-            Write-Host "Building alpha/beta release from dev branch"
-          } else {
-            echo "SOURCE_BRANCH=main" >> $env:GITHUB_OUTPUT
-            Write-Host "Building stable release from main branch"
-          }
-
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.branch.outputs.SOURCE_BRANCH }}
           fetch-depth: 0
 
-      - name: Fetch tag annotations
-        shell: powershell
-        run: git fetch --tags --force
-
-      - name: Verify branch
+      - name: Fetch tags and checkout tag commit
         shell: powershell
         run: |
-          Write-Host "Building from branch: ${{ steps.branch.outputs.SOURCE_BRANCH }}"
+          git fetch --tags --force
+          $ref = "${{ github.ref }}"
+          $tag = $ref -replace "refs/tags/", ""
+          Write-Host "Checking out tag: $tag"
+          git checkout $tag
           Write-Host "Current HEAD: $(git rev-parse HEAD)"
-          Write-Host "Tag: ${{ github.ref }}"
+          Write-Host "Git describe: $(git describe --tags --always)"
+
+      - name: Set version from tag
+        shell: powershell
+        run: |
+          $ref = "${{ github.ref }}"
+          $version = $ref -replace "refs/tags/", ""
+          Write-Host "Setting APP_VERSION to: $version"
+          $launcherPath = "app/windows/src/launcher.py"
+          $content = Get-Content $launcherPath -Raw
+          $content = $content -replace 'APP_VERSION = "[^"]+"', "APP_VERSION = `"$version`""
+          Set-Content -Path $launcherPath -Value $content -NoNewline
+          Write-Host "Version updated in launcher.py"
 
       - name: Install build dependencies
         shell: powershell
@@ -164,25 +161,7 @@ jobs:
             $changelog = Get-Content changelog.txt -Raw
           }
 
-          $body = @"
-$changelog
-
----
-
-### Downloads
-- **Sonorium.exe** - Standalone Windows launcher (portable, ~37 MB)
-- **core.zip** - Core files with embedded Python (~100+ MB)
-
-### First-time setup
-1. Download Sonorium.exe to any folder
-2. Run it - the app will automatically download required files
-3. No Python installation required - everything is self-contained!
-
-### Manual installation
-1. Download both files
-2. Extract core.zip to the same folder as Sonorium.exe
-3. Run Sonorium.exe
-"@
+          $body = "$changelog`n`n---`n`n### Downloads`n- **Sonorium.exe** - Standalone Windows launcher (portable, ~37 MB)`n- **core.zip** - Core files with embedded Python (~100+ MB)`n`n### First-time setup`n1. Download Sonorium.exe to any folder`n2. Run it - the app will automatically download required files`n3. No Python installation required - everything is self-contained!`n`n### Manual installation`n1. Download both files`n2. Extract core.zip to the same folder as Sonorium.exe`n3. Run Sonorium.exe"
 
           # Create release JSON manually to ensure proper formatting
           $releaseData = @{
