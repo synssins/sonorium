@@ -52,7 +52,7 @@ Configure speakers, volume defaults, and other preferences.
 
 ![Settings](screenshots/Settings.png)
 
-## What's New in v1.0.0
+## What's New in v0.2.47
 
 ### Sonos Speaker Support
 Full Sonos speaker integration using the SoCo library for direct device communication. No need for additional proxies or bridges—Sonorium discovers and streams to your Sonos speakers natively.
