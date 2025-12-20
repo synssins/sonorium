@@ -44,7 +44,7 @@ COPY themes/ /app/themes/
 # Set PYTHONPATH instead of pip install -e (avoids caching issues)
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 
-# Verify installation
+# Verify installation and get version
 RUN python3 -c "from sonorium.version import __version__; print(f'Sonorium {__version__} imported successfully')"
 
 # Debug: List files in web directory
@@ -54,6 +54,9 @@ RUN ls -la /app/sonorium/web/ && ls -la /app/sonorium/web/static/ 2>/dev/null ||
 COPY run.sh /run.sh
 RUN chmod a+x /run.sh
 
-LABEL io.hass.version="1.2.3"
+# Read version from the single source of truth (sonorium/version file)
+# Note: LABEL is set at build time, reading from the version file
+ARG ADDON_VERSION
+LABEL io.hass.version="${ADDON_VERSION:-1.2.7}"
 
 CMD [ "/run.sh" ]
