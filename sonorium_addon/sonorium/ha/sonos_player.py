@@ -79,13 +79,14 @@ load_sonos_ip_config()
 
 async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
     """
-    Get Sonos IPs by querying HA's config entries via WebSocket API.
+    Get Sonos IPs by querying HA's device registry via WebSocket API.
 
-    The Sonos integration stores speaker IPs in config entries, not device registry.
+    The device registry often has configuration_url which contains the device IP.
 
     Returns dict mapping speaker name (lowercase) -> IP address
     """
     from sonorium.ha.registry import WEBSOCKETS_AVAILABLE
+    import re
 
     if not WEBSOCKETS_AVAILABLE:
         logger.warning("  SoCo: websockets not available for HA query")
@@ -119,41 +120,59 @@ async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
                 logger.warning(f"  SoCo: HA WebSocket auth failed: {msg}")
                 return {}
 
-            logger.info("  SoCo: WebSocket authenticated, querying config entries...")
+            logger.info("  SoCo: WebSocket authenticated, querying device registry...")
 
-            # Query config entries - Sonos stores IPs here
+            # Query device registry - look for configuration_url
             await ws.send(json.dumps({
                 "id": 1,
-                "type": "config_entries/get"
+                "type": "config/device_registry/list"
             }))
 
             msg = json.loads(await ws.recv())
             if not msg.get('success'):
-                logger.warning(f"  SoCo: Config entries query failed: {msg}")
+                logger.warning(f"  SoCo: Device registry query failed: {msg}")
                 return {}
 
-            entries = msg.get('result', [])
+            devices = msg.get('result', [])
             sonos_ips = {}
 
-            for entry in entries:
-                # Check if it's a Sonos integration entry
-                domain = entry.get('domain', '')
-                if domain != 'sonos':
+            for device in devices:
+                # Check if it's a Sonos device
+                identifiers = device.get('identifiers', [])
+                is_sonos = any('sonos' in str(ident).lower() for ident in identifiers)
+
+                if not is_sonos:
                     continue
 
-                # Get the data which contains speaker info
-                data = entry.get('data', {})
-                title = entry.get('title', '').lower()
+                name = device.get('name', '').lower()
 
-                # Sonos config entry has 'host' in data
-                host = data.get('host')
-                if host:
-                    sonos_ips[title] = host
-                    logger.info(f"  SoCo: Found Sonos '{title}' at {host} from config entry")
+                # Try configuration_url - often contains IP like http://192.168.1.x:1443/...
+                config_url = device.get('configuration_url', '')
+                if config_url:
+                    # Extract IP from URL
+                    ip_match = re.search(r'://(\d+\.\d+\.\d+\.\d+)', config_url)
+                    if ip_match:
+                        ip = ip_match.group(1)
+                        sonos_ips[name] = ip
+                        logger.info(f"  SoCo: Found Sonos '{name}' at {ip} from configuration_url")
+                        continue
 
-            # If no IPs from config entries, we'll try entity state later (via REST API)
+                # Try connections field
+                connections = device.get('connections', [])
+                for conn in connections:
+                    if isinstance(conn, (list, tuple)) and len(conn) >= 2:
+                        conn_type, conn_value = conn[0], conn[1]
+                        if conn_type == 'ip':
+                            sonos_ips[name] = conn_value
+                            logger.info(f"  SoCo: Found Sonos '{name}' at {conn_value} from connections")
+                            break
+
+                # Log device info if we couldn't find IP
+                if name and name not in sonos_ips:
+                    logger.info(f"  SoCo: Sonos device '{name}' - config_url: {config_url}, connections: {connections}")
+
             if not sonos_ips:
-                logger.info("  SoCo: No IPs in config entries, will check entity state via REST API")
+                logger.info("  SoCo: No IPs found in device registry")
 
             return sonos_ips
 
