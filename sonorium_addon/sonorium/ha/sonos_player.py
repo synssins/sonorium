@@ -79,14 +79,16 @@ load_sonos_ip_config()
 
 async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
     """
-    Get Sonos IPs by querying HA's device registry via WebSocket API.
+    Get Sonos IPs by querying HA's config entries via WebSocket API.
 
-    Returns dict mapping entity_id -> IP address
+    The Sonos integration stores speaker IPs in config entries, not device registry.
+
+    Returns dict mapping speaker name (lowercase) -> IP address
     """
     from sonorium.ha.registry import WEBSOCKETS_AVAILABLE
 
     if not WEBSOCKETS_AVAILABLE:
-        logger.warning("  SoCo: websockets not available for HA device query")
+        logger.warning("  SoCo: websockets not available for HA query")
         return {}
 
     try:
@@ -97,12 +99,13 @@ async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
         token = media_controller.token
         ws_url = media_controller.api_url.replace('http://', 'ws://').replace('/api', '/api/websocket')
 
-        logger.debug(f"  SoCo: Connecting to HA WebSocket: {ws_url}")
+        logger.info(f"  SoCo: Connecting to HA WebSocket: {ws_url}")
 
         async with websockets.connect(ws_url) as ws:
             # Wait for auth_required
             msg = json.loads(await ws.recv())
             if msg.get('type') != 'auth_required':
+                logger.warning(f"  SoCo: Unexpected WebSocket message: {msg}")
                 return {}
 
             # Authenticate
@@ -116,42 +119,73 @@ async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
                 logger.warning(f"  SoCo: HA WebSocket auth failed: {msg}")
                 return {}
 
-            # Query device registry
+            logger.info("  SoCo: WebSocket authenticated, querying config entries...")
+
+            # Query config entries - Sonos stores IPs here
             await ws.send(json.dumps({
                 "id": 1,
-                "type": "config/device_registry/list"
+                "type": "config_entries/get"
             }))
 
             msg = json.loads(await ws.recv())
             if not msg.get('success'):
+                logger.warning(f"  SoCo: Config entries query failed: {msg}")
                 return {}
 
-            devices = msg.get('result', [])
+            entries = msg.get('result', [])
             sonos_ips = {}
 
-            for device in devices:
-                # Check if it's a Sonos device
-                identifiers = device.get('identifiers', [])
-                is_sonos = any('sonos' in str(ident).lower() for ident in identifiers)
+            for entry in entries:
+                # Check if it's a Sonos integration entry
+                domain = entry.get('domain', '')
+                if domain != 'sonos':
+                    continue
 
-                if is_sonos:
-                    # Get connections which may contain IP
-                    connections = device.get('connections', [])
-                    name = device.get('name', '').lower()
+                # Get the data which contains speaker info
+                data = entry.get('data', {})
+                title = entry.get('title', '').lower()
 
-                    for conn_type, conn_value in connections:
-                        # IP is stored as ('ip', '192.168.1.x') or similar
-                        if conn_type == 'ip' or '.' in conn_value and conn_value.replace('.', '').isdigit():
-                            # This might be an IP
-                            if conn_type == 'ip':
-                                sonos_ips[name] = conn_value
-                                logger.info(f"  SoCo: Found Sonos '{name}' at {conn_value} from HA device registry")
-                            break
+                # Sonos config entry has 'host' in data
+                host = data.get('host')
+                if host:
+                    sonos_ips[title] = host
+                    logger.info(f"  SoCo: Found Sonos '{title}' at {host} from config entry")
+
+            # If no IPs from config entries, try entity states
+            if not sonos_ips:
+                logger.info("  SoCo: No IPs in config entries, trying entity states...")
+
+                # Query all states
+                await ws.send(json.dumps({
+                    "id": 2,
+                    "type": "get_states"
+                }))
+
+                msg = json.loads(await ws.recv())
+                if msg.get('success'):
+                    states = msg.get('result', [])
+                    for state in states:
+                        entity_id = state.get('entity_id', '')
+                        if not entity_id.startswith('media_player.') or 'sonos' not in entity_id.lower():
+                            continue
+
+                        attrs = state.get('attributes', {})
+                        # Try to find IP in attributes
+                        for attr_name in ['ip_address', 'soco_ip', 'host', 'address']:
+                            if attr_name in attrs:
+                                name = attrs.get('friendly_name', entity_id).lower()
+                                if name.startswith('sonos '):
+                                    name = name[6:]
+                                sonos_ips[name] = attrs[attr_name]
+                                logger.info(f"  SoCo: Found Sonos '{name}' at {attrs[attr_name]} from entity state")
+                                break
 
             return sonos_ips
 
     except Exception as e:
-        logger.warning(f"  SoCo: Failed to query HA device registry: {e}")
+        logger.warning(f"  SoCo: Failed to query HA: {e}")
+        import traceback
+        logger.debug(f"  SoCo: Traceback: {traceback.format_exc()}")
         return {}
 
 
