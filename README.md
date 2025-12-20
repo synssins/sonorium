@@ -71,6 +71,9 @@ Fixed an issue where tracks could start at incorrect volume levels when switchin
 ### Configuration Preservation
 Windows app now correctly preserves launcher settings when the core saves configuration changes. Your port, theme folder, and other preferences persist reliably.
 
+### Automatic Stream URL Detection (HA Addon)
+The Home Assistant addon now automatically detects your HA instance's IP address for the stream URL. No more manual configuration required—speakers connect reliably without needing to change the default `auto` setting.
+
 ### Audio Encoding Improvements
 - Fixed PyAV frame format to use `s16p` (planar) for proper stereo output
 - Improved compatibility with newer PyAV API versions
