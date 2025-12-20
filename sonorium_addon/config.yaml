@@ -1,5 +1,5 @@
 name: Sonorium
-version: "1.2.10"
+version: "1.2.11"
 slug: sonorium
 description: "Multi-zone ambient soundscape mixer for Home Assistant"
 url: https://github.com/synssins/sonorium
@@ -10,6 +10,7 @@ arch:
 
 init: false
 homeassistant_api: true
+hassio_api: true
 audio: false
 
 # Ingress - enables sidebar integration

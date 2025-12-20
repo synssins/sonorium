@@ -57,6 +57,6 @@ RUN chmod a+x /run.sh
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.2.10}"
+LABEL io.hass.version="${ADDON_VERSION:-1.2.11}"
 
 CMD [ "/run.sh" ]

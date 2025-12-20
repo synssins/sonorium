@@ -22,16 +22,32 @@ def get_local_ip() -> str:
 
     This is the IP address that network speakers will use to connect
     to the Sonorium stream endpoint.
+
+    Tries multiple methods:
+    1. SONORIUM_HOST_IP environment variable (for Docker deployments)
+    2. UDP socket trick (for standalone environments)
     """
+    # First check for explicit host IP (useful for Docker containers)
+    # Set this in docker-compose.yml: SONORIUM_HOST_IP=192.168.1.x
+    host_ip = os.environ.get("SONORIUM_HOST_IP")
+    if host_ip:
+        logger.info(f"Using host IP from SONORIUM_HOST_IP: {host_ip}")
+        return host_ip
+
+    # Fallback to UDP socket method
     try:
-        # Create a UDP socket and connect to an external address
-        # This doesn't actually send data, but determines which interface would be used
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(0.1)
-        # Connect to Google's DNS - doesn't actually send anything
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
         s.close()
+
+        # Warn if it looks like a Docker internal IP
+        if ip.startswith("172.") and not ip.startswith("172.16."):
+            logger.warning(f"Detected IP {ip} appears to be Docker internal network. "
+                          "Network speakers may not be able to reach this address. "
+                          "Set SONORIUM_HOST_IP environment variable to your host's LAN IP.")
+
         return ip
     except Exception as e:
         logger.warning(f"Could not detect local IP: {e}, falling back to 127.0.0.1")

@@ -19,12 +19,16 @@ def get_host_ip_from_supervisor() -> str:
     In Docker/addon environments, this returns the actual host IP
     that network speakers can reach, not the container's internal IP.
     """
+    from sonorium.obs import logger
+
     try:
         # Get supervisor token from environment
         token = os.environ.get("SUPERVISOR_TOKEN")
         if not token:
+            logger.warning("SUPERVISOR_TOKEN not found in environment")
             return None
 
+        logger.debug("Querying Supervisor API for network info...")
         # Query the Supervisor network info API
         response = httpx.get(
             "http://supervisor/network/info",
@@ -32,26 +36,36 @@ def get_host_ip_from_supervisor() -> str:
             timeout=5.0
         )
 
+        logger.debug(f"Supervisor API response: {response.status_code}")
+
         if response.status_code == 200:
             data = response.json()
+            logger.debug(f"Network info data: {data}")
             # The response contains interfaces with their IPs
             # Look for the primary interface (usually eth0 or end0)
             interfaces = data.get("data", {}).get("interfaces", [])
             for iface in interfaces:
+                iface_name = iface.get("interface", "")
                 # Skip docker/hassio internal interfaces
-                if iface.get("interface", "").startswith(("docker", "hassio", "veth")):
+                if iface_name.startswith(("docker", "hassio", "veth")):
+                    logger.debug(f"Skipping internal interface: {iface_name}")
                     continue
                 # Get IPv4 addresses
                 ipv4_info = iface.get("ipv4", {})
                 addresses = ipv4_info.get("address", [])
+                logger.debug(f"Interface {iface_name} addresses: {addresses}")
                 if addresses:
                     # Return first non-link-local address
                     for addr in addresses:
                         ip = addr.split("/")[0]  # Remove CIDR notation
                         if not ip.startswith("169.254."):  # Skip link-local
+                            logger.info(f"Detected host IP from Supervisor: {ip}")
                             return ip
-    except Exception:
-        pass
+            logger.warning("No suitable IP found in Supervisor network info")
+        else:
+            logger.warning(f"Supervisor API returned {response.status_code}: {response.text[:200]}")
+    except Exception as e:
+        logger.warning(f"Failed to get IP from Supervisor API: {e}")
     return None
 
 
@@ -63,10 +77,14 @@ def get_local_ip() -> str:
     1. HA Supervisor API (for Docker/addon environments)
     2. UDP socket trick (for standalone environments)
     """
+    from sonorium.obs import logger
+
     # First try Supervisor API (works in HA addon context)
     ip = get_host_ip_from_supervisor()
     if ip:
         return ip
+
+    logger.debug("Supervisor API failed, trying UDP socket method...")
 
     # Fallback to UDP socket method (works in standalone context)
     try:
@@ -75,12 +93,15 @@ def get_local_ip() -> str:
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
         s.close()
+        logger.debug(f"UDP socket returned IP: {ip}")
         # Check if it's a Docker internal IP (172.x.x.x or 10.x.x.x ranges often used)
         # These won't be reachable from external devices
         if ip.startswith("172.") or ip.startswith("10."):
+            logger.warning(f"Detected Docker internal IP: {ip} - speakers won't be able to reach this")
             return None  # Let caller handle fallback
         return ip
-    except Exception:
+    except Exception as e:
+        logger.warning(f"UDP socket method failed: {e}")
         return None
 
 
@@ -111,19 +132,27 @@ class Settings(sets.Base):
         - "homeassistant.local" in URL: Replace with detected IP
         - Any other URL: Use as-is (allows manual override)
         """
+        from sonorium.obs import logger
+
+        logger.info(f"Resolving stream URL (input: {self.stream_url})...")
         local_ip = get_local_ip()
+        logger.info(f"Detected local IP: {local_ip}")
 
         # Handle "auto" or empty - build URL from detected IP
         if not self.stream_url or self.stream_url.lower() == "auto":
             if local_ip:
                 self.stream_url = f"http://{local_ip}:{self.stream_port}"
+                logger.info(f"Auto-configured stream URL: {self.stream_url}")
             else:
                 # Fallback if IP detection fails
                 self.stream_url = f"http://127.0.0.1:{self.stream_port}"
+                logger.error(f"IP detection failed! Using fallback: {self.stream_url}")
+                logger.error("Network speakers will NOT be able to connect. Check Supervisor API access.")
         # Handle homeassistant.local - replace with detected IP
         elif 'homeassistant.local' in self.stream_url:
             if local_ip:
                 self.stream_url = self.stream_url.replace('homeassistant.local', local_ip)
+                logger.info(f"Replaced homeassistant.local with IP: {self.stream_url}")
 
         return self
 
