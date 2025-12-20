@@ -100,11 +100,8 @@ class HAMediaController:
             "media_content_type": media_type,
         }
 
-        # For Sonos speakers, add enqueue parameter for live streams
-        # This tells Sonos to treat it as a radio/live stream
-        if "sonos" in entity_id.lower():
-            data["enqueue"] = "play"
-            logger.debug(f"  Sonos detected, adding enqueue=play for live stream")
+        # Log the full request for debugging
+        logger.info(f"  play_media data: {data}")
 
         success = await self._post_service("media_player", "play_media", data)
         if success:

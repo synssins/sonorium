@@ -1,6 +1,8 @@
 import asyncio
+import os
 import socket
 
+import httpx
 from pydantic import Field, model_validator
 
 from sonorium.client import ClientSonorium
@@ -10,22 +12,73 @@ from fmtr import tools
 from fmtr.tools import sets, ha
 
 
-def get_local_ip() -> str:
+def get_host_ip_from_supervisor() -> str:
     """
-    Get the local network IP address of this machine.
+    Get the host's LAN IP address from the HA Supervisor API.
 
-    This is the IP address that network speakers will use to connect
-    to the Sonorium stream endpoint.
+    In Docker/addon environments, this returns the actual host IP
+    that network speakers can reach, not the container's internal IP.
     """
     try:
-        # Create a UDP socket and connect to an external address
-        # This doesn't actually send data, but determines which interface would be used
+        # Get supervisor token from environment
+        token = os.environ.get("SUPERVISOR_TOKEN")
+        if not token:
+            return None
+
+        # Query the Supervisor network info API
+        response = httpx.get(
+            "http://supervisor/network/info",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0
+        )
+
+        if response.status_code == 200:
+            data = response.json()
+            # The response contains interfaces with their IPs
+            # Look for the primary interface (usually eth0 or end0)
+            interfaces = data.get("data", {}).get("interfaces", [])
+            for iface in interfaces:
+                # Skip docker/hassio internal interfaces
+                if iface.get("interface", "").startswith(("docker", "hassio", "veth")):
+                    continue
+                # Get IPv4 addresses
+                ipv4_info = iface.get("ipv4", {})
+                addresses = ipv4_info.get("address", [])
+                if addresses:
+                    # Return first non-link-local address
+                    for addr in addresses:
+                        ip = addr.split("/")[0]  # Remove CIDR notation
+                        if not ip.startswith("169.254."):  # Skip link-local
+                            return ip
+    except Exception:
+        pass
+    return None
+
+
+def get_local_ip() -> str:
+    """
+    Get the local network IP address for network speakers to connect to.
+
+    Tries multiple methods:
+    1. HA Supervisor API (for Docker/addon environments)
+    2. UDP socket trick (for standalone environments)
+    """
+    # First try Supervisor API (works in HA addon context)
+    ip = get_host_ip_from_supervisor()
+    if ip:
+        return ip
+
+    # Fallback to UDP socket method (works in standalone context)
+    try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(0.1)
-        # Connect to Google's DNS - doesn't actually send anything
         s.connect(("8.8.8.8", 80))
         ip = s.getsockname()[0]
         s.close()
+        # Check if it's a Docker internal IP (172.x.x.x or 10.x.x.x ranges often used)
+        # These won't be reachable from external devices
+        if ip.startswith("172.") or ip.startswith("10."):
+            return None  # Let caller handle fallback
         return ip
     except Exception:
         return None
