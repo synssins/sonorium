@@ -293,14 +293,13 @@ class SonoriumMQTTManager:
     
     async def _mqtt_publish(self, topic: str, payload: str, retain: bool = False):
         """Publish an MQTT message."""
+        import asyncio
         try:
-            # Try different client interfaces
             if hasattr(self.mqtt_client, 'publish'):
-                # paho-style client (direct)
-                self.mqtt_client.publish(topic, payload, retain=retain)
-            elif hasattr(self.mqtt_client, '_client') and hasattr(self.mqtt_client._client, 'publish'):
-                # haco-style client (paho client is _client attribute)
-                self.mqtt_client._client.publish(topic, payload, retain=retain)
+                # haco/paho-style client - may be sync or async
+                result = self.mqtt_client.publish(topic, payload, retain=retain)
+                if asyncio.iscoroutine(result):
+                    await result
             elif hasattr(self.mqtt_client, 'send'):
                 # fmtr.tools style
                 await self.mqtt_client.send(topic, payload, retain=retain)
@@ -433,13 +432,13 @@ class SonoriumMQTTManager:
             ])
         
         # Subscribe (implementation depends on MQTT client type)
+        import asyncio
         try:
             if hasattr(self.mqtt_client, 'subscribe'):
                 for topic in topics:
-                    self.mqtt_client.subscribe(topic)
-            elif hasattr(self.mqtt_client, 'on_message'):
-                # Register message handler
-                pass
+                    result = self.mqtt_client.subscribe(topic)
+                    if asyncio.iscoroutine(result):
+                        await result
         except Exception as e:
             logger.error(f"Failed to subscribe to topics: {e}")
     
