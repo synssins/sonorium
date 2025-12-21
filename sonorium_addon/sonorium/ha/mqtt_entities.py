@@ -399,14 +399,40 @@ class SonoriumMQTTManager:
     
     async def _clear_stale_entities(self):
         """
-        Clear any stale entity configurations.
+        Clear entity configurations from OLD addon versions that no longer exist.
 
-        NOTE: Disabled clearing of global entities as it was causing race conditions
-        where HA would process the empty payload after the actual config, resulting
-        in entities not being created. The entities will be overwritten with fresh
-        configs anyway.
+        NOTE: We only delete entities with specific old names/IDs that are no longer
+        used. We do NOT delete entities we're about to create (that caused race
+        conditions). These old entities clutter the HA entity registry.
         """
-        logger.info("  Skipping stale entity clearing (disabled to fix race condition)")
+        import asyncio
+        logger.info("  Clearing stale entities from old addon versions...")
+
+        # Known stale entities from old addon versions that need to be deleted
+        # Format: (component, object_id)
+        stale_entities = [
+            # Old entity names from pre-v1.2.x versions
+            ("button", f"{self.prefix}_play"),
+            ("select", f"{self.prefix}_theme_2"),
+            ("sensor", f"{self.prefix}_playback_state"),
+            ("switch", f"{self.prefix}_2"),
+            ("switch", f"{self.prefix}_enable_recording"),
+            ("switch", f"{self.prefix}_paused"),
+            ("switch", f"{self.prefix}_play_2"),
+            ("switch", f"{self.prefix}_playing"),
+            ("switch", f"{self.prefix}_theme_enabled"),
+            ("update", f"{self.prefix}_update_2"),
+        ]
+
+        for component, object_id in stale_entities:
+            topic = f"homeassistant/{component}/{object_id}/config"
+            # Empty payload deletes the entity from HA
+            await self._mqtt_publish(topic, "", retain=True)
+
+        logger.info(f"    Cleared {len(stale_entities)} stale entity configs")
+
+        # Give HA time to process the deletions before creating new entities
+        await asyncio.sleep(0.5)
 
     async def initialize(self):
         """Initialize MQTT entities for all sessions."""
@@ -520,6 +546,9 @@ class SonoriumMQTTManager:
         )
         logger.info("    Published: select.sonorium_session")
 
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
+
         # Publish initial session state (as name, not ID)
         selected_name = ""
         if self._selected_session_id:
@@ -532,7 +561,7 @@ class SonoriumMQTTManager:
             retain=True,
         )
 
-        # Small delay to let HA process discovery message
+        # Additional delay before next entity
         await asyncio.sleep(0.1)
 
         # === GLOBAL PLAY SWITCH ===
@@ -553,6 +582,8 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
         # Publish initial state
         await self._mqtt_publish(
             f"{self.prefix}/play/state",
@@ -583,6 +614,8 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
         # Publish initial state
         await self._mqtt_publish(
             f"{self.prefix}/theme/state",
@@ -607,6 +640,8 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
         # Publish initial state
         await self._mqtt_publish(
             f"{self.prefix}/preset/state",
@@ -634,6 +669,8 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
         # Publish initial state
         await self._mqtt_publish(
             f"{self.prefix}/volume/state",
@@ -656,6 +693,8 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
         # Publish initial state
         await self._mqtt_publish(
             f"{self.prefix}/status/state",
@@ -678,6 +717,8 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
         # Publish initial state
         await self._mqtt_publish(
             f"{self.prefix}/speakers/state",
@@ -704,6 +745,8 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
         # Publish initial state (always OFF - it's a momentary action)
         await self._mqtt_publish(
             f"{self.prefix}/stop_all/state",
@@ -726,10 +769,12 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
+        # Wait for HA to process discovery config before publishing state
+        await asyncio.sleep(0.1)
 
         logger.info("  Global entities published: session, play, theme, preset, volume, status, speakers, stop_all, active_sessions")
 
-        # Update active sessions count
+        # Update active sessions count (publishes initial state)
         await self._update_active_sessions_count()
         
         # Update global control states
