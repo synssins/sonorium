@@ -64,6 +64,9 @@ class Sonorium:
     media_player_states: IndexList = field(default_factory=IndexList, metadata=dict(exclude=True))
 
     def __post_init__(self):
+        # Lazy import to avoid circular dependency
+        from sonorium.theme import ThemeDefinition
+
         if not self.path_audio.exists():
             logger.warning(f'Audio path "{self.path_audio}" does not exist. Will be created.')
             self.path_audio.mkdir(parents=True, exist_ok=True)
