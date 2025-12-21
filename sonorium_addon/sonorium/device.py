@@ -107,7 +107,19 @@ class Sonorium:
             if audio_files:
                 theme_name = folder.name
                 self.theme_metas[theme_name] = IndexList(RecordingMetadata(path) for path in audio_files)
-                theme_def = ThemeDefinition(sonorium=self, name=theme_name)
+
+                # Read UUID from metadata.json if it exists
+                theme_id = None
+                metadata_path = folder / "metadata.json"
+                if metadata_path.exists():
+                    try:
+                        import json
+                        metadata = json.loads(metadata_path.read_text())
+                        theme_id = metadata.get("id")
+                    except Exception:
+                        pass  # Fall back to sanitized folder name
+
+                theme_def = ThemeDefinition(sonorium=self, name=theme_name, theme_id=theme_id)
                 self.themes.append(theme_def)
                 logger.info(f'Loaded theme "{theme_name}" with {len(audio_files)} audio files')
             else:

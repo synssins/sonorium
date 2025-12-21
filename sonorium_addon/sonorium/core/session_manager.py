@@ -200,7 +200,7 @@ class SessionManager:
                             metadata = json.loads(metadata_path.read_text())
                             if metadata.get("id") == theme_id:
                                 # Found the folder, now find the theme by folder name
-                                from fmtr.tools.string_tools import sanitize
+                                from sonorium.utils import sanitize
                                 folder_id = sanitize(folder.name)
                                 return self.themes.id.get(folder_id)
                         except Exception:

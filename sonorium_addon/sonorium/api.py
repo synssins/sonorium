@@ -892,7 +892,18 @@ class ApiSonorium(api.Base):
         # Step 3: NOW create ThemeDefinition objects (they will find their metas correctly)
         new_themes = IndexList()
         for theme_name in theme_names_with_audio:
-            theme_def = ThemeDefinition(sonorium=device, name=theme_name)
+            # Read UUID from metadata.json if it exists
+            theme_id = None
+            metadata_path = path_audio / theme_name / "metadata.json"
+            if metadata_path.exists():
+                try:
+                    import json
+                    metadata = json.loads(metadata_path.read_text())
+                    theme_id = metadata.get("id")
+                except Exception:
+                    pass  # Fall back to sanitized folder name
+
+            theme_def = ThemeDefinition(sonorium=device, name=theme_name, theme_id=theme_id)
             new_themes.append(theme_def)
             logger.info(f'Created ThemeDefinition "{theme_name}" with {len(theme_def.instances)} instances')
 

@@ -47,9 +47,11 @@ class ThemeDefinition:
 
     """
 
-    def __init__(self, sonorium, name):
+    def __init__(self, sonorium, name, theme_id: str = None):
         self.sonorium = sonorium
         self.name = name
+        # Use provided UUID, or fall back to sanitized folder name for backwards compatibility
+        self._theme_id = theme_id
 
         # Short file threshold (seconds) - files shorter than this use sparse playback
         # Can be customized per theme via metadata.json
@@ -72,9 +74,10 @@ class ThemeDefinition:
         from sonorium.settings import settings
         return f'{settings.stream_url}/stream/{self.id}'
 
-    @cached_property
+    @property
     def id(self):
-        return sanitize(self.name)
+        """Return the theme UUID from metadata.json, or sanitized name as fallback."""
+        return self._theme_id if self._theme_id else sanitize(self.name)
 
 
     def get_stream(self):
