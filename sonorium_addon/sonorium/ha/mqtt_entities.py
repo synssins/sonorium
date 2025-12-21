@@ -377,7 +377,9 @@ class SonoriumMQTTManager:
                     None,
                     lambda: self.mqtt_client.publish(topic, payload, retain=retain)
                 )
-                logger.debug(f"  Published to {topic} (retain={retain})")
+                # Log entity config publishes at info level for debugging
+                if "/config" in topic:
+                    logger.info(f"  MQTT: Published entity config to {topic}")
             elif hasattr(self.mqtt_client, 'send'):
                 # fmtr.tools style
                 await self.mqtt_client.send(topic, payload, retain=retain)
@@ -719,7 +721,9 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
-        
+
+        logger.info("  Global entities published: session, play, theme, preset, volume, status, speakers, stop_all, active_sessions")
+
         # Update active sessions count
         await self._update_active_sessions_count()
         
@@ -833,10 +837,15 @@ class SonoriumMQTTManager:
     
     async def _update_session_selector_options(self):
         """Update the session selector options when sessions change."""
+        # Use session NAMES (not IDs) to be consistent with _publish_global_entities
         session_options = [""]  # Empty = no selection
+        self._session_name_to_id = {}  # Reset mapping
+
         for session in self.state.sessions.values():
-            session_options.append(session.id)
-        
+            name = session.name or session.id
+            session_options.append(name)
+            self._session_name_to_id[name] = session.id
+
         config = {
             "name": "Sonorium Session",
             "unique_id": f"{self.prefix}_session",
@@ -906,16 +915,22 @@ class SonoriumMQTTManager:
         
         # Session selector
         if topic == f"{self.prefix}/session/set":
-            # Update selected session
-            new_session_id = payload if payload else None
-            if new_session_id and new_session_id not in self.state.sessions:
-                logger.warning(f"Session not found: {new_session_id}")
-                return
-            
+            # Payload is session NAME, convert to ID using mapping
+            if payload:
+                new_session_id = self._session_name_to_id.get(payload)
+                if not new_session_id:
+                    logger.warning(f"Session name not found: {payload}")
+                    return
+            else:
+                new_session_id = None
+
             self._selected_session_id = new_session_id
+
+            # Publish state as NAME (not ID) to match select options
+            selected_name = payload if payload else ""
             await self._mqtt_publish(
                 f"{self.prefix}/session/state",
-                self._selected_session_id or "",
+                selected_name,
                 retain=True,
             )
             await self._update_global_control_states()

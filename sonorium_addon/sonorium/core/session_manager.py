@@ -323,7 +323,30 @@ class SessionManager:
         return (f"{len(resolved)} Speakers", NameSource.AUTO_AREA)
     
     # --- CRUD Operations ---
-    
+
+    def _get_next_channel_number(self) -> int:
+        """
+        Get the next available channel number.
+
+        Finds the lowest unused channel number (1-based).
+        """
+        # Get all existing channel numbers from session names
+        used_numbers = set()
+        for session in self.state.sessions.values():
+            if session.name.startswith("Channel "):
+                try:
+                    num = int(session.name[8:])  # Extract number after "Channel "
+                    used_numbers.add(num)
+                except ValueError:
+                    pass
+
+        # Find the lowest unused number
+        channel_num = 1
+        while channel_num in used_numbers:
+            channel_num += 1
+
+        return channel_num
+
     @logger.instrument("Creating new session...")
     def create(
         self,
@@ -361,15 +384,15 @@ class SessionManager:
         # Generate ID
         session_id = str(uuid.uuid4())[:8]
 
-        # Determine name
+        # Determine name - default to "Channel N" unless custom name provided
         if custom_name:
             name = custom_name
             name_source = NameSource.CUSTOM
         else:
-            group = None
-            if speaker_group_id:
-                group = self.state.speaker_groups.get(speaker_group_id)
-            name, name_source = self.generate_session_name(adhoc_selection, group)
+            # Use sequential channel naming by default
+            channel_num = self._get_next_channel_number()
+            name = f"Channel {channel_num}"
+            name_source = NameSource.CUSTOM  # Treat as custom so it doesn't auto-update
 
         # Use default volume if not specified
         if volume is None:
