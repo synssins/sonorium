@@ -565,6 +565,7 @@ class SonoriumMQTTManager:
         for theme in self._themes:
             if "id" in theme:
                 theme_options.append(theme["id"])
+        logger.info(f"    Theme select options: {len(theme_options)} themes")
         
         config = {
             "name": "Sonorium Theme",
@@ -680,10 +681,12 @@ class SonoriumMQTTManager:
         )
         
         # === STOP ALL SWITCH ===
+        # This is a momentary/command switch - set optimistic mode
         config = {
             "name": "Sonorium Stop All",
             "unique_id": f"{self.prefix}_stop_all",
             "object_id": f"{self.prefix}_stop_all",
+            "state_topic": f"{self.prefix}/stop_all/state",
             "command_topic": f"{self.prefix}/stop_all/set",
             "payload_on": "ON",
             "payload_off": "OFF",
@@ -693,6 +696,12 @@ class SonoriumMQTTManager:
         await self._mqtt_publish(
             f"homeassistant/switch/{self.prefix}_stop_all/config",
             json.dumps(config),
+            retain=True,
+        )
+        # Publish initial state (always OFF - it's a momentary action)
+        await self._mqtt_publish(
+            f"{self.prefix}/stop_all/state",
+            "OFF",
             retain=True,
         )
         
