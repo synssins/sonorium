@@ -39,6 +39,7 @@ class MQTTClient:
         self._client = paho_mqtt.Client(paho_mqtt.CallbackAPIVersion.VERSION2)
         self._connected = asyncio.Event()
         self._message_handler: Callable[[str, str], Awaitable[None]] | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
 
         # Set up callbacks
         self._client.on_connect = self._on_connect
@@ -52,7 +53,11 @@ class MQTTClient:
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
         if reason_code == 0:
             logger.info("  MQTT connected successfully")
-            self._connected.set()
+            # Use call_soon_threadsafe since this callback runs in paho's thread
+            if self._loop:
+                self._loop.call_soon_threadsafe(self._connected.set)
+            else:
+                self._connected.set()
         else:
             logger.error(f"  MQTT connection failed: {reason_code}")
 
@@ -76,6 +81,10 @@ class MQTTClient:
     async def connect(self):
         """Connect to the MQTT broker."""
         logger.info(f"Connecting to MQTT broker at {self.hostname}:{self.port}...")
+
+        # Capture the event loop for thread-safe callbacks
+        self._loop = asyncio.get_running_loop()
+
         self._client.connect_async(self.hostname, self.port)
         self._client.loop_start()
 
