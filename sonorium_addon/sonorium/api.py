@@ -225,6 +225,23 @@ class ApiSonorium(api.Base):
                 logger.warning(f"  Failed to initialize plugin manager: {e}")
                 self._plugin_manager = None
 
+            # Initialize MQTT entity manager for Home Assistant integration
+            try:
+                from sonorium.ha.mqtt_entities import SonoriumMQTTManager
+                self._mqtt_manager = SonoriumMQTTManager(
+                    state_store=self._state_store,
+                    session_manager=self._session_manager,
+                    mqtt_client=self.client,
+                )
+                # Set available themes for the theme select entity
+                themes = [{"id": t.id, "name": t.name} for t in self.client.device.themes]
+                self._mqtt_manager.set_themes(themes)
+                await self._mqtt_manager.initialize()
+                logger.info(f"  MQTT entity manager: {len(self._state_store.sessions)} session entities published")
+            except Exception as e:
+                logger.warning(f"  Failed to initialize MQTT entity manager: {e}")
+                self._mqtt_manager = None
+
             # Create and mount v2 API router
             api_router = create_api_router(
                 session_manager=self._session_manager,

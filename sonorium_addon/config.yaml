@@ -36,11 +36,19 @@ options:
   sonorium__stream_url: "auto"
   sonorium__path_audio: "/media/sonorium"
   sonorium__max_channels: 6
+  sonorium__mqtt_host: "auto"
+  sonorium__mqtt_port: 0
+  sonorium__mqtt_username: ""
+  sonorium__mqtt_password: ""
 
 schema:
   sonorium__stream_url: str?
   sonorium__path_audio: str
   sonorium__max_channels: int(1,10)
+  sonorium__mqtt_host: str?
+  sonorium__mqtt_port: int?
+  sonorium__mqtt_username: str?
+  sonorium__mqtt_password: str?
 
 startup: application
 stage: stable

@@ -159,6 +159,12 @@ class Settings(sets.Base):
     name: str = Sonorium.__name__
     mqtt: tools.mqtt.Client.Args | None = None
 
+    # MQTT broker settings (auto-detect from Supervisor if not specified)
+    mqtt_host: str = "auto"
+    mqtt_port: int = 0  # 0 means auto-detect
+    mqtt_username: str = ""
+    mqtt_password: str = ""
+
     path_audio: str = str(paths.audio)
 
     def run(self):

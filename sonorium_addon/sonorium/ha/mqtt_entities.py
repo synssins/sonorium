@@ -294,14 +294,18 @@ class SonoriumMQTTManager:
     async def _mqtt_publish(self, topic: str, payload: str, retain: bool = False):
         """Publish an MQTT message."""
         try:
+            # Try different client interfaces
             if hasattr(self.mqtt_client, 'publish'):
-                # paho-style client
+                # paho-style client (direct)
                 self.mqtt_client.publish(topic, payload, retain=retain)
+            elif hasattr(self.mqtt_client, '_client') and hasattr(self.mqtt_client._client, 'publish'):
+                # haco-style client (paho client is _client attribute)
+                self.mqtt_client._client.publish(topic, payload, retain=retain)
             elif hasattr(self.mqtt_client, 'send'):
                 # fmtr.tools style
                 await self.mqtt_client.send(topic, payload, retain=retain)
             else:
-                logger.warning(f"Unknown MQTT client type, cannot publish to {topic}")
+                logger.warning(f"Unknown MQTT client type ({type(self.mqtt_client).__name__}), cannot publish to {topic}")
         except Exception as e:
             logger.error(f"Failed to publish to {topic}: {e}")
     
