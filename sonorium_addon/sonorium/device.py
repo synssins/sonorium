@@ -1,17 +1,43 @@
-from dataclasses import dataclass
-from dataclasses import field, fields
+"""
+Sonorium Device - Core device state and configuration.
+
+Manages themes, media players, and playback state.
+MQTT entities are handled separately by SonoriumMQTTManager.
+"""
+from dataclasses import dataclass, field, fields
 from functools import cached_property
+from pathlib import Path
 from typing import Self
 
 import homeassistant_api
 
-from sonorium.controls import SelectTheme, NumberMasterVolume, SelectMediaPlayer, StreamURL, PlayPauseSwitch
 from sonorium.obs import logger
 from sonorium.recording import RecordingMetadata
 from sonorium.theme import ThemeDefinition
-from fmtr.tools import Path
-from fmtr.tools.iterator_tools import IndexList
-from haco.device import Device
+
+
+class IndexList(list):
+    """
+    Simple list subclass that supports attribute-based indexing.
+    Replaces fmtr.tools.iterator_tools.IndexList.
+    """
+
+    def __init__(self, iterable=None):
+        super().__init__(iterable or [])
+        self.current = None
+
+    def __getattr__(self, name):
+        """Allow attribute-style access to create dict views."""
+        if name.startswith('_'):
+            raise AttributeError(name)
+
+        # Return a dict mapping the attribute value to the item
+        result = {}
+        for item in self:
+            if hasattr(item, name):
+                key = getattr(item, name)
+                result[key] = item
+        return result
 
 
 @dataclass
@@ -29,25 +55,34 @@ class MediaState:
         filtered = {k: v for k, v in data.items() if k in allowed}
         if 'friendly_name' not in filtered or filtered['friendly_name'] is None:
             filtered['friendly_name'] = filtered.get('entity_id', 'Unknown')
-        self = cls(**filtered)
-        return self
+        return cls(**filtered)
 
 
 @dataclass(kw_only=True)
-class Sonorium(Device):
-    themes: IndexList[ThemeDefinition] = field(default_factory=IndexList, metadata=dict(exclude=True))
-    metas: IndexList[RecordingMetadata] = field(default_factory=IndexList, metadata=dict(exclude=True))
+class Sonorium:
+    """
+    Sonorium device state container.
+
+    Holds themes, media players, and playback configuration.
+    Does not handle MQTT - that's done by SonoriumMQTTManager.
+    """
+
+    themes: IndexList = field(default_factory=IndexList, metadata=dict(exclude=True))
+    metas: IndexList = field(default_factory=IndexList, metadata=dict(exclude=True))
     theme_metas: dict = field(default_factory=dict, metadata=dict(exclude=True))
 
     client_ha: homeassistant_api.Client | None = field(default=None, metadata=dict(exclude=True))
 
     path_audio_str: str = field(metadata=dict(exclude=True))
-    
+
     # Master volume as gain multiplier (default 6.0 = 60%)
     master_volume: float = field(default=6.0, metadata=dict(exclude=True))
-    
+
     # Playback state: 'stopped', 'playing', 'paused'
     playback_state: str = field(default='stopped', metadata=dict(exclude=True))
+
+    # Media player states
+    media_player_states: IndexList = field(default_factory=IndexList, metadata=dict(exclude=True))
 
     def __post_init__(self):
         if not self.path_audio.exists():
@@ -80,13 +115,13 @@ class Sonorium(Device):
                 example_theme.mkdir(exist_ok=True)
                 logger.info(f'Created example theme folder: {example_theme}')
                 theme_folders = [example_theme]
-        
+
         self.themes = IndexList()
         self.theme_metas = {}
-        
+
         for folder in theme_folders:
             audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in ['.mp3', '.wav', '.flac', '.ogg']]
-            
+
             if audio_files:
                 theme_name = folder.name
                 self.theme_metas[theme_name] = IndexList(RecordingMetadata(path) for path in audio_files)
@@ -95,11 +130,11 @@ class Sonorium(Device):
                 logger.info(f'Loaded theme "{theme_name}" with {len(audio_files)} audio files')
             else:
                 logger.warning(f'Theme folder "{folder.name}" contains no audio files')
-        
+
         self.metas = IndexList()
         for theme_recordings in self.theme_metas.values():
             self.metas.extend(theme_recordings)
-        
+
         if not self.themes:
             logger.warning(f'No themes with audio files found in "{self.path_audio}". Add audio files to theme folders.')
             self.themes = IndexList(ThemeDefinition(sonorium=self, name=f'Theme {ab}') for ab in 'AB')
@@ -130,35 +165,6 @@ class Sonorium(Device):
             logger.error(f'Error fetching media players: {e}')
             self.media_player_states = IndexList()
 
-        # Simplified controls
-        self.controls = [
-            self.select_theme,
-            self.nbr_master_volume,
-            self.select_media_player,
-            self.swt_play_pause,
-            self.sns_url
-        ]
-
     @cached_property
-    def path_audio(self):
+    def path_audio(self) -> Path:
         return Path(self.path_audio_str)
-
-    @cached_property
-    def select_theme(self):
-        return SelectTheme(options=[str(defin.name) for defin in self.themes])
-
-    @cached_property
-    def select_media_player(self):
-        return SelectMediaPlayer(options=list(self.media_player_states.friendly_name.keys()))
-
-    @cached_property
-    def swt_play_pause(self):
-        return PlayPauseSwitch()
-
-    @cached_property
-    def sns_url(self):
-        return StreamURL()
-
-    @cached_property
-    def nbr_master_volume(self):
-        return NumberMasterVolume()

@@ -22,7 +22,7 @@ import numpy as np
 
 from sonorium.obs import logger
 from sonorium.recording import SAMPLE_RATE, CROSSFADE_SAMPLES
-from fmtr.tools import av
+import av
 
 if TYPE_CHECKING:
     from sonorium.theme import ThemeDefinition, ThemeStream

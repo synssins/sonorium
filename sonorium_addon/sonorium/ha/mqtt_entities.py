@@ -323,6 +323,9 @@ class SonoriumMQTTManager:
 
         # Track selected session for global controls
         self._selected_session_id: str | None = None
+        
+        # Session name to ID mapping for global controls
+        self._session_name_to_id: dict[str, str] = {}
 
         # Device info for grouping entities
         self.device_info = {
@@ -461,10 +464,14 @@ class SonoriumMQTTManager:
         """Publish global Sonorium entities including session selector and controls."""
         
         # === SESSION SELECTOR ===
-        # Dropdown to select which session to control
+        # Dropdown to select which session to control (uses names, maps to IDs)
         session_options = [""]  # Empty = no selection
+        self._session_name_to_id = {}  # Reset mapping
+        
         for session in self.state.sessions.values():
-            session_options.append(session.id)
+            name = session.name or session.id
+            session_options.append(name)
+            self._session_name_to_id[name] = session.id
         
         config = {
             "name": "Sonorium Session",
@@ -482,10 +489,15 @@ class SonoriumMQTTManager:
             retain=True,
         )
         
-        # Publish initial session state
+        # Publish initial session state (as name, not ID)
+        selected_name = ""
+        if self._selected_session_id:
+            session = self.state.sessions.get(self._selected_session_id)
+            if session:
+                selected_name = session.name or session.id
         await self._mqtt_publish(
             f"{self.prefix}/session/state",
-            self._selected_session_id or "",
+            selected_name,
             retain=True,
         )
         
@@ -505,6 +517,12 @@ class SonoriumMQTTManager:
         await self._mqtt_publish(
             f"homeassistant/switch/{self.prefix}_play/config",
             json.dumps(config),
+            retain=True,
+        )
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/play/state",
+            "OFF",
             retain=True,
         )
         
@@ -529,6 +547,12 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/theme/state",
+            "",
+            retain=True,
+        )
         
         # === GLOBAL PRESET SELECT ===
         config = {
@@ -544,6 +568,12 @@ class SonoriumMQTTManager:
         await self._mqtt_publish(
             f"homeassistant/select/{self.prefix}_preset/config",
             json.dumps(config),
+            retain=True,
+        )
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/preset/state",
+            "",
             retain=True,
         )
         
@@ -566,6 +596,12 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/volume/state",
+            "50",
+            retain=True,
+        )
         
         # === GLOBAL STATUS SENSOR ===
         config = {
@@ -581,6 +617,12 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/status/state",
+            "No session selected",
+            retain=True,
+        )
         
         # === GLOBAL SPEAKERS SENSOR ===
         config = {
@@ -594,6 +636,12 @@ class SonoriumMQTTManager:
         await self._mqtt_publish(
             f"homeassistant/sensor/{self.prefix}_speakers/config",
             json.dumps(config),
+            retain=True,
+        )
+        # Publish initial state
+        await self._mqtt_publish(
+            f"{self.prefix}/speakers/state",
+            "None",
             retain=True,
         )
         

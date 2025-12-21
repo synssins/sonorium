@@ -1,15 +1,27 @@
+"""
+Sonorium Settings - Configuration management.
+Replaces fmtr.tools with standard pydantic settings.
+"""
 import asyncio
+import json
 import os
 import socket
+from pathlib import Path
 
+import homeassistant_api
 import httpx
 from pydantic import Field, model_validator
+from pydantic_settings import BaseSettings
 
 from sonorium.client import ClientSonorium
 from sonorium.device import Sonorium
 from sonorium.paths import paths
-from fmtr import tools
-from fmtr.tools import sets, ha
+
+
+# HA Constants (replaces fmtr.tools.ha.constants)
+HA_URL_CORE_ADDON = "http://supervisor/core/api"
+HA_URL_SUPERVISOR_ADDON = "http://supervisor"
+HA_SUPERVISOR_TOKEN_KEY = "SUPERVISOR_TOKEN"
 
 
 def get_host_ip_from_supervisor() -> str:
@@ -105,14 +117,38 @@ def get_local_ip() -> str:
         return None
 
 
-class Settings(sets.Base):
-    paths = paths
+def apply_addon_env():
+    """
+    Apply environment variables from HA addon options.
+    Replaces fmtr.tools.ha.apply_addon_env().
+    """
+    options_path = Path("/data/options.json")
+    if options_path.exists():
+        from sonorium.obs import logger
+        logger.info(f'Converting addon "{options_path}" to environment variables...')
+        try:
+            with open(options_path) as f:
+                options = json.load(f)
+            for key, value in options.items():
+                # Convert to environment variable format
+                env_key = f"SONORIUM__{key.upper()}"
+                if value is not None and value != "":
+                    os.environ[env_key] = str(value)
+        except Exception as e:
+            logger.warning(f"Failed to load addon options: {e}")
 
-    ha_core_api: str = Field(default=ha.constants.URL_CORE_ADDON)
-    ha_supervisor_api: str = Field(default=ha.constants.URL_SUPERVISOR_ADDON)
 
-    token: str = Field(alias=ha.constants.SUPERVISOR_TOKEN_KEY)
+class Settings(BaseSettings):
+    """Sonorium configuration settings."""
 
+    model_config = {"env_prefix": "SONORIUM__", "env_nested_delimiter": "__"}
+
+    paths: type = paths
+
+    ha_core_api: str = Field(default=HA_URL_CORE_ADDON)
+    ha_supervisor_api: str = Field(default=HA_URL_SUPERVISOR_ADDON)
+
+    token: str = Field(default="", alias=HA_SUPERVISOR_TOKEN_KEY)
 
     stream_url: str = "auto"
 
@@ -157,7 +193,6 @@ class Settings(sets.Base):
         return self
 
     name: str = Sonorium.__name__
-    mqtt: tools.mqtt.Client.Args | None = None
 
     # MQTT broker settings (auto-detect from Supervisor if not specified)
     mqtt_host: str = "auto"
@@ -168,34 +203,28 @@ class Settings(sets.Base):
     path_audio: str = str(paths.audio)
 
     def run(self):
-        super().run()
         asyncio.run(self.run_async())
 
     async def run_async(self):
-        from fmtr.tools import debug
-        debug.trace()
-        from fmtr import tools
         from sonorium.obs import logger
         from sonorium.paths import paths
         from sonorium.version import __version__
 
-        logger.info(f'Launching {paths.name_ns} {__version__=} {tools.get_version()=} from entrypoint.')
-        logger.debug(f'{paths.settings.exists()=} {str(paths.settings)=}')
+        logger.info(f'Launching sonorium {__version__=} from entrypoint.')
         logger.info(f'Stream URL: {self.stream_url}')
 
         logger.info(f'Launching...')
 
-        client_ha = ha.core.Client(api_url=self.ha_core_api, token=self.token)
-        device = Sonorium(name=self.name, client_ha=client_ha, path_audio_str=self.path_audio, sw_version=__version__, manufacturer=paths.org_singleton, model=Sonorium.__name__)
+        client_ha = homeassistant_api.Client(api_url=self.ha_core_api, token=self.token)
+        device = Sonorium(
+            client_ha=client_ha,
+            path_audio_str=self.path_audio,
+        )
 
-        if self.mqtt:
-            client = ClientSonorium.from_args(self.mqtt, device=device)
-        else:
-            client = ClientSonorium.from_supervisor(device=device)
-
+        client = ClientSonorium.from_supervisor(device=device)
         await client.start()
 
 
-ha.apply_addon_env()
+# Apply addon environment variables before settings are loaded
+apply_addon_env()
 settings = Settings()
-settings

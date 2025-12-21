@@ -4,7 +4,7 @@ import time
 import numpy as np
 
 from sonorium.obs import logger
-from fmtr.tools import av
+import av
 
 LOG_THRESHOLD = 500
 

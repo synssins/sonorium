@@ -8,7 +8,12 @@ from fastapi.staticfiles import StaticFiles
 from sonorium.theme import ThemeDefinition
 from sonorium.version import __version__
 from sonorium.obs import logger
-from fmtr.tools import api, mqtt
+from fmtr.tools import api
+
+# Import ClientSonorium for type hints (replaces mqtt.Client)
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    from sonorium.client import ClientSonorium
 
 for name in ["uvicorn.access", "uvicorn.error", "uvicorn"]:
     _logger = logging.getLogger(name)
@@ -31,7 +36,7 @@ class ApiSonorium(api.Base):
     TITLE = f'Sonorium {__version__} Streaming API'
     URL_DOCS = '/docs'
 
-    def __init__(self, client: mqtt.Client):
+    def __init__(self, client: "ClientSonorium"):
         super().__init__()
         self.client = client
         
@@ -225,20 +230,29 @@ class ApiSonorium(api.Base):
                 logger.warning(f"  Failed to initialize plugin manager: {e}")
                 self._plugin_manager = None
 
-            # MQTT entity manager disabled - conflicts with HACO's MQTT system
-            # TODO: Integrate session entities into HACO's control framework
-            # The SonoriumMQTTManager publishes to topics that HACO doesn't track,
-            # causing KeyError crashes when MQTT messages arrive on those topics.
-            # Proper solution: Add session-aware HACO controls in controls.py
-            self._mqtt_manager = None
-            logger.info("  MQTT entity manager: disabled (using HACO controls)")
+            # Initialize MQTT entity manager for Home Assistant integration
+            try:
+                from sonorium.ha.mqtt_entities import SonoriumMQTTManager
+                self._mqtt_manager = SonoriumMQTTManager(
+                    state_store=self._state_store,
+                    session_manager=self._session_manager,
+                    mqtt_client=self.client.mqtt_client,
+                    theme_metadata_manager=self._theme_metadata_manager,
+                )
+                # Set available themes for the theme select entity
+                themes = [{"id": t.id, "name": t.name} for t in self.client.device.themes]
+                self._mqtt_manager.set_themes(themes)
 
-            # For now, HACO provides these entities via device.controls:
-            # - select.sonorium_theme
-            # - number.sonorium_master_volume
-            # - select.sonorium_media_player
-            # - switch.sonorium_play
-            # - sensor.sonorium_stream_url
+                # Wire up message handler for incoming MQTT commands
+                self.client.mqtt_client.set_message_handler(self._mqtt_manager.handle_command)
+
+                await self._mqtt_manager.initialize()
+                logger.info(f"  MQTT entity manager: {len(self._state_store.sessions)} session entities published")
+            except Exception as e:
+                logger.warning(f"  Failed to initialize MQTT entity manager: {e}")
+                import traceback
+                traceback.print_exc()
+                self._mqtt_manager = None
 
             # Create and mount v2 API router
             api_router = create_api_router(

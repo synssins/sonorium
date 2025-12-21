@@ -1,13 +1,23 @@
+import re
 import time
 from functools import cached_property
 
+import av
 import numpy as np
 
 from sonorium.obs import logger
 from sonorium.recording import LOG_THRESHOLD, ExclusionGroupCoordinator
-from fmtr.tools import av
-from fmtr.tools.iterator_tools import IndexList
-from fmtr.tools.string_tools import sanitize
+from sonorium.device import IndexList
+
+
+def sanitize(text: str) -> str:
+    """Sanitize a string to be safe for use as an ID/filename."""
+    # Replace spaces and special chars with underscores
+    text = re.sub(r'[^\w\-]', '_', text.lower())
+    # Remove consecutive underscores
+    text = re.sub(r'_+', '_', text)
+    # Strip leading/trailing underscores
+    return text.strip('_')
 
 # Default output gain multiplier (now controlled via device.master_volume)
 DEFAULT_OUTPUT_GAIN = 6.0
