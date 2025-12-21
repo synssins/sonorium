@@ -1,5 +1,5 @@
 # Sonorium Dashboard Card for Home Assistant
-# Updated for v1.2.35+ (paho-mqtt based entities)
+# Updated for v1.2.37+ (paho-mqtt based entities)
 #
 # TWO OPTIONS:
 #
@@ -10,7 +10,7 @@
 # OPTION 2: Per-Session Controls (direct control)
 # Each session has its own entities. Replace {slug} with the session
 # name in lowercase, spaces replaced with underscores.
-# Examples: "Channel 1" → "channel_1", "Office_C97A" → "office_c97a"
+# Examples: "Channel 1" -> "channel_1", "Office_C97A" -> "office_c97a"
 #
 # ==============================================================
 # OPTION 1: Global Controls Card
@@ -24,9 +24,9 @@ cards:
     entities:
       - entity: select.sonorium_session
         name: Session
-      - entity: switch.sonorium_play
+      - entity: switch.sonorium_global_play
         name: Play
-      - entity: select.sonorium_theme
+      - entity: select.sonorium_global_theme
         name: Theme
       - entity: select.sonorium_preset
         name: Preset
@@ -34,7 +34,7 @@ cards:
         name: Volume
       - entity: sensor.sonorium_status
         name: Status
-      - entity: sensor.sonorium_active_sessions
+      - entity: sensor.sonorium_global_active_sessions
         name: Active Sessions
       - entity: switch.sonorium_stop_all
         name: Stop All

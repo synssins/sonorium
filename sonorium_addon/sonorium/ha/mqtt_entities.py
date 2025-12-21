@@ -422,6 +422,10 @@ class SonoriumMQTTManager:
             ("switch", f"{self.prefix}_playing"),
             ("switch", f"{self.prefix}_theme_enabled"),
             ("update", f"{self.prefix}_update_2"),
+            # Old global entities replaced with "global_" prefix in v1.2.37
+            ("switch", f"{self.prefix}_play"),
+            ("select", f"{self.prefix}_theme"),
+            ("sensor", f"{self.prefix}_active_sessions"),
         ]
 
         for component, object_id in stale_entities:
@@ -566,10 +570,11 @@ class SonoriumMQTTManager:
 
         # === GLOBAL PLAY SWITCH ===
         # Controls play state of selected session
+        # NOTE: Using "global_play" to avoid conflict with stuck old "play" entity
         config = {
             "name": "Sonorium Play",
-            "unique_id": f"{self.prefix}_play",
-            "object_id": f"{self.prefix}_play",
+            "unique_id": f"{self.prefix}_global_play",
+            "object_id": f"{self.prefix}_global_play",
             "state_topic": f"{self.prefix}/play/state",
             "command_topic": f"{self.prefix}/play/set",
             "payload_on": "ON",
@@ -578,7 +583,7 @@ class SonoriumMQTTManager:
             "device": self.device_info,
         }
         await self._mqtt_publish(
-            f"homeassistant/switch/{self.prefix}_play/config",
+            f"homeassistant/switch/{self.prefix}_global_play/config",
             json.dumps(config),
             retain=True,
         )
@@ -593,16 +598,17 @@ class SonoriumMQTTManager:
         await asyncio.sleep(0.1)
 
         # === GLOBAL THEME SELECT ===
+        # NOTE: Using "global_theme" to avoid conflict with stuck old "theme" entity
         theme_options = [""]  # Empty = no theme
         for theme in self._themes:
             if "id" in theme:
                 theme_options.append(theme["id"])
         logger.info(f"    Theme select options: {len(theme_options)} themes")
-        
+
         config = {
             "name": "Sonorium Theme",
-            "unique_id": f"{self.prefix}_theme",
-            "object_id": f"{self.prefix}_theme",
+            "unique_id": f"{self.prefix}_global_theme",
+            "object_id": f"{self.prefix}_global_theme",
             "state_topic": f"{self.prefix}/theme/state",
             "command_topic": f"{self.prefix}/theme/set",
             "options": theme_options,
@@ -610,7 +616,7 @@ class SonoriumMQTTManager:
             "device": self.device_info,
         }
         await self._mqtt_publish(
-            f"homeassistant/select/{self.prefix}_theme/config",
+            f"homeassistant/select/{self.prefix}_global_theme/config",
             json.dumps(config),
             retain=True,
         )
@@ -756,16 +762,17 @@ class SonoriumMQTTManager:
         await asyncio.sleep(0.1)
 
         # === ACTIVE SESSIONS SENSOR ===
+        # NOTE: Using "global_active_sessions" to avoid conflict with any stuck old entity
         config = {
             "name": "Sonorium Active Sessions",
-            "unique_id": f"{self.prefix}_active_sessions",
-            "object_id": f"{self.prefix}_active_sessions",
+            "unique_id": f"{self.prefix}_global_active_sessions",
+            "object_id": f"{self.prefix}_global_active_sessions",
             "state_topic": f"{self.prefix}/active_sessions/state",
             "icon": "mdi:counter",
             "device": self.device_info,
         }
         await self._mqtt_publish(
-            f"homeassistant/sensor/{self.prefix}_active_sessions/config",
+            f"homeassistant/sensor/{self.prefix}_global_active_sessions/config",
             json.dumps(config),
             retain=True,
         )
