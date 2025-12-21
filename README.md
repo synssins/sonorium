@@ -30,6 +30,8 @@ Integrate with your smart home for whole-house audio.
 - Organize speakers by room, floor, or area
 - Control from the HA dashboard
 
+> ⚠️ **Proxmox/VM Users:** If running HA as a VM, set CPU type to `host` (not `qemux86-64`) or the addon will crash. See [Requirements](https://github.com/synssins/sonorium/wiki/Requirements).
+
 ## Screenshots
 
 ### Channels View

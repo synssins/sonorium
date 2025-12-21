@@ -8,6 +8,18 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
+## ⚠️ Proxmox / VM Users: Important
+
+If you run Home Assistant as a VM in Proxmox, **you must set the CPU type to `host`** or the addon will crash with a segmentation fault.
+
+1. Shut down your HA VM
+2. In Proxmox: VM → Hardware → Processor → Type: **`host`**
+3. Start the VM
+
+**Why?** Sonorium uses numpy for real-time audio processing, which requires modern CPU instructions (AVX/SSE4). The default `qemux86-64` emulates a generic CPU that lacks these features. Setting CPU type to `host` passes through your actual CPU capabilities.
+
+See the [Requirements & Caveats](https://github.com/synssins/sonorium/wiki/Requirements) wiki page for details.
+
 ## What's New in v1.2.40
 
 ### Home Assistant Dashboard Integration
