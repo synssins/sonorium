@@ -7,7 +7,7 @@ import numpy as np
 
 from sonorium.obs import logger
 from sonorium.recording import LOG_THRESHOLD, ExclusionGroupCoordinator
-from sonorium.device import IndexList
+from sonorium.utils import IndexList
 
 
 def sanitize(text: str) -> str:
