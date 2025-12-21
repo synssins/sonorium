@@ -7,37 +7,16 @@ MQTT entities are handled separately by SonoriumMQTTManager.
 from dataclasses import dataclass, field, fields
 from functools import cached_property
 from pathlib import Path
-from typing import Self
+from typing import Self, TYPE_CHECKING
 
 import homeassistant_api
 
 from sonorium.obs import logger
 from sonorium.recording import RecordingMetadata
-from sonorium.theme import ThemeDefinition
+from sonorium.utils import IndexList
 
-
-class IndexList(list):
-    """
-    Simple list subclass that supports attribute-based indexing.
-    Replaces fmtr.tools.iterator_tools.IndexList.
-    """
-
-    def __init__(self, iterable=None):
-        super().__init__(iterable or [])
-        self.current = None
-
-    def __getattr__(self, name):
-        """Allow attribute-style access to create dict views."""
-        if name.startswith('_'):
-            raise AttributeError(name)
-
-        # Return a dict mapping the attribute value to the item
-        result = {}
-        for item in self:
-            if hasattr(item, name):
-                key = getattr(item, name)
-                result[key] = item
-        return result
+if TYPE_CHECKING:
+    from sonorium.theme import ThemeDefinition
 
 
 @dataclass
