@@ -29,10 +29,25 @@ if [ ! -d "${SONORIUM__PATH_AUDIO}" ]; then
     mkdir -p "${SONORIUM__PATH_AUDIO}"
 fi
 
+# Test critical Python imports (helps diagnose segfaults)
+bashio::log.info "Testing Python imports..."
+if ! python3 -c "import numpy" 2>&1; then
+    bashio::log.error "FAILED: numpy import"
+fi
+if ! python3 -c "import av" 2>&1; then
+    bashio::log.error "FAILED: av (PyAV) import"
+fi
+if ! python3 -c "import pydantic" 2>&1; then
+    bashio::log.error "FAILED: pydantic import"
+fi
+if ! python3 -c "import fastapi" 2>&1; then
+    bashio::log.error "FAILED: fastapi import"
+fi
+bashio::log.info "Python imports OK"
+
 # Check if sonorium command exists
 if ! command -v sonorium &> /dev/null; then
-    bashio::log.error "sonorium command not found!"
-    bashio::log.error "Attempting to run via Python module..."
+    bashio::log.info "Running via Python module..."
     exec python3 -m sonorium.entrypoint
 fi
 

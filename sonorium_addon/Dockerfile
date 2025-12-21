@@ -3,23 +3,24 @@ ARG BUILD_FROM=ghcr.io/hassio-addons/base:16.3.2
 FROM ${BUILD_FROM}
 
 # Install Python and build dependencies
+# Note: py3-numpy from Alpine avoids segfault on some virtualized environments (qemux86-64)
 RUN apk add --no-cache \
     python3 \
     py3-pip \
+    py3-numpy \
     ffmpeg
 
 # Create working directory
 WORKDIR /app
 
 # Install Python dependencies
+# Note: numpy installed via apk above, av installed via fmtr.tools[av] below
 RUN pip3 install --no-cache-dir --break-system-packages \
     pyyaml \
     appdirs \
     cachetools \
     fastapi \
-    av \
     uvicorn \
-    numpy \
     pydantic \
     httpx \
     homeassistant_api \
@@ -61,6 +62,6 @@ RUN chmod a+x /run.sh
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.2.40}"
+LABEL io.hass.version="${ADDON_VERSION:-1.2.42-dev}"
 
 CMD [ "/run.sh" ]
