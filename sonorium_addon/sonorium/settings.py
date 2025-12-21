@@ -7,6 +7,7 @@ import json
 import os
 import socket
 from pathlib import Path
+from typing import ClassVar
 
 import homeassistant_api
 import httpx
@@ -15,7 +16,7 @@ from pydantic_settings import BaseSettings
 
 from sonorium.client import ClientSonorium
 from sonorium.device import Sonorium
-from sonorium.paths import paths
+from sonorium.paths import PackagePaths, paths
 
 
 # HA Constants (replaces fmtr.tools.ha.constants)
@@ -143,7 +144,7 @@ class Settings(BaseSettings):
 
     model_config = {"env_prefix": "SONORIUM__", "env_nested_delimiter": "__"}
 
-    paths: type = paths
+    paths: ClassVar[PackagePaths] = paths
 
     ha_core_api: str = Field(default=HA_URL_CORE_ADDON)
     ha_supervisor_api: str = Field(default=HA_URL_SUPERVISOR_ADDON)
