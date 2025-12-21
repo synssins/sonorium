@@ -114,6 +114,8 @@ class NetworkStreamingManager:
                 success = await self._start_dlna(session, speaker_info)
             elif speaker_type == 'airplay':
                 success = await self._start_airplay(session, speaker_info)
+            elif speaker_type == 'heos':
+                success = await self._start_heos(session, speaker_info)
             else:
                 logger.error(f"Unknown speaker type: {speaker_type}")
                 session.state = StreamingState.ERROR
@@ -152,6 +154,8 @@ class NetworkStreamingManager:
                 await self._stop_dlna(session)
             elif session.speaker_type == 'airplay':
                 await self._stop_airplay(session)
+            elif session.speaker_type == 'heos':
+                await self._stop_heos(session)
 
             session.state = StreamingState.STOPPED
 
@@ -793,6 +797,155 @@ class NetworkStreamingManager:
                         logger.info(f"Linkplay HTTP: Stop command sent to {host}")
             except Exception as e:
                 logger.warning(f"Linkplay HTTP: Error stopping playback: {e}")
+
+    # --- HEOS Implementation ---
+
+    async def _start_heos(self, session: StreamingSession, speaker_info: dict) -> bool:
+        """Start streaming to a HEOS device (Denon/Marantz).
+
+        Uses the HEOS CLI protocol's play_stream command to tell the speaker
+        to fetch audio from our HTTP stream URL (pull model, like DLNA).
+
+        HEOS CLI uses telnet on port 1255. The play_stream command format:
+        heos://browse/play_stream?pid=player_id&url=stream_url
+        """
+        try:
+            host = speaker_info.get('host')
+            if not host:
+                session.error_message = "No host specified for HEOS"
+                logger.error("HEOS: No host specified")
+                return False
+
+            speaker_name = speaker_info.get('name', host)
+            pid = speaker_info.get('extra', {}).get('pid')
+
+            if not pid:
+                session.error_message = "No player ID (pid) for HEOS device"
+                logger.error("HEOS: No pid in speaker_info")
+                return False
+
+            logger.info(f"HEOS: Starting stream to {speaker_name} (pid={pid}) at {host}")
+
+            # Try pyheos first (if available)
+            try:
+                import pyheos
+
+                heos = await pyheos.Heos.create_and_connect(
+                    host,
+                    timeout=10,
+                    heart_beat=False
+                )
+
+                session._heos_connection = heos
+
+                # Get the player
+                players = await heos.get_players(refresh=True)
+                player = players.get(pid)
+
+                if not player:
+                    # Try to find by IP if pid not found
+                    for p in players.values():
+                        if p.ip_address == host:
+                            player = p
+                            break
+
+                if not player:
+                    session.error_message = f"HEOS player {pid} not found"
+                    logger.error(f"HEOS: Player {pid} not found in {list(players.keys())}")
+                    await heos.disconnect()
+                    return False
+
+                # Play the stream URL
+                await player.play_url(session.stream_url)
+
+                logger.info(f"HEOS: {speaker_name} now playing {session.stream_url}")
+                return True
+
+            except ImportError:
+                logger.debug("pyheos not installed, using raw telnet")
+
+            # Fallback to raw telnet
+            import json
+            HEOS_PORT = 1255
+
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, HEOS_PORT),
+                timeout=10
+            )
+
+            session._heos_reader = reader
+            session._heos_writer = writer
+
+            # URL encode the stream URL
+            from urllib.parse import quote
+            encoded_url = quote(session.stream_url, safe='')
+
+            # Send play_stream command
+            cmd = f"heos://browse/play_stream?pid={pid}&url={session.stream_url}\r\n"
+            logger.debug(f"HEOS: Sending command: {cmd.strip()}")
+
+            writer.write(cmd.encode())
+            await writer.drain()
+
+            # Read response
+            response = await asyncio.wait_for(reader.read(4096), timeout=5)
+            response_text = response.decode('utf-8', errors='ignore')
+            logger.debug(f"HEOS: Response: {response_text}")
+
+            # Check for success
+            try:
+                data = json.loads(response_text.strip())
+                if data.get('heos', {}).get('result') == 'success':
+                    logger.info(f"HEOS: {speaker_name} now playing {session.stream_url}")
+                    return True
+                else:
+                    error = data.get('heos', {}).get('message', 'Unknown error')
+                    session.error_message = f"HEOS error: {error}"
+                    logger.error(f"HEOS: Command failed: {error}")
+                    return False
+            except json.JSONDecodeError:
+                # Some devices return non-JSON, assume success if no error
+                if 'error' not in response_text.lower():
+                    logger.info(f"HEOS: {speaker_name} command sent (assuming success)")
+                    return True
+                else:
+                    session.error_message = f"HEOS error: {response_text}"
+                    return False
+
+        except asyncio.TimeoutError:
+            session.error_message = "HEOS connection timed out"
+            logger.error(f"HEOS: Connection to {speaker_info.get('host')} timed out")
+            return False
+        except ConnectionRefusedError:
+            session.error_message = "HEOS connection refused"
+            logger.error(f"HEOS: Connection to {speaker_info.get('host')} refused")
+            return False
+        except Exception as e:
+            session.error_message = f"HEOS error: {e}"
+            logger.error(f"HEOS streaming error: {e}", exc_info=True)
+            return False
+
+    async def _stop_heos(self, session: StreamingSession):
+        """Stop HEOS playback."""
+        # Close pyheos connection if used
+        if hasattr(session, '_heos_connection') and session._heos_connection:
+            try:
+                await session._heos_connection.disconnect()
+            except Exception as e:
+                logger.warning(f"Error disconnecting pyheos: {e}")
+
+        # Close raw telnet connection if used
+        if hasattr(session, '_heos_writer') and session._heos_writer:
+            try:
+                # Send stop command
+                pid = session._device if isinstance(session._device, int) else None
+
+                # Just close the connection - device will stop when connection drops
+                # or continue playing (which is fine for ambient audio)
+                session._heos_writer.close()
+                await session._heos_writer.wait_closed()
+            except Exception as e:
+                logger.warning(f"Error closing HEOS connection: {e}")
 
 
 # Global streaming manager instance

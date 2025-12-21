@@ -20,6 +20,7 @@ class SpeakerType(Enum):
     SONOS = "sonos"
     DLNA = "dlna"
     AIRPLAY = "airplay"
+    HEOS = "heos"
 
 
 class SpeakerStatus(Enum):
@@ -250,6 +251,28 @@ class NetworkSpeakerDiscovery:
                 logger.debug(f"AirPlay validation error for {speaker.name}: {e}")
                 speaker.status = SpeakerStatus.UNAVAILABLE
                 return False
+        elif speaker.speaker_type == SpeakerType.HEOS:
+            # HEOS speakers use CLI protocol on port 1255
+            port = speaker.port or 1255
+            try:
+                import socket
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(3)
+                result = sock.connect_ex((speaker.host, port))
+                sock.close()
+                if result == 0:
+                    speaker.last_seen = datetime.now().isoformat()
+                    speaker.status = SpeakerStatus.AVAILABLE
+                    logger.debug(f"Speaker {speaker.name} is available at {speaker.host}:{port}")
+                    return True
+                else:
+                    speaker.status = SpeakerStatus.UNAVAILABLE
+                    logger.info(f"Speaker {speaker.name} is unavailable at {speaker.host}:{port}")
+                    return False
+            except Exception as e:
+                logger.debug(f"HEOS validation error for {speaker.name}: {e}")
+                speaker.status = SpeakerStatus.UNAVAILABLE
+                return False
 
         for url in urls_to_try:
             try:
@@ -382,13 +405,14 @@ class NetworkSpeakerDiscovery:
                     asyncio.create_task(self._discover_mdns(timeout)),
                     asyncio.create_task(self._discover_linkplay(timeout)),
                     asyncio.create_task(self._discover_airplay(timeout)),
+                    asyncio.create_task(self._discover_heos(timeout)),
                 ]
 
                 results = await asyncio.gather(*tasks, return_exceptions=True)
 
                 for i, result in enumerate(results):
                     if isinstance(result, Exception):
-                        protocol = ['Chromecast', 'Sonos', 'DLNA', 'mDNS', 'Linkplay', 'AirPlay'][i]
+                        protocol = ['Chromecast', 'Sonos', 'DLNA', 'mDNS', 'Linkplay', 'AirPlay', 'HEOS'][i]
                         logger.error(f"{protocol} discovery failed: {result}")
 
                 # Mark all discovered speakers as available
@@ -1121,6 +1145,289 @@ class NetworkSpeakerDiscovery:
             logger.error(traceback.format_exc())
 
         return discovered
+
+    async def _discover_heos(self, timeout: float) -> list[NetworkSpeaker]:
+        """Discover HEOS devices (Denon/Marantz) using pyheos or direct telnet.
+
+        HEOS uses a telnet-based CLI protocol on port 1255. Any HEOS device
+        acts as a "bridge" to all HEOS devices on the network.
+        """
+        discovered = []
+
+        try:
+            logger.info("Starting HEOS discovery...")
+
+            # First, try to find a HEOS device via SSDP
+            heos_hosts = await self._find_heos_hosts_ssdp(timeout)
+
+            if not heos_hosts:
+                # Fallback: try mDNS for _heos-audio._tcp
+                heos_hosts = await self._find_heos_hosts_mdns(timeout)
+
+            if not heos_hosts:
+                logger.info("No HEOS devices found via SSDP or mDNS")
+                return discovered
+
+            # Connect to one HEOS device and get all players
+            for host in heos_hosts:
+                try:
+                    players = await self._get_heos_players(host, timeout)
+                    if players:
+                        for player in players:
+                            speaker = self._create_heos_speaker(player)
+                            if speaker and speaker.id not in self.speakers:
+                                self.speakers[speaker.id] = speaker
+                                discovered.append(speaker)
+                        break  # Got players from one host, no need to try others
+                except Exception as e:
+                    logger.debug(f"Failed to get HEOS players from {host}: {e}")
+                    continue
+
+            logger.info(f"HEOS discovery found {len(discovered)} devices")
+
+        except Exception as e:
+            logger.error(f"HEOS discovery error: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+
+        return discovered
+
+    async def _find_heos_hosts_ssdp(self, timeout: float) -> list[str]:
+        """Find HEOS device IPs via SSDP."""
+        import socket
+        from urllib.parse import urlparse
+
+        hosts = []
+        SSDP_ADDR = "239.255.255.250"
+        SSDP_PORT = 1900
+
+        # Search for HEOS/Denon devices
+        search_targets = [
+            "urn:schemas-denon-com:device:ACT-Denon:1",
+            "urn:schemas-upnp-org:device:MediaRenderer:1",  # Some HEOS advertise as MediaRenderer
+        ]
+
+        def ssdp_search(search_target: str) -> list[str]:
+            found = []
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.settimeout(min(timeout / 2, 3))
+
+            search_msg = (
+                f"M-SEARCH * HTTP/1.1\r\n"
+                f"HOST: {SSDP_ADDR}:{SSDP_PORT}\r\n"
+                f"MAN: \"ssdp:discover\"\r\n"
+                f"MX: 2\r\n"
+                f"ST: {search_target}\r\n"
+                f"\r\n"
+            )
+
+            try:
+                sock.sendto(search_msg.encode(), (SSDP_ADDR, SSDP_PORT))
+
+                while True:
+                    try:
+                        data, addr = sock.recvfrom(4096)
+                        response = data.decode('utf-8', errors='ignore')
+
+                        # Check for HEOS/Denon indicators
+                        if 'denon' in response.lower() or 'heos' in response.lower() or 'marantz' in response.lower():
+                            # Extract host from LOCATION header
+                            for line in response.split('\r\n'):
+                                if line.upper().startswith('LOCATION:'):
+                                    location = line.split(':', 1)[1].strip()
+                                    parsed = urlparse(location)
+                                    if parsed.hostname and parsed.hostname not in found:
+                                        found.append(parsed.hostname)
+                                        logger.debug(f"HEOS SSDP found device at {parsed.hostname}")
+                                    break
+                    except socket.timeout:
+                        break
+            finally:
+                sock.close()
+
+            return found
+
+        loop = asyncio.get_event_loop()
+        for st in search_targets:
+            try:
+                found = await loop.run_in_executor(None, ssdp_search, st)
+                hosts.extend([h for h in found if h not in hosts])
+            except Exception as e:
+                logger.debug(f"HEOS SSDP search for {st} failed: {e}")
+
+        return hosts
+
+    async def _find_heos_hosts_mdns(self, timeout: float) -> list[str]:
+        """Find HEOS device IPs via mDNS."""
+        hosts = []
+
+        try:
+            from zeroconf import Zeroconf, ServiceBrowser, ServiceListener
+            import socket
+            import time
+
+            class HeosListener(ServiceListener):
+                def __init__(self):
+                    self.hosts = []
+
+                def add_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+                    try:
+                        info = zc.get_service_info(type_, name, timeout=3000)
+                        if info and info.addresses:
+                            for addr in info.addresses:
+                                ip = socket.inet_ntoa(addr)
+                                if ip not in self.hosts:
+                                    self.hosts.append(ip)
+                                    logger.debug(f"HEOS mDNS found device at {ip}")
+                    except Exception as e:
+                        logger.debug(f"Error getting HEOS mDNS service info: {e}")
+
+                def remove_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+                    pass
+
+                def update_service(self, zc: Zeroconf, type_: str, name: str) -> None:
+                    pass
+
+            def run_mdns_scan():
+                zc = Zeroconf()
+                listener = HeosListener()
+                try:
+                    browser = ServiceBrowser(zc, "_heos-audio._tcp.local.", listener)
+                    time.sleep(min(timeout, 3))
+                    return listener.hosts
+                finally:
+                    zc.close()
+
+            loop = asyncio.get_event_loop()
+            hosts = await loop.run_in_executor(None, run_mdns_scan)
+
+        except ImportError:
+            logger.debug("zeroconf not installed - HEOS mDNS discovery disabled")
+        except Exception as e:
+            logger.debug(f"HEOS mDNS discovery error: {e}")
+
+        return hosts
+
+    async def _get_heos_players(self, host: str, timeout: float) -> list[dict]:
+        """Get all HEOS players via CLI telnet connection."""
+        import json
+
+        players = []
+        HEOS_PORT = 1255
+
+        try:
+            # Try pyheos first (if available)
+            try:
+                import pyheos
+                heos = await pyheos.Heos.create_and_connect(
+                    host,
+                    timeout=min(timeout, 10),
+                    heart_beat=False
+                )
+                try:
+                    player_dict = await heos.get_players(refresh=True)
+                    for pid, player in player_dict.items():
+                        players.append({
+                            'pid': pid,
+                            'name': player.name,
+                            'model': player.model,
+                            'ip': player.ip_address,
+                            'version': player.version,
+                        })
+                    logger.info(f"HEOS pyheos found {len(players)} players via {host}")
+                finally:
+                    await heos.disconnect()
+                return players
+            except ImportError:
+                logger.debug("pyheos not installed, using raw telnet")
+
+            # Fallback to raw telnet
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, HEOS_PORT),
+                timeout=min(timeout, 5)
+            )
+
+            try:
+                # Send get_players command
+                cmd = "heos://player/get_players\r\n"
+                writer.write(cmd.encode())
+                await writer.drain()
+
+                # Read response (JSON)
+                response = await asyncio.wait_for(reader.read(8192), timeout=5)
+                response_text = response.decode('utf-8', errors='ignore')
+
+                # Parse JSON response
+                # Response format: {"heos": {...}, "payload": [...]}
+                for line in response_text.strip().split('\n'):
+                    try:
+                        data = json.loads(line)
+                        if 'payload' in data and isinstance(data['payload'], list):
+                            for p in data['payload']:
+                                players.append({
+                                    'pid': p.get('pid'),
+                                    'name': p.get('name'),
+                                    'model': p.get('model'),
+                                    'ip': p.get('ip'),
+                                    'version': p.get('version'),
+                                })
+                            break
+                    except json.JSONDecodeError:
+                        continue
+
+                logger.info(f"HEOS telnet found {len(players)} players via {host}")
+
+            finally:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+
+        except asyncio.TimeoutError:
+            logger.debug(f"HEOS connection to {host} timed out")
+        except ConnectionRefusedError:
+            logger.debug(f"HEOS connection to {host} refused")
+        except Exception as e:
+            logger.debug(f"HEOS error connecting to {host}: {e}")
+
+        return players
+
+    def _create_heos_speaker(self, player: dict) -> Optional[NetworkSpeaker]:
+        """Create a NetworkSpeaker from HEOS player data."""
+        pid = player.get('pid')
+        if not pid:
+            return None
+
+        ip = player.get('ip')
+        if not ip:
+            return None
+
+        speaker_id = f"heos_{pid}"
+        name = player.get('name', f"HEOS Device ({ip})")
+        model = player.get('model')
+
+        # Determine manufacturer from model
+        manufacturer = "Denon"
+        if model:
+            model_lower = model.lower()
+            if 'marantz' in model_lower:
+                manufacturer = "Marantz"
+
+        return NetworkSpeaker(
+            id=speaker_id,
+            name=name,
+            speaker_type=SpeakerType.HEOS,
+            host=ip,
+            port=1255,  # HEOS CLI port
+            model=model,
+            manufacturer=manufacturer,
+            extra={
+                'pid': pid,
+                'version': player.get('version'),
+            }
+        )
 
     def get_speaker(self, speaker_id: str) -> Optional[NetworkSpeaker]:
         """Get a speaker by ID."""

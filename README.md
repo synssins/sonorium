@@ -56,6 +56,14 @@ Configure speakers, volume defaults, and other preferences.
 
 ## What's New
 
+### Windows App v0.2.48-dev (Beta)
+
+> ⚠️ **Beta Testing:** This version is available in the [dev channel](https://github.com/synssins/sonorium.dev) for testing. Please report issues!
+
+- **HEOS Speaker Support (Beta)** - Denon/Marantz HEOS speakers discovered and controlled via CLI protocol
+- **HEOS Discovery** - Automatic detection of HEOS devices via SSDP and mDNS
+- **pyheos Integration** - Uses pyheos library for reliable HEOS communication (falls back to raw telnet)
+
 ### Windows App v0.2.47
 
 - **Sonos Speaker Support** - Full Sonos integration using SoCo library for direct device communication
@@ -173,10 +181,11 @@ Single-file themes loop seamlessly using crossfade blending—no jarring restart
 - DLNA/UPnP network speakers
 - Sonos speakers (via SoCo library)
 - Arylic/Linkplay speakers (via HTTP API)
+- **HEOS speakers (Denon/Marantz)** - Beta, via CLI protocol
 - *Coming soon: AirPlay (other devices), Chromecast*
 
 ### Home Assistant Addon
-- Any media_player entity in Home Assistant
+- Any media_player entity in Home Assistant (including HEOS via HA's native integration)
 - Organized by floors, areas, and custom groups
 
 ## API Reference
