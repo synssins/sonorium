@@ -39,10 +39,51 @@ async function init() {
         console.log('Data loaded, rendering...');
         renderSessions();
         updatePlayingBadge();
+
+        // Start heartbeat to track browser connection
+        startHeartbeat();
+
         console.log('Sonorium init() complete');
     } catch (error) {
         console.error('Init error:', error);
         showToast('Failed to load data', 'error');
+    }
+}
+
+// Heartbeat to track browser connection (stops playback when browser closes)
+let heartbeatInterval = null;
+
+function startHeartbeat() {
+    // Send heartbeat every 3 seconds
+    if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+    }
+
+    // Send initial heartbeat
+    sendHeartbeat();
+
+    // Set up interval
+    heartbeatInterval = setInterval(sendHeartbeat, 3000);
+
+    // Also send heartbeat on page visibility change
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+            sendHeartbeat();
+        }
+    });
+
+    // Send heartbeat before page unload (gives server a chance to know we're leaving)
+    window.addEventListener('beforeunload', () => {
+        // Don't send - let the heartbeat timeout naturally
+        // This way closing the browser stops playback
+    });
+}
+
+async function sendHeartbeat() {
+    try {
+        await fetch(BASE_PATH + '/api/heartbeat', { method: 'POST' });
+    } catch (e) {
+        // Ignore errors - server might be down
     }
 }
 
@@ -54,6 +95,189 @@ async function loadVersion() {
         }
     } catch (e) {
         console.error('Failed to load version:', e);
+    }
+
+    // Check for updates (non-blocking)
+    checkForUpdates();
+}
+
+// Update checking
+let updateInfo = null;
+
+async function checkForUpdates() {
+    try {
+        const result = await api('GET', '/update/check');
+        if (result && result.update_available) {
+            updateInfo = result;
+            showUpdateNotification(result);
+        }
+    } catch (e) {
+        console.error('Failed to check for updates:', e);
+    }
+}
+
+function showUpdateNotification(info) {
+    // Create update banner if it doesn't exist
+    let banner = document.getElementById('update-banner');
+    if (!banner) {
+        banner = document.createElement('div');
+        banner.id = 'update-banner';
+        banner.className = 'update-banner';
+        document.body.insertBefore(banner, document.body.firstChild);
+    }
+
+    const sizeText = info.download_size ? ` (${formatBytes(info.download_size)})` : '';
+
+    banner.innerHTML = `
+        <div class="update-banner-content">
+            <div class="update-info">
+                <span class="update-icon">&#x2B06;</span>
+                <span><strong>Update available:</strong> v${info.latest_version}${sizeText}</span>
+            </div>
+            <div class="update-actions">
+                <button class="btn btn-primary btn-sm" onclick="showUpdateModal()">Update Now</button>
+                <button class="btn btn-secondary btn-sm" onclick="remindLater()">Later</button>
+                <button class="btn btn-text btn-sm" onclick="ignoreUpdate()">Ignore</button>
+            </div>
+        </div>
+    `;
+    banner.style.display = 'flex';
+}
+
+function hideUpdateBanner() {
+    const banner = document.getElementById('update-banner');
+    if (banner) {
+        banner.style.display = 'none';
+    }
+}
+
+function showUpdateModal() {
+    if (!updateInfo) return;
+
+    const modal = document.getElementById('update-modal') || createUpdateModal();
+
+    document.getElementById('update-version').textContent = updateInfo.latest_version;
+    document.getElementById('update-current').textContent = updateInfo.current_version;
+    document.getElementById('update-notes').innerHTML = formatReleaseNotes(updateInfo.release_notes);
+
+    if (updateInfo.download_size) {
+        document.getElementById('update-size').textContent = formatBytes(updateInfo.download_size);
+        document.getElementById('update-size-row').style.display = '';
+    } else {
+        document.getElementById('update-size-row').style.display = 'none';
+    }
+
+    modal.style.display = 'flex';
+}
+
+function createUpdateModal() {
+    const modal = document.createElement('div');
+    modal.id = 'update-modal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+        <div class="modal-content update-modal">
+            <div class="modal-header">
+                <h2>Update Available</h2>
+                <button class="modal-close" onclick="closeUpdateModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="update-details">
+                    <div class="update-detail-row">
+                        <span>Current version:</span>
+                        <span id="update-current">-</span>
+                    </div>
+                    <div class="update-detail-row">
+                        <span>New version:</span>
+                        <strong id="update-version">-</strong>
+                    </div>
+                    <div class="update-detail-row" id="update-size-row">
+                        <span>Download size:</span>
+                        <span id="update-size">-</span>
+                    </div>
+                </div>
+                <div class="update-notes-section">
+                    <h3>Release Notes</h3>
+                    <div id="update-notes" class="update-notes"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeUpdateModal()">Cancel</button>
+                <button class="btn btn-secondary" onclick="remindLater(); closeUpdateModal()">Remind Later</button>
+                <button class="btn btn-primary" onclick="installUpdate()">Update Now</button>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    return modal;
+}
+
+function closeUpdateModal() {
+    const modal = document.getElementById('update-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function formatReleaseNotes(notes) {
+    if (!notes) return '<p>No release notes available.</p>';
+
+    // Simple markdown-like formatting
+    return notes
+        .split('\n')
+        .map(line => {
+            if (line.startsWith('# ')) return `<h3>${line.slice(2)}</h3>`;
+            if (line.startsWith('## ')) return `<h4>${line.slice(3)}</h4>`;
+            if (line.startsWith('- ')) return `<li>${line.slice(2)}</li>`;
+            if (line.startsWith('* ')) return `<li>${line.slice(2)}</li>`;
+            if (line.trim() === '') return '';
+            return `<p>${line}</p>`;
+        })
+        .join('');
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
+
+async function installUpdate() {
+    try {
+        showToast('Starting update...', 'info');
+        closeUpdateModal();
+        hideUpdateBanner();
+
+        const result = await api('POST', '/update/install');
+        if (result && result.status === 'ok') {
+            showToast('Update started. The application will restart.', 'success');
+            // The app will exit and restart
+        }
+    } catch (e) {
+        showToast('Failed to start update: ' + (e.message || e), 'error');
+    }
+}
+
+async function remindLater() {
+    try {
+        await api('POST', '/update/remind-later');
+        hideUpdateBanner();
+        showToast('Will remind you about the update later', 'info');
+    } catch (e) {
+        console.error('Failed to set remind later:', e);
+    }
+}
+
+async function ignoreUpdate() {
+    if (!updateInfo) return;
+
+    try {
+        await api('POST', '/update/ignore?version=' + updateInfo.latest_version);
+        hideUpdateBanner();
+        showToast('This update will be ignored', 'info');
+    } catch (e) {
+        console.error('Failed to ignore update:', e);
     }
 }
 
@@ -110,11 +334,6 @@ async function loadChannels() {
 // View Navigation
 function showView(viewName) {
     currentView = viewName;
-
-    // Close mobile sidebar after selection (768px breakpoint)
-    if (window.innerWidth <= 768) {
-        closeSidebar();
-    }
 
     // Update nav items - clear all active states
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -185,16 +404,7 @@ function showView(viewName) {
         themes: '',
         settings: '',
         'settings-audio': '',
-        'settings-speakers': `
-            <button class="btn btn-secondary" onclick="refreshSpeakers()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M23 4v6h-6"/>
-                    <path d="M1 20v-6h6"/>
-                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                </svg>
-                Refresh Speakers
-            </button>
-        `,
+        'settings-speakers': '',
         'settings-groups': '',
         'settings-plugins': '',
         status: `
@@ -218,7 +428,10 @@ function showView(viewName) {
         renderSettingsGroupsList();
     }
     if (viewName === 'settings-audio') renderAudioSettings();
-    if (viewName === 'settings-speakers') renderSettingsSpeakerTree();
+    if (viewName === 'settings-speakers') {
+        loadLocalAudioDevices();
+        loadNetworkSpeakers();
+    }
     if (viewName === 'settings-groups') renderSettingsGroupsList();
     if (viewName === 'settings-plugins') renderPluginsView();
     if (viewName === 'status') renderStatus();
@@ -232,14 +445,14 @@ function toggleNavSection(sectionId) {
 }
 
 function toggleSidebar() {
-    const sidebar = document.getElementById('sidebar');
-    sidebar.classList.toggle('open');
-    document.body.classList.toggle('sidebar-open', sidebar.classList.contains('open'));
+    document.getElementById('sidebar').classList.toggle('open');
 }
 
-function closeSidebar() {
-    document.getElementById('sidebar').classList.remove('open');
-    document.body.classList.remove('sidebar-open');
+function toggleCollapsibleSection(sectionId) {
+    const section = document.getElementById(sectionId);
+    if (section) {
+        section.classList.toggle('expanded');
+    }
 }
 
 // Sessions
@@ -327,6 +540,7 @@ function renderSessionCard(session) {
                 </svg>
                 <input type="range" class="volume-slider" min="0" max="100"
                        value="${session.volume}"
+                       oninput="updateSessionVolumeDisplay('${session.id}', this.value)"
                        onchange="updateSessionVolume('${session.id}', this.value)">
                 <span class="volume-value">${session.volume}%</span>
             </div>
@@ -616,11 +830,22 @@ async function loadAllSessionPresets() {
 
 async function updateSessionVolume(sessionId, volume) {
     try {
-        await api('POST', `/sessions/${sessionId}/volume`, { volume: parseInt(volume) });
+        await api('PUT', `/sessions/${sessionId}`, { volume: parseInt(volume) });
         const session = sessions.find(s => s.id === sessionId);
         if (session) session.volume = parseInt(volume);
     } catch (error) {
         showToast(error.message, 'error');
+    }
+}
+
+function updateSessionVolumeDisplay(sessionId, value) {
+    // Update the volume display span in real-time while dragging
+    const card = document.querySelector(`.session-card[data-session-id="${sessionId}"]`);
+    if (card) {
+        const valueSpan = card.querySelector('.volume-value');
+        if (valueSpan) {
+            valueSpan.textContent = `${value}%`;
+        }
     }
 }
 
@@ -1355,13 +1580,22 @@ async function createCategory() {
             await api('POST', `/themes/${themeId}/categories`, {
                 categories: [...existingCats, name]
             });
+            // Update local theme state
+            if (theme) {
+                theme.categories = [...existingCats, name];
+            }
+        }
+
+        // Add to local categories list if themes were assigned
+        if (selectedThemes.length > 0 && !themeCategories.includes(name)) {
+            themeCategories.push(name);
         }
 
         await loadCategories();
         await loadThemes();
         renderThemesBrowser();
         closeCategoryCreateModal();
-        showToast(`Category "${name}" created`, 'success');
+        showToast(`Category "${name}" created${selectedThemes.length > 0 ? ` and assigned to ${selectedThemes.length} theme(s)` : ''}`, 'success');
     } catch (error) {
         showToast(error.message || 'Failed to create category', 'error');
     }
@@ -2275,8 +2509,13 @@ async function addNewCategoryFromEdit() {
 
     try {
         await api('POST', '/categories', { name });
-        await loadCategories();
-        // Re-render checkboxes with new category
+
+        // Add the new category to local list if not already present
+        if (!themeCategories.includes(name)) {
+            themeCategories.push(name);
+        }
+
+        // Re-render checkboxes with new category (auto-checked)
         const themeId = document.getElementById('theme-edit-id').value;
         const theme = themes.find(t => t.id === themeId);
         const themeCats = theme?.categories || [];
@@ -2324,7 +2563,16 @@ async function saveThemeMetadata() {
         renderThemesBrowser();
         showToast('Theme saved', 'success');
     } catch (error) {
-        showToast(error.message, 'error');
+        console.error('Save theme error:', error);
+        let msg = 'Failed to save theme';
+        if (typeof error === 'string') {
+            msg = error;
+        } else if (error instanceof Error) {
+            msg = error.message;
+        } else if (error && typeof error === 'object') {
+            msg = error.message || error.detail || error.error || JSON.stringify(error);
+        }
+        showToast(msg, 'error');
     }
 }
 
@@ -2520,7 +2768,6 @@ async function createTheme() {
         // Refresh themes list
         await loadThemes();
         renderThemesBrowser();
-        renderSessions();  // Update channel dropdowns with new theme
 
         closeThemeCreateModal();
         showToast(`Theme "${name}" created successfully!`, 'success');
@@ -2628,7 +2875,6 @@ function importThemeZip() {
             await api('POST', '/themes/refresh');
             await loadThemes();
             renderThemesBrowser();
-            renderSessions();  // Update channel dropdowns with new theme
 
             showToast(`Imported "${result.theme_folder}" (${result.files_extracted} files)`, 'success');
         } catch (error) {
@@ -2659,6 +2905,35 @@ function updateDefaultVolumeDisplay(value) {
 
 function updateMasterGainDisplay(value) {
     document.getElementById('settings-master-gain-value').textContent = `${value}%`;
+}
+
+// Apply settings in real-time as sliders move (debounced)
+let settingsTimeout = {};
+
+async function applySettingLive(key, value) {
+    // Debounce to avoid flooding the API
+    if (settingsTimeout[key]) clearTimeout(settingsTimeout[key]);
+    settingsTimeout[key] = setTimeout(async () => {
+        try {
+            const payload = {};
+            payload[key] = value;
+            await api('PUT', '/settings', payload);
+        } catch (e) {
+            console.error(`Failed to apply ${key}:`, e);
+        }
+    }, 100);
+}
+
+function applyMasterGainLive(value) {
+    applySettingLive('master_gain', parseInt(value));
+}
+
+function applyCrossfadeLive(value) {
+    applySettingLive('crossfade_duration', parseFloat(value));
+}
+
+function applyDefaultVolumeLive(value) {
+    applySettingLive('default_volume', parseInt(value));
 }
 
 async function loadAudioSettings() {
@@ -2723,164 +2998,293 @@ function resetAudioSettings() {
     showToast('Settings reset to defaults (not saved yet)', 'info');
 }
 
-// Settings - Speaker Enable/Disable
-function renderSettingsSpeakerTree() {
-    const container = document.getElementById('settings-speaker-tree');
-    if (!speakerHierarchy) {
-        container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading...</div>';
-        return;
+// Settings - Local Audio Devices
+let localAudioDevices = [];
+let selectedAudioDevice = null;
+let networkSpeakers = [];
+let enabledNetworkSpeakers = [];
+
+async function loadLocalAudioDevices() {
+    try {
+        const data = await api('GET', '/settings/audio-devices');
+        localAudioDevices = data.devices || [];
+        selectedAudioDevice = data.selected;
+        renderLocalAudioDevices();
+    } catch (error) {
+        console.error('Failed to load audio devices:', error);
+        const container = document.getElementById('local-audio-devices');
+        if (container) {
+            container.innerHTML = '<p class="text-muted">Failed to load audio devices.</p>';
+        }
+    }
+}
+
+function renderLocalAudioDevices() {
+    const container = document.getElementById('local-audio-devices');
+    if (!container) return;
+
+    // Build dropdown with "None" option for network-only streaming
+    let html = `
+        <select id="audio-device-select" class="settings-select" onchange="selectAudioDevice(this.value)">
+            <option value="-1" ${selectedAudioDevice === -1 || selectedAudioDevice === null ? 'selected' : ''}>
+                None (Network speakers only)
+            </option>
+    `;
+
+    for (const device of localAudioDevices) {
+        const selected = device.index === selectedAudioDevice ? 'selected' : '';
+        const info = `${device.channels}ch, ${device.sample_rate}Hz`;
+        html += `<option value="${device.index}" ${selected}>${escapeHtml(device.name)} (${info})</option>`;
     }
 
-    const allSpeakers = getAllSpeakersFlat();
-    const isAllEnabled = enabledSpeakers.length === 0;
+    html += '</select>';
 
-    let html = '';
-
-    // Render floors
-    for (const floor of speakerHierarchy.floors || []) {
-        html += `
-            <div class="settings-floor">
-                <div class="settings-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                    </svg>
-                    <span>${escapeHtml(floor.name)}</span>
-                </div>
-                <div class="settings-areas">
-                    ${(floor.areas || []).map(area => renderSettingsArea(area, isAllEnabled)).join('')}
-                </div>
-            </div>
-        `;
-    }
-
-    // Unassigned areas
-    if ((speakerHierarchy.unassigned_areas || []).length > 0) {
-        html += `
-            <div class="settings-floor">
-                <div class="settings-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                    </svg>
-                    <span>Other Areas</span>
-                </div>
-                <div class="settings-areas">
-                    ${speakerHierarchy.unassigned_areas.map(area => renderSettingsArea(area, isAllEnabled)).join('')}
-                </div>
-            </div>
-        `;
-    }
-
-    // Unassigned speakers
-    if ((speakerHierarchy.unassigned_speakers || []).length > 0) {
-        html += `
-            <div class="settings-floor">
-                <div class="settings-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <line x1="12" y1="8" x2="12" y2="12"/>
-                        <line x1="12" y1="16" x2="12.01" y2="16"/>
-                    </svg>
-                    <span>Unassigned</span>
-                </div>
-                <div class="settings-speakers" style="margin-left: 1.5rem;">
-                    ${speakerHierarchy.unassigned_speakers.map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
-                </div>
-            </div>
-        `;
-    }
-
-    if (!html) {
-        html = '<p style="color: var(--text-muted); padding: 1rem;">No speakers found. Click "Refresh from HA" to discover speakers.</p>';
+    if (localAudioDevices.length === 0) {
+        html += '<p class="text-muted-small" style="margin-top: 0.5rem;">No audio output devices detected.</p>';
     }
 
     container.innerHTML = html;
 }
 
-function renderSettingsArea(area, isAllEnabled) {
-    return `
-        <div class="settings-area">
-            <div class="settings-area-header">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                </svg>
-                <span>${escapeHtml(area.name)}</span>
-            </div>
-            <div class="settings-speakers">
-                ${(area.speakers || []).map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
-            </div>
-        </div>
-    `;
+async function selectAudioDevice(deviceIndex) {
+    try {
+        // Convert string from dropdown to number
+        const index = parseInt(deviceIndex, 10);
+        await api('PUT', '/settings/audio-device', { device_index: index });
+        selectedAudioDevice = index;
+        renderLocalAudioDevices();
+        if (index === -1) {
+            showToast('Local audio disabled', 'success');
+        } else {
+            showToast('Audio device changed', 'success');
+        }
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
 }
 
-function renderSettingsSpeaker(speaker, isAllEnabled) {
-    const isEnabled = isAllEnabled || enabledSpeakers.includes(speaker.entity_id);
+// Settings - Network Speakers
+async function loadNetworkSpeakers() {
+    try {
+        const data = await api('GET', '/network-speakers');
+        networkSpeakers = data.speakers || [];
+        enabledNetworkSpeakers = data.enabled || [];
+        renderNetworkSpeakers();
+    } catch (error) {
+        console.error('Failed to load network speakers:', error);
+    }
+}
+
+function renderNetworkSpeakers() {
+    const container = document.getElementById('network-speakers-list');
+    if (!container) return;
+
+    if (networkSpeakers.length === 0) {
+        container.innerHTML = '<p class="text-muted-small">No network speakers found. Click refresh to scan.</p>';
+        return;
+    }
+
+    // Group by speaker type
+    const byType = {};
+    for (const speaker of networkSpeakers) {
+        const type = speaker.type || 'unknown';
+        if (!byType[type]) {
+            byType[type] = [];
+        }
+        byType[type].push(speaker);
+    }
+
+    const typeNames = {
+        'chromecast': 'Chromecast',
+        'sonos': 'Sonos',
+        'dlna': 'DLNA/UPnP',
+        'unknown': 'Other'
+    };
+
+    const typeIcons = {
+        'chromecast': '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>',
+        'sonos': '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-2-8c0 1.1.9 2 2 2s2-.9 2-2-.9-2-2-2-2 .9-2 2z"/></svg>',
+        'dlna': '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM9 8h2v8H9zm4 0h2v8h-2z"/></svg>',
+        'unknown': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
+    };
+
+    let html = '';
+
+    for (const [type, speakers] of Object.entries(byType)) {
+        html += `
+            <div class="network-speaker-category">
+                <div class="network-speaker-category-header">
+                    ${typeIcons[type] || typeIcons['unknown']}
+                    <span>${typeNames[type] || type}</span>
+                    <span style="margin-left: auto; font-weight: normal;">${speakers.length}</span>
+                </div>
+                ${speakers.map(speaker => renderNetworkSpeakerItem(speaker)).join('')}
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+function renderNetworkSpeakerItem(speaker) {
+    const modelInfo = speaker.model || speaker.host || '';
+    const isEnabled = enabledNetworkSpeakers.includes(speaker.id);
+
     return `
-        <div class="settings-speaker ${isEnabled ? '' : 'disabled'}">
-            <label class="toggle-switch">
-                <input type="checkbox" ${isEnabled ? 'checked' : ''}
-                       onchange="toggleSpeakerEnabled('${speaker.entity_id}', this.checked)">
-                <span class="toggle-slider"></span>
-            </label>
-            <div class="settings-speaker-info">
+        <div class="network-speaker-item-compact ${isEnabled ? 'enabled' : ''}" onclick="toggleNetworkSpeaker('${speaker.id}')">
+            <div class="speaker-icon-small">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
                     <circle cx="12" cy="14" r="4"/>
                     <line x1="12" y1="6" x2="12.01" y2="6"/>
                 </svg>
-                <span>${escapeHtml(speaker.name)}</span>
+            </div>
+            <div class="speaker-info-compact">
+                <div class="speaker-name-compact">${escapeHtml(speaker.name)}</div>
+                <div class="speaker-model-compact">${escapeHtml(modelInfo)}</div>
+            </div>
+            <div class="speaker-toggle">
+                <div class="toggle-switch ${isEnabled ? 'on' : ''}">
+                    <div class="toggle-slider"></div>
+                </div>
             </div>
         </div>
     `;
 }
 
-async function toggleSpeakerEnabled(entityId, enabled) {
-    try {
-        if (enabled) {
-            await api('POST', '/settings/speakers/enable', { entity_id: entityId });
-        } else {
-            await api('POST', '/settings/speakers/disable', { entity_id: entityId });
-        }
-        await loadEnabledSpeakers();
-        renderSettingsSpeakerTree();
-    } catch (error) {
-        showToast(error.message, 'error');
-        renderSettingsSpeakerTree();
+async function toggleNetworkSpeaker(speakerId) {
+    const isEnabled = enabledNetworkSpeakers.includes(speakerId);
+
+    if (isEnabled) {
+        enabledNetworkSpeakers = enabledNetworkSpeakers.filter(id => id !== speakerId);
+    } else {
+        enabledNetworkSpeakers.push(speakerId);
     }
+
+    // Save to server
+    try {
+        await api('PUT', '/network-speakers/enabled', { speaker_ids: enabledNetworkSpeakers });
+        renderNetworkSpeakers();
+
+        // Reload speaker hierarchy and enabled speakers so Channel view is updated
+        await loadSpeakerHierarchy();
+        await loadEnabledSpeakers();
+    } catch (error) {
+        showToast('Failed to update speaker: ' + error.message, 'error');
+        // Revert on error
+        if (isEnabled) {
+            enabledNetworkSpeakers.push(speakerId);
+        } else {
+            enabledNetworkSpeakers = enabledNetworkSpeakers.filter(id => id !== speakerId);
+        }
+        renderNetworkSpeakers();
+    }
+}
+
+async function refreshNetworkSpeakers() {
+    const container = document.getElementById('network-speakers-list');
+    const btn = event?.target?.closest('.btn-icon');
+
+    // Add scanning animation to button
+    if (btn) btn.classList.add('scanning');
+
+    if (container) {
+        container.innerHTML = `
+            <div class="loading-small">
+                <div class="spinner-small"></div>
+                <span>Scanning network...</span>
+            </div>
+        `;
+    }
+
+    try {
+        const result = await api('POST', '/network-speakers/refresh');
+        const total = result.total_speakers || 0;
+        if (total > 0) {
+            showToast(`Found ${total} speaker${total !== 1 ? 's' : ''}`, 'success');
+        } else {
+            showToast('No network speakers found', 'info');
+        }
+        await loadNetworkSpeakers();
+    } catch (error) {
+        showToast('Scan failed: ' + error.message, 'error');
+        if (container) {
+            container.innerHTML = '<p class="text-muted-small">Scan failed. Try again.</p>';
+        }
+    } finally {
+        if (btn) btn.classList.remove('scanning');
+    }
+}
+
+async function refreshAllSpeakerSettings() {
+    // Refresh both local audio devices and network speakers
+    showToast('Refreshing speakers...', 'info');
+    try {
+        // Refresh local devices
+        await api('POST', '/speakers/refresh');
+        loadLocalAudioDevices();
+
+        // Refresh network speakers (scan network)
+        await refreshNetworkSpeakers();
+
+        // Also reload speaker hierarchy for Channel view
+        await loadSpeakerHierarchy();
+
+        showToast('Speakers refreshed', 'success');
+    } catch (error) {
+        showToast('Refresh failed: ' + error.message, 'error');
+    }
+}
+
+async function playOnNetworkSpeaker(speakerId, pluginId) {
+    // Get current theme/preset
+    if (!currentTheme) {
+        showToast('Please select a theme first', 'error');
+        return;
+    }
+
+    try {
+        await api('POST', `/network-speakers/${speakerId}/play`, {
+            theme_id: currentTheme,
+            preset_id: currentPreset,
+            plugin_id: pluginId
+        });
+        showToast('Playback started on network speaker', 'success');
+        await loadNetworkSpeakers();
+    } catch (error) {
+        showToast('Failed to start playback: ' + error.message, 'error');
+    }
+}
+
+async function stopNetworkSpeaker(speakerId, pluginId) {
+    try {
+        await api('POST', `/network-speakers/${speakerId}/stop`, { plugin_id: pluginId });
+        showToast('Playback stopped', 'success');
+        await loadNetworkSpeakers();
+    } catch (error) {
+        showToast('Failed to stop playback: ' + error.message, 'error');
+    }
+}
+
+// Legacy functions (kept for compatibility but not used in standalone)
+function renderSettingsSpeakerTree() {
+    // No longer used in standalone - replaced by local audio devices
+}
+
+async function toggleSpeakerEnabled(entityId, enabled) {
+    // No-op for standalone
 }
 
 async function enableAllSpeakers() {
-    try {
-        await api('POST', '/settings/speakers/enable-all');
-        await loadEnabledSpeakers();
-        renderSettingsSpeakerTree();
-        showToast('All speakers enabled', 'success');
-    } catch (error) {
-        showToast(error.message, 'error');
-    }
+    // No-op for standalone
 }
 
 async function disableAllSpeakers() {
-    try {
-        await api('PUT', '/settings/speakers', { enabled_speakers: ['__none__'] });
-        await loadEnabledSpeakers();
-        renderSettingsSpeakerTree();
-        showToast('All speakers disabled', 'success');
-    } catch (error) {
-        showToast(error.message, 'error');
-    }
+    // No-op for standalone
 }
 
 async function refreshSpeakersFromHA() {
-    try {
-        showToast('Refreshing speakers...', 'success');
-        await api('POST', '/speakers/refresh');
-        await loadSpeakerHierarchy();
-        await loadEnabledSpeakers();
-        renderSettingsSpeakerTree();
-        showToast('Speakers refreshed', 'success');
-    } catch (error) {
-        showToast(error.message, 'error');
-    }
+    // No-op for standalone - replaced by refreshNetworkSpeakers
 }
 
 // Status View
@@ -3536,9 +3940,11 @@ async function executePluginAction(pluginId, actionId) {
             showToast(result.message || 'Action failed', 'error');
         }
 
-        // Refresh themes in case plugin created/modified any
-        await loadThemes();
-        renderThemesBrowser();
+        // If plugin returned updated themes list, use it directly (avoids extra API call)
+        if (result.themes && Array.isArray(result.themes)) {
+            themes = result.themes;
+            renderThemesBrowser();
+        }
     } catch (error) {
         showToast(error.message || 'Failed to execute action', 'error');
     }

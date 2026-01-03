@@ -3940,9 +3940,11 @@ async function executePluginAction(pluginId, actionId) {
             showToast(result.message || 'Action failed', 'error');
         }
 
-        // Refresh themes in case plugin created/modified any
-        await loadThemes();
-        renderThemesBrowser();
+        // If plugin returned updated themes list, use it directly (avoids extra API call)
+        if (result.themes && Array.isArray(result.themes)) {
+            themes = result.themes;
+            renderThemesBrowser();
+        }
     } catch (error) {
         showToast(error.message || 'Failed to execute action', 'error');
     }
