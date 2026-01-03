@@ -311,7 +311,8 @@ class MyNoisePlugin(BasePlugin):
 
                 return {
                     "success": True,
-                    "message": f"Successfully imported '{theme_name}' with {downloaded} track(s). Refresh themes to see it.",
+                    "message": f"Successfully imported '{theme_name}' with {downloaded} track(s)",
+                    "refresh_themes": True,
                     "data": {
                         "theme_name": theme_name,
                         "folder": str(theme_folder),

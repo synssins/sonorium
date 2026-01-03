@@ -1,8 +1,8 @@
 {
   "id": "ambient_mixer",
   "name": "Ambient Mixer Importer",
-  "version": "2.0.0",
-  "description": "Import soundscapes from Ambient-Mixer.com using the XML API",
+  "version": "3.0.0",
+  "description": "Import soundscapes from Ambient-Mixer.com with preset support",
   "author": "Sonorium",
   "entry_point": "plugin.py",
   "plugin_class": "AmbientMixerPlugin",
@@ -11,6 +11,12 @@
       "type": "boolean",
       "default": true,
       "label": "Auto-create metadata.json"
+    },
+    "hash_check_duplicates": {
+      "type": "boolean",
+      "default": true,
+      "label": "Use hash to detect duplicate files",
+      "help": "More thorough but slower duplicate detection"
     }
   },
   "ui_type": "form"
