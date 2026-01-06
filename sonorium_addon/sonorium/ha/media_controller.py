@@ -114,7 +114,21 @@ class HAMediaController:
 
         Returns:
             True if request was sent successfully
+
+        Note for Google Cast devices:
+            Cast devices fetch the stream URL themselves, so the URL must be
+            accessible from the Cast device's network location. If playback
+            starts but no audio is heard, verify:
+            1. The stream URL is reachable from the Cast device
+            2. Port 8008 is accessible (check firewall rules)
+            3. The IP address in the URL is the correct host IP, not a Docker internal IP
         """
+        # For Cast devices, use audio/mpeg content type for better compatibility
+        # This helps Cast devices understand the stream format
+        if "cast" in entity_id.lower() or "google" in entity_id.lower():
+            logger.info(f"  Detected Cast device, using audio/mpeg content type")
+            media_type = "audio/mpeg"
+
         data = {
             "entity_id": entity_id,
             "media_content_id": media_url,
@@ -125,11 +139,13 @@ class HAMediaController:
         }
 
         # Log the full request for debugging
-        logger.info(f"  play_media data: {data}")
+        logger.info(f"  play_media: URL={media_url}")
+        logger.info(f"  play_media: type={media_type}, entity={entity_id}")
 
         success = await self._post_service("media_player", "play_media", data)
         if success:
             logger.info(f"  Started playback on {entity_id}")
+            logger.info(f"  NOTE: If no audio, verify the stream URL is reachable from the speaker")
         return success
     
     @logger.instrument("Playing media on multiple speakers...")

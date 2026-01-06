@@ -63,7 +63,10 @@ if [ ! -d "${SONORIUM__PATH_AUDIO}" ]; then
 fi
 
 # Test critical Python imports (helps diagnose segfaults)
+# These tests run in the same order as sonorium imports them
 bashio::log.info "Testing Python imports..."
+
+# Test individual imports first
 if ! python3 -c "import numpy" 2>&1; then
     bashio::log.error "FAILED: numpy import"
 fi
@@ -76,6 +79,22 @@ fi
 if ! python3 -c "import fastapi" 2>&1; then
     bashio::log.error "FAILED: fastapi import"
 fi
+
+# Test combined imports (order matters - this is how recording.py imports them)
+# This catches issues where individual imports work but combination causes segfault
+bashio::log.info "Testing combined imports (numpy + av)..."
+if ! python3 -c "import numpy; import av; print('Combined import OK')" 2>&1; then
+    bashio::log.error "FAILED: Combined numpy+av import"
+    bashio::log.error "This may indicate a compatibility issue with virtualized environments"
+    bashio::log.error "Please report this issue with your HA OS version and architecture"
+fi
+
+# Test the actual recording module import
+bashio::log.info "Testing sonorium.recording import..."
+if ! python3 -c "from sonorium.recording import RecordingMetadata; print('Recording module OK')" 2>&1; then
+    bashio::log.error "FAILED: sonorium.recording import"
+fi
+
 bashio::log.info "Python imports OK"
 
 # Check if sonorium command exists

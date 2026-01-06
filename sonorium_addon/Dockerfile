@@ -3,11 +3,14 @@ ARG BUILD_FROM=ghcr.io/hassio-addons/base:16.3.2
 FROM ${BUILD_FROM}
 
 # Install Python and build dependencies
-# Note: py3-numpy from Alpine avoids segfault on some virtualized environments (qemux86-64)
+# Note: py3-numpy and py3-av from Alpine avoid segfaults on virtualized environments (qemux86-64)
+# Using Alpine packages instead of pip wheels ensures proper compatibility with the system's
+# CPU instruction set and avoids issues with AVX/SSE emulation in VMs.
 RUN apk add --no-cache \
     python3 \
     py3-pip \
     py3-numpy \
+    py3-av \
     ffmpeg
 
 # Create working directory
@@ -29,8 +32,10 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     soco
 
 # Install fmtr.tools (for API layer), paho-mqtt (for HA entities), pydantic-settings
+# Note: Excluding 'av' from fmtr.tools extras since we use py3-av from Alpine repos
+# to avoid segfaults on virtualized environments (qemux86-64)
 RUN pip3 install --no-cache-dir --break-system-packages \
-    'fmtr.tools[version.dev,logging,sets,yaml,debug,caching,api,path.app,tabular,av,ha.api,http]' \
+    'fmtr.tools[version.dev,logging,sets,yaml,debug,caching,api,path.app,tabular,ha.api,http]' \
     paho-mqtt \
     pydantic-settings
 
@@ -62,6 +67,6 @@ RUN chmod a+x /run.sh
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.2.44-dev}"
+LABEL io.hass.version="${ADDON_VERSION:-1.2.45-dev}"
 
 CMD [ "/run.sh" ]
