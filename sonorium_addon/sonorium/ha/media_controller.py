@@ -7,6 +7,7 @@ Handles service calls to Home Assistant for controlling media players:
 - Volume control
 
 For Sonos speakers, uses SoCo library directly for more reliable streaming.
+For Cast devices, uses pychromecast directly for more reliable streaming.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from sonorium.obs import logger
 
 if TYPE_CHECKING:
     from sonorium.ha.sonos_player import SonosPlayer
+    from sonorium.ha.cast_player import CastPlayer
 
 
 # Short timeout - we just want to fire the request, not wait for completion
@@ -31,9 +33,16 @@ class HAMediaController:
 
     Used to send stream URLs to speakers and control playback.
     For Sonos speakers, uses SoCo library for more reliable streaming.
+    For Cast devices, uses pychromecast for more reliable streaming.
     """
 
-    def __init__(self, api_url: str, token: str, use_soco_for_sonos: bool = True):
+    def __init__(
+        self,
+        api_url: str,
+        token: str,
+        use_soco_for_sonos: bool = True,
+        use_pychromecast_for_cast: bool = True,
+    ):
         """
         Initialize with HA API connection details.
 
@@ -41,6 +50,7 @@ class HAMediaController:
             api_url: Base URL for HA API (e.g., "http://supervisor/core/api")
             token: Long-lived access token or supervisor token
             use_soco_for_sonos: If True, use SoCo library for Sonos speakers
+            use_pychromecast_for_cast: If True, use pychromecast for Cast devices
         """
         self.api_url = api_url.rstrip("/")
         self.token = token
@@ -61,6 +71,19 @@ class HAMediaController:
             except ImportError:
                 logger.warning("SoCo not available - using HA API for Sonos speakers")
                 self._use_soco_for_sonos = False
+
+        # Initialize CastPlayer for direct Cast control
+        self._cast_player: Optional[CastPlayer] = None
+        self._use_pychromecast_for_cast = use_pychromecast_for_cast
+
+        if use_pychromecast_for_cast:
+            try:
+                from sonorium.ha.cast_player import CastPlayer
+                self._cast_player = CastPlayer(self)
+                logger.info(f"HAMediaController initialized with pychromecast support for Cast")
+            except ImportError:
+                logger.warning("pychromecast not available - using HA API for Cast devices")
+                self._use_pychromecast_for_cast = False
 
         logger.info(f"HAMediaController initialized with API URL: {self.api_url}")
     
@@ -159,6 +182,7 @@ class HAMediaController:
         Play media URL on multiple speakers simultaneously.
 
         For Sonos speakers, uses SoCo library for more reliable streaming.
+        For Cast devices, uses pychromecast for more reliable streaming.
         For other speakers, uses HA's media_player.play_media service.
 
         Args:
@@ -174,10 +198,12 @@ class HAMediaController:
 
         status = {}
 
-        # Separate Sonos from non-Sonos speakers
+        # Categorize speakers: Sonos, Cast, or other
         sonos_ids = []
+        cast_ids = []
         other_ids = []
 
+        # Check for Sonos speakers
         if self._sonos_player and self._use_soco_for_sonos:
             for eid in entity_ids:
                 if self._sonos_player.is_sonos(eid):
@@ -185,13 +211,30 @@ class HAMediaController:
                 else:
                     other_ids.append(eid)
         else:
-            other_ids = entity_ids
+            other_ids = list(entity_ids)
+
+        # Check for Cast devices among the "other" speakers
+        if self._cast_player and self._use_pychromecast_for_cast and other_ids:
+            remaining_ids = []
+            # is_cast is async, so we need to check each one
+            for eid in other_ids:
+                if await self._cast_player.is_cast(eid):
+                    cast_ids.append(eid)
+                else:
+                    remaining_ids.append(eid)
+            other_ids = remaining_ids
 
         # Play on Sonos speakers using SoCo (if any)
         if sonos_ids:
             logger.info(f"  Using SoCo for {len(sonos_ids)} Sonos speaker(s)")
             sonos_results = await self._sonos_player.play_media_multi(sonos_ids, media_url)
             status.update(sonos_results)
+
+        # Play on Cast devices using pychromecast (if any)
+        if cast_ids:
+            logger.info(f"  Using pychromecast for {len(cast_ids)} Cast device(s)")
+            cast_results = await self._cast_player.play_media_multi(cast_ids, media_url)
+            status.update(cast_results)
 
         # Play on other speakers using HA API
         if other_ids:
