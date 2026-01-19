@@ -608,9 +608,58 @@ class CastPlayer:
             logger.debug(traceback.format_exc())
             return False
 
+    async def _play_via_ha_api(self, entity_id: str, media_url: str) -> bool:
+        """
+        Play media using HA's media_player.play_media service.
+
+        This is the fallback when we can't find the device IP for pychromecast.
+        HA's Cast integration already knows how to reach the device (even across VLANs).
+
+        Args:
+            entity_id: HA entity ID
+            media_url: Stream URL to play
+
+        Returns:
+            True if the service call succeeded
+        """
+        try:
+            import httpx
+
+            url = f"{self.media_controller.api_url}/services/media_player/play_media"
+            data = {
+                "entity_id": entity_id,
+                "media_content_id": media_url,
+                "media_content_type": "music",
+            }
+
+            logger.info(f"  Cast: Using HA API fallback for {entity_id}")
+            logger.debug(f"  Cast: POST {url}")
+            logger.debug(f"  Cast: Data: {data}")
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    url,
+                    json=data,
+                    headers=self.media_controller.headers,
+                )
+
+                if response.status_code == 200:
+                    logger.info(f"  Cast: HA API play_media succeeded for {entity_id}")
+                    return True
+                else:
+                    logger.warning(f"  Cast: HA API returned {response.status_code}: {response.text}")
+                    return False
+
+        except Exception as e:
+            logger.error(f"  Cast: HA API fallback failed for {entity_id}: {e}")
+            return False
+
     async def play_media(self, entity_id: str, media_url: str) -> bool:
         """
         Play media URL on a Cast device using pychromecast.
+
+        Falls back to HA's media_player.play_media service if IP cannot be found
+        (e.g., device on different VLAN where mDNS doesn't work).
 
         Args:
             entity_id: HA entity ID
@@ -625,8 +674,9 @@ class CastPlayer:
 
         ip = await self.get_cast_ip(entity_id)
         if not ip:
-            logger.error(f"  Cast: Cannot play - no IP found for {entity_id}")
-            return False
+            # Fall back to HA API - HA's Cast integration knows how to reach the device
+            logger.info(f"  Cast: No IP found for {entity_id}, using HA API fallback")
+            return await self._play_via_ha_api(entity_id, media_url)
 
         logger.info(f"  Cast: Playing {media_url} on {entity_id} ({ip})")
 
