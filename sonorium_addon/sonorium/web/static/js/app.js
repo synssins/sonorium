@@ -515,6 +515,12 @@ function toggleNavSection(sectionId) {
 
 function toggleSidebar() {
     document.getElementById('sidebar').classList.toggle('open');
+    document.body.classList.toggle('sidebar-open');
+}
+
+function closeSidebar() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.body.classList.remove('sidebar-open');
 }
 
 function toggleCollapsibleSection(sectionId) {
