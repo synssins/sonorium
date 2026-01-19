@@ -8,11 +8,23 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
+## What's New in v1.2.70
+
+### Sonos Detection Improvement
+
+- **Renamed Sonos Entity Support** - Sonos speakers are now detected using Home Assistant's entity registry `platform` field rather than relying on the entity_id containing "sonos". Users who have renamed their Sonos entities to custom names will now have them properly detected and streamed via the SoCo library for reliable playback.
+
+### Device-Inherited Area Fix
+
+- **Speakers Show Correct Areas** - Fixed an issue where speakers assigned to an area via their parent device (rather than directly on the entity) would show as "Unassigned" in Sonorium. The addon now checks both entity-level and device-level area assignments.
+
+---
+
 ## What's New in v1.2.67
 
 ### Configuration Fix
 
-- **Max Channels Setting Now Works** - Fixed an issue where the `sonorium__max_channels` addon setting was ignored. Users can now configure up to 10 channels as intended. The Settings class was missing the field to receive the environment variable from the addon configuration.
+- **Max Channels Setting Now Works** - Fixed an issue where the `sonorium__max_channels` addon setting was ignored. Users can now configure up to 10 channels as intended.
 
 ---
 

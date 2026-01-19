@@ -56,6 +56,11 @@ Configure speakers, volume defaults, and other preferences.
 
 ## What's New
 
+### Home Assistant Addon v1.2.70
+
+- **Renamed Sonos Entity Support** - Sonos speakers are now detected using Home Assistant's entity registry `platform` field rather than relying on the entity_id containing "sonos". Users who have renamed their Sonos entities will now have them properly detected.
+- **Device-Inherited Area Fix** - Speakers assigned to an area via their parent device (rather than directly on the entity) now properly display their area instead of "Unassigned".
+
 ### Home Assistant Addon v1.2.67
 
 - **Max Channels Setting Now Works** - Fixed an issue where the `sonorium__max_channels` addon setting was ignored. Users can now configure up to 10 channels as intended.
