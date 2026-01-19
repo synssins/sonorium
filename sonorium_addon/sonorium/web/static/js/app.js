@@ -37,7 +37,54 @@ async function init() {
             loadPlugins()
         ]);
         console.log('Data loaded, rendering...');
-        renderSessions();
+
+        // Restore saved view or default to sessions
+        const savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
+        currentView = savedView;
+
+        // Render the appropriate view
+        if (savedView === 'sessions') {
+            renderSessions();
+        } else if (savedView === 'themes') {
+            renderThemes();
+        } else if (savedView === 'speakers') {
+            renderSpeakers();
+        } else if (savedView === 'settings') {
+            renderSettings();
+        } else if (savedView === 'settings-audio') {
+            renderAudioSettings();
+        } else if (savedView === 'settings-speakers') {
+            renderSpeakerSettings();
+        } else if (savedView === 'settings-groups') {
+            renderGroupSettings();
+        } else if (savedView === 'settings-plugins') {
+            renderPluginsView();
+        } else {
+            renderSessions();
+        }
+
+        // Show the correct view in the UI
+        document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
+        const viewEl = document.getElementById(`view-${savedView}`);
+        if (viewEl) viewEl.classList.add('active');
+
+        // Update nav active state
+        document.querySelectorAll('.nav-item, .nav-sub-item').forEach(item => {
+            item.classList.remove('active');
+            if (item.getAttribute('onclick')?.includes(`'${savedView}'`)) {
+                item.classList.add('active');
+            }
+        });
+
+        // Update header title
+        const titles = {
+            sessions: 'Channels', speakers: 'Speakers', themes: 'Themes',
+            settings: 'Settings', 'settings-audio': 'Audio Settings',
+            'settings-speakers': 'Speakers', 'settings-groups': 'Speaker Groups',
+            'settings-plugins': 'Plugins', status: 'Status'
+        };
+        document.getElementById('view-title').textContent = titles[savedView] || 'Channels';
+
         updatePlayingBadge();
 
         // Start heartbeat to track browser connection
@@ -344,6 +391,8 @@ async function loadChannels() {
 // View Navigation
 function showView(viewName) {
     currentView = viewName;
+    // Persist view selection across page refreshes
+    localStorage.setItem('sonorium_currentView', viewName);
 
     // Update nav items - clear all active states
     document.querySelectorAll('.nav-item').forEach(item => {
@@ -4414,8 +4463,9 @@ async function uninstallPlugin(pluginId, pluginName) {
         await api('DELETE', `/plugins/${pluginId}`);
         showToast(`Plugin "${pluginName}" uninstalled successfully`, 'success');
 
-        // Reload plugins list
+        // Reload plugins list and clear catalog cache so it refreshes
         await loadPlugins();
+        pluginCatalog = null;  // Force catalog to re-fetch and update installed status
         renderPluginsView();
 
     } catch (error) {
