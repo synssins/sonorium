@@ -985,9 +985,12 @@ def create_api_router(
 
         # If enabled_speakers is empty, all are enabled - nothing to do
         if not settings.enabled_speakers:
-            # Need to switch to explicit mode: add all speakers except this one... wait no
             # Actually if empty = all enabled, then enabling one speaker doesn't change anything
             pass
+        elif settings.enabled_speakers == ["__none__"]:
+            # Sentinel value means no speakers enabled - replace with just this speaker
+            settings.enabled_speakers = [entity_id]
+            state_store.save()
         else:
             # Add to enabled list if not already there
             if entity_id not in settings.enabled_speakers:
@@ -1021,6 +1024,11 @@ def create_api_router(
             # Remove from enabled list
             if entity_id in settings.enabled_speakers:
                 settings.enabled_speakers.remove(entity_id)
+
+        # If enabled_speakers is now empty (user disabled their only speaker),
+        # use sentinel value to indicate "no speakers enabled" (not "all enabled")
+        if not settings.enabled_speakers:
+            settings.enabled_speakers = ["__none__"]
 
         state_store.save()
 
