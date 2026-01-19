@@ -185,20 +185,28 @@ class CastPlayer:
                 devices = msg.get('result', [])
                 cast_ips = {}
 
+                logger.debug(f"  Cast: Scanning {len(devices)} devices in registry")
+
                 for device in devices:
                     # Check if it's a Cast device
                     identifiers = device.get('identifiers', [])
                     manufacturer = (device.get('manufacturer') or '').lower()
+                    name = device.get('name', '').lower()
 
+                    # Broader Cast detection - include 'nest', 'chromecast', 'google' in name
                     is_cast = (
                         any('cast' in str(ident).lower() for ident in identifiers) or
-                        manufacturer in CAST_MANUFACTURERS
+                        manufacturer in CAST_MANUFACTURERS or
+                        'nest' in name or
+                        'chromecast' in name or
+                        'google home' in name
                     )
 
                     if not is_cast:
                         continue
 
-                    name = device.get('name', '').lower()
+                    logger.debug(f"  Cast: Found Cast device '{name}' (mfr: {manufacturer})")
+
                     name_normalized = name.replace(' ', '_')
 
                     # Try configuration_url - often contains IP
@@ -223,12 +231,90 @@ class CastPlayer:
                                 logger.info(f"  Cast: Found '{name}' at {conn_value} from connections")
                                 break
 
+                    # If still no IP, log what we have for debugging
+                    if name not in cast_ips:
+                        logger.debug(f"  Cast: Device '{name}' has no IP in config_url or connections")
+                        logger.debug(f"  Cast:   config_url: {config_url}")
+                        logger.debug(f"  Cast:   connections: {connections}")
+
+                # If WebSocket found no IPs, try REST API fallback
+                if not cast_ips:
+                    logger.info("  Cast: No IPs from WebSocket, trying REST API fallback...")
+                    cast_ips = await self._get_cast_ips_via_rest()
+
                 return cast_ips
 
         except Exception as e:
             logger.warning(f"  Cast: Failed to query HA: {e}")
             import traceback
             logger.debug(f"  Cast: Traceback: {traceback.format_exc()}")
+            return {}
+
+    async def _get_cast_ips_via_rest(self) -> dict[str, str]:
+        """
+        Fallback: Get Cast device IPs via REST API (device registry).
+        Similar to sonos_player.py's REST fallback.
+        """
+        import re
+        import httpx
+
+        try:
+            url = f"{self.media_controller.api_url}/config/device_registry/list"
+            logger.info(f"  Cast: REST API fallback: {url}")
+
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url, headers=self.media_controller.headers)
+                if response.status_code != 200:
+                    logger.warning(f"  Cast: REST API returned {response.status_code}")
+                    return {}
+
+                devices = response.json()
+                cast_ips = {}
+
+                for device in devices:
+                    identifiers = device.get('identifiers', [])
+                    manufacturer = (device.get('manufacturer') or '').lower()
+                    name = device.get('name', '').lower()
+
+                    # Broader Cast detection
+                    is_cast = (
+                        any('cast' in str(ident).lower() for ident in identifiers) or
+                        manufacturer in CAST_MANUFACTURERS or
+                        'nest' in name or
+                        'chromecast' in name or
+                        'google home' in name
+                    )
+
+                    if not is_cast:
+                        continue
+
+                    name_normalized = name.replace(' ', '_')
+
+                    # Try configuration_url
+                    config_url = device.get('configuration_url', '')
+                    if config_url:
+                        ip_match = re.search(r'://(\d+\.\d+\.\d+\.\d+)', config_url)
+                        if ip_match:
+                            ip = ip_match.group(1)
+                            cast_ips[name] = ip
+                            cast_ips[name_normalized] = ip
+                            logger.info(f"  Cast: REST found '{name}' at {ip}")
+                            continue
+
+                    # Try connections field
+                    connections = device.get('connections', [])
+                    for conn in connections:
+                        if isinstance(conn, (list, tuple)) and len(conn) >= 2:
+                            if conn[0] == 'ip':
+                                cast_ips[name] = conn[1]
+                                cast_ips[name_normalized] = conn[1]
+                                logger.info(f"  Cast: REST found '{name}' at {conn[1]}")
+                                break
+
+                return cast_ips
+
+        except Exception as e:
+            logger.warning(f"  Cast: REST API fallback failed: {e}")
             return {}
 
     async def is_cast(self, entity_id: str) -> bool:
