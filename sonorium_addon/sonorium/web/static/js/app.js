@@ -439,8 +439,7 @@ function showView(viewName) {
     }
     if (viewName === 'settings-audio') renderAudioSettings();
     if (viewName === 'settings-speakers') {
-        loadLocalAudioDevices();
-        loadNetworkSpeakers();
+        renderSettingsSpeakerTree();
     }
     if (viewName === 'settings-groups') renderSettingsGroupsList();
     if (viewName === 'settings-plugins') renderPluginsView();
