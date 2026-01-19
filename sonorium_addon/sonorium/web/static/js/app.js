@@ -3354,7 +3354,7 @@ async function stopNetworkSpeaker(speakerId, pluginId) {
     }
 }
 
-// Legacy functions (kept for compatibility but not used in standalone)
+// Settings speaker tree with floor/area hierarchy
 function renderSettingsSpeakerTree() {
     const container = document.getElementById('settings-speaker-tree');
     if (!container) return;
@@ -3371,25 +3371,105 @@ function renderSettingsSpeakerTree() {
     }
 
     // Get enabled speakers list (empty = all enabled for backwards compat)
-    const enabledSpeakers = speakerHierarchy.enabled_speakers || [];
-    const allEnabled = enabledSpeakers.length === 0;
+    const isAllEnabled = (speakerHierarchy.enabled_speakers || []).length === 0;
 
-    const html = allSpeakers.map(speaker => {
-        const isEnabled = allEnabled || enabledSpeakers.includes(speaker.entity_id);
-        return `
-            <div class="settings-speaker-item">
-                <label class="checkbox-label">
-                    <input type="checkbox"
-                           ${isEnabled ? 'checked' : ''}
-                           onchange="toggleSpeakerEnabled('${speaker.entity_id}', this.checked)">
-                    <span class="speaker-name">${escapeHtml(speaker.name)}</span>
-                    <span class="speaker-area">${speaker.area || 'Unassigned'}</span>
-                </label>
+    let html = '';
+
+    // Render floors with their areas and speakers
+    for (const floor of speakerHierarchy.floors || []) {
+        html += `
+            <div class="settings-floor">
+                <div class="settings-floor-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                    </svg>
+                    <span>${escapeHtml(floor.name)}</span>
+                </div>
+                <div class="settings-areas">
+                    ${(floor.areas || []).map(area => renderSettingsArea(area, isAllEnabled)).join('')}
+                </div>
             </div>
         `;
-    }).join('');
+    }
+
+    // Unassigned areas (areas without a floor)
+    if ((speakerHierarchy.unassigned_areas || []).length > 0) {
+        html += `
+            <div class="settings-floor">
+                <div class="settings-floor-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    </svg>
+                    <span>Other Areas</span>
+                </div>
+                <div class="settings-areas">
+                    ${speakerHierarchy.unassigned_areas.map(area => renderSettingsArea(area, isAllEnabled)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Unassigned speakers (speakers without an area)
+    if ((speakerHierarchy.unassigned_speakers || []).length > 0) {
+        html += `
+            <div class="settings-floor">
+                <div class="settings-floor-header">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="8" x2="12" y2="12"/>
+                        <line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>
+                    <span>Unassigned</span>
+                </div>
+                <div class="settings-speakers" style="margin-left: 1.5rem;">
+                    ${speakerHierarchy.unassigned_speakers.map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    if (!html) {
+        html = '<p class="text-muted">No speakers found. Click "Refresh from HA" to scan.</p>';
+    }
 
     container.innerHTML = html;
+}
+
+function renderSettingsArea(area, isAllEnabled) {
+    return `
+        <div class="settings-area">
+            <div class="settings-area-header">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                </svg>
+                <span>${escapeHtml(area.name)}</span>
+            </div>
+            <div class="settings-speakers">
+                ${(area.speakers || []).map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function renderSettingsSpeaker(speaker, isAllEnabled) {
+    const isEnabled = isAllEnabled || (enabledSpeakers || []).includes(speaker.entity_id);
+    return `
+        <div class="settings-speaker ${isEnabled ? '' : 'disabled'}">
+            <label class="toggle-switch">
+                <input type="checkbox" ${isEnabled ? 'checked' : ''}
+                       onchange="toggleSpeakerEnabled('${speaker.entity_id}', this.checked)">
+                <span class="toggle-slider"></span>
+            </label>
+            <div class="settings-speaker-info">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
+                    <circle cx="12" cy="14" r="4"/>
+                    <line x1="12" y1="6" x2="12.01" y2="6"/>
+                </svg>
+                <span>${escapeHtml(speaker.name)}</span>
+            </div>
+        </div>
+    `;
 }
 
 async function toggleSpeakerEnabled(entityId, enabled) {
@@ -3397,10 +3477,11 @@ async function toggleSpeakerEnabled(entityId, enabled) {
         const endpoint = enabled ? '/settings/speakers/enable' : '/settings/speakers/disable';
         await api('POST', endpoint, { entity_id: entityId });
         await loadSpeakerHierarchy();
-        await loadEnabledSpeakers(); // Refresh enabled speakers list for channel editor
+        await loadEnabledSpeakers();
+        renderSettingsSpeakerTree();
     } catch (error) {
         showToast(error.message, 'error');
-        renderSettingsSpeakerTree(); // Revert UI on error
+        renderSettingsSpeakerTree();
     }
 }
 
@@ -3408,7 +3489,7 @@ async function enableAllSpeakers() {
     try {
         await api('POST', '/settings/speakers/enable-all');
         await loadSpeakerHierarchy();
-        await loadEnabledSpeakers(); // Refresh enabled speakers list for channel editor
+        await loadEnabledSpeakers();
         renderSettingsSpeakerTree();
         showToast('All speakers enabled', 'success');
     } catch (error) {
@@ -3420,7 +3501,7 @@ async function disableAllSpeakers() {
     try {
         await api('POST', '/settings/speakers/disable-all');
         await loadSpeakerHierarchy();
-        await loadEnabledSpeakers(); // Refresh enabled speakers list for channel editor
+        await loadEnabledSpeakers();
         renderSettingsSpeakerTree();
         showToast('All speakers disabled', 'success');
     } catch (error) {
@@ -3437,7 +3518,7 @@ async function refreshSpeakersFromHA() {
     try {
         const result = await api('POST', '/speakers/refresh');
         await loadSpeakerHierarchy();
-        await loadEnabledSpeakers(); // Refresh enabled speakers list for channel editor
+        await loadEnabledSpeakers();
         renderSettingsSpeakerTree();
         showToast(`Found ${result.total_speakers || 0} speakers`, 'success');
     } catch (error) {
