@@ -34,8 +34,10 @@ def get_version() -> str:
 def update_config_yaml(version: str) -> bool:
     """Update version in config.yaml."""
     content = CONFIG_YAML.read_text()
+    # Match entire version line - handles versions like 1.2.75-dev, 1.2.75-alpha, etc.
+    # Also handles corrupted versions like "1.2.75-dev"-dev"
     new_content = re.sub(
-        r'^version:\s*["\']?[\d.]+["\']?',
+        r'^version:\s*.*$',
         f'version: "{version}"',
         content,
         flags=re.MULTILINE
