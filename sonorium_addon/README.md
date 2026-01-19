@@ -8,6 +8,14 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
+## What's New in v1.2.67
+
+### Configuration Fix
+
+- **Max Channels Setting Now Works** - Fixed an issue where the `sonorium__max_channels` addon setting was ignored. Users can now configure up to 10 channels as intended. The Settings class was missing the field to receive the environment variable from the addon configuration.
+
+---
+
 ## What's New in v1.2.66
 
 ### Google Cast Streaming Fixed
@@ -24,60 +32,11 @@ Sonorium now reliably streams to Google Cast devices (Chromecast, Nest Hub, Goog
 
 ### Settings → Speakers UI Restored
 
-- **Floor/Room Hierarchy** - Fixed a regression where the Settings → Speakers page displayed a spinning circle instead of the proper floor/area/speaker tree view. The issue was caused by an erroneous merge of standalone app code into the HA addon codebase, which overwrote HA-specific speaker management functions with incompatible standalone implementations.
+- **Floor/Room Hierarchy** - Fixed a regression where the Settings → Speakers page displayed a spinning circle instead of the proper floor/area/speaker tree view.
 
 ### Sparse Playback Timing
 
-- **Exclusive Track Spacing** - Increased the minimum gap between exclusive tracks from 30 seconds to 2 minutes. This prevents multiple exclusive tracks (like different lute songs in a tavern theme) from playing back-to-back when their randomized initial delays happen to align.
-
----
-
-## What's New in v1.2.40
-
-### Home Assistant Dashboard Integration
-Sonorium now publishes MQTT entities for seamless Home Assistant dashboard control:
-
-- **Session Select** - Switch between channels from your dashboard
-- **Theme/Preset Dropdowns** - Select themes and presets by name (not UUID)
-- **Play/Stop Controls** - Toggle playback per channel or globally
-- **Volume Sliders** - Adjust volume from dashboard cards
-- **Status Sensors** - See playback status and assigned speakers
-
-### Reliable MQTT Entity Discovery
-Fixed timing issues where entities would show "unavailable" after addon restart:
-- Proper delays between discovery config and state publication
-- Automatic cleanup of stale entities from previous versions
-- Auto-selection of first session on startup for immediate control
-
-### Morning Alarm Automations
-Use Sonorium with HA automations to wake up to ambient sounds:
-```yaml
-automation:
-  - alias: "Morning Wakeup"
-    trigger:
-      - platform: time
-        at: "07:00:00"
-    action:
-      - service: select.select_option
-        target:
-          entity_id: select.sonorium_channel_1_theme
-        data:
-          option: "Primeval Forest"
-      - service: switch.turn_on
-        target:
-          entity_id: switch.sonorium_channel_1_play
-```
-
----
-
-## Previous Versions
-
-### v1.2.17
-
-- **Direct Sonos Support with SoCo** - Native Sonos streaming using SoCo library with `force_radio=True` mode for uninterrupted HTTP audio
-- **Automatic Stream URL Detection** - No manual IP configuration required; speakers connect reliably with default `auto` setting
-- **Sparse Playback Timing Fix** - Occasional sounds now correctly honor their presence-based timing from the start
-- **Track Levels & Exclusive Groups** - Fixed volume levels when switching themes; exclusive tracks coordinate properly
+- **Exclusive Track Spacing** - Increased the minimum gap between exclusive tracks from 30 seconds to 2 minutes. This prevents multiple exclusive tracks (like different lute songs in a tavern theme) from playing back-to-back.
 
 ---
 
@@ -126,7 +85,7 @@ Configure speakers, volume defaults, and other preferences.
 ## Features
 
 ### Multi-Zone Audio
-- **Multiple Channels**: Run up to 6 independent audio channels simultaneously
+- **Multiple Channels**: Run up to 10 independent audio channels simultaneously (configurable)
 - **Per-Channel Themes**: Each channel plays its own theme
 - **Flexible Speaker Selection**: Target individual speakers, entire rooms, floors, or custom speaker groups
 - **Live Speaker Management**: Add or remove speakers from active channels without interrupting playback
@@ -154,6 +113,12 @@ Fine-tune how each audio file plays within a theme:
   - **Continuous** - Loop continuously with seamless crossfade
   - **Sparse** - Play once at full volume, then wait before repeating (great for short sounds like bird calls or thunder claps)
   - **Presence** - Fade in/out based on presence setting
+
+### Home Assistant Dashboard Integration
+- **MQTT Entities** - Full dashboard control via MQTT (session select, theme/preset dropdowns, play/stop, volume)
+- **Human-Readable Names** - Theme and preset dropdowns show names instead of UUIDs
+- **Status Sensors** - See playback status and assigned speakers from your dashboard
+- **Automation Support** - Use HA automations to trigger soundscapes (morning alarms, schedules, etc.)
 
 ### Modern Web Interface
 - **Responsive Design**: Works on desktop and mobile

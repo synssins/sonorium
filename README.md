@@ -56,9 +56,11 @@ Configure speakers, volume defaults, and other preferences.
 
 ## What's New
 
-### Home Assistant Addon v1.2.66
+### Home Assistant Addon v1.2.67
 
-> **Stable Release** - Google Cast and Sonos streaming now work reliably across network configurations.
+- **Max Channels Setting Now Works** - Fixed an issue where the `sonorium__max_channels` addon setting was ignored. Users can now configure up to 10 channels as intended.
+
+### Home Assistant Addon v1.2.66
 
 #### Google Cast Streaming Fixed
 - **HA API Fallback** - When Cast device IP cannot be discovered (e.g., device on different VLAN), Sonorium now falls back to Home Assistant's `media_player.play_media` service. This allows Cast streaming to work across VLANs without manual IP configuration.
@@ -69,18 +71,10 @@ Configure speakers, volume defaults, and other preferences.
 - **Large Installation Support** - Fixed "message too big" error that occurred when querying device registry in Home Assistant installations with many devices. Increased WebSocket message limit from 1MB to 10MB.
 
 #### Settings → Speakers UI Fix
-- **Restored Floor/Room Hierarchy** - Fixed a regression where the Settings → Speakers page showed a spinning circle instead of the proper floor/area/speaker tree view. A previous erroneous merge of standalone app code into the HA addon broke the HA-specific speaker management functions.
+- **Restored Floor/Room Hierarchy** - Fixed a regression where the Settings → Speakers page showed a spinning circle instead of the proper floor/area/speaker tree view.
 
 #### Sparse Playback Timing
-- **Exclusive Track Spacing** - Increased the minimum gap between exclusive tracks from 30 seconds to 2 minutes. This prevents multiple exclusive tracks (like different lute songs in a tavern theme) from playing back-to-back when their randomized initial delays happen to cluster together.
-
-### Home Assistant Addon v1.2.40
-
-- **Dashboard Integration** - MQTT entities for full dashboard control (session select, theme/preset dropdowns, play/stop, volume)
-- **Human-Readable Names** - Theme and preset dropdowns show names instead of UUIDs
-- **Reliable Entity Discovery** - Fixed timing issues where entities showed "unavailable" after restart
-- **Auto-Session Selection** - First session auto-selected on startup for immediate control
-- **Morning Alarms** - Use HA automations to wake up to ambient sounds
+- **Exclusive Track Spacing** - Increased the minimum gap between exclusive tracks from 30 seconds to 2 minutes. This prevents multiple exclusive tracks (like different lute songs in a tavern theme) from playing back-to-back.
 
 ### Windows App v0.2.48-dev (Beta)
 
@@ -90,21 +84,12 @@ Configure speakers, volume defaults, and other preferences.
 - **HEOS Discovery** - Automatic detection of HEOS devices via SSDP and mDNS
 - **pyheos Integration** - Uses pyheos library for reliable HEOS communication (falls back to raw telnet)
 
-### Windows App v0.2.47
-
-- **Sonos Speaker Support** - Full Sonos integration using SoCo library for direct device communication
-- **Arylic/Linkplay HTTP API** - Reliable streaming via native HTTP API (more stable than AirPlay)
-- **Configuration Preservation** - Launcher settings now persist correctly when core saves changes
-- **Sparse Playback Timing** - Fixed occasional sounds playing immediately at theme start
-- **Track Level Fixes** - Tracks start at correct volume when switching themes
-- **Audio Encoding** - Fixed PyAV frame format for proper stereo output
-
 ---
 
 ## Features
 
 ### Multi-Zone Audio
-- **Multiple Channels**: Run up to 6 independent audio channels simultaneously
+- **Multiple Channels**: Run up to 10 independent audio channels simultaneously (configurable)
 - **Per-Channel Themes**: Each channel plays its own theme
 - **Flexible Speaker Selection**: Target individual speakers, entire rooms, floors, or custom speaker groups
 - **Live Speaker Management**: Add or remove speakers from active channels without interrupting playback
@@ -132,6 +117,12 @@ Fine-tune how each audio file plays within a theme:
 - **Save/Load Presets** - Store track settings as named presets
 - **Quick Switching** - Select presets directly on channel cards
 - **Import/Export** - Share presets with the community
+
+### Home Assistant Dashboard Integration (Addon)
+- **MQTT Entities** - Full dashboard control via MQTT (session select, theme/preset dropdowns, play/stop, volume)
+- **Human-Readable Names** - Theme and preset dropdowns show names instead of UUIDs
+- **Status Sensors** - See playback status and assigned speakers from your dashboard
+- **Automation Support** - Use HA automations to trigger soundscapes (morning alarms, schedules, etc.)
 
 ### Modern Web Interface
 - **Responsive Design**: Works on desktop and mobile
