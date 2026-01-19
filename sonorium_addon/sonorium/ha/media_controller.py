@@ -203,10 +203,10 @@ class HAMediaController:
         cast_ids = []
         other_ids = []
 
-        # Check for Sonos speakers
+        # Check for Sonos speakers (is_sonos is now async)
         if self._sonos_player and self._use_soco_for_sonos:
             for eid in entity_ids:
-                if self._sonos_player.is_sonos(eid):
+                if await self._sonos_player.is_sonos(eid):
                     sonos_ids.append(eid)
                 else:
                     other_ids.append(eid)

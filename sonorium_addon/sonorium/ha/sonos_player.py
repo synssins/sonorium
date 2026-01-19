@@ -297,8 +297,8 @@ async def _get_sonos_ips_via_rest(media_controller) -> dict[str, str]:
         return {}
 
 
-def _is_sonos_entity(entity_id: str) -> bool:
-    """Check if an entity is likely a Sonos speaker."""
+def _is_sonos_entity_by_name(entity_id: str) -> bool:
+    """Check if an entity is likely a Sonos speaker by entity_id name (fallback)."""
     # Sonos entities typically have 'sonos' in the name
     return 'sonos' in entity_id.lower()
 
@@ -409,6 +409,11 @@ class SonosPlayer:
 
     Gets Sonos IPs from HA's device registry (automatic, no manual config).
     Falls back to manual IP mappings if device registry fails.
+
+    Speaker type detection priority:
+    1. Entity registry 'platform' field (most reliable)
+    2. Device registry 'manufacturer' field (fallback)
+    3. Entity ID name match (legacy fallback)
     """
 
     def __init__(self, media_controller):
@@ -424,6 +429,111 @@ class SonosPlayer:
         # Cache of device name -> IP from HA registry
         self._ha_device_ips: dict[str, str] = {}
         self._ha_ips_loaded = False
+        # Cache of entity_id -> platform (e.g., 'sonos', 'cast', 'dlna')
+        self._entity_platforms: dict[str, str] = {}
+        # Cache of entity_id -> manufacturer
+        self._entity_manufacturers: dict[str, str] = {}
+        self._registry_loaded = False
+
+    async def _load_entity_registry(self):
+        """
+        Load entity platform and manufacturer data from HA registries.
+
+        This enables reliable speaker type detection by checking:
+        1. Entity registry 'platform' field (e.g., 'sonos', 'cast')
+        2. Device registry 'manufacturer' field (e.g., 'Sonos', 'Google Inc.')
+        """
+        if self._registry_loaded:
+            return
+
+        self._registry_loaded = True
+        from sonorium.ha.registry import WEBSOCKETS_AVAILABLE
+
+        if not WEBSOCKETS_AVAILABLE:
+            logger.warning("  SoCo: websockets not available for entity registry query")
+            return
+
+        try:
+            import websockets
+            import json
+
+            token = self.media_controller.token
+            ws_url = self.media_controller.api_url.replace('http://', 'ws://').replace('/api', '/api/websocket')
+
+            logger.info(f"  SoCo: Loading entity/device registry for speaker detection...")
+
+            async with websockets.connect(ws_url, max_size=64 * 1024 * 1024) as ws:
+                # Authenticate
+                msg = json.loads(await ws.recv())
+                if msg.get('type') != 'auth_required':
+                    return
+
+                await ws.send(json.dumps({
+                    "type": "auth",
+                    "access_token": token
+                }))
+
+                msg = json.loads(await ws.recv())
+                if msg.get('type') != 'auth_ok':
+                    return
+
+                # Query entity registry for platform info
+                await ws.send(json.dumps({
+                    "id": 1,
+                    "type": "config/entity_registry/list"
+                }))
+
+                msg = json.loads(await ws.recv())
+                if msg.get('success'):
+                    entities = msg.get('result', [])
+                    for entity in entities:
+                        entity_id = entity.get('entity_id', '')
+                        if entity_id.startswith('media_player.'):
+                            platform = entity.get('platform', '')
+                            if platform:
+                                self._entity_platforms[entity_id] = platform
+
+                    logger.info(f"  SoCo: Loaded platforms for {len(self._entity_platforms)} media_player entities")
+
+                # Query device registry for manufacturer info
+                await ws.send(json.dumps({
+                    "id": 2,
+                    "type": "config/device_registry/list"
+                }))
+
+                msg = json.loads(await ws.recv())
+                if msg.get('success'):
+                    devices = msg.get('result', [])
+                    # Build device_id -> manufacturer map
+                    device_manufacturers = {}
+                    for device in devices:
+                        device_id = device.get('id', '')
+                        manufacturer = device.get('manufacturer', '')
+                        if device_id and manufacturer:
+                            device_manufacturers[device_id] = manufacturer
+
+                    # Now link entities to manufacturers via device_id
+                    await ws.send(json.dumps({
+                        "id": 3,
+                        "type": "config/entity_registry/list"
+                    }))
+                    msg = json.loads(await ws.recv())
+                    if msg.get('success'):
+                        entities = msg.get('result', [])
+                        for entity in entities:
+                            entity_id = entity.get('entity_id', '')
+                            device_id = entity.get('device_id', '')
+                            if entity_id.startswith('media_player.') and device_id:
+                                manufacturer = device_manufacturers.get(device_id, '')
+                                if manufacturer:
+                                    self._entity_manufacturers[entity_id] = manufacturer
+
+                    logger.info(f"  SoCo: Loaded manufacturers for {len(self._entity_manufacturers)} media_player entities")
+
+        except Exception as e:
+            logger.warning(f"  SoCo: Failed to load entity registry: {e}")
+            import traceback
+            logger.debug(f"  SoCo: Traceback: {traceback.format_exc()}")
 
     async def _load_ha_device_ips(self):
         """Load Sonos IPs from HA device registry (one-time)."""
@@ -524,9 +634,48 @@ class SonosPlayer:
 
         return None
 
-    def is_sonos(self, entity_id: str) -> bool:
-        """Check if entity is a Sonos speaker."""
-        return _is_sonos_entity(entity_id)
+    async def is_sonos(self, entity_id: str) -> bool:
+        """
+        Check if entity is a Sonos speaker.
+
+        Detection priority:
+        1. Entity registry 'platform' field == 'sonos' (most reliable)
+        2. Device registry 'manufacturer' contains 'sonos' (fallback)
+        3. Entity ID contains 'sonos' (legacy fallback)
+
+        This properly identifies Sonos speakers even when users have renamed
+        the entity_id to something like 'media_player.media_room'.
+        """
+        # Load registry data if not already loaded
+        await self._load_entity_registry()
+
+        # Check 1: Entity registry platform (most reliable)
+        platform = self._entity_platforms.get(entity_id, '')
+        if platform:
+            is_sonos_platform = platform.lower() == 'sonos'
+            if is_sonos_platform:
+                logger.debug(f"  SoCo: {entity_id} identified as Sonos via platform='{platform}'")
+                return True
+            # Platform is known but not Sonos - trust it and return False
+            logger.debug(f"  SoCo: {entity_id} has platform='{platform}' (not Sonos)")
+            return False
+
+        # Check 2: Device manufacturer (fallback)
+        manufacturer = self._entity_manufacturers.get(entity_id, '')
+        if manufacturer:
+            is_sonos_manufacturer = 'sonos' in manufacturer.lower()
+            if is_sonos_manufacturer:
+                logger.debug(f"  SoCo: {entity_id} identified as Sonos via manufacturer='{manufacturer}'")
+                return True
+            # Manufacturer is known but not Sonos - don't return False yet,
+            # as some Sonos entities might not have manufacturer info
+
+        # Check 3: Entity ID name match (legacy fallback)
+        if _is_sonos_entity_by_name(entity_id):
+            logger.debug(f"  SoCo: {entity_id} identified as Sonos via entity_id name match")
+            return True
+
+        return False
 
     async def play_media(self, entity_id: str, media_url: str) -> bool:
         """
@@ -539,7 +688,7 @@ class SonosPlayer:
         Returns:
             True if playback started successfully
         """
-        if not self.is_sonos(entity_id):
+        if not await self.is_sonos(entity_id):
             logger.warning(f"  SoCo: {entity_id} is not a Sonos speaker")
             return False
 
@@ -569,9 +718,14 @@ class SonosPlayer:
         if not entity_ids:
             return {}
 
-        # Filter to only Sonos speakers
-        sonos_ids = [eid for eid in entity_ids if self.is_sonos(eid)]
-        non_sonos_ids = [eid for eid in entity_ids if not self.is_sonos(eid)]
+        # Filter to only Sonos speakers (is_sonos is async now)
+        sonos_ids = []
+        non_sonos_ids = []
+        for eid in entity_ids:
+            if await self.is_sonos(eid):
+                sonos_ids.append(eid)
+            else:
+                non_sonos_ids.append(eid)
 
         if non_sonos_ids:
             logger.debug(f"  SoCo: Skipping non-Sonos speakers: {non_sonos_ids}")
@@ -597,8 +751,11 @@ class SonosPlayer:
         return status
 
     def clear_cache(self):
-        """Clear the IP cache and force reload from HA."""
+        """Clear the IP cache and registry caches, force reload from HA."""
         self._ip_cache.clear()
         self._ha_device_ips.clear()
         self._ha_ips_loaded = False
-        logger.info("  SoCo: Cleared IP cache")
+        self._entity_platforms.clear()
+        self._entity_manufacturers.clear()
+        self._registry_loaded = False
+        logger.info("  SoCo: Cleared IP and registry caches")
