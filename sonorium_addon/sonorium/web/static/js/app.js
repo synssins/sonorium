@@ -3371,7 +3371,7 @@ function renderSettingsSpeakerTree() {
     }
 
     // Get enabled speakers list (empty = all enabled for backwards compat)
-    const isAllEnabled = (speakerHierarchy.enabled_speakers || []).length === 0;
+    const isAllEnabled = !enabledSpeakers || enabledSpeakers.length === 0;
 
     let html = '';
 
