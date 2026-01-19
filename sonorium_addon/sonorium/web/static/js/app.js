@@ -40,50 +40,14 @@ async function init() {
 
         // Restore saved view or default to sessions
         const savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
-        currentView = savedView;
 
-        // Render the appropriate view
-        if (savedView === 'sessions') {
-            renderSessions();
-        } else if (savedView === 'themes') {
-            renderThemes();
-        } else if (savedView === 'speakers') {
-            renderSpeakers();
-        } else if (savedView === 'settings') {
-            renderSettings();
-        } else if (savedView === 'settings-audio') {
-            renderAudioSettings();
-        } else if (savedView === 'settings-speakers') {
-            renderSpeakerSettings();
-        } else if (savedView === 'settings-groups') {
-            renderGroupSettings();
-        } else if (savedView === 'settings-plugins') {
-            renderPluginsView();
-        } else {
-            renderSessions();
+        // Always render sessions first (needed for session cards)
+        renderSessions();
+
+        // Then switch to saved view (showView handles all rendering and UI updates)
+        if (savedView !== 'sessions') {
+            showView(savedView);
         }
-
-        // Show the correct view in the UI
-        document.querySelectorAll('.view').forEach(view => view.classList.remove('active'));
-        const viewEl = document.getElementById(`view-${savedView}`);
-        if (viewEl) viewEl.classList.add('active');
-
-        // Update nav active state
-        document.querySelectorAll('.nav-item, .nav-sub-item').forEach(item => {
-            item.classList.remove('active');
-            if (item.getAttribute('onclick')?.includes(`'${savedView}'`)) {
-                item.classList.add('active');
-            }
-        });
-
-        // Update header title
-        const titles = {
-            sessions: 'Channels', speakers: 'Speakers', themes: 'Themes',
-            settings: 'Settings', 'settings-audio': 'Audio Settings',
-            'settings-speakers': 'Speakers', 'settings-groups': 'Speaker Groups',
-            'settings-plugins': 'Plugins', status: 'Status'
-        };
-        document.getElementById('view-title').textContent = titles[savedView] || 'Channels';
 
         updatePlayingBadge();
 
