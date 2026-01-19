@@ -463,6 +463,14 @@ def create_api_router(
         if added_speakers or removed_speakers:
             await session_manager.apply_speaker_changes(session, added_speakers, removed_speakers)
 
+        # Apply volume to speakers if changed and session is playing
+        if request.volume is not None and session.is_playing:
+            speakers = session_manager.get_resolved_speakers(session)
+            if speakers and session_manager.media_controller:
+                volume_level = session.volume / 100.0
+                await session_manager.media_controller.set_volume_multi(speakers, volume_level)
+                logger.info(f"Applied volume {session.volume}% to {len(speakers)} speaker(s)")
+
         # Refresh MQTT discovery if session name changed (Issue #16)
         if mqtt_manager and old_name and session.name != old_name:
             try:
