@@ -2248,6 +2248,53 @@ body {
     color: var(--text-secondary);
 }
 
+/* Plugin Tabs */
+.plugins-tabs {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+
+.plugins-tab {
+    padding: 0.5rem 1rem;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.9rem;
+    border-radius: 6px 6px 0 0;
+    transition: all 0.15s;
+}
+
+.plugins-tab:hover {
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+}
+
+.plugins-tab.active {
+    color: var(--accent-primary);
+    background: var(--bg-secondary);
+    font-weight: 500;
+}
+
+/* Plugin Category Badge */
+.plugin-category {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    background: var(--bg-tertiary);
+    padding: 0.125rem 0.5rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Catalog Plugin Cards */
+.catalog-plugin.installed {
+    opacity: 0.8;
+}
+
 /* Plugin Cards */
 .plugins-list {
     display: flex;

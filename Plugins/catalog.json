@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "updated": "2025-01-19",
+  "plugins": [
+    {
+      "id": "ambient_mixer",
+      "name": "Ambient Mixer Importer",
+      "description": "Import soundscapes from Ambient-Mixer.com with preset support",
+      "version": "3.0.0",
+      "author": "Sonorium",
+      "category": "importers",
+      "zip_file": "ambient_mixer_v3.0.0.zip"
+    },
+    {
+      "id": "theme_merge",
+      "name": "Theme Merge",
+      "description": "Merge multiple themes together or combine presets from different themes",
+      "version": "1.0.0",
+      "author": "Sonorium",
+      "category": "utilities",
+      "zip_file": "theme_merge_v1.0.0.zip"
+    }
+  ]
+}

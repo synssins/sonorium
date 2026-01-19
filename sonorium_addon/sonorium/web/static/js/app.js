@@ -3970,11 +3970,157 @@ async function loadPlugins() {
     }
 }
 
+// Track active plugins tab
+let activePluginsTab = 'installed';
+let pluginCatalog = null;
+
 function renderPluginsView() {
     const container = document.getElementById('plugins-list');
     if (!container) return;
 
-    // Upload section always visible at top
+    // Tabs for Installed vs Browse
+    let html = `
+        <div class="plugins-tabs">
+            <button class="plugins-tab ${activePluginsTab === 'installed' ? 'active' : ''}"
+                    onclick="switchPluginsTab('installed')">
+                Installed (${plugins.length})
+            </button>
+            <button class="plugins-tab ${activePluginsTab === 'browse' ? 'active' : ''}"
+                    onclick="switchPluginsTab('browse')">
+                Browse Catalog
+            </button>
+        </div>
+    `;
+
+    if (activePluginsTab === 'browse') {
+        html += renderPluginsCatalog();
+    } else {
+        html += renderInstalledPlugins();
+    }
+
+    container.innerHTML = html;
+
+    // Load catalog if on browse tab and not loaded
+    if (activePluginsTab === 'browse' && !pluginCatalog) {
+        loadPluginCatalog();
+    }
+}
+
+function switchPluginsTab(tab) {
+    activePluginsTab = tab;
+    renderPluginsView();
+}
+
+async function loadPluginCatalog() {
+    const catalogContainer = document.getElementById('plugin-catalog-content');
+    if (!catalogContainer) return;
+
+    catalogContainer.innerHTML = '<div class="loading-spinner">Loading catalog...</div>';
+
+    try {
+        const response = await api('GET', '/api/plugins/catalog');
+        pluginCatalog = response;
+        renderPluginsView();
+    } catch (error) {
+        catalogContainer.innerHTML = `
+            <div class="error-state" style="padding: 2rem; text-align: center;">
+                <p style="color: var(--error);">Failed to load catalog: ${escapeHtml(error.message)}</p>
+                <button class="btn btn-secondary" onclick="loadPluginCatalog()" style="margin-top: 1rem;">
+                    Retry
+                </button>
+            </div>
+        `;
+    }
+}
+
+function renderPluginsCatalog() {
+    if (!pluginCatalog) {
+        return `
+            <div id="plugin-catalog-content">
+                <div class="loading-spinner">Loading catalog...</div>
+            </div>
+        `;
+    }
+
+    const catalogPlugins = pluginCatalog.plugins || [];
+    if (catalogPlugins.length === 0) {
+        return `
+            <div class="empty-state" style="padding: 2rem;">
+                <h3>No Plugins Available</h3>
+                <p style="color: var(--text-muted);">The plugin catalog is empty.</p>
+            </div>
+        `;
+    }
+
+    let html = `
+        <div id="plugin-catalog-content">
+            <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
+                Available plugins from the Sonorium catalog. Click Install to add a plugin.
+            </p>
+    `;
+
+    for (const plugin of catalogPlugins) {
+        const isInstalled = plugin.installed;
+        const hasUpdate = plugin.update_available;
+
+        html += `
+            <div class="plugin-card catalog-plugin ${isInstalled ? 'installed' : ''}">
+                <div class="plugin-header">
+                    <div class="plugin-info">
+                        <h4>${escapeHtml(plugin.name)}</h4>
+                        <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
+                        ${plugin.category ? `<span class="plugin-category">${escapeHtml(plugin.category)}</span>` : ''}
+                        ${isInstalled ? `<span class="plugin-status enabled">Installed${hasUpdate ? ' (Update Available)' : ''}</span>` : ''}
+                    </div>
+                    <div class="plugin-actions">
+                        ${isInstalled && hasUpdate ? `
+                            <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
+                                Update
+                            </button>
+                        ` : isInstalled ? `
+                            <button class="btn btn-sm btn-secondary" disabled>
+                                Installed
+                            </button>
+                        ` : `
+                            <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
+                                Install
+                            </button>
+                        `}
+                    </div>
+                </div>
+                ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
+                ${plugin.author ? `<p class="plugin-author">by ${escapeHtml(plugin.author)}</p>` : ''}
+            </div>
+        `;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+async function installFromCatalog(pluginId) {
+    const btn = event.target;
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Installing...';
+
+    try {
+        const result = await api('POST', '/api/plugins/install-from-catalog', { plugin_id: pluginId });
+        showToast(`${result.name || pluginId} installed successfully`, 'success');
+
+        // Refresh plugins list and catalog
+        await loadPlugins();
+        pluginCatalog = null;  // Force refresh
+        await loadPluginCatalog();
+    } catch (error) {
+        showToast(`Failed to install: ${error.message}`, 'error');
+        btn.disabled = false;
+        btn.textContent = originalText;
+    }
+}
+
+function renderInstalledPlugins() {
+    // Upload section
     let html = `
         <div class="plugin-upload-section">
             <h4>Install Plugin</h4>
@@ -4021,11 +4167,10 @@ function renderPluginsView() {
                     <path d="M2 12l10 5 10-5"/>
                 </svg>
                 <h3>No Plugins Installed</h3>
-                <p style="color: var(--text-muted);">Upload a plugin or install manually to /config/sonorium/plugins/</p>
+                <p style="color: var(--text-muted);">Upload a plugin or check the Browse Catalog tab</p>
             </div>
         `;
-        container.innerHTML = html;
-        return;
+        return html;
     }
 
     html += '<h4 style="margin-top: 1.5rem; margin-bottom: 1rem;">Installed Plugins</h4>';
@@ -4069,7 +4214,7 @@ function renderPluginsView() {
         `;
     }
 
-    container.innerHTML = html;
+    return html;
 }
 
 function renderPluginUI(plugin) {
