@@ -4,9 +4,29 @@
 
 **Multi-Zone Ambient Soundscape Mixer for Home Assistant**
 
-[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium.dev)
+[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium)
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
+
+## What's New in v1.2.83
+
+### Plugin Browser & Catalog
+
+- **Browse Available Plugins** - New "Browse Catalog" tab in Settings → Plugins lets you discover and install plugins directly from the Sonorium plugin repository with one click.
+- **One-Click Install** - Install plugins without manually downloading ZIP files. The catalog shows installed status and available updates.
+
+### UI Improvements
+
+- **Page Refresh Persistence** - Refreshing the browser now stays on your current page instead of returning to Channels view. Your navigation state is preserved across refreshes.
+- **Settings Menu Stays Expanded** - When viewing any Settings sub-page (Audio, Speakers, Groups, Plugins), the Settings menu remains expanded through page refreshes.
+- **Speaker IP Addresses** - The Settings → Speakers page now displays each speaker's IP address for easier network troubleshooting.
+
+### Bug Fixes
+
+- **MQTT Entity Compatibility** - Updated MQTT discovery to use `default_entity_id` instead of deprecated `object_id` for Home Assistant Core 2026.4+ compatibility.
+- **Plugin Catalog Refresh** - Uninstalling a plugin now immediately updates the catalog's "Installed" status without requiring a page refresh.
+
+---
 
 ## What's New in v1.2.70
 
