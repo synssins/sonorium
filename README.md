@@ -56,6 +56,32 @@ Configure speakers, volume defaults, and other preferences.
 
 ## What's New
 
+### Home Assistant Addon v1.2.66
+
+> **Stable Release** - Google Cast and Sonos streaming now work reliably across network configurations.
+
+#### Google Cast Streaming Fixed
+- **HA API Fallback** - When Cast device IP cannot be discovered (e.g., device on different VLAN), Sonorium now falls back to Home Assistant's `media_player.play_media` service. This allows Cast streaming to work across VLANs without manual IP configuration.
+- **mDNS Discovery** - Added zeroconf/mDNS discovery as an additional IP resolution method for Cast devices on the same network segment.
+- **Improved Device Detection** - Broader Cast device recognition (Nest Hub, Chromecast, Google Home variants).
+
+#### Sonos WebSocket Fix
+- **Large Installation Support** - Fixed "message too big" error that occurred when querying device registry in Home Assistant installations with many devices. Increased WebSocket message limit from 1MB to 10MB.
+
+#### Settings → Speakers UI Fix
+- **Restored Floor/Room Hierarchy** - Fixed a regression where the Settings → Speakers page showed a spinning circle instead of the proper floor/area/speaker tree view. A previous erroneous merge of standalone app code into the HA addon broke the HA-specific speaker management functions.
+
+#### Sparse Playback Timing
+- **Exclusive Track Spacing** - Increased the minimum gap between exclusive tracks from 30 seconds to 2 minutes. This prevents multiple exclusive tracks (like different lute songs in a tavern theme) from playing back-to-back when their randomized initial delays happen to cluster together.
+
+### Home Assistant Addon v1.2.40
+
+- **Dashboard Integration** - MQTT entities for full dashboard control (session select, theme/preset dropdowns, play/stop, volume)
+- **Human-Readable Names** - Theme and preset dropdowns show names instead of UUIDs
+- **Reliable Entity Discovery** - Fixed timing issues where entities showed "unavailable" after restart
+- **Auto-Session Selection** - First session auto-selected on startup for immediate control
+- **Morning Alarms** - Use HA automations to wake up to ambient sounds
+
 ### Windows App v0.2.48-dev (Beta)
 
 > ⚠️ **Beta Testing:** This version is available in the [dev channel](https://github.com/synssins/sonorium.dev) for testing. Please report issues!
@@ -72,21 +98,6 @@ Configure speakers, volume defaults, and other preferences.
 - **Sparse Playback Timing** - Fixed occasional sounds playing immediately at theme start
 - **Track Level Fixes** - Tracks start at correct volume when switching themes
 - **Audio Encoding** - Fixed PyAV frame format for proper stereo output
-
-### Home Assistant Addon v1.2.40
-
-- **Dashboard Integration** - MQTT entities for full dashboard control (session select, theme/preset dropdowns, play/stop, volume)
-- **Human-Readable Names** - Theme and preset dropdowns show names instead of UUIDs
-- **Reliable Entity Discovery** - Fixed timing issues where entities showed "unavailable" after restart
-- **Auto-Session Selection** - First session auto-selected on startup for immediate control
-- **Morning Alarms** - Use HA automations to wake up to ambient sounds
-
-### Home Assistant Addon v1.2.17
-
-- **Direct Sonos Support** - Native streaming using SoCo library
-- **Automatic Stream URL** - Auto-detects HA IP address for stream URL
-- **Sparse Playback Timing** - Fixed occasional sounds playing immediately at theme start
-- **Track Level Fixes** - Proper volume levels when switching themes
 
 ---
 
@@ -185,7 +196,9 @@ Single-file themes loop seamlessly using crossfade blending—no jarring restart
 - *Coming soon: AirPlay (other devices), Chromecast*
 
 ### Home Assistant Addon
-- Any media_player entity in Home Assistant (including HEOS via HA's native integration)
+- Any media_player entity in Home Assistant
+- **Google Cast** (Chromecast, Nest Hub, Google Home) - with HA API fallback for cross-VLAN setups
+- **Sonos** - Native streaming via SoCo library
 - Organized by floors, areas, and custom groups
 
 ## API Reference

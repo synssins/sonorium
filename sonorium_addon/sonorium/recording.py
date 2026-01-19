@@ -27,7 +27,8 @@ class ExclusionGroupCoordinator:
     """
 
     # Minimum gap after an exclusive track finishes before another can start (seconds)
-    MIN_GAP_AFTER_EXCLUSIVE = 30.0
+    # Increased from 30s to 120s to prevent exclusive tracks playing back-to-back
+    MIN_GAP_AFTER_EXCLUSIVE = 120.0
     # Initial delay before any exclusive track can play on stream start
     INITIAL_DELAY = 60.0
 

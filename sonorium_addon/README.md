@@ -8,6 +8,30 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
+## What's New in v1.2.66
+
+### Google Cast Streaming Fixed
+
+Sonorium now reliably streams to Google Cast devices (Chromecast, Nest Hub, Google Home) even in complex network setups:
+
+- **HA API Fallback** - When Cast device IP cannot be discovered (e.g., device on a different VLAN where mDNS doesn't work), Sonorium automatically falls back to Home Assistant's `media_player.play_media` service. HA's native Cast integration already knows how to reach the device.
+- **mDNS Discovery** - Added zeroconf/mDNS network discovery as an additional IP resolution method for Cast devices on the same network segment.
+- **Improved Device Detection** - Broader recognition of Cast device types including Nest Hub displays, Chromecast variants, and Google Home speakers.
+
+### Sonos WebSocket Fix
+
+- **Large Installation Support** - Fixed "message too big" WebSocket error that occurred when querying the device registry in Home Assistant installations with many devices (9000+). Increased message limit from 1MB to 10MB.
+
+### Settings → Speakers UI Restored
+
+- **Floor/Room Hierarchy** - Fixed a regression where the Settings → Speakers page displayed a spinning circle instead of the proper floor/area/speaker tree view. The issue was caused by an erroneous merge of standalone app code into the HA addon codebase, which overwrote HA-specific speaker management functions with incompatible standalone implementations.
+
+### Sparse Playback Timing
+
+- **Exclusive Track Spacing** - Increased the minimum gap between exclusive tracks from 30 seconds to 2 minutes. This prevents multiple exclusive tracks (like different lute songs in a tavern theme) from playing back-to-back when their randomized initial delays happen to align.
+
+---
+
 ## What's New in v1.2.40
 
 ### Home Assistant Dashboard Integration
@@ -44,58 +68,18 @@ automation:
           entity_id: switch.sonorium_channel_1_play
 ```
 
-## What's New in v1.2.17
+---
 
-### Direct Sonos Support with SoCo
-Sonorium now streams directly to Sonos speakers using the SoCo library for native device communication. No need for additional proxies or configuration—Sonorium automatically discovers your Sonos speakers and streams to them reliably.
+## Previous Versions
 
-**Technical Note:** Sonos playback uses SoCo's `force_radio=True` mode, which enables uninterrupted HTTP audio streaming. The addon automatically extracts Sonos speaker IP addresses from the Home Assistant device registry.
+### v1.2.17
 
-### Sparse Playback Timing Fix
-Fixed timing issues with sparse playback mode where occasional sounds (thunder claps, bird calls) would sometimes play immediately at theme start instead of waiting for their natural interval. Sparse tracks now correctly honor their presence-based timing from the beginning.
+- **Direct Sonos Support with SoCo** - Native Sonos streaming using SoCo library with `force_radio=True` mode for uninterrupted HTTP audio
+- **Automatic Stream URL Detection** - No manual IP configuration required; speakers connect reliably with default `auto` setting
+- **Sparse Playback Timing Fix** - Occasional sounds now correctly honor their presence-based timing from the start
+- **Track Levels & Exclusive Groups** - Fixed volume levels when switching themes; exclusive tracks coordinate properly
 
-### Track Levels & Exclusive Groups
-Fixed an issue where tracks could start at incorrect volume levels when switching themes. Exclusive track groups (sounds that shouldn't play simultaneously, like different thunder patterns) now properly coordinate their playback.
-
-### Automatic Stream URL Detection
-The addon now automatically detects your Home Assistant's IP address for the stream URL. No more manual configuration required—speakers connect reliably without needing to change the default `auto` setting.
-
-### Audio Encoding Improvements
-- Fixed PyAV frame format to use `s16p` (planar) for proper stereo output
-- Improved compatibility with newer PyAV API versions
-
-## What's New in v1.2.4
-
-### New Bundled Theme
-- **A Rainy Day... Or is it?** - A new ambient theme included out of the box
-
-## What's New in v1.2.3
-
-### Mobile UI Improvements (v1.2.3)
-- **Responsive Track Mixer** - Track controls now stack vertically on mobile for easy editing
-- **Mobile Menu Overlay** - Tap outside the sidebar to close it on mobile devices
-- **Improved Tooltips** - All track controls now have clear, layman-friendly explanations
-- **"Gapless" Rename** - "Seamless" renamed to "Gapless" for clarity
-
-### Track Mixer with Advanced Controls (v1.2)
-Fine-tune how each audio file plays within a theme:
-
-- **Presence Control** - Set how often each track appears in the mix (0-100%). Low presence tracks fade in and out naturally rather than playing constantly.
-- **Per-Track Volume** - Adjust the amplitude of individual tracks independent of presence.
-- **Playback Modes** - Choose how each track behaves:
-  - **Auto** - Automatically selects the best mode based on file length
-  - **Continuous** - Loop continuously with seamless crossfade
-  - **Sparse** - Play once at full volume, then wait before repeating (great for short sounds like bird calls or thunder claps)
-  - **Presence** - Fade in/out based on presence setting
-
-### Broadcast Audio Model
-Rewrote channel streaming to use a radio-station model. All speakers tuned to the same channel hear the exact same audio stream, joining mid-stream rather than starting their own independent playback.
-
-### Live Speaker Management
-Add or remove speakers from an active channel without stopping playback. Changes take effect immediately.
-
-### Short File Handling
-Audio files under 15 seconds (configurable per theme) automatically use sparse playback when presence is below 100%. This prevents short sounds from looping annoyingly—a horse whinny or door creak plays once, then waits 30-300 seconds before playing again based on the presence setting.
+---
 
 ## Acknowledgements
 
@@ -160,6 +144,17 @@ Configure speakers, volume defaults, and other preferences.
 - **Crossfade Looping**: Seamless loops with equal-power crossfades
 - **Play/Pause/Stop**: Full transport controls per channel
 
+### Track Mixer
+Fine-tune how each audio file plays within a theme:
+
+- **Presence Control** - Set how often each track appears in the mix (0-100%). Low presence tracks fade in and out naturally rather than playing constantly.
+- **Per-Track Volume** - Adjust the amplitude of individual tracks independent of presence.
+- **Playback Modes** - Choose how each track behaves:
+  - **Auto** - Automatically selects the best mode based on file length
+  - **Continuous** - Loop continuously with seamless crossfade
+  - **Sparse** - Play once at full volume, then wait before repeating (great for short sounds like bird calls or thunder claps)
+  - **Presence** - Fade in/out based on presence setting
+
 ### Modern Web Interface
 - **Responsive Design**: Works on desktop and mobile
 - **Dark Theme**: Easy on the eyes
@@ -172,6 +167,17 @@ Configure speakers, volume defaults, and other preferences.
 - **Ingress Support**: Secure access through Home Assistant's authentication
 - **Media Player Discovery**: Automatically finds all media_player entities
 - **Area & Floor Awareness**: Speakers organized by Home Assistant areas and floors
+
+## Supported Speakers
+
+Sonorium can stream to any `media_player` entity in your Home Assistant setup:
+
+- **Google Cast devices** (Chromecast, Nest Hub, Google Home) - with automatic fallback for cross-VLAN setups
+- **Sonos speakers** - Native support via SoCo library for direct device communication
+- **Amazon Echo** (via HA integration)
+- **VLC media player**
+- **Music Assistant players**
+- Most smart speakers with Home Assistant integration
 
 ## Theme Management
 
@@ -195,31 +201,13 @@ All theme management is done through the Sonorium web interface:
 4. **Create a Channel**: Click "New Channel", select a theme and speakers
 5. **Play**: Hit the play button and enjoy your ambient soundscape
 
-## How It Works
-
-### Channels
-A channel is an independent audio stream. Each channel:
-- Plays one theme at a time
-- Streams to one or more speakers
-- Has its own volume control
-- Can be started/stopped independently
-
-Any media player that supports HTTP audio streams can tune into an active channel's stream URL.
-
-### Audio Mixing
-When you play a theme:
-1. All audio files in that theme folder are loaded
-2. Sonorium mixes all tracks together in real-time using sqrt(n) normalization
-3. The mix streams to your selected speakers
-4. Tracks loop with 1.5-second equal-power crossfades for seamless playback
-
 ## Configuration
 
 ### Addon Settings
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `sonorium__stream_url` | `http://homeassistant.local:8008` | Base URL for streams |
+| `sonorium__stream_url` | `auto` | Base URL for streams (auto-detects HA IP) |
 | `sonorium__path_audio` | `/media/sonorium` | Path to theme folders |
 | `sonorium__max_channels` | `6` | Maximum concurrent channels (1-10) |
 
@@ -260,6 +248,11 @@ Sonorium provides a REST API for integration and automation:
 - Check that your media player supports HTTP audio streams
 - Verify the stream URL is accessible from your speaker
 - Check the channel volume and master gain aren't set to 0
+
+### Cast Device Not Playing
+- This is usually a network/VLAN issue—v1.2.66 adds HA API fallback to handle this automatically
+- Check addon logs for "Using HA API fallback" message
+- Verify HA can control the Cast device (test volume control)
 
 ### Speakers Not Showing
 - Ensure speakers are media_player entities in Home Assistant
