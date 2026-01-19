@@ -1613,7 +1613,7 @@ def create_api_router(
                     async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                         if resp.status != 200:
                             raise HTTPException(status_code=502, detail=f'Failed to fetch catalog: HTTP {resp.status}')
-                        catalog = await resp.json()
+                        catalog = await resp.json(content_type=None)
                         _catalog_cache['data'] = catalog
                         _catalog_cache['timestamp'] = now
             except Exception as e:
@@ -1672,7 +1672,7 @@ def create_api_router(
                 async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
                     if resp.status != 200:
                         raise HTTPException(status_code=502, detail='Failed to fetch catalog')
-                    catalog = await resp.json()
+                    catalog = await resp.json(content_type=None)
         except Exception as e:
             raise HTTPException(status_code=502, detail=f'Failed to fetch catalog: {e}')
 
