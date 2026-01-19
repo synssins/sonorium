@@ -49,6 +49,19 @@ async function init() {
             showView(savedView);
         }
 
+        // Ensure Settings menu is expanded when on a settings page (backup for showView)
+        if (savedView.startsWith('settings')) {
+            const settingsSection = document.getElementById('settings-nav-section');
+            if (settingsSection) {
+                settingsSection.classList.add('expanded');
+                const header = settingsSection.querySelector('.nav-section-header');
+                if (header) {
+                    header.classList.add('expanded');
+                    header.classList.add('active');
+                }
+            }
+        }
+
         updatePlayingBadge();
 
         // Start heartbeat to track browser connection
