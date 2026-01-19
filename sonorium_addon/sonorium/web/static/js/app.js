@@ -1340,7 +1340,79 @@ function renderSpeakersList() {
         return;
     }
 
-    container.innerHTML = allSpeakers.map(speaker => `
+    let html = '';
+
+    // Render floors with areas and speakers
+    for (const floor of speakerHierarchy.floors || []) {
+        if (floor.areas && floor.areas.length > 0) {
+            html += `
+                <div class="speaker-group">
+                    <div class="speaker-group-header">
+                        <span class="speaker-group-icon">🏢</span>
+                        <span class="speaker-group-name">${escapeHtml(floor.name)}</span>
+                        <span class="speaker-group-count">${floor.areas.reduce((sum, a) => sum + (a.speakers?.length || 0), 0)} speaker${floor.areas.reduce((sum, a) => sum + (a.speakers?.length || 0), 0) !== 1 ? 's' : ''}</span>
+                    </div>
+                    <div class="speaker-group-content">
+                        ${floor.areas.map(area => renderAreaSpeakers(area)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+    }
+
+    // Render unassigned areas
+    for (const area of speakerHierarchy.unassigned_areas || []) {
+        html += `
+            <div class="speaker-group">
+                <div class="speaker-group-header">
+                    <span class="speaker-group-icon">🏠</span>
+                    <span class="speaker-group-name">${escapeHtml(area.name)}</span>
+                    <span class="speaker-group-count">${area.speakers?.length || 0} speaker${area.speakers?.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="speaker-group-content">
+                    ${(area.speakers || []).map(speaker => renderSpeakerItem(speaker)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    // Render unassigned speakers
+    if (speakerHierarchy.unassigned_speakers && speakerHierarchy.unassigned_speakers.length > 0) {
+        html += `
+            <div class="speaker-group">
+                <div class="speaker-group-header">
+                    <span class="speaker-group-icon">📦</span>
+                    <span class="speaker-group-name">Unassigned Speakers</span>
+                    <span class="speaker-group-count">${speakerHierarchy.unassigned_speakers.length} speaker${speakerHierarchy.unassigned_speakers.length !== 1 ? 's' : ''}</span>
+                </div>
+                <div class="speaker-group-content">
+                    ${speakerHierarchy.unassigned_speakers.map(speaker => renderSpeakerItem(speaker)).join('')}
+                </div>
+            </div>
+        `;
+    }
+
+    container.innerHTML = html;
+}
+
+function renderAreaSpeakers(area) {
+    if (!area.speakers || area.speakers.length === 0) return '';
+
+    return `
+        <div class="speaker-subgroup">
+            <div class="speaker-subgroup-header">
+                <span class="speaker-subgroup-icon">🏠</span>
+                <span class="speaker-subgroup-name">${escapeHtml(area.name)}</span>
+            </div>
+            <div class="speaker-subgroup-content">
+                ${area.speakers.map(speaker => renderSpeakerItem(speaker)).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function renderSpeakerItem(speaker) {
+    return `
         <div class="speaker-list-item">
             <div class="speaker-list-icon">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1351,10 +1423,9 @@ function renderSpeakersList() {
             </div>
             <div class="speaker-list-info">
                 <div class="speaker-list-name">${escapeHtml(speaker.name)}</div>
-                <div class="speaker-list-area">${speaker.area || 'Unassigned'}</div>
             </div>
         </div>
-    `).join('');
+    `;
 }
 
 function getAllSpeakersFlat() {
