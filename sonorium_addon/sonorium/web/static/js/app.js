@@ -4018,7 +4018,7 @@ async function loadPluginCatalog() {
     catalogContainer.innerHTML = '<div class="loading-spinner">Loading catalog...</div>';
 
     try {
-        const response = await api('GET', '/api/plugins/catalog');
+        const response = await api('GET', '/plugins/catalog');
         pluginCatalog = response;
         renderPluginsView();
     } catch (error) {
@@ -4105,7 +4105,7 @@ async function installFromCatalog(pluginId) {
     btn.textContent = 'Installing...';
 
     try {
-        const result = await api('POST', '/api/plugins/install-from-catalog', { plugin_id: pluginId });
+        const result = await api('POST', '/plugins/install-from-catalog', { plugin_id: pluginId });
         showToast(`${result.name || pluginId} installed successfully`, 'success');
 
         // Refresh plugins list and catalog

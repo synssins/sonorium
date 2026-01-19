@@ -2609,7 +2609,7 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             catalog = _catalog_cache['data']
         else:
             # Fetch fresh catalog from GitHub
-            catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium.dev/main/Plugins/catalog.json'
+            catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium.dev/main/plugins/catalog.json'
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
@@ -2667,7 +2667,7 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             raise HTTPException(status_code=503, detail='Plugin system not initialized')
 
         # First get the catalog to find the plugin
-        catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium.dev/main/Plugins/catalog.json'
+        catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium.dev/main/plugins/catalog.json'
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
@@ -2692,7 +2692,7 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         if not zip_filename:
             raise HTTPException(status_code=500, detail='Plugin has no zip_file specified')
 
-        zip_url = f'https://raw.githubusercontent.com/synssins/sonorium.dev/main/Plugins/{zip_filename}'
+        zip_url = f'https://raw.githubusercontent.com/synssins/sonorium.dev/main/plugins/{zip_filename}'
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(zip_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
