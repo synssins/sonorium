@@ -626,9 +626,12 @@ class HARegistry:
 
     @property
     def hierarchy(self) -> SpeakerHierarchy:
-        """Get cached hierarchy, refreshing if needed."""
+        """Get cached hierarchy (returns empty if not loaded)."""
         if self._hierarchy is None:
-            self.refresh()
+            # Return empty hierarchy instead of blocking on refresh
+            # User must click "Refresh from HA" button to load speakers
+            logger.warning("HARegistry: hierarchy not loaded yet - returning empty")
+            return SpeakerHierarchy()
         return self._hierarchy
     
     # Convenience methods for lookups
