@@ -435,6 +435,9 @@ function showView(viewName) {
     if (viewName === 'settings-groups') renderSettingsGroupsList();
     if (viewName === 'settings-plugins') renderPluginsView();
     if (viewName === 'status') renderStatus();
+
+    // Close mobile sidebar when navigating to a new view
+    closeSidebar();
 }
 
 function toggleNavSection(sectionId) {
