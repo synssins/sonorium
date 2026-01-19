@@ -89,8 +89,8 @@ async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
     import re
 
     if not WEBSOCKETS_AVAILABLE:
-        logger.warning("  SoCo: websockets not available for HA query")
-        return {}
+        logger.warning("  SoCo: websockets not available for HA query, trying REST API fallback...")
+        return await _get_sonos_ips_via_rest(media_controller)
 
     try:
         import websockets
@@ -107,7 +107,7 @@ async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
             msg = json.loads(await ws.recv())
             if msg.get('type') != 'auth_required':
                 logger.warning(f"  SoCo: Unexpected WebSocket message: {msg}")
-                return {}
+                return await _get_sonos_ips_via_rest(media_controller)
 
             # Authenticate
             await ws.send(json.dumps({
@@ -118,7 +118,7 @@ async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
             msg = json.loads(await ws.recv())
             if msg.get('type') != 'auth_ok':
                 logger.warning(f"  SoCo: HA WebSocket auth failed: {msg}")
-                return {}
+                return await _get_sonos_ips_via_rest(media_controller)
 
             logger.info("  SoCo: WebSocket authenticated, querying device registry...")
 
@@ -131,7 +131,7 @@ async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
             msg = json.loads(await ws.recv())
             if not msg.get('success'):
                 logger.warning(f"  SoCo: Device registry query failed: {msg}")
-                return {}
+                return await _get_sonos_ips_via_rest(media_controller)
 
             devices = msg.get('result', [])
             sonos_ips = {}
@@ -172,12 +172,75 @@ async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
                     logger.info(f"  SoCo: Sonos device '{name}' - config_url: {config_url}, connections: {connections}")
 
             if not sonos_ips:
-                logger.info("  SoCo: No IPs found in device registry")
+                logger.warning("  SoCo: No IPs found in device registry via WebSocket, trying REST fallback...")
+                return await _get_sonos_ips_via_rest(media_controller)
 
             return sonos_ips
 
     except Exception as e:
-        logger.warning(f"  SoCo: Failed to query HA: {e}")
+        logger.warning(f"  SoCo: WebSocket query failed: {e}, trying REST fallback...")
+        import traceback
+        logger.debug(f"  SoCo: Traceback: {traceback.format_exc()}")
+        return await _get_sonos_ips_via_rest(media_controller)
+
+
+async def _get_sonos_ips_via_rest(media_controller) -> dict[str, str]:
+    """
+    Fallback method to get Sonos IPs via HA REST API.
+
+    Queries config entries and tries to extract IPs from Sonos integration data.
+
+    Returns dict mapping speaker name (lowercase) -> IP address
+    """
+    import re
+
+    try:
+        import httpx
+
+        # Query HA config entries via REST API
+        url = f"{media_controller.api_url}/config/config_entries/entry"
+        headers = {"Authorization": f"Bearer {media_controller.token}"}
+
+        logger.info("  SoCo: Querying HA config entries via REST API...")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(url, headers=headers)
+
+            if response.status_code != 200:
+                logger.warning(f"  SoCo: REST API returned {response.status_code}")
+                return {}
+
+            entries = response.json()
+            sonos_ips = {}
+
+            for entry in entries:
+                # Look for Sonos integration entries
+                domain = entry.get('domain', '')
+                if domain != 'sonos':
+                    continue
+
+                title = entry.get('title', '').lower()
+                data = entry.get('data', {})
+
+                # Try to extract IP from entry data
+                # Sonos entries often have 'host' or 'ip_address' in data
+                ip = data.get('host') or data.get('ip_address')
+
+                if ip and title:
+                    sonos_ips[title] = ip
+                    logger.info(f"  SoCo: Found Sonos '{title}' at {ip} from config entries")
+                elif title:
+                    logger.debug(f"  SoCo: Sonos entry '{title}' has no IP in data: {list(data.keys())}")
+
+            if sonos_ips:
+                logger.info(f"  SoCo: Found {len(sonos_ips)} Sonos speaker(s) via REST API")
+            else:
+                logger.warning("  SoCo: No Sonos IPs found via REST API")
+
+            return sonos_ips
+
+    except Exception as e:
+        logger.error(f"  SoCo: REST API query failed: {e}")
         import traceback
         logger.debug(f"  SoCo: Traceback: {traceback.format_exc()}")
         return {}
@@ -398,8 +461,15 @@ class SonosPlayer:
         logger.warning(f"  SoCo: Could not find IP for '{room_name}'")
         if self._ha_device_ips:
             logger.info(f"  SoCo: Available from HA: {list(self._ha_device_ips.keys())}")
+        else:
+            logger.warning("  SoCo: No Sonos devices found in HA device registry")
+
         if _manual_ip_map:
             logger.info(f"  SoCo: Available manual: {list(_manual_ip_map.keys())}")
+        else:
+            logger.info("  SoCo: No manual IP mappings configured")
+            logger.info("  SoCo: To add manual IP mappings, set addon option:")
+            logger.info("  SoCo:   sonos_ips: \"bedroom=192.168.1.185,living_room=192.168.1.100\"")
 
         return None
 
