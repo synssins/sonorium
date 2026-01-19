@@ -56,7 +56,7 @@ Configure speakers, volume defaults, and other preferences.
 
 ## What's New
 
-### Home Assistant Addon v1.2.87-dev
+### Home Assistant Addon v1.2.88-dev
 
 #### Bug Fixes
 - **Mobile Sidebar Close** - Fixed mobile menu not closing when tapping the hamburger button or the overlay area. The sidebar now properly collapses on mobile devices.
