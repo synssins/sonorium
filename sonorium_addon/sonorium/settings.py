@@ -156,6 +156,9 @@ class Settings(BaseSettings):
     # Default streaming port (matches config.yaml ports mapping)
     stream_port: int = 8008
 
+    # Maximum number of channels (1-10, configured in addon options)
+    max_channels: int = 6
+
     @model_validator(mode='after')
     def resolve_stream_url(self):
         """
@@ -214,6 +217,7 @@ class Settings(BaseSettings):
 
         logger.info(f'Launching sonorium {__version__=} from entrypoint.')
         logger.info(f'Stream URL: {self.stream_url}')
+        logger.info(f'Max channels: {self.max_channels}')
 
         logger.info(f'Launching...')
 
