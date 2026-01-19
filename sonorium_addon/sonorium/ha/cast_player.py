@@ -191,7 +191,7 @@ class CastPlayer:
                     # Check if it's a Cast device
                     identifiers = device.get('identifiers', [])
                     manufacturer = (device.get('manufacturer') or '').lower()
-                    name = device.get('name', '').lower()
+                    name = (device.get('name') or '').lower()  # Handle None name
 
                     # Broader Cast detection - include 'nest', 'chromecast', 'google' in name
                     is_cast = (
@@ -395,12 +395,23 @@ class CastPlayer:
             attributes = state.get('attributes', {})
             friendly_name = attributes.get('friendly_name')
 
-            # Try to find IP in attributes
-            for attr in ['ip_address', 'host', 'address', 'device_ip']:
+            # Log all attributes for debugging
+            logger.debug(f"  Cast: Entity {entity_id} attributes: {list(attributes.keys())}")
+
+            # Try to find IP in various attribute names
+            ip_attrs = ['ip_address', 'host', 'address', 'device_ip', 'cast_info', 'ip']
+            for attr in ip_attrs:
                 if attr in attributes:
-                    ip = attributes[attr]
+                    value = attributes[attr]
+                    # Handle dict (cast_info might be a dict with host inside)
+                    if isinstance(value, dict) and 'host' in value:
+                        ip = value['host']
+                    elif isinstance(value, str) and value:
+                        ip = value
+                    else:
+                        continue
                     self._ip_cache[entity_id] = ip
-                    logger.info(f"  Cast: Found IP {ip} in entity attributes")
+                    logger.info(f"  Cast: Found IP {ip} in entity attributes ({attr})")
                     return ip
 
         # Load HA device IPs
@@ -409,11 +420,10 @@ class CastPlayer:
         # Try to match by name
         names_to_try = []
 
-        # Add entity name variations
-        if '.' in entity_id:
-            entity_name = entity_id.split('.')[-1].lower()
-            names_to_try.append(entity_name)
-            names_to_try.append(entity_name.replace('_', ' '))
+        # Extract entity name from entity_id
+        entity_name = entity_id.split('.')[-1].lower() if '.' in entity_id else entity_id.lower()
+        names_to_try.append(entity_name)
+        names_to_try.append(entity_name.replace('_', ' '))
 
         # Add friendly name
         if friendly_name:
@@ -435,11 +445,103 @@ class CastPlayer:
                     logger.info(f"  Cast: Partial match '{name}' -> '{device_name}' at {ip}")
                     return ip
 
+        # Final fallback: mDNS discovery
+        logger.info(f"  Cast: Trying mDNS discovery for {entity_id}...")
+        ip = await self._discover_cast_ip_via_mdns(friendly_name, entity_name)
+        if ip:
+            self._ip_cache[entity_id] = ip
+            return ip
+
         logger.warning(f"  Cast: Could not find IP for {entity_id}")
         if self._ha_device_ips:
             logger.debug(f"  Cast: Available devices: {list(self._ha_device_ips.keys())}")
 
         return None
+
+    async def _discover_cast_ip_via_mdns(
+        self,
+        friendly_name: Optional[str],
+        entity_name: Optional[str]
+    ) -> Optional[str]:
+        """
+        Discover Cast device IP via mDNS/zeroconf.
+
+        Uses pychromecast's built-in discovery mechanism.
+        This is a last resort when HA doesn't have the IP.
+
+        Args:
+            friendly_name: The friendly name to search for
+            entity_name: The entity name (from entity_id) to search for
+
+        Returns:
+            IP address string, or None if not found
+        """
+        try:
+            import pychromecast
+            from concurrent.futures import ThreadPoolExecutor
+
+            def discover_sync():
+                """Run blocking discovery in thread."""
+                try:
+                    # Quick discovery with short timeout
+                    services, browser = pychromecast.discovery.discover_chromecasts(timeout=5)
+                    pychromecast.discovery.stop_discovery(browser)
+                    return services
+                except Exception as e:
+                    logger.debug(f"  Cast: mDNS discovery error: {e}")
+                    return []
+
+            # Run in thread pool since pychromecast is blocking
+            loop = asyncio.get_event_loop()
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                services = await loop.run_in_executor(pool, discover_sync)
+
+            if not services:
+                logger.debug("  Cast: mDNS discovered no devices")
+                return None
+
+            # Build search names
+            search_names = []
+            if friendly_name:
+                search_names.append(friendly_name.lower())
+            if entity_name:
+                search_names.append(entity_name.lower().replace('_', ' '))
+                search_names.append(entity_name.lower())
+
+            logger.debug(f"  Cast: mDNS found {len(services)} device(s), searching for: {search_names}")
+
+            # Search through discovered devices
+            for service in services:
+                try:
+                    device_name = (service.friendly_name or '').lower()
+                    device_ip = service.host
+
+                    if not device_ip:
+                        continue
+
+                    # Cache all discovered Cast devices for future use
+                    self._ha_device_ips[device_name] = device_ip
+                    self._ha_device_ips[device_name.replace(' ', '_')] = device_ip
+
+                    # Check if this matches our target
+                    for search_name in search_names:
+                        if search_name in device_name or device_name in search_name:
+                            logger.info(f"  Cast: mDNS found '{device_name}' at {device_ip}")
+                            return device_ip
+
+                except Exception as e:
+                    logger.debug(f"  Cast: Error processing mDNS service: {e}")
+                    continue
+
+            logger.debug(f"  Cast: mDNS did not find matching device")
+            return None
+
+        except ImportError:
+            logger.debug("  Cast: pychromecast not available for mDNS discovery")
+            return None
+        except Exception as e:
+            logger.warning(f"  Cast: mDNS discovery failed: {e}")
+            return None
 
     def _create_cast_connection(self, ip: str, port: int = 8009):
         """Create a pychromecast connection to a Cast device."""
