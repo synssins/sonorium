@@ -150,7 +150,8 @@ class CastPlayer:
 
             logger.info(f"  Cast: Connecting to HA WebSocket: {ws_url}")
 
-            async with websockets.connect(ws_url) as ws:
+            # Increase max_size for large HA installations (default 1MB is too small)
+            async with websockets.connect(ws_url, max_size=10 * 1024 * 1024) as ws:
                 # Wait for auth_required
                 msg = json.loads(await ws.recv())
                 if msg.get('type') != 'auth_required':
