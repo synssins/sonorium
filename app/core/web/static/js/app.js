@@ -3971,7 +3971,7 @@ async function uploadPlugin(file) {
         const formData = new FormData();
         formData.append('file', file);
 
-        const response = await fetch(BASE_PATH + '/plugins/upload', {
+        const response = await fetch(BASE_PATH + '/api/plugins/upload', {
             method: 'POST',
             body: formData
         });
