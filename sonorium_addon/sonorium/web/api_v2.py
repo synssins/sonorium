@@ -1039,6 +1039,21 @@ def create_api_router(
             hierarchy=hierarchy,
         )
 
+    @router.post("/settings/speakers/disable-all")
+    async def disable_all_speakers() -> SpeakerSettingsResponse:
+        """Disable all speakers (set to special sentinel value)."""
+        settings = state_store.settings
+        settings.enabled_speakers = ["__none__"]  # Special value = no speakers enabled
+        state_store.save()
+
+        hierarchy = None
+        if ha_registry:
+            hierarchy = ha_registry.get_hierarchy_dict()
+        return SpeakerSettingsResponse(
+            enabled_speakers=settings.enabled_speakers,
+            hierarchy=hierarchy,
+        )
+
     # --- Custom Speaker Areas (fallback when HA areas unavailable) ---
 
     @router.get("/settings/speaker-areas")

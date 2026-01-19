@@ -305,11 +305,21 @@ async function refreshThemes() {
 }
 
 async function loadSpeakerHierarchy() {
-    speakerHierarchy = await api('GET', '/speakers/hierarchy');
+    try {
+        speakerHierarchy = await api('GET', '/speakers/hierarchy');
+    } catch (error) {
+        console.error('Failed to load speaker hierarchy:', error);
+        speakerHierarchy = { floors: [], areas: [], speakers: [], enabled_speakers: [] };
+    }
 }
 
 async function loadSpeakerGroups() {
-    speakerGroups = await api('GET', '/groups');
+    try {
+        speakerGroups = await api('GET', '/groups');
+    } catch (error) {
+        console.error('Failed to load speaker groups:', error);
+        speakerGroups = [];
+    }
 }
 
 async function loadEnabledSpeakers() {
@@ -3314,7 +3324,8 @@ function renderSettingsSpeakerTree() {
 
 async function toggleSpeakerEnabled(entityId, enabled) {
     try {
-        await api('POST', `/speakers/${encodeURIComponent(entityId)}/enabled`, { enabled });
+        const endpoint = enabled ? '/settings/speakers/enable' : '/settings/speakers/disable';
+        await api('POST', endpoint, { entity_id: entityId });
         await loadSpeakerHierarchy();
     } catch (error) {
         showToast(error.message, 'error');
@@ -3324,7 +3335,7 @@ async function toggleSpeakerEnabled(entityId, enabled) {
 
 async function enableAllSpeakers() {
     try {
-        await api('POST', '/speakers/enable-all');
+        await api('POST', '/settings/speakers/enable-all');
         await loadSpeakerHierarchy();
         renderSettingsSpeakerTree();
         showToast('All speakers enabled', 'success');
@@ -3335,7 +3346,7 @@ async function enableAllSpeakers() {
 
 async function disableAllSpeakers() {
     try {
-        await api('POST', '/speakers/disable-all');
+        await api('POST', '/settings/speakers/disable-all');
         await loadSpeakerHierarchy();
         renderSettingsSpeakerTree();
         showToast('All speakers disabled', 'success');
