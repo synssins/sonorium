@@ -453,9 +453,10 @@ class SonoriumApp:
             # Initialize media controller
             self._media_controller = HAMediaController(api_url, settings.token)
             
-            # Determine stream base URL
-            # In addon context, this should be the addon's external URL
-            stream_base_url = f"http://localhost:{settings.port if hasattr(settings, 'port') else 8080}"
+            # Use the resolved stream URL from settings (has correct IP, not localhost)
+            # Cast devices pull the stream, so they need a reachable IP address
+            stream_base_url = settings.stream_url
+            logger.info(f"Using stream base URL: {stream_base_url}")
             
             # Initialize managers
             self._session_manager = SessionManager(
