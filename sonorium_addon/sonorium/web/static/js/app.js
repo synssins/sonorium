@@ -3471,6 +3471,7 @@ function renderSettingsArea(area, isAllEnabled) {
 
 function renderSettingsSpeaker(speaker, isAllEnabled) {
     const isEnabled = isAllEnabled || (enabledSpeakers || []).includes(speaker.entity_id);
+    const ipDisplay = speaker.ip_address ? `<span class="speaker-ip">${escapeHtml(speaker.ip_address)}</span>` : '';
     return `
         <div class="settings-speaker ${isEnabled ? '' : 'disabled'}">
             <label class="toggle-switch">
@@ -3485,6 +3486,7 @@ function renderSettingsSpeaker(speaker, isAllEnabled) {
                     <line x1="12" y1="6" x2="12.01" y2="6"/>
                 </svg>
                 <span>${escapeHtml(speaker.name)}</span>
+                ${ipDisplay}
             </div>
         </div>
     `;

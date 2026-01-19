@@ -36,7 +36,8 @@ class Speaker:
     area_name: Optional[str] = None
     floor_id: Optional[str] = None
     floor_name: Optional[str] = None
-    
+    ip_address: Optional[str] = None
+
     def to_dict(self) -> dict:
         return {
             "entity_id": self.entity_id,
@@ -45,6 +46,7 @@ class Speaker:
             "area_name": self.area_name,
             "floor_id": self.floor_id,
             "floor_name": self.floor_name,
+            "ip_address": self.ip_address,
         }
 
 
@@ -454,6 +456,66 @@ class HARegistry:
 
         return None
 
+    def _extract_ip_address(
+        self,
+        attributes: dict,
+        entity_entry: dict,
+        device_registry: dict[str, dict]
+    ) -> Optional[str]:
+        """
+        Extract IP address from various HA data sources.
+
+        Priority:
+        1. State attributes (some integrations expose ip_address directly)
+        2. Device configuration_url (parse IP from URL)
+        3. Device connections (may contain IP addresses)
+
+        Note: Not all integrations expose IP addresses. This is a best-effort
+        extraction that depends on how each integration reports device info.
+        """
+        import re
+        from urllib.parse import urlparse
+
+        # Priority 1: Direct ip_address attribute
+        ip = attributes.get("ip_address")
+        if ip:
+            return ip
+
+        # Get device entry if available
+        device_id = entity_entry.get("device_id")
+        if not device_id or not device_registry:
+            return None
+
+        device = device_registry.get(device_id, {})
+        if not device:
+            return None
+
+        # Priority 2: Parse IP from configuration_url
+        config_url = device.get("configuration_url")
+        if config_url:
+            try:
+                parsed = urlparse(config_url)
+                host = parsed.hostname
+                if host:
+                    # Check if it's an IP address (not a hostname)
+                    ip_pattern = r'^(\d{1,3}\.){3}\d{1,3}$'
+                    if re.match(ip_pattern, host):
+                        return host
+            except Exception:
+                pass
+
+        # Priority 3: Check device connections
+        # Connections is a list of [type, identifier] pairs
+        # e.g., [["mac", "AA:BB:CC:DD:EE:FF"], ["ip", "192.168.1.100"]]
+        connections = device.get("connections", [])
+        for conn in connections:
+            if isinstance(conn, (list, tuple)) and len(conn) >= 2:
+                conn_type, conn_value = conn[0], conn[1]
+                if conn_type == "ip":
+                    return conn_value
+
+        return None
+
     def _fetch_speakers(self, entity_registry: dict[str, dict] = None, device_registry: dict[str, dict] = None, areas: dict[str, Area] = None) -> dict[str, Speaker]:
         """
         Fetch media_player entities from states.
@@ -513,10 +575,14 @@ class HARegistry:
                     if area_id:
                         matched_by_name += 1
 
+                # Try to extract IP address from various sources
+                ip_address = self._extract_ip_address(attributes, entity_entry, device_registry)
+
                 speaker = Speaker(
                     entity_id=entity_id,
                     name=name,
                     area_id=area_id,
+                    ip_address=ip_address,
                 )
                 speakers[entity_id] = speaker
 
