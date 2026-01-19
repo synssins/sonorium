@@ -27,7 +27,7 @@ except ImportError:
     BUILTIN_PLUGINS_DIR = None
 
 
-def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR) -> None:
+def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR, skip_plugins: list[str] = None) -> None:
     """
     Copy built-in plugins to the user plugins directory if not present.
 
@@ -35,6 +35,7 @@ def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR) -> None:
 
     Args:
         plugins_dir: Target plugins directory
+        skip_plugins: List of plugin IDs to skip (e.g., user-deleted builtins)
     """
     if BUILTIN_PLUGINS_DIR is None:
         logger.debug("No built-in plugins directory found")
@@ -43,6 +44,8 @@ def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR) -> None:
     if not BUILTIN_PLUGINS_DIR.exists():
         logger.debug(f"Built-in plugins directory does not exist: {BUILTIN_PLUGINS_DIR}")
         return
+
+    skip_plugins = skip_plugins or []
 
     # Ensure target directory exists
     plugins_dir.mkdir(parents=True, exist_ok=True)
@@ -54,6 +57,11 @@ def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR) -> None:
 
         plugin_file = item / "plugin.py"
         if not plugin_file.exists():
+            continue
+
+        # Skip plugins that user has deliberately deleted
+        if item.name in skip_plugins:
+            logger.debug(f"Skipping deleted builtin plugin: {item.name}")
             continue
 
         target_dir = plugins_dir / item.name
@@ -68,6 +76,27 @@ def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR) -> None:
             logger.info(f"Copied built-in plugin: {item.name} -> {target_dir}")
         except Exception as e:
             logger.error(f"Failed to copy built-in plugin {item.name}: {e}")
+
+
+def get_builtin_plugin_ids() -> list[str]:
+    """
+    Get a list of all built-in plugin IDs.
+
+    Returns:
+        List of plugin directory names (IDs) that are built-in
+    """
+    if BUILTIN_PLUGINS_DIR is None or not BUILTIN_PLUGINS_DIR.exists():
+        return []
+
+    plugin_ids = []
+    for item in BUILTIN_PLUGINS_DIR.iterdir():
+        if not item.is_dir() or item.name.startswith('_'):
+            continue
+        plugin_file = item / "plugin.py"
+        if plugin_file.exists():
+            plugin_ids.append(item.name)
+
+    return plugin_ids
 
 
 def discover_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR) -> list[Path]:

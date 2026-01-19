@@ -136,6 +136,10 @@ class SonoriumSettings:
     # Enabled plugins list (by plugin_id)
     enabled_plugins: list[str] = field(default_factory=list)
 
+    # Deleted builtin plugins (prevents auto-reinstall on startup)
+    # When a user deletes a builtin plugin, its ID is added here so it won't be restored
+    deleted_builtin_plugins: list[str] = field(default_factory=list)
+
     def to_dict(self) -> dict:
         return asdict(self)
     

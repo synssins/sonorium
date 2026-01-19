@@ -2740,6 +2740,18 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
                         with zf.open(member) as src, open(target_path, 'wb') as dst:
                             dst.write(src.read())
 
+            # Remove from deleted_builtin_plugins if reinstalling a previously deleted builtin
+            config = get_config()
+            deleted_list = config.deleted_builtin_plugins
+            removed_from_deleted = False
+            for name_to_check in [plugin_id, target_name]:
+                if name_to_check in deleted_list:
+                    deleted_list.remove(name_to_check)
+                    removed_from_deleted = True
+                    logger.info(f"Removed '{name_to_check}' from deleted builtins list")
+            if removed_from_deleted:
+                config.save()
+
             await _plugin_manager.reload_plugins()
 
             return {
@@ -2879,6 +2891,7 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
     async def delete_plugin(plugin_id: str):
         """Delete a plugin."""
         import shutil
+        from sonorium.plugins.loader import get_builtin_plugin_ids
 
         if _plugin_manager is None:
             raise HTTPException(status_code=503, detail='Plugin system not initialized')
@@ -2886,6 +2899,10 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
         plugin = _plugin_manager.get_plugin(plugin_id)
         if not plugin:
             raise HTTPException(status_code=404, detail='Plugin not found')
+
+        # Check if this is a builtin plugin before deletion
+        builtin_ids = get_builtin_plugin_ids()
+        is_builtin = plugin_id in builtin_ids
 
         # Get the actual plugin directory from the plugin instance
         plugin_dir = plugin.plugin_dir
@@ -2916,6 +2933,14 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             config.enabled_plugins.remove(plugin_id)
         if plugin_id in config.plugin_settings:
             del config.plugin_settings[plugin_id]
+
+        # If this was a builtin plugin, track it as deleted to prevent auto-reinstall
+        if is_builtin:
+            deleted_list = config.deleted_builtin_plugins
+            if plugin_id not in deleted_list:
+                deleted_list.append(plugin_id)
+                logger.info(f"Marked builtin plugin '{plugin_id}' as deleted")
+
         config.save()
 
         return {'status': 'ok', 'message': f'Plugin "{plugin_id}" deleted successfully'}

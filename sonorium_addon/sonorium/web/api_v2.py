@@ -1734,6 +1734,18 @@ def create_api_router(
                         with zf.open(member) as src, open(target_path, 'wb') as dst:
                             dst.write(src.read())
 
+            # Remove from deleted_builtin_plugins if reinstalling a previously deleted builtin
+            # Check both plugin_id and target_name since they might differ
+            deleted_list = plugin_manager.state_store.settings.deleted_builtin_plugins
+            removed_from_deleted = False
+            for name_to_check in [plugin_id, target_name]:
+                if name_to_check in deleted_list:
+                    deleted_list.remove(name_to_check)
+                    removed_from_deleted = True
+                    logger.info(f"Removed '{name_to_check}' from deleted builtins list")
+            if removed_from_deleted:
+                plugin_manager.state_store.save()
+
             await plugin_manager.reload_plugins()
 
             return {
@@ -1986,8 +1998,10 @@ def create_api_router(
         2. Unload the plugin
         3. Delete the plugin directory
         4. Remove plugin settings from state
+        5. If builtin, track as deleted to prevent auto-reinstall
         """
         import shutil
+        from sonorium.plugins.loader import get_builtin_plugin_ids
 
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
@@ -1998,6 +2012,10 @@ def create_api_router(
         # Check if plugin exists (either loaded or as directory)
         if not plugin and not plugin_dir.exists():
             raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
+
+        # Check if this is a builtin plugin
+        builtin_ids = get_builtin_plugin_ids()
+        is_builtin = plugin_id in builtin_ids
 
         try:
             # Disable and unload if loaded
@@ -2017,6 +2035,14 @@ def create_api_router(
                 del plugin_manager.state_store.settings.plugin_settings[plugin_id]
             if plugin_id in plugin_manager.state_store.settings.enabled_plugins:
                 plugin_manager.state_store.settings.enabled_plugins.remove(plugin_id)
+
+            # If this was a builtin plugin, track it as deleted to prevent auto-reinstall
+            if is_builtin:
+                deleted_list = plugin_manager.state_store.settings.deleted_builtin_plugins
+                if plugin_id not in deleted_list:
+                    deleted_list.append(plugin_id)
+                    logger.info(f"Marked builtin plugin '{plugin_id}' as deleted")
+
             plugin_manager.state_store.save()
 
             return {

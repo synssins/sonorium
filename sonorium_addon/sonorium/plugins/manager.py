@@ -72,7 +72,9 @@ class PluginManager:
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
 
         # Copy built-in plugins to user directory if not present
-        copy_builtin_plugins(self.plugins_dir)
+        # Skip plugins that the user has deliberately deleted
+        deleted_builtins = self.state_store.settings.deleted_builtin_plugins
+        copy_builtin_plugins(self.plugins_dir, skip_plugins=deleted_builtins)
 
         # Discover and load plugins
         plugin_dirs = discover_plugins(self.plugins_dir)
