@@ -856,6 +856,9 @@ def create_api_router(
     async def get_speaker_hierarchy() -> dict:
         """Get full floor/area/speaker hierarchy."""
         hierarchy = ha_registry.hierarchy
+        # Auto-refresh if hierarchy is empty (first load)
+        if not hierarchy.get_all_speakers():
+            hierarchy = ha_registry.refresh()
         return hierarchy.to_dict()
     
     @router.post("/speakers/refresh")

@@ -3327,6 +3327,7 @@ async function toggleSpeakerEnabled(entityId, enabled) {
         const endpoint = enabled ? '/settings/speakers/enable' : '/settings/speakers/disable';
         await api('POST', endpoint, { entity_id: entityId });
         await loadSpeakerHierarchy();
+        await loadEnabledSpeakers(); // Refresh enabled speakers list for channel editor
     } catch (error) {
         showToast(error.message, 'error');
         renderSettingsSpeakerTree(); // Revert UI on error
@@ -3337,6 +3338,7 @@ async function enableAllSpeakers() {
     try {
         await api('POST', '/settings/speakers/enable-all');
         await loadSpeakerHierarchy();
+        await loadEnabledSpeakers(); // Refresh enabled speakers list for channel editor
         renderSettingsSpeakerTree();
         showToast('All speakers enabled', 'success');
     } catch (error) {
@@ -3348,6 +3350,7 @@ async function disableAllSpeakers() {
     try {
         await api('POST', '/settings/speakers/disable-all');
         await loadSpeakerHierarchy();
+        await loadEnabledSpeakers(); // Refresh enabled speakers list for channel editor
         renderSettingsSpeakerTree();
         showToast('All speakers disabled', 'success');
     } catch (error) {
@@ -3364,6 +3367,7 @@ async function refreshSpeakersFromHA() {
     try {
         const result = await api('POST', '/speakers/refresh');
         await loadSpeakerHierarchy();
+        await loadEnabledSpeakers(); // Refresh enabled speakers list for channel editor
         renderSettingsSpeakerTree();
         showToast(`Found ${result.total_speakers || 0} speakers`, 'success');
     } catch (error) {
