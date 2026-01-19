@@ -1243,7 +1243,13 @@ let selectedSpeakerGroupId = null;
 
 function renderSpeakerGroupSelect() {
     const select = document.getElementById('session-speaker-group');
+    const groupField = document.getElementById('speaker-group-field');
     if (!select) return;
+
+    // Only show speaker group dropdown if groups exist
+    if (groupField) {
+        groupField.style.display = speakerGroups.length > 0 ? 'block' : 'none';
+    }
 
     // Build options
     let html = '<option value="">-- Select manually below --</option>';
@@ -2630,19 +2636,31 @@ function getSelectedEditCategories() {
 
 async function saveThemeMetadata() {
     const themeId = document.getElementById('theme-edit-id').value;
+    const newName = document.getElementById('theme-edit-name').value.trim();
     const description = document.getElementById('theme-edit-description').value.trim();
     const icon = document.getElementById('theme-edit-icon').value.trim();
     const selectedCategories = getSelectedEditCategories();
 
+    if (!newName) {
+        showToast('Please enter a theme name', 'warning');
+        return;
+    }
+
     try {
+        // Check if name changed and rename if needed
+        const theme = themes.find(t => t.id === themeId);
+        if (theme && theme.name !== newName) {
+            await api('PUT', `/themes/${themeId}/rename`, { name: newName });
+        }
+
         // Save description and icon
         await api('PUT', `/themes/${themeId}/metadata`, { description, icon });
         // Save categories
         await api('POST', `/themes/${themeId}/categories`, { categories: selectedCategories });
 
         // Update local state
-        const theme = themes.find(t => t.id === themeId);
         if (theme) {
+            theme.name = newName;
             theme.description = description;
             theme.icon = icon || null;  // Store null if empty (for auto-detect)
             theme.categories = selectedCategories;

@@ -234,10 +234,7 @@
                             <input type="hidden" id="theme-edit-id">
                             <div>
                                 <label>Theme Name</label>
-                                <div class="rename-row">
-                                    <input type="text" id="theme-edit-name" placeholder="Theme name...">
-                                    <button class="btn btn-sm btn-secondary" onclick="renameTheme()">Rename</button>
-                                </div>
+                                <input type="text" id="theme-edit-name" placeholder="Theme name...">
                             </div>
                             <div>
                                 <label>Icon</label>
@@ -713,8 +710,8 @@ Example:
                     </select>
                 </div>
 
-                <div class="session-field">
-                    <label>Select Speakers</label>
+                <div class="session-field" id="speaker-group-field" style="display: none;">
+                    <label>Speaker Group</label>
                     <select id="session-speaker-group" onchange="onSpeakerGroupChange()">
                         <option value="">-- Select manually below --</option>
                         <!-- Groups loaded dynamically -->
@@ -722,7 +719,7 @@ Example:
                 </div>
 
                 <div class="session-field" id="manual-speaker-selection">
-                    <label>Manual Selection</label>
+                    <label>Select Speakers</label>
                     <div class="speaker-dropdown" id="speaker-dropdown">
                         <div class="speaker-dropdown-header" onclick="toggleSpeakerDropdown(event)">
                             <span id="speaker-dropdown-text">Click to select speakers...</span>
