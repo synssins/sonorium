@@ -380,6 +380,40 @@ function showView(viewName) {
         }
     }
 
+    // Keep Settings menu expanded when on any settings page
+    const settingsSection = document.getElementById('settings-nav-section');
+    if (settingsSection) {
+        if (viewName.startsWith('settings')) {
+            settingsSection.classList.add('expanded');
+            const header = settingsSection.querySelector('.nav-section-header');
+            if (header) {
+                header.classList.add('expanded');
+                header.classList.add('active');
+            }
+            // Set active state on the correct sub-item
+            const subItems = settingsSection.querySelectorAll('.nav-sub-item');
+            subItems.forEach(item => {
+                if (item.getAttribute('onclick')?.includes(`'${viewName}'`)) {
+                    item.classList.add('active');
+                }
+            });
+        } else {
+            // Collapse settings menu when not on a settings page
+            settingsSection.classList.remove('expanded');
+            const header = settingsSection.querySelector('.nav-section-header');
+            if (header) header.classList.remove('expanded');
+        }
+    }
+
+    // Set active state on nav items when called without event (e.g., page load)
+    if (!event || !event.currentTarget) {
+        document.querySelectorAll('.nav-item').forEach(item => {
+            if (item.getAttribute('onclick')?.includes(`'${viewName}'`)) {
+                item.classList.add('active');
+            }
+        });
+    }
+
     // Show/hide views
     document.querySelectorAll('.view').forEach(view => {
         view.classList.remove('active');
