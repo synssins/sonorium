@@ -4240,7 +4240,8 @@ async function uploadPlugin(file) {
             throw new Error(result.detail || 'Upload failed');
         }
 
-        showToast(`Plugin "${result.name}" installed successfully!`, 'success');
+        const pluginName = result.plugin?.name || 'Unknown';
+        showToast(`Plugin "${pluginName}" installed successfully!`, 'success');
         if (statusEl) statusEl.textContent = '';
 
         // Reload plugins list
