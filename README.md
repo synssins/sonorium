@@ -1,3 +1,5 @@
+10/6/2026 - This is still alive. Just getting back into things.
+
 # Sonorium
 
 ![Sonorium](logo.png)
