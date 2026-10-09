@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0-dev.6 (2026-10-09)
+
+### Bug Fixes
+
+- Per-play log at normal level shows only user-relevant events
+  ([`c77efd7`](https://github.com/synssins/sonorium/commit/c77efd745d26227ed869070aab17d82a3349a642))
+
+
 ## v1.3.0-dev.5 (2026-10-09)
 
 ### Bug Fixes
