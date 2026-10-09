@@ -8,23 +8,15 @@
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
-## What's New in v1.3.0
+## What's New in v1.4.0
 
-- **Google Cast fixed.** Cast speakers (Chromecast, Nest Hub, Google Home) that stayed silent now play, and playback starts about 5 seconds faster. Thanks to @sh00t2kill (#43).
-- **No more gaps when tracks loop.** The loop crossfade was cut short and the track restarted from the beginning on every loop (#38).
-- **Stopped speakers free their channel.** If a channel's speakers stop taking audio for 90 seconds (stopped from the speaker or from Home Assistant), Sonorium stops the channel. **Stop All** also stops paused channels (#29).
-- **MQTT entities stay in sync.**
-  - Channel renames, deletes and theme changes update Home Assistant's entities (#16, #33).
-  - Commands from Home Assistant keep working after the Mosquitto broker restarts.
-- **More reliable startup.**
-  - Sonorium waits for the Mosquitto broker to start instead of failing (#42).
-  - It runs on virtual machines with a basic virtual CPU, such as Proxmox's default `kvm64` (#18, #39).
-- **Uninstall removes settings.** Settings, channels and plugins now live in the add-on's own config folder, and existing settings are copied there automatically on first start (#30). Themes stay in `/media/sonorium`.
-- **Quieter, safer logs.**
-  - A new `log_level` option: `info` shows a short summary; `debug` adds detail and library versions.
-  - Debug logs no longer contain the MQTT password.
-- **Name and plugins.** The add-on is now just "Sonorium" (#40), and the Plugin Browser works again.
-- **Mobile.** Your browser and the HA app always load the current version of the page after an update (#28).
+- **New channel editor.** Search themes, and pick speakers by floor, room or one at a time; ticking a floor or room selects everything in it.
+- **Settings → Speakers.** Rename speakers, set their room and a volume offset, and play a short test sound. Only speakers switched on here appear in channels, and **Hide offline** tidies the list.
+- **Settings → Logs.** See, search, copy and download recent log messages from Sonorium's web UI, without opening the add-on's Log tab. If Sonorium fails to start, its web UI shows the logs instead.
+- **Speaker screens.** Nest Hub and other Google Cast displays show the Sonorium logo while playing.
+- **Presets follow the theme.** Changing a channel's theme switches to that theme's default preset.
+- **Smaller fixes.** Denon/Marantz receivers are recognised, settings pages stay readable on wide screens, and the browser tab shows Sonorium's icon.
+- **Also new: a Docker version** for running Sonorium without the add-on system. See the [main README](https://github.com/synssins/sonorium#docker).
 
 Full history: [CHANGELOG.md](CHANGELOG.md).
 
@@ -63,25 +55,30 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 
 ## Screenshots
 
-### Channels View
-Create and manage multiple audio channels, each streaming to different speakers.
+### Channels
+Each channel plays its own theme on its own speakers.
 
 ![Channels](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channels.png)
 
-### Theme Selection
-Choose from your library of ambient themes for each channel.
+### Edit Channel
+Search themes, then pick speakers by floor, room or one at a time.
 
-![Theme Selection](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channels_Theme_Selection.png)
+![Edit Channel](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channel_Editor.png)
 
-### Themes Library
-Organize your audio files into themes with favorites and categories.
+### Themes
+Your theme library, with favorites and categories.
 
 ![Themes](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Themes.png)
 
-### Settings
-Configure speakers, volume defaults, and other preferences.
+### Settings → Speakers
+Switch speakers on or off, set their room and volume offset, and play a test sound.
 
-![Settings](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings.png)
+![Speakers](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings_Speakers.png)
+
+### Settings → Logs
+Recent messages with filters, search, copy and download.
+
+![Logs](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings_Logs.png)
 
 ## Features
 
@@ -90,6 +87,11 @@ Configure speakers, volume defaults, and other preferences.
 - **Per-Channel Themes**: Each channel plays its own theme
 - **Flexible Speaker Selection**: Target individual speakers, entire rooms, floors, or custom speaker groups
 - **Live Speaker Management**: Add or remove speakers from active channels without interrupting playback
+
+### Speakers
+- **Speaker Settings**: Rename speakers, set their room, and add a volume offset for speakers that play louder or quieter than the rest
+- **Test Sound**: Play a short, quiet chime to check a speaker
+- **Choose What Sonorium Uses**: Speakers switched off in Settings never appear in channels
 
 ### Theme System
 - **Theme-Based Organization**: Audio files organized into theme folders (Thunder, Forest, Ocean, etc.)
@@ -127,6 +129,8 @@ Fine-tune how each audio file plays within a theme:
 - **Real-Time Status**: See what's playing across all channels
 - **Drag & Drop**: Upload audio files directly through the UI
 - **Speaker Browser**: Visual hierarchy of floors, areas, and speakers
+- **Logs Page**: Recent messages with filters, search and download, even when startup fails
+- **Speaker Screens**: Google Cast displays show the Sonorium logo while playing
 
 ### Home Assistant Integration
 - **Sidebar Access**: Appears in your HA sidebar for quick access
@@ -195,7 +199,9 @@ Access Settings from the sidebar to configure:
 - **Crossfade Duration**: Blend time between loops (0-10 seconds)
 - **Default Volume**: Initial volume for new channels
 - **Master Gain**: Global output level
-- **Speaker Availability**: Enable/disable specific speakers from Sonorium
+- **Speakers**: Switch speakers on or off, set their name, room and volume offset, and play a test sound
+- **Speaker Groups**: Saved sets of speakers for quick channel setup
+- **Logs**: Recent messages, with level filter, search, copy and download
 
 ## API Reference
 
