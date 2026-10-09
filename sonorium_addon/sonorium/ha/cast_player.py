@@ -18,6 +18,7 @@ IP Resolution:
 from __future__ import annotations
 
 import asyncio
+import os
 import uuid
 from typing import Optional, TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor
@@ -115,6 +116,8 @@ class CastPlayer:
         self._ha_ips_loaded = False
         # Active Cast connections (entity_id -> Chromecast object)
         self._connections: dict[str, object] = {}
+        # Entities whose IP couldn't be found, so lookups aren't repeated on every play
+        self._no_ip: set[str] = set()
 
     async def _load_ha_device_ips(self):
         """Load Cast device IPs from HA device registry."""
@@ -127,7 +130,7 @@ class CastPlayer:
         if self._ha_device_ips:
             logger.debug(f"  Cast: Found {len(self._ha_device_ips)} Cast device(s) in HA registry")
         else:
-            logger.warning("  Cast: No Cast IPs found in HA device registry")
+            logger.debug("  Cast: No Cast IPs in HA device registry (normal; HA will be used to play)")
 
     async def _get_cast_ips_from_ha(self) -> dict[str, str]:
         """
@@ -242,84 +245,14 @@ class CastPlayer:
                         logger.debug(f"  Cast:   config_url: {config_url}")
                         logger.debug(f"  Cast:   connections: {connections}")
 
-                # If WebSocket found no IPs, try REST API fallback
-                if not cast_ips:
-                    logger.info("  Cast: No IPs from WebSocket, trying REST API fallback...")
-                    cast_ips = await self._get_cast_ips_via_rest()
-
+                # HA usually doesn't store Cast IPs. (The REST device registry
+                # endpoint doesn't exist, so there's no other source to try.)
                 return cast_ips
 
         except Exception as e:
             logger.warning(f"  Cast: Failed to query HA: {e}")
             import traceback
             logger.debug(f"  Cast: Traceback: {traceback.format_exc()}")
-            return {}
-
-    async def _get_cast_ips_via_rest(self) -> dict[str, str]:
-        """
-        Fallback: Get Cast device IPs via REST API (device registry).
-        Similar to sonos_player.py's REST fallback.
-        """
-        import re
-        import httpx
-
-        try:
-            url = f"{self.media_controller.api_url}/config/device_registry/list"
-            logger.info(f"  Cast: REST API fallback: {url}")
-
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                response = await client.get(url, headers=self.media_controller.headers)
-                if response.status_code != 200:
-                    logger.warning(f"  Cast: REST API returned {response.status_code}")
-                    return {}
-
-                devices = response.json()
-                cast_ips = {}
-
-                for device in devices:
-                    identifiers = device.get('identifiers', [])
-                    manufacturer = (device.get('manufacturer') or '').lower()
-                    name = device.get('name', '').lower()
-
-                    # Broader Cast detection
-                    is_cast = (
-                        any('cast' in str(ident).lower() for ident in identifiers) or
-                        manufacturer in CAST_MANUFACTURERS or
-                        'nest' in name or
-                        'chromecast' in name or
-                        'google home' in name
-                    )
-
-                    if not is_cast:
-                        continue
-
-                    name_normalized = name.replace(' ', '_')
-
-                    # Try configuration_url
-                    config_url = device.get('configuration_url', '')
-                    if config_url:
-                        ip_match = re.search(r'://(\d+\.\d+\.\d+\.\d+)', config_url)
-                        if ip_match:
-                            ip = ip_match.group(1)
-                            cast_ips[name] = ip
-                            cast_ips[name_normalized] = ip
-                            logger.info(f"  Cast: REST found '{name}' at {ip}")
-                            continue
-
-                    # Try connections field
-                    connections = device.get('connections', [])
-                    for conn in connections:
-                        if isinstance(conn, (list, tuple)) and len(conn) >= 2:
-                            if conn[0] == 'ip':
-                                cast_ips[name] = conn[1]
-                                cast_ips[name_normalized] = conn[1]
-                                logger.info(f"  Cast: REST found '{name}' at {conn[1]}")
-                                break
-
-                return cast_ips
-
-        except Exception as e:
-            logger.warning(f"  Cast: REST API fallback failed: {e}")
             return {}
 
     async def is_cast(self, entity_id: str) -> bool:
@@ -391,6 +324,8 @@ class CastPlayer:
         # Check cache first
         if entity_id in self._ip_cache:
             return self._ip_cache[entity_id]
+        if entity_id in self._no_ip:
+            return None
 
         # Get entity state
         state = await self.media_controller.get_state(entity_id)
@@ -450,17 +385,20 @@ class CastPlayer:
                     logger.info(f"  Cast: Partial match '{name}' -> '{device_name}' at {ip}")
                     return ip
 
-        # Final fallback: mDNS discovery
-        logger.info(f"  Cast: Trying mDNS discovery for {entity_id}...")
-        ip = await self._discover_cast_ip_via_mdns(friendly_name, entity_name)
-        if ip:
-            self._ip_cache[entity_id] = ip
-            return ip
+        # Final fallback: mDNS discovery. Not as an HA add-on: without host
+        # networking the container can't see mDNS, so it only cost 5s per play.
+        if not os.environ.get("SUPERVISOR_TOKEN"):
+            logger.debug(f"  Cast: Trying mDNS discovery for {entity_id}...")
+            ip = await self._discover_cast_ip_via_mdns(friendly_name, entity_name)
+            if ip:
+                self._ip_cache[entity_id] = ip
+                return ip
 
-        logger.warning(f"  Cast: Could not find IP for {entity_id}")
+        logger.debug(f"  Cast: No IP for {entity_id}; Home Assistant will play to it")
         if self._ha_device_ips:
             logger.debug(f"  Cast: Available devices: {list(self._ha_device_ips.keys())}")
 
+        self._no_ip.add(entity_id)
         return None
 
     async def _discover_cast_ip_via_mdns(
@@ -680,7 +618,7 @@ class CastPlayer:
         ip = await self.get_cast_ip(entity_id)
         if not ip:
             # Fall back to HA API - HA's Cast integration knows how to reach the device
-            logger.info(f"  Cast: No IP found for {entity_id}, using HA API fallback")
+            logger.debug(f"  Cast: No IP found for {entity_id}, using HA API fallback")
             return await self._play_via_ha_api(entity_id, media_url)
 
         logger.info(f"  Cast: Playing {media_url} on {entity_id} ({ip})")
@@ -737,6 +675,7 @@ class CastPlayer:
     def clear_cache(self):
         """Clear all caches and force reload from HA."""
         self._ip_cache.clear()
+        self._no_ip.clear()
         self._cast_cache.clear()
         self._ha_device_ips.clear()
         self._ha_cast_names.clear()
