@@ -78,6 +78,15 @@ def ha_websocket_url(api_url: str) -> str:
     return f"{url}/websocket"
 
 
+def ha_configured() -> bool:
+    """
+    Whether Home Assistant is available to use. Always true for the add-on;
+    in standalone mode only once an HA URL has been saved. Standalone runs
+    fine without HA.
+    """
+    return not STANDALONE or bool(os.environ.get("SONORIUM__HA_CORE_API"))
+
+
 def load_connection_into_env() -> None:
     """In standalone mode, expose saved settings as the SONORIUM__* variables."""
     if not STANDALONE:

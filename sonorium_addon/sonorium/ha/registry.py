@@ -604,6 +604,12 @@ class HARegistry:
         Tries WebSocket API first (required for floor/area/entity/device registries),
         falls back to REST API for states.
         """
+        from sonorium.runtime import ha_configured
+        if not ha_configured():
+            # Standalone without Home Assistant: no HA speakers to load
+            self._hierarchy = SpeakerHierarchy()
+            return self._hierarchy
+
         logger.debug("Building speaker hierarchy from Home Assistant...")
 
         # Try WebSocket API first for registries (floors, areas, entity registry, device registry)
