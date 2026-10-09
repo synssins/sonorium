@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.1-dev.5 (2026-10-09)
+
+### Bug Fixes
+
+- Settings menu cut off its last items
+  ([`7cb9384`](https://github.com/synssins/sonorium/commit/7cb9384b09302b2f946da09b4a556df860d31b46))
+
+
 ## v1.4.1-dev.4 (2026-10-09)
 
 ### Bug Fixes
