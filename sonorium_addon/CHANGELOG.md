@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.7 (2026-10-09)
+
+### Bug Fixes
+
+- Wider New/Edit Channel dialog without a scroll box inside it
+  ([`402a4f9`](https://github.com/synssins/sonorium/commit/402a4f9a961209ec398d523233fe42a4c0065a1b))
+
+
 ## v1.4.0-dev.6 (2026-10-09)
 
 ### Bug Fixes
