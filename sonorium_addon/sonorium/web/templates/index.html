@@ -15,6 +15,13 @@
             link.rel = 'stylesheet';
             link.href = window.SONORIUM_BASE + '/static/css/styles.css';
             document.head.appendChild(link);
+
+            // Browser tab icon (same base path, so it works through HA ingress)
+            var icon = document.createElement('link');
+            icon.rel = 'icon';
+            icon.type = 'image/png';
+            icon.href = window.SONORIUM_BASE + '/favicon.png';
+            document.head.appendChild(icon);
         })();
     </script>
 </head>

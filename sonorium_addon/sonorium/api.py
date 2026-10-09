@@ -31,6 +31,7 @@ STATIC_DIR = Path(__file__).parent / "web" / "static"
 # Static assets (relative to package root)
 PACKAGE_ROOT = Path(__file__).parent.parent
 LOGO_PATH = PACKAGE_ROOT / "logo.png"
+ICON_PATH = PACKAGE_ROOT / "icon.png"
 
 
 class _MQTTUnavailable(Exception):
@@ -107,6 +108,7 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.put, path='/api/connection', method=self.put_connection),
             api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
             api.Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
+            api.Endpoint(method_http=self.app.get, path='/favicon.png', method=self.serve_favicon),
             
             # Streaming - channel-based (new) - MUST come before theme-based!
             api.Endpoint(method_http=self.app.get, path='/stream/channel{channel_id:int}', method=self.stream_channel),
@@ -568,6 +570,12 @@ class ApiSonorium(api.Base):
             return HTMLResponse(content=template_path.read_text(), headers={"Cache-Control": "no-cache"})
         else:
             return await self.legacy_ui()
+
+    async def serve_favicon(self):
+        """Serve the browser tab icon (icon.png)."""
+        if ICON_PATH.exists():
+            return FileResponse(ICON_PATH, media_type="image/png")
+        raise HTTPException(status_code=404, detail="Icon not found")
 
     async def serve_logo(self):
         """Serve the logo.png file."""
