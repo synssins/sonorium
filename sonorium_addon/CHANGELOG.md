@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.11 (2026-10-09)
+
+### Bug Fixes
+
+- Settings pages stop stretching on ultrawide screens
+  ([`076ebcd`](https://github.com/synssins/sonorium/commit/076ebcd6666a347a460a4043a4ee1194eafce52a))
+
+
 ## v1.4.0-dev.10 (2026-10-09)
 
 ### Features
