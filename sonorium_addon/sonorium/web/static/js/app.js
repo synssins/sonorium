@@ -896,8 +896,8 @@ async function togglePlayback(sessionId) {
 
 async function updateSessionTheme(sessionId, themeId) {
     try {
-        // Clear preset when theme changes
-        await api('PUT', `/sessions/${sessionId}`, { theme_id: themeId, preset_id: null });
+        // The server gives the channel the new theme's default preset (or none)
+        await api('PUT', `/sessions/${sessionId}`, { theme_id: themeId });
         // Load presets for the new theme
         if (themeId) {
             await loadPresetsForTheme(themeId);
@@ -912,7 +912,7 @@ async function updateSessionTheme(sessionId, themeId) {
 
 async function updateSessionPreset(sessionId, presetId) {
     try {
-        await api('PUT', `/sessions/${sessionId}`, { preset_id: presetId || null });
+        await api('PUT', `/sessions/${sessionId}`, { preset_id: presetId || '' });  // '' = no preset
         // Update local session state
         const session = sessions.find(s => s.id === sessionId);
         if (session) {
@@ -1078,7 +1078,7 @@ async function saveSession() {
     const data = {
         theme_id: selectedTheme,
         volume: volume,
-        preset_id: selectedChannelPreset || null
+        preset_id: selectedChannelPreset || ''  // '' = no preset
     };
 
     // Use speaker group OR adhoc selection, not both

@@ -103,3 +103,22 @@ def test_migration_keeps_entries_for_missing_speakers():
     s = state.SonoriumSettings.from_dict({"enabled_speakers": ["b", "gone"]})
     s.migrate_enabled_speakers(["a", "b"])
     assert s.enabled_speakers == ["b", "gone"]
+
+
+def preset_manager(presets_by_theme):
+    module, _ = load_session_manager()
+    manager = module.SessionManager.__new__(module.SessionManager)
+    manager._theme_presets = lambda theme_id: presets_by_theme.get(theme_id, {})
+    return manager
+
+
+def test_new_theme_brings_its_own_preset():
+    manager = preset_manager({
+        "forest": {"calm": {"is_default": True}, "storm": {}},
+        "tavern": {"slow_night": {}},
+    })
+    assert manager.preset_for_theme("forest", "slow_night") == "calm"  # old theme's preset never carries over
+    assert manager.preset_for_theme("forest", "storm") == "storm"
+    assert manager.preset_for_theme("forest", None) == "calm"
+    assert manager.preset_for_theme("forest", "") is None  # none, on purpose
+    assert manager.preset_for_theme("tavern", None) is None  # no default set

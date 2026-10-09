@@ -91,6 +91,47 @@ class SessionManager:
         """Set the theme metadata manager (for deferred initialization)."""
         self.theme_metadata_manager = manager
 
+    def _theme_presets(self, theme_id: str) -> dict:
+        """A theme's presets ({preset_id: data}), from the metadata cache or its metadata.json."""
+        if self.theme_metadata_manager:
+            folder = self.theme_metadata_manager.get_folder_for_id(theme_id)
+            if folder:
+                metadata = self.theme_metadata_manager.get_metadata_by_folder(folder)
+                if metadata:
+                    return dict(metadata.presets or {})
+
+        # Fallback: read directly from file
+        import json
+        if self.themes and len(self.themes) > 0:
+            first_theme = self.themes[0]
+            if hasattr(first_theme, 'sonorium') and hasattr(first_theme.sonorium, 'path_audio'):
+                for folder in first_theme.sonorium.path_audio.iterdir():
+                    metadata_path = folder / "metadata.json"
+                    if folder.is_dir() and metadata_path.exists():
+                        try:
+                            metadata = json.loads(metadata_path.read_text())
+                        except Exception:
+                            continue
+                        if metadata.get("id") == theme_id:
+                            return dict(metadata.get("presets") or {})
+        return {}
+
+    def preset_for_theme(self, theme_id: str, requested: Optional[str] = None) -> Optional[str]:
+        """
+        The preset a channel uses with a theme: the requested one if the theme
+        has it, "" for none on purpose, else the theme's default preset, else
+        none. A preset never carries over from a different theme.
+        """
+        if requested == "" or not theme_id:
+            return None
+        presets = self._theme_presets(theme_id)
+        if requested and requested in presets:
+            return requested
+        for preset_id, data in presets.items():
+            if (data or {}).get("is_default"):
+                return preset_id
+        return None
+
     def apply_preset_to_theme(self, theme_id: str, preset_id: str) -> bool:
         """
         Apply a preset's track settings to a theme.
@@ -110,40 +151,8 @@ class SessionManager:
             logger.warning(f"  Cannot apply preset: theme '{theme_id}' not found")
             return False
 
-        # Get preset data from metadata manager or file
-        preset_tracks = None
-
-        if self.theme_metadata_manager:
-            # Use metadata manager (has the cache)
-            folder = self.theme_metadata_manager.get_folder_for_id(theme_id)
-            if folder:
-                metadata = self.theme_metadata_manager.get_metadata_by_folder(folder)
-                if metadata and preset_id in metadata.presets:
-                    preset_tracks = metadata.presets[preset_id].get("tracks", {})
-
-        if preset_tracks is None:
-            # Fallback: read directly from file
-            import json
-            from pathlib import Path
-
-            # Find theme folder
-            if self.themes and len(self.themes) > 0:
-                first_theme = self.themes[0]
-                if hasattr(first_theme, 'sonorium') and hasattr(first_theme.sonorium, 'path_audio'):
-                    audio_path = first_theme.sonorium.path_audio
-                    for folder in audio_path.iterdir():
-                        if folder.is_dir():
-                            metadata_path = folder / "metadata.json"
-                            if metadata_path.exists():
-                                try:
-                                    metadata = json.loads(metadata_path.read_text())
-                                    if metadata.get("id") == theme_id:
-                                        presets = metadata.get("presets", {})
-                                        if preset_id in presets:
-                                            preset_tracks = presets[preset_id].get("tracks", {})
-                                        break
-                                except Exception:
-                                    pass
+        preset = self._theme_presets(theme_id).get(preset_id)
+        preset_tracks = preset.get("tracks", {}) if preset else None
 
         if not preset_tracks:
             logger.warning(f"  Preset '{preset_id}' not found for theme '{theme_id}'")
@@ -410,6 +419,8 @@ class SessionManager:
                 randomize=self.state.settings.default_cycle_randomize,
             )
 
+        preset_id = self.preset_for_theme(theme_id, preset_id)
+
         # Create session
         session = Session(
             id=session_id,
@@ -476,12 +487,14 @@ class SessionManager:
         old_speakers = set(self.get_resolved_speakers(session)) if session.is_playing else set()
         speakers_changing = speaker_group_id is not None or adhoc_selection is not None
 
-        # Update fields if provided
-        if theme_id is not None:
+        # Update fields if provided. A new theme brings its own preset (the one
+        # sent with the change, else its default); "" clears the preset.
+        if theme_changed:
             session.theme_id = theme_id
-
-        if preset_id is not None:
-            session.preset_id = preset_id
+            session.preset_id = self.preset_for_theme(theme_id, preset_id)
+            preset_changed = False
+        elif preset_id is not None:
+            session.preset_id = preset_id or None
 
         if speaker_group_id is not None:
             session.speaker_group_id = speaker_group_id
@@ -760,6 +773,11 @@ class SessionManager:
             logger.warning(f"  No media controller available")
             return False
         
+        # Channels saved before presets followed the theme may hold another theme's preset
+        if session.preset_id and session.preset_id not in self._theme_presets(session.theme_id):
+            session.preset_id = self.preset_for_theme(session.theme_id)
+            logger.info(f"  Preset reset to the theme's default ({session.preset_id or 'none'})")
+
         # Apply session's preset to theme BEFORE assigning to channel
         if session.preset_id:
             self.apply_preset_to_theme(session.theme_id, session.preset_id)
