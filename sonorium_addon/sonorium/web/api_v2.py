@@ -531,6 +531,8 @@ def create_api_router(
         
         if not session.theme_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No theme selected")
+        if not session_manager.get_theme(session.theme_id):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Theme not found")
         
         speakers = session_manager.get_resolved_speakers(session)
         if not speakers:

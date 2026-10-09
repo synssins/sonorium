@@ -744,6 +744,12 @@ class SessionManager:
         if not session.theme_id:
             logger.warning(f"  Session has no theme selected")
             return False
+        # An unknown theme would leave the channel silent and every speaker
+        # would get an empty stream, so refuse it instead.
+        if not self.get_theme(session.theme_id):
+            logger.warning(f"  Theme {session.theme_id} not found")
+            session.is_playing = False
+            return False
         
         speakers = self.get_resolved_speakers(session)
         if not speakers:
