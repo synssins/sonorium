@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.2.89-dev.7 (2026-10-09)
+
+### Bug Fixes
+
+- Add-on failed to start: bashio::addon.slug doesn't exist
+  ([`dd5965d`](https://github.com/synssins/sonorium/commit/dd5965d9d462988485f1b202eec3cfaf8aabc3eb))
+
+
 ## v1.2.89-dev.6 (2026-10-09)
 
 ### Bug Fixes
