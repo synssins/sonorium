@@ -9,22 +9,22 @@ source /usr/lib/bashio/bashio.sh
 
 bashio::log.info "Starting Sonorium addon..."
 
-# One-time move of settings from Home Assistant's config folder to the
-# add-on's own config folder, so uninstalling can remove them (#30).
-# The old folder is renamed, not deleted, and is kept as a safety copy.
+# One-time copy of settings from Home Assistant's config folder (where older
+# versions kept them) to the add-on's own config folder, which uninstalling can
+# remove (#30). A marker per add-on install stops the copy from happening again,
+# e.g. after uninstall + reinstall. The old folder is left untouched.
 LEGACY_DIR="/homeassistant/sonorium"
 DATA_DIR="/config/sonorium"
-if [[ ! -e "${DATA_DIR}/state.json" && -d "${LEGACY_DIR}" ]]; then
-    bashio::log.info "Moving Sonorium settings from ${LEGACY_DIR} to the add-on's own config folder..."
+MIGRATED_MARKER="${LEGACY_DIR}/.migrated_to_$(bashio::addon.slug)"
+if [[ ! -e "${DATA_DIR}/state.json" && -d "${LEGACY_DIR}" && ! -e "${MIGRATED_MARKER}" ]]; then
+    bashio::log.info "Copying Sonorium settings from ${LEGACY_DIR} to the add-on's own config folder..."
     mkdir -p "${DATA_DIR}"
     if cp -a "${LEGACY_DIR}/." "${DATA_DIR}/"; then
-        if mv "${LEGACY_DIR}" "${LEGACY_DIR}.migrated"; then
-            bashio::log.info "Settings moved. The old folder was kept as ${LEGACY_DIR}.migrated and can be deleted."
-        else
-            bashio::log.warning "Settings copied, but ${LEGACY_DIR} could not be renamed."
-        fi
+        rm -f "${DATA_DIR}"/.migrated_to_*
+        touch "${MIGRATED_MARKER}"
+        bashio::log.info "Settings copied. ${LEGACY_DIR} is no longer used by this add-on and can be deleted."
     else
-        bashio::log.error "Could not copy settings from ${LEGACY_DIR}; starting with what was copied."
+        bashio::log.error "Could not copy all settings from ${LEGACY_DIR}; starting with what was copied."
     fi
 fi
 
