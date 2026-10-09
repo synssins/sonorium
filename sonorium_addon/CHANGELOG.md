@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.2 (2026-10-09)
+
+### Bug Fixes
+
+- Standalone runs without Home Assistant
+  ([`76b4cd6`](https://github.com/synssins/sonorium/commit/76b4cd61340b9bffa40999e212df53ed7d6e48ba))
+
+
 ## v1.4.0-dev.1 (2026-10-09)
 
 ### Build System
