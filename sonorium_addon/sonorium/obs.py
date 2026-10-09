@@ -118,8 +118,33 @@ def get_logger(name: str, version: str = "") -> InstrumentedLogger:
     return logger
 
 
+def apply_level_to_library_console(level: int) -> None:
+    """
+    fmtr.tools configures Logfire to print every span (each HTTP request,
+    each instrumented call) to the console at info. Show those only at debug;
+    at the normal level Logfire prints warnings and errors only.
+    """
+    try:
+        import fmtr.tools.logging_tools  # noqa: F401 - configures Logfire once, on import
+        import logfire
+    except Exception:
+        return
+    min_level = "debug" if level <= logging.DEBUG else "warn" if level <= logging.WARNING else "error"
+    try:
+        logfire.configure(
+            service_name=paths.name_ns,
+            service_version=__version__,
+            send_to_logfire=False,
+            console=logfire.ConsoleOptions(colors="always", min_log_level=min_level),
+            scrubbing=False,
+        )
+    except Exception as e:
+        logging.getLogger(paths.name_ns).warning(f"Could not set library log level: {e}")
+
+
 # Create the main logger
 logger = get_logger(
     name=paths.name_ns,
     version=__version__,
 )
+apply_level_to_library_console(logger.level)
