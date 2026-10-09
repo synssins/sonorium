@@ -34,28 +34,43 @@ bashio::log.debug "Environment variables:"
 bashio::log.debug "  SUPERVISOR_TOKEN present: $([ -n "${SUPERVISOR_TOKEN:-}" ] && echo 'yes' || echo 'no')"
 
 # Log level: "info" shows a summary, "debug" adds per-theme/per-speaker detail and versions
-if bashio::config.has_value 'log_level'; then
-    export SONORIUM_LOG_LEVEL="$(bashio::config 'log_level')"
+# Read options from the options file rather than with bashio: at debug log
+# level bashio logs the whole options API response, passwords included.
+option() {
+    jq -r --arg key "$1" '.[$key] // empty' /data/options.json
+}
+
+if [[ -n "$(option log_level)" ]]; then
+    export SONORIUM_LOG_LEVEL="$(option log_level)"
 fi
 
 # Export addon configuration as environment variables
-export SONORIUM__STREAM_URL="$(bashio::config 'sonorium__stream_url')"
-export SONORIUM__PATH_AUDIO="$(bashio::config 'sonorium__path_audio')"
-export SONORIUM__MAX_CHANNELS="$(bashio::config 'sonorium__max_channels')"
+export SONORIUM__STREAM_URL="$(option sonorium__stream_url)"
+export SONORIUM__PATH_AUDIO="$(option sonorium__path_audio)"
+export SONORIUM__MAX_CHANNELS="$(option sonorium__max_channels)"
 
-# MQTT Configuration - Priority: Manual config > bashio::services > Python fallback
-MQTT_HOST_CONFIG="$(bashio::config 'sonorium__mqtt_host')"
-MQTT_PORT_CONFIG="$(bashio::config 'sonorium__mqtt_port')"
-MQTT_USER_CONFIG="$(bashio::config 'sonorium__mqtt_username')"
-MQTT_PASS_CONFIG="$(bashio::config 'sonorium__mqtt_password')"
+# MQTT Configuration - Priority: Manual config > Supervisor MQTT service > Python fallback
+
+# Query the Supervisor's MQTT service directly rather than with bashio::services:
+# at debug log level bashio logs the whole API response, broker password included.
+mqtt_service_available() {
+    curl -sf -o /dev/null -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/services/mqtt
+}
+mqtt_service() {
+    curl -sf -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/services/mqtt | jq -r ".data.${1} // empty"
+}
+MQTT_HOST_CONFIG="$(option sonorium__mqtt_host)"
+MQTT_PORT_CONFIG="$(option sonorium__mqtt_port)"
+MQTT_USER_CONFIG="$(option sonorium__mqtt_username)"
+MQTT_PASS_CONFIG="$(option sonorium__mqtt_password)"
 
 # The Mosquitto add-on registers the MQTT service each time it starts. At boot
 # Sonorium can start first, so wait for it instead of failing (issue #42).
-if [[ -z "${MQTT_HOST_CONFIG}" || "${MQTT_HOST_CONFIG}" == "auto" ]] && ! bashio::services.available "mqtt"; then
+if [[ -z "${MQTT_HOST_CONFIG}" || "${MQTT_HOST_CONFIG}" == "auto" ]] && ! mqtt_service_available; then
     bashio::log.warning "No MQTT broker is registered with the Supervisor yet. Waiting up to 2 minutes for the Mosquitto broker add-on to start..."
     for _ in $(seq 1 24); do
         sleep 5
-        if bashio::services.available "mqtt"; then
+        if mqtt_service_available; then
             bashio::log.info "MQTT broker is now available"
             break
         fi
@@ -69,13 +84,13 @@ if [[ -n "${MQTT_HOST_CONFIG}" && "${MQTT_HOST_CONFIG}" != "auto" ]]; then
     export SONORIUM__MQTT_PORT="${MQTT_PORT_CONFIG:-1883}"
     export SONORIUM__MQTT_USERNAME="${MQTT_USER_CONFIG}"
     export SONORIUM__MQTT_PASSWORD="${MQTT_PASS_CONFIG}"
-elif bashio::services.available "mqtt"; then
+elif mqtt_service_available; then
     # Auto-detect from Supervisor services (recommended HA method)
     bashio::log.info "Auto-detecting MQTT from Supervisor services..."
-    export SONORIUM__MQTT_HOST="$(bashio::services mqtt "host")"
-    export SONORIUM__MQTT_PORT="$(bashio::services mqtt "port")"
-    export SONORIUM__MQTT_USERNAME="$(bashio::services mqtt "username")"
-    export SONORIUM__MQTT_PASSWORD="$(bashio::services mqtt "password")"
+    export SONORIUM__MQTT_HOST="$(mqtt_service host)"
+    export SONORIUM__MQTT_PORT="$(mqtt_service port)"
+    export SONORIUM__MQTT_USERNAME="$(mqtt_service username)"
+    export SONORIUM__MQTT_PASSWORD="$(mqtt_service password)"
     bashio::log.info "MQTT auto-detected: ${SONORIUM__MQTT_HOST}:${SONORIUM__MQTT_PORT}"
 else
     bashio::log.warning "No MQTT broker is registered with the Supervisor."
