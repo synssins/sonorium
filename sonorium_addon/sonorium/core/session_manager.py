@@ -730,7 +730,9 @@ class SessionManager:
         if not session:
             logger.warning(f"  Session {session_id} not found")
             return False
-        
+
+        logger.info(f"Playing session '{session.name}'...")
+
         if not session.theme_id:
             logger.warning(f"  Session has no theme selected")
             return False
@@ -786,7 +788,7 @@ class SessionManager:
             await self.media_controller.set_volume_multi(speakers, volume_level)
             
             success_count = sum(1 for v in results.values() if v)
-            logger.info(f"  Started playback on {success_count}/{len(speakers)} speakers")
+            logger.info(f"  '{session.name}': {success_count}/{len(speakers)} speakers started")
             
         except Exception as e:
             logger.error(f"  Error starting playback: {e}")

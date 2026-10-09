@@ -36,7 +36,7 @@ class InstrumentedLogger(logging.Logger):
                     msg = message_template
 
                 if msg:
-                    self.info(msg)
+                    self.debug(msg)
                 return func(*args, **kwargs)
 
             @functools.wraps(func)
@@ -50,7 +50,7 @@ class InstrumentedLogger(logging.Logger):
                     msg = message_template
 
                 if msg:
-                    self.info(msg)
+                    self.debug(msg)
                 return await func(*args, **kwargs)
 
             # Return appropriate wrapper based on function type

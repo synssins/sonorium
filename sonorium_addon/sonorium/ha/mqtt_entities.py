@@ -597,7 +597,7 @@ class SonoriumMQTTManager:
                 theme_options.append(theme_name)
                 self._theme_name_to_id[theme_name] = theme_id
                 self._theme_id_to_name[theme_id] = theme_name
-        logger.info(f"    Theme select options: {len(theme_options) - 1} themes")
+        logger.debug(f"    Theme select options: {len(theme_options) - 1} themes")
 
         config = {
             "name": "Sonorium Theme",
