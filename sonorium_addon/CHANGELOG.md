@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0-dev.5 (2026-10-09)
+
+### Bug Fixes
+
+- Start Cast playback ~5s faster and drop false Cast warnings
+  ([`c5abec0`](https://github.com/synssins/sonorium/commit/c5abec0851be0067cc1a9196a9600a10fc8dd5f0))
+
+
 ## v1.3.0-dev.4 (2026-10-09)
 
 ### Bug Fixes
