@@ -3757,7 +3757,19 @@ function settingsSpeakerGroups() {
     return groups;
 }
 
+// Settings > Speakers view option: hide offline devices (view only; doesn't
+// change which speakers are enabled for the rest of the app)
+let hideOfflineSpeakers = false;
+try { hideOfflineSpeakers = localStorage.getItem('sonorium_spkHideOffline') === '1'; } catch (e) { /* storage unavailable */ }
+
+function setHideOfflineSpeakers(hide) {
+    hideOfflineSpeakers = hide;
+    try { localStorage.setItem('sonorium_spkHideOffline', hide ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+    renderSettingsSpeakerTree();
+}
+
 function speakerMatchesSettingsFilter(speaker, query) {
+    if (hideOfflineSpeakers && speaker.online === false) return false;
     if (speakerSourceFilter !== 'all' && !(speaker.source || []).includes(speakerSourceFilter)) return false;
     if (!query) return true;
     return [speaker.name, speaker.original_name, speaker.address]
@@ -3767,6 +3779,8 @@ function speakerMatchesSettingsFilter(speaker, query) {
 function renderSettingsSpeakerTree() {
     const container = document.getElementById('settings-speaker-tree');
     if (!container) return;
+    const hideOfflineBox = document.getElementById('spk-hide-offline');
+    if (hideOfflineBox) hideOfflineBox.checked = hideOfflineSpeakers;
     renderSpeakerToolbar();
 
     if (!speakerHierarchy) {

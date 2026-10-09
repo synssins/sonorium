@@ -1738,6 +1738,7 @@ label.p-row, .p-label { cursor: pointer; }
 .seg button { min-height: 36px; padding: 0 .875rem; border: 0; border-radius: .375rem; background: transparent; color: var(--text-secondary); font: inherit; font-size: .875rem; cursor: pointer; }
 .seg button[aria-pressed="true"] { background: var(--bg-card); color: var(--text-primary); box-shadow: var(--shadow); }
 .scan-meta { font-size: .75rem; color: var(--text-muted); }
+.spk-hide-offline { display: inline-flex; align-items: center; gap: .5rem; min-height: 40px; font-size: .875rem; color: var(--text-secondary); cursor: pointer; }
 .spk-group { margin-bottom: 1rem; }
 .spk-group h4 { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0 0 .5rem; }
 .spk-row { display: grid; grid-template-columns: auto minmax(160px, 1.6fr) auto minmax(130px, 1fr) 110px auto; align-items: center; gap: .75rem; padding: .625rem .75rem; background: var(--bg-secondary); border-radius: .5rem; margin-bottom: .375rem; }
