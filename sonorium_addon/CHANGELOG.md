@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0-dev.8 (2026-10-09)
+
+### Bug Fixes
+
+- Re-subscribe MQTT command topics after the broker reconnects
+  ([`745e17d`](https://github.com/synssins/sonorium/commit/745e17dc6ee43400233d4198745fe9e3a8a17fdc))
+
+
 ## v1.3.0-dev.7 (2026-10-09)
 
 ### Bug Fixes
