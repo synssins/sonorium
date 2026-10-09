@@ -6,18 +6,38 @@ network speakers by their Sonorium ID (net:<type>:<device id>).
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from sonorium.obs import logger
 from sonorium.network.discovery import NetworkSpeakerDiscovery
-from sonorium.network.models import NetworkSpeaker
-from sonorium.network.streaming import NetworkStreamingManager
+from sonorium.network.manual import ManualSpeakers, ProbeError, manual_kind, probe_speaker
+from sonorium.network.models import NetworkSpeaker, SpeakerType
+from sonorium.network.streaming import NetworkStreamingManager, is_linkplay_device
 
 # Background rescans skip the LinkPlay subnet probe; startup and manual
 # refreshes run the full scan.
 DEFAULT_REFRESH_INTERVAL = 600  # seconds
 DEFAULT_DISCOVERY_TIMEOUT = 10.0
+
+# Speaker types as the UI shows them
+UI_TYPES = {
+    SpeakerType.CHROMECAST: "cast",
+    SpeakerType.SONOS: "sonos",
+    SpeakerType.DLNA: "dlna",
+    SpeakerType.AIRPLAY: "airplay",
+    SpeakerType.HEOS: "heos",
+}
+
+
+def ui_type(speaker: NetworkSpeaker) -> str:
+    """cast, sonos, dlna, airplay, linkplay or heos (LinkPlay/Arylic hardware shows as linkplay)."""
+    if speaker.extra.get("manual"):
+        return manual_kind(speaker)
+    if speaker.speaker_type in (SpeakerType.DLNA, SpeakerType.AIRPLAY) and is_linkplay_device(speaker):
+        return "linkplay"
+    return UI_TYPES.get(speaker.speaker_type, "other")
 
 
 class NetworkSpeakerService:
@@ -27,11 +47,13 @@ class NetworkSpeakerService:
         config_dir: Path,
         discovery: NetworkSpeakerDiscovery = None,
         streaming: NetworkStreamingManager = None,
+        manual: ManualSpeakers = None,
         refresh_interval: float = DEFAULT_REFRESH_INTERVAL,
         discovery_timeout: float = DEFAULT_DISCOVERY_TIMEOUT,
     ):
         self.discovery = discovery if discovery is not None else NetworkSpeakerDiscovery(config_dir)
         self.streaming = streaming if streaming is not None else NetworkStreamingManager()
+        self.manual = manual if manual is not None else ManualSpeakers(config_dir)
         self.refresh_interval = refresh_interval
         self.discovery_timeout = discovery_timeout
         # Called (no arguments) after each scan, e.g. to update the speaker hierarchy
@@ -39,22 +61,62 @@ class NetworkSpeakerService:
         self._scan_task: Optional[asyncio.Task] = None
         self._loop_task: Optional[asyncio.Task] = None
         self._last_available: Optional[set[str]] = None
+        # When the last scan finished (ISO, UTC) and how many speakers it found
+        self.last_scan: Optional[str] = None
+        self.last_scan_found: int = 0
 
     # --- Speakers ---
 
     @property
     def speakers(self) -> dict[str, NetworkSpeaker]:
-        return self.discovery.speakers
+        """Discovered and manually added speakers. A manual speaker hides a discovered one on the same host."""
+        manual_hosts = {s.host for s in self.manual.speakers.values()}
+        result = {sid: s for sid, s in self.discovery.speakers.items() if s.host not in manual_hosts}
+        result.update(self.manual.speakers)
+        return result
 
     def get_speaker(self, speaker_id: str) -> Optional[NetworkSpeaker]:
-        return self.discovery.get_speaker(speaker_id)
+        return self.manual.get(speaker_id) or self.discovery.get_speaker(speaker_id)
 
     def hierarchy_speakers(self) -> list[dict]:
         """Known speakers as speaker-hierarchy entries (ha.registry.Speaker fields)."""
         return [
-            {"entity_id": s.id, "name": s.display_name, "ip_address": s.host or None}
-            for s in self.discovery.speakers.values()
+            {
+                "entity_id": s.id,
+                "name": s.name,
+                "ip_address": s.host or None,
+                "type": ui_type(s),
+                "online": s.available,
+                "source": ["manual" if s.extra.get("manual") else "discovered"],
+            }
+            for s in self.speakers.values()
         ]
+
+    # --- Manual speakers ---
+
+    async def check_manual(self, address: str, kind: str = "auto", port: Optional[int] = None,
+                           name: Optional[str] = None) -> NetworkSpeaker:
+        """What answers at an address (raises manual.ProbeError if nothing does). Adds nothing."""
+        return await probe_speaker(address, kind, port, name)
+
+    async def add_manual(self, address: str, kind: str = "auto", port: Optional[int] = None,
+                         name: Optional[str] = None) -> NetworkSpeaker:
+        speaker = await self.check_manual(address, kind, port, name)
+        if self.manual.get(speaker.id) is not None:
+            raise ProbeError(f"{speaker.extra.get('address') or speaker.host} has already been added")
+        self.manual.add(speaker)
+        logger.info(f"Manual speaker added: '{speaker.name}' ({ui_type(speaker)}, {speaker.host})")
+        self._notify()
+        return speaker
+
+    async def remove_manual(self, speaker_id: str) -> bool:
+        if self.manual.get(speaker_id) is None:
+            return False
+        await self.streaming.stop_streaming(speaker_id)
+        self.manual.remove(speaker_id)
+        logger.info(f"Manual speaker removed: {speaker_id}")
+        self._notify()
+        return True
 
     # --- Discovery ---
 
@@ -85,7 +147,13 @@ class NetworkSpeakerService:
         except Exception as e:
             logger.error(f"Network speaker discovery failed: {e}")
             return
+        try:
+            await self.manual.refresh_status(self.discovery.speakers)
+        except Exception as e:
+            logger.debug(f"Could not check manual speakers: {e}")
         available = {s.id for s in speakers if s.available}
+        self.last_scan = datetime.now(timezone.utc).isoformat(timespec="seconds")
+        self.last_scan_found = len(available)
         message = f"Network speakers: {len(available)} found on the network ({len(speakers)} known)"
         if available != self._last_available:
             logger.info(message)
