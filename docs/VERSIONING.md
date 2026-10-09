@@ -33,7 +33,7 @@ Windows app release workflow and are unrelated.
 | `fix:` `perf:` `refactor:` `build:` `revert:` | patch | `fix: Cast devices ignore play when idle` |
 | `feat:` | minor | `feat: fade in/out between themes` |
 | `feat!:` or a `BREAKING CHANGE:` footer | major | `feat!: new state file format` |
-| anything else (`docs:`, `chore:`, no prefix) | patch, forced by the workflow so HA still sees the change | |
+| anything else (`docs:`, `chore:`, no prefix) | forced by the workflow so HA still sees the change: next `-dev.N` on a branch, patch on `main` | |
 
 ## Working on a branch
 

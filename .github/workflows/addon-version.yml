@@ -62,10 +62,17 @@ jobs:
 
           # Commits without a fix:/feat: prefix don't bump on their own, but
           # HA still needs a new version to see the change. Force a patch.
+          # On other branches, bump the -dev.N number when the last release was
+          # already a pre-release, rather than skipping to the next patch version.
           force=()
           if [ -z "$next" ] || [ "$next" = "$last" ]; then
-            force=(--patch)
-            [ "$BRANCH" != "main" ] && force+=(--as-prerelease)
+            if [ "$BRANCH" = "main" ]; then
+              force=(--patch)
+            elif [[ "$last" == *-dev.* ]]; then
+              force=(--prerelease)
+            else
+              force=(--patch --as-prerelease)
+            fi
             echo "No Conventional Commit bump; forcing ${force[*]}"
           fi
 
