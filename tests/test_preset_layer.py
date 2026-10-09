@@ -52,3 +52,10 @@ def test_track_view_resolves_playback_mode_with_channel_values():
     assert track._resolve_playback_mode() == recording.PlaybackMode.CONTINUOUS
     assert view._resolve_playback_mode() == recording.PlaybackMode.PRESENCE
     assert view.name == "Rain"
+
+
+def test_preset_only_sets_what_it_saved():
+    track = theme_track(volume=0.6)
+    track.presence = 0.3
+    view = recording.TrackView(track, recording.preset_track_overrides({"Rain": {"muted": True}}))
+    assert (view.is_enabled, view.volume, view.presence) == (False, 0.6, 0.3)  # the rest follows the theme

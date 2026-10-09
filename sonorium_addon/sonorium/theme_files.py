@@ -22,6 +22,11 @@ def is_audio_file(path: Path) -> bool:
     return path.is_file() and path.suffix.lower() in AUDIO_EXTENSIONS
 
 
+def _order(path: Path) -> str:
+    """Same order on every system (Windows sorts paths ignoring case, Linux doesn't)."""
+    return path.name
+
+
 def _ignored(path: Path) -> bool:
     return path.name.startswith((".", "_"))
 
@@ -29,7 +34,7 @@ def _ignored(path: Path) -> bool:
 def group_folders(theme_folder: Path) -> list[Path]:
     """The theme's group folders: subfolders with at least one audio file."""
     try:
-        subfolders = sorted(p for p in theme_folder.iterdir() if p.is_dir() and not _ignored(p))
+        subfolders = sorted((p for p in theme_folder.iterdir() if p.is_dir() and not _ignored(p)), key=_order)
     except OSError:
         return []
     return [p for p in subfolders if any(is_audio_file(f) for f in p.iterdir())]
@@ -38,11 +43,11 @@ def group_folders(theme_folder: Path) -> list[Path]:
 def theme_audio_files(theme_folder: Path) -> list[Path]:
     """Every track file in a theme: top level first, then each group's, sorted by name."""
     try:
-        top = sorted(p for p in theme_folder.iterdir() if is_audio_file(p) and not _ignored(p))
+        top = sorted((p for p in theme_folder.iterdir() if is_audio_file(p) and not _ignored(p)), key=_order)
     except OSError:
         return []
     grouped = [f for group in group_folders(theme_folder)
-               for f in sorted(p for p in group.iterdir() if is_audio_file(p) and not _ignored(p))]
+               for f in sorted((p for p in group.iterdir() if is_audio_file(p) and not _ignored(p)), key=_order)]
     return top + grouped
 
 

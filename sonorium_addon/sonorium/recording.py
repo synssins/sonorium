@@ -329,21 +329,29 @@ def preset_track_overrides(preset_tracks: dict) -> dict:
     """
     A preset's saved track settings ({"Rain": {"volume": .8, "muted": false, ...}})
     as the attribute values a TrackView applies ({"Rain": {"volume": .8, "is_enabled": True, ...}}).
+
+    Only settings the preset actually saved are set; anything it leaves out
+    follows the theme's own value for that track.
     """
     overrides = {}
     for track_name, settings in (preset_tracks or {}).items():
-        try:
-            mode = PlaybackMode(settings.get("playback_mode", "auto"))
-        except ValueError:
-            mode = PlaybackMode.AUTO
-        overrides[track_name] = {
-            "volume": settings.get("volume", 1.0),
-            "presence": settings.get("presence", 1.0),
-            "is_enabled": not settings.get("muted", False),
-            "crossfade_enabled": not settings.get("seamless_loop", False),
-            "playback_mode": mode,
-            "exclusive": settings.get("exclusive", False),
-        }
+        track = {}
+        if "volume" in settings:
+            track["volume"] = settings["volume"]
+        if "presence" in settings:
+            track["presence"] = settings["presence"]
+        if "muted" in settings:
+            track["is_enabled"] = not settings["muted"]
+        if "seamless_loop" in settings:
+            track["crossfade_enabled"] = not settings["seamless_loop"]
+        if "playback_mode" in settings:
+            try:
+                track["playback_mode"] = PlaybackMode(settings["playback_mode"])
+            except ValueError:
+                track["playback_mode"] = PlaybackMode.AUTO
+        if "exclusive" in settings:
+            track["exclusive"] = settings["exclusive"]
+        overrides[track_name] = track
     return overrides
 
 
