@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.16 (2026-10-09)
+
+### Features
+
+- Cast displays show the Sonorium logo while playing
+  ([`3167b57`](https://github.com/synssins/sonorium/commit/3167b5771ba9553e4158dd8c1748131fc7cc001a))
+
+
 ## v1.4.0-dev.15 (2026-10-09)
 
 ### Bug Fixes
