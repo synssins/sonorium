@@ -146,6 +146,10 @@ class SonoriumSettings:
     # Enabled plugins list (by plugin_id)
     enabled_plugins: list[str] = field(default_factory=list)
 
+    # Settings > Advanced: features switched on that are off by default for
+    # this install (see runtime.FEATURES). Format: {"network_speakers": true}
+    feature_overrides: dict[str, bool] = field(default_factory=dict)
+
     # Deleted builtin plugins (prevents auto-reinstall on startup)
     # When a user deletes a builtin plugin, its ID is added here so it won't be restored
     deleted_builtin_plugins: list[str] = field(default_factory=list)

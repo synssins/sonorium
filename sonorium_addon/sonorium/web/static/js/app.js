@@ -36,13 +36,15 @@ async function init() {
             loadVersion(),
             loadPlugins(),
             loadConnectionSettings(),
-            loadNetworkInfo()
+            loadNetworkInfo(),
+            loadInstallInfo()
         ]);
         console.log('Data loaded, rendering...');
 
         // Restore saved view or default to sessions
         let savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
         if (savedView === 'settings-connection' && !connectionSettings) savedView = 'sessions';
+        if (savedView === 'settings-advanced' && !hasAdvancedSettings()) savedView = 'sessions';
 
         // Always render sessions first (needed for session cards)
         renderSessions();
@@ -451,6 +453,7 @@ function showView(viewName) {
         'settings-groups': 'Speaker Groups',
         'settings-plugins': 'Plugins',
         'settings-logs': 'Logs',
+        'settings-advanced': 'Advanced',
         status: 'Status'
     };
     document.getElementById('view-title').textContent = titles[viewName] || viewName;
@@ -535,6 +538,7 @@ function showView(viewName) {
     }
     if (viewName === 'settings-groups') renderSettingsGroupsList();
     if (viewName === 'settings-plugins') renderPluginsView();
+    if (viewName === 'settings-advanced') renderAdvancedSettings();
     if (viewName === 'settings-logs' && window.SonoriumLogs) {
         SonoriumLogs.mount(document.getElementById('settings-logs-root'), BASE_PATH);
     }
@@ -3343,6 +3347,75 @@ async function saveAudioSettings() {
 
 // Settings - Connection (standalone/Docker only; the HA add-on returns 404)
 let connectionSettings = null;
+
+// --- Install type: one server-side check decides which features this install shows ---
+
+let installInfo = null;
+
+const ADVANCED_FEATURES = {
+    network_speakers: {
+        label: 'Network speakers',
+        hint: "Add speakers by IP address, outside Home Assistant. Speakers on the network can't be found automatically from inside a Home Assistant app."
+    }
+};
+
+async function loadInstallInfo() {
+    try {
+        installInfo = await api('GET', '/install');
+    } catch (error) {
+        installInfo = null;  // older server: keep the defaults
+    }
+    const label = document.getElementById('install-label');
+    if (label && installInfo) {
+        label.textContent = installInfo.label;
+        label.hidden = false;
+    }
+    const advancedNav = document.getElementById('nav-settings-advanced');
+    if (advancedNav) advancedNav.style.display = hasAdvancedSettings() ? '' : 'none';
+}
+
+function hasAdvancedSettings() {
+    return !!installInfo && Object.keys(ADVANCED_FEATURES).some(name => installInfo.features[name]?.overridable);
+}
+
+function renderAdvancedSettings() {
+    const form = document.getElementById('advanced-settings-form');
+    if (!form || !installInfo) return;
+    form.innerHTML = Object.entries(ADVANCED_FEATURES)
+        .filter(([name]) => installInfo.features[name]?.overridable)
+        .map(([name, f]) => `
+            <div class="settings-row">
+                <div class="settings-label">
+                    <label for="adv-${name}">${f.label}</label>
+                    <span class="settings-hint">${f.hint}</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="adv-${name}" ${installInfo.features[name].enabled ? 'checked' : ''}
+                           onchange="setAdvancedFeature('${name}', this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>`).join('');
+}
+
+async function setAdvancedFeature(name, on) {
+    try {
+        await api('PUT', '/install/features', { [name]: on });
+        document.getElementById('advanced-restart').hidden = false;
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderAdvancedSettings();
+    }
+}
+
+async function restartForAdvancedSettings() {
+    try {
+        await api('PUT', '/install/features', { restart: true });
+        showToast('Restarting Sonorium...', 'success');
+        setTimeout(() => window.location.reload(), 8000);
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
 
 async function loadConnectionSettings() {
     try {

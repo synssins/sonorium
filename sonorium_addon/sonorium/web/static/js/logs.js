@@ -43,7 +43,7 @@
                 state.entries = state.entries.concat(data.entries).slice(-2000);
                 state.after = data.entries[data.entries.length - 1].seq;
             }
-            state.meta = `${data.version} · log level: ${data.log_level}`;
+            state.meta = `${data.version}${data.install ? ` · ${data.install}` : ""} · log level: ${data.log_level}`;
         } catch (e) {
             state.meta = `Can't reach Sonorium (${e.message})`;
         }

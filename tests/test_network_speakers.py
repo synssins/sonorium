@@ -439,7 +439,7 @@ def test_shared_modules_dont_import_network_at_module_level(relative):
     assert not any(name.startswith("sonorium.network") for name in _module_level_imports(PACKAGE / relative))
 
 
-def test_network_init_only_called_in_standalone():
+def test_network_init_only_when_feature_is_on():
     tree = ast.parse((PACKAGE / "api.py").read_text(encoding="utf-8"))
     parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
     calls = [
@@ -452,12 +452,13 @@ def test_network_init_only_called_in_standalone():
         node = call
         while node in parents and not isinstance(node, ast.If):
             node = parents[node]
-        assert isinstance(node, ast.If) and ast.unparse(node.test) == "runtime.STANDALONE"
+        assert isinstance(node, ast.If) and ast.unparse(node.test).startswith("runtime.feature_enabled('network_speakers'")
 
 
-def test_network_dependencies_only_in_standalone_image():
+def test_network_dependencies_in_both_images():
+    # Same code everywhere: the add-on has them too, for the Advanced override
     addon = (ROOT / "sonorium_addon" / "Dockerfile").read_text(encoding="utf-8")
     standalone = (ROOT / "docker" / "Dockerfile").read_text(encoding="utf-8")
     for package in ("pyatv", "zeroconf", "async-upnp-client"):
-        assert package not in addon
+        assert package in addon
         assert package in standalone

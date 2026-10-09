@@ -41,6 +41,11 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     pydantic-settings \
     pychromecast
 
+# Network speakers (sonorium/network): on in Docker, off by default here and
+# switched on in Settings > Advanced. Same packages as the Docker image.
+RUN pip3 install --no-cache-dir --break-system-packages \
+    aiohttp zeroconf async-upnp-client pyatv
+
 # Copy local sonorium source code
 COPY sonorium/ /app/sonorium/
 COPY setup.py pyproject.toml README.md /app/

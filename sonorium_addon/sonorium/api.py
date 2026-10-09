@@ -120,6 +120,10 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.get, path='/logs', method=self.logs_page),
             api.Endpoint(method_http=self.app.get, path='/api/logs', method=self.get_logs),
             api.Endpoint(method_http=self.app.get, path='/api/logs/download', method=self.download_logs),
+
+            # Install type and the features it shows (Settings > Advanced)
+            api.Endpoint(method_http=self.app.get, path='/api/install', method=self.get_install),
+            api.Endpoint(method_http=self.app.put, path='/api/install/features', method=self.put_install_features),
             
             # Streaming - channel-based (new) - MUST come before theme-based!
             api.Endpoint(method_http=self.app.get, path='/stream/channel{channel_id:int}', method=self.stream_channel),
@@ -219,8 +223,8 @@ class ApiSonorium(api.Base):
             # Per-speaker names, rooms, volume offsets and play-via choices
             self._ha_registry.set_speaker_settings_source(lambda: self._state_store.settings.speaker_settings)
 
-            # Standalone: speakers found on the LAN, listed next to any HA speakers
-            if runtime.STANDALONE:
+            # Speakers found on the LAN or added by address, next to any HA speakers
+            if runtime.feature_enabled("network_speakers", self._state_store.settings.feature_overrides):
                 self._init_network_speakers()
 
             try:
@@ -505,7 +509,7 @@ class ApiSonorium(api.Base):
             await self._network_service.stop()
 
     def _init_network_speakers(self):
-        """Standalone only: network speaker discovery and streaming (never imported by the add-on)."""
+        """Network speaker discovery and streaming (only when the network_speakers feature is on)."""
         try:
             from sonorium.network.service import NetworkSpeakerService
             self._network_service = NetworkSpeakerService(config_dir=runtime.CONNECTION_FILE.parent)
@@ -520,8 +524,8 @@ class ApiSonorium(api.Base):
     async def get_connection(self):
         """Standalone connection settings, without secrets."""
         from sonorium import runtime
-        if not runtime.STANDALONE:
-            raise HTTPException(status_code=404, detail="Not available in the Home Assistant add-on")
+        if not runtime.features()["connection_settings"]["available"]:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
         conn = runtime.load_connection()
         return {
             "standalone": True,
@@ -541,12 +545,9 @@ class ApiSonorium(api.Base):
         Save standalone connection settings, then restart Sonorium so every
         component picks them up. Empty token/password fields keep the saved value.
         """
-        import asyncio
-        import os
-        import sys
         from sonorium import runtime
-        if not runtime.STANDALONE:
-            raise HTTPException(status_code=404, detail="Not available in the Home Assistant add-on")
+        if not runtime.features()["connection_settings"]["available"]:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
         try:
             body = await request.json()
         except Exception:
@@ -565,12 +566,61 @@ class ApiSonorium(api.Base):
                 raise HTTPException(status_code=400, detail=f"{key} must start with http:// or https://")
         runtime.save_connection(updates)
         logger.info("Connection settings saved; restarting Sonorium to apply them")
+        self._restart_soon()
+        return {"status": "ok", "restarting": True}
+
+    def _restart_soon(self):
+        """Restart Sonorium in place a moment after the current response is sent."""
+        import asyncio
+        import os
+        import sys
 
         def restart():
             os.execv(sys.executable, [sys.executable, "-m", "sonorium.entrypoint"])
 
         asyncio.get_running_loop().call_later(1.0, restart)
-        return {"status": "ok", "restarting": True}
+
+    def _feature_overrides(self) -> dict:
+        return dict(self._state_store.settings.feature_overrides) if self._state_store else {}
+
+    async def get_install(self):
+        """How Sonorium is installed, and which features that install shows and runs."""
+        return {
+            "install": runtime.INSTALL,
+            "label": runtime.INSTALL_LABEL,
+            "version": __version__,
+            "features": runtime.features(self._feature_overrides()),
+        }
+
+    async def put_install_features(self, request: Request):
+        """
+        Settings > Advanced: switch on (or back off) features that are off by
+        default for this install. Takes effect after a restart.
+        Body: {"network_speakers": true, "restart": true}
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        if not isinstance(body, dict) or not self._state_store:
+            raise HTTPException(status_code=400, detail="Expected a JSON object")
+        overrides = self._feature_overrides()
+        for name, value in body.items():
+            if name == "restart":
+                continue
+            if name not in runtime.FEATURES or runtime.feature_state(name) != "off":
+                raise HTTPException(status_code=400, detail=f"'{name}' can't be changed here")
+            if value:
+                overrides[name] = True
+            else:
+                overrides.pop(name, None)
+        self._state_store.settings.feature_overrides = overrides
+        self._state_store.save()
+        logger.info(f"Advanced settings changed: {overrides or 'all defaults'}")
+        restarting = bool(body.get("restart"))
+        if restarting:
+            self._restart_soon()
+        return {**(await self.get_install()), "restarting": restarting}
 
     def _log_startup_summary(self):
         """One-line summary at normal log level; details are at debug level."""
@@ -579,7 +629,7 @@ class ApiSonorium(api.Base):
             speakers = len(self._ha_registry.hierarchy.get_all_speakers()) if self._ha_registry and self._ha_registry.hierarchy else 0
             sessions = len(self._state_store.sessions) if self._state_store else 0
             mqtt = "connected" if self._mqtt_manager else "not available"
-            logger.info(f"Sonorium {__version__} ready: {themes} themes, {speakers} speakers detected, {sessions} channels, MQTT {mqtt}")
+            logger.info(f"Sonorium {__version__} ({runtime.INSTALL_LABEL}) ready: {themes} themes, {speakers} speakers detected, {sessions} channels, MQTT {mqtt}")
         except Exception as e:
             logger.warning(f"Could not build startup summary: {e}")
 
@@ -600,7 +650,8 @@ class ApiSonorium(api.Base):
         return HTMLResponse(content=html, headers={"Cache-Control": "no-cache"})
 
     def _log_info(self) -> dict:
-        return {"version": __version__, "log_level": logging.getLevelName(logger.getEffectiveLevel()).lower()}
+        return {"version": __version__, "install": runtime.INSTALL_LABEL,
+                "log_level": logging.getLevelName(logger.getEffectiveLevel()).lower()}
 
     async def get_logs(self, after: int = 0):
         """Recent log messages, oldest first; pass the last seq seen as `after` to get only newer ones."""
@@ -609,7 +660,7 @@ class ApiSonorium(api.Base):
     async def download_logs(self):
         """Recent log messages as a text file."""
         info = self._log_info()
-        text = f"Sonorium {info['version']} (log level: {info['log_level']})\n\n" + logbuffer.as_text(logbuffer.recent())
+        text = f"Sonorium {info['version']}, {info['install']} (log level: {info['log_level']})\n\n" + logbuffer.as_text(logbuffer.recent())
         name = f"sonorium-logs-{info['version']}.txt"
         return PlainTextResponse(text, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
@@ -2229,8 +2280,17 @@ class ApiSonorium(api.Base):
         if not self._state_store:
             return {"error": "State not available"}
 
+        # Themes keep their categories in metadata.json (bundled and imported
+        # themes arrive with them), so list those too, or the Themes page shows
+        # those themes as Uncategorized
+        categories = self._state_store.settings.theme_categories
+        if self._theme_metadata_manager:
+            missing = [c for c in self._theme_metadata_manager.all_categories() if c not in categories]
+            if missing:
+                categories.extend(missing)
+                self._state_store.save()
         return {
-            "categories": self._state_store.settings.theme_categories
+            "categories": categories
         }
 
     async def create_category(self, request: Request):
@@ -2269,6 +2329,10 @@ class ApiSonorium(api.Base):
             return {"error": "Category not found"}
 
         categories.remove(category_name)
+
+        # Take it off the themes too, or it comes back with them
+        if self._theme_metadata_manager:
+            self._theme_metadata_manager.remove_category(category_name)
 
         # Also remove from all theme assignments
         assignments = self._state_store.settings.theme_category_assignments

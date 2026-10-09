@@ -16,6 +16,54 @@ from pathlib import Path
 
 STANDALONE = os.environ.get("SONORIUM_STANDALONE") == "1"
 
+
+def _detect_install() -> str:
+    """How Sonorium was installed: the one place this is decided."""
+    if not STANDALONE:
+        return "addon"
+    if Path("/.dockerenv").exists() or os.environ.get("container"):
+        return "docker"
+    return "windows" if os.name == "nt" else "linux"
+
+
+INSTALL = _detect_install()
+INSTALL_LABELS = {"addon": "HA App", "docker": "Docker", "windows": "Windows", "linux": "Linux"}
+INSTALL_LABEL = INSTALL_LABELS[INSTALL]
+
+# What each install shows: "on", "off" (can be switched on in Settings >
+# Advanced) or "hidden" (never offered). Installs not listed use "default".
+FEATURES = {
+    # Home Assistant and MQTT settings: the HA app gets both from Home Assistant
+    "connection_settings": {"addon": "hidden", "default": "on"},
+    # Speakers found on the network or added by address, outside Home Assistant
+    "network_speakers": {"addon": "off", "default": "on"},
+}
+
+
+def feature_state(name: str) -> str:
+    states = FEATURES[name]
+    return states.get(INSTALL, states["default"])
+
+
+def feature_enabled(name: str, overrides: dict | None = None) -> bool:
+    """Whether a feature runs: its default here, or the Advanced override for an "off" one."""
+    state = feature_state(name)
+    if state == "off":
+        return bool((overrides or {}).get(name, False))
+    return state == "on"
+
+
+def features(overrides: dict | None = None) -> dict:
+    """Every feature for the web UI: shown at all, running, and switchable in Advanced."""
+    return {
+        name: {
+            "available": feature_state(name) != "hidden",
+            "enabled": feature_enabled(name, overrides),
+            "overridable": feature_state(name) == "off",
+        }
+        for name in FEATURES
+    }
+
 CONNECTION_FILE = Path(os.environ.get("SONORIUM_CONNECTION_FILE", "/config/sonorium/connection.json"))
 
 # Fields stored in connection.json. Secrets are never returned by the API.
