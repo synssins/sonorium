@@ -245,15 +245,17 @@ class ClientSonorium:
                 else:
                     logger.warning("  Supervisor API returned no MQTT service data")
             except urllib.error.HTTPError as e:
-                logger.warning(f"  Supervisor API error: HTTP {e.code} - {e.reason}")
+                body = e.read().decode(errors="replace")[:200]
+                logger.warning(f"  Supervisor API error: HTTP {e.code} - {e.reason} {body}")
             except Exception as e:
                 logger.warning(f"  Supervisor API fallback failed: {type(e).__name__}: {e}")
 
         # Validate we have at least host and port
         if not mqtt_host:
             raise RuntimeError(
-                "MQTT host not configured. Either:\n"
-                "  1. Install the Mosquitto broker addon in Home Assistant, or\n"
+                "MQTT host not configured. No MQTT broker is registered with the Supervisor. Either:\n"
+                "  1. Install the Mosquitto broker addon in Home Assistant. If it is already\n"
+                "     installed, make sure it is started and 'Start on boot' is on, then restart Sonorium, or\n"
                 "  2. Set 'sonorium__mqtt_host' in addon configuration"
             )
         if not mqtt_port:
