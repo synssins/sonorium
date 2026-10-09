@@ -224,9 +224,10 @@ def test_discover_notifies_and_runs_once_at_a_time():
 
 def test_hierarchy_entries():
     service, _ = make_service([speaker()])
-    assert service.hierarchy_speakers() == [
-        {"entity_id": "net:sonos:RINCON_1", "name": "Kitchen (Sonos)", "ip_address": "10.0.0.5"}
-    ]
+    assert service.hierarchy_speakers() == [{
+        "entity_id": "net:sonos:RINCON_1", "name": "Kitchen", "ip_address": "10.0.0.5",
+        "type": "sonos", "online": True, "source": ["discovered"],
+    }]
 
 
 # --- Discovery ---
@@ -403,14 +404,11 @@ def test_merge_after_discovery_replaces_previous_network_speakers(registry_modul
 
 def test_network_speakers_listed_with_ha_speakers(registry_module):
     registry = registry_module.HARegistry("http://ha/api", "token")
-    hierarchy = registry_module.SpeakerHierarchy(
-        unassigned_speakers=[registry_module.Speaker(entity_id="media_player.office", name="Office")]
-    )
-    registry._speakers["media_player.office"] = hierarchy.unassigned_speakers[0]
+    registry._ha_speakers["media_player.office"] = registry_module.Speaker(entity_id="media_player.office", name="Office")
     registry.set_extra_speaker_source(lambda: [{"entity_id": "net:sonos:A", "name": "Attic (Sonos)"}])
-    registry._apply_extra_speakers(hierarchy)
+    hierarchy = registry.merge_extra_speakers()
     assert [s.entity_id for s in hierarchy.unassigned_speakers] == ["net:sonos:A", "media_player.office"]
-    registry._apply_extra_speakers(hierarchy)  # no duplicates on re-merge
+    hierarchy = registry.merge_extra_speakers()  # no duplicates on re-merge
     assert len(hierarchy.unassigned_speakers) == 2
 
 
@@ -435,6 +433,7 @@ def _module_level_imports(path):
 
 @pytest.mark.parametrize("relative", [
     "api.py", "web/api_v2.py", "ha/registry.py", "ha/media_controller.py", "core/session_manager.py",
+    "core/speaker_settings.py", "core/speaker_test_tone.py",
 ])
 def test_shared_modules_dont_import_network_at_module_level(relative):
     assert not any(name.startswith("sonorium.network") for name in _module_level_imports(PACKAGE / relative))

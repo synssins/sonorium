@@ -703,21 +703,21 @@ Example:
             <!-- Speakers Settings View -->
             <div id="view-settings-speakers" class="view">
                 <div class="settings-section">
-                    <h3>Available Speakers</h3>
-                    <p>Select which speakers Sonorium can use. Disabled speakers won't appear when creating channels.</p>
-                    <div class="settings-actions">
-                        <button class="btn btn-secondary btn-sm" onclick="enableAllSpeakers()">Enable All</button>
-                        <button class="btn btn-secondary btn-sm" onclick="disableAllSpeakers()">Disable All</button>
-                        <button class="btn btn-secondary btn-sm" onclick="refreshSpeakersFromHA()">
+                    <h3>Speakers</h3>
+                    <p>Choose which speakers Sonorium can use, where they are, and how they sound. Disabled speakers don't appear when creating channels.</p>
+                    <div class="spk-toolbar">
+                        <input type="search" id="spk-search" class="spk-search" placeholder="Search speakers" aria-label="Search speakers" oninput="renderSettingsSpeakerTree()">
+                        <div id="spk-filter" class="seg" role="group" aria-label="Show speakers from"></div>
+                        <button class="btn btn-secondary btn-sm" id="spk-rescan" onclick="rescanSpeakers()">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M23 4v6h-6"/>
-                                <path d="M1 20v-6h6"/>
-                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                             </svg>
-                            Refresh from HA
+                            <span id="spk-rescan-label">Rescan network</span>
                         </button>
+                        <span id="spk-scan-meta" class="scan-meta"></span>
                     </div>
-                    <div id="settings-speaker-tree" class="settings-speaker-tree">
+                    <div id="settings-speaker-tree" class="spk-list">
                         <div class="loading">
                             <div class="spinner"></div>
                             Loading speakers...
@@ -787,12 +787,12 @@ Example:
         </main>
     </div>
 
-    <!-- New/Edit Channel Modal -->
+    <!-- New/Edit Channel Modal: two columns on desktop, a full-screen sheet on phones -->
     <div id="session-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
-        <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal channel-editor" role="dialog" aria-labelledby="modal-title" onclick="event.stopPropagation()">
             <div class="modal-header">
                 <h2 id="modal-title">New Channel</h2>
-                <button class="modal-close" onclick="closeSessionModal()">
+                <button class="modal-close" aria-label="Close" onclick="closeSessionModal()">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"/>
                         <line x1="6" y1="6" x2="18" y2="18"/>
@@ -802,59 +802,68 @@ Example:
             <div class="modal-body">
                 <input type="hidden" id="edit-session-id" value="">
 
-                <div class="session-field">
-                    <label>Channel Name</label>
-                    <input type="text" id="session-name" placeholder="Leave empty to auto-generate from selection">
-                </div>
-
-                <div class="session-field">
-                    <label>Select Theme</label>
-                    <div id="theme-selector" class="theme-grid">
-                        <!-- Themes loaded dynamically -->
+                <div class="col col-left">
+                    <div class="session-field">
+                        <label for="session-name">Channel Name</label>
+                        <input type="text" id="session-name" placeholder="Leave empty to auto-generate from selection">
                     </div>
-                </div>
 
-                <div class="session-field" id="channel-preset-field" style="display: none;">
-                    <label>Theme Preset</label>
-                    <select id="channel-preset-select" onchange="onChannelPresetChange()">
-                        <option value="">-- Default Settings --</option>
-                    </select>
-                </div>
-
-                <div class="session-field" id="speaker-group-field" style="display: none;">
-                    <label>Speaker Group</label>
-                    <select id="session-speaker-group" onchange="onSpeakerGroupChange()">
-                        <option value="">-- Select manually below --</option>
-                        <!-- Groups loaded dynamically -->
-                    </select>
-                </div>
-
-                <div class="session-field" id="manual-speaker-selection">
-                    <label>Select Speakers</label>
-                    <div class="speaker-dropdown" id="speaker-dropdown">
-                        <div class="speaker-dropdown-header" onclick="toggleSpeakerDropdown(event)">
-                            <span id="speaker-dropdown-text">Click to select speakers...</span>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="6 9 12 15 18 9"/>
-                            </svg>
-                        </div>
-                        <div class="speaker-dropdown-content" id="speaker-dropdown-content">
-                            <div id="speaker-tree" class="speaker-tree">
-                                <!-- Speaker tree loaded dynamically -->
+                    <div class="session-field grow">
+                        <label>Theme · <span id="theme-selected-name">None</span></label>
+                        <div class="theme-panel">
+                            <div class="picker-head">
+                                <input type="search" id="theme-search" class="picker-search" placeholder="Search themes" aria-label="Search themes" oninput="renderThemeSelector()">
+                            </div>
+                            <div class="theme-list">
+                                <div id="theme-selector" class="theme-chips" role="radiogroup" aria-label="Theme">
+                                    <!-- Themes loaded dynamically -->
+                                </div>
                             </div>
                         </div>
                     </div>
+
+                    <div class="session-field" id="channel-preset-field" style="display: none;">
+                        <label for="channel-preset-select">Theme Preset</label>
+                        <select id="channel-preset-select" onchange="onChannelPresetChange()">
+                            <option value="">-- Default Settings --</option>
+                        </select>
+                    </div>
+
+                    <div class="session-field">
+                        <label for="session-volume">Volume</label>
+                        <div class="volume-control">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                            </svg>
+                            <input type="range" id="session-volume" class="volume-slider" min="0" max="100" value="60">
+                            <span id="volume-display" class="volume-value">60%</span>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="session-field">
-                    <label>Volume</label>
-                    <div class="volume-control">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-                        </svg>
-                        <input type="range" id="session-volume" class="volume-slider" min="0" max="100" value="60">
-                        <span id="volume-display" class="volume-value">60%</span>
+                <div class="col">
+                    <div class="session-field grow">
+                        <label for="session-speaker-group">Speakers<span class="picker-label-summary"> · <span id="speaker-label-summary">0 selected</span></span></label>
+                        <div id="speaker-group-field" style="display: none; margin-bottom: 0.5rem;">
+                            <select id="session-speaker-group" onchange="onSpeakerGroupChange()">
+                                <option value="">-- Choose speakers below --</option>
+                                <!-- Groups loaded dynamically -->
+                            </select>
+                        </div>
+                        <div class="picker" id="manual-speaker-selection">
+                            <div class="picker-head">
+                                <input type="search" id="speaker-search" class="picker-search" placeholder="Search speakers" aria-label="Search speakers" oninput="renderSpeakerTree()">
+                                <div id="speaker-chips" class="chips" aria-label="Selected speakers"></div>
+                            </div>
+                            <div id="speaker-tree" class="picker-list">
+                                <!-- Speaker tree loaded dynamically -->
+                            </div>
+                            <div class="picker-foot">
+                                <span id="speaker-summary">0 speakers selected</span>
+                                <button type="button" class="link-btn" onclick="clearSpeakerSelection()">Clear selection</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -863,6 +872,60 @@ Example:
                 <button class="btn btn-primary" onclick="saveSession()">
                     <span id="save-btn-text">Create Channel</span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Speaker Modal (standalone only) -->
+    <div id="add-speaker-modal" class="modal-backdrop" onclick="if(event.target===this) closeAddSpeakerModal()">
+        <div class="modal add-speaker" role="dialog" aria-labelledby="as-title">
+            <div class="modal-header">
+                <h2 id="as-title">Add speaker</h2>
+                <button class="modal-close" aria-label="Close" onclick="closeAddSpeakerModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="session-field">
+                    <label for="as-addr">Address</label>
+                    <input type="text" id="as-addr" placeholder="192.168.1.50 or speaker.local" autocomplete="off" spellcheck="false">
+                    <span class="field-hint">IP address or network name of the speaker</span>
+                </div>
+                <div class="session-field">
+                    <label for="as-type">Type</label>
+                    <select id="as-type">
+                        <option value="auto">Detect automatically</option>
+                        <option value="cast">Google Cast</option>
+                        <option value="sonos">Sonos</option>
+                        <option value="dlna">DLNA / UPnP</option>
+                        <option value="airplay">AirPlay</option>
+                        <option value="linkplay">LinkPlay / Arylic</option>
+                        <option value="heos">HEOS (Denon / Marantz)</option>
+                    </select>
+                </div>
+                <div class="session-field">
+                    <label for="as-name">Name</label>
+                    <input type="text" id="as-name" placeholder="Leave empty to use the speaker's own name">
+                </div>
+                <div class="session-field">
+                    <label for="as-room">Room</label>
+                    <select id="as-room"><option value="">No room</option></select>
+                </div>
+                <details class="adv">
+                    <summary>Advanced</summary>
+                    <div class="session-field">
+                        <label for="as-port">Port</label>
+                        <input type="text" id="as-port" inputmode="numeric" placeholder="Default for the type">
+                    </div>
+                </details>
+                <div id="as-result" class="check-result" style="display: none;" role="status"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="as-check-btn" onclick="checkManualSpeaker()">Check connection</button>
+                <button class="btn btn-primary" id="as-add-btn" onclick="addManualSpeaker()">Add speaker</button>
             </div>
         </div>
     </div>

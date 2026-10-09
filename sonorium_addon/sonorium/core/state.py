@@ -103,6 +103,11 @@ class SonoriumSettings:
     # Format: {"area_name": ["media_player.entity1", "media_player.entity2"]}
     custom_speaker_areas: dict[str, list[str]] = field(default_factory=dict)
 
+    # Per-speaker settings, by speaker ID (see core/speaker_settings.py)
+    # Format: {"media_player.office": {"name": "Office", "room": "office",
+    #          "volume_offset": -10, "play_via": "net:dlna:abc"}}
+    speaker_settings: dict[str, dict] = field(default_factory=dict)
+
     # Per-track presence settings for themes (how often track plays in mix)
     # Format: {"theme_id": {"track_name": 0.5, "track_name2": 1.0}}
     # Presence: 1.0 = always playing, 0.5 = plays ~50% of time, 0.0 = never plays
