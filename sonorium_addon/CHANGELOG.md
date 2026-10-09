@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.2 (2026-10-09)
+
+### Features
+
+- Group settings with per-track overrides; restore presets from the conversion backup
+  ([`1398f19`](https://github.com/synssins/sonorium/commit/1398f193816ca75d448137871a06753cc96f3896))
+
+
 ## v1.4.2-dev.1 (2026-10-09)
 
 ### Bug Fixes
