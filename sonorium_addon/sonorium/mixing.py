@@ -10,7 +10,8 @@ occasional sounds played quietly. Now:
    it comes down in about ATTACK_SECONDS when more sounds start, and goes
    back up over RELEASE_SECONDS, ramped across each chunk so there's no step.
 3. After the output gain, a soft limiter above LIMIT_KNEE of full scale
-   replaces hard clipping.
+   bends peaks toward LIMIT_CEILING (about -1 dBFS) instead of hard
+   clipping, leaving room for the MP3 encoder's overshoot.
 
 Pure numpy and deterministic, so the Android mixer can match it exactly.
 """
@@ -22,7 +23,8 @@ FULL_SCALE = 32767.0
 ACTIVE_PEAK = 100.0  # about -50 dBFS: quieter than this counts as silent
 ATTACK_SECONDS = 0.3
 RELEASE_SECONDS = 3.0
-LIMIT_KNEE = 0.8  # fraction of full scale where the soft limiter starts
+LIMIT_KNEE = 0.7  # fraction of full scale where the soft limiter starts
+LIMIT_CEILING = 0.89  # about -1 dBFS: room for the MP3 encoder's overshoot
 
 
 def target_gain(active_tracks: int) -> float:
@@ -31,9 +33,9 @@ def target_gain(active_tracks: int) -> float:
 
 
 def soft_limit(signal: np.ndarray) -> np.ndarray:
-    """Leave everything below the knee untouched; bend louder peaks smoothly toward full scale."""
+    """Leave everything below the knee untouched; bend louder peaks smoothly toward the ceiling."""
     knee = LIMIT_KNEE * FULL_SCALE
-    headroom = FULL_SCALE - knee
+    headroom = (LIMIT_CEILING - LIMIT_KNEE) * FULL_SCALE
     magnitude = np.abs(signal)
     over = magnitude > knee
     if not np.any(over):

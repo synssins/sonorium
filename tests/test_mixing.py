@@ -56,5 +56,5 @@ def test_soft_limiter_only_touches_loud_peaks():
     quiet = np.array([1000.0, -20000.0])
     assert np.array_equal(mixing.soft_limit(quiet), quiet)
     loud = mixing.soft_limit(np.array([60000.0, -90000.0]))
-    assert np.all(np.abs(loud) < 32767) and np.all(np.abs(loud) > mixing.LIMIT_KNEE * 32767)
+    assert np.all(np.abs(loud) < mixing.LIMIT_CEILING * 32767) and np.all(np.abs(loud) > mixing.LIMIT_KNEE * 32767)
     assert loud[0] > 0 > loud[1]
