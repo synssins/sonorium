@@ -96,3 +96,10 @@ def test_migration_waits_for_the_speaker_list():
     assert s.migrate_enabled_speakers([]) is False
     assert s.enabled_speakers_exact is False
     assert s.speaker_enabled("anything") is True  # old meaning kept meanwhile
+
+
+def test_migration_keeps_entries_for_missing_speakers():
+    state = settings_module()
+    s = state.SonoriumSettings.from_dict({"enabled_speakers": ["b", "gone"]})
+    s.migrate_enabled_speakers(["a", "b"])
+    assert s.enabled_speakers == ["b", "gone"]

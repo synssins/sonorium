@@ -168,8 +168,15 @@ class SonoriumSettings:
         return speaker_id in self.enabled_speakers
 
     def effective_enabled_speakers(self, all_speaker_ids: list[str]) -> list[str]:
-        """The switched-on speakers as an exact list."""
-        return [speaker_id for speaker_id in all_speaker_ids if self.speaker_enabled(speaker_id)]             if not self.enabled_speakers_exact else list(self.enabled_speakers)
+        """
+        The switched-on speakers as an exact list. Entries for speakers not
+        currently known are kept, so a speaker that's briefly missing stays on.
+        """
+        if self.enabled_speakers_exact:
+            return list(self.enabled_speakers)
+        if not self.enabled_speakers:
+            return list(all_speaker_ids)  # old "empty = all"
+        return [speaker_id for speaker_id in self.enabled_speakers if speaker_id != "__none__"]
 
     def migrate_enabled_speakers(self, all_speaker_ids: list[str]) -> bool:
         """
