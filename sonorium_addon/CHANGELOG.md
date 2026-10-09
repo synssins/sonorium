@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.3 (2026-10-09)
+
+### Features
+
+- Groups work like a mixer bus
+  ([`e84b7a3`](https://github.com/synssins/sonorium/commit/e84b7a3f649f568dbf7e6078bfdbd25fc7207b94))
+
+
 ## v1.4.2-dev.2 (2026-10-09)
 
 ### Features
