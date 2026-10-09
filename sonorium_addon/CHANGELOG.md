@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.5 (2026-10-09)
+
+### Build System
+
+- **docker**: Add network speaker dependencies to the standalone image
+  ([`ce0cc00`](https://github.com/synssins/sonorium/commit/ce0cc008e16447f4345547008320e2c3b5882f99))
+
+### Features
+
+- **standalone**: Discover and stream to network speakers
+  ([`d03a487`](https://github.com/synssins/sonorium/commit/d03a4872ee0c30207bb3984ae4963eb136e01cac))
+
+### Testing
+
+- Network speaker IDs, routing, hierarchy and add-on isolation
+  ([`ffb7768`](https://github.com/synssins/sonorium/commit/ffb77686c0583c66f89eeb2bbdfa725c1571203b))
+
+
 ## v1.4.0-dev.4 (2026-10-09)
 
 ### Features
