@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.1-dev.4 (2026-10-09)
+
+### Bug Fixes
+
+- Adding floors and areas failed with a 422
+  ([`7a499fa`](https://github.com/synssins/sonorium/commit/7a499fa582bac439d16d28add10bb0d21f1260d9))
+
+
 ## v1.4.1-dev.3 (2026-10-09)
 
 ### Features
