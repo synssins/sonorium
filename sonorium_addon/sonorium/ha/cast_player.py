@@ -125,7 +125,7 @@ class CastPlayer:
         self._ha_device_ips = await self._get_cast_ips_from_ha()
 
         if self._ha_device_ips:
-            logger.info(f"  Cast: Found {len(self._ha_device_ips)} Cast device(s) in HA registry")
+            logger.debug(f"  Cast: Found {len(self._ha_device_ips)} Cast device(s) in HA registry")
         else:
             logger.warning("  Cast: No Cast IPs found in HA device registry")
 
@@ -150,7 +150,7 @@ class CastPlayer:
             token = self.media_controller.token
             ws_url = self.media_controller.api_url.replace('http://', 'ws://').replace('/api', '/api/websocket')
 
-            logger.info(f"  Cast: Connecting to HA WebSocket: {ws_url}")
+            logger.debug(f"  Cast: Connecting to HA WebSocket: {ws_url}")
 
             # Increase max_size for large HA installations (default 1MB is too small)
             async with websockets.connect(ws_url, max_size=10 * 1024 * 1024) as ws:

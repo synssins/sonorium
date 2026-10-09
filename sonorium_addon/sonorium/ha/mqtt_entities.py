@@ -442,7 +442,7 @@ class SonoriumMQTTManager:
         conditions). These old entities clutter the HA entity registry.
         """
         import asyncio
-        logger.info("  Clearing stale entities from old addon versions...")
+        logger.debug("  Clearing stale entities from old addon versions...")
 
         # Known stale entities from old addon versions that need to be deleted
         # Format: (component, object_id)
@@ -469,14 +469,14 @@ class SonoriumMQTTManager:
             # Empty payload deletes the entity from HA
             await self._mqtt_publish(topic, "", retain=True)
 
-        logger.info(f"    Cleared {len(stale_entities)} stale entity configs")
+        logger.debug(f"    Cleared {len(stale_entities)} stale entity configs")
 
         # Give HA time to process the deletions before creating new entities
         await asyncio.sleep(0.5)
 
     async def initialize(self):
         """Initialize MQTT entities for all sessions."""
-        logger.info("Initializing MQTT entities...")
+        logger.debug("Initializing MQTT entities...")
 
         # Clear stale entities first
         await self._clear_stale_entities()
@@ -489,7 +489,7 @@ class SonoriumMQTTManager:
         if self.state.sessions and not self._selected_session_id:
             first_session = next(iter(self.state.sessions.values()))
             self._selected_session_id = first_session.id
-            logger.info(f"  Auto-selected session: {first_session.name}")
+            logger.debug(f"  Auto-selected session: {first_session.name}")
 
         # Publish global entities
         await self._publish_global_entities()
@@ -497,7 +497,7 @@ class SonoriumMQTTManager:
         # Subscribe to command topics
         await self._subscribe_commands()
 
-        logger.info(f"MQTT initialized with {len(self._session_entities)} sessions")
+        logger.debug(f"MQTT initialized with {len(self._session_entities)} sessions")
     
     async def add_session_entities(self, session: Session):
         """Add MQTT entities for a new session."""
@@ -627,7 +627,7 @@ class SonoriumMQTTManager:
     async def _publish_global_entities(self):
         """Publish global Sonorium entities including session selector and controls."""
         import asyncio
-        logger.info("  Publishing global entities...")
+        logger.debug("  Publishing global entities...")
 
         # === SESSION SELECTOR ===
         # Dropdown to select which session to control (uses names, maps to IDs)
@@ -864,7 +864,7 @@ class SonoriumMQTTManager:
         # Wait for HA to process discovery config before publishing state
         await asyncio.sleep(0.1)
 
-        logger.info("  Global entities published: session, play, theme, preset, volume, status, speakers, stop_all, active_sessions")
+        logger.debug("  Global entities published: session, play, theme, preset, volume, status, speakers, stop_all, active_sessions")
 
         # Update active sessions count (publishes initial state)
         await self._update_active_sessions_count()

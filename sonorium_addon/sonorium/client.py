@@ -92,7 +92,7 @@ class MQTTClient:
 
     async def connect(self):
         """Connect to the MQTT broker."""
-        logger.info(f"Connecting to MQTT broker at {self.hostname}:{self.port}...")
+        logger.debug(f"Connecting to MQTT broker at {self.hostname}:{self.port}...")
 
         # Capture the event loop for thread-safe callbacks
         self._loop = asyncio.get_running_loop()
@@ -264,7 +264,7 @@ class ClientSonorium:
 
         # Log final configuration (mask password)
         auth_status = "with credentials" if mqtt_username else "anonymous"
-        logger.info(f"  MQTT config: {mqtt_host}:{mqtt_port} ({auth_status})")
+        logger.debug(f"  MQTT config: {mqtt_host}:{mqtt_port} ({auth_status})")
 
         # Create client
         return cls(

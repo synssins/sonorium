@@ -66,7 +66,7 @@ class PluginManager:
         if self._initialized:
             return
 
-        logger.info("Initializing plugin manager...")
+        logger.debug("Initializing plugin manager...")
 
         # Ensure plugins directory exists
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
@@ -78,7 +78,7 @@ class PluginManager:
 
         # Discover and load plugins
         plugin_dirs = discover_plugins(self.plugins_dir)
-        logger.info(f"Found {len(plugin_dirs)} plugin(s)")
+        logger.debug(f"Found {len(plugin_dirs)} plugin(s)")
 
         for plugin_dir in plugin_dirs:
             await self._load_plugin(plugin_dir)
@@ -90,7 +90,7 @@ class PluginManager:
                 await self.enable_plugin(plugin_id)
 
         self._initialized = True
-        logger.info(f"Plugin manager initialized with {len(self.plugins)} plugin(s)")
+        logger.debug(f"Plugin manager initialized with {len(self.plugins)} plugin(s)")
 
     async def _load_plugin(self, plugin_dir: Path) -> Optional[BasePlugin]:
         """Load a single plugin from its directory."""
@@ -131,7 +131,7 @@ class PluginManager:
 
             # Store plugin
             self.plugins[plugin.id] = plugin
-            logger.info(f"Loaded plugin: {plugin.name} ({plugin.id})")
+            logger.debug(f"Loaded plugin: {plugin.name} ({plugin.id})")
 
             return plugin
 
@@ -205,7 +205,7 @@ class PluginManager:
                 enabled_list.append(plugin_id)
                 self.state_store.save()
 
-            logger.info(f"Enabled plugin: {plugin.name}")
+            logger.debug(f"Enabled plugin: {plugin.name}")
             return True
 
         except Exception as e:

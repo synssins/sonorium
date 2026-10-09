@@ -70,7 +70,7 @@ class ApiSonorium(api.Base):
         # Register startup event to initialize v2
         @self.app.on_event("startup")
         async def startup_event():
-            logger.info("FastAPI startup event triggered")
+            logger.debug("FastAPI startup event triggered")
             await self.initialize_v2()
         
         # Register shutdown event to stop cycle manager
@@ -82,7 +82,7 @@ class ApiSonorium(api.Base):
         # Mount static files (CSS, JS) for the web UI
         if STATIC_DIR.exists():
             self.app.mount("/static", RevalidatingStaticFiles(directory=STATIC_DIR), name="static")
-            logger.info(f"Mounted static files from: {STATIC_DIR}")
+            logger.debug(f"Mounted static files from: {STATIC_DIR}")
         else:
             logger.warning(f"Static directory not found: {STATIC_DIR}")
 
@@ -162,19 +162,19 @@ class ApiSonorium(api.Base):
             from sonorium.web.api_v2 import create_api_router
             from sonorium.settings import settings
             
-            logger.info("Initializing Sonorium v2 components...")
+            logger.debug("Initializing Sonorium v2 components...")
             
             # Initialize state store
             self._state_store = StateStore()
             self._state_store.load()
-            logger.info(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
+            logger.debug(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
 
             # Initialize theme metadata manager
             from sonorium.core.theme_metadata import ThemeMetadataManager
             audio_path = self.client.device.path_audio
             self._theme_metadata_manager = ThemeMetadataManager(audio_path)
             theme_metadata = self._theme_metadata_manager.scan_themes()
-            logger.info(f"  Theme metadata: {len(theme_metadata)} themes scanned")
+            logger.debug(f"  Theme metadata: {len(theme_metadata)} themes scanned")
 
             # Migrate any theme data from state.json to metadata.json (one-time migration)
             self._migrate_theme_data_to_metadata()
@@ -185,14 +185,14 @@ class ApiSonorium(api.Base):
             # Initialize channel manager
             max_channels = getattr(settings, 'max_channels', 6)
             self._channel_manager = ChannelManager(max_channels=max_channels)
-            logger.info(f"  Channel manager: {max_channels} channels available")
+            logger.debug(f"  Channel manager: {max_channels} channels available")
             
             # Initialize HA registry
             api_url = f"{settings.ha_supervisor_api.replace('/core', '')}/core/api"
             self._ha_registry = HARegistry(api_url, settings.token)
             try:
                 self._ha_registry.refresh()
-                logger.info(f"  HA registry loaded: {len(self._ha_registry.hierarchy.floors)} floors")
+                logger.debug(f"  HA registry loaded: {len(self._ha_registry.hierarchy.floors)} floors")
             except Exception as e:
                 logger.warning(f"  Could not load HA registry (floors/areas may not work): {e}")
             
@@ -201,7 +201,7 @@ class ApiSonorium(api.Base):
             
             # Use configured stream URL (from SONORIUM__STREAM_URL env var)
             stream_base_url = settings.stream_url
-            logger.info(f"  Stream base URL: {stream_base_url}")
+            logger.debug(f"  Stream base URL: {stream_base_url}")
             
             # Initialize cycle manager
             self._cycle_manager = CycleManager(
@@ -239,7 +239,7 @@ class ApiSonorium(api.Base):
                     audio_path=audio_path,
                 )
                 await self._plugin_manager.initialize()
-                logger.info(f"  Plugin manager: {len(self._plugin_manager.plugins)} plugin(s) loaded")
+                logger.debug(f"  Plugin manager: {len(self._plugin_manager.plugins)} plugin(s) loaded")
             except Exception as e:
                 logger.warning(f"  Failed to initialize plugin manager: {e}")
                 self._plugin_manager = None
@@ -261,7 +261,7 @@ class ApiSonorium(api.Base):
                 self.client.mqtt_client.set_message_handler(self._mqtt_manager.handle_command)
 
                 await self._mqtt_manager.initialize()
-                logger.info(f"  MQTT entity manager: {len(self._state_store.sessions)} session entities published")
+                logger.debug(f"  MQTT entity manager: {len(self._state_store.sessions)} session entities published")
             except Exception as e:
                 logger.warning(f"  Failed to initialize MQTT entity manager: {e}")
                 import traceback
@@ -288,10 +288,10 @@ class ApiSonorium(api.Base):
 
             # Start cycle manager background task
             await self._cycle_manager.start()
-            logger.info("  CycleManager started")
+            logger.debug("  CycleManager started")
             
             self._v2_initialized = True
-            logger.info("  Sonorium v2 initialization complete!")
+            logger.debug("  Sonorium v2 initialization complete!")
             self._log_startup_summary()
             
         except ImportError as e:
@@ -374,7 +374,7 @@ class ApiSonorium(api.Base):
                 migrated_any = True
 
         if migrated_any:
-            logger.info("  Theme data migration complete")
+            logger.debug("  Theme data migration complete")
 
     def _apply_saved_track_settings(self):
         """Apply saved track settings from metadata.json to theme instances on startup."""
@@ -387,7 +387,7 @@ class ApiSonorium(api.Base):
         if not device.themes:
             return
 
-        logger.info("  Applying saved track settings to themes...")
+        logger.debug("  Applying saved track settings to themes...")
         for theme in device.themes:
             if not theme.instances:
                 continue
@@ -916,7 +916,7 @@ class ApiSonorium(api.Base):
 
         # Scan for theme folders
         theme_folders = [folder for folder in path_audio.iterdir() if folder.is_dir()]
-        logger.info(f'Found {len(theme_folders)} theme folder(s)')
+        logger.debug(f'Found {len(theme_folders)} theme folder(s)')
 
         # Step 1: Build theme_metas FIRST (before creating ThemeDefinitions)
         new_theme_metas = {}

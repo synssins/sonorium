@@ -72,7 +72,7 @@ class CycleManager:
         
         self._running = True
         self._task = asyncio.create_task(self._cycle_loop())
-        logger.info("CycleManager: Started background cycle task")
+        logger.debug("CycleManager: Started background cycle task")
     
     async def stop(self):
         """Stop the background cycle task."""

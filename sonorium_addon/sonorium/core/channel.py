@@ -444,7 +444,7 @@ class ChannelManager:
         for i in range(1, max_channels + 1):
             self._channels[i] = Channel(id=i)
 
-        logger.info(f"ChannelManager initialized with {max_channels} channels")
+        logger.debug(f"ChannelManager initialized with {max_channels} channels")
 
     def get_channel(self, channel_id: int) -> Optional[Channel]:
         """Get a channel by ID."""

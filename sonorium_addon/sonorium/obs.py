@@ -5,6 +5,7 @@ Replaces fmtr.tools logging with standard Python logging.
 import functools
 import logging
 import os
+import re
 import sys
 
 from sonorium.paths import paths
@@ -72,6 +73,23 @@ class LevelPrefixFormatter(logging.Formatter):
         return message
 
 
+class RequestLineFilter(logging.Filter):
+    """
+    HTTP request lines ("GET /api/sessions") arrive at info level from the API
+    layer, one per UI poll. Show them only at debug level.
+    """
+    REQUEST = re.compile(r"^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) \S")
+
+    def __init__(self, logger: logging.Logger):
+        super().__init__()
+        self._logger = logger
+
+    def filter(self, record):
+        if record.levelno == logging.INFO and self.REQUEST.match(str(record.msg)):
+            return self._logger.isEnabledFor(logging.DEBUG)
+        return True
+
+
 def log_level_from_env() -> int:
     """Log level from SONORIUM_LOG_LEVEL (set from the add-on's log_level option); INFO by default."""
     name = os.environ.get("SONORIUM_LOG_LEVEL", "info").strip().upper()
@@ -93,6 +111,7 @@ def get_logger(name: str, version: str = "") -> InstrumentedLogger:
         sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(LevelPrefixFormatter('%(asctime)s.%(msecs)03d %(message)s', datefmt='%H:%M:%S'))
+        handler.addFilter(RequestLineFilter(logger))
         logger.addHandler(handler)
         logger.setLevel(log_level_from_env())
 

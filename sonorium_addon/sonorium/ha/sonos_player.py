@@ -68,7 +68,7 @@ def load_sonos_ip_config():
                 logger.info(f"  SoCo: Manual IP mapping: {room} -> {ip}")
 
         if _manual_ip_map:
-            logger.info(f"  SoCo: Loaded {len(_manual_ip_map)} manual IP mapping(s)")
+            logger.debug(f"  SoCo: Loaded {len(_manual_ip_map)} manual IP mapping(s)")
     else:
         logger.debug("  SoCo: No manual IP mappings configured")
 
@@ -100,7 +100,7 @@ async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
         token = media_controller.token
         ws_url = media_controller.api_url.replace('http://', 'ws://').replace('/api', '/api/websocket')
 
-        logger.info(f"  SoCo: Connecting to HA WebSocket: {ws_url}")
+        logger.debug(f"  SoCo: Connecting to HA WebSocket: {ws_url}")
 
         # Increase max_size to 10MB to handle large device registries
         async with websockets.connect(ws_url, max_size=10 * 1024 * 1024) as ws:
@@ -243,7 +243,7 @@ async def _get_sonos_ips_via_rest(media_controller) -> dict[str, str]:
                                 break
 
                 if sonos_ips:
-                    logger.info(f"  SoCo: Found {len(sonos_ips)} Sonos speaker(s) via REST device registry")
+                    logger.debug(f"  SoCo: Found {len(sonos_ips)} Sonos speaker(s) via REST device registry")
                     return sonos_ips
 
             else:
@@ -261,7 +261,7 @@ async def _get_sonos_ips_via_rest(media_controller) -> dict[str, str]:
                     if s.get('entity_id', '').startswith('media_player.')
                     and 'sonos' in s.get('entity_id', '').lower()
                 ]
-                logger.info(f"  SoCo: Found {len(sonos_entities)} Sonos entities in states")
+                logger.debug(f"  SoCo: Found {len(sonos_entities)} Sonos entities in states")
 
                 for entity in sonos_entities:
                     entity_id = entity.get('entity_id', '')
@@ -282,7 +282,7 @@ async def _get_sonos_ips_via_rest(media_controller) -> dict[str, str]:
                             break
 
             if sonos_ips:
-                logger.info(f"  SoCo: Found {len(sonos_ips)} Sonos speaker(s) via REST API")
+                logger.debug(f"  SoCo: Found {len(sonos_ips)} Sonos speaker(s) via REST API")
             else:
                 logger.warning("  SoCo: No Sonos IPs found via REST API")
                 logger.info("  SoCo: To add manual IP mappings, set addon option:")

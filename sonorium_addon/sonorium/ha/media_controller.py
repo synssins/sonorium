@@ -67,7 +67,7 @@ class HAMediaController:
             try:
                 from sonorium.ha.sonos_player import SonosPlayer
                 self._sonos_player = SonosPlayer(self)
-                logger.info(f"HAMediaController initialized with SoCo support for Sonos")
+                logger.debug(f"HAMediaController initialized with SoCo support for Sonos")
             except ImportError:
                 logger.warning("SoCo not available - using HA API for Sonos speakers")
                 self._use_soco_for_sonos = False
@@ -80,12 +80,12 @@ class HAMediaController:
             try:
                 from sonorium.ha.cast_player import CastPlayer
                 self._cast_player = CastPlayer(self)
-                logger.info(f"HAMediaController initialized with pychromecast support for Cast")
+                logger.debug(f"HAMediaController initialized with pychromecast support for Cast")
             except ImportError:
                 logger.warning("pychromecast not available - using HA API for Cast devices")
                 self._use_pychromecast_for_cast = False
 
-        logger.info(f"HAMediaController initialized with API URL: {self.api_url}")
+        logger.debug(f"HAMediaController initialized with API URL: {self.api_url}")
     
     async def _post_service(self, domain: str, service: str, data: dict) -> bool:
         """

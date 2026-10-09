@@ -391,7 +391,7 @@ class StateStore:
                     session.is_playing = False
                     logger.info(f"  Reset session '{session.name}' to stopped state")
 
-            logger.info(f"  Loaded {len(self.state.sessions)} sessions, {len(self.state.speaker_groups)} groups")
+            logger.debug(f"  Loaded {len(self.state.sessions)} sessions, {len(self.state.speaker_groups)} groups")
         except Exception as e:
             logger.error(f"  Failed to load state: {e}")
             self.state = SonoriumState()

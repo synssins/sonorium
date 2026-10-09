@@ -103,7 +103,7 @@ fi
 
 # Test critical Python imports (helps diagnose segfaults)
 # These tests run in the same order as sonorium imports them
-bashio::log.info "Testing Python imports..."
+bashio::log.debug "Testing Python imports..."
 IMPORTS_OK=true
 
 # Test individual imports first
@@ -133,8 +133,8 @@ fi
 
 # Test combined imports (order matters - this is how recording.py imports them)
 # This catches issues where individual imports work but combination causes segfault
-bashio::log.info "Testing combined imports (numpy + av)..."
-if ! python3 -c "import numpy; import av; print('Combined import OK')" 2>&1; then
+bashio::log.debug "Testing combined imports (numpy + av)..."
+if ! python3 -c "import numpy; import av" 2>&1; then
     bashio::log.error "FAILED: Combined numpy+av import"
     bashio::log.error "This may indicate a compatibility issue with virtualized environments"
     bashio::log.error "Please report this issue with your HA OS version and architecture"
@@ -142,8 +142,8 @@ if ! python3 -c "import numpy; import av; print('Combined import OK')" 2>&1; the
 fi
 
 # Test the actual recording module import
-bashio::log.info "Testing sonorium.recording import..."
-if ! python3 -c "from sonorium.recording import RecordingMetadata; print('Recording module OK')" 2>&1; then
+bashio::log.debug "Testing sonorium.recording import..."
+if ! python3 -c "from sonorium.recording import RecordingMetadata" 2>&1; then
     bashio::log.error "FAILED: sonorium.recording import"
     IMPORTS_OK=false
 fi
@@ -168,7 +168,7 @@ fi
 
 # Check if sonorium command exists
 if ! command -v sonorium &> /dev/null; then
-    bashio::log.info "Running via Python module..."
+    bashio::log.debug "Running via Python module..."
     exec python3 -m sonorium.entrypoint
 fi
 

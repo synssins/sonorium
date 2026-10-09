@@ -73,8 +73,8 @@ class Sonorium:
 
         theme_folders = [folder for folder in self.path_audio.iterdir() if folder.is_dir()]
 
-        logger.info(f'Scanning for themes in "{self.path_audio}"...')
-        logger.info(f'Found {len(theme_folders)} theme folder(s): {[f.name for f in theme_folders]}')
+        logger.debug(f'Scanning for themes in "{self.path_audio}"...')
+        logger.debug(f'Found {len(theme_folders)} theme folder(s): {[f.name for f in theme_folders]}')
 
         if not theme_folders:
             # Install bundled themes on first run
@@ -135,7 +135,7 @@ class Sonorium:
 
         if self.themes:
             self.themes.current = self.themes[0]
-            logger.info(f'Set default theme to: "{self.themes.current.name}"')
+            logger.debug(f'Set default theme to: "{self.themes.current.name}"')
             # Enable ALL recordings in ALL themes by default for seamless mixing
             for theme in self.themes:
                 if theme.instances:
@@ -151,7 +151,7 @@ class Sonorium:
                     self.media_player_states.append(media_state)
                 except Exception as e:
                     logger.warning(f'Could not parse media player {data.entity_id}: {e}')
-            logger.info(f'Found {len(self.media_player_states)} media players')
+            logger.debug(f'Found {len(self.media_player_states)} media players')
             if self.media_player_states:
                 self.media_player_states.current = self.media_player_states[0]
         except Exception as e:
