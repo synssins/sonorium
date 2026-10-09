@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import errno
 import json
+import logging
 import os
 import re
 import socket
@@ -132,6 +133,13 @@ def ssdp_search(search_target: str, timeout: float, mx: int = 3) -> list[dict]:
 _unicast_mdns_logged = False
 
 
+class _PortInUseFilter(logging.Filter):
+    """zeroconf logs an error before raising when port 5353 is taken; we handle that below."""
+
+    def filter(self, record):
+        return "Address in use when binding" not in record.getMessage()
+
+
 def open_zeroconf():
     """
     An mDNS listener. Another mDNS service on the host (e.g. avahi on TrueNAS
@@ -140,6 +148,9 @@ def open_zeroconf():
     """
     from zeroconf import Zeroconf
     global _unicast_mdns_logged
+    zeroconf_logger = logging.getLogger("zeroconf")
+    if not any(isinstance(f, _PortInUseFilter) for f in zeroconf_logger.filters):
+        zeroconf_logger.addFilter(_PortInUseFilter())
     try:
         return Zeroconf()
     except OSError as e:
