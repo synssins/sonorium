@@ -35,7 +35,8 @@ async function init() {
             loadAudioSettings(),
             loadVersion(),
             loadPlugins(),
-            loadConnectionSettings()
+            loadConnectionSettings(),
+            loadNetworkInfo()
         ]);
         console.log('Data loaded, rendering...');
 
@@ -478,7 +479,15 @@ function showView(viewName) {
         settings: '',
         'settings-connection': '',
         'settings-audio': '',
-        'settings-speakers': '',
+        'settings-speakers': networkInfo ? `
+            <button class="btn btn-primary" onclick="openAddSpeakerModal()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Add speaker
+            </button>
+        ` : '',
         'settings-groups': '',
         'settings-plugins': '',
         status: `
@@ -969,11 +978,13 @@ function openNewSessionModal() {
     selectedChannelPreset = '';
     document.getElementById('channel-preset-field').style.display = 'none';
 
+    resetChannelEditorSearch();
     renderThemeSelector();
     renderSpeakerTree();
     renderSpeakerGroupSelect();
 
     document.getElementById('session-modal').classList.add('active');
+    scrollSelectedThemeIntoView();
 }
 
 function editSession(sessionId) {
@@ -1005,6 +1016,7 @@ function editSession(sessionId) {
         selectedSpeakers = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
     }
 
+    resetChannelEditorSearch();
     renderThemeSelector();
     renderSpeakerTree();
     renderSpeakerGroupSelect();
@@ -1017,6 +1029,14 @@ function editSession(sessionId) {
     }
 
     document.getElementById('session-modal').classList.add('active');
+    scrollSelectedThemeIntoView();
+}
+
+function resetChannelEditorSearch() {
+    ['theme-search', 'speaker-search'].forEach(id => {
+        const input = document.getElementById(id);
+        if (input) input.value = '';
+    });
 }
 
 function closeSessionModal() {
@@ -1074,22 +1094,41 @@ async function saveSession() {
     }
 }
 
-// Theme Selector
+// Theme Selector: searchable list of compact theme chips
+const THEME_CHIP_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+
 function renderThemeSelector() {
     const container = document.getElementById('theme-selector');
-    container.innerHTML = themes.map(theme => `
-        <div class="theme-card ${selectedTheme === theme.id ? 'selected' : ''}"
-             onclick="selectTheme('${theme.id}')">
-            <div class="theme-icon">${getThemeIcon(theme.id)}</div>
-            <div class="theme-name">${escapeHtml(theme.name)}</div>
-        </div>
-    `).join('');
+    const query = (document.getElementById('theme-search')?.value || '').trim().toLowerCase();
+    const shown = themes.filter(theme => !query || (theme.name || '').toLowerCase().includes(query));
+    container.innerHTML = shown.length ? shown.map(theme => {
+        const selected = selectedTheme === theme.id;
+        return `
+            <button type="button" class="theme-chip${selected ? ' selected' : ''}" role="radio" aria-checked="${selected}"
+                    data-id="${escapeHtml(theme.id)}" title="${escapeHtml(theme.name)}" onclick="selectTheme(this.dataset.id)">
+                ${THEME_CHIP_ICON}<span>${escapeHtml(theme.name)}</span>
+            </button>`;
+    }).join('') : `<div class="picker-empty">${themes.length ? 'No themes match' : 'No themes yet'}</div>`;
+
+    const current = themes.find(theme => theme.id === selectedTheme);
+    document.getElementById('theme-selected-name').textContent = current ? current.name : 'None';
 }
 
 function selectTheme(themeId) {
     selectedTheme = themeId;
     renderThemeSelector();
     loadChannelPresets(themeId);
+}
+
+// Show the selected theme in the middle of the theme list (without scrolling the page)
+function scrollSelectedThemeIntoView() {
+    requestAnimationFrame(() => {
+        const chip = document.querySelector('#theme-selector .theme-chip.selected');
+        const list = chip?.closest('.theme-list');
+        if (!chip || !list) return;
+        const offset = chip.getBoundingClientRect().top - list.getBoundingClientRect().top;
+        list.scrollTop += offset - list.clientHeight / 2 + chip.offsetHeight / 2;
+    });
 }
 
 // Channel Preset Functions
@@ -1233,111 +1272,199 @@ function selectionState(ids, selected) {
     return count === ids.length ? 'all' : 'some';
 }
 
-function pickerCheckbox(state, onchange) {
-    return `<input type="checkbox" ${state === 'all' ? 'checked' : ''} ${state === 'some' ? 'data-indeterminate="1"' : ''}
-                   onchange="${onchange}">`;
+// Badges and online dot shared by the picker and Settings > Speakers
+const SOURCE_BADGES = {
+    ha: { cls: 'badge badge-ha', short: 'HA', long: 'Home Assistant' },
+    discovered: { cls: 'badge badge-disc', short: 'Discovered', long: 'Discovered' },
+    manual: { cls: 'badge badge-manual', short: 'Manual', long: 'Manual' }
+};
+const SPEAKER_TYPE_LABELS = {
+    cast: 'Cast', sonos: 'Sonos', dlna: 'DLNA', airplay: 'AirPlay',
+    linkplay: 'LinkPlay', heos: 'HEOS', esphome: 'ESPHome'
+};
+
+function speakerBadges(speaker, long = false) {
+    const sources = (speaker.source || []).map(source => {
+        const badge = SOURCE_BADGES[source];
+        return badge ? `<span class="${badge.cls}">${long ? badge.long : badge.short}</span>` : '';
+    }).join('');
+    const type = SPEAKER_TYPE_LABELS[speaker.type];
+    return sources + (type ? `<span class="badge badge-type">${type}</span>` : '');
 }
+
+function onlineDot(speaker) {
+    const online = speaker.online !== false;
+    return `<span class="channel-status${online ? ' active' : ''}" title="${online ? 'Online' : 'Offline'}"></span>`;
+}
+
+function allHierarchySpeakers() {
+    const list = [];
+    for (const floor of speakerHierarchy?.floors || []) {
+        for (const area of floor.areas || []) list.push(...(area.speakers || []));
+    }
+    for (const area of speakerHierarchy?.unassigned_areas || []) list.push(...(area.speakers || []));
+    list.push(...(speakerHierarchy?.unassigned_speakers || []));
+    return list;
+}
+
+function findHierarchySpeaker(entityId) {
+    return allHierarchySpeakers().find(s => s.entity_id === entityId) || null;
+}
+
+// Floors collapsed in the channel speaker picker, remembered in this browser
+let collapsedPickerFloors = (() => {
+    try { return JSON.parse(localStorage.getItem('sonorium_pickerCollapsedFloors') || '{}') || {}; }
+    catch (error) { return {}; }
+})();
+
+function togglePickerFloor(floorId) {
+    if (collapsedPickerFloors[floorId]) delete collapsedPickerFloors[floorId];
+    else collapsedPickerFloors[floorId] = true;
+    try { localStorage.setItem('sonorium_pickerCollapsedFloors', JSON.stringify(collapsedPickerFloors)); } catch (error) { /* private mode */ }
+    renderSpeakerTree();
+}
+
+const COLLAPSE_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+const CHIP_REMOVE_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+
+function pickerCheckbox(state, kind, id, label) {
+    return `<input type="checkbox" class="tri" data-kind="${kind}" data-id="${escapeHtml(id)}" aria-label="${escapeHtml(label)}"
+                   ${state === 'all' ? 'checked' : ''} ${state === 'some' ? 'data-indeterminate="1"' : ''}
+                   onchange="onPickerToggle(this)">`;
+}
+
+function pickerCount(ids, selected) {
+    return `<span class="p-count">${ids.filter(id => selected.has(id)).length}/${ids.length}</span>`;
+}
+
+function pickerMatches(speaker, query) {
+    return !query || (speaker.name || '').toLowerCase().includes(query);
+}
+
+function renderPickerSpeaker(speaker, selected) {
+    return `
+        <label class="p-row p-speaker">
+            ${pickerCheckbox(selected.has(speaker.entity_id) ? 'all' : 'none', 'speaker', speaker.entity_id, speaker.name)}
+            ${onlineDot(speaker)}
+            <span class="p-name">${escapeHtml(speaker.name)}</span>
+            <span class="badges">${speakerBadges(speaker)}</span>
+        </label>`;
+}
+
+function renderPickerArea(area, selected, query) {
+    const shown = getEnabledSpeakersInArea(area).filter(s => pickerMatches(s, query));
+    if (shown.length === 0) return '';
+    const ids = areaSpeakerIds(area);
+    return `
+        <div>
+            <label class="p-row p-area">
+                ${pickerCheckbox(selectionState(ids, selected), 'area', area.area_id, area.name)}
+                <span class="p-name">${escapeHtml(area.name)}</span>
+                ${pickerCount(ids, selected)}
+            </label>
+            ${shown.map(s => renderPickerSpeaker(s, selected)).join('')}
+        </div>`;
+}
+
+function renderPickerFloor(floorId, name, areas, ids, selected, query) {
+    const areasHtml = areas.map(area => renderPickerArea(area, selected, query)).join('');
+    if (!areasHtml) return '';
+    const open = !collapsedPickerFloors[floorId] || !!query;
+    return `
+        <div>
+            <div class="p-row p-floor">
+                <button type="button" class="collapse${open ? '' : ' closed'}" data-floor="${escapeHtml(floorId)}"
+                        aria-label="${open ? 'Collapse' : 'Expand'} ${escapeHtml(name)}" aria-expanded="${open}"
+                        onclick="togglePickerFloor(this.dataset.floor)">${COLLAPSE_ICON}</button>
+                <label class="p-label">
+                    ${pickerCheckbox(selectionState(ids, selected), 'floor', floorId, name)}
+                    <span class="p-name">${escapeHtml(name)}</span>
+                </label>
+                ${pickerCount(ids, selected)}
+            </div>
+            ${open ? areasHtml : ''}
+        </div>`;
+}
+
+// Speaker IDs under a picker floor row ("__other__" = areas without a floor)
+function pickerFloorIds(floorId) {
+    if (floorId === OTHER_AREAS_ID) {
+        return (speakerHierarchy?.unassigned_areas || []).flatMap(areaSpeakerIds);
+    }
+    const floor = (speakerHierarchy?.floors || []).find(f => f.floor_id === floorId);
+    return floor ? floorSpeakerIds(floor) : [];
+}
+
+const OTHER_AREAS_ID = '__other__';
 
 function renderSpeakerTree() {
     const container = document.getElementById('speaker-tree');
+    if (!container) return;
     if (!speakerHierarchy) {
-        container.innerHTML = '<p>Loading speakers...</p>';
+        container.innerHTML = '<div class="picker-empty">Loading speakers...</div>';
         return;
     }
 
+    // Keep keyboard focus on the same checkbox across re-renders
+    const focused = container.contains(document.activeElement) ? document.activeElement.dataset : null;
+    const focusKey = focused && focused.kind ? [focused.kind, focused.id] : null;
+
     const selected = getEffectiveSpeakerSelection();
+    const query = (document.getElementById('speaker-search')?.value || '').trim().toLowerCase();
     let html = '';
 
-    // Render floors (only those with enabled speakers)
     for (const floor of speakerHierarchy.floors || []) {
-        const enabledAreas = getEnabledAreasInFloor(floor);
-        if (enabledAreas.length === 0) continue;
-
-        const floorState = selectionState(floorSpeakerIds(floor), selected);
-        html += `
-            <div class="tree-floor">
-                <div class="tree-floor-header">
-                    ${pickerCheckbox(floorState, `toggleFloor('${floor.floor_id}', this.checked)`)}
-                    <span class="tree-floor-name">🏢 ${escapeHtml(floor.name)}</span>
-                    <span class="tree-floor-action" onclick="toggleFloor('${floor.floor_id}', true)">Select All</span>
-                </div>
-                <div class="tree-areas">
-                    ${enabledAreas.map(area => renderArea(area, selected)).join('')}
-                </div>
-            </div>
-        `;
+        html += renderPickerFloor(floor.floor_id, floor.name, getEnabledAreasInFloor(floor), floorSpeakerIds(floor), selected, query);
     }
 
-    // Unassigned areas
-    const enabledUnassignedAreas = (speakerHierarchy.unassigned_areas || [])
-        .filter(area => getEnabledSpeakersInArea(area).length > 0);
-    if (enabledUnassignedAreas.length > 0) {
-        html += `
-            <div class="tree-floor">
-                <div class="tree-floor-header">
-                    <span class="tree-floor-name">🏠 Other Areas</span>
-                </div>
-                <div class="tree-areas">
-                    ${enabledUnassignedAreas.map(area => renderArea(area, selected)).join('')}
-                </div>
-            </div>
-        `;
-    }
+    const otherAreas = (speakerHierarchy.unassigned_areas || []).filter(area => getEnabledSpeakersInArea(area).length > 0);
+    html += renderPickerFloor(OTHER_AREAS_ID, 'Other areas', otherAreas, pickerFloorIds(OTHER_AREAS_ID), selected, query);
 
-    // Unassigned speakers
-    const enabledUnassignedSpeakers = (speakerHierarchy.unassigned_speakers || [])
-        .filter(s => isSpeakerEnabled(s.entity_id));
-    if (enabledUnassignedSpeakers.length > 0) {
+    const unassigned = (speakerHierarchy.unassigned_speakers || [])
+        .filter(s => isSpeakerEnabled(s.entity_id) && pickerMatches(s, query));
+    if (unassigned.length > 0) {
         html += `
-            <div class="tree-floor">
-                <div class="tree-floor-header">
-                    <span class="tree-floor-name">📦 Unassigned Speakers</span>
-                </div>
-                <div class="tree-speakers">
-                    ${enabledUnassignedSpeakers.map(speaker => renderSpeaker(speaker, selected)).join('')}
-                </div>
-            </div>
-        `;
+            <div class="p-unassigned">
+                <div class="p-row p-floor"><span class="p-spacer"></span><span class="p-name" style="padding-left: 28px;">Unassigned</span></div>
+                ${unassigned.map(s => renderPickerSpeaker(s, selected)).join('')}
+            </div>`;
     }
 
     if (!html) {
-        html = '<p style="color: var(--text-muted); padding: 0.5rem;">No speakers available. Enable speakers in Settings.</p>';
+        html = query
+            ? '<div class="picker-empty">No speakers match</div>'
+            : '<div class="picker-empty">No speakers available. Enable speakers in Settings.</div>';
     }
 
     container.innerHTML = html;
     // "Partly selected" can only be set from script
     container.querySelectorAll('input[data-indeterminate]').forEach(cb => { cb.indeterminate = true; });
+    if (focusKey) {
+        const again = container.querySelector(`input[data-kind="${focusKey[0]}"][data-id="${CSS.escape(focusKey[1])}"]`);
+        if (again) again.focus();
+    }
+
+    renderSpeakerChips(selected);
+    updateSpeakerSummary(selected);
 }
 
-function renderArea(area, selected) {
-    const enabledSpeakersInArea = getEnabledSpeakersInArea(area);
-    if (enabledSpeakersInArea.length === 0) return '';
-
-    const areaState = selectionState(areaSpeakerIds(area), selected);
-
-    return `
-        <div class="tree-area">
-            <div class="tree-area-header">
-                ${pickerCheckbox(areaState, `toggleArea('${area.area_id}', this.checked)`)}
-                <span>🏠 ${escapeHtml(area.name)}</span>
-            </div>
-            <div class="tree-speakers">
-                ${enabledSpeakersInArea.map(speaker => renderSpeaker(speaker, selected)).join('')}
-            </div>
-        </div>
-    `;
+function renderSpeakerChips(selected) {
+    const container = document.getElementById('speaker-chips');
+    if (!container) return;
+    const known = allHierarchySpeakers();
+    const knownIds = new Set(known.map(s => s.entity_id));
+    const chips = known.filter(s => selected.has(s.entity_id)).map(s => [s.entity_id, s.name])
+        .concat([...selected].filter(id => !knownIds.has(id)).map(id => [id, id]));
+    container.innerHTML = chips.map(([id, name]) => `
+        <span class="chip">${escapeHtml(name)}<button type="button" data-id="${escapeHtml(id)}" aria-label="Remove ${escapeHtml(name)}"
+              onclick="toggleSpeakerIds([this.dataset.id], false)">${CHIP_REMOVE_ICON}</button></span>`).join('');
 }
 
-function renderSpeaker(speaker, selected) {
-    if (!isSpeakerEnabled(speaker.entity_id)) return '';
-
-    return `
-        <div class="tree-speaker">
-            <input type="checkbox" ${selected.has(speaker.entity_id) ? 'checked' : ''}
-                   onchange="toggleSpeaker('${speaker.entity_id}', this.checked)">
-            <span>🔊 ${escapeHtml(speaker.name)}</span>
-        </div>
-    `;
+function onPickerToggle(checkbox) {
+    const { kind, id } = checkbox.dataset;
+    if (kind === 'floor') toggleSpeakerIds(pickerFloorIds(id), checkbox.checked);
+    else if (kind === 'area') toggleArea(id, checkbox.checked);
+    else toggleSpeaker(id, checkbox.checked);
 }
 
 function toggleSpeakerIds(ids, checked) {
@@ -1345,12 +1472,10 @@ function toggleSpeakerIds(ids, checked) {
     ids.forEach(id => checked ? selected.add(id) : selected.delete(id));
     setEffectiveSpeakerSelection(selected);
     renderSpeakerTree();
-    updateSpeakerDropdownText();
 }
 
 function toggleFloor(floorId, checked) {
-    const floor = (speakerHierarchy?.floors || []).find(f => f.floor_id === floorId);
-    if (floor) toggleSpeakerIds(floorSpeakerIds(floor), checked);
+    toggleSpeakerIds(pickerFloorIds(floorId), checked);
 }
 
 function toggleArea(areaId, checked) {
@@ -1360,6 +1485,22 @@ function toggleArea(areaId, checked) {
 
 function toggleSpeaker(entityId, checked) {
     toggleSpeakerIds([entityId], checked);
+}
+
+function clearSpeakerSelection() {
+    setEffectiveSpeakerSelection(new Set());
+    renderSpeakerTree();
+}
+
+function updateSpeakerSummary(selected = getEffectiveSpeakerSelection()) {
+    const count = selected.size;
+    const summary = document.getElementById('speaker-summary');
+    if (summary) summary.textContent = `${count} speaker${count === 1 ? '' : 's'} selected`;
+    const label = document.getElementById('speaker-label-summary');
+    if (label) {
+        const group = selectedSpeakerGroupId && speakerGroups.find(g => g.id === selectedSpeakerGroupId);
+        label.textContent = group ? group.name : `${count} selected`;
+    }
 }
 
 let selectedSpeakerGroupId = null;
@@ -1375,7 +1516,7 @@ function renderSpeakerGroupSelect() {
     }
 
     // Build options
-    let html = '<option value="">-- Select manually below --</option>';
+    let html = '<option value="">-- Choose speakers below --</option>';
     for (const group of speakerGroups) {
         const selected = selectedSpeakerGroupId === group.id ? 'selected' : '';
         html += `<option value="${group.id}" ${selected}>${escapeHtml(group.name)}</option>`;
@@ -1384,7 +1525,7 @@ function renderSpeakerGroupSelect() {
 
     // Show/hide manual selection based on group selection
     updateManualSelectionVisibility();
-    updateSpeakerDropdownText();
+    updateSpeakerSummary();
 }
 
 function onSpeakerGroupChange() {
@@ -1398,54 +1539,15 @@ function onSpeakerGroupChange() {
     }
 
     updateManualSelectionVisibility();
-    updateSpeakerDropdownText();
+    updateSpeakerSummary();
 }
 
 function updateManualSelectionVisibility() {
     const manualSection = document.getElementById('manual-speaker-selection');
     if (!manualSection) return;
 
-    if (selectedSpeakerGroupId) {
-        manualSection.style.display = 'none';
-    } else {
-        manualSection.style.display = 'block';
-    }
+    manualSection.style.display = selectedSpeakerGroupId ? 'none' : '';
 }
-
-function toggleSpeakerDropdown(event) {
-    event.stopPropagation();
-    const dropdown = document.getElementById('speaker-dropdown');
-    dropdown.classList.toggle('open');
-}
-
-function closeSpeakerDropdown() {
-    const dropdown = document.getElementById('speaker-dropdown');
-    dropdown.classList.remove('open');
-}
-
-function updateSpeakerDropdownText() {
-    const text = document.getElementById('speaker-dropdown-text');
-    if (!text) return;
-
-    // Count the speakers actually selected (floors and areas expanded)
-    const speakerCount = getEffectiveSpeakerSelection().size;
-
-    if (speakerCount === 0) {
-        text.textContent = 'Click to select speakers...';
-        text.style.color = 'var(--text-muted)';
-    } else {
-        text.textContent = `${speakerCount} speaker${speakerCount > 1 ? 's' : ''}`;
-        text.style.color = 'var(--text-primary)';
-    }
-}
-
-// Close dropdown when clicking outside
-document.addEventListener('click', function(event) {
-    const dropdown = document.getElementById('speaker-dropdown');
-    if (dropdown && !dropdown.contains(event.target)) {
-        dropdown.classList.remove('open');
-    }
-});
 
 // Speakers View
 function renderSpeakersList() {
@@ -3564,124 +3666,451 @@ async function stopNetworkSpeaker(speakerId, pluginId) {
     }
 }
 
-// Settings speaker tree with floor/area hierarchy
+// Settings > Speakers: every speaker grouped by room, with its name, room,
+// volume offset, test sound and (standalone) manual speakers and rescans.
+let networkInfo = null;  // { last_scan, found } in standalone mode; null in the HA add-on
+let speakerSourceFilter = 'all';
+let speakerScanRunning = false;
+
+async function loadNetworkInfo() {
+    try {
+        const data = await api('GET', '/network-speakers');
+        networkInfo = { last_scan: data.last_scan || null, found: data.found || 0 };
+    } catch (error) {
+        networkInfo = null;  // 404: the HA add-on has no network speakers
+    }
+}
+
+function timeAgo(isoTime) {
+    const minutes = Math.floor((Date.now() - new Date(isoTime).getTime()) / 60000);
+    if (!(minutes >= 1)) return 'just now';
+    if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+    const days = Math.floor(hours / 24);
+    return `${days} day${days === 1 ? '' : 's'} ago`;
+}
+
+function renderSpeakerScanMeta() {
+    const meta = document.getElementById('spk-scan-meta');
+    if (!meta) return;
+    meta.style.display = networkInfo ? '' : 'none';
+    if (!networkInfo) return;
+    if (speakerScanRunning) meta.textContent = 'Scanning...';
+    else if (!networkInfo.last_scan) meta.textContent = 'Not scanned yet';
+    else meta.textContent = `Last scan ${timeAgo(networkInfo.last_scan)} · ${networkInfo.found} found`;
+}
+
+// Keep "Last scan N minutes ago" current while the page is open
+setInterval(() => { if (currentView === 'settings-speakers') renderSpeakerScanMeta(); }, 60000);
+
+function speakerSourceFilters() {
+    const filters = [['all', 'All']];
+    // The add-on always has Home Assistant; standalone only once it's connected
+    if (!connectionSettings || connectionSettings.ha_url) filters.push(['ha', 'Home Assistant']);
+    if (networkInfo) filters.push(['discovered', 'Discovered'], ['manual', 'Manual']);
+    return filters;
+}
+
+function renderSpeakerToolbar() {
+    const filters = speakerSourceFilters();
+    if (!filters.some(([key]) => key === speakerSourceFilter)) speakerSourceFilter = 'all';
+    const seg = document.getElementById('spk-filter');
+    if (seg) {
+        // Only worth showing when speakers can come from more than one place
+        seg.style.display = filters.length > 2 ? '' : 'none';
+        seg.innerHTML = filters.map(([key, label]) =>
+            `<button type="button" aria-pressed="${key === speakerSourceFilter}" onclick="setSpeakerSourceFilter('${key}')">${label}</button>`
+        ).join('');
+    }
+    const rescanLabel = document.getElementById('spk-rescan-label');
+    if (rescanLabel) rescanLabel.textContent = networkInfo ? 'Rescan network' : 'Refresh from HA';
+    const rescan = document.getElementById('spk-rescan');
+    if (rescan) rescan.disabled = speakerScanRunning;
+    renderSpeakerScanMeta();
+}
+
+function setSpeakerSourceFilter(key) {
+    speakerSourceFilter = key;
+    renderSettingsSpeakerTree();
+}
+
+// Rooms a speaker can be put in: every Home Assistant area
+function allSpeakerRooms() {
+    const floorAreas = (speakerHierarchy?.floors || []).flatMap(f => f.areas || []);
+    return floorAreas.concat(speakerHierarchy?.unassigned_areas || []).map(a => ({ id: a.area_id, name: a.name }));
+}
+
+function settingsSpeakerGroups() {
+    const groups = [];
+    for (const floor of speakerHierarchy?.floors || []) {
+        for (const area of floor.areas || []) {
+            if ((area.speakers || []).length) groups.push({ title: `${floor.name} · ${area.name}`, speakers: area.speakers });
+        }
+    }
+    for (const area of speakerHierarchy?.unassigned_areas || []) {
+        if ((area.speakers || []).length) groups.push({ title: area.name, speakers: area.speakers });
+    }
+    if ((speakerHierarchy?.unassigned_speakers || []).length) {
+        groups.push({ title: 'No room', speakers: speakerHierarchy.unassigned_speakers });
+    }
+    return groups;
+}
+
+function speakerMatchesSettingsFilter(speaker, query) {
+    if (speakerSourceFilter !== 'all' && !(speaker.source || []).includes(speakerSourceFilter)) return false;
+    if (!query) return true;
+    return [speaker.name, speaker.original_name, speaker.address]
+        .some(text => (text || '').toLowerCase().includes(query));
+}
+
 function renderSettingsSpeakerTree() {
     const container = document.getElementById('settings-speaker-tree');
     if (!container) return;
+    renderSpeakerToolbar();
 
     if (!speakerHierarchy) {
         container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading speakers...</div>';
         return;
     }
 
-    const allSpeakers = getAllSpeakersFlat();
-    if (allSpeakers.length === 0) {
-        container.innerHTML = '<p class="text-muted">No speakers found. Click "Refresh from HA" to scan.</p>';
-        return;
-    }
+    // Keep focus on the same control across re-renders (e.g. tabbing from the name to the room)
+    const active = document.activeElement;
+    const activeRow = container.contains(active) ? active.closest('.spk-row')?.dataset.id : null;
+    const activeSelector = !activeRow ? null
+        : active.matches('.spk-name input') ? '.spk-name input'
+        : active.matches('select.room') ? 'select.room'
+        : active.matches('select.offset') ? 'select.offset'
+        : active.matches('.merge-note select') ? '.merge-note select'
+        : null;
 
-    // Get enabled speakers list (empty = all enabled for backwards compat)
+    const query = (document.getElementById('spk-search')?.value || '').trim().toLowerCase();
     const isAllEnabled = !enabledSpeakers || enabledSpeakers.length === 0;
+    const rooms = allSpeakerRooms();
+    const html = settingsSpeakerGroups().map(group => {
+        const rows = group.speakers.filter(s => speakerMatchesSettingsFilter(s, query));
+        if (!rows.length) return '';
+        return `
+            <div class="spk-group">
+                <h4>${escapeHtml(group.title)}</h4>
+                ${rows.map(s => renderSettingsSpeakerRow(s, isAllEnabled, rooms)).join('')}
+            </div>`;
+    }).join('');
 
-    let html = '';
-
-    // Render floors with their areas and speakers
-    for (const floor of speakerHierarchy.floors || []) {
-        html += `
-            <div class="settings-floor">
-                <div class="settings-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                    </svg>
-                    <span>${escapeHtml(floor.name)}</span>
-                </div>
-                <div class="settings-areas">
-                    ${(floor.areas || []).map(area => renderSettingsArea(area, isAllEnabled)).join('')}
-                </div>
-            </div>
-        `;
+    if (html) {
+        container.innerHTML = html;
+    } else if (allHierarchySpeakers().length === 0) {
+        container.innerHTML = `<p class="text-muted">No speakers found yet. ${networkInfo ? 'Rescan the network or add one by address.' : 'Click "Refresh from HA" to load them.'}</p>`;
+    } else {
+        container.innerHTML = '<p class="text-muted">No speakers match.</p>';
     }
 
-    // Unassigned areas (areas without a floor)
-    if ((speakerHierarchy.unassigned_areas || []).length > 0) {
-        html += `
-            <div class="settings-floor">
-                <div class="settings-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                    </svg>
-                    <span>Other Areas</span>
-                </div>
-                <div class="settings-areas">
-                    ${speakerHierarchy.unassigned_areas.map(area => renderSettingsArea(area, isAllEnabled)).join('')}
-                </div>
-            </div>
-        `;
+    if (activeSelector) {
+        const row = container.querySelector(`.spk-row[data-id="${CSS.escape(activeRow)}"]`);
+        const target = row?.querySelector(activeSelector);
+        if (target) target.focus();
     }
-
-    // Unassigned speakers (speakers without an area)
-    if ((speakerHierarchy.unassigned_speakers || []).length > 0) {
-        html += `
-            <div class="settings-floor">
-                <div class="settings-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <line x1="12" y1="8" x2="12" y2="12"/>
-                        <line x1="12" y1="16" x2="12.01" y2="16"/>
-                    </svg>
-                    <span>Unassigned</span>
-                </div>
-                <div class="settings-speakers" style="margin-left: 1.5rem;">
-                    ${speakerHierarchy.unassigned_speakers.map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
-                </div>
-            </div>
-        `;
-    }
-
-    if (!html) {
-        html = '<p class="text-muted">No speakers found. Click "Refresh from HA" to scan.</p>';
-    }
-
-    container.innerHTML = html;
 }
 
-function renderSettingsArea(area, isAllEnabled) {
-    return `
-        <div class="settings-area">
-            <div class="settings-area-header">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                </svg>
-                <span>${escapeHtml(area.name)}</span>
-            </div>
-            <div class="settings-speakers">
-                ${(area.speakers || []).map(speaker => renderSettingsSpeaker(speaker, isAllEnabled)).join('')}
-            </div>
-        </div>
-    `;
+const TEST_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+const MORE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+const PLAY_VIA_LABELS = {
+    cast: 'Google Cast (direct)', sonos: 'Sonos (direct)', dlna: 'DLNA (direct)', airplay: 'AirPlay (direct)',
+    linkplay: 'LinkPlay (direct)', heos: 'HEOS (direct)'
+};
+
+function formatOffset(value) {
+    return value > 0 ? `+${value}%` : `${value}%`;
 }
 
-function renderSettingsSpeaker(speaker, isAllEnabled) {
-    const isEnabled = isAllEnabled || (enabledSpeakers || []).includes(speaker.entity_id);
-    const ipDisplay = speaker.ip_address ? `<span class="speaker-ip">${escapeHtml(speaker.ip_address)}</span>` : '';
+function renderSettingsSpeakerRow(speaker, isAllEnabled, rooms) {
+    const id = speaker.entity_id;
+    const name = speaker.name;
+    const enabled = isAllEnabled || (enabledSpeakers || []).includes(id);
+    const online = speaker.online !== false;
+    const room = speaker.area_id || '';
+    const roomOptions = rooms.map(r => `<option value="${escapeHtml(r.id)}" ${r.id === room ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')
+        + `<option value="" ${room ? '' : 'selected'}>No room</option>`;
+    const offset = speaker.volume_offset || 0;
+    const offsets = [-20, -10, 0, 10, 20];
+    if (!offsets.includes(offset)) {
+        offsets.push(offset);
+        offsets.sort((a, b) => a - b);
+    }
+    const offsetOptions = offsets.map(v => `<option value="${v}" ${v === offset ? 'selected' : ''}>${formatOffset(v)}</option>`).join('');
+
+    let mergeNote = '';
+    if ((speaker.merged || []).length) {
+        const options = [['ha', 'Home Assistant']].concat(speaker.merged.map(m => [m.id, PLAY_VIA_LABELS[m.type] || `${m.type} (direct)`]));
+        const manual = speaker.merged.some(m => m.source === 'manual');
+        mergeNote = `
+            <div class="merge-note">
+                <span>Same device ${manual ? 'in Home Assistant and added by address' : 'found in Home Assistant and on the network'}. Play via</span>
+                <select aria-label="Play via" onchange="saveSpeakerPlayVia(this)">
+                    ${options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === (speaker.play_via || 'ha') ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
+                </select>
+            </div>`;
+    }
+
     return `
-        <div class="settings-speaker ${isEnabled ? '' : 'disabled'}">
-            <label class="toggle-switch">
-                <input type="checkbox" ${isEnabled ? 'checked' : ''}
-                       onchange="toggleSpeakerEnabled('${speaker.entity_id}', this.checked)">
+        <div class="spk-row${enabled ? '' : ' off'}" data-id="${escapeHtml(id)}">
+            <label class="toggle-switch" aria-label="Use ${escapeHtml(name)}">
+                <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleSpeakerEnabled(speakerRowId(this), this.checked)">
                 <span class="toggle-slider"></span>
             </label>
-            <div class="settings-speaker-info">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
-                    <circle cx="12" cy="14" r="4"/>
-                    <line x1="12" y1="6" x2="12.01" y2="6"/>
-                </svg>
-                <span>${escapeHtml(speaker.name)}</span>
-                ${ipDisplay}
+            <div class="spk-name">
+                <input type="text" value="${escapeHtml(name)}" aria-label="Name" maxlength="100"
+                       placeholder="${escapeHtml(speaker.original_name || name)}"
+                       onkeydown="onSpeakerNameKey(event)" onblur="saveSpeakerName(this)">
+                <div class="spk-meta">
+                    ${onlineDot(speaker)}<span>${online ? 'Online' : 'Offline'}</span>
+                    ${speakerBadges(speaker, true)}
+                    <span>${escapeHtml(speaker.address || id)}</span>
+                </div>
             </div>
-        </div>
-    `;
+            <span></span>
+            <select class="room" aria-label="Room" onchange="saveSpeakerRoom(this)">${roomOptions}</select>
+            <select class="offset" aria-label="Volume offset" onchange="saveSpeakerOffset(this)">${offsetOptions}</select>
+            <div class="spk-actions">
+                <button type="button" class="icon-btn test" aria-label="Test ${escapeHtml(name)}" title="Play a short test sound" onclick="testSpeaker(this)">${TEST_ICON}</button>
+                <button type="button" class="icon-btn more" aria-label="More options for ${escapeHtml(name)}" aria-haspopup="menu" aria-expanded="false" onclick="toggleSpeakerMenu(this, event)">${MORE_ICON}</button>
+            </div>
+            ${mergeNote}
+        </div>`;
+}
+
+function speakerRowId(element) {
+    return element.closest('.spk-row')?.dataset.id;
+}
+
+async function saveSpeakerSettings(entityId, changes) {
+    try {
+        await api('PUT', `/speakers/${encodeURIComponent(entityId)}/settings`, changes);
+        await loadSpeakerHierarchy();
+    } catch (error) {
+        showToast(error.message || 'Failed to save speaker', 'error');
+    }
+    renderSettingsSpeakerTree();
+}
+
+function onSpeakerNameKey(event) {
+    const input = event.target;
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        input.blur();
+    } else if (event.key === 'Escape') {
+        const speaker = findHierarchySpeaker(speakerRowId(input));
+        if (speaker) input.value = speaker.name;
+        input.blur();
+    }
+}
+
+function saveSpeakerName(input) {
+    const id = speakerRowId(input);
+    const speaker = findHierarchySpeaker(id);
+    if (!speaker) return;
+    const name = input.value.trim();
+    if (name === speaker.name) return;
+    // Empty (or the original name) = back to the speaker's own name
+    const original = speaker.original_name || speaker.name;
+    saveSpeakerSettings(id, { name: !name || name === original ? null : name });
+}
+
+function saveSpeakerRoom(select) {
+    const id = speakerRowId(select);
+    const speaker = findHierarchySpeaker(id);
+    if (!speaker) return;
+    // The speaker's own Home Assistant area is the default (stored as no override)
+    const value = select.value;
+    saveSpeakerSettings(id, { room: value === (speaker.default_area_id || '') ? null : value });
+}
+
+function saveSpeakerOffset(select) {
+    saveSpeakerSettings(speakerRowId(select), { volume_offset: parseInt(select.value, 10) || 0 });
+}
+
+function saveSpeakerPlayVia(select) {
+    saveSpeakerSettings(speakerRowId(select), { play_via: select.value });
+}
+
+async function testSpeaker(button) {
+    const id = speakerRowId(button);
+    const speaker = findHierarchySpeaker(id);
+    button.disabled = true;
+    try {
+        const result = await api('POST', `/speakers/${encodeURIComponent(id)}/test`);
+        showToast(`Playing a test sound on ${speaker ? speaker.name : id}`, 'success');
+        setTimeout(() => { button.disabled = false; }, ((result && result.seconds) || 4) * 1000);
+    } catch (error) {
+        showToast(error.message || 'Test sound failed', 'error');
+        button.disabled = false;
+    }
+}
+
+function closeSpeakerMenus() {
+    document.querySelectorAll('.spk-menu').forEach(menu => {
+        menu.parentElement?.querySelector('.icon-btn.more')?.setAttribute('aria-expanded', 'false');
+        menu.remove();
+    });
+}
+
+function toggleSpeakerMenu(button, event) {
+    event.stopPropagation();
+    const wasOpen = !!button.parentElement.querySelector('.spk-menu');
+    closeSpeakerMenus();
+    if (wasOpen) return;
+
+    const speaker = findHierarchySpeaker(speakerRowId(button));
+    if (!speaker) return;
+    const renamed = speaker.original_name && speaker.name !== speaker.original_name;
+    const isManual = speaker.entity_id.startsWith('net:') && (speaker.source || []).includes('manual');
+    const manualIds = isManual ? [speaker.entity_id] : (speaker.merged || []).filter(m => m.source === 'manual').map(m => m.id);
+
+    let items = `<button type="button" role="menuitem" ${renamed ? '' : 'disabled'} onclick="resetSpeakerName(this)">Reset name</button>`;
+    for (const manualId of manualIds) {
+        items += `<button type="button" role="menuitem" class="danger" data-manual-id="${escapeHtml(manualId)}" onclick="removeManualSpeaker(this)">${isManual ? 'Remove' : 'Remove the address added manually'}</button>`;
+    }
+    button.parentElement.insertAdjacentHTML('beforeend', `<div class="spk-menu" role="menu">${items}</div>`);
+    button.setAttribute('aria-expanded', 'true');
+    // Open upwards when there's no room below (the list scrolls)
+    const menu = button.parentElement.querySelector('.spk-menu');
+    const list = button.closest('.spk-list');
+    if (list && menu.getBoundingClientRect().bottom > list.getBoundingClientRect().bottom) menu.classList.add('up');
+    menu.querySelector('button:not([disabled])')?.focus();
+}
+
+document.addEventListener('click', event => {
+    if (!event.target.closest('.spk-menu')) closeSpeakerMenus();
+});
+document.addEventListener('keydown', event => {
+    if (event.key === 'Escape') closeSpeakerMenus();
+});
+
+function resetSpeakerName(item) {
+    const id = speakerRowId(item);
+    closeSpeakerMenus();
+    saveSpeakerSettings(id, { name: null });
+}
+
+async function removeManualSpeaker(item) {
+    const manualId = item.dataset.manualId;
+    const speaker = findHierarchySpeaker(speakerRowId(item));
+    closeSpeakerMenus();
+    if (!confirm(`Remove ${speaker ? speaker.name : 'this speaker'}?`)) return;
+    try {
+        await api('DELETE', `/speakers/manual/${encodeURIComponent(manualId)}`);
+        await Promise.all([loadSpeakerHierarchy(), loadEnabledSpeakers()]);
+        showToast('Speaker removed', 'success');
+    } catch (error) {
+        showToast(error.message || 'Failed to remove speaker', 'error');
+    }
+    renderSettingsSpeakerTree();
+}
+
+async function rescanSpeakers() {
+    if (speakerScanRunning) return;
+    speakerScanRunning = true;
+    renderSpeakerToolbar();
+    try {
+        const result = await api('POST', '/speakers/refresh');
+        await Promise.all([loadSpeakerHierarchy(), loadEnabledSpeakers(), loadNetworkInfo()]);
+        const total = result.total_speakers || 0;
+        showToast(`Found ${total} speaker${total === 1 ? '' : 's'}`, 'success');
+    } catch (error) {
+        showToast(error.message || 'Rescan failed', 'error');
+    } finally {
+        speakerScanRunning = false;
+        renderSettingsSpeakerTree();
+    }
+}
+
+// Add speaker dialog (standalone only)
+function openAddSpeakerModal() {
+    ['as-addr', 'as-name', 'as-port'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('as-type').value = 'auto';
+    document.getElementById('as-room').innerHTML = '<option value="">No room</option>'
+        + allSpeakerRooms().map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('');
+    const result = document.getElementById('as-result');
+    result.style.display = 'none';
+    result.innerHTML = '';
+    document.getElementById('add-speaker-modal').classList.add('active');
+    document.getElementById('as-addr').focus();
+}
+
+function closeAddSpeakerModal() {
+    document.getElementById('add-speaker-modal').classList.remove('active');
+}
+
+function readAddSpeakerForm() {
+    const address = document.getElementById('as-addr').value.trim();
+    if (!address) {
+        showToast("Enter the speaker's IP address or network name", 'error');
+        return null;
+    }
+    if (/^[a-z]+:\/\//i.test(address) || address.includes('/')) {
+        showToast('Enter just the address, e.g. 192.168.1.50 or speaker.local', 'error');
+        return null;
+    }
+    const form = { address, type: document.getElementById('as-type').value || 'auto' };
+    const name = document.getElementById('as-name').value.trim();
+    if (name) form.name = name;
+    const room = document.getElementById('as-room').value;
+    if (room) form.room = room;
+    const portText = document.getElementById('as-port').value.trim();
+    if (portText) {
+        const port = Number(portText);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+            showToast('Port must be a number from 1 to 65535', 'error');
+            return null;
+        }
+        form.port = port;
+    }
+    return form;
+}
+
+function showAddSpeakerResult(found, message) {
+    const result = document.getElementById('as-result');
+    result.innerHTML = `<span class="channel-status${found ? ' active' : ''}"></span><span>${escapeHtml(message)}</span>`;
+    result.style.display = '';
+}
+
+async function checkManualSpeaker() {
+    const form = readAddSpeakerForm();
+    if (!form) return;
+    const button = document.getElementById('as-check-btn');
+    button.disabled = true;
+    showAddSpeakerResult(false, 'Checking...');
+    try {
+        const result = await api('POST', '/speakers/manual/check', form);
+        showAddSpeakerResult(!!result.found, result.message || (result.found ? 'Speaker found.' : 'No speaker answered.'));
+        if (result.found) {
+            const nameInput = document.getElementById('as-name');
+            if (!nameInput.value.trim() && result.name) nameInput.value = result.name;
+            if (form.type === 'auto' && result.type) document.getElementById('as-type').value = result.type;
+        }
+    } catch (error) {
+        showAddSpeakerResult(false, error.message || 'Check failed');
+    } finally {
+        button.disabled = false;
+    }
+}
+
+async function addManualSpeaker() {
+    const form = readAddSpeakerForm();
+    if (!form) return;
+    const button = document.getElementById('as-add-btn');
+    button.disabled = true;
+    try {
+        const result = await api('POST', '/speakers/manual', form);
+        closeAddSpeakerModal();
+        await Promise.all([loadSpeakerHierarchy(), loadEnabledSpeakers(), loadNetworkInfo()]);
+        renderSettingsSpeakerTree();
+        showToast(result.merged_into ? `Added ${result.name} (same device as a Home Assistant speaker)` : `Added ${result.name}`, 'success');
+    } catch (error) {
+        showToast(error.message || 'Could not add the speaker', 'error');
+    } finally {
+        button.disabled = false;
+    }
 }
 
 async function toggleSpeakerEnabled(entityId, enabled) {
@@ -3718,24 +4147,6 @@ async function disableAllSpeakers() {
         showToast('All speakers disabled', 'success');
     } catch (error) {
         showToast(error.message, 'error');
-    }
-}
-
-async function refreshSpeakersFromHA() {
-    const container = document.getElementById('settings-speaker-tree');
-    if (container) {
-        container.innerHTML = '<div class="loading"><div class="spinner"></div>Refreshing from Home Assistant...</div>';
-    }
-
-    try {
-        const result = await api('POST', '/speakers/refresh');
-        await loadSpeakerHierarchy();
-        await loadEnabledSpeakers();
-        renderSettingsSpeakerTree();
-        showToast(`Found ${result.total_speakers || 0} speakers`, 'success');
-    } catch (error) {
-        showToast(error.message, 'error');
-        renderSettingsSpeakerTree();
     }
 }
 
@@ -4625,7 +5036,8 @@ function escapeHtml(text) {
     if (!text) return '';
     const div = document.createElement('div');
     div.textContent = text;
-    return div.innerHTML;
+    // Quotes too, so the result is also safe inside attribute values
+    return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
 // Start
