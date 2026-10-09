@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.8 (2026-10-09)
+
+### Bug Fixes
+
+- Speaker picker floors and areas tick and untick everything under them
+  ([`7245062`](https://github.com/synssins/sonorium/commit/7245062422a60ce524fc50b00cd7c1449f850557))
+
+
 ## v1.4.0-dev.7 (2026-10-09)
 
 ### Bug Fixes
