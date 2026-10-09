@@ -1,0 +1,98 @@
+name: Docker Image
+
+# Builds the standalone image (docker/Dockerfile) and publishes it to
+# ghcr.io/synssins/sonorium. Called by "Add-on Version" after it releases, so
+# the image carries the version just released; also runs on pushes that only
+# change docker/.
+#
+# main             -> :latest, :X.Y.Z
+# any other branch -> :dev,    :X.Y.Z-dev.N
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        type: string
+        required: true
+  push:
+    branches: ['**']
+    paths:
+      - 'docker/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-${{ inputs.branch || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and push
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@v4
+        with:
+          # Branch head includes the release commit from "Add-on Version"
+          ref: ${{ inputs.branch || github.ref_name }}
+          persist-credentials: false
+
+      - name: Work out tags
+        id: meta
+        env:
+          BRANCH: ${{ inputs.branch || github.ref_name }}
+        run: |
+          version=$(cat sonorium_addon/sonorium/version)
+          image=ghcr.io/${GITHUB_REPOSITORY,,}
+          if [ "$BRANCH" = "main" ]; then
+            tags="$image:latest,$image:$version"
+          else
+            tags="$image:dev,$image:$version"
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Image tags: $tags" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.description=Sonorium standalone: multi-zone ambient soundscape mixer
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test (starts with no configuration)
+        run: |
+          image=$(echo "${{ steps.meta.outputs.tags }}" | cut -d, -f2)
+          docker run -d --name smoke -p 8008:8008 "$image"
+          for i in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:8008/api/connection > /tmp/conn.json; then
+              cat /tmp/conn.json; echo
+              curl -fsS -o /dev/null http://127.0.0.1:8008/ && echo "web UI OK"
+              docker logs smoke | tail -20
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs smoke
+          exit 1

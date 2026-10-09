@@ -78,3 +78,13 @@ jobs:
 
           sr version "${force[@]}" --no-vcs-release
           echo "Add-on version is now $(cat sonorium_addon/sonorium/version)" >> "$GITHUB_STEP_SUMMARY"
+
+  docker:
+    name: Docker image
+    needs: version
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      branch: ${{ github.ref_name }}
