@@ -47,9 +47,6 @@ class TrackSettings:
     playback_mode: str = "auto"     # auto/continuous/sparse/presence
     seamless_loop: bool = False
     exclusive: bool = False
-    # For a track in a group: the settings it sets itself ("volume", "presence",
-    # "muted", "playback_mode"); the others come from the group
-    own: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)

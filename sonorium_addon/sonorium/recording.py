@@ -284,7 +284,6 @@ class RecordingThemeInstance:
         self.crossfade_enabled = True  # Enable crossfade looping by default
         self.playback_mode = PlaybackMode.AUTO  # How playback/looping is handled
         self.exclusive = False  # If True, only one exclusive track can play at a time
-        self.own_fields: set[str] = set()  # in a group: settings this track sets itself
 
     @property
     def short_file_threshold(self) -> float:
@@ -317,9 +316,10 @@ class RecordingThemeInstance:
         else:
             base_stream = RecordingThemeStream(self)
 
-        # PRESENCE: Wrap with fade in/out based on presence value
-        if mode == PlaybackMode.PRESENCE and self.presence < 1.0:
-            return PresenceMixingStream(base_stream, self)
+        # PRESENCE: Wrap with fade in/out based on presence value. In a group the
+        # wrapper is always used, so the track waits its turn even at 100%.
+        if mode == PlaybackMode.PRESENCE and (self.presence < 1.0 or (self.exclusive and exclusion_coordinator)):
+            return PresenceMixingStream(base_stream, self, exclusion_coordinator if self.exclusive else None)
 
         return base_stream
 
@@ -331,9 +331,11 @@ class RecordingThemeInstance:
 # Group for tracks marked exclusive in themes from before group folders
 LEGACY_EXCLUSIVE_GROUP = "Exclusive"
 
-# Settings a group can give its tracks, as saved (metadata.json "groups", presets)
-# -> the track attribute each one sets
-GROUP_TRACK_SETTINGS = {"volume": "volume", "presence": "presence", "muted": "is_enabled", "playback_mode": "playback_mode"}
+# A group's master controls, as saved (metadata.json "groups", presets) -> the
+# track attribute each one acts on. Volume and presence multiply the track's own
+# value (track 50% x group 50% = 25%); muted mutes every track in the group.
+# The gap between plays (gap_min/gap_max, seconds) is a real interval, never scaled.
+GROUP_TRACK_SETTINGS = {"volume": "volume", "presence": "presence", "muted": "is_enabled"}
 GROUP_KEY_PREFIX = "@group:"  # a channel's preset values for a group, in its overrides dict
 
 
@@ -395,7 +397,7 @@ def preset_track_overrides(preset_tracks: dict) -> dict:
 
 
 def preset_group_overrides(preset_groups: dict) -> dict:
-    """A preset's group settings ({"Lute": {"presence": .4, "muted": false}}) as channel overrides."""
+    """A preset's group master controls ({"Lute": {"presence": .4, "muted": false}}) as channel overrides."""
     overrides = {}
     for group, settings in (preset_groups or {}).items():
         overrides[GROUP_KEY_PREFIX + group] = {
@@ -419,34 +421,48 @@ class TrackView:
         self._overrides = overrides
 
     def __getattr__(self, name):
+        value = self._track_value(name)
+        group = getattr(self._instance.meta, "group", None)
+        if group:
+            return self._in_group(group, name, value)
+        return value
+
+    def _track_value(self, name):
+        """The track's own value: the channel's preset for it, else the theme's."""
         if name in PRESET_TRACK_FIELDS:
             track = self._overrides.get(self._instance.name)
             if track is not None and name in track:
-                return track[name]  # 1. the channel's preset, for this track
-        group = getattr(self._instance.meta, "group", None)
-        if group:
-            return self._group_value(group, name)
+                return track[name]
         return getattr(self._instance, name)
 
-    def _group_value(self, group: str, name: str):
-        """A track in a group folder: its own setting, else the group's (preset, then theme)."""
-        if name == "exclusive":
-            return True  # one track of a group at a time
-        setting = next((s for s, attr in GROUP_TRACK_SETTINGS.items() if attr == name), None)
-        if setting is None:
-            return getattr(self._instance, name)
-        if setting in getattr(self._instance, "own_fields", ()):
-            return getattr(self._instance, name)  # 2. the track's own setting
+    def _group_master(self, group: str, name: str):
+        """A group's master control: the channel's preset for the group, else the group's saved setting."""
         preset_group = self._overrides.get(GROUP_KEY_PREFIX + group)
         if preset_group is not None and name in preset_group:
-            return preset_group[name]  # 3. the channel's preset, for the group
+            return preset_group[name]
+        setting = next((s for s, attr in GROUP_TRACK_SETTINGS.items() if attr == name), None)
         theme_groups = getattr(getattr(self._instance, "theme", None), "groups", None) or {}
         saved = theme_groups.get(group) or {}
         if setting in saved:
-            return group_setting_value(setting, saved[setting])  # 4. the group's setting
-        if name == "playback_mode":
-            return PlaybackMode.SPARSE  # 5. defaults: groups play events
-        return getattr(self._instance, name)
+            return group_setting_value(setting, saved[setting])
+        return None
+
+    def _in_group(self, group: str, name: str, value):
+        """A track in a group folder: the group's master controls act on the track's own value."""
+        if name == "exclusive":
+            return True  # one track of a group at a time
+        if name in ("volume", "presence"):
+            master = self._group_master(group, name)
+            return value * master if master is not None else value
+        if name == "is_enabled":
+            master = self._group_master(group, name)
+            return value and (master if master is not None else True)
+        if name == "playback_mode" and value in (PlaybackMode.AUTO, PlaybackMode.CONTINUOUS):
+            # Groups play events: never a continuous loop. Short files play
+            # once at a time (sparse), long ones fade in and out (presence).
+            short = self._instance.meta.is_short_file(self._instance.short_file_threshold)
+            return PlaybackMode.SPARSE if short else PlaybackMode.PRESENCE
+        return value
 
     @property
     def exclusion_group(self) -> str | None:
@@ -915,9 +931,16 @@ class PresenceMixingStream:
     """
     CHUNK_SIZE = 1_024
 
-    def __init__(self, base_stream, instance: RecordingThemeInstance):
+    # In a group: how soon to ask again when another track has the turn
+    RETRY_SECONDS = 2.0
+
+    def __init__(self, base_stream, instance: RecordingThemeInstance, exclusion_coordinator: ExclusionGroupCoordinator = None):
         self.base_stream = base_stream
         self.instance = instance
+        # In a group, the track only fades in when it gets the group's turn
+        self.exclusion_coordinator = exclusion_coordinator
+        if exclusion_coordinator is not None:
+            exclusion_coordinator.register_track(instance.name)
         self.gen = self._gen()
 
     def _gen(self):
@@ -971,7 +994,15 @@ class PresenceMixingStream:
             current_gain = 1.0 if is_active else 0.0
             target_gain = current_gain
 
-        samples_until_change = get_next_duration(presence, is_active)
+        coordinator = self.exclusion_coordinator
+        retry_samples = int(self.RETRY_SECONDS * SAMPLE_RATE)
+        releasing = False  # faded out and still holding the group's turn
+        if coordinator is not None:
+            # In a group: start silent and wait for the group's turn
+            is_active, current_gain, target_gain = False, 0.0, 0.0
+            samples_until_change = retry_samples
+        else:
+            samples_until_change = get_next_duration(presence, is_active)
 
         chunk_count = 0
 
@@ -986,8 +1017,10 @@ class PresenceMixingStream:
             new_presence = self.instance.presence
             if new_presence != presence:
                 presence = new_presence
-                # Recalculate state for new presence
-                if presence >= 1.0 and target_gain < 1.0:
+                # Recalculate state for new presence (in a group the turn logic does this)
+                if coordinator is not None:
+                    pass
+                elif presence >= 1.0 and target_gain < 1.0:
                     target_gain = 1.0
                     fade_position = 0
                 elif presence <= 0.0 and target_gain > 0.0:
@@ -996,7 +1029,26 @@ class PresenceMixingStream:
 
             # Check if it's time to change state
             samples_until_change -= self.CHUNK_SIZE
-            if samples_until_change <= 0 and 0 < presence < 1.0:
+            if coordinator is not None and samples_until_change <= 0 and presence > 0.0:
+                if not is_active:
+                    # Ask for the group's turn; at 100% the track keeps it
+                    active_samples = get_next_duration(presence, True)
+                    seconds = 1e9 if active_samples == float('inf') else active_samples / SAMPLE_RATE + TRACK_FADE_SAMPLES / SAMPLE_RATE
+                    if coordinator.try_start_playing(self.instance.name, seconds):
+                        is_active, target_gain, fade_position = True, 1.0, 0
+                        samples_until_change = active_samples
+                    else:
+                        samples_until_change = retry_samples
+                else:
+                    # Fade out; the turn is handed back (and the group's gap
+                    # starts) once the fade has finished
+                    is_active, target_gain, fade_position = False, 0.0, 0
+                    releasing = True
+                    samples_until_change = retry_samples
+            elif coordinator is not None and presence <= 0.0 and is_active:
+                is_active, target_gain, fade_position = False, 0.0, 0
+                releasing = True
+            elif coordinator is None and samples_until_change <= 0 and 0 < presence < 1.0:
                 is_active = not is_active
                 target_gain = 1.0 if is_active else 0.0
                 fade_position = 0
@@ -1023,6 +1075,9 @@ class PresenceMixingStream:
                 if fade_progress >= 1.0:
                     current_gain = target_gain
                     applied_gain = target_gain
+                    if releasing and target_gain == 0.0:
+                        releasing = False
+                        coordinator.finish_playing(self.instance.name)  # silent now: the group's gap starts
             else:
                 applied_gain = current_gain
 

@@ -54,9 +54,10 @@ def test_groups_in_the_mixer(tmp_path, monkeypatch):
     fire = recording.RecordingMetadata(theme / "Fireplace.wav", theme)
     assert (lute.name, lute.group, fire.name, fire.group) == ("Lute/Lute song 1", "Lute", "Fireplace", None)
 
+    lute.is_short_file = lambda threshold: True
     lute_track = recording.TrackView(recording.RecordingThemeInstance(lute), {})
     assert (lute_track.exclusion_group, lute_track.exclusive) == ("Lute", True)
-    assert lute_track.playback_mode == recording.PlaybackMode.SPARSE
+    assert lute_track.playback_mode == recording.PlaybackMode.SPARSE  # short file in a group
 
     fire_instance = recording.RecordingThemeInstance(fire)
     assert recording.TrackView(fire_instance, {}).exclusion_group is None
@@ -64,34 +65,63 @@ def test_groups_in_the_mixer(tmp_path, monkeypatch):
     assert recording.TrackView(fire_instance, {}).exclusion_group == "Exclusive"
 
 
-def test_group_settings_and_track_overrides(tmp_path, monkeypatch):
+def test_group_is_a_mixer_bus(tmp_path, monkeypatch):
     monkeypatch.setitem(sys.modules, "sonorium.theme_files", theme_files)
     pytest.importorskip("numpy")
     pytest.importorskip("av")
     from test_crossfade_loop import recording
 
     theme_dir = make_theme(tmp_path)
-    theme = SimpleNamespace(groups={"Lute": {"volume": 0.5, "presence": 0.2, "muted": False, "playback_mode": "sparse",
-                                             "gap_min": 30, "gap_max": 90}},
+    theme = SimpleNamespace(groups={"Lute": {"volume": 0.5, "presence": 0.5, "gap_min": 30, "gap_max": 90}},
                             short_file_threshold=15.0)
-    song = recording.RecordingThemeInstance(recording.RecordingMetadata(theme_dir / "Lute" / "Lute song 1.wav", theme_dir), theme)
-    song.volume = 0.9  # the track's stored value, used only once it's the track's own
+    meta = recording.RecordingMetadata(theme_dir / "Lute" / "Lute song 1.wav", theme_dir)
+    meta.is_short_file = lambda threshold: False
+    song = recording.RecordingThemeInstance(meta, theme)
+    song.volume, song.presence = 0.8, 0.5
 
     view = recording.TrackView(song, {})
-    assert (view.volume, view.presence) == (0.5, 0.2)  # from the group
-    song.own_fields = {"volume"}
-    assert (view.volume, view.presence) == (0.9, 0.2)  # own volume, group presence
+    assert (view.volume, view.presence) == (0.4, 0.25)  # track x group: 50% x 50% = 25%
+    assert view.playback_mode == recording.PlaybackMode.PRESENCE  # long file, never continuous in a group
+    song.playback_mode = recording.PlaybackMode.SPARSE
+    assert view.playback_mode == recording.PlaybackMode.SPARSE  # the track's own choice
 
-    preset = {**recording.preset_group_overrides({"Lute": {"presence": 0.7, "muted": True}}),
-              **recording.preset_track_overrides({"Lute/Lute song 1": {"presence": 0.05}})}
+    preset = {**recording.preset_group_overrides({"Lute": {"presence": 1.0, "muted": True}}),
+              **recording.preset_track_overrides({"Lute/Lute song 1": {"presence": 0.2}})}
     with_preset = recording.TrackView(song, preset)
-    assert with_preset.presence == 0.05  # the preset's track setting wins
-    assert with_preset.is_enabled is False  # the preset's group mute (track has no own mute)
-    assert with_preset.volume == 0.9  # own setting beats the preset's group (which doesn't set volume anyway)
+    assert with_preset.presence == 0.2  # preset track 20% x preset group 100%
+    assert with_preset.volume == 0.4  # preset doesn't set volume: track 0.8 x group 0.5
+    assert with_preset.is_enabled is False  # group muted by the preset
 
-    assert recording.group_gap_range(theme.groups["Lute"]) == (30.0, 90.0)
+    assert recording.group_gap_range(theme.groups["Lute"]) == (30.0, 90.0)  # a real interval
     assert recording.group_gap_range({"gap_max": 10}) == (10.0, 10.0)
     assert recording.group_gap_range({}) is None
     coordinator = recording.ExclusionGroupCoordinator((30.0, 90.0))
     assert all(30.0 <= coordinator._next_gap() <= 90.0 for _ in range(50))
-    assert recording.ExclusionGroupCoordinator()._next_gap() == recording.ExclusionGroupCoordinator.MIN_GAP_AFTER_EXCLUSIVE
+
+
+def test_presence_tracks_in_a_group_take_turns(monkeypatch):
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("av")
+    from test_crossfade_loop import recording
+
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(recording.time, "time", lambda: clock["now"])
+    coordinator = recording.ExclusionGroupCoordinator((5.0, 5.0))
+    coordinator._start_time = 0.0  # past the initial delay
+
+    def loud():
+        while True:
+            yield np.full((1, 1024), 10000, np.int16)
+
+    def track(name):
+        return SimpleNamespace(name=name, presence=0.5)
+
+    a = recording.PresenceMixingStream(loud(), track("A"), coordinator)
+    b = recording.PresenceMixingStream(loud(), track("B"), coordinator)
+    overlap = 0
+    for _ in range(int(400 * 44100 / 1024)):  # ~400 s of audio
+        clock["now"] += 1024 / 44100
+        both = np.abs(next(a)).max() > 0 and np.abs(next(b)).max() > 0
+        overlap += both
+    # The group's gap separates them: never both audible at once
+    assert overlap == 0
