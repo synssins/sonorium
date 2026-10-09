@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.5.0-dev.1 (2026-10-09)
+
+### Documentation
+
+- README for 1.4.0 with new screenshots
+  ([`22659c7`](https://github.com/synssins/sonorium/commit/22659c716f53407d67013bd2100c8cbefaaa32e6))
+
+### Features
+
+- One install check decides what each install shows
+  ([`849091a`](https://github.com/synssins/sonorium/commit/849091a71a43d008e1710e990fd4ba295f5fa3e3))
+
+
 ## v1.4.1-dev.1 (2026-10-09)
 
 ### Documentation
