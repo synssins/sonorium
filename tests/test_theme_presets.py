@@ -30,6 +30,7 @@ def mods():
     core = types.ModuleType("sonorium.core")
     stubs = {"sonorium": types.ModuleType("sonorium"), "sonorium.obs": obs, "sonorium.core": core}
     with patch.dict(sys.modules, stubs):
+        _exec("sonorium.theme_files", "theme_files.py")
         presets = _exec("sonorium.core.theme_presets", "core/theme_presets.py")
         core.theme_presets = presets
         metadata = _exec("sonorium.core.theme_metadata", "core/theme_metadata.py")
@@ -40,8 +41,8 @@ def mods():
 
 
 PRESETS = {
-    "calm": {"name": "Calm", "is_default": True, "tracks": {"Rain.mp3": {"volume": 0.3}}},
-    "storm": {"name": "Storm", "is_default": False, "tracks": {"Rain.mp3": {"volume": 1.0}}},
+    "calm": {"name": "Calm", "is_default": True, "tracks": {"Rain": {"volume": 0.3}}},
+    "storm": {"name": "Storm", "is_default": False, "tracks": {"Rain": {"volume": 1.0}}},
 }
 
 
@@ -67,7 +68,7 @@ def read(path):
 def legacy_metadata():
     return {
         "id": "theme-1", "name": "Forest",
-        "tracks": {"Rain.mp3": {"volume": 0.5, "exclusive": True}, "Birds.mp3": {"volume": 1.0}},
+        "tracks": {"Rain": {"volume": 0.5, "exclusive": True}, "Birds": {"volume": 1.0}},
         "presets": PRESETS,
     }
 
@@ -84,7 +85,7 @@ def test_converts_a_1_0_theme(mods, tmp_path):
     assert "presets" not in meta
     assert meta["spec_version"] == 2
     assert meta["groups"] == {"Exclusive": {"legacy_exclusive": True}}
-    assert meta["tracks"]["Rain.mp3"]["exclusive"] is True  # the flag stays, playback is unchanged
+    assert meta["tracks"]["Rain"]["exclusive"] is True  # the flag stays, playback is unchanged
     assert (folder / "metadata.json.pre-presets.bak").read_text(encoding="utf-8") == original
     mods.logger.info.assert_any_call("Theme 'Forest' converted to the 2.0 format")
 
@@ -146,7 +147,7 @@ def test_broken_metadata_is_kept_and_rebuilt(mods, tmp_path):
     broken = list(folder.glob("metadata.json.broken-*"))
     assert len(broken) == 1
     assert loaded.id == "theme-7"  # the id was still readable
-    assert set(loaded.tracks) == {"Rain.mp3", "Birds.mp3"}
+    assert set(loaded.tracks) == {"Rain", "Birds"}
     assert loaded.presets == PRESETS
     assert len(loaded.problems) == 1 and "metadata.json (line 3)" in loaded.problems[0]
     assert read(folder / "metadata.json")["id"] == "theme-7"

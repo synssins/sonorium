@@ -170,14 +170,9 @@ PRE_PRESETS_BACKUP = METADATA_FILE + ".pre-presets.bak"
 
 
 def _default_metadata(folder: Path, theme_id: Optional[str] = None) -> ThemeMetadata:
-    """Fresh metadata for a folder: its audio files with default track settings."""
-    tracks = {}
-    try:
-        for f in sorted(folder.iterdir()):
-            if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS:
-                tracks[f.name] = TrackSettings()
-    except OSError:
-        pass
+    """Fresh metadata for a folder: its tracks (top level and group folders) with default settings."""
+    from sonorium.theme_files import theme_audio_files, track_key
+    tracks = {track_key(folder, f): TrackSettings() for f in theme_audio_files(folder)}
     return ThemeMetadata(id=theme_id or "", name=folder.name, tracks=tracks)
 
 
