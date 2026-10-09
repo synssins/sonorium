@@ -39,6 +39,9 @@ class MQTTClient:
         self._client = paho_mqtt.Client(paho_mqtt.CallbackAPIVersion.VERSION2)
         self._connected = asyncio.Event()
         self._message_handler: Callable[[str, str], Awaitable[None]] | None = None
+        # Topics to (re)subscribe on every connect: with a clean session the
+        # broker forgets subscriptions when it restarts
+        self._topics: set[str] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
 
         # Set up callbacks
@@ -58,6 +61,8 @@ class MQTTClient:
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
         if reason_code == 0:
             logger.info("  MQTT connected successfully")
+            for topic in sorted(self._topics):
+                client.subscribe(topic)
             # Use call_soon_threadsafe since this callback runs in paho's thread
             if self._loop:
                 self._loop.call_soon_threadsafe(self._connected.set)
@@ -132,7 +137,10 @@ class MQTTClient:
             )
 
     def subscribe(self, topic: str):
-        """Subscribe to a topic."""
+        """Subscribe to a topic (and again after any reconnect)."""
+        if topic in self._topics:
+            return
+        self._topics.add(topic)
         self._client.subscribe(topic)
         logger.debug(f"  Subscribed to: {topic}")
 
