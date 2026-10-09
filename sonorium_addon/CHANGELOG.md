@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.6 (2026-10-09)
+
+### Bug Fixes
+
+- **ui**: Wait for the theme rebuild after group changes
+  ([`d77f4d8`](https://github.com/synssins/sonorium/commit/d77f4d8ae09a61da19f0c5988b178ef37e6f6a77))
+
+### Features
+
+- Create, rename and delete groups, move tracks between groups
+  ([`714208d`](https://github.com/synssins/sonorium/commit/714208d024986b0276517d439c8810818e5afafc))
+
+- **ui**: Groups in the theme editor's track mixer
+  ([`2c81f85`](https://github.com/synssins/sonorium/commit/2c81f854ab9eb4a749389c618cee1f225e86dbbe))
+
+
 ## v1.4.2-dev.5 (2026-10-09)
 
 ### Bug Fixes
