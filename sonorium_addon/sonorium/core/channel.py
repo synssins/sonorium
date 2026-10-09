@@ -93,6 +93,11 @@ class Channel:
     # Pending theme change (for thread-safe crossfade)
     _pending_theme: Optional[ThemeDefinition] = field(default=None, repr=False)
 
+    # This channel's preset layer for the theme it plays ({track: {field: value}},
+    # see recording.TrackView), and the one queued with a pending theme
+    _track_overrides: dict = field(default_factory=dict, repr=False)
+    _pending_overrides: dict = field(default_factory=dict, repr=False)
+
     # Broadcast buffer - recent chunks for all clients
     _broadcast_buffer: deque = field(default_factory=lambda: deque(maxlen=BROADCAST_BUFFER_SIZE), repr=False)
     _chunk_sequence: int = 0  # Incrementing ID for each chunk
@@ -156,13 +161,25 @@ class Channel:
         """Get the stream URL path for this channel."""
         return f"/stream/channel{self.id}"
 
-    def set_theme(self, theme: ThemeDefinition) -> None:
+    def set_track_overrides(self, overrides: dict | None) -> None:
         """
-        Set or change the theme for this channel.
+        Change this channel's preset layer for the theme it's playing, in place,
+        so the playing mix follows at once. Other channels are not affected.
+        """
+        with self._lock:
+            self._track_overrides.clear()
+            self._track_overrides.update(overrides or {})
+
+    def set_theme(self, theme: ThemeDefinition, overrides: dict | None = None) -> None:
+        """
+        Set or change the theme for this channel, with the channel's preset
+        values for it (see recording.TrackView).
         If generator is running, queues a crossfade; otherwise starts immediately.
         """
         with self._lock:
             if theme == self._current_theme:
+                self._track_overrides.clear()
+                self._track_overrides.update(overrides or {})
                 logger.info(f"Channel {self.id}: Theme '{theme.name}' already active, no change needed")
                 return
 
@@ -174,13 +191,15 @@ class Channel:
             if self._generator_running:
                 # Queue the theme change - generator thread will handle crossfade
                 self._pending_theme = theme
+                self._pending_overrides = dict(overrides or {})
                 logger.info(f"Channel {self.id}: Queued theme change for crossfade")
             else:
                 # No generator running, start fresh
                 self._current_theme = theme
                 self.state = ChannelState.PLAYING
                 self._last_listener_time = time.monotonic()
-                self._theme_stream = theme.get_stream()
+                self._track_overrides = dict(overrides or {})
+                self._theme_stream = theme.get_stream(self._track_overrides)
                 self._chunk_generator = self._theme_stream.iter_chunks()
                 self._ensure_generator_running()
 
@@ -280,15 +299,17 @@ class Channel:
     def _do_crossfade_in_thread(self):
         """Perform crossfade to pending theme (called from generator thread)."""
         theme = self._pending_theme
+        overrides = self._pending_overrides
         self._pending_theme = None
+        self._pending_overrides = {}
 
         if theme is None:
             return
 
         logger.info(f"Channel {self.id}: Performing crossfade to '{theme.name}'")
 
-        # Create new stream
-        new_stream = theme.get_stream()
+        # Create new stream, with the channel's preset layer for the new theme
+        new_stream = theme.get_stream(overrides)
         new_generator = new_stream.iter_chunks()
 
         # Get references to old generator
@@ -314,6 +335,7 @@ class Channel:
         # Switch to new theme
         self._current_theme = theme
         self._theme_stream = new_stream
+        self._track_overrides = overrides
         self._chunk_generator = new_generator
 
         logger.info(f"Channel {self.id}: Crossfade complete")

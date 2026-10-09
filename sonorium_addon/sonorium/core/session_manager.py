@@ -132,6 +132,23 @@ class SessionManager:
                 return preset_id
         return None
 
+    def preset_overrides(self, theme_id: str, preset_id: Optional[str]) -> dict:
+        """A channel's preset layer for a theme ({} for no preset, or one that isn't found)."""
+        from sonorium.recording import preset_track_overrides
+        if not preset_id:
+            return {}
+        preset = self._theme_presets(theme_id).get(preset_id)
+        if not preset:
+            logger.warning(f"  Preset '{preset_id}' not found for theme '{theme_id}'")
+            return {}
+        return preset_track_overrides(preset.get("tracks", {}))
+
+    def _channel_for(self, session: Session):
+        channel_id = self._session_channels.get(session.id)
+        if not channel_id or not self.channel_manager:
+            return None
+        return self.channel_manager.get_channel(channel_id)
+
     def apply_preset_to_theme(self, theme_id: str, preset_id: str) -> bool:
         """
         Apply a preset's track settings to a theme.
@@ -525,22 +542,20 @@ class SessionManager:
 
         self.state.save()
 
-        # If session is playing and theme changed, trigger crossfade
+        # If session is playing and theme changed, trigger crossfade (with the
+        # channel's preset for the new theme; the shared theme is never changed)
         if session.is_playing and theme_changed and session.theme_id:
-            # Apply preset before crossfade if session has one
-            if session.preset_id:
-                self.apply_preset_to_theme(session.theme_id, session.preset_id)
-
             self._trigger_theme_crossfade(session)
 
             # Reset cycle timer since theme was manually changed
             if self.cycle_manager:
                 self.cycle_manager.reset_cycle(session_id)
 
-        # If session is playing and preset changed (same theme), apply the preset
+        # If session is playing and preset changed (same theme), change only its channel
         elif session.is_playing and preset_changed and session.theme_id:
-            if session.preset_id:
-                self.apply_preset_to_theme(session.theme_id, session.preset_id)
+            channel = self._channel_for(session)
+            if channel:
+                channel.set_track_overrides(self.preset_overrides(session.theme_id, session.preset_id))
                 logger.info(f"  Applied preset change for playing session")
 
         # Calculate speaker changes for live management
@@ -640,7 +655,7 @@ class SessionManager:
             return
         
         logger.info(f"  Triggering crossfade to '{theme.name}' on channel {channel_id}")
-        channel.set_theme(theme)
+        channel.set_theme(theme, self.preset_overrides(session.theme_id, session.preset_id))
     
     @logger.instrument("Deleting session {session_id}...")
     def delete(self, session_id: str) -> bool:
@@ -778,16 +793,13 @@ class SessionManager:
             session.preset_id = self.preset_for_theme(session.theme_id)
             logger.info(f"  Preset reset to the theme's default ({session.preset_id or 'none'})")
 
-        # Apply session's preset to theme BEFORE assigning to channel
-        if session.preset_id:
-            self.apply_preset_to_theme(session.theme_id, session.preset_id)
-
-        # Assign channel and set theme
+        # Assign channel and set theme, with the session's preset as the channel's
+        # own layer (the shared theme, and other channels on it, are unaffected)
         channel = self._assign_channel(session)
         if channel:
             theme = self.get_theme(session.theme_id)
             if theme:
-                channel.set_theme(theme)
+                channel.set_theme(theme, self.preset_overrides(session.theme_id, session.preset_id))
                 logger.debug(f"  Channel {channel.id}: theme '{theme.name}'")
         
         # Build stream URL (channel-based if available)

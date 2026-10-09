@@ -309,6 +309,57 @@ class RecordingThemeInstance:
         return self.meta.name
 
 
+# Track settings a preset can set, as RecordingThemeInstance attribute names
+PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive")
+
+
+def preset_track_overrides(preset_tracks: dict) -> dict:
+    """
+    A preset's saved track settings ({"Rain": {"volume": .8, "muted": false, ...}})
+    as the attribute values a TrackView applies ({"Rain": {"volume": .8, "is_enabled": True, ...}}).
+    """
+    overrides = {}
+    for track_name, settings in (preset_tracks or {}).items():
+        try:
+            mode = PlaybackMode(settings.get("playback_mode", "auto"))
+        except ValueError:
+            mode = PlaybackMode.AUTO
+        overrides[track_name] = {
+            "volume": settings.get("volume", 1.0),
+            "presence": settings.get("presence", 1.0),
+            "is_enabled": not settings.get("muted", False),
+            "crossfade_enabled": not settings.get("seamless_loop", False),
+            "playback_mode": mode,
+            "exclusive": settings.get("exclusive", False),
+        }
+    return overrides
+
+
+class TrackView:
+    """
+    A theme's track as one channel hears it: the channel's preset values where
+    its preset sets them, otherwise the theme's own (live) settings.
+
+    `overrides` is the channel's dict ({track name: {field: value}}), shared by
+    reference, so changing it in place changes what the channel plays.
+    """
+
+    def __init__(self, instance: RecordingThemeInstance, overrides: dict):
+        self._instance = instance
+        self._overrides = overrides
+
+    def __getattr__(self, name):
+        if name in PRESET_TRACK_FIELDS:
+            track = self._overrides.get(self._instance.name)
+            if track is not None and name in track:
+                return track[name]
+        return getattr(self._instance, name)
+
+    # Same decisions as the theme's own track, made with the channel's values
+    _resolve_playback_mode = RecordingThemeInstance._resolve_playback_mode
+    get_stream = RecordingThemeInstance.get_stream
+
+
 class RecordingThemeStream:
     """
     Basic recording stream without crossfade - loops with hard cut.

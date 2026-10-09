@@ -80,8 +80,9 @@ class ThemeDefinition:
         return self._theme_id if self._theme_id else sanitize(self.name)
 
 
-    def get_stream(self):
-        theme = ThemeStream(self)
+    def get_stream(self, overrides: dict | None = None):
+        """A new mix of this theme. `overrides`: the channel's preset values (see TrackView)."""
+        theme = ThemeStream(self, overrides)
         self.streams.append(theme)
         logger.debug(f'ThemeDefinition {self.name}: Created new ThemeStream (total: {len(self.streams)} streams)')
         return theme
@@ -102,15 +103,19 @@ class ThemeStream:
 
     """
 
-    def __init__(self, theme_def: ThemeDefinition):
+    def __init__(self, theme_def: ThemeDefinition, overrides: dict | None = None):
+        from sonorium.recording import TrackView
+
         self.theme_def = theme_def
+        # This stream's preset values; changed in place when the channel's preset changes
+        self.overrides = overrides if overrides is not None else {}
 
         # Create shared exclusion coordinator for tracks marked as exclusive
         self.exclusion_coordinator = ExclusionGroupCoordinator()
 
         # Create streams, passing the exclusion coordinator
         self.recording_streams = [
-            instance.get_stream(exclusion_coordinator=self.exclusion_coordinator)
+            TrackView(instance, self.overrides).get_stream(exclusion_coordinator=self.exclusion_coordinator)
             for instance in theme_def.instances
         ]
 
