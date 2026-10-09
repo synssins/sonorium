@@ -304,6 +304,7 @@ def create_api_router(
     plugin_manager=None,
     mqtt_manager=None,
     on_themes_changed=None,
+    network_service=None,
 ) -> APIRouter:
     """
     Create the API router with all endpoints.
@@ -320,6 +321,7 @@ def create_api_router(
         mqtt_manager: Optional MQTT manager for HA entity updates
         on_themes_changed: Optional callback after themes are added to or deleted,
             so the theme list (and MQTT theme selects) gets rescanned
+        network_service: Optional NetworkSpeakerService (standalone mode only)
 
     Returns:
         Configured APIRouter
@@ -885,8 +887,11 @@ def create_api_router(
     
     @router.post("/speakers/refresh")
     async def refresh_speakers() -> dict:
-        """Refresh speaker hierarchy from Home Assistant."""
+        """Refresh speaker hierarchy from Home Assistant (and, standalone, rescan the network)."""
         hierarchy = ha_registry.refresh()
+        if network_service is not None:
+            await network_service.discover(full=True)
+            hierarchy = ha_registry.hierarchy
         return {
             "floors": len(hierarchy.floors),
             "unassigned_areas": len(hierarchy.unassigned_areas),
@@ -894,6 +899,32 @@ def create_api_router(
             "total_speakers": len(hierarchy.get_all_speakers()),
         }
     
+    # --- Network Speakers (standalone mode; 404 in the HA add-on) ---
+
+    def _require_network_service():
+        if network_service is None:
+            raise HTTPException(status_code=404, detail="Network speakers are only available in standalone mode")
+        return network_service
+
+    @router.get("/network-speakers")
+    async def list_network_speakers() -> dict:
+        """Network speakers found by discovery, with protocol details."""
+        service = _require_network_service()
+        speakers = sorted(service.speakers.values(), key=lambda s: s.name.lower())
+        result = []
+        for speaker in speakers:
+            item = speaker.to_dict()
+            item["playing"] = service.streaming.is_playing(speaker.id)
+            result.append(item)
+        return {"speakers": result, "total_speakers": len(result)}
+
+    @router.post("/network-speakers/refresh")
+    async def refresh_network_speakers() -> dict:
+        """Rescan the network for speakers now."""
+        service = _require_network_service()
+        total = await service.discover(full=True)
+        return {"total_speakers": total}
+
     @router.post("/speakers/resolve")
     async def resolve_selection(request: SpeakerSelectionModel) -> dict:
         """Resolve a speaker selection to a list of entity_ids."""

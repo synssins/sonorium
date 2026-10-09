@@ -24,6 +24,11 @@ RUN pip install --no-cache-dir \
     'av>=19,<20' \
     paho-mqtt pydantic-settings pychromecast
 
+# Standalone only (not in the add-on): network speaker discovery and streaming
+# (sonorium/network). mDNS/SSDP discovery needs host networking.
+RUN pip install --no-cache-dir \
+    aiohttp zeroconf async-upnp-client pyatv
+
 WORKDIR /app
 COPY sonorium_addon/sonorium/ /app/sonorium/
 COPY sonorium_addon/logo.png sonorium_addon/icon.png /app/

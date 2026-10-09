@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from fmtr.tools import http
 from sonorium.obs import logger
@@ -143,7 +143,55 @@ class HARegistry:
         self._areas: dict[str, Area] = {}
         self._speakers: dict[str, Speaker] = {}
         self._hierarchy: Optional[SpeakerHierarchy] = None
-    
+
+        # Speakers from outside Home Assistant (standalone network speakers),
+        # listed with the unassigned speakers. None in the HA add-on.
+        self._extra_speaker_source: Optional[Callable[[], list[dict]]] = None
+        self._extra_speaker_ids: set[str] = set()
+
+    def set_extra_speaker_source(self, source: Optional[Callable[[], list[dict]]]):
+        """
+        Add speakers that don't come from Home Assistant. `source` returns
+        dicts of Speaker fields (entity_id, name, ip_address); it's read on
+        every refresh() and merge_extra_speakers().
+        """
+        self._extra_speaker_source = source
+
+    def merge_extra_speakers(self) -> SpeakerHierarchy:
+        """Re-read the extra speakers into the current hierarchy (no Home Assistant calls)."""
+        if self._hierarchy is None:
+            self._hierarchy = SpeakerHierarchy()
+        return self._apply_extra_speakers(self._hierarchy)
+
+    def _apply_extra_speakers(self, hierarchy: SpeakerHierarchy) -> SpeakerHierarchy:
+        if self._extra_speaker_source is None:
+            return hierarchy
+
+        # Drop the previous extras, then add the current ones
+        old_ids = self._extra_speaker_ids
+        hierarchy.unassigned_speakers = [s for s in hierarchy.unassigned_speakers if s.entity_id not in old_ids]
+        for entity_id in old_ids:
+            self._speakers.pop(entity_id, None)
+
+        try:
+            extras = list(self._extra_speaker_source())
+        except Exception as e:
+            logger.warning(f"Could not list network speakers: {e}")
+            extras = []
+
+        self._extra_speaker_ids = set()
+        for item in extras:
+            entity_id = item.get("entity_id")
+            if not entity_id or entity_id in self._speakers:
+                continue
+            speaker = Speaker(entity_id=entity_id, name=item.get("name") or entity_id, ip_address=item.get("ip_address"))
+            self._speakers[entity_id] = speaker
+            hierarchy.unassigned_speakers.append(speaker)
+            self._extra_speaker_ids.add(entity_id)
+
+        hierarchy.unassigned_speakers.sort(key=lambda s: s.name)
+        return hierarchy
+
     def _get(self, endpoint: str) -> dict | list | None:
         """Make GET request to HA API."""
         import json
@@ -607,7 +655,7 @@ class HARegistry:
         from sonorium.runtime import ha_configured
         if not ha_configured():
             # Standalone without Home Assistant: no HA speakers to load
-            self._hierarchy = SpeakerHierarchy()
+            self._hierarchy = self._apply_extra_speakers(SpeakerHierarchy())
             return self._hierarchy
 
         logger.debug("Building speaker hierarchy from Home Assistant...")
@@ -681,8 +729,8 @@ class HARegistry:
             if not area.floor_id:
                 hierarchy.unassigned_areas.append(area)
         hierarchy.unassigned_areas.sort(key=lambda a: a.name)
-        
-        self._hierarchy = hierarchy
+
+        self._hierarchy = self._apply_extra_speakers(hierarchy)
 
         total_speakers = len(hierarchy.get_all_speakers())
         logger.debug(f"  Hierarchy complete: {len(hierarchy.floors)} floors, {len(hierarchy.unassigned_areas)} unassigned areas, {len(hierarchy.unassigned_speakers)} unassigned speakers, {total_speakers} total speakers")
