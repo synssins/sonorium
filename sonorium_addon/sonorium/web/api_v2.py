@@ -73,6 +73,12 @@ class CycleStatusResponse(BaseModel):
     themes_in_rotation: int = 0
 
 
+class SpaceRequest(BaseModel):
+    """Add or change a floor or area (Settings > Floors & Areas)."""
+    name: Optional[str] = None
+    floor_id: Optional[str] = None
+
+
 class CreateSessionRequest(BaseModel):
     """Request to create a new session."""
     theme_id: Optional[str] = None
@@ -1062,10 +1068,6 @@ def create_api_router(
         return {"speaker_id": speaker_id, "playing": True, "seconds": TEST_SECONDS}
 
     # --- Floors & Areas: Home Assistant's, plus Sonorium's own where editing is on ---
-
-    class SpaceRequest(BaseModel):
-        name: Optional[str] = None
-        floor_id: Optional[str] = None
 
     def _spaces_editable() -> bool:
         from sonorium import runtime
