@@ -172,7 +172,7 @@ body {
 }
 
 .nav-section.expanded .nav-sub-items {
-    max-height: 200px;
+    max-height: 480px;  /* room for every Settings page */
 }
 
 .nav-sub-item {
