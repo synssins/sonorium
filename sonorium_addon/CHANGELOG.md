@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.1-dev.3 (2026-10-09)
+
+### Features
+
+- Floors & Areas, editable outside the HA app
+  ([`7eb61af`](https://github.com/synssins/sonorium/commit/7eb61af806490817f6a857a232467576de4ead88))
+
+
 ## v1.4.1-dev.2 (2026-10-09)
 
 ### Continuous Integration
