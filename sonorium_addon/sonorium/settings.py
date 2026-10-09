@@ -114,7 +114,8 @@ def get_local_ip() -> str:
         # Check if it's a Docker internal IP (172.x.x.x or 10.x.x.x ranges often used)
         # These won't be reachable from external devices
         if ip.startswith("172.") or ip.startswith("10."):
-            logger.warning(f"Detected Docker internal IP: {ip} - speakers won't be able to reach this")
+            if not runtime.STANDALONE:  # standalone explains this with the stream URL warning
+                logger.warning(f"Detected Docker internal IP: {ip} - speakers won't be able to reach this")
             return None  # Let caller handle fallback
         return ip
     except Exception as e:

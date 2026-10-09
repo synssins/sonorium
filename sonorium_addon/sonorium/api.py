@@ -33,6 +33,10 @@ PACKAGE_ROOT = Path(__file__).parent.parent
 LOGO_PATH = PACKAGE_ROOT / "logo.png"
 
 
+class _MQTTUnavailable(Exception):
+    """Standalone mode without a connected MQTT broker (not an error)."""
+
+
 class RevalidatingStaticFiles(StaticFiles):
     """
     Static files the browser must revalidate before reuse (a cheap 304 when
@@ -254,10 +258,10 @@ class ApiSonorium(api.Base):
 
             # Initialize MQTT entity manager for Home Assistant integration
             # (standalone mode may run without a connected broker)
-            from sonorium import runtime
             try:
                 if runtime.STANDALONE and not self.client.mqtt_client.is_connected:
-                    raise RuntimeError("MQTT broker not connected")
+                    # Optional in standalone; already logged by the MQTT client
+                    raise _MQTTUnavailable()
                 from sonorium.ha.mqtt_entities import SonoriumMQTTManager
                 self._mqtt_manager = SonoriumMQTTManager(
                     state_store=self._state_store,
@@ -274,6 +278,8 @@ class ApiSonorium(api.Base):
 
                 await self._mqtt_manager.initialize()
                 logger.debug(f"  MQTT entity manager: {len(self._state_store.sessions)} session entities published")
+            except _MQTTUnavailable:
+                self._mqtt_manager = None
             except Exception as e:
                 logger.warning(f"  Failed to initialize MQTT entity manager: {e}")
                 import traceback
@@ -457,7 +463,7 @@ class ApiSonorium(api.Base):
             "standalone": True,
             "ha_url": conn.get("ha_url", ""),
             "ha_token_set": bool(conn.get("ha_token")),
-            "ha_connected": bool(self._ha_registry and self._ha_registry.hierarchy),
+            "ha_connected": bool(runtime.ha_configured() and self._ha_registry and self._ha_registry._hierarchy is not None),
             "mqtt_host": conn.get("mqtt_host", ""),
             "mqtt_port": conn.get("mqtt_port", 1883),
             "mqtt_username": conn.get("mqtt_username", ""),
