@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.3 (2026-10-09)
+
+### Bug Fixes
+
+- Standalone status and log tidy-ups
+  ([`e6ee14c`](https://github.com/synssins/sonorium/commit/e6ee14c83db5c17ff4c9f2096571aa21014fe55b))
+
+
 ## v1.4.0-dev.2 (2026-10-09)
 
 ### Bug Fixes
