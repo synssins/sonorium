@@ -26,7 +26,7 @@ permissions:
 
 concurrency:
   group: docker-${{ inputs.branch || github.ref_name }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:

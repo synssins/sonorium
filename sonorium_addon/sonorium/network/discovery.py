@@ -13,6 +13,7 @@ Needs multicast on the LAN: run the container with host networking.
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
 import os
 import re
@@ -128,10 +129,32 @@ def ssdp_search(search_target: str, timeout: float, mx: int = 3) -> list[dict]:
     return responses
 
 
+_unicast_mdns_logged = False
+
+
+def open_zeroconf():
+    """
+    An mDNS listener. Another mDNS service on the host (e.g. avahi on TrueNAS
+    and many Linux systems) may hold UDP port 5353 exclusively; then query in
+    unicast mode from our own port, and devices reply to us directly.
+    """
+    from zeroconf import Zeroconf
+    global _unicast_mdns_logged
+    try:
+        return Zeroconf()
+    except OSError as e:
+        if e.errno != errno.EADDRINUSE:
+            raise
+        if not _unicast_mdns_logged:
+            logger.info("mDNS port 5353 is used by another service on this host; using unicast mDNS discovery")
+            _unicast_mdns_logged = True
+        return Zeroconf(unicast=True)
+
+
 def browse_mdns(service_types: list[str], wait: float) -> list[dict]:
     """Browse mDNS service types for `wait` seconds (blocking, needs zeroconf)."""
     import time
-    from zeroconf import ServiceBrowser, ServiceListener, Zeroconf
+    from zeroconf import ServiceBrowser, ServiceListener
 
     class Listener(ServiceListener):
         def __init__(self):
@@ -162,7 +185,7 @@ def browse_mdns(service_types: list[str], wait: float) -> list[dict]:
         def remove_service(self, zc, type_, name):
             pass
 
-    zc = Zeroconf()
+    zc = open_zeroconf()
     listener = Listener()
     try:
         browsers = []
@@ -309,9 +332,13 @@ class NetworkSpeakerDiscovery:
             return []
 
         def discover():
-            services, browser = pychromecast.discovery.discover_chromecasts(timeout=timeout)
-            pychromecast.discovery.stop_discovery(browser)
-            return services
+            zc = open_zeroconf()
+            try:
+                services, browser = pychromecast.discovery.discover_chromecasts(timeout=timeout, zeroconf_instance=zc)
+                pychromecast.discovery.stop_discovery(browser)
+                return services
+            finally:
+                zc.close()
 
         services = await asyncio.get_running_loop().run_in_executor(None, discover)
         speakers = []
@@ -529,7 +556,18 @@ class NetworkSpeakerDiscovery:
             logger.debug("pyatv not installed: AirPlay discovery skipped")
             return []
 
-        devices = await pyatv.scan(asyncio.get_running_loop(), timeout=int(timeout))
+        loop = asyncio.get_running_loop()
+        try:
+            devices = await pyatv.scan(loop, timeout=int(timeout))
+        except OSError as e:
+            if e.errno != errno.EADDRINUSE:
+                raise
+            # mDNS port held by another service: find AirPlay hosts by unicast
+            # mDNS, then let pyatv query just those hosts
+            services = await loop.run_in_executor(
+                None, browse_mdns, ["_raop._tcp.local.", "_airplay._tcp.local."], min(timeout, 3.0))
+            hosts = sorted({address for service in services for address in service["addresses"]})
+            devices = await pyatv.scan(loop, hosts=hosts, timeout=int(timeout)) if hosts else []
         speakers = []
         for device in devices:
             try:
