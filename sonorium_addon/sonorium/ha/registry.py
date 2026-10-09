@@ -36,6 +36,7 @@ HA_PLATFORM_TYPES = {
     "linkplay": "linkplay",
     "wiim": "linkplay",
     "heos": "heos",
+    "denonavr": "denon",  # Denon and Marantz AV receivers
     "esphome": "esphome",
     "apple_tv": "airplay",
     "airplay": "airplay",

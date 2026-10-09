@@ -1286,7 +1286,7 @@ const SOURCE_BADGES = {
 };
 const SPEAKER_TYPE_LABELS = {
     cast: 'Cast', sonos: 'Sonos', dlna: 'DLNA', airplay: 'AirPlay',
-    linkplay: 'LinkPlay', heos: 'HEOS', esphome: 'ESPHome'
+    linkplay: 'LinkPlay', heos: 'HEOS', esphome: 'ESPHome', denon: 'Denon / Marantz'
 };
 
 function speakerBadges(speaker, long = false) {

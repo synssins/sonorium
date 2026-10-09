@@ -1779,10 +1779,17 @@ label.p-row, .p-label { cursor: pointer; }
     margin-bottom: 1.5rem;
 }
 
-/* Settings pages grow with the window up to a readable width (ultrawide screens) */
+/* Settings pages grow with the window up to a readable width, centred (ultrawide screens) */
 [id^="view-settings-"] .settings-section {
     max-width: 1200px;
+    margin-left: auto;
+    margin-right: auto;
     box-sizing: border-box;
+}
+
+/* Dark scrollbars to match the theme */
+* {
+    scrollbar-color: var(--border-color) transparent;
 }
 
 .settings-section h3 {
