@@ -2,6 +2,27 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.18 (2026-10-09)
+
+### Bug Fixes
+
+- Recognise Denon/Marantz receivers; centre settings pages; dark scrollbars
+  ([`7d088fa`](https://github.com/synssins/sonorium/commit/7d088fa7c055b3e63545556b6979be1fbb16952e))
+
+- Refuse to play a channel whose theme doesn't exist
+  ([`a3b1d17`](https://github.com/synssins/sonorium/commit/a3b1d176d718dffdd7c93b39f94524de7a356f43))
+
+### Chores
+
+- Remove the old app/docker build
+  ([`d67b169`](https://github.com/synssins/sonorium/commit/d67b1694695d7ce49729751d2e8ace905f7d1b58))
+
+### Features
+
+- Logs page in Settings, and a /logs page that works when startup fails
+  ([`e7de4bb`](https://github.com/synssins/sonorium/commit/e7de4bb67e5e9d9526b01e28dcd771fdcffe7aac))
+
+
 ## v1.4.0-dev.17 (2026-10-09)
 
 ### Continuous Integration
