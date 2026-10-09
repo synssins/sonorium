@@ -272,6 +272,10 @@ body {
     flex: 1;
     min-height: 0;
     margin-bottom: 0;
+    /* Grows with the window up to a readable width (ultrawide screens) */
+    width: 100%;
+    max-width: 1200px;
+    box-sizing: border-box;
 }
 
 #view-settings-speakers .spk-list {
@@ -1732,7 +1736,7 @@ label.p-row, .p-label { cursor: pointer; }
 
 /* Settings > Speakers */
 .spk-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-bottom: 1rem; }
-.spk-search { flex: 1 1 220px; min-height: 40px; padding: .5rem .75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .375rem; color: var(--text-primary); font: inherit; }
+.spk-search { flex: 1 1 220px; max-width: 360px; min-height: 40px; padding: .5rem .75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .375rem; color: var(--text-primary); font: inherit; }
 .spk-search:focus { outline: none; border-color: var(--accent-primary); }
 .seg { display: inline-flex; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; padding: 2px; }
 .seg button { min-height: 36px; padding: 0 .875rem; border: 0; border-radius: .375rem; background: transparent; color: var(--text-secondary); font: inherit; font-size: .875rem; cursor: pointer; }
@@ -1741,7 +1745,7 @@ label.p-row, .p-label { cursor: pointer; }
 .spk-hide-offline { display: inline-flex; align-items: center; gap: .5rem; min-height: 40px; font-size: .875rem; color: var(--text-secondary); cursor: pointer; }
 .spk-group { margin-bottom: 1rem; }
 .spk-group h4 { font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); margin: 0 0 .5rem; }
-.spk-row { display: grid; grid-template-columns: auto minmax(160px, 1.6fr) auto minmax(130px, 1fr) 110px auto; align-items: center; gap: .75rem; padding: .625rem .75rem; background: var(--bg-secondary); border-radius: .5rem; margin-bottom: .375rem; }
+.spk-row { display: grid; grid-template-columns: auto minmax(160px, 1fr) auto minmax(130px, 220px) 110px auto; align-items: center; gap: .75rem; padding: .625rem .75rem; background: var(--bg-secondary); border-radius: .5rem; margin-bottom: .375rem; }
 .spk-row.off { opacity: .55; }
 .spk-name { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
 .spk-name input { width: 100%; box-sizing: border-box; padding: .25rem .5rem; background: transparent; border: 1px solid transparent; border-radius: .375rem; color: var(--text-primary); font: inherit; font-weight: 500; }
@@ -1773,6 +1777,12 @@ label.p-row, .p-label { cursor: pointer; }
     border-radius: 0.75rem;
     padding: 1.5rem;
     margin-bottom: 1.5rem;
+}
+
+/* Settings pages grow with the window up to a readable width (ultrawide screens) */
+[id^="view-settings-"] .settings-section {
+    max-width: 1200px;
+    box-sizing: border-box;
 }
 
 .settings-section h3 {
