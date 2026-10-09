@@ -6,7 +6,7 @@ import av
 import numpy as np
 
 from sonorium.obs import logger
-from sonorium.recording import LOG_THRESHOLD, ExclusionGroupCoordinator
+from sonorium.recording import LOG_THRESHOLD, SAMPLE_RATE, ExclusionGroupCoordinator
 from sonorium.utils import IndexList
 
 
@@ -114,6 +114,10 @@ class ThemeStream:
         self.exclusion_coordinator = ExclusionGroupCoordinator()
 
         # Create streams, passing the exclusion coordinator
+        from sonorium.mixing import MixLevel
+        from sonorium.recording import RecordingThemeStream
+        self.mix_level = MixLevel(SAMPLE_RATE, RecordingThemeStream.CHUNK_SIZE)
+
         self.recording_streams = [
             TrackView(instance, self.overrides).get_stream(exclusion_coordinator=self.exclusion_coordinator)
             for instance in theme_def.instances
@@ -133,27 +137,9 @@ class ThemeStream:
                 # logger.debug(f'Theme "{self.theme_def.name}" has no enabled recordings. Streaming silence...')
                 data_recs.append(self.chunk_silence)
             
-            # Stack all recordings
-            data = np.vstack(data_recs)
-            
-            # Proper audio mixing: sum the signals, then normalize to prevent clipping
-            # Using float32 for intermediate calculation to avoid overflow
-            mixed = data.astype(np.float32).sum(axis=0)
-            
-            # Soft clipping / normalization to prevent distortion
-            # Divide by sqrt(n) for a good balance between volume and avoiding clipping
-            n_tracks = len(data_recs)
-            if n_tracks > 1:
-                # Use sqrt(n) normalization - louder than mean, but prevents harsh clipping
-                mixed = mixed / np.sqrt(n_tracks)
-            
-            # Apply output gain boost (use device master_volume if available)
+            # Sum the tracks with a smoothed level (sonorium/mixing.py)
             output_gain = getattr(self.theme_def.sonorium, 'master_volume', DEFAULT_OUTPUT_GAIN)
-            mixed = mixed * output_gain
-            
-            # Clip to int16 range and convert back
-            mixed = np.clip(mixed, -32768, 32767)
-            data = mixed.astype(np.int16).reshape(1, -1)
+            data = self.mix_level.mix(data_recs, output_gain)
             
             yield data
 
