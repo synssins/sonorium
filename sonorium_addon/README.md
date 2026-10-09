@@ -72,6 +72,24 @@ Sonorium now reliably streams to Google Cast devices (Chromecast, Nest Hub, Goog
 
 ---
 
+## MQTT Discovery Troubleshooting
+
+Session MQTT discovery IDs and topics keep the session's original slug, stored as
+`entity_slug` in `/config/sonorium/state.json`. Renaming a session updates its
+display names without changing its discovery identity, including after restarts.
+Existing state files acquire the slug from each session's current name when loaded.
+
+Older versions could leave retained discovery configs behind when a renamed
+session was loaded after a restart. These obsolete configs are not automatically
+removed, because their previous names are not recorded in the state file.
+
+To remove an existing duplicate, identify its obsolete discovery topic using
+Home Assistant's MQTT device diagnostics or an MQTT client. Publish an empty,
+retained payload to that exact `homeassistant/<component>/<object_id>/config`
+topic. Only remove the obsolete topic, not the active session's config. Deleting
+the entity in Home Assistant alone can allow the broker's retained config to
+recreate it. Back up any automations referencing an entity before removing it.
+
 ## Acknowledgements
 
 Sonorium is a fork of [Amniotic](https://github.com/fmtr/amniotic) by [fmtr](https://github.com/fmtr). The original Amniotic project laid the groundwork for this addon with its innovative approach to ambient soundscape mixing in Home Assistant. We're grateful for the time, effort, and creativity that went into building the foundation that Sonorium is built upon.

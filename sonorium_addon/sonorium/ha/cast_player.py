@@ -110,6 +110,8 @@ class CastPlayer:
         self._cast_cache: dict[str, bool] = {}
         # Cache of device name -> IP from HA registry
         self._ha_device_ips: dict[str, str] = {}
+        # Cast device names from HA registry (IP is often not stored there)
+        self._ha_cast_names: set[str] = set()
         self._ha_ips_loaded = False
         # Active Cast connections (entity_id -> Chromecast object)
         self._connections: dict[str, object] = {}
@@ -208,6 +210,9 @@ class CastPlayer:
                     logger.debug(f"  Cast: Found Cast device '{name}' (mfr: {manufacturer})")
 
                     name_normalized = name.replace(' ', '_')
+                    if name:
+                        self._ha_cast_names.add(name)
+                        self._ha_cast_names.add(name_normalized)
 
                     # Try configuration_url - often contains IP
                     config_url = device.get('configuration_url', '')
@@ -361,8 +366,8 @@ class CastPlayer:
 
         # Check if entity name matches any Cast device in registry
         entity_name = entity_id.split('.')[-1].lower() if '.' in entity_id else entity_id.lower()
-        for device_name in self._ha_device_ips.keys():
-            if entity_name in device_name or device_name in entity_name:
+        for device_name in set(self._ha_device_ips.keys()) | self._ha_cast_names:
+            if entity_name == device_name:
                 self._cast_cache[entity_id] = True
                 logger.debug(f"  Cast: {entity_id} detected by HA registry match")
                 return True
@@ -629,7 +634,7 @@ class CastPlayer:
             data = {
                 "entity_id": entity_id,
                 "media_content_id": media_url,
-                "media_content_type": "music",
+                "media_content_type": "audio/mpeg",
             }
 
             logger.info(f"  Cast: Using HA API fallback for {entity_id}")
@@ -734,5 +739,6 @@ class CastPlayer:
         self._ip_cache.clear()
         self._cast_cache.clear()
         self._ha_device_ips.clear()
+        self._ha_cast_names.clear()
         self._ha_ips_loaded = False
         logger.info("  Cast: Cleared all caches")

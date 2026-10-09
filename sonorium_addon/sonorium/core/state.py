@@ -263,6 +263,7 @@ class Session:
     # Metadata
     created_at: str = ""  # ISO format
     last_played_at: Optional[str] = None  # ISO format
+    entity_slug: Optional[str] = None
     
     def __post_init__(self):
         if not self.created_at:
@@ -279,9 +280,13 @@ class Session:
         # Convert cycle_config from dict if needed
         if isinstance(self.cycle_config, dict):
             self.cycle_config = CycleConfig.from_dict(self.cycle_config)
+
+        self.entity_slug = self.get_entity_slug()
     
     def get_entity_slug(self) -> str:
-        """Generate HA entity slug from name."""
+        """Return the persisted HA entity slug, independent of later renames."""
+        if self.entity_slug:
+            return self.entity_slug
         # "Bedroom Level" -> "bedroom_level"
         # "Night Mode Speakers" -> "night_mode_speakers"
         slug = self.name.lower()
@@ -292,7 +297,7 @@ class Session:
         # Collapse multiple underscores
         while "__" in slug:
             slug = slug.replace("__", "_")
-        return slug.strip("_")
+        return slug.strip("_") or self.id
     
     def mark_played(self):
         """Update last_played_at timestamp."""

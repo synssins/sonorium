@@ -32,6 +32,25 @@ Integrate with your smart home for whole-house audio.
 - Organize speakers by room, floor, or area
 - Control from the HA dashboard
 
+## Automated Tests
+
+The Tests workflow runs on pull requests and pushes to `main`, and can also be
+started manually from GitHub Actions. It runs all automatically collected tests
+on Python 3.11 and uploads a JUnit test report, including when tests fail.
+
+Run the same suite locally:
+
+```sh
+python -m pip install 'pytest>=8,<9'
+python -m pytest tests -v
+```
+
+The AirConnect, AirPlay streaming, Arylic HTTP, and RTSP diagnostic scripts need
+LAN speakers and are excluded from automated collection. The live Linkplay
+streaming test is reported as skipped; its offline detection test runs in CI.
+Run hardware diagnostics directly on a machine with access to the speakers,
+for example `python tests/test_linkplay_integration.py --ip <speaker-ip>`.
+
 ## Screenshots
 
 ### Channels View

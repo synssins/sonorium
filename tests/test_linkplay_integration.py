@@ -22,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def test_linkplay_detection():
+def _check_linkplay_detection():
     """Test the _is_linkplay_device detection logic."""
     print("\n" + "=" * 60)
     print("Testing Linkplay Device Detection")
@@ -68,6 +68,10 @@ def test_linkplay_detection():
             all_pass = False
 
     return all_pass
+
+
+def test_linkplay_detection():
+    assert _check_linkplay_detection(), "Linkplay device detection failed"
 
 
 async def test_linkplay_streaming(target_ip: str):
@@ -141,7 +145,7 @@ async def main():
     print("#" * 60)
 
     # Test detection logic
-    detection_ok = test_linkplay_detection()
+    detection_ok = _check_linkplay_detection()
 
     if args.detect_only:
         print("\n" + "=" * 60)
