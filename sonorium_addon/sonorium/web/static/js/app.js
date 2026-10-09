@@ -1167,6 +1167,77 @@ function getEnabledAreasInFloor(floor) {
     return (floor.areas || []).filter(area => getEnabledSpeakersInArea(area).length > 0);
 }
 
+// Channel speaker picker: a three-state checklist of floors > areas > speakers.
+// The selection is a set of speaker ids. Ticking a floor or area adds or
+// removes every speaker under it; floors and areas show ticked when all their
+// speakers are selected and partly ticked when some are. On save, fully
+// selected floors and areas are stored as such (so speakers added to them
+// later are included), everything else as individual speakers.
+
+function areaSpeakerIds(area) {
+    return getEnabledSpeakersInArea(area).map(s => s.entity_id);
+}
+
+function floorSpeakerIds(floor) {
+    return getEnabledAreasInFloor(floor).flatMap(areaSpeakerIds);
+}
+
+function allPickerAreas() {
+    const floorAreas = (speakerHierarchy?.floors || []).flatMap(f => f.areas || []);
+    return floorAreas.concat(speakerHierarchy?.unassigned_areas || []);
+}
+
+function getEffectiveSpeakerSelection() {
+    const selected = new Set();
+    for (const floor of speakerHierarchy?.floors || []) {
+        if (selectedSpeakers.floors.includes(floor.floor_id)) floorSpeakerIds(floor).forEach(id => selected.add(id));
+    }
+    for (const area of allPickerAreas()) {
+        if (selectedSpeakers.areas.includes(area.area_id)) areaSpeakerIds(area).forEach(id => selected.add(id));
+    }
+    selectedSpeakers.speakers.forEach(id => selected.add(id));
+    for (const area of allPickerAreas()) {
+        if (selectedSpeakers.excludeAreas.includes(area.area_id)) areaSpeakerIds(area).forEach(id => selected.delete(id));
+    }
+    selectedSpeakers.excludeSpeakers.forEach(id => selected.delete(id));
+    return selected;
+}
+
+function setEffectiveSpeakerSelection(selected) {
+    const remaining = new Set(selected);
+    const result = { floors: [], areas: [], speakers: [], excludeAreas: [], excludeSpeakers: [] };
+    const takeArea = area => {
+        const ids = areaSpeakerIds(area);
+        if (ids.length && ids.every(id => remaining.has(id))) {
+            result.areas.push(area.area_id);
+            ids.forEach(id => remaining.delete(id));
+        }
+    };
+    for (const floor of speakerHierarchy?.floors || []) {
+        const ids = floorSpeakerIds(floor);
+        if (ids.length && ids.every(id => remaining.has(id))) {
+            result.floors.push(floor.floor_id);
+            ids.forEach(id => remaining.delete(id));
+        } else {
+            getEnabledAreasInFloor(floor).forEach(takeArea);
+        }
+    }
+    (speakerHierarchy?.unassigned_areas || []).forEach(takeArea);
+    result.speakers = [...remaining];
+    selectedSpeakers = result;
+}
+
+function selectionState(ids, selected) {
+    const count = ids.filter(id => selected.has(id)).length;
+    if (count === 0) return 'none';
+    return count === ids.length ? 'all' : 'some';
+}
+
+function pickerCheckbox(state, onchange) {
+    return `<input type="checkbox" ${state === 'all' ? 'checked' : ''} ${state === 'some' ? 'data-indeterminate="1"' : ''}
+                   onchange="${onchange}">`;
+}
+
 function renderSpeakerTree() {
     const container = document.getElementById('speaker-tree');
     if (!speakerHierarchy) {
@@ -1174,6 +1245,7 @@ function renderSpeakerTree() {
         return;
     }
 
+    const selected = getEffectiveSpeakerSelection();
     let html = '';
 
     // Render floors (only those with enabled speakers)
@@ -1181,17 +1253,16 @@ function renderSpeakerTree() {
         const enabledAreas = getEnabledAreasInFloor(floor);
         if (enabledAreas.length === 0) continue;
 
-        const floorChecked = selectedSpeakers.floors.includes(floor.floor_id);
+        const floorState = selectionState(floorSpeakerIds(floor), selected);
         html += `
             <div class="tree-floor">
                 <div class="tree-floor-header">
-                    <input type="checkbox" ${floorChecked ? 'checked' : ''}
-                           onchange="toggleFloor('${floor.floor_id}', this.checked)">
+                    ${pickerCheckbox(floorState, `toggleFloor('${floor.floor_id}', this.checked)`)}
                     <span class="tree-floor-name">🏢 ${escapeHtml(floor.name)}</span>
                     <span class="tree-floor-action" onclick="toggleFloor('${floor.floor_id}', true)">Select All</span>
                 </div>
                 <div class="tree-areas">
-                    ${enabledAreas.map(area => renderArea(area, floorChecked)).join('')}
+                    ${enabledAreas.map(area => renderArea(area, selected)).join('')}
                 </div>
             </div>
         `;
@@ -1207,7 +1278,7 @@ function renderSpeakerTree() {
                     <span class="tree-floor-name">🏠 Other Areas</span>
                 </div>
                 <div class="tree-areas">
-                    ${enabledUnassignedAreas.map(area => renderArea(area, false)).join('')}
+                    ${enabledUnassignedAreas.map(area => renderArea(area, selected)).join('')}
                 </div>
             </div>
         `;
@@ -1223,7 +1294,7 @@ function renderSpeakerTree() {
                     <span class="tree-floor-name">📦 Unassigned Speakers</span>
                 </div>
                 <div class="tree-speakers">
-                    ${enabledUnassignedSpeakers.map(speaker => renderSpeaker(speaker, false)).join('')}
+                    ${enabledUnassignedSpeakers.map(speaker => renderSpeaker(speaker, selected)).join('')}
                 </div>
             </div>
         `;
@@ -1234,83 +1305,61 @@ function renderSpeakerTree() {
     }
 
     container.innerHTML = html;
+    // "Partly selected" can only be set from script
+    container.querySelectorAll('input[data-indeterminate]').forEach(cb => { cb.indeterminate = true; });
 }
 
-function renderArea(area, parentSelected) {
+function renderArea(area, selected) {
     const enabledSpeakersInArea = getEnabledSpeakersInArea(area);
     if (enabledSpeakersInArea.length === 0) return '';
 
-    const areaChecked = selectedSpeakers.areas.includes(area.area_id) || parentSelected;
-    const areaExcluded = selectedSpeakers.excludeAreas.includes(area.area_id);
+    const areaState = selectionState(areaSpeakerIds(area), selected);
 
     return `
         <div class="tree-area">
             <div class="tree-area-header">
-                <input type="checkbox" ${areaChecked && !areaExcluded ? 'checked' : ''}
-                       onchange="toggleArea('${area.area_id}', this.checked)">
+                ${pickerCheckbox(areaState, `toggleArea('${area.area_id}', this.checked)`)}
                 <span>🏠 ${escapeHtml(area.name)}</span>
             </div>
             <div class="tree-speakers">
-                ${enabledSpeakersInArea.map(speaker => renderSpeaker(speaker, areaChecked && !areaExcluded)).join('')}
+                ${enabledSpeakersInArea.map(speaker => renderSpeaker(speaker, selected)).join('')}
             </div>
         </div>
     `;
 }
 
-function renderSpeaker(speaker, parentSelected) {
+function renderSpeaker(speaker, selected) {
     if (!isSpeakerEnabled(speaker.entity_id)) return '';
-
-    const speakerChecked = selectedSpeakers.speakers.includes(speaker.entity_id) || parentSelected;
-    const speakerExcluded = selectedSpeakers.excludeSpeakers.includes(speaker.entity_id);
 
     return `
         <div class="tree-speaker">
-            <input type="checkbox" ${speakerChecked && !speakerExcluded ? 'checked' : ''}
+            <input type="checkbox" ${selected.has(speaker.entity_id) ? 'checked' : ''}
                    onchange="toggleSpeaker('${speaker.entity_id}', this.checked)">
             <span>🔊 ${escapeHtml(speaker.name)}</span>
         </div>
     `;
 }
 
-function toggleFloor(floorId, checked) {
-    if (checked) {
-        if (!selectedSpeakers.floors.includes(floorId)) {
-            selectedSpeakers.floors.push(floorId);
-        }
-    } else {
-        selectedSpeakers.floors = selectedSpeakers.floors.filter(id => id !== floorId);
-    }
+function toggleSpeakerIds(ids, checked) {
+    const selected = getEffectiveSpeakerSelection();
+    ids.forEach(id => checked ? selected.add(id) : selected.delete(id));
+    setEffectiveSpeakerSelection(selected);
     renderSpeakerTree();
     updateSpeakerDropdownText();
+}
+
+function toggleFloor(floorId, checked) {
+    const floor = (speakerHierarchy?.floors || []).find(f => f.floor_id === floorId);
+    if (floor) toggleSpeakerIds(floorSpeakerIds(floor), checked);
 }
 
 function toggleArea(areaId, checked) {
-    if (checked) {
-        if (!selectedSpeakers.areas.includes(areaId)) {
-            selectedSpeakers.areas.push(areaId);
-        }
-        selectedSpeakers.excludeAreas = selectedSpeakers.excludeAreas.filter(id => id !== areaId);
-    } else {
-        selectedSpeakers.areas = selectedSpeakers.areas.filter(id => id !== areaId);
-    }
-    renderSpeakerTree();
-    updateSpeakerDropdownText();
+    const area = allPickerAreas().find(a => a.area_id === areaId);
+    if (area) toggleSpeakerIds(areaSpeakerIds(area), checked);
 }
 
 function toggleSpeaker(entityId, checked) {
-    if (checked) {
-        if (!selectedSpeakers.speakers.includes(entityId)) {
-            selectedSpeakers.speakers.push(entityId);
-        }
-        selectedSpeakers.excludeSpeakers = selectedSpeakers.excludeSpeakers.filter(id => id !== entityId);
-    } else {
-        selectedSpeakers.speakers = selectedSpeakers.speakers.filter(id => id !== entityId);
-        if (!selectedSpeakers.excludeSpeakers.includes(entityId)) {
-            selectedSpeakers.excludeSpeakers.push(entityId);
-        }
-    }
-    renderSpeakerTree();
-    updateSpeakerDropdownText();
+    toggleSpeakerIds([entityId], checked);
 }
 
 let selectedSpeakerGroupId = null;
@@ -1378,20 +1427,14 @@ function updateSpeakerDropdownText() {
     const text = document.getElementById('speaker-dropdown-text');
     if (!text) return;
 
-    // Count selected speakers from the selectedSpeakers object
-    const floorCount = selectedSpeakers.floors.length;
-    const areaCount = selectedSpeakers.areas.length;
-    const speakerCount = selectedSpeakers.speakers.length;
+    // Count the speakers actually selected (floors and areas expanded)
+    const speakerCount = getEffectiveSpeakerSelection().size;
 
-    if (floorCount === 0 && areaCount === 0 && speakerCount === 0) {
+    if (speakerCount === 0) {
         text.textContent = 'Click to select speakers...';
         text.style.color = 'var(--text-muted)';
     } else {
-        const parts = [];
-        if (floorCount > 0) parts.push(`${floorCount} floor${floorCount > 1 ? 's' : ''}`);
-        if (areaCount > 0) parts.push(`${areaCount} area${areaCount > 1 ? 's' : ''}`);
-        if (speakerCount > 0) parts.push(`${speakerCount} speaker${speakerCount > 1 ? 's' : ''}`);
-        text.textContent = parts.join(', ');
+        text.textContent = `${speakerCount} speaker${speakerCount > 1 ? 's' : ''}`;
         text.style.color = 'var(--text-primary)';
     }
 }
