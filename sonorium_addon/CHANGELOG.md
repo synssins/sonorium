@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0-dev.7 (2026-10-09)
+
+### Bug Fixes
+
+- Don't leak the MQTT broker password into debug logs
+  ([`dc2ae8b`](https://github.com/synssins/sonorium/commit/dc2ae8b5fc6dfef0ecdf6610c28fc28d09627244))
+
+
 ## v1.3.0-dev.6 (2026-10-09)
 
 ### Bug Fixes
