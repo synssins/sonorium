@@ -203,6 +203,8 @@ class ApiSonorium(api.Base):
             # Initialize HA registry
             api_url = settings.ha_core_api
             self._ha_registry = HARegistry(api_url, settings.token)
+            # Per-speaker names, rooms, volume offsets and play-via choices
+            self._ha_registry.set_speaker_settings_source(lambda: self._state_store.settings.speaker_settings)
 
             # Standalone: speakers found on the LAN, listed next to any HA speakers
             if runtime.STANDALONE:
@@ -223,6 +225,13 @@ class ApiSonorium(api.Base):
                     self._media_controller if runtime.ha_configured() else None,
                     self._network_service,
                 )
+            # Volume offsets and play-via for every speaker command
+            from sonorium.core.speaker_settings import SpeakerOutputs
+            self._media_controller = SpeakerOutputs(
+                self._media_controller,
+                lambda: self._state_store.settings.speaker_settings,
+                self._ha_registry.get_play_target,
+            )
 
             # Use configured stream URL (from SONORIUM__STREAM_URL env var)
             stream_base_url = settings.stream_url

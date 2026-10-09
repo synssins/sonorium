@@ -11,7 +11,7 @@ import asyncio
 from typing import Optional
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Request, UploadFile, File
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Request, UploadFile, File, Response
 from pydantic import BaseModel, Field
 
 from sonorium.core.state import SpeakerSelection, CycleConfig, NameSource
@@ -206,6 +206,23 @@ class UpdateSpeakerSettingsRequest(BaseModel):
 class SingleSpeakerRequest(BaseModel):
     """Request to enable/disable a single speaker."""
     entity_id: str
+
+
+class SpeakerSettingsUpdateRequest(BaseModel):
+    """Per-speaker settings; only the fields sent change, and null resets one to its default."""
+    name: Optional[str] = None  # "" or null = the original name
+    room: Optional[str] = None  # area ID, "" = no room, null = the speaker's own HA area
+    volume_offset: Optional[int] = None  # percent, -20..+20
+    play_via: Optional[str] = None  # "ha" or a merged network speaker ID
+
+
+class ManualSpeakerRequest(BaseModel):
+    """A speaker added by address (standalone mode)."""
+    address: str
+    type: str = "auto"  # auto, cast, sonos, dlna, airplay, linkplay, heos
+    name: Optional[str] = None
+    room: Optional[str] = None  # area ID
+    port: Optional[int] = None
 
 
 class CustomAreasRequest(BaseModel):
@@ -915,15 +932,211 @@ def create_api_router(
         for speaker in speakers:
             item = speaker.to_dict()
             item["playing"] = service.streaming.is_playing(speaker.id)
+            item["manual"] = bool(speaker.extra.get("manual"))
             result.append(item)
-        return {"speakers": result, "total_speakers": len(result)}
+        return {
+            "speakers": result,
+            "total_speakers": len(result),
+            "last_scan": service.last_scan,  # ISO time (UTC), None before the first scan finishes
+            "found": service.last_scan_found,  # speakers the last scan found
+        }
 
     @router.post("/network-speakers/refresh")
     async def refresh_network_speakers() -> dict:
         """Rescan the network for speakers now."""
         service = _require_network_service()
         total = await service.discover(full=True)
-        return {"total_speakers": total}
+        return {"total_speakers": total, "last_scan": service.last_scan, "found": service.last_scan_found}
+
+    # --- Per-speaker settings (both modes) ---
+
+    def _speaker_or_404(speaker_id: str):
+        speaker = ha_registry.get_speaker(speaker_id)
+        if speaker is None:
+            raise HTTPException(status_code=404, detail="Speaker not found")
+        return speaker
+
+    def _speaker_settings_response(speaker_id: str) -> dict:
+        speaker = _speaker_or_404(speaker_id)
+        return {
+            "speaker_id": speaker_id,
+            "settings": dict(state_store.settings.speaker_settings.get(speaker_id) or {}),
+            "speaker": speaker.to_dict(),
+        }
+
+    @router.get("/speakers/{speaker_id}/settings")
+    async def get_one_speaker_settings(speaker_id: str) -> dict:
+        """A speaker's saved settings (name, room, volume_offset, play_via) and how it looks with them."""
+        return _speaker_settings_response(speaker_id)
+
+    @router.put("/speakers/{speaker_id}/settings")
+    async def update_one_speaker_settings(speaker_id: str, request: SpeakerSettingsUpdateRequest) -> dict:
+        """Change a speaker's settings. Fields left out stay; null resets one."""
+        from sonorium.core.speaker_settings import SpeakerSettingsError, clean_speaker_settings
+
+        speaker = _speaker_or_404(speaker_id)
+        updates = {key: getattr(request, key) for key in request.model_fields_set}
+        room = updates.get("room")
+        if room and ha_registry.get_area(room) is None:
+            raise HTTPException(status_code=400, detail="Unknown room")
+        via = updates.get("play_via")
+        if via and via != "ha" and via not in [m["id"] for m in speaker.merged]:
+            raise HTTPException(status_code=400, detail="This speaker can't play that way")
+
+        all_settings = state_store.settings.speaker_settings
+        try:
+            cleaned = clean_speaker_settings(all_settings.get(speaker_id) or {}, updates)
+        except SpeakerSettingsError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if cleaned:
+            all_settings[speaker_id] = cleaned
+        else:
+            all_settings.pop(speaker_id, None)
+        state_store.save()
+        ha_registry.apply_speaker_settings()
+        return _speaker_settings_response(speaker_id)
+
+    # --- Test sound (user-triggered, one speaker) ---
+
+    TEST_VOLUME = 0.2
+    TEST_SECONDS = 4.0  # the chime is 3 s; stop shortly after it ends
+    tests_running: set[str] = set()
+
+    @router.api_route("/test-tone.mp3", methods=["GET", "HEAD"])
+    async def test_tone() -> Response:
+        """The short chime the speaker test plays."""
+        from sonorium.core.speaker_test_tone import tone_mp3
+
+        data = await asyncio.get_running_loop().run_in_executor(None, tone_mp3)
+        return Response(content=data, media_type="audio/mpeg", headers={"Cache-Control": "no-cache"})
+
+    @router.post("/speakers/{speaker_id}/test")
+    async def test_speaker(speaker_id: str) -> dict:
+        """Play a short, quiet chime on one speaker, then stop it."""
+        _speaker_or_404(speaker_id)
+        if speaker_id in tests_running:
+            raise HTTPException(status_code=409, detail="A test sound is already playing on this speaker")
+        for session in session_manager.list():
+            if session.is_playing and speaker_id in session_manager.get_resolved_speakers(session):
+                raise HTTPException(status_code=409, detail=f"This speaker is playing '{session.name}'. Stop it first.")
+
+        controller = session_manager.media_controller
+        raw_controller = getattr(controller, "controller", controller)  # without volume offsets
+        url = f"{session_manager.stream_base_url.rstrip('/')}/api/test-tone.mp3"
+        target = controller.target_for(speaker_id) if hasattr(controller, "target_for") else speaker_id
+
+        # Home Assistant speakers get their volume back afterwards
+        previous_volume = None
+        if not target.startswith("net:"):
+            try:
+                state = await controller.get_state(target)
+                previous_volume = (state or {}).get("attributes", {}).get("volume_level")
+            except Exception:
+                previous_volume = None
+
+        tests_running.add(speaker_id)
+        try:
+            await controller.set_volume_multi([speaker_id], TEST_VOLUME)
+            result = await controller.play_media_multi([speaker_id], url)
+        except Exception as e:
+            logger.warning(f"Speaker test on {speaker_id} failed: {e}")
+            result = None
+        if not (result or {}).get(speaker_id):
+            tests_running.discard(speaker_id)
+            raise HTTPException(status_code=502, detail="Couldn't play on this speaker")
+
+        async def finish():
+            try:
+                await asyncio.sleep(TEST_SECONDS)
+                await controller.stop_multi([speaker_id])
+                if previous_volume is not None:
+                    await raw_controller.set_volume_multi([target], float(previous_volume))
+            except Exception as e:
+                logger.debug(f"Speaker test on {speaker_id}: cleanup failed: {e}")
+            finally:
+                tests_running.discard(speaker_id)
+
+        asyncio.get_running_loop().create_task(finish())
+        return {"speaker_id": speaker_id, "playing": True, "seconds": TEST_SECONDS}
+
+    # --- Manual speakers (standalone mode; 404 in the HA add-on) ---
+
+    def _manual_result(speaker) -> dict:
+        from sonorium.network.manual import TYPE_LABELS, manual_kind
+
+        kind = manual_kind(speaker)
+        return {
+            "id": speaker.id,
+            "name": speaker.name,
+            "type": kind,
+            "type_label": TYPE_LABELS.get(kind, kind),
+            "host": speaker.host,
+            "address": speaker.extra.get("address") or speaker.host,
+            "port": speaker.port,
+        }
+
+    @router.post("/speakers/manual/check")
+    async def check_manual_speaker(request: ManualSpeakerRequest) -> dict:
+        """What answers at an address, without adding it ("Check connection")."""
+        service = _require_network_service()
+        from sonorium.network.manual import ProbeError
+
+        try:
+            speaker = await service.check_manual(request.address, request.type, request.port, request.name)
+        except ProbeError as e:
+            return {"found": False, "message": str(e)}
+        result = _manual_result(speaker)
+        result.update(found=True, message=f"Found {result['type_label']} speaker \"{speaker.name}\" at {speaker.host}.")
+        return result
+
+    @router.post("/speakers/manual", status_code=status.HTTP_201_CREATED)
+    async def add_manual_speaker(request: ManualSpeakerRequest) -> dict:
+        """Add a speaker by address. It's checked first: 400 if nothing answers."""
+        service = _require_network_service()
+        from sonorium.network.manual import ProbeError
+
+        if request.room and ha_registry.get_area(request.room) is None:
+            raise HTTPException(status_code=400, detail="Unknown room")
+        try:
+            speaker = await service.add_manual(request.address, request.type, request.port, request.name)
+        except ProbeError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        settings = state_store.settings
+        if request.room:
+            settings.speaker_settings[speaker.id] = {"room": request.room}
+        # An explicit enabled list would hide the new speaker: it was added on purpose, so enable it
+        if settings.enabled_speakers == ["__none__"]:
+            settings.enabled_speakers = [speaker.id]
+        elif settings.enabled_speakers and speaker.id not in settings.enabled_speakers:
+            settings.enabled_speakers.append(speaker.id)
+        state_store.save()
+        ha_registry.merge_extra_speakers()
+
+        result = _manual_result(speaker)
+        merged_into = ha_registry.get_merged_owner(speaker.id)
+        if merged_into:
+            result["merged_into"] = merged_into
+        return result
+
+    @router.delete("/speakers/manual/{speaker_id}")
+    async def remove_manual_speaker(speaker_id: str) -> dict:
+        """Remove a manually added speaker."""
+        service = _require_network_service()
+        if not await service.remove_manual(speaker_id):
+            raise HTTPException(status_code=404, detail="Not a manually added speaker")
+        settings = state_store.settings
+        settings.speaker_settings.pop(speaker_id, None)
+        for other in settings.speaker_settings.values():
+            if other.get("play_via") == speaker_id:
+                other.pop("play_via", None)
+        if speaker_id in settings.enabled_speakers:
+            settings.enabled_speakers.remove(speaker_id)
+            if not settings.enabled_speakers:
+                settings.enabled_speakers = ["__none__"]
+        state_store.save()
+        ha_registry.merge_extra_speakers()
+        return {"removed": speaker_id}
 
     @router.post("/speakers/resolve")
     async def resolve_selection(request: SpeakerSelectionModel) -> dict:
