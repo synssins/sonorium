@@ -32,6 +32,19 @@ PACKAGE_ROOT = Path(__file__).parent.parent
 LOGO_PATH = PACKAGE_ROOT / "logo.png"
 
 
+class RevalidatingStaticFiles(StaticFiles):
+    """
+    Static files the browser must revalidate before reuse (a cheap 304 when
+    unchanged), so an updated app.js/styles.css isn't served from a stale
+    cache after an add-on update (#28).
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 class ApiSonorium(api.Base):
     TITLE = f'Sonorium {__version__} Streaming API'
     URL_DOCS = '/docs'
@@ -68,7 +81,7 @@ class ApiSonorium(api.Base):
 
         # Mount static files (CSS, JS) for the web UI
         if STATIC_DIR.exists():
-            self.app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+            self.app.mount("/static", RevalidatingStaticFiles(directory=STATIC_DIR), name="static")
             logger.info(f"Mounted static files from: {STATIC_DIR}")
         else:
             logger.warning(f"Static directory not found: {STATIC_DIR}")
@@ -425,7 +438,7 @@ class ApiSonorium(api.Base):
         """Serve the main web UI (v2 if available, else v1)."""
         template_path = TEMPLATES_DIR / "index.html"
         if template_path.exists() and self._v2_initialized:
-            return HTMLResponse(content=template_path.read_text())
+            return HTMLResponse(content=template_path.read_text(), headers={"Cache-Control": "no-cache"})
         else:
             return await self.legacy_ui()
 
