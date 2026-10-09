@@ -380,6 +380,6 @@ def create_media_controller_from_supervisor() -> HAMediaController:
     from sonorium.settings import settings
     
     return HAMediaController(
-        api_url=f"{settings.ha_supervisor_api.replace('/core', '')}/core/api",
+        api_url=settings.ha_core_api,
         token=settings.token,
     )

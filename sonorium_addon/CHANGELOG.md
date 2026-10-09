@@ -2,6 +2,210 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.20 (2026-10-09)
+
+### Bug Fixes
+
+- A channel's preset follows its theme
+  ([`dc56043`](https://github.com/synssins/sonorium/commit/dc5604387156dec8cbfd955296bba4f68ddc387a))
+
+
+## v1.4.0-dev.19 (2026-10-09)
+
+### Bug Fixes
+
+- Don't log zeroconf's port-in-use error that Sonorium handles
+  ([`a8eed1b`](https://github.com/synssins/sonorium/commit/a8eed1bff1c14f0447ac3bcf328994d1e661174f))
+
+
+## v1.4.0-dev.18 (2026-10-09)
+
+### Bug Fixes
+
+- Recognise Denon/Marantz receivers; centre settings pages; dark scrollbars
+  ([`7d088fa`](https://github.com/synssins/sonorium/commit/7d088fa7c055b3e63545556b6979be1fbb16952e))
+
+- Refuse to play a channel whose theme doesn't exist
+  ([`a3b1d17`](https://github.com/synssins/sonorium/commit/a3b1d176d718dffdd7c93b39f94524de7a356f43))
+
+### Chores
+
+- Remove the old app/docker build
+  ([`d67b169`](https://github.com/synssins/sonorium/commit/d67b1694695d7ce49729751d2e8ace905f7d1b58))
+
+### Features
+
+- Logs page in Settings, and a /logs page that works when startup fails
+  ([`e7de4bb`](https://github.com/synssins/sonorium/commit/e7de4bb67e5e9d9526b01e28dcd771fdcffe7aac))
+
+
+## v1.4.0-dev.17 (2026-10-09)
+
+### Continuous Integration
+
+- Push the release commit and tag with retries
+  ([`7786e5c`](https://github.com/synssins/sonorium/commit/7786e5c2e7120c5714e85d57ad05c9a5177e6832))
+
+### Features
+
+- See-through logo on speaker screens and in the browser tab
+  ([`a209454`](https://github.com/synssins/sonorium/commit/a209454fdbadf06fe2374dd50db70fd185b5c958))
+
+
+## v1.4.0-dev.16 (2026-10-09)
+
+### Features
+
+- Cast displays show the Sonorium logo while playing
+  ([`3167b57`](https://github.com/synssins/sonorium/commit/3167b5771ba9553e4158dd8c1748131fc7cc001a))
+
+
+## v1.4.0-dev.15 (2026-10-09)
+
+### Bug Fixes
+
+- Speaker settings conversion keeps entries for speakers not currently listed
+  ([`793ca7d`](https://github.com/synssins/sonorium/commit/793ca7d74b5958e9163a1fd30296e0fb3d9b3f01))
+
+
+## v1.4.0-dev.14 (2026-10-09)
+
+### Bug Fixes
+
+- Only speakers switched on in Settings appear; picker hides offline ones
+  ([`8984411`](https://github.com/synssins/sonorium/commit/8984411e408a016e7b81b8fec1fda7d45f61154b))
+
+
+## v1.4.0-dev.13 (2026-10-09)
+
+### Bug Fixes
+
+- Show Sonorium's icon in the browser tab
+  ([`aac7bcf`](https://github.com/synssins/sonorium/commit/aac7bcf6b081b20d14fe56475308adf82c2cc01a))
+
+
+## v1.4.0-dev.12 (2026-10-09)
+
+### Bug Fixes
+
+- Speakers disabled in Settings never appear in or play from channels
+  ([`872b24f`](https://github.com/synssins/sonorium/commit/872b24fec3db9a6c1635004d770eec0cd1deaaa5))
+
+
+## v1.4.0-dev.11 (2026-10-09)
+
+### Bug Fixes
+
+- Settings pages stop stretching on ultrawide screens
+  ([`076ebcd`](https://github.com/synssins/sonorium/commit/076ebcd6666a347a460a4043a4ee1194eafce52a))
+
+
+## v1.4.0-dev.10 (2026-10-09)
+
+### Features
+
+- "Hide offline" switch in Settings > Speakers
+  ([`3c792f6`](https://github.com/synssins/sonorium/commit/3c792f63ef989cdab78aedad1329c5d6a9c9e8c4))
+
+
+## v1.4.0-dev.9 (2026-10-09)
+
+### Features
+
+- **network**: Manual speakers, speaker types and last-scan info in the network service
+  ([`10bcc86`](https://github.com/synssins/sonorium/commit/10bcc8622550f76402636a10a062de4e93f98e46))
+
+- **speakers**: Per-speaker settings, merged duplicates, volume offsets and test sound
+  ([`7ad4241`](https://github.com/synssins/sonorium/commit/7ad4241e1d1b381c153be14e51df9d5441831b16))
+
+- **ui**: New channel editor, Settings > Speakers and Add speaker dialog
+  ([`305735a`](https://github.com/synssins/sonorium/commit/305735a1c1542e244ad190ca05453e34e8b1eb9f))
+
+
+## v1.4.0-dev.8 (2026-10-09)
+
+### Bug Fixes
+
+- Speaker picker floors and areas tick and untick everything under them
+  ([`7245062`](https://github.com/synssins/sonorium/commit/7245062422a60ce524fc50b00cd7c1449f850557))
+
+
+## v1.4.0-dev.7 (2026-10-09)
+
+### Bug Fixes
+
+- Wider New/Edit Channel dialog without a scroll box inside it
+  ([`402a4f9`](https://github.com/synssins/sonorium/commit/402a4f9a961209ec398d523233fe42a4c0065a1b))
+
+
+## v1.4.0-dev.6 (2026-10-09)
+
+### Bug Fixes
+
+- Network discovery works when another mDNS service holds port 5353
+  ([`3fbd6f1`](https://github.com/synssins/sonorium/commit/3fbd6f1b84c239be329056da77936ca0fbb73003))
+
+### Continuous Integration
+
+- Queue image builds for the same branch instead of cancelling.
+  ([`3fbd6f1`](https://github.com/synssins/sonorium/commit/3fbd6f1b84c239be329056da77936ca0fbb73003))
+
+
+## v1.4.0-dev.5 (2026-10-09)
+
+### Build System
+
+- **docker**: Add network speaker dependencies to the standalone image
+  ([`ce0cc00`](https://github.com/synssins/sonorium/commit/ce0cc008e16447f4345547008320e2c3b5882f99))
+
+### Features
+
+- **standalone**: Discover and stream to network speakers
+  ([`d03a487`](https://github.com/synssins/sonorium/commit/d03a4872ee0c30207bb3984ae4963eb136e01cac))
+
+### Testing
+
+- Network speaker IDs, routing, hierarchy and add-on isolation
+  ([`ffb7768`](https://github.com/synssins/sonorium/commit/ffb77686c0583c66f89eeb2bbdfa725c1571203b))
+
+
+## v1.4.0-dev.4 (2026-10-09)
+
+### Features
+
+- Connection settings page for standalone (Docker)
+  ([`1a6b6b6`](https://github.com/synssins/sonorium/commit/1a6b6b61df68133ef4b36004f9e7b7643d3956c9))
+
+
+## v1.4.0-dev.3 (2026-10-09)
+
+### Bug Fixes
+
+- Standalone status and log tidy-ups
+  ([`e6ee14c`](https://github.com/synssins/sonorium/commit/e6ee14c83db5c17ff4c9f2096571aa21014fe55b))
+
+
+## v1.4.0-dev.2 (2026-10-09)
+
+### Bug Fixes
+
+- Standalone runs without Home Assistant
+  ([`76b4cd6`](https://github.com/synssins/sonorium/commit/76b4cd61340b9bffa40999e212df53ed7d6e48ba))
+
+
+## v1.4.0-dev.1 (2026-10-09)
+
+### Build System
+
+- Standalone Docker image published to ghcr.io/synssins/sonorium
+  ([`ff2a86c`](https://github.com/synssins/sonorium/commit/ff2a86cfe436c5b61dc31740746532f9d6305cd2))
+
+### Features
+
+- Standalone mode for running Sonorium in Docker without HA Supervisor
+  ([`12e3528`](https://github.com/synssins/sonorium/commit/12e3528d955d2ea5560a5b29caabafe8c4ec40fb))
+
+
 ## v1.3.0 (2026-10-09)
 
 ### Continuous Integration

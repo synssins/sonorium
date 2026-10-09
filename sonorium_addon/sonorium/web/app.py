@@ -446,7 +446,7 @@ class SonoriumApp:
             self._state_store.load()
             
             # Initialize HA registry
-            api_url = f"{settings.ha_supervisor_api.replace('/core', '')}/core/api"
+            api_url = settings.ha_core_api
             self._ha_registry = HARegistry(api_url, settings.token)
             self._ha_registry.refresh()
             

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sonorium Logs</title>
+    <!-- Works without the main app script, so logs can be read when the app fails to start. -->
+    <link rel="stylesheet" href="static/css/styles.css">
+    <style>
+        .page { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1rem; }
+        .top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem; margin-bottom: 1rem; }
+        h1 { font-size: 1.5rem; margin: 0; }
+        .notice { margin: 0 0 1rem; padding: .75rem 1rem; border-radius: .5rem; background: rgba(239, 68, 68, .12);
+                  border: 1px solid rgba(239, 68, 68, .4); }
+    </style>
+</head>
+<body>
+    <div class="page">
+        <div class="top">
+            <h1>Logs</h1>
+            <div style="display: flex; gap: .5rem;">
+                <button class="btn btn-secondary" onclick="SonoriumLogs.copy(this)"><span>Copy</span></button>
+                <a class="btn btn-primary" id="log-download" href="#">Download</a>
+            </div>
+        </div>
+        <!--STARTUP_NOTICE-->
+        <div id="logs-root"></div>
+    </div>
+    <script src="static/js/logs.js" onerror="document.getElementById('logs-root').textContent = 'Could not load the log viewer.'"></script>
+    <script>
+        (function () {
+            var base = window.location.pathname.replace(/\/logs\/?$/, '');
+            document.getElementById('log-download').href = base + '/api/logs/download';
+            if (window.SonoriumLogs) SonoriumLogs.mount(document.getElementById('logs-root'), base);
+        })();
+    </script>
+</body>
+</html>

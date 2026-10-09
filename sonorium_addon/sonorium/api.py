@@ -2,12 +2,14 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from sonorium.theme import ThemeDefinition
+from sonorium import runtime
 from sonorium.version import __version__
 from sonorium.obs import logger
+from sonorium import logbuffer
 from fmtr.tools import api
 
 # Import ClientSonorium for type hints (replaces mqtt.Client)
@@ -30,6 +32,13 @@ STATIC_DIR = Path(__file__).parent / "web" / "static"
 # Static assets (relative to package root)
 PACKAGE_ROOT = Path(__file__).parent.parent
 LOGO_PATH = PACKAGE_ROOT / "logo.png"
+ICON_PATH = PACKAGE_ROOT / "icon.png"
+FAVICON_PATH = PACKAGE_ROOT / "favicon.png"  # icon without its dark tile
+DISPLAY_PATH = PACKAGE_ROOT / "display.png"  # logo without its dark banner, for speaker screens
+
+
+class _MQTTUnavailable(Exception):
+    """Standalone mode without a connected MQTT broker (not an error)."""
 
 
 class RevalidatingStaticFiles(StaticFiles):
@@ -47,6 +56,9 @@ class RevalidatingStaticFiles(StaticFiles):
 
 class ApiSonorium(api.Base):
     TITLE = f'Sonorium {__version__} Streaming API'
+    # Standalone listens on 8008 directly (one port for UI and streams); the
+    # add-on keeps 8080, which HA ingress and its 8008 port mapping point at.
+    PORT = 8008 if runtime.STANDALONE else 8080
     URL_DOCS = '/docs'
 
     def __init__(self, client: "ClientSonorium"):
@@ -66,11 +78,14 @@ class ApiSonorium(api.Base):
         self._theme_refresh_task = None
         self._plugin_manager = None
         self._theme_metadata_manager = None
-        
+        self._network_service = None  # standalone only
+
         # Register startup event to initialize v2
         @self.app.on_event("startup")
         async def startup_event():
             logger.debug("FastAPI startup event triggered")
+            # uvicorn's loggers don't pass messages up, and are set up just before this
+            logbuffer.attach("uvicorn")
             await self.initialize_v2()
         
         # Register shutdown event to stop cycle manager
@@ -92,8 +107,19 @@ class ApiSonorium(api.Base):
         endpoints = [
             # Web UI
             api.Endpoint(method_http=self.app.get, path='/', method=self.web_ui),
+
+            # Standalone connection settings (404 in the HA add-on)
+            api.Endpoint(method_http=self.app.get, path='/api/connection', method=self.get_connection),
+            api.Endpoint(method_http=self.app.put, path='/api/connection', method=self.put_connection),
             api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
             api.Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
+            api.Endpoint(method_http=self.app.get, path='/display.png', method=self.serve_display_image),
+            api.Endpoint(method_http=self.app.get, path='/favicon.png', method=self.serve_favicon),
+
+            # Logs: kept apart from the v2 API so they work when it fails to start
+            api.Endpoint(method_http=self.app.get, path='/logs', method=self.logs_page),
+            api.Endpoint(method_http=self.app.get, path='/api/logs', method=self.get_logs),
+            api.Endpoint(method_http=self.app.get, path='/api/logs/download', method=self.download_logs),
             
             # Streaming - channel-based (new) - MUST come before theme-based!
             api.Endpoint(method_http=self.app.get, path='/stream/channel{channel_id:int}', method=self.stream_channel),
@@ -188,17 +214,47 @@ class ApiSonorium(api.Base):
             logger.debug(f"  Channel manager: {max_channels} channels available")
             
             # Initialize HA registry
-            api_url = f"{settings.ha_supervisor_api.replace('/core', '')}/core/api"
+            api_url = settings.ha_core_api
             self._ha_registry = HARegistry(api_url, settings.token)
+            # Per-speaker names, rooms, volume offsets and play-via choices
+            self._ha_registry.set_speaker_settings_source(lambda: self._state_store.settings.speaker_settings)
+
+            # Standalone: speakers found on the LAN, listed next to any HA speakers
+            if runtime.STANDALONE:
+                self._init_network_speakers()
+
             try:
                 self._ha_registry.refresh()
                 logger.debug(f"  HA registry loaded: {len(self._ha_registry.hierarchy.floors)} floors")
             except Exception as e:
                 logger.warning(f"  Could not load HA registry (floors/areas may not work): {e}")
-            
+
+            # Older settings used "no speakers listed = all enabled"; make the list
+            # exact (keeping what was visible) now that the speakers are known
+            try:
+                if self._state_store.settings.migrate_enabled_speakers(self._ha_registry.get_all_speaker_ids()):
+                    self._state_store.save()
+                    logger.info(f"  Speaker settings updated: {len(self._state_store.settings.enabled_speakers)} speakers switched on")
+            except Exception as e:
+                logger.warning(f"  Could not update speaker settings: {e}")
+
             # Initialize media controller
             self._media_controller = HAMediaController(api_url, settings.token)
-            
+            if self._network_service:
+                # Route net:* speakers to the network service, the rest to HA
+                from sonorium.network.router import SpeakerRouter
+                self._media_controller = SpeakerRouter(
+                    self._media_controller if runtime.ha_configured() else None,
+                    self._network_service,
+                )
+            # Volume offsets and play-via for every speaker command
+            from sonorium.core.speaker_settings import SpeakerOutputs
+            self._media_controller = SpeakerOutputs(
+                self._media_controller,
+                lambda: self._state_store.settings.speaker_settings,
+                self._ha_registry.get_play_target,
+            )
+
             # Use configured stream URL (from SONORIUM__STREAM_URL env var)
             stream_base_url = settings.stream_url
             logger.debug(f"  Stream base URL: {stream_base_url}")
@@ -245,7 +301,11 @@ class ApiSonorium(api.Base):
                 self._plugin_manager = None
 
             # Initialize MQTT entity manager for Home Assistant integration
+            # (standalone mode may run without a connected broker)
             try:
+                if runtime.STANDALONE and not self.client.mqtt_client.is_connected:
+                    # Optional in standalone; already logged by the MQTT client
+                    raise _MQTTUnavailable()
                 from sonorium.ha.mqtt_entities import SonoriumMQTTManager
                 self._mqtt_manager = SonoriumMQTTManager(
                     state_store=self._state_store,
@@ -262,6 +322,8 @@ class ApiSonorium(api.Base):
 
                 await self._mqtt_manager.initialize()
                 logger.debug(f"  MQTT entity manager: {len(self._state_store.sessions)} session entities published")
+            except _MQTTUnavailable:
+                self._mqtt_manager = None
             except Exception as e:
                 logger.warning(f"  Failed to initialize MQTT entity manager: {e}")
                 import traceback
@@ -279,6 +341,7 @@ class ApiSonorium(api.Base):
                 plugin_manager=self._plugin_manager,
                 mqtt_manager=self._mqtt_manager,
                 on_themes_changed=self.schedule_theme_refresh,
+                network_service=self._network_service,
             )
             self.app.include_router(api_router)
             
@@ -289,7 +352,11 @@ class ApiSonorium(api.Base):
             # Start cycle manager background task
             await self._cycle_manager.start()
             logger.debug("  CycleManager started")
-            
+
+            # Network speaker discovery runs in the background: the UI is up meanwhile
+            if self._network_service:
+                self._network_service.start()
+
             self._v2_initialized = True
             logger.debug("  Sonorium v2 initialization complete!")
             self._log_startup_summary()
@@ -434,6 +501,76 @@ class ApiSonorium(api.Base):
         if self._cycle_manager:
             await self._cycle_manager.stop()
             logger.info("CycleManager stopped")
+        if self._network_service:
+            await self._network_service.stop()
+
+    def _init_network_speakers(self):
+        """Standalone only: network speaker discovery and streaming (never imported by the add-on)."""
+        try:
+            from sonorium.network.service import NetworkSpeakerService
+            self._network_service = NetworkSpeakerService(config_dir=runtime.CONNECTION_FILE.parent)
+            self._ha_registry.set_extra_speaker_source(self._network_service.hierarchy_speakers)
+            self._network_service.on_change = self._ha_registry.merge_extra_speakers
+            known = len(self._network_service.speakers)
+            logger.debug(f"  Network speakers: {known} saved, discovery starts in the background")
+        except Exception as e:
+            logger.warning(f"Network speakers unavailable: {e}")
+            self._network_service = None
+
+    async def get_connection(self):
+        """Standalone connection settings, without secrets."""
+        from sonorium import runtime
+        if not runtime.STANDALONE:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant add-on")
+        conn = runtime.load_connection()
+        return {
+            "standalone": True,
+            "ha_url": conn.get("ha_url", ""),
+            "ha_token_set": bool(conn.get("ha_token")),
+            "ha_connected": bool(runtime.ha_configured() and self._ha_registry and self._ha_registry._hierarchy is not None),
+            "mqtt_host": conn.get("mqtt_host", ""),
+            "mqtt_port": conn.get("mqtt_port", 1883),
+            "mqtt_username": conn.get("mqtt_username", ""),
+            "mqtt_password_set": bool(conn.get("mqtt_password")),
+            "mqtt_connected": self.client.mqtt_client.is_connected,
+            "stream_url": conn.get("stream_url", ""),
+        }
+
+    async def put_connection(self, request: Request):
+        """
+        Save standalone connection settings, then restart Sonorium so every
+        component picks them up. Empty token/password fields keep the saved value.
+        """
+        import asyncio
+        import os
+        import sys
+        from sonorium import runtime
+        if not runtime.STANDALONE:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant add-on")
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Expected a JSON object")
+        updates = {k: body[k] for k in runtime.CONNECTION_FIELDS if k in body}
+        if "mqtt_port" in updates and updates["mqtt_port"] not in (None, ""):
+            try:
+                updates["mqtt_port"] = int(updates["mqtt_port"])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="MQTT port must be a number")
+        for key in ("ha_url", "stream_url"):
+            value = (updates.get(key) or "").strip()
+            if value and not value.startswith(("http://", "https://")):
+                raise HTTPException(status_code=400, detail=f"{key} must start with http:// or https://")
+        runtime.save_connection(updates)
+        logger.info("Connection settings saved; restarting Sonorium to apply them")
+
+        def restart():
+            os.execv(sys.executable, [sys.executable, "-m", "sonorium.entrypoint"])
+
+        asyncio.get_running_loop().call_later(1.0, restart)
+        return {"status": "ok", "restarting": True}
 
     def _log_startup_summary(self):
         """One-line summary at normal log level; details are at debug level."""
@@ -451,8 +588,44 @@ class ApiSonorium(api.Base):
         template_path = TEMPLATES_DIR / "index.html"
         if template_path.exists() and self._v2_initialized:
             return HTMLResponse(content=template_path.read_text(), headers={"Cache-Control": "no-cache"})
-        else:
-            return await self.legacy_ui()
+        if (TEMPLATES_DIR / "logs.html").exists():
+            return await self.logs_page()  # startup failed: show why
+        return await self.legacy_ui()
+
+    async def logs_page(self):
+        """Standalone log viewer, independent of the main web UI."""
+        html = (TEMPLATES_DIR / "logs.html").read_text()
+        if not self._v2_initialized:
+            html = html.replace("<!--STARTUP_NOTICE-->", '<p class="notice">Sonorium didn&#39;t finish starting. The logs below show why.</p>')
+        return HTMLResponse(content=html, headers={"Cache-Control": "no-cache"})
+
+    def _log_info(self) -> dict:
+        return {"version": __version__, "log_level": logging.getLevelName(logger.getEffectiveLevel()).lower()}
+
+    async def get_logs(self, after: int = 0):
+        """Recent log messages, oldest first; pass the last seq seen as `after` to get only newer ones."""
+        return {"entries": logbuffer.recent(after), **self._log_info()}
+
+    async def download_logs(self):
+        """Recent log messages as a text file."""
+        info = self._log_info()
+        text = f"Sonorium {info['version']} (log level: {info['log_level']})\n\n" + logbuffer.as_text(logbuffer.recent())
+        name = f"sonorium-logs-{info['version']}.txt"
+        return PlainTextResponse(text, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    async def serve_favicon(self):
+        """Serve the browser tab icon."""
+        for path in (FAVICON_PATH, ICON_PATH):
+            if path.exists():
+                return FileResponse(path, media_type="image/png")
+        raise HTTPException(status_code=404, detail="Icon not found")
+
+    async def serve_display_image(self):
+        """Serve the logo shown on speakers with a screen."""
+        for path in (DISPLAY_PATH, LOGO_PATH):
+            if path.exists():
+                return FileResponse(path, media_type="image/png")
+        raise HTTPException(status_code=404, detail="Logo not found")
 
     async def serve_logo(self):
         """Serve the logo.png file."""

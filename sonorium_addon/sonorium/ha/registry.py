@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass, field, replace
+from typing import Callable, Optional
 
 from fmtr.tools import http
 from sonorium.obs import logger
@@ -27,6 +27,30 @@ except ImportError:
     logger.warning("websockets library not available - floor/area hierarchy will be limited")
 
 
+# Speaker types shown in the UI, from the Home Assistant integration (entity
+# registry "platform") that provides the media player
+HA_PLATFORM_TYPES = {
+    "cast": "cast",
+    "sonos": "sonos",
+    "dlna_dmr": "dlna",
+    "linkplay": "linkplay",
+    "wiim": "linkplay",
+    "heos": "heos",
+    "denonavr": "denon",  # Denon and Marantz AV receivers
+    "esphome": "esphome",
+    "apple_tv": "airplay",
+    "airplay": "airplay",
+}
+
+# Home Assistant states that mean the speaker can't be reached
+OFFLINE_STATES = ("unavailable", "unknown")
+
+
+def speaker_type_for_platform(platform: Optional[str]) -> str:
+    """UI speaker type for a Home Assistant integration name ("other" if not a known one)."""
+    return HA_PLATFORM_TYPES.get((platform or "").lower(), "other")
+
+
 @dataclass
 class Speaker:
     """A media player entity that can play audio."""
@@ -37,6 +61,21 @@ class Speaker:
     floor_id: Optional[str] = None
     floor_name: Optional[str] = None
     ip_address: Optional[str] = None
+    # Where Sonorium knows the speaker from: "ha", "discovered", "manual"
+    source: list[str] = field(default_factory=lambda: ["ha"])
+    # cast, sonos, dlna, airplay, linkplay, heos, esphome, other
+    type: str = "other"
+    online: bool = True
+    # IP/host, or the HA entity ID when the IP isn't known
+    address: Optional[str] = None
+    # Per-speaker settings applied (see core/speaker_settings.py)
+    original_name: Optional[str] = None
+    default_area_id: Optional[str] = None  # the HA area, before any room override
+    volume_offset: int = 0
+    # Network speakers found at the same IP as this HA speaker, shown as one
+    # speaker: [{"id": "net:dlna:x", "type": "dlna", "source": "discovered"}]
+    merged: list[dict] = field(default_factory=list)
+    play_via: str = "ha"
 
     def to_dict(self) -> dict:
         return {
@@ -47,6 +86,15 @@ class Speaker:
             "floor_id": self.floor_id,
             "floor_name": self.floor_name,
             "ip_address": self.ip_address,
+            "source": list(self.source),
+            "type": self.type,
+            "online": self.online,
+            "address": self.address or self.ip_address or self.entity_id,
+            "original_name": self.original_name or self.name,
+            "default_area_id": self.default_area_id,
+            "volume_offset": self.volume_offset,
+            "merged": [dict(m) for m in self.merged],
+            "play_via": self.play_via,
         }
 
 
@@ -143,7 +191,177 @@ class HARegistry:
         self._areas: dict[str, Area] = {}
         self._speakers: dict[str, Speaker] = {}
         self._hierarchy: Optional[SpeakerHierarchy] = None
-    
+
+        # Speakers from Home Assistant as fetched (before per-speaker settings)
+        self._ha_speakers: dict[str, Speaker] = {}
+
+        # Speakers from outside Home Assistant (standalone network speakers).
+        # None in the HA add-on.
+        self._extra_speaker_source: Optional[Callable[[], list[dict]]] = None
+
+        # Per-speaker settings (name, room, volume_offset, play_via) by speaker ID
+        self._settings_source: Optional[Callable[[], dict]] = None
+
+        # Network speaker ID -> HA speaker ID it was merged into (same IP)
+        self._merged_into: dict[str, str] = {}
+
+    def set_extra_speaker_source(self, source: Optional[Callable[[], list[dict]]]):
+        """
+        Add speakers that don't come from Home Assistant. `source` returns
+        dicts with entity_id, name, ip_address and optionally type, online and
+        source (list); it's read on every refresh() and merge_extra_speakers().
+        """
+        self._extra_speaker_source = source
+
+    def set_speaker_settings_source(self, source: Optional[Callable[[], dict]]):
+        """Per-speaker settings by speaker ID (see core/speaker_settings.py), read on every rebuild."""
+        self._settings_source = source
+
+    def merge_extra_speakers(self) -> SpeakerHierarchy:
+        """Re-read the extra speakers into the hierarchy (no Home Assistant calls)."""
+        return self._rebuild()
+
+    def apply_speaker_settings(self) -> SpeakerHierarchy:
+        """Rebuild the hierarchy after per-speaker settings changed (no Home Assistant calls)."""
+        return self._rebuild()
+
+    def _read_extras(self) -> list[dict]:
+        if self._extra_speaker_source is None:
+            return []
+        try:
+            return list(self._extra_speaker_source())
+        except Exception as e:
+            logger.warning(f"Could not list network speakers: {e}")
+            return []
+
+    def _read_settings(self) -> dict:
+        if self._settings_source is None:
+            return {}
+        try:
+            return self._settings_source() or {}
+        except Exception as e:
+            logger.warning(f"Could not read speaker settings: {e}")
+            return {}
+
+    def _rebuild(self) -> SpeakerHierarchy:
+        """
+        Build the hierarchy from the Home Assistant speakers and areas last
+        fetched, the extra (network) speakers and the per-speaker settings:
+        - a network speaker at the same IP as an HA speaker is merged into it
+          (one speaker, both sources; play_via picks the path);
+        - name overrides rename, room overrides move speakers between areas
+          (network speakers can be placed in HA areas too).
+        """
+        settings = self._read_settings()
+
+        speakers: dict[str, Speaker] = {}
+        for base in self._ha_speakers.values():
+            speakers[base.entity_id] = replace(
+                base, source=list(base.source), merged=[], area_name=None, floor_id=None, floor_name=None,
+            )
+
+        by_ip = {s.ip_address: s for s in speakers.values() if s.ip_address}
+        self._merged_into = {}
+        for item in self._read_extras():
+            entity_id = item.get("entity_id")
+            if not entity_id or entity_id in speakers:
+                continue
+            sources = list(item.get("source") or ["discovered"])
+            ip = item.get("ip_address")
+            target = by_ip.get(ip) if ip else None
+            if target is not None:
+                for src in sources:
+                    if src not in target.source:
+                        target.source.append(src)
+                target.online = target.online or bool(item.get("online", True))
+                target.merged.append({"id": entity_id, "type": item.get("type") or "other", "source": sources[0]})
+                self._merged_into[entity_id] = target.entity_id
+                continue
+            speakers[entity_id] = Speaker(
+                entity_id=entity_id,
+                name=item.get("name") or entity_id,
+                ip_address=ip,
+                source=sources,
+                type=item.get("type") or "other",
+                online=bool(item.get("online", True)),
+                address=ip or entity_id,
+            )
+
+        for speaker in speakers.values():
+            overrides = settings.get(speaker.entity_id) or {}
+            speaker.original_name = speaker.name
+            if overrides.get("name"):
+                speaker.name = overrides["name"]
+            speaker.default_area_id = speaker.area_id
+            if "room" in overrides:
+                speaker.area_id = overrides["room"] or None
+            speaker.volume_offset = int(overrides.get("volume_offset", 0) or 0)
+            play_via = overrides.get("play_via")
+            speaker.play_via = play_via if any(m["id"] == play_via for m in speaker.merged) else "ha"
+
+        self._speakers = speakers
+        self._hierarchy = self._link(speakers)
+        return self._hierarchy
+
+    def _link(self, speakers: dict[str, Speaker]) -> SpeakerHierarchy:
+        """Place speakers in their areas and areas on their floors."""
+        hierarchy = SpeakerHierarchy()
+
+        for area in self._areas.values():
+            area.speakers = []
+            floor = self._floors.get(area.floor_id) if area.floor_id else None
+            area.floor_name = floor.name if floor else None
+
+        linked_count = 0
+        for speaker in speakers.values():
+            area = self._areas.get(speaker.area_id) if speaker.area_id else None
+            if area is not None:
+                speaker.area_name = area.name
+                speaker.floor_id = area.floor_id if area.floor_id in self._floors else None
+                speaker.floor_name = area.floor_name
+                area.speakers.append(speaker)
+                linked_count += 1
+            else:
+                if speaker.area_id:
+                    logger.debug(f"  Speaker '{speaker.name}' has area_id '{speaker.area_id}' but area not found")
+                    speaker.area_id = None
+                hierarchy.unassigned_speakers.append(speaker)
+
+        if linked_count > 0:
+            logger.debug(f"  Linked {linked_count} speakers to areas")
+        elif self._areas and speakers:
+            logger.warning(f"  No speakers linked to areas! Area keys sample: {list(self._areas.keys())[:5]}")
+
+        for area in self._areas.values():
+            area.speakers.sort(key=lambda s: s.name.lower())
+        hierarchy.unassigned_speakers.sort(key=lambda s: s.name.lower())
+
+        for floor in sorted(self._floors.values(), key=lambda f: f.level):
+            floor.areas = sorted(
+                (a for a in self._areas.values() if a.floor_id == floor.floor_id), key=lambda a: a.name
+            )
+            hierarchy.floors.append(floor)
+
+        hierarchy.unassigned_areas = sorted(
+            (a for a in self._areas.values() if not a.floor_id or a.floor_id not in self._floors),
+            key=lambda a: a.name,
+        )
+        return hierarchy
+
+    def get_play_target(self, speaker_id: str) -> str:
+        """
+        The ID to play a speaker through: a merged speaker whose play_via
+        names one of its network speakers plays through that one.
+        """
+        speaker = self._speakers.get(speaker_id)
+        if speaker is not None and speaker.play_via != "ha":
+            return speaker.play_via
+        return speaker_id
+
+    def get_merged_owner(self, network_id: str) -> Optional[str]:
+        """The HA speaker a network speaker was merged into, if any."""
+        return self._merged_into.get(network_id)
+
     def _get(self, endpoint: str) -> dict | list | None:
         """Make GET request to HA API."""
         import json
@@ -183,11 +401,8 @@ class HARegistry:
 
     def _get_websocket_url(self) -> str:
         """Convert REST API URL to WebSocket URL."""
-        # api_url is like "http://supervisor/core/api"
-        # WebSocket is at "ws://supervisor/core/websocket"
-        ws_url = self.api_url.replace("http://", "ws://").replace("https://", "wss://")
-        ws_url = ws_url.replace("/api", "/websocket")
-        return ws_url
+        from sonorium.runtime import ha_websocket_url
+        return ha_websocket_url(self.api_url)
 
     async def _ws_fetch_registries(self) -> tuple[list, list, list, list]:
         """
@@ -583,6 +798,10 @@ class HARegistry:
                     name=name,
                     area_id=area_id,
                     ip_address=ip_address,
+                    source=["ha"],
+                    type=speaker_type_for_platform(entity_entry.get("platform")),
+                    online=state.get("state") not in OFFLINE_STATES,
+                    address=ip_address or entity_id,
                 )
                 speakers[entity_id] = speaker
 
@@ -607,6 +826,12 @@ class HARegistry:
         Tries WebSocket API first (required for floor/area/entity/device registries),
         falls back to REST API for states.
         """
+        from sonorium.runtime import ha_configured
+        if not ha_configured():
+            # Standalone without Home Assistant: no HA speakers to load
+            self._floors, self._areas, self._ha_speakers = {}, {}, {}
+            return self._rebuild()
+
         logger.debug("Building speaker hierarchy from Home Assistant...")
 
         # Try WebSocket API first for registries (floors, areas, entity registry, device registry)
@@ -629,57 +854,10 @@ class HARegistry:
 
         # Always fetch speakers from states (REST API works for this)
         # Pass device_registry for inherited area lookups, areas for name-based matching fallback
-        self._speakers = self._fetch_speakers(entity_registry, device_registry, self._areas)
-        
-        # Build hierarchy
-        hierarchy = SpeakerHierarchy()
-        
-        # Link areas to floors, and track floor names
-        for area in self._areas.values():
-            if area.floor_id and area.floor_id in self._floors:
-                floor = self._floors[area.floor_id]
-                area.floor_name = floor.name
-        
-        # Link speakers to areas, and track area/floor names
-        linked_count = 0
-        for speaker in self._speakers.values():
-            if speaker.area_id and speaker.area_id in self._areas:
-                area = self._areas[speaker.area_id]
-                speaker.area_name = area.name
-                speaker.floor_id = area.floor_id
-                speaker.floor_name = area.floor_name
-                area.speakers.append(speaker)
-                linked_count += 1
-            else:
-                if speaker.area_id:
-                    logger.debug(f"  Speaker '{speaker.name}' has area_id '{speaker.area_id}' but area not found in self._areas")
-                # Speaker has no area assignment
-                hierarchy.unassigned_speakers.append(speaker)
+        self._ha_speakers = self._fetch_speakers(entity_registry, device_registry, self._areas)
 
-        if linked_count > 0:
-            logger.debug(f"  Linked {linked_count} speakers to areas")
-        elif self._areas:
-            logger.warning(f"  No speakers linked to areas! Area keys sample: {list(self._areas.keys())[:5]}")
-        
-        # Sort unassigned speakers by name
-        hierarchy.unassigned_speakers.sort(key=lambda s: s.name)
-        
-        # Build floor list with their areas
-        for floor in sorted(self._floors.values(), key=lambda f: f.level):
-            floor.areas = []
-            for area in self._areas.values():
-                if area.floor_id == floor.floor_id:
-                    floor.areas.append(area)
-            floor.areas.sort(key=lambda a: a.name)
-            hierarchy.floors.append(floor)
-        
-        # Collect areas with no floor
-        for area in self._areas.values():
-            if not area.floor_id:
-                hierarchy.unassigned_areas.append(area)
-        hierarchy.unassigned_areas.sort(key=lambda a: a.name)
-        
-        self._hierarchy = hierarchy
+        # Build hierarchy (adds network speakers and per-speaker settings)
+        hierarchy = self._rebuild()
 
         total_speakers = len(hierarchy.get_all_speakers())
         logger.debug(f"  Hierarchy complete: {len(hierarchy.floors)} floors, {len(hierarchy.unassigned_areas)} unassigned areas, {len(hierarchy.unassigned_speakers)} unassigned speakers, {total_speakers} total speakers")
@@ -848,6 +1026,6 @@ def create_registry_from_supervisor() -> HARegistry:
     from sonorium.settings import settings
     
     return HARegistry(
-        api_url=f"{settings.ha_supervisor_api.replace('/core', '')}/core/api",
+        api_url=settings.ha_core_api,
         token=settings.token,
     )

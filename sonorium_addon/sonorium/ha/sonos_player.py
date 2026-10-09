@@ -21,6 +21,7 @@ from typing import Optional
 from concurrent.futures import ThreadPoolExecutor
 
 from sonorium.obs import logger
+from sonorium.runtime import ha_websocket_url
 
 # SoCo is a blocking library, so we run it in a thread pool
 _executor = ThreadPoolExecutor(max_workers=4)
@@ -98,7 +99,7 @@ async def _get_sonos_ips_from_ha(media_controller) -> dict[str, str]:
 
         # Connect to HA WebSocket API
         token = media_controller.token
-        ws_url = media_controller.api_url.replace('http://', 'ws://').replace('/api', '/api/websocket')
+        ws_url = ha_websocket_url(media_controller.api_url)
 
         logger.debug(f"  SoCo: Connecting to HA WebSocket: {ws_url}")
 
@@ -458,7 +459,7 @@ class SonosPlayer:
             import json
 
             token = self.media_controller.token
-            ws_url = self.media_controller.api_url.replace('http://', 'ws://').replace('/api', '/api/websocket')
+            ws_url = ha_websocket_url(self.media_controller.api_url)
 
             logger.debug(f"  SoCo: Loading entity/device registry for speaker detection...")
 

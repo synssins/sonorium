@@ -1,0 +1,14 @@
+# Build context is the repo root; only docker/ and sonorium_addon/ are used.
+*.tok
+*.tok.txt
+.git
+.github
+app
+docs
+screenshots
+tests
+**/__pycache__
+**/.pytest_cache
+HANDOFF-*.md
+PLAN-*.md
+PROJECT_STATUS.md

@@ -11,6 +11,7 @@ import paho.mqtt.client as paho_mqtt
 
 from sonorium.api import ApiSonorium
 from sonorium.device import Sonorium
+from sonorium import runtime
 from sonorium.obs import logger
 
 
@@ -94,6 +95,10 @@ class MQTTClient:
     def set_message_handler(self, handler: Callable[[str, str], Awaitable[None]]):
         """Set the async message handler for incoming MQTT messages."""
         self._message_handler = handler
+
+    @property
+    def is_connected(self) -> bool:
+        return self._connected.is_set()
 
     async def connect(self):
         """Connect to the MQTT broker."""
@@ -182,8 +187,19 @@ class ClientSonorium:
     @logger.instrument('Connecting MQTT client to {self._mqtt.username}@{self._mqtt.hostname}:{self._mqtt.port}...')
     async def start(self):
         """Start the MQTT client and API server."""
-        # Connect to MQTT broker
-        await self._mqtt.connect()
+        if runtime.STANDALONE:
+            # Standalone: the web UI must come up even without a working
+            # broker, so MQTT can be configured from it. paho keeps retrying.
+            if not self._mqtt.hostname:
+                logger.info("  MQTT not configured (Settings -> Connection); Home Assistant entities disabled")
+            else:
+                try:
+                    await self._mqtt.connect()
+                except RuntimeError as e:
+                    logger.warning(f"  {e}; continuing without MQTT for now")
+        else:
+            # Connect to MQTT broker
+            await self._mqtt.connect()
 
         # Launch the API server
         await self.API_CLASS.launch_async(self)
@@ -210,7 +226,7 @@ class ClientSonorium:
         from sonorium.settings import settings
 
         # Get config from environment (set by run.sh via bashio::services or manual config)
-        mqtt_host = settings.mqtt_host if settings.mqtt_host and settings.mqtt_host.lower() != "auto" else None
+        mqtt_host = settings.mqtt_host if settings.mqtt_host and settings.mqtt_host.lower() not in ("auto", "none") else None
         mqtt_port = settings.mqtt_port if settings.mqtt_port and settings.mqtt_port > 0 else None
         mqtt_username = settings.mqtt_username if settings.mqtt_username else None
         # Extract password from SecretStr (never log this value!)
@@ -221,6 +237,9 @@ class ClientSonorium:
         if mqtt_host and not mqtt_port:
             mqtt_port = 1883
             logger.info(f"  MQTT host configured, using default port: {mqtt_port}")
+
+        if runtime.STANDALONE and not mqtt_host:
+            return cls(device=device, hostname=None, **kwargs)
 
         # Fallback: Try Supervisor API directly if bashio::services didn't provide config
         # This is a backup - bashio::services in run.sh should have already set these

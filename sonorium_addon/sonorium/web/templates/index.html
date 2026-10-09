@@ -15,6 +15,13 @@
             link.rel = 'stylesheet';
             link.href = window.SONORIUM_BASE + '/static/css/styles.css';
             document.head.appendChild(link);
+
+            // Browser tab icon (same base path, so it works through HA ingress)
+            var icon = document.createElement('link');
+            icon.rel = 'icon';
+            icon.type = 'image/png';
+            icon.href = window.SONORIUM_BASE + '/favicon.png';
+            document.head.appendChild(icon);
         })();
     </script>
 </head>
@@ -69,6 +76,14 @@
                     </svg>
                 </div>
                 <div class="nav-sub-items">
+                    <!-- Standalone (Docker) only: shown when /api/connection exists -->
+                    <div class="nav-sub-item" id="nav-settings-connection" style="display: none;" onclick="showView('settings-connection')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                        </svg>
+                        <span>Connection</span>
+                    </div>
                     <div class="nav-sub-item" onclick="showView('settings-audio')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
@@ -100,6 +115,15 @@
                             <path d="M2 12l10 5 10-5"/>
                         </svg>
                         <span>Plugins</span>
+                    </div>
+                    <div class="nav-sub-item" onclick="showView('settings-logs')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="8" y1="13" x2="16" y2="13"/>
+                            <line x1="8" y1="17" x2="16" y2="17"/>
+                        </svg>
+                        <span>Logs</span>
                     </div>
                 </div>
             </div>
@@ -539,6 +563,109 @@ Example:
             </div>
 
             <!-- Audio Settings View -->
+            <!-- Connection Settings View (standalone/Docker only) -->
+            <div id="view-settings-connection" class="view">
+                <div class="settings-section">
+                    <h3>Home Assistant</h3>
+                    <p>Optional. Connect to use Home Assistant's speakers alongside the ones Sonorium finds on your network.</p>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                        <div id="conn-ha-dot" class="channel-status"></div>
+                        <span id="conn-ha-status" class="settings-hint">Not configured</span>
+                    </div>
+                    <div class="settings-form">
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-ha-url">Home Assistant URL</label>
+                                <span class="settings-hint">For example http://homeassistant.local:8123</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="url" id="conn-ha-url" placeholder="http://homeassistant.local:8123">
+                            </div>
+                        </div>
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-ha-token">Access token</label>
+                                <span class="settings-hint">In Home Assistant: your profile, Security, Long-lived access tokens. Leave blank to keep the saved token.</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="password" id="conn-ha-token" autocomplete="off" placeholder="Paste a long-lived access token">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>MQTT</h3>
+                    <p>Optional. Lets Home Assistant control Sonorium with dashboard entities and automations.</p>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                        <div id="conn-mqtt-dot" class="channel-status"></div>
+                        <span id="conn-mqtt-status" class="settings-hint">Not configured</span>
+                    </div>
+                    <div class="settings-form">
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-mqtt-host">Broker</label>
+                                <span class="settings-hint">Host name or IP of your MQTT broker</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="text" id="conn-mqtt-host" placeholder="192.168.1.10">
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <label for="conn-mqtt-port">Port</label>
+                                <span class="settings-hint">Usually 1883</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="number" id="conn-mqtt-port" value="1883" min="1" max="65535">
+                            </div>
+                        </div>
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-mqtt-user">Username</label>
+                                <span class="settings-hint">Leave blank if your broker allows anonymous connections</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="text" id="conn-mqtt-user" autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-mqtt-pass">Password</label>
+                                <span class="settings-hint">Leave blank to keep the saved password</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="password" id="conn-mqtt-pass" autocomplete="off">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Streaming</h3>
+                    <p>The address your speakers use to reach Sonorium.</p>
+                    <div class="settings-form">
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-stream-url">Stream URL</label>
+                                <span class="settings-hint">This machine's IP address and port 8008, for example http://192.168.1.20:8008</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="url" id="conn-stream-url" placeholder="http://192.168.1.20:8008">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <p>Saving restarts Sonorium so the changes take effect. Playing channels stop for a few seconds.</p>
+                    <div class="settings-actions">
+                        <button id="conn-save-btn" class="btn btn-primary btn-sm" onclick="saveConnectionSettings()">Save and Restart</button>
+                    </div>
+                    <span id="conn-saved" class="settings-hint" style="display: none;">Saved. Sonorium is restarting...</span>
+                </div>
+            </div>
+
             <div id="view-settings-audio" class="view">
                 <div class="settings-section">
                     <h3>Audio Settings</h3>
@@ -592,21 +719,28 @@ Example:
             <!-- Speakers Settings View -->
             <div id="view-settings-speakers" class="view">
                 <div class="settings-section">
-                    <h3>Available Speakers</h3>
-                    <p>Select which speakers Sonorium can use. Disabled speakers won't appear when creating channels.</p>
-                    <div class="settings-actions">
-                        <button class="btn btn-secondary btn-sm" onclick="enableAllSpeakers()">Enable All</button>
-                        <button class="btn btn-secondary btn-sm" onclick="disableAllSpeakers()">Disable All</button>
-                        <button class="btn btn-secondary btn-sm" onclick="refreshSpeakersFromHA()">
+                    <h3>Speakers</h3>
+                    <p>Choose which speakers Sonorium can use, where they are, and how they sound. Disabled speakers don't appear when creating channels.</p>
+                    <div class="spk-toolbar">
+                        <input type="search" id="spk-search" class="spk-search" placeholder="Search speakers" aria-label="Search speakers" oninput="renderSettingsSpeakerTree()">
+                        <div id="spk-filter" class="seg" role="group" aria-label="Show speakers from"></div>
+                        <label class="spk-hide-offline">
+                            <span class="toggle-switch">
+                                <input type="checkbox" id="spk-hide-offline" onchange="setHideOfflineSpeakers(this.checked)">
+                                <span class="toggle-slider"></span>
+                            </span>
+                            <span>Hide offline</span>
+                        </label>
+                        <button class="btn btn-secondary btn-sm" id="spk-rescan" onclick="rescanSpeakers()">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M23 4v6h-6"/>
-                                <path d="M1 20v-6h6"/>
-                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
                             </svg>
-                            Refresh from HA
+                            <span id="spk-rescan-label">Rescan network</span>
                         </button>
+                        <span id="spk-scan-meta" class="scan-meta"></span>
                     </div>
-                    <div id="settings-speaker-tree" class="settings-speaker-tree">
+                    <div id="settings-speaker-tree" class="spk-list">
                         <div class="loading">
                             <div class="spinner"></div>
                             Loading speakers...
@@ -654,6 +788,14 @@ Example:
                 </div>
             </div>
 
+            <!-- Logs Settings View (filled by logs.js) -->
+            <div id="view-settings-logs" class="view">
+                <div class="settings-section">
+                    <h3>Logs</h3>
+                    <div id="settings-logs-root"></div>
+                </div>
+            </div>
+
             <!-- Status View -->
             <div id="view-status" class="view">
                 <div class="status-grid">
@@ -676,12 +818,12 @@ Example:
         </main>
     </div>
 
-    <!-- New/Edit Channel Modal -->
+    <!-- New/Edit Channel Modal: two columns on desktop, a full-screen sheet on phones -->
     <div id="session-modal" class="modal-backdrop" onclick="closeModalOnBackdrop(event)">
-        <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal channel-editor" role="dialog" aria-labelledby="modal-title" onclick="event.stopPropagation()">
             <div class="modal-header">
                 <h2 id="modal-title">New Channel</h2>
-                <button class="modal-close" onclick="closeSessionModal()">
+                <button class="modal-close" aria-label="Close" onclick="closeSessionModal()">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"/>
                         <line x1="6" y1="6" x2="18" y2="18"/>
@@ -691,59 +833,68 @@ Example:
             <div class="modal-body">
                 <input type="hidden" id="edit-session-id" value="">
 
-                <div class="session-field">
-                    <label>Channel Name</label>
-                    <input type="text" id="session-name" placeholder="Leave empty to auto-generate from selection">
-                </div>
-
-                <div class="session-field">
-                    <label>Select Theme</label>
-                    <div id="theme-selector" class="theme-grid">
-                        <!-- Themes loaded dynamically -->
+                <div class="col col-left">
+                    <div class="session-field">
+                        <label for="session-name">Channel Name</label>
+                        <input type="text" id="session-name" placeholder="Leave empty to auto-generate from selection">
                     </div>
-                </div>
 
-                <div class="session-field" id="channel-preset-field" style="display: none;">
-                    <label>Theme Preset</label>
-                    <select id="channel-preset-select" onchange="onChannelPresetChange()">
-                        <option value="">-- Default Settings --</option>
-                    </select>
-                </div>
-
-                <div class="session-field" id="speaker-group-field" style="display: none;">
-                    <label>Speaker Group</label>
-                    <select id="session-speaker-group" onchange="onSpeakerGroupChange()">
-                        <option value="">-- Select manually below --</option>
-                        <!-- Groups loaded dynamically -->
-                    </select>
-                </div>
-
-                <div class="session-field" id="manual-speaker-selection">
-                    <label>Select Speakers</label>
-                    <div class="speaker-dropdown" id="speaker-dropdown">
-                        <div class="speaker-dropdown-header" onclick="toggleSpeakerDropdown(event)">
-                            <span id="speaker-dropdown-text">Click to select speakers...</span>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="6 9 12 15 18 9"/>
-                            </svg>
-                        </div>
-                        <div class="speaker-dropdown-content" id="speaker-dropdown-content">
-                            <div id="speaker-tree" class="speaker-tree">
-                                <!-- Speaker tree loaded dynamically -->
+                    <div class="session-field grow">
+                        <label>Theme · <span id="theme-selected-name">None</span></label>
+                        <div class="theme-panel">
+                            <div class="picker-head">
+                                <input type="search" id="theme-search" class="picker-search" placeholder="Search themes" aria-label="Search themes" oninput="renderThemeSelector()">
+                            </div>
+                            <div class="theme-list">
+                                <div id="theme-selector" class="theme-chips" role="radiogroup" aria-label="Theme">
+                                    <!-- Themes loaded dynamically -->
+                                </div>
                             </div>
                         </div>
                     </div>
+
+                    <div class="session-field" id="channel-preset-field" style="display: none;">
+                        <label for="channel-preset-select">Theme Preset</label>
+                        <select id="channel-preset-select" onchange="onChannelPresetChange()">
+                            <option value="">-- Default Settings --</option>
+                        </select>
+                    </div>
+
+                    <div class="session-field">
+                        <label for="session-volume">Volume</label>
+                        <div class="volume-control">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+                            </svg>
+                            <input type="range" id="session-volume" class="volume-slider" min="0" max="100" value="60">
+                            <span id="volume-display" class="volume-value">60%</span>
+                        </div>
+                    </div>
                 </div>
 
-                <div class="session-field">
-                    <label>Volume</label>
-                    <div class="volume-control">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-                        </svg>
-                        <input type="range" id="session-volume" class="volume-slider" min="0" max="100" value="60">
-                        <span id="volume-display" class="volume-value">60%</span>
+                <div class="col">
+                    <div class="session-field grow">
+                        <label for="session-speaker-group">Speakers<span class="picker-label-summary"> · <span id="speaker-label-summary">0 selected</span></span></label>
+                        <div id="speaker-group-field" style="display: none; margin-bottom: 0.5rem;">
+                            <select id="session-speaker-group" onchange="onSpeakerGroupChange()">
+                                <option value="">-- Choose speakers below --</option>
+                                <!-- Groups loaded dynamically -->
+                            </select>
+                        </div>
+                        <div class="picker" id="manual-speaker-selection">
+                            <div class="picker-head">
+                                <input type="search" id="speaker-search" class="picker-search" placeholder="Search speakers" aria-label="Search speakers" oninput="renderSpeakerTree()">
+                                <div id="speaker-chips" class="chips" aria-label="Selected speakers"></div>
+                            </div>
+                            <div id="speaker-tree" class="picker-list">
+                                <!-- Speaker tree loaded dynamically -->
+                            </div>
+                            <div class="picker-foot">
+                                <span id="speaker-summary">0 speakers selected</span>
+                                <button type="button" class="link-btn" onclick="clearSpeakerSelection()">Clear selection</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -752,6 +903,60 @@ Example:
                 <button class="btn btn-primary" onclick="saveSession()">
                     <span id="save-btn-text">Create Channel</span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Speaker Modal (standalone only) -->
+    <div id="add-speaker-modal" class="modal-backdrop" onclick="if(event.target===this) closeAddSpeakerModal()">
+        <div class="modal add-speaker" role="dialog" aria-labelledby="as-title">
+            <div class="modal-header">
+                <h2 id="as-title">Add speaker</h2>
+                <button class="modal-close" aria-label="Close" onclick="closeAddSpeakerModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="session-field">
+                    <label for="as-addr">Address</label>
+                    <input type="text" id="as-addr" placeholder="192.168.1.50 or speaker.local" autocomplete="off" spellcheck="false">
+                    <span class="field-hint">IP address or network name of the speaker</span>
+                </div>
+                <div class="session-field">
+                    <label for="as-type">Type</label>
+                    <select id="as-type">
+                        <option value="auto">Detect automatically</option>
+                        <option value="cast">Google Cast</option>
+                        <option value="sonos">Sonos</option>
+                        <option value="dlna">DLNA / UPnP</option>
+                        <option value="airplay">AirPlay</option>
+                        <option value="linkplay">LinkPlay / Arylic</option>
+                        <option value="heos">HEOS (Denon / Marantz)</option>
+                    </select>
+                </div>
+                <div class="session-field">
+                    <label for="as-name">Name</label>
+                    <input type="text" id="as-name" placeholder="Leave empty to use the speaker's own name">
+                </div>
+                <div class="session-field">
+                    <label for="as-room">Room</label>
+                    <select id="as-room"><option value="">No room</option></select>
+                </div>
+                <details class="adv">
+                    <summary>Advanced</summary>
+                    <div class="session-field">
+                        <label for="as-port">Port</label>
+                        <input type="text" id="as-port" inputmode="numeric" placeholder="Default for the type">
+                    </div>
+                </details>
+                <div id="as-result" class="check-result" style="display: none;" role="status"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="as-check-btn" onclick="checkManualSpeaker()">Check connection</button>
+                <button class="btn btn-primary" id="as-add-btn" onclick="addManualSpeaker()">Add speaker</button>
             </div>
         </div>
     </div>
@@ -811,7 +1016,7 @@ Example:
             var base = window.SONORIUM_BASE || '';
 
             // Load scripts in order with error handling
-            function loadScript(src, callback) {
+            function loadScript(src, callback, onFail) {
                 var script = document.createElement('script');
                 script.src = base + src;
                 script.onload = function() {
@@ -820,16 +1025,20 @@ Example:
                 };
                 script.onerror = function() {
                     console.error('Failed to load: ' + base + src);
+                    if (onFail) onFail();
                 };
                 document.body.appendChild(script);
             }
 
             console.log('Sonorium loading scripts with base:', base);
+            // Without the app script the page is unusable: show the logs instead
+            function showLogs() { window.location.href = base + '/logs'; }
+            loadScript('/static/js/logs.js');
             loadScript('/static/js/api.js', function() {
                 loadScript('/static/js/app.js', function() {
                     console.log('All scripts loaded');
-                });
-            });
+                }, showLogs);
+            }, showLogs);
         })();
     </script>
 </body>

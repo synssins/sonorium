@@ -46,7 +46,7 @@ COPY sonorium/ /app/sonorium/
 COPY setup.py pyproject.toml README.md /app/
 
 # Copy logo and icon
-COPY logo.png icon.png /app/
+COPY logo.png icon.png favicon.png display.png /app/
 
 # Copy bundled themes (installed on first run if /media/sonorium is empty)
 COPY themes/ /app/themes/
@@ -69,6 +69,6 @@ RUN chmod a+x /run.sh
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.3.0}"
+LABEL io.hass.version="${ADDON_VERSION:-1.4.0-dev.20}"
 
 CMD [ "/run.sh" ]

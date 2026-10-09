@@ -18,12 +18,13 @@ IP Resolution:
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from typing import Optional, TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor
 
+from sonorium.display import DISPLAY_TITLE, display_image_url
 from sonorium.obs import logger
+from sonorium.runtime import STANDALONE, ha_websocket_url
 
 if TYPE_CHECKING:
     from sonorium.ha.media_controller import HAMediaController
@@ -151,7 +152,7 @@ class CastPlayer:
 
             # Connect to HA WebSocket API
             token = self.media_controller.token
-            ws_url = self.media_controller.api_url.replace('http://', 'ws://').replace('/api', '/api/websocket')
+            ws_url = ha_websocket_url(self.media_controller.api_url)
 
             logger.debug(f"  Cast: Connecting to HA WebSocket: {ws_url}")
 
@@ -387,7 +388,7 @@ class CastPlayer:
 
         # Final fallback: mDNS discovery. Not as an HA add-on: without host
         # networking the container can't see mDNS, so it only cost 5s per play.
-        if not os.environ.get("SUPERVISOR_TOKEN"):
+        if STANDALONE:
             logger.debug(f"  Cast: Trying mDNS discovery for {entity_id}...")
             ip = await self._discover_cast_ip_via_mdns(friendly_name, entity_name)
             if ip:
@@ -529,7 +530,7 @@ class CastPlayer:
                 return False
 
             mc = cast.media_controller
-            mc.play_media(url, content_type)
+            mc.play_media(url, content_type, title=DISPLAY_TITLE, thumb=display_image_url(url))
 
             # Wait for playback to start
             import time
@@ -574,6 +575,10 @@ class CastPlayer:
                 "media_content_id": media_url,
                 "media_content_type": "audio/mpeg",
             }
+            # Shown on Cast displays: HA's Cast integration passes title/thumb
+            # on to the Default Media Receiver (only Cast-supported keys here)
+            image = display_image_url(media_url)
+            data["extra"] = {"title": DISPLAY_TITLE, **({"thumb": image} if image else {})}
 
             logger.debug(f"  Cast: Using HA API fallback for {entity_id}")
             logger.debug(f"  Cast: POST {url}")

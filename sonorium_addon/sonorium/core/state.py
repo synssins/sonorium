@@ -84,9 +84,14 @@ class SonoriumSettings:
     default_cycle_interval: int = 60  # minutes
     default_cycle_randomize: bool = False
 
-    # Speaker availability - only these speakers are visible/targetable in Sonorium
-    # Empty list = all speakers enabled (backwards compatibility)
+    # Speaker availability - only speakers switched on in Settings > Speakers are
+    # visible/targetable in Sonorium. The list is exact: empty = none switched on.
     enabled_speakers: list[str] = field(default_factory=list)
+
+    # Older state files used "empty list = all speakers enabled" (and ["__none__"]
+    # for none). Those load with this False and are converted to an exact list,
+    # keeping what was visible, once the speaker list is known.
+    enabled_speakers_exact: bool = True
 
     # Favorite themes (by theme ID)
     favorite_themes: list[str] = field(default_factory=list)
@@ -102,6 +107,11 @@ class SonoriumSettings:
     # Manual speaker area assignments (fallback when HA areas unavailable)
     # Format: {"area_name": ["media_player.entity1", "media_player.entity2"]}
     custom_speaker_areas: dict[str, list[str]] = field(default_factory=dict)
+
+    # Per-speaker settings, by speaker ID (see core/speaker_settings.py)
+    # Format: {"media_player.office": {"name": "Office", "room": "office",
+    #          "volume_offset": -10, "play_via": "net:dlna:abc"}}
+    speaker_settings: dict[str, dict] = field(default_factory=dict)
 
     # Per-track presence settings for themes (how often track plays in mix)
     # Format: {"theme_id": {"track_name": 0.5, "track_name2": 1.0}}
@@ -145,7 +155,40 @@ class SonoriumSettings:
     
     @classmethod
     def from_dict(cls, data: dict) -> SonoriumSettings:
-        return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+        data = {k: v for k, v in data.items() if k in cls.__dataclass_fields__}
+        data.setdefault("enabled_speakers_exact", False)  # saved before exact lists
+        return cls(**data)
+
+    def speaker_enabled(self, speaker_id: str) -> bool:
+        """Whether a speaker is switched on in Settings > Speakers."""
+        if self.enabled_speakers_exact:
+            return speaker_id in self.enabled_speakers
+        if not self.enabled_speakers:
+            return True
+        return speaker_id in self.enabled_speakers
+
+    def effective_enabled_speakers(self, all_speaker_ids: list[str]) -> list[str]:
+        """
+        The switched-on speakers as an exact list. Entries for speakers not
+        currently known are kept, so a speaker that's briefly missing stays on.
+        """
+        if self.enabled_speakers_exact:
+            return list(self.enabled_speakers)
+        if not self.enabled_speakers:
+            return list(all_speaker_ids)  # old "empty = all"
+        return [speaker_id for speaker_id in self.enabled_speakers if speaker_id != "__none__"]
+
+    def migrate_enabled_speakers(self, all_speaker_ids: list[str]) -> bool:
+        """
+        Convert an older "empty = all" list to an exact one, keeping what was
+        visible. Waits (returns False) until the speaker list is known, so an
+        unreachable Home Assistant at startup can't switch everything off.
+        """
+        if self.enabled_speakers_exact or not all_speaker_ids:
+            return False
+        self.enabled_speakers = self.effective_enabled_speakers(all_speaker_ids)
+        self.enabled_speakers_exact = True
+        return True
 
 
 @dataclass

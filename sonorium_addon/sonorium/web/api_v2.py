@@ -11,7 +11,7 @@ import asyncio
 from typing import Optional
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Request, UploadFile, File
+from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Request, UploadFile, File, Response
 from pydantic import BaseModel, Field
 
 from sonorium.core.state import SpeakerSelection, CycleConfig, NameSource
@@ -194,7 +194,7 @@ class UpdateSettingsRequest(BaseModel):
 
 class SpeakerSettingsResponse(BaseModel):
     """Speaker settings response with hierarchy."""
-    enabled_speakers: list[str]  # Empty = all enabled
+    enabled_speakers: list[str]  # Exact: only these are switched on
     hierarchy: Optional[dict] = None  # Full speaker hierarchy
 
 
@@ -206,6 +206,23 @@ class UpdateSpeakerSettingsRequest(BaseModel):
 class SingleSpeakerRequest(BaseModel):
     """Request to enable/disable a single speaker."""
     entity_id: str
+
+
+class SpeakerSettingsUpdateRequest(BaseModel):
+    """Per-speaker settings; only the fields sent change, and null resets one to its default."""
+    name: Optional[str] = None  # "" or null = the original name
+    room: Optional[str] = None  # area ID, "" = no room, null = the speaker's own HA area
+    volume_offset: Optional[int] = None  # percent, -20..+20
+    play_via: Optional[str] = None  # "ha" or a merged network speaker ID
+
+
+class ManualSpeakerRequest(BaseModel):
+    """A speaker added by address (standalone mode)."""
+    address: str
+    type: str = "auto"  # auto, cast, sonos, dlna, airplay, linkplay, heos
+    name: Optional[str] = None
+    room: Optional[str] = None  # area ID
+    port: Optional[int] = None
 
 
 class CustomAreasRequest(BaseModel):
@@ -304,6 +321,7 @@ def create_api_router(
     plugin_manager=None,
     mqtt_manager=None,
     on_themes_changed=None,
+    network_service=None,
 ) -> APIRouter:
     """
     Create the API router with all endpoints.
@@ -320,6 +338,7 @@ def create_api_router(
         mqtt_manager: Optional MQTT manager for HA entity updates
         on_themes_changed: Optional callback after themes are added to or deleted,
             so the theme list (and MQTT theme selects) gets rescanned
+        network_service: Optional NetworkSpeakerService (standalone mode only)
 
     Returns:
         Configured APIRouter
@@ -337,7 +356,6 @@ def create_api_router(
         debug_info = {
             "api_url": ha_registry.api_url,
             "token_present": bool(ha_registry.token),
-            "token_preview": ha_registry.token[:20] + "..." if ha_registry.token else None,
             "cached_floors": len(ha_registry._floors),
             "cached_areas": len(ha_registry._areas),
             "cached_speakers": len(ha_registry._speakers),
@@ -513,6 +531,8 @@ def create_api_router(
         
         if not session.theme_id:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No theme selected")
+        if not session_manager.get_theme(session.theme_id):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Theme not found")
         
         speakers = session_manager.get_resolved_speakers(session)
         if not speakers:
@@ -886,8 +906,11 @@ def create_api_router(
     
     @router.post("/speakers/refresh")
     async def refresh_speakers() -> dict:
-        """Refresh speaker hierarchy from Home Assistant."""
+        """Refresh speaker hierarchy from Home Assistant (and, standalone, rescan the network)."""
         hierarchy = ha_registry.refresh()
+        if network_service is not None:
+            await network_service.discover(full=True)
+            hierarchy = ha_registry.hierarchy
         return {
             "floors": len(hierarchy.floors),
             "unassigned_areas": len(hierarchy.unassigned_areas),
@@ -895,6 +918,222 @@ def create_api_router(
             "total_speakers": len(hierarchy.get_all_speakers()),
         }
     
+    # --- Network Speakers (standalone mode; 404 in the HA add-on) ---
+
+    def _require_network_service():
+        if network_service is None:
+            raise HTTPException(status_code=404, detail="Network speakers are only available in standalone mode")
+        return network_service
+
+    @router.get("/network-speakers")
+    async def list_network_speakers() -> dict:
+        """Network speakers found by discovery, with protocol details."""
+        service = _require_network_service()
+        speakers = sorted(service.speakers.values(), key=lambda s: s.name.lower())
+        result = []
+        for speaker in speakers:
+            item = speaker.to_dict()
+            item["playing"] = service.streaming.is_playing(speaker.id)
+            item["manual"] = bool(speaker.extra.get("manual"))
+            result.append(item)
+        return {
+            "speakers": result,
+            "total_speakers": len(result),
+            "last_scan": service.last_scan,  # ISO time (UTC), None before the first scan finishes
+            "found": service.last_scan_found,  # speakers the last scan found
+        }
+
+    @router.post("/network-speakers/refresh")
+    async def refresh_network_speakers() -> dict:
+        """Rescan the network for speakers now."""
+        service = _require_network_service()
+        total = await service.discover(full=True)
+        return {"total_speakers": total, "last_scan": service.last_scan, "found": service.last_scan_found}
+
+    # --- Per-speaker settings (both modes) ---
+
+    def _speaker_or_404(speaker_id: str):
+        speaker = ha_registry.get_speaker(speaker_id)
+        if speaker is None:
+            raise HTTPException(status_code=404, detail="Speaker not found")
+        return speaker
+
+    def _speaker_settings_response(speaker_id: str) -> dict:
+        speaker = _speaker_or_404(speaker_id)
+        return {
+            "speaker_id": speaker_id,
+            "settings": dict(state_store.settings.speaker_settings.get(speaker_id) or {}),
+            "speaker": speaker.to_dict(),
+        }
+
+    @router.get("/speakers/{speaker_id}/settings")
+    async def get_one_speaker_settings(speaker_id: str) -> dict:
+        """A speaker's saved settings (name, room, volume_offset, play_via) and how it looks with them."""
+        return _speaker_settings_response(speaker_id)
+
+    @router.put("/speakers/{speaker_id}/settings")
+    async def update_one_speaker_settings(speaker_id: str, request: SpeakerSettingsUpdateRequest) -> dict:
+        """Change a speaker's settings. Fields left out stay; null resets one."""
+        from sonorium.core.speaker_settings import SpeakerSettingsError, clean_speaker_settings
+
+        speaker = _speaker_or_404(speaker_id)
+        updates = {key: getattr(request, key) for key in request.model_fields_set}
+        room = updates.get("room")
+        if room and ha_registry.get_area(room) is None:
+            raise HTTPException(status_code=400, detail="Unknown room")
+        via = updates.get("play_via")
+        if via and via != "ha" and via not in [m["id"] for m in speaker.merged]:
+            raise HTTPException(status_code=400, detail="This speaker can't play that way")
+
+        all_settings = state_store.settings.speaker_settings
+        try:
+            cleaned = clean_speaker_settings(all_settings.get(speaker_id) or {}, updates)
+        except SpeakerSettingsError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if cleaned:
+            all_settings[speaker_id] = cleaned
+        else:
+            all_settings.pop(speaker_id, None)
+        state_store.save()
+        ha_registry.apply_speaker_settings()
+        return _speaker_settings_response(speaker_id)
+
+    # --- Test sound (user-triggered, one speaker) ---
+
+    TEST_VOLUME = 0.2
+    TEST_SECONDS = 4.0  # the chime is 3 s; stop shortly after it ends
+    tests_running: set[str] = set()
+
+    @router.api_route("/test-tone.mp3", methods=["GET", "HEAD"])
+    async def test_tone() -> Response:
+        """The short chime the speaker test plays."""
+        from sonorium.core.speaker_test_tone import tone_mp3
+
+        data = await asyncio.get_running_loop().run_in_executor(None, tone_mp3)
+        return Response(content=data, media_type="audio/mpeg", headers={"Cache-Control": "no-cache"})
+
+    @router.post("/speakers/{speaker_id}/test")
+    async def test_speaker(speaker_id: str) -> dict:
+        """Play a short, quiet chime on one speaker, then stop it."""
+        _speaker_or_404(speaker_id)
+        if speaker_id in tests_running:
+            raise HTTPException(status_code=409, detail="A test sound is already playing on this speaker")
+        for session in session_manager.list():
+            if session.is_playing and speaker_id in session_manager.get_resolved_speakers(session):
+                raise HTTPException(status_code=409, detail=f"This speaker is playing '{session.name}'. Stop it first.")
+
+        controller = session_manager.media_controller
+        raw_controller = getattr(controller, "controller", controller)  # without volume offsets
+        url = f"{session_manager.stream_base_url.rstrip('/')}/api/test-tone.mp3"
+        target = controller.target_for(speaker_id) if hasattr(controller, "target_for") else speaker_id
+
+        # Home Assistant speakers get their volume back afterwards
+        previous_volume = None
+        if not target.startswith("net:"):
+            try:
+                state = await controller.get_state(target)
+                previous_volume = (state or {}).get("attributes", {}).get("volume_level")
+            except Exception:
+                previous_volume = None
+
+        tests_running.add(speaker_id)
+        try:
+            await controller.set_volume_multi([speaker_id], TEST_VOLUME)
+            result = await controller.play_media_multi([speaker_id], url)
+        except Exception as e:
+            logger.warning(f"Speaker test on {speaker_id} failed: {e}")
+            result = None
+        if not (result or {}).get(speaker_id):
+            tests_running.discard(speaker_id)
+            raise HTTPException(status_code=502, detail="Couldn't play on this speaker")
+
+        async def finish():
+            try:
+                await asyncio.sleep(TEST_SECONDS)
+                await controller.stop_multi([speaker_id])
+                if previous_volume is not None:
+                    await raw_controller.set_volume_multi([target], float(previous_volume))
+            except Exception as e:
+                logger.debug(f"Speaker test on {speaker_id}: cleanup failed: {e}")
+            finally:
+                tests_running.discard(speaker_id)
+
+        asyncio.get_running_loop().create_task(finish())
+        return {"speaker_id": speaker_id, "playing": True, "seconds": TEST_SECONDS}
+
+    # --- Manual speakers (standalone mode; 404 in the HA add-on) ---
+
+    def _manual_result(speaker) -> dict:
+        from sonorium.network.manual import TYPE_LABELS, manual_kind
+
+        kind = manual_kind(speaker)
+        return {
+            "id": speaker.id,
+            "name": speaker.name,
+            "type": kind,
+            "type_label": TYPE_LABELS.get(kind, kind),
+            "host": speaker.host,
+            "address": speaker.extra.get("address") or speaker.host,
+            "port": speaker.port,
+        }
+
+    @router.post("/speakers/manual/check")
+    async def check_manual_speaker(request: ManualSpeakerRequest) -> dict:
+        """What answers at an address, without adding it ("Check connection")."""
+        service = _require_network_service()
+        from sonorium.network.manual import ProbeError
+
+        try:
+            speaker = await service.check_manual(request.address, request.type, request.port, request.name)
+        except ProbeError as e:
+            return {"found": False, "message": str(e)}
+        result = _manual_result(speaker)
+        result.update(found=True, message=f"Found {result['type_label']} speaker \"{speaker.name}\" at {speaker.host}.")
+        return result
+
+    @router.post("/speakers/manual", status_code=status.HTTP_201_CREATED)
+    async def add_manual_speaker(request: ManualSpeakerRequest) -> dict:
+        """Add a speaker by address. It's checked first: 400 if nothing answers."""
+        service = _require_network_service()
+        from sonorium.network.manual import ProbeError
+
+        if request.room and ha_registry.get_area(request.room) is None:
+            raise HTTPException(status_code=400, detail="Unknown room")
+        try:
+            speaker = await service.add_manual(request.address, request.type, request.port, request.name)
+        except ProbeError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        settings = state_store.settings
+        if request.room:
+            settings.speaker_settings[speaker.id] = {"room": request.room}
+        # Added on purpose, so switch it on
+        _set_speaker_enabled(speaker.id, True)
+        state_store.save()
+        ha_registry.merge_extra_speakers()
+
+        result = _manual_result(speaker)
+        merged_into = ha_registry.get_merged_owner(speaker.id)
+        if merged_into:
+            result["merged_into"] = merged_into
+        return result
+
+    @router.delete("/speakers/manual/{speaker_id}")
+    async def remove_manual_speaker(speaker_id: str) -> dict:
+        """Remove a manually added speaker."""
+        service = _require_network_service()
+        if not await service.remove_manual(speaker_id):
+            raise HTTPException(status_code=404, detail="Not a manually added speaker")
+        settings = state_store.settings
+        settings.speaker_settings.pop(speaker_id, None)
+        for other in settings.speaker_settings.values():
+            if other.get("play_via") == speaker_id:
+                other.pop("play_via", None)
+        _set_speaker_enabled(speaker_id, False)
+        state_store.save()
+        ha_registry.merge_extra_speakers()
+        return {"removed": speaker_id}
+
     @router.post("/speakers/resolve")
     async def resolve_selection(request: SpeakerSelectionModel) -> dict:
         """Resolve a speaker selection to a list of entity_ids."""
@@ -910,6 +1149,34 @@ def create_api_router(
             "count": len(speakers),
         }
     
+    # --- Enabled speakers (Settings > Speakers): an exact list ---
+
+    def _migrate_enabled_speakers():
+        """Convert an older "empty = all" list once the speaker list is known."""
+        if ha_registry and state_store.settings.migrate_enabled_speakers(ha_registry.get_all_speaker_ids()):
+            state_store.save()
+
+    def _set_speaker_enabled(speaker_id: str, enabled: bool):
+        _migrate_enabled_speakers()
+        settings = state_store.settings
+        if not settings.enabled_speakers_exact:
+            # Speaker list still unknown: start an exact list from what we know
+            settings.enabled_speakers = [s for s in settings.enabled_speakers if s != "__none__"]
+            settings.enabled_speakers_exact = True
+        if enabled and speaker_id not in settings.enabled_speakers:
+            settings.enabled_speakers.append(speaker_id)
+        elif not enabled and speaker_id in settings.enabled_speakers:
+            settings.enabled_speakers.remove(speaker_id)
+
+    def _enabled_speakers_response() -> SpeakerSettingsResponse:
+        _migrate_enabled_speakers()
+        settings = state_store.settings
+        all_ids = ha_registry.get_all_speaker_ids() if ha_registry else []
+        return SpeakerSettingsResponse(
+            enabled_speakers=settings.effective_enabled_speakers(all_ids),
+            hierarchy=ha_registry.get_hierarchy_dict() if ha_registry else None,
+        )
+
     # --- Settings Endpoints ---
     
     @router.get("/settings")
@@ -971,124 +1238,48 @@ def create_api_router(
     @router.get("/settings/speakers")
     async def get_speaker_settings() -> SpeakerSettingsResponse:
         """Get enabled speakers and full hierarchy."""
-        settings = state_store.settings
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
+        return _enabled_speakers_response()
 
     @router.put("/settings/speakers")
     async def update_speaker_settings(request: UpdateSpeakerSettingsRequest) -> SpeakerSettingsResponse:
         """Update enabled speakers list."""
         settings = state_store.settings
-        settings.enabled_speakers = request.enabled_speakers
+        settings.enabled_speakers = [s for s in request.enabled_speakers if s != "__none__"]
+        settings.enabled_speakers_exact = True
         state_store.save()
-
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
+        return _enabled_speakers_response()
 
     @router.post("/settings/speakers/enable")
     async def enable_speaker(request: SingleSpeakerRequest) -> SpeakerSettingsResponse:
-        """Enable a single speaker."""
-        settings = state_store.settings
-        entity_id = request.entity_id
-
-        # If enabled_speakers is empty, all are enabled - nothing to do
-        if not settings.enabled_speakers:
-            # Actually if empty = all enabled, then enabling one speaker doesn't change anything
-            pass
-        elif settings.enabled_speakers == ["__none__"]:
-            # Sentinel value means no speakers enabled - replace with just this speaker
-            settings.enabled_speakers = [entity_id]
-            state_store.save()
-        else:
-            # Add to enabled list if not already there
-            if entity_id not in settings.enabled_speakers:
-                settings.enabled_speakers.append(entity_id)
-                state_store.save()
-
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
+        """Switch a speaker on."""
+        _set_speaker_enabled(request.entity_id, True)
+        state_store.save()
+        return _enabled_speakers_response()
 
     @router.post("/settings/speakers/disable")
     async def disable_speaker(request: SingleSpeakerRequest) -> SpeakerSettingsResponse:
-        """Disable a single speaker."""
-        settings = state_store.settings
-        entity_id = request.entity_id
-
-        # If enabled_speakers is empty, all are enabled - need to switch to explicit mode
-        if not settings.enabled_speakers:
-            # Get all speakers and add all except the one being disabled
-            if ha_registry:
-                all_speakers = ha_registry.get_all_speaker_ids()
-                settings.enabled_speakers = [s for s in all_speakers if s != entity_id]
-            else:
-                # Can't disable without knowing all speakers
-                raise HTTPException(status_code=400, detail="Cannot disable speaker: speaker list not available")
-        else:
-            # Remove from enabled list
-            if entity_id in settings.enabled_speakers:
-                settings.enabled_speakers.remove(entity_id)
-
-        # If enabled_speakers is now empty (user disabled their only speaker),
-        # use sentinel value to indicate "no speakers enabled" (not "all enabled")
-        if not settings.enabled_speakers:
-            settings.enabled_speakers = ["__none__"]
-
+        """Switch a speaker off."""
+        _set_speaker_enabled(request.entity_id, False)
         state_store.save()
-
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
+        return _enabled_speakers_response()
 
     @router.post("/settings/speakers/enable-all")
     async def enable_all_speakers() -> SpeakerSettingsResponse:
-        """Enable all speakers (clear the enabled list)."""
+        """Switch every known speaker on."""
         settings = state_store.settings
-        settings.enabled_speakers = []  # Empty = all enabled
+        settings.enabled_speakers = ha_registry.get_all_speaker_ids() if ha_registry else []
+        settings.enabled_speakers_exact = True
         state_store.save()
-
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
+        return _enabled_speakers_response()
 
     @router.post("/settings/speakers/disable-all")
     async def disable_all_speakers() -> SpeakerSettingsResponse:
-        """Disable all speakers (set to special sentinel value)."""
+        """Switch every speaker off."""
         settings = state_store.settings
-        settings.enabled_speakers = ["__none__"]  # Special value = no speakers enabled
+        settings.enabled_speakers = []
+        settings.enabled_speakers_exact = True
         state_store.save()
-
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
-
-    # --- Custom Speaker Areas (fallback when HA areas unavailable) ---
+        return _enabled_speakers_response()
 
     @router.get("/settings/speaker-areas")
     async def get_custom_speaker_areas() -> dict:

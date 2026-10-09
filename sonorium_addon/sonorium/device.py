@@ -11,6 +11,7 @@ from typing import Self, TYPE_CHECKING
 
 import homeassistant_api
 
+from sonorium import runtime
 from sonorium.obs import logger
 from sonorium.recording import RecordingMetadata
 from sonorium.utils import IndexList
@@ -141,6 +142,11 @@ class Sonorium:
                 if theme.instances:
                     for inst in theme.instances:
                         inst.is_enabled = True
+
+        if not runtime.ha_configured():
+            logger.info("Home Assistant not connected (optional: Settings -> Connection)")
+            self.media_player_states = IndexList()
+            return
 
         try:
             media_players_data = [state for state in self.client_ha.get_states() if state.entity_id.startswith("media_player.")]
