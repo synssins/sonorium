@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.10 (2026-10-09)
+
+### Features
+
+- "Hide offline" switch in Settings > Speakers
+  ([`3c792f6`](https://github.com/synssins/sonorium/commit/3c792f63ef989cdab78aedad1329c5d6a9c9e8c4))
+
+
 ## v1.4.0-dev.9 (2026-10-09)
 
 ### Features
