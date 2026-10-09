@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.2.89-dev.2 (2026-10-09)
+
+### Bug Fixes
+
+- Wait for MQTT broker at startup and explain VM CPU crashes
+  ([`1370fdc`](https://github.com/synssins/sonorium/commit/1370fdc405a9faff7f26dbeee2a82375cad6a839))
+
+
 ## v1.2.89-dev.1 (2026-10-09)
 
 ### Bug Fixes
