@@ -10,7 +10,7 @@ spec.loader.exec_module(display)
 
 
 def test_logo_url_from_stream_url():
-    assert display.display_image_url("http://192.168.1.20:8008/stream/channel1") == "http://192.168.1.20:8008/logo.png"
+    assert display.display_image_url("http://192.168.1.20:8008/stream/channel1") == "http://192.168.1.20:8008/display.png"
 
 
 def test_no_logo_for_unexpected_url():

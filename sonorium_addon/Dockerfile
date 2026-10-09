@@ -46,7 +46,7 @@ COPY sonorium/ /app/sonorium/
 COPY setup.py pyproject.toml README.md /app/
 
 # Copy logo and icon
-COPY logo.png icon.png /app/
+COPY logo.png icon.png favicon.png display.png /app/
 
 # Copy bundled themes (installed on first run if /media/sonorium is empty)
 COPY themes/ /app/themes/

@@ -31,7 +31,7 @@ RUN pip install --no-cache-dir \
 
 WORKDIR /app
 COPY sonorium_addon/sonorium/ /app/sonorium/
-COPY sonorium_addon/logo.png sonorium_addon/icon.png /app/
+COPY sonorium_addon/logo.png sonorium_addon/icon.png sonorium_addon/favicon.png sonorium_addon/display.png /app/
 # Bundled themes, copied into /media/sonorium on first start if it's empty
 COPY sonorium_addon/themes/ /app/themes/
 COPY docker/entrypoint.sh /entrypoint.sh

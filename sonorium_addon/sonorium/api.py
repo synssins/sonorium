@@ -32,6 +32,8 @@ STATIC_DIR = Path(__file__).parent / "web" / "static"
 PACKAGE_ROOT = Path(__file__).parent.parent
 LOGO_PATH = PACKAGE_ROOT / "logo.png"
 ICON_PATH = PACKAGE_ROOT / "icon.png"
+FAVICON_PATH = PACKAGE_ROOT / "favicon.png"  # icon without its dark tile
+DISPLAY_PATH = PACKAGE_ROOT / "display.png"  # logo without its dark banner, for speaker screens
 
 
 class _MQTTUnavailable(Exception):
@@ -108,6 +110,7 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.put, path='/api/connection', method=self.put_connection),
             api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
             api.Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
+            api.Endpoint(method_http=self.app.get, path='/display.png', method=self.serve_display_image),
             api.Endpoint(method_http=self.app.get, path='/favicon.png', method=self.serve_favicon),
             
             # Streaming - channel-based (new) - MUST come before theme-based!
@@ -581,10 +584,18 @@ class ApiSonorium(api.Base):
             return await self.legacy_ui()
 
     async def serve_favicon(self):
-        """Serve the browser tab icon (icon.png)."""
-        if ICON_PATH.exists():
-            return FileResponse(ICON_PATH, media_type="image/png")
+        """Serve the browser tab icon."""
+        for path in (FAVICON_PATH, ICON_PATH):
+            if path.exists():
+                return FileResponse(path, media_type="image/png")
         raise HTTPException(status_code=404, detail="Icon not found")
+
+    async def serve_display_image(self):
+        """Serve the logo shown on speakers with a screen."""
+        for path in (DISPLAY_PATH, LOGO_PATH):
+            if path.exists():
+                return FileResponse(path, media_type="image/png")
+        raise HTTPException(status_code=404, detail="Logo not found")
 
     async def serve_logo(self):
         """Serve the logo.png file."""

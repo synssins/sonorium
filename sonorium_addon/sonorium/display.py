@@ -14,4 +14,4 @@ def display_image_url(stream_url: str) -> Optional[str]:
     speaker streams from (so a speaker that can play the stream can load it).
     """
     base, separator, _ = (stream_url or "").partition("/stream/")
-    return f"{base}/logo.png" if separator else None
+    return f"{base}/display.png" if separator else None
