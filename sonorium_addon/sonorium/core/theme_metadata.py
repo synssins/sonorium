@@ -167,9 +167,9 @@ class ThemeMetadataManager:
             if not folder.is_dir():
                 continue
 
-            # Check for audio files
-            audio_files = [f for f in folder.iterdir()
-                         if f.is_file() and f.suffix.lower() in ['.mp3', '.wav', '.flac', '.ogg']]
+            # Check for audio files (top level and group folders)
+            from sonorium.theme_files import theme_audio_files
+            audio_files = theme_audio_files(folder)
 
             if not audio_files:
                 logger.debug(f"Skipping folder with no audio: {folder.name}")

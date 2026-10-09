@@ -139,13 +139,13 @@ class ApiSonorium(api.Base):
 
             # Track Mixer API
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks', method=self.get_theme_tracks),
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks/{track_name}/audio', method=self.get_track_audio),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/presence', method=self.set_track_presence),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/muted', method=self.set_track_muted),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/volume', method=self.set_track_volume),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/playback_mode', method=self.set_track_playback_mode),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/seamless_loop', method=self.set_track_seamless_loop),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/exclusive', method=self.set_track_exclusive),
+            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks/{track_name:path}/audio', method=self.get_track_audio),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/presence', method=self.set_track_presence),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/muted', method=self.set_track_muted),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/volume', method=self.set_track_volume),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/playback_mode', method=self.set_track_playback_mode),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/seamless_loop', method=self.set_track_seamless_loop),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/exclusive', method=self.set_track_exclusive),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
 
             # Theme rename
@@ -1077,8 +1077,9 @@ class ApiSonorium(api.Base):
                 if not folder.is_dir() or folder.name in seen_folders:
                     continue
 
-                # Count audio files in this folder
-                audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in audio_extensions]
+                # Count audio files in this folder (top level and group folders)
+                from sonorium.theme_files import theme_audio_files
+                audio_files = theme_audio_files(folder)
 
                 # Skip if it has audio (already added above)
                 if audio_files:
@@ -1149,12 +1150,15 @@ class ApiSonorium(api.Base):
         new_theme_metas = {}
         theme_names_with_audio = []
 
+        from sonorium.theme_files import theme_audio_files
+
         for folder in theme_folders:
-            audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in audio_extensions]
+            # Top-level files and group folders (sonorium/theme_files.py)
+            audio_files = theme_audio_files(folder)
 
             if audio_files:
                 theme_name = folder.name
-                new_theme_metas[theme_name] = IndexList(RecordingMetadata(path) for path in audio_files)
+                new_theme_metas[theme_name] = IndexList(RecordingMetadata(path, folder) for path in audio_files)
                 theme_names_with_audio.append(theme_name)
                 logger.debug(f'Found theme "{theme_name}" with {len(audio_files)} audio files')
 

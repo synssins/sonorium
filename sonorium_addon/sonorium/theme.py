@@ -110,18 +110,21 @@ class ThemeStream:
         # This stream's preset values; changed in place when the channel's preset changes
         self.overrides = overrides if overrides is not None else {}
 
-        # Create shared exclusion coordinator for tracks marked as exclusive
-        self.exclusion_coordinator = ExclusionGroupCoordinator()
+        # One coordinator per named group: only one track of a group plays at a
+        # time, and groups don't wait for each other (Lute and Bar chatter can overlap)
+        self.exclusion_coordinators: dict[str, ExclusionGroupCoordinator] = {}
 
         # Create streams, passing the exclusion coordinator
         from sonorium.mixing import MixLevel
         from sonorium.recording import RecordingThemeStream
         self.mix_level = MixLevel(SAMPLE_RATE, RecordingThemeStream.CHUNK_SIZE)
 
-        self.recording_streams = [
-            TrackView(instance, self.overrides).get_stream(exclusion_coordinator=self.exclusion_coordinator)
-            for instance in theme_def.instances
-        ]
+        self.recording_streams = []
+        for instance in theme_def.instances:
+            track = TrackView(instance, self.overrides)
+            group = track.exclusion_group
+            coordinator = self.exclusion_coordinators.setdefault(group, ExclusionGroupCoordinator()) if group else None
+            self.recording_streams.append(track.get_stream(exclusion_coordinator=coordinator))
 
     @cached_property
     def chunk_silence(self):

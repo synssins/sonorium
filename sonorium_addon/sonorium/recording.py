@@ -198,16 +198,25 @@ class RecordingMetadata:
     Represents file, metadata, etc. The non-state stuff, on disk. One per file. Immutable
     """
 
-    def __init__(self, path):
+    def __init__(self, path, theme_folder=None):
         self.path = path
         self._duration_samples = None
+        # Track key and group (see sonorium/theme_files.py): "Fireplace", or
+        # "Lute/Lute song 1" with group "Lute" for a file in a group folder
+        if theme_folder is not None:
+            from sonorium.theme_files import track_group, track_key
+            self._key = track_key(theme_folder, path)
+            self.group = track_group(theme_folder, path)
+        else:
+            self._key = path.stem
+            self.group = None
 
     def get_instance(self, theme=None):
         return RecordingThemeInstance(self, theme=theme)
 
     @property
     def name(self):
-        return self.path.stem
+        return self._key
     
     @property
     def duration_samples(self):
@@ -309,6 +318,9 @@ class RecordingThemeInstance:
         return self.meta.name
 
 
+# Group for tracks marked exclusive in themes from before group folders
+LEGACY_EXCLUSIVE_GROUP = "Exclusive"
+
 # Track settings a preset can set, as RecordingThemeInstance attribute names
 PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive")
 
@@ -349,11 +361,26 @@ class TrackView:
         self._overrides = overrides
 
     def __getattr__(self, name):
+        group = self._instance.meta.group if hasattr(self._instance.meta, "group") else None
+        if group:
+            # A track in a group folder: the group decides when it plays, one at a time
+            if name == "exclusive":
+                return True
+            if name == "playback_mode":
+                return PlaybackMode.SPARSE
         if name in PRESET_TRACK_FIELDS:
             track = self._overrides.get(self._instance.name)
             if track is not None and name in track:
                 return track[name]
         return getattr(self._instance, name)
+
+    @property
+    def exclusion_group(self) -> str | None:
+        """The named group this track plays in, one at a time: its folder, or "Exclusive" for the old flag."""
+        group = getattr(self._instance.meta, "group", None)
+        if group:
+            return group
+        return LEGACY_EXCLUSIVE_GROUP if self.exclusive else None
 
     # Same decisions as the theme's own track, made with the channel's values
     _resolve_playback_mode = RecordingThemeInstance._resolve_playback_mode
