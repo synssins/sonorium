@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.19 (2026-10-09)
+
+### Bug Fixes
+
+- Don't log zeroconf's port-in-use error that Sonorium handles
+  ([`a8eed1b`](https://github.com/synssins/sonorium/commit/a8eed1bff1c14f0447ac3bcf328994d1e661174f))
+
+
 ## v1.4.0-dev.18 (2026-10-09)
 
 ### Bug Fixes
