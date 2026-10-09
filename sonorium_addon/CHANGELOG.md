@@ -2,6 +2,23 @@
 
 <!-- version list -->
 
+## v1.2.89-dev.5 (2026-10-09)
+
+### Bug Fixes
+
+- Detect idle channels by audio pulled, not open connections
+  ([#29](https://github.com/synssins/sonorium/pull/29),
+  [`05a9fe0`](https://github.com/synssins/sonorium/commit/05a9fe0f5fe02266c5710d5811bbd06a70431da6))
+
+- Refresh themes (and MQTT theme lists) after theme upload/delete
+  ([#33](https://github.com/synssins/sonorium/pull/33),
+  [`fea1a49`](https://github.com/synssins/sonorium/commit/fea1a492235b25240812d65cce8a6575085b9c20))
+
+- Update the MQTT session selector's state after a rename
+  ([#16](https://github.com/synssins/sonorium/pull/16),
+  [`27572b8`](https://github.com/synssins/sonorium/commit/27572b8c148ea03d825c5d07160fe46b2d58e12c))
+
+
 ## v1.2.89-dev.4 (2026-10-09)
 
 ### Bug Fixes
