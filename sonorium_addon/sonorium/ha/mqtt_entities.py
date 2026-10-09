@@ -462,12 +462,19 @@ class SonoriumMQTTManager:
             ("switch", f"{self.prefix}_play"),
             ("select", f"{self.prefix}_theme"),
             ("sensor", f"{self.prefix}_active_sessions"),
+            # Old single media player (read by the mqtt_media_player custom
+            # integration, which errors on these after every HA restart)
+            ("media_player", self.prefix),
         ]
 
         for component, object_id in stale_entities:
             topic = f"homeassistant/{component}/{object_id}/config"
             # Empty payload deletes the entity from HA
             await self._mqtt_publish(topic, "", retain=True)
+
+        # Retained state of that old media player
+        for field in ("state", "title", "artist", "volume", "available"):
+            await self._mqtt_publish(f"{self.prefix}/player/{field}", "", retain=True)
 
         logger.debug(f"    Cleared {len(stale_entities)} stale entity configs")
 
