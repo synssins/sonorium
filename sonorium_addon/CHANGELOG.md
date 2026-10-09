@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0-dev.1 (2026-10-09)
+
+### Features
+
+- Log level option; normal log is a summary, details at debug
+  ([`dd30f70`](https://github.com/synssins/sonorium/commit/dd30f70af290acf55a06e253c2832d44a4bc882a))
+
+
 ## v1.2.89-dev.7 (2026-10-09)
 
 ### Bug Fixes
