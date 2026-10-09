@@ -211,7 +211,7 @@ All theme management is done through the Sonorium web interface:
 ## Requirements
 
 - **An MQTT broker.** Install the **Mosquitto broker** add-on (Settings → Add-ons → Add-on Store), start it, and turn on **Start on boot**. Sonorium finds it automatically. Without a broker, Sonorium won't start and the sidebar shows **502: Bad Gateway**. Using a different broker? Set `sonorium__mqtt_host` (and port, username, password) in Sonorium's configuration.
-- **Home Assistant in a virtual machine (Proxmox etc.):** set the VM's CPU type to **host** (Proxmox: VM → Hardware → Processors → Type), then fully shut down and start the VM. The default `kvm64` type hides CPU features Sonorium's audio libraries need, and Sonorium crashes on start.
+- **Home Assistant in a virtual machine (Proxmox etc.):** if Sonorium's log shows a numpy or CPU error at startup, set the VM's CPU type to **host** (Proxmox: VM → Hardware → Processors → Type), then fully shut down and start the VM. The default `kvm64` type hides CPU features some audio libraries need.
 
 ## Quick Start
 

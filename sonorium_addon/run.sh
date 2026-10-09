@@ -76,16 +76,6 @@ if [ ! -d "${SONORIUM__PATH_AUDIO}" ]; then
     mkdir -p "${SONORIUM__PATH_AUDIO}"
 fi
 
-# numpy/PyAV need x86-64-v2 CPU features (SSE4.2, POPCNT) on amd64. Proxmox's
-# default "kvm64" CPU type hides them and the imports crash (issues #18, #39).
-if [[ "$(uname -m)" == "x86_64" ]]; then
-    if ! grep -qw sse4_2 /proc/cpuinfo || ! grep -qw popcnt /proc/cpuinfo; then
-        bashio::log.error "This CPU is missing features Sonorium needs (SSE4.2/POPCNT, the x86-64-v2 level)."
-        bashio::log.error "If Home Assistant runs in a virtual machine (Proxmox, etc.), set the VM's CPU type to 'host',"
-        bashio::log.error "then fully shut down and start the VM. In Proxmox: VM -> Hardware -> Processors -> Type: host."
-    fi
-fi
-
 # Test critical Python imports (helps diagnose segfaults)
 # These tests run in the same order as sonorium imports them
 bashio::log.info "Testing Python imports..."
@@ -95,6 +85,13 @@ IMPORTS_OK=true
 if ! python3 -c "import numpy; print(f'numpy {numpy.__version__}')" 2>&1; then
     bashio::log.error "FAILED: numpy import"
     IMPORTS_OK=false
+    # A VM with a basic virtual CPU (Proxmox's default "kvm64") hides CPU
+    # features that numpy builds can require (issues #18, #39).
+    if [[ "$(uname -m)" == "x86_64" ]] && ! grep -qw sse4_2 /proc/cpuinfo; then
+        bashio::log.error "This CPU doesn't report SSE4.2. If Home Assistant runs in a virtual machine (Proxmox, etc.),"
+        bashio::log.error "set the VM's CPU type to 'host', then fully shut down and start the VM."
+        bashio::log.error "In Proxmox: VM -> Hardware -> Processors -> Type: host."
+    fi
 fi
 if ! python3 -c "import av; print(f'av {av.__version__}')" 2>&1; then
     bashio::log.error "FAILED: av (PyAV) import"

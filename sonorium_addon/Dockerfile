@@ -29,8 +29,11 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     soco
 
 # Install fmtr.tools (for API layer), paho-mqtt (for HA entities), pydantic-settings, pychromecast
+# numpy<2.4: pip replaces Alpine's numpy here, and numpy 2.4+ wheels require
+# x86-64-v2 CPUs, which crashes on VMs with a basic virtual CPU (issues #18, #39).
 RUN pip3 install --no-cache-dir --break-system-packages \
     'fmtr.tools[version.dev,logging,sets,yaml,debug,caching,api,path.app,tabular,av,ha.api,http]' \
+    'numpy<2.4' \
     paho-mqtt \
     pydantic-settings \
     pychromecast
