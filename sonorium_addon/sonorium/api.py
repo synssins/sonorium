@@ -74,7 +74,8 @@ class ApiSonorium(api.Base):
         self._theme_refresh_task = None
         self._plugin_manager = None
         self._theme_metadata_manager = None
-        
+        self._network_service = None  # standalone only
+
         # Register startup event to initialize v2
         @self.app.on_event("startup")
         async def startup_event():
@@ -202,15 +203,27 @@ class ApiSonorium(api.Base):
             # Initialize HA registry
             api_url = settings.ha_core_api
             self._ha_registry = HARegistry(api_url, settings.token)
+
+            # Standalone: speakers found on the LAN, listed next to any HA speakers
+            if runtime.STANDALONE:
+                self._init_network_speakers()
+
             try:
                 self._ha_registry.refresh()
                 logger.debug(f"  HA registry loaded: {len(self._ha_registry.hierarchy.floors)} floors")
             except Exception as e:
                 logger.warning(f"  Could not load HA registry (floors/areas may not work): {e}")
-            
+
             # Initialize media controller
             self._media_controller = HAMediaController(api_url, settings.token)
-            
+            if self._network_service:
+                # Route net:* speakers to the network service, the rest to HA
+                from sonorium.network.router import SpeakerRouter
+                self._media_controller = SpeakerRouter(
+                    self._media_controller if runtime.ha_configured() else None,
+                    self._network_service,
+                )
+
             # Use configured stream URL (from SONORIUM__STREAM_URL env var)
             stream_base_url = settings.stream_url
             logger.debug(f"  Stream base URL: {stream_base_url}")
@@ -297,6 +310,7 @@ class ApiSonorium(api.Base):
                 plugin_manager=self._plugin_manager,
                 mqtt_manager=self._mqtt_manager,
                 on_themes_changed=self.schedule_theme_refresh,
+                network_service=self._network_service,
             )
             self.app.include_router(api_router)
             
@@ -307,7 +321,11 @@ class ApiSonorium(api.Base):
             # Start cycle manager background task
             await self._cycle_manager.start()
             logger.debug("  CycleManager started")
-            
+
+            # Network speaker discovery runs in the background: the UI is up meanwhile
+            if self._network_service:
+                self._network_service.start()
+
             self._v2_initialized = True
             logger.debug("  Sonorium v2 initialization complete!")
             self._log_startup_summary()
@@ -452,6 +470,21 @@ class ApiSonorium(api.Base):
         if self._cycle_manager:
             await self._cycle_manager.stop()
             logger.info("CycleManager stopped")
+        if self._network_service:
+            await self._network_service.stop()
+
+    def _init_network_speakers(self):
+        """Standalone only: network speaker discovery and streaming (never imported by the add-on)."""
+        try:
+            from sonorium.network.service import NetworkSpeakerService
+            self._network_service = NetworkSpeakerService(config_dir=runtime.CONNECTION_FILE.parent)
+            self._ha_registry.set_extra_speaker_source(self._network_service.hierarchy_speakers)
+            self._network_service.on_change = self._ha_registry.merge_extra_speakers
+            known = len(self._network_service.speakers)
+            logger.debug(f"  Network speakers: {known} saved, discovery starts in the background")
+        except Exception as e:
+            logger.warning(f"Network speakers unavailable: {e}")
+            self._network_service = None
 
     async def get_connection(self):
         """Standalone connection settings, without secrets."""
