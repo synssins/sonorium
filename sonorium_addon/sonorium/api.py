@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from sonorium.theme import ThemeDefinition
+from sonorium import runtime
 from sonorium.version import __version__
 from sonorium.obs import logger
 from fmtr.tools import api
@@ -47,6 +48,9 @@ class RevalidatingStaticFiles(StaticFiles):
 
 class ApiSonorium(api.Base):
     TITLE = f'Sonorium {__version__} Streaming API'
+    # Standalone listens on 8008 directly (one port for UI and streams); the
+    # add-on keeps 8080, which HA ingress and its 8008 port mapping point at.
+    PORT = 8008 if runtime.STANDALONE else 8080
     URL_DOCS = '/docs'
 
     def __init__(self, client: "ClientSonorium"):
@@ -92,6 +96,10 @@ class ApiSonorium(api.Base):
         endpoints = [
             # Web UI
             api.Endpoint(method_http=self.app.get, path='/', method=self.web_ui),
+
+            # Standalone connection settings (404 in the HA add-on)
+            api.Endpoint(method_http=self.app.get, path='/api/connection', method=self.get_connection),
+            api.Endpoint(method_http=self.app.put, path='/api/connection', method=self.put_connection),
             api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
             api.Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
             
@@ -188,7 +196,7 @@ class ApiSonorium(api.Base):
             logger.debug(f"  Channel manager: {max_channels} channels available")
             
             # Initialize HA registry
-            api_url = f"{settings.ha_supervisor_api.replace('/core', '')}/core/api"
+            api_url = settings.ha_core_api
             self._ha_registry = HARegistry(api_url, settings.token)
             try:
                 self._ha_registry.refresh()
@@ -245,7 +253,11 @@ class ApiSonorium(api.Base):
                 self._plugin_manager = None
 
             # Initialize MQTT entity manager for Home Assistant integration
+            # (standalone mode may run without a connected broker)
+            from sonorium import runtime
             try:
+                if runtime.STANDALONE and not self.client.mqtt_client.is_connected:
+                    raise RuntimeError("MQTT broker not connected")
                 from sonorium.ha.mqtt_entities import SonoriumMQTTManager
                 self._mqtt_manager = SonoriumMQTTManager(
                     state_store=self._state_store,
@@ -434,6 +446,61 @@ class ApiSonorium(api.Base):
         if self._cycle_manager:
             await self._cycle_manager.stop()
             logger.info("CycleManager stopped")
+
+    async def get_connection(self):
+        """Standalone connection settings, without secrets."""
+        from sonorium import runtime
+        if not runtime.STANDALONE:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant add-on")
+        conn = runtime.load_connection()
+        return {
+            "standalone": True,
+            "ha_url": conn.get("ha_url", ""),
+            "ha_token_set": bool(conn.get("ha_token")),
+            "ha_connected": bool(self._ha_registry and self._ha_registry.hierarchy),
+            "mqtt_host": conn.get("mqtt_host", ""),
+            "mqtt_port": conn.get("mqtt_port", 1883),
+            "mqtt_username": conn.get("mqtt_username", ""),
+            "mqtt_password_set": bool(conn.get("mqtt_password")),
+            "mqtt_connected": self.client.mqtt_client.is_connected,
+            "stream_url": conn.get("stream_url", ""),
+        }
+
+    async def put_connection(self, request: Request):
+        """
+        Save standalone connection settings, then restart Sonorium so every
+        component picks them up. Empty token/password fields keep the saved value.
+        """
+        import asyncio
+        import os
+        import sys
+        from sonorium import runtime
+        if not runtime.STANDALONE:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant add-on")
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Expected a JSON object")
+        updates = {k: body[k] for k in runtime.CONNECTION_FIELDS if k in body}
+        if "mqtt_port" in updates and updates["mqtt_port"] not in (None, ""):
+            try:
+                updates["mqtt_port"] = int(updates["mqtt_port"])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="MQTT port must be a number")
+        for key in ("ha_url", "stream_url"):
+            value = (updates.get(key) or "").strip()
+            if value and not value.startswith(("http://", "https://")):
+                raise HTTPException(status_code=400, detail=f"{key} must start with http:// or https://")
+        runtime.save_connection(updates)
+        logger.info("Connection settings saved; restarting Sonorium to apply them")
+
+        def restart():
+            os.execv(sys.executable, [sys.executable, "-m", "sonorium.entrypoint"])
+
+        asyncio.get_running_loop().call_later(1.0, restart)
+        return {"status": "ok", "restarting": True}
 
     def _log_startup_summary(self):
         """One-line summary at normal log level; details are at debug level."""

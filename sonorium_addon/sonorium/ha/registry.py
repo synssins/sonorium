@@ -183,11 +183,8 @@ class HARegistry:
 
     def _get_websocket_url(self) -> str:
         """Convert REST API URL to WebSocket URL."""
-        # api_url is like "http://supervisor/core/api"
-        # WebSocket is at "ws://supervisor/core/websocket"
-        ws_url = self.api_url.replace("http://", "ws://").replace("https://", "wss://")
-        ws_url = ws_url.replace("/api", "/websocket")
-        return ws_url
+        from sonorium.runtime import ha_websocket_url
+        return ha_websocket_url(self.api_url)
 
     async def _ws_fetch_registries(self) -> tuple[list, list, list, list]:
         """
@@ -848,6 +845,6 @@ def create_registry_from_supervisor() -> HARegistry:
     from sonorium.settings import settings
     
     return HARegistry(
-        api_url=f"{settings.ha_supervisor_api.replace('/core', '')}/core/api",
+        api_url=settings.ha_core_api,
         token=settings.token,
     )

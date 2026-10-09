@@ -18,12 +18,12 @@ IP Resolution:
 from __future__ import annotations
 
 import asyncio
-import os
 import uuid
 from typing import Optional, TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor
 
 from sonorium.obs import logger
+from sonorium.runtime import STANDALONE, ha_websocket_url
 
 if TYPE_CHECKING:
     from sonorium.ha.media_controller import HAMediaController
@@ -151,7 +151,7 @@ class CastPlayer:
 
             # Connect to HA WebSocket API
             token = self.media_controller.token
-            ws_url = self.media_controller.api_url.replace('http://', 'ws://').replace('/api', '/api/websocket')
+            ws_url = ha_websocket_url(self.media_controller.api_url)
 
             logger.debug(f"  Cast: Connecting to HA WebSocket: {ws_url}")
 
@@ -387,7 +387,7 @@ class CastPlayer:
 
         # Final fallback: mDNS discovery. Not as an HA add-on: without host
         # networking the container can't see mDNS, so it only cost 5s per play.
-        if not os.environ.get("SUPERVISOR_TOKEN"):
+        if STANDALONE:
             logger.debug(f"  Cast: Trying mDNS discovery for {entity_id}...")
             ip = await self._discover_cast_ip_via_mdns(friendly_name, entity_name)
             if ip:

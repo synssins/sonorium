@@ -14,6 +14,7 @@ import httpx
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings
 
+from sonorium import runtime
 from sonorium.client import ClientSonorium
 from sonorium.device import Sonorium
 from sonorium.paths import PackagePaths, paths
@@ -33,6 +34,9 @@ def get_host_ip_from_supervisor() -> str:
     that network speakers can reach, not the container's internal IP.
     """
     from sonorium.obs import logger
+
+    if runtime.STANDALONE:
+        return None
 
     try:
         # Get supervisor token from environment
@@ -186,8 +190,11 @@ class Settings(BaseSettings):
             else:
                 # Fallback if IP detection fails
                 self.stream_url = f"http://127.0.0.1:{self.stream_port}"
-                logger.error(f"IP detection failed! Using fallback: {self.stream_url}")
-                logger.error("Network speakers will NOT be able to connect. Check Supervisor API access.")
+                if runtime.STANDALONE:
+                    logger.warning("Stream URL not set. Set it under Settings -> Connection (e.g. http://<docker host IP>:<published port>) so speakers can reach Sonorium.")
+                else:
+                    logger.error(f"IP detection failed! Using fallback: {self.stream_url}")
+                    logger.error("Network speakers will NOT be able to connect. Check Supervisor API access.")
         # Handle homeassistant.local - replace with detected IP
         elif 'homeassistant.local' in self.stream_url:
             if local_ip:
@@ -231,6 +238,10 @@ class Settings(BaseSettings):
         await client.start()
 
 
-# Apply addon environment variables before settings are loaded
-apply_addon_env()
+# Apply addon options (or, in standalone mode, the saved connection settings)
+# as environment variables before settings are loaded
+if runtime.STANDALONE:
+    runtime.load_connection_into_env()
+else:
+    apply_addon_env()
 settings = Settings()

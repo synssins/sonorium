@@ -45,13 +45,14 @@ def sanitize(text: str) -> str:
 
 def call_ha_service(domain: str, service: str, service_data: dict):
     """Call Home Assistant service using direct REST API"""
-    token = os.environ.get('SUPERVISOR_TOKEN')
-    
+    from sonorium.settings import settings
+    token = settings.token
+
     if not token:
-        logger.warning("No SUPERVISOR_TOKEN available - running outside HA?")
+        logger.warning("No Home Assistant token available")
         return None
-    
-    url = f"http://supervisor/core/api/services/{domain}/{service}"
+
+    url = f"{settings.ha_core_api}/services/{domain}/{service}"
     headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"

@@ -337,7 +337,6 @@ def create_api_router(
         debug_info = {
             "api_url": ha_registry.api_url,
             "token_present": bool(ha_registry.token),
-            "token_preview": ha_registry.token[:20] + "..." if ha_registry.token else None,
             "cached_floors": len(ha_registry._floors),
             "cached_areas": len(ha_registry._areas),
             "cached_speakers": len(ha_registry._speakers),
