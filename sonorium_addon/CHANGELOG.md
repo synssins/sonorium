@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.15 (2026-10-09)
+
+### Bug Fixes
+
+- Speaker settings conversion keeps entries for speakers not currently listed
+  ([`793ca7d`](https://github.com/synssins/sonorium/commit/793ca7d74b5958e9163a1fd30296e0fb3d9b3f01))
+
+
 ## v1.4.0-dev.14 (2026-10-09)
 
 ### Bug Fixes
