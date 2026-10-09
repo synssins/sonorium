@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.12 (2026-10-09)
+
+### Bug Fixes
+
+- Speakers disabled in Settings never appear in or play from channels
+  ([`872b24f`](https://github.com/synssins/sonorium/commit/872b24fec3db9a6c1635004d770eec0cd1deaaa5))
+
+
 ## v1.4.0-dev.11 (2026-10-09)
 
 ### Bug Fixes
