@@ -112,6 +112,7 @@ celerybeat.pid
 
 # Environments
 .env
+.mqtt_creds
 .venv
 env/
 venv/

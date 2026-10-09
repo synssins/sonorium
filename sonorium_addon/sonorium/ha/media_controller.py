@@ -152,13 +152,12 @@ class HAMediaController:
             logger.info(f"  Detected Cast device, using audio/mpeg content type")
             media_type = "audio/mpeg"
 
+        # Don't pass 'enqueue' in 'extra': the HA Cast integration forwards extra
+        # into pychromecast's play_media(enqueue=...), turning LOAD into QUEUE_INSERT.
         data = {
             "entity_id": entity_id,
             "media_content_id": media_url,
             "media_content_type": media_type,
-            "extra": {
-                "enqueue": "replace",  # Replace current queue/stream
-            }
         }
 
         # Log the full request for debugging

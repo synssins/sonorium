@@ -521,6 +521,7 @@ class SonoriumMQTTManager:
         await entities.update_speakers_sensor(speaker_summary)
 
         self._session_entities[session.id] = entities
+        await self._subscribe_commands()
         
         # Update session selector options
         await self._update_session_selector_options()
@@ -554,6 +555,7 @@ class SonoriumMQTTManager:
 
         entities = self._session_entities[session.id]
         entities.session = session  # Update reference
+        await entities.update_preset_options()
         await entities.update_state()
 
         # Update speakers sensor
