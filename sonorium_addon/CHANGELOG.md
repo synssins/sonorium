@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.2.89-dev.4 (2026-10-09)
+
+### Bug Fixes
+
+- Stop channels nobody is listening to, and make Stop All stop them
+  ([#29](https://github.com/synssins/sonorium/pull/29),
+  [`c629dd1`](https://github.com/synssins/sonorium/commit/c629dd145dcf0fb66b9551c25e1c4089b22f016a))
+
+- Stop crossfade loops from cutting out at the loop point
+  ([#38](https://github.com/synssins/sonorium/pull/38),
+  [`0e33644`](https://github.com/synssins/sonorium/commit/0e33644ca5fe9c2c384b49b1cb321cb58907173d))
+
+
 ## v1.2.89-dev.3 (2026-10-09)
 
 ### Bug Fixes
