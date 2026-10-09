@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.2.89-dev.3 (2026-10-09)
+
+### Bug Fixes
+
+- Keep numpy below 2.4 so Sonorium runs on basic virtual CPUs
+  ([`c493b4a`](https://github.com/synssins/sonorium/commit/c493b4a1015a0e9ba524c067cb0aaa143f8e7433))
+
+
 ## v1.2.89-dev.2 (2026-10-09)
 
 ### Bug Fixes
