@@ -222,6 +222,9 @@ class ApiSonorium(api.Base):
             self._ha_registry = HARegistry(api_url, settings.token)
             # Per-speaker names, rooms, volume offsets and play-via choices
             self._ha_registry.set_speaker_settings_source(lambda: self._state_store.settings.speaker_settings)
+            # Floors and areas made in Sonorium, merged with Home Assistant's by name
+            if runtime.feature_enabled("space_editing"):
+                self._ha_registry.set_local_spaces_source(lambda: self._state_store.settings.local_spaces)
 
             # Speakers found on the LAN or added by address, next to any HA speakers
             if runtime.feature_enabled("network_speakers", self._state_store.settings.feature_overrides):

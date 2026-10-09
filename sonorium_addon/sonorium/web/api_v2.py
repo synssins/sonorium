@@ -1061,6 +1061,104 @@ def create_api_router(
         asyncio.get_running_loop().create_task(finish())
         return {"speaker_id": speaker_id, "playing": True, "seconds": TEST_SECONDS}
 
+    # --- Floors & Areas: Home Assistant's, plus Sonorium's own where editing is on ---
+
+    class SpaceRequest(BaseModel):
+        name: Optional[str] = None
+        floor_id: Optional[str] = None
+
+    def _spaces_editable() -> bool:
+        from sonorium import runtime
+        return runtime.feature_enabled("space_editing")
+
+    def _space_dict(space, kind: str) -> dict:
+        speakers = space.speakers if kind == "area" else [s for a in space.areas for s in a.speakers]
+        return {
+            "id": space.area_id if kind == "area" else space.floor_id,
+            "name": space.name,
+            "source": list(space.source),
+            # The ID to edit it by: Sonorium's own, also when merged into HA's
+            "local_id": space.local_id or (space.area_id if kind == "area" else space.floor_id) if "local" in space.source else None,
+            "speakers": len(speakers),
+        }
+
+    def _spaces_response() -> dict:
+        hierarchy = ha_registry.hierarchy
+        return {
+            "editable": _spaces_editable(),
+            "floors": [
+                {**_space_dict(f, "floor"), "areas": [_space_dict(a, "area") for a in f.areas]}
+                for f in hierarchy.floors
+            ],
+            "unassigned_areas": [_space_dict(a, "area") for a in hierarchy.unassigned_areas],
+        }
+
+    def _change_spaces(change) -> dict:
+        from sonorium.core.spaces import SpaceError
+        if not _spaces_editable():
+            raise HTTPException(status_code=404, detail="Floors and areas are managed in Home Assistant")
+        local = state_store.settings.local_spaces
+        try:
+            change(local)
+        except SpaceError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        state_store.save()
+        ha_registry.apply_speaker_settings()  # rebuild with the new spaces
+        return _spaces_response()
+
+    def _local_floor_id(floor_id: Optional[str]) -> Optional[str]:
+        """A floor picked in the UI (listed ID) as the ID to store, so it survives merges."""
+        if not floor_id:
+            return None
+        floor = ha_registry.get_floor(floor_id)
+        if floor is None:
+            raise HTTPException(status_code=400, detail="Unknown floor")
+        return floor.local_id or floor.floor_id
+
+    @router.get("/spaces")
+    async def list_spaces() -> dict:
+        """Floors and their areas, where each came from, and whether this install can edit them."""
+        return _spaces_response()
+
+    @router.post("/spaces/floors", status_code=status.HTTP_201_CREATED)
+    async def add_floor(request: SpaceRequest) -> dict:
+        from sonorium.core import spaces
+        return _change_spaces(lambda local: spaces.add_floor(local, request.name))
+
+    @router.post("/spaces/areas", status_code=status.HTTP_201_CREATED)
+    async def add_area(request: SpaceRequest) -> dict:
+        from sonorium.core import spaces
+        floor_id = _local_floor_id(request.floor_id)
+        return _change_spaces(lambda local: spaces.add_area(local, request.name, floor_id))
+
+    @router.put("/spaces/floors/{floor_id}")
+    async def update_floor(floor_id: str, request: SpaceRequest) -> dict:
+        from sonorium.core import spaces
+        return _change_spaces(lambda local: spaces.rename(local, "floor", floor_id, request.name))
+
+    @router.put("/spaces/areas/{area_id}")
+    async def update_area(area_id: str, request: SpaceRequest) -> dict:
+        from sonorium.core import spaces
+        fields = request.model_fields_set
+        floor_id = _local_floor_id(request.floor_id) if "floor_id" in fields else None
+
+        def change(local):
+            if "name" in fields:
+                spaces.rename(local, "area", area_id, request.name)
+            if "floor_id" in fields:
+                spaces.move_area(local, area_id, floor_id)
+        return _change_spaces(change)
+
+    @router.delete("/spaces/floors/{floor_id}")
+    async def delete_floor(floor_id: str) -> dict:
+        from sonorium.core import spaces
+        return _change_spaces(lambda local: spaces.delete_floor(local, floor_id))
+
+    @router.delete("/spaces/areas/{area_id}")
+    async def delete_area(area_id: str) -> dict:
+        from sonorium.core import spaces
+        return _change_spaces(lambda local: spaces.delete_area(local, area_id, state_store.settings.speaker_settings))
+
     # --- Manual speakers (standalone mode; 404 in the HA add-on) ---
 
     def _manual_result(speaker) -> dict:

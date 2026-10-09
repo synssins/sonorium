@@ -37,6 +37,9 @@ FEATURES = {
     "connection_settings": {"addon": "hidden", "default": "on"},
     # Speakers found on the network or added by address, outside Home Assistant
     "network_speakers": {"addon": "off", "default": "on"},
+    # Adding, renaming and deleting floors and areas; the HA app shows
+    # Home Assistant's, which stays in charge of them
+    "space_editing": {"addon": "hidden", "default": "on"},
 }
 
 

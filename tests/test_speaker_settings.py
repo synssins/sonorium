@@ -84,9 +84,9 @@ def make_registry(ha_speakers=(), extras=(), settings=None, areas=None, floors=N
     """An HARegistry with HA data already 'fetched' (no Home Assistant calls)."""
     reg = registry_mod.HARegistry("http://ha/api", "token")
     for floor_id, name in (floors or {}).items():
-        reg._floors[floor_id] = registry_mod.Floor(floor_id=floor_id, name=name)
+        reg._ha_floors[floor_id] = registry_mod.Floor(floor_id=floor_id, name=name)
     for area_id, (name, floor_id) in (areas or {}).items():
-        reg._areas[area_id] = registry_mod.Area(area_id=area_id, name=name, floor_id=floor_id)
+        reg._ha_areas[area_id] = registry_mod.Area(area_id=area_id, name=name, floor_id=floor_id)
     for speaker in ha_speakers:
         reg._ha_speakers[speaker.entity_id] = speaker
     extras_list = list(extras)
