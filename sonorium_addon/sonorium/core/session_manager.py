@@ -656,8 +656,19 @@ class SessionManager:
         """
         Get the list of speaker entity_ids for a session.
         
-        Resolves speaker group or ad-hoc selection to final list.
+        Resolves speaker group or ad-hoc selection to final list. Speakers
+        disabled in Settings > Speakers are left out: disabled means invisible
+        to the rest of the app, including channels saved before it was disabled.
         """
+        return self._only_enabled(self._resolve_selection(session))
+
+    def _only_enabled(self, speaker_ids: list[str]) -> list[str]:
+        enabled = list(getattr(self.state.settings, "enabled_speakers", None) or [])
+        if not enabled:
+            return speaker_ids  # nothing configured yet: every speaker is enabled
+        return [speaker_id for speaker_id in speaker_ids if speaker_id in enabled]
+
+    def _resolve_selection(self, session: Session) -> list[str]:
         if session.speaker_group_id:
             group = self.state.speaker_groups.get(session.speaker_group_id)
             if group:

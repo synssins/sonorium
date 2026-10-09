@@ -1239,6 +1239,11 @@ function getEffectiveSpeakerSelection() {
         if (selectedSpeakers.excludeAreas.includes(area.area_id)) areaSpeakerIds(area).forEach(id => selected.delete(id));
     }
     selectedSpeakers.excludeSpeakers.forEach(id => selected.delete(id));
+    // Speakers disabled in Settings > Speakers are invisible to the app, even if
+    // this channel selected them before; saving the channel drops them
+    for (const id of [...selected]) {
+        if (!isSpeakerEnabled(id)) selected.delete(id);
+    }
     return selected;
 }
 
