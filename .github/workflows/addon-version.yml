@@ -1,0 +1,73 @@
+name: Add-on Version
+
+# Gives every push that changes the add-on a new version, so Home Assistant
+# offers it as an update. Supervisor shows an update whenever the version in
+# config.yaml differs from the installed one. See docs/VERSIONING.md.
+#
+# main            -> 1.2.89, 1.3.0, ... (from Conventional Commit types)
+# any other branch -> 1.2.89-dev.1, -dev.2, ... (pre-releases for testing)
+#
+# The release commit is pushed with GITHUB_TOKEN and tagged "[skip ci]",
+# so it does not re-trigger this or any other workflow.
+
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'sonorium_addon/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: addon-version-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Bump add-on version
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout branch head
+        uses: actions/checkout@v4
+        with:
+          # Branch head, not the triggering SHA: a queued run must build on
+          # top of the previous run's release commit.
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install python-semantic-release
+        run: python -m pip install 'python-semantic-release==10.7.0'
+
+      - name: Release new add-on version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          sr() { semantic-release -c releaserc.toml "$@"; }
+          ver() { grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | tail -n1; }
+
+          next=$(sr --noop version --print 2>/dev/null | ver || true)
+          last=$(sr --noop version --print-last-released 2>/dev/null | ver || true)
+          echo "last released: ${last:-none}, next from commits: ${next:-none}"
+
+          # Commits without a fix:/feat: prefix don't bump on their own, but
+          # HA still needs a new version to see the change. Force a patch.
+          force=()
+          if [ -z "$next" ] || [ "$next" = "$last" ]; then
+            force=(--patch)
+            [ "$BRANCH" != "main" ] && force+=(--as-prerelease)
+            echo "No Conventional Commit bump; forcing ${force[*]}"
+          fi
+
+          sr version "${force[@]}" --no-vcs-release
+          echo "Add-on version is now $(cat sonorium_addon/sonorium/version)" >> "$GITHUB_STEP_SUMMARY"
