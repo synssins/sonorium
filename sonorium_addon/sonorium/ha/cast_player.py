@@ -174,7 +174,7 @@ class CastPlayer:
                     logger.warning(f"  Cast: HA WebSocket auth failed: {msg}")
                     return {}
 
-                logger.info("  Cast: WebSocket authenticated, querying device registry...")
+                logger.debug("  Cast: WebSocket authenticated, querying device registry...")
 
                 # Query device registry
                 await ws.send(json.dumps({
@@ -536,7 +536,7 @@ class CastPlayer:
             for _ in range(10):
                 time.sleep(0.5)
                 if mc.status.player_state in ('PLAYING', 'BUFFERING'):
-                    logger.info(f"  Cast: Started playback on {ip} (state: {mc.status.player_state})")
+                    logger.debug(f"  Cast: Started playback on {ip} (state: {mc.status.player_state})")
                     return True
                 if mc.status.idle_reason:
                     logger.warning(f"  Cast: Playback failed on {ip}: {mc.status.idle_reason}")
@@ -575,7 +575,7 @@ class CastPlayer:
                 "media_content_type": "audio/mpeg",
             }
 
-            logger.info(f"  Cast: Using HA API fallback for {entity_id}")
+            logger.debug(f"  Cast: Using HA API fallback for {entity_id}")
             logger.debug(f"  Cast: POST {url}")
             logger.debug(f"  Cast: Data: {data}")
 
@@ -587,7 +587,7 @@ class CastPlayer:
                 )
 
                 if response.status_code == 200:
-                    logger.info(f"  Cast: HA API play_media succeeded for {entity_id}")
+                    logger.debug(f"  Cast: HA API play_media succeeded for {entity_id}")
                     return True
                 else:
                     logger.warning(f"  Cast: HA API returned {response.status_code}: {response.text}")
@@ -668,7 +668,7 @@ class CastPlayer:
                 status[entity_id] = result
 
         success_count = sum(1 for v in status.values() if v)
-        logger.info(f"  Cast: Started playback on {success_count}/{len(cast_ids)} Cast devices")
+        logger.debug(f"  Cast: Started playback on {success_count}/{len(cast_ids)} Cast devices")
 
         return status
 

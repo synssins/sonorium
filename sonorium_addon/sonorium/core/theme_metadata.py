@@ -212,7 +212,7 @@ class ThemeMetadataManager:
 
         # Save immediately so ID is persisted
         self._save_metadata(folder, metadata)
-        logger.info(f"Created new metadata for theme '{folder.name}' with id={metadata.id[:8]}...")
+        logger.debug(f"Created new metadata for theme '{folder.name}' with id={metadata.id[:8]}...")
 
         return metadata
 

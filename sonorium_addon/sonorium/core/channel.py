@@ -167,7 +167,7 @@ class Channel:
                 return
 
             old_theme = self._current_theme.name if self._current_theme else "none"
-            logger.info(f"Channel {self.id}: Changing theme from '{old_theme}' to '{theme.name}'")
+            logger.debug(f"Channel {self.id}: Changing theme from '{old_theme}' to '{theme.name}'")
 
             self._theme_version += 1
 
@@ -232,11 +232,11 @@ class Channel:
         self._generator_running = True
         self._generator_thread = threading.Thread(target=self._generator_loop, daemon=True)
         self._generator_thread.start()
-        logger.info(f"Channel {self.id}: Started generator thread")
+        logger.debug(f"Channel {self.id}: Started generator thread")
 
     def _generator_loop(self):
         """Background thread that generates audio chunks."""
-        logger.info(f"Channel {self.id}: Generator loop started")
+        logger.debug(f"Channel {self.id}: Generator loop started")
 
         start_time = time.time()
         audio_time = 0.0
@@ -275,7 +275,7 @@ class Channel:
             # Wake up any waiting clients so they can exit
             with self._data_available:
                 self._data_available.notify_all()
-            logger.info(f"Channel {self.id}: Generator loop stopped")
+            logger.debug(f"Channel {self.id}: Generator loop stopped")
 
     def _do_crossfade_in_thread(self):
         """Perform crossfade to pending theme (called from generator thread)."""
@@ -423,7 +423,7 @@ class ChannelStream:
                     self.channel.wait_for_data(timeout=0.05)
 
         finally:
-            logger.info(f'Channel {self.channel.id}: Client stream closed')
+            logger.debug(f'Channel {self.channel.id}: Client stream closed')
             self.channel.client_disconnected()
             output.close()
 

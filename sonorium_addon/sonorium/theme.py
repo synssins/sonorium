@@ -83,7 +83,7 @@ class ThemeDefinition:
     def get_stream(self):
         theme = ThemeStream(self)
         self.streams.append(theme)
-        logger.info(f'ThemeDefinition {self.name}: Created new ThemeStream (total: {len(self.streams)} streams)')
+        logger.debug(f'ThemeDefinition {self.name}: Created new ThemeStream (total: {len(self.streams)} streams)')
         return theme
 
 

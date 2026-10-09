@@ -122,7 +122,7 @@ class SessionMQTTEntities:
             topic = self._get_discovery_topic(component, suffix)
             await self.mqtt_publish(topic, "", retain=True)
 
-        logger.info(f"Removed MQTT discovery for session '{self.session.name}'")
+        logger.debug(f"Removed MQTT discovery for session '{self.session.name}'")
     
     async def update_state(self):
         """Publish current state for all entities."""

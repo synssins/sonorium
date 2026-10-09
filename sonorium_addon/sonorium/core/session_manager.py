@@ -242,7 +242,7 @@ class SessionManager:
         channel = self.channel_manager.get_available_channel()
         if channel:
             self._session_channels[session.id] = channel.id
-            logger.info(f"  Assigned channel {channel.id} to session {session.id}")
+            logger.debug(f"  Assigned channel {channel.id} to session {session.id}")
         
         return channel
     
@@ -253,7 +253,7 @@ class SessionManager:
             channel = self.channel_manager.get_channel(channel_id)
             if channel:
                 channel.stop()
-                logger.info(f"  Released channel {channel_id} from session {session_id}")
+                logger.debug(f"  Released channel {channel_id} from session {session_id}")
     
     def get_session_channel(self, session_id: str) -> Optional[int]:
         """Get the channel ID assigned to a session."""
@@ -756,11 +756,11 @@ class SessionManager:
             theme = self.get_theme(session.theme_id)
             if theme:
                 channel.set_theme(theme)
-                logger.info(f"  Channel {channel.id}: theme '{theme.name}'")
+                logger.debug(f"  Channel {channel.id}: theme '{theme.name}'")
         
         # Build stream URL (channel-based if available)
         stream_url = self.get_stream_url(session)
-        logger.info(f"  Stream URL: {stream_url}")
+        logger.debug(f"  Stream URL: {stream_url}")
         
         # Mark as playing immediately (optimistic update)
         session.is_playing = True

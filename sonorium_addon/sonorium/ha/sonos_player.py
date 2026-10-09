@@ -460,7 +460,7 @@ class SonosPlayer:
             token = self.media_controller.token
             ws_url = self.media_controller.api_url.replace('http://', 'ws://').replace('/api', '/api/websocket')
 
-            logger.info(f"  SoCo: Loading entity/device registry for speaker detection...")
+            logger.debug(f"  SoCo: Loading entity/device registry for speaker detection...")
 
             async with websockets.connect(ws_url, max_size=64 * 1024 * 1024) as ws:
                 # Authenticate
@@ -493,7 +493,7 @@ class SonosPlayer:
                             if platform:
                                 self._entity_platforms[entity_id] = platform
 
-                    logger.info(f"  SoCo: Loaded platforms for {len(self._entity_platforms)} media_player entities")
+                    logger.debug(f"  SoCo: Loaded platforms for {len(self._entity_platforms)} media_player entities")
 
                 # Query device registry for manufacturer info
                 await ws.send(json.dumps({
@@ -528,7 +528,7 @@ class SonosPlayer:
                                 if manufacturer:
                                     self._entity_manufacturers[entity_id] = manufacturer
 
-                    logger.info(f"  SoCo: Loaded manufacturers for {len(self._entity_manufacturers)} media_player entities")
+                    logger.debug(f"  SoCo: Loaded manufacturers for {len(self._entity_manufacturers)} media_player entities")
 
         except Exception as e:
             logger.warning(f"  SoCo: Failed to load entity registry: {e}")

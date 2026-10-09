@@ -100,7 +100,7 @@ class HAMediaController:
             True if request was sent, False on immediate failure
         """
         url = f"{self.api_url}/services/{domain}/{service}"
-        logger.info(f"  POST {url}")
+        logger.debug(f"  POST {url}")
         logger.debug(f"    Data: {data}")
         
         try:
@@ -225,19 +225,19 @@ class HAMediaController:
 
         # Play on Sonos speakers using SoCo (if any)
         if sonos_ids:
-            logger.info(f"  Using SoCo for {len(sonos_ids)} Sonos speaker(s)")
+            logger.debug(f"  Using SoCo for {len(sonos_ids)} Sonos speaker(s)")
             sonos_results = await self._sonos_player.play_media_multi(sonos_ids, media_url)
             status.update(sonos_results)
 
         # Play on Cast devices using pychromecast (if any)
         if cast_ids:
-            logger.info(f"  Using pychromecast for {len(cast_ids)} Cast device(s)")
+            logger.debug(f"  Using pychromecast for {len(cast_ids)} Cast device(s)")
             cast_results = await self._cast_player.play_media_multi(cast_ids, media_url)
             status.update(cast_results)
 
         # Play on other speakers using HA API
         if other_ids:
-            logger.info(f"  Using HA API for {len(other_ids)} speaker(s)")
+            logger.debug(f"  Using HA API for {len(other_ids)} speaker(s)")
             tasks = [
                 self.play_media(entity_id, media_url, media_type)
                 for entity_id in other_ids
@@ -252,7 +252,7 @@ class HAMediaController:
                     status[entity_id] = result
 
         success_count = sum(1 for v in status.values() if v)
-        logger.info(f"  {success_count}/{len(entity_ids)} speakers started")
+        logger.debug(f"  {success_count}/{len(entity_ids)} speakers started")
         return status
     
     @logger.instrument("Pausing {entity_id}...")
