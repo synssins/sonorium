@@ -427,12 +427,17 @@ def create_api_router(
                 volume=request.volume,
                 cycle_config=request.cycle_config.to_config() if request.cycle_config else None,
             )
-            if mqtt_manager:
-                await mqtt_manager.add_session_entities(session)
-                await mqtt_manager.sync_all_states()
-            return _session_to_response(session, session_manager)
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+        if mqtt_manager:
+            try:
+                await mqtt_manager.add_session_entities(session)
+                await mqtt_manager.sync_all_states()
+            except Exception as e:
+                logger.warning(f"Failed to publish MQTT entities for new session: {e}")
+
+        return _session_to_response(session, session_manager)
     
     @router.get("/sessions/{session_id}")
     async def get_session(session_id: str) -> SessionResponse:
@@ -490,8 +495,11 @@ def create_api_router(
         if not session_manager.delete(session_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         if mqtt_manager:
-            await mqtt_manager.remove_session_entities(session_id)
-            await mqtt_manager.sync_all_states()
+            try:
+                await mqtt_manager.remove_session_entities(session_id)
+                await mqtt_manager.sync_all_states()
+            except Exception as e:
+                logger.warning(f"Failed to remove MQTT entities for deleted session: {e}")
     
     @router.post("/sessions/{session_id}/play")
     async def play_session(session_id: str) -> dict:
