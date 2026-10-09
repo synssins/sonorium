@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0-dev.9 (2026-10-09)
+
+### Bug Fixes
+
+- Clear the old Sonorium media player's retained MQTT topics
+  ([`01930c8`](https://github.com/synssins/sonorium/commit/01930c80751864f0700b8824eb7cdc4e59dcc3f4))
+
+
 ## v1.3.0-dev.8 (2026-10-09)
 
 ### Bug Fixes
