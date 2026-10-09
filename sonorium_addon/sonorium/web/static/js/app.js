@@ -2347,7 +2347,14 @@ function updatePlaysAt(slider) {
     hint.textContent = playsAtHint(slider.value / 100, parseFloat(slider.dataset.master || '1'));
 }
 
-async function refreshTrackMixer() {
+async function refreshTrackMixer(afterFileChange = false) {
+    if (afterFileChange) {
+        // The server rebuilds its theme list about 2 s after files move
+        const container = document.getElementById('track-mixer-list');
+        if (container) container.style.opacity = '0.6';
+        await new Promise(resolve => setTimeout(resolve, 2600));
+        if (container) container.style.opacity = '';
+    }
     try {
         await loadTrackMixerData(currentTrackMixerThemeId);
     } catch (error) {
@@ -2392,7 +2399,7 @@ async function createTrackGroup(thenMoveKey) {
         if (thenMoveKey) {
             await moveTrackToGroup(thenMoveKey, name);
         } else {
-            await refreshTrackMixer();
+            await refreshTrackMixer(true);
         }
         return name;
     } catch (error) {
@@ -2407,7 +2414,7 @@ async function renameTrackGroup(name, newName) {
     try {
         await api('POST', `/themes/${currentTrackMixerThemeId}/groups/${encodeURIComponent(name)}/rename`, { name: newName });
         if (trackMixerView === name) trackMixerView = newName;
-        await refreshTrackMixer();
+        await refreshTrackMixer(true);
     } catch (error) {
         showToast(error.message, 'error');
         renderTrackMixer();
@@ -2419,7 +2426,7 @@ async function deleteTrackGroup(name) {
     try {
         await api('DELETE', `/themes/${currentTrackMixerThemeId}/groups/${encodeURIComponent(name)}`);
         trackMixerView = null;
-        await refreshTrackMixer();
+        await refreshTrackMixer(true);
     } catch (error) {
         showToast(error.message, 'error');
     }
@@ -2429,7 +2436,7 @@ async function moveTrackToGroup(key, group) {
     if ((trackGroupOf(key) || null) === (group || null)) return;
     try {
         await api('POST', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(key)}/move`, { group: group || null });
-        await refreshTrackMixer();
+        await refreshTrackMixer(true);
     } catch (error) {
         showToast(error.message, 'error');
         renderTrackMixer();
@@ -2478,7 +2485,7 @@ async function uploadTracksToMixer(files) {
         }
     }
     if (done) showToast(`Uploaded ${done} file${done === 1 ? '' : 's'}`, 'success');
-    await refreshTrackMixer();
+    await refreshTrackMixer(true);
 }
 
 function updateSliderDisplay(slider) {
