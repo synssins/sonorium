@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.20 (2026-10-09)
+
+### Bug Fixes
+
+- A channel's preset follows its theme
+  ([`dc56043`](https://github.com/synssins/sonorium/commit/dc5604387156dec8cbfd955296bba4f68ddc387a))
+
+
 ## v1.4.0-dev.19 (2026-10-09)
 
 ### Bug Fixes
