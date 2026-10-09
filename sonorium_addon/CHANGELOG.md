@@ -2,6 +2,32 @@
 
 <!-- version list -->
 
+## v1.2.89-dev.6 (2026-10-09)
+
+### Bug Fixes
+
+- Copy legacy settings once per install instead of renaming the old folder
+  ([#30](https://github.com/synssins/sonorium/pull/30),
+  [`eaa314f`](https://github.com/synssins/sonorium/commit/eaa314f3a50b850c64f77907a6a7aa86b4622e8f))
+
+- Drop "(Dev)" from the add-on name and point URLs at this repo
+  ([#40](https://github.com/synssins/sonorium/pull/40),
+  [`04d967e`](https://github.com/synssins/sonorium/commit/04d967e6155f9688997090289849fd2494bdc75d))
+
+- Keep settings in the add-on's own config folder so uninstall can remove them
+  ([#30](https://github.com/synssins/sonorium/pull/30),
+  [`cddf0ba`](https://github.com/synssins/sonorium/commit/cddf0bacdfd89b9ffe15ee8bdb474f46a766a1e4))
+
+- Make browsers revalidate the web UI files after updates
+  ([#28](https://github.com/synssins/sonorium/pull/28),
+  [`cd70f62`](https://github.com/synssins/sonorium/commit/cd70f62912ca9f2de4b97c4f59cf9711642a11f0))
+
+### Documentation
+
+- Clarify why homeassistant_config is mapped
+  ([`5eb86c3`](https://github.com/synssins/sonorium/commit/5eb86c342acc5bc88d0ea5604112f7c846334e2a))
+
+
 ## v1.2.89-dev.5 (2026-10-09)
 
 ### Bug Fixes
