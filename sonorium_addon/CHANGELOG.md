@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0-dev.2 (2026-10-09)
+
+### Bug Fixes
+
+- Trim the normal-level log to a summary; move startup detail to debug
+  ([`5b90fff`](https://github.com/synssins/sonorium/commit/5b90fffb40f94dfa4e2642c32f16681524446b24))
+
+
 ## v1.3.0-dev.1 (2026-10-09)
 
 ### Features
