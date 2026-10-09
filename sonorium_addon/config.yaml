@@ -38,6 +38,7 @@ ports_description:
   8080/tcp: "Sonorium Web UI and streaming API (direct access)"
 
 options:
+  log_level: info
   sonorium__stream_url: "auto"
   sonorium__path_audio: "/media/sonorium"
   sonorium__max_channels: 6
@@ -47,6 +48,7 @@ options:
   sonorium__mqtt_password: ""
 
 schema:
+  log_level: list(trace|debug|info|notice|warning|error|fatal)?
   sonorium__stream_url: str?
   sonorium__path_audio: str
   sonorium__max_channels: int(1,10)

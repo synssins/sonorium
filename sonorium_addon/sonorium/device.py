@@ -121,7 +121,7 @@ class Sonorium:
 
                 theme_def = ThemeDefinition(sonorium=self, name=theme_name, theme_id=theme_id)
                 self.themes.append(theme_def)
-                logger.info(f'Loaded theme "{theme_name}" with {len(audio_files)} audio files')
+                logger.debug(f'Loaded theme "{theme_name}" with {len(audio_files)} audio files')
             else:
                 logger.warning(f'Theme folder "{folder.name}" contains no audio files')
 

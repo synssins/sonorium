@@ -4,6 +4,7 @@ Replaces fmtr.tools logging with standard Python logging.
 """
 import functools
 import logging
+import os
 import sys
 
 from sonorium.paths import paths
@@ -60,6 +61,25 @@ class InstrumentedLogger(logging.Logger):
         return decorator
 
 
+class LevelPrefixFormatter(logging.Formatter):
+    """Prefix warnings and errors with their level so they stand out in the add-on log."""
+
+    def format(self, record):
+        message = super().format(record)
+        if record.levelno >= logging.WARNING:
+            time_part, _, text = message.partition(" ")
+            return f"{time_part} {record.levelname}: {text}"
+        return message
+
+
+def log_level_from_env() -> int:
+    """Log level from SONORIUM_LOG_LEVEL (set from the add-on's log_level option); INFO by default."""
+    name = os.environ.get("SONORIUM_LOG_LEVEL", "info").strip().upper()
+    if name == "TRACE":
+        name = "DEBUG"
+    return logging.getLevelName(name) if isinstance(logging.getLevelName(name), int) else logging.INFO
+
+
 def get_logger(name: str, version: str = "") -> InstrumentedLogger:
     """Create an instrumented logger."""
     # Set custom logger class
@@ -72,9 +92,9 @@ def get_logger(name: str, version: str = "") -> InstrumentedLogger:
         # Force unbuffered stdout for Docker/container environments
         sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
         handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(logging.Formatter('%(asctime)s.%(msecs)03d %(message)s', datefmt='%H:%M:%S'))
+        handler.setFormatter(LevelPrefixFormatter('%(asctime)s.%(msecs)03d %(message)s', datefmt='%H:%M:%S'))
         logger.addHandler(handler)
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel(log_level_from_env())
 
     return logger
 

@@ -33,6 +33,11 @@ fi
 bashio::log.debug "Environment variables:"
 bashio::log.debug "  SUPERVISOR_TOKEN present: $([ -n "${SUPERVISOR_TOKEN:-}" ] && echo 'yes' || echo 'no')"
 
+# Log level: "info" shows a summary, "debug" adds per-theme/per-speaker detail and versions
+if bashio::config.has_value 'log_level'; then
+    export SONORIUM_LOG_LEVEL="$(bashio::config 'log_level')"
+fi
+
 # Export addon configuration as environment variables
 export SONORIUM__STREAM_URL="$(bashio::config 'sonorium__stream_url')"
 export SONORIUM__PATH_AUDIO="$(bashio::config 'sonorium__path_audio')"
@@ -102,7 +107,7 @@ bashio::log.info "Testing Python imports..."
 IMPORTS_OK=true
 
 # Test individual imports first
-if ! python3 -c "import numpy; print(f'numpy {numpy.__version__}')" 2>&1; then
+if ! python3 -c "import numpy" 2>&1; then
     bashio::log.error "FAILED: numpy import"
     IMPORTS_OK=false
     # A VM with a basic virtual CPU (Proxmox's default "kvm64") hides CPU
@@ -113,7 +118,7 @@ if ! python3 -c "import numpy; print(f'numpy {numpy.__version__}')" 2>&1; then
         bashio::log.error "In Proxmox: VM -> Hardware -> Processors -> Type: host."
     fi
 fi
-if ! python3 -c "import av; print(f'av {av.__version__}')" 2>&1; then
+if ! python3 -c "import av" 2>&1; then
     bashio::log.error "FAILED: av (PyAV) import"
     IMPORTS_OK=false
 fi
@@ -145,6 +150,18 @@ fi
 
 if [[ "${IMPORTS_OK}" == "true" ]]; then
     bashio::log.info "Python imports OK"
+    bashio::log.debug "Library versions: $(python3 - <<'PY' 2>/dev/null || true
+from importlib.metadata import version, PackageNotFoundError
+names = ["numpy", "av", "fastapi", "uvicorn", "starlette", "pydantic", "paho-mqtt", "pychromecast", "soco", "websockets", "httpx"]
+out = []
+for n in names:
+    try:
+        out.append(f"{n} {version(n)}")
+    except PackageNotFoundError:
+        pass
+print(", ".join(out))
+PY
+)"
 else
     bashio::log.error "One or more Python imports failed (see above). Sonorium will probably not start."
 fi

@@ -183,7 +183,7 @@ class ThemeMetadataManager:
             self._metadata_cache[folder] = metadata
             themes[metadata.id] = metadata
 
-            logger.info(f"Loaded theme '{metadata.name}' (id={metadata.id[:8]}...) from {folder.name}")
+            logger.debug(f"Loaded theme '{metadata.name}' (id={metadata.id[:8]}...) from {folder.name}")
 
         return themes
 

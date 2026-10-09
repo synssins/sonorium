@@ -292,6 +292,7 @@ class ApiSonorium(api.Base):
             
             self._v2_initialized = True
             logger.info("  Sonorium v2 initialization complete!")
+            self._log_startup_summary()
             
         except ImportError as e:
             logger.error(f"  Failed to import v2 modules: {e}")
@@ -426,13 +427,24 @@ class ApiSonorium(api.Base):
                 inst.crossfade_enabled = not track_settings.seamless_loop
                 inst.exclusive = track_settings.exclusive
 
-            logger.info(f"    Applied settings to theme '{theme.name}'")
+            logger.debug(f"    Applied settings to theme '{theme.name}'")
 
     async def shutdown_v2(self):
         """Shutdown v2 components gracefully."""
         if self._cycle_manager:
             await self._cycle_manager.stop()
             logger.info("CycleManager stopped")
+
+    def _log_startup_summary(self):
+        """One-line summary at normal log level; details are at debug level."""
+        try:
+            themes = len(self.client.device.themes)
+            speakers = len(self._ha_registry.hierarchy.get_all_speakers()) if self._ha_registry and self._ha_registry.hierarchy else 0
+            sessions = len(self._state_store.sessions) if self._state_store else 0
+            mqtt = "connected" if self._mqtt_manager else "not available"
+            logger.info(f"Sonorium {__version__} ready: {themes} themes, {speakers} speakers detected, {sessions} channels, MQTT {mqtt}")
+        except Exception as e:
+            logger.warning(f"Could not build startup summary: {e}")
 
     async def web_ui(self):
         """Serve the main web UI (v2 if available, else v1)."""
@@ -917,7 +929,7 @@ class ApiSonorium(api.Base):
                 theme_name = folder.name
                 new_theme_metas[theme_name] = IndexList(RecordingMetadata(path) for path in audio_files)
                 theme_names_with_audio.append(theme_name)
-                logger.info(f'Found theme "{theme_name}" with {len(audio_files)} audio files')
+                logger.debug(f'Found theme "{theme_name}" with {len(audio_files)} audio files')
 
         # Step 2: Update device.theme_metas BEFORE creating ThemeDefinitions
         # This is critical because ThemeDefinition.__init__ looks up theme_metas[name]
@@ -944,7 +956,7 @@ class ApiSonorium(api.Base):
 
             theme_def = ThemeDefinition(sonorium=device, name=theme_name, theme_id=theme_id)
             new_themes.append(theme_def)
-            logger.info(f'Created ThemeDefinition "{theme_name}" with {len(theme_def.instances)} instances')
+            logger.debug(f'Created ThemeDefinition "{theme_name}" with {len(theme_def.instances)} instances')
 
         # Step 4: Update device.themes
         device.themes = new_themes

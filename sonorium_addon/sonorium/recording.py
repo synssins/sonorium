@@ -347,7 +347,7 @@ class RecordingThemeStream:
 
                         if i % LOG_THRESHOLD == 0:
                             vol_mean = round(abs(data).mean())
-                            logger.info(f'{self.__class__.__name__} Yielding chunk #{i} {data.shape=}, {buffer.shape=}, {vol_mean=}')
+                            logger.debug(f'{self.__class__.__name__} Yielding chunk #{i} {data.shape=}, {buffer.shape=}, {vol_mean=}')
                         i += 1
 
             container.close()
@@ -408,7 +408,7 @@ class CrossfadeRecordingStream:
         track_duration = self.instance.meta.duration_samples
         crossfade_start = max(0, track_duration - CROSSFADE_SAMPLES)
         
-        logger.info(f'CrossfadeStream: {self.instance.name} duration={track_duration} samples ({track_duration/SAMPLE_RATE:.1f}s), crossfade at {crossfade_start} ({crossfade_start/SAMPLE_RATE:.1f}s)')
+        logger.debug(f'CrossfadeStream: {self.instance.name} duration={track_duration} samples ({track_duration/SAMPLE_RATE:.1f}s), crossfade at {crossfade_start} ({crossfade_start/SAMPLE_RATE:.1f}s)')
         
         # Start first decoder
         current_decoder = self._create_decoder()
@@ -520,7 +520,7 @@ class CrossfadeRecordingStream:
             if chunk_count % LOG_THRESHOLD == 0:
                 vol_mean = round(abs(output_chunk).mean())
                 status = "XFADE" if in_crossfade else "PLAY"
-                logger.info(f'CrossfadeStream [{status}]: chunk #{chunk_count}, samples={samples_played}, vol={vol_mean}')
+                logger.debug(f'CrossfadeStream [{status}]: chunk #{chunk_count}, samples={samples_played}, vol={vol_mean}')
 
             yield output_data
 
@@ -567,7 +567,7 @@ class SparsePlaybackStream:
         file_duration_samples = self.instance.meta.duration_samples
         file_duration_seconds = self.instance.meta.duration_seconds
 
-        logger.info(f'SparsePlaybackStream: {self.instance.name} - short file ({file_duration_seconds:.1f}s), using sparse playback' +
+        logger.debug(f'SparsePlaybackStream: {self.instance.name} - short file ({file_duration_seconds:.1f}s), using sparse playback' +
                     (', exclusive=True' if self.instance.exclusive else ''))
 
         # Pre-generate fade curves for the short file

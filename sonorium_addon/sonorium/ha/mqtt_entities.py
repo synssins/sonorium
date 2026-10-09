@@ -105,7 +105,7 @@ class SessionMQTTEntities:
         await asyncio.sleep(0.05)
         await self._publish_speakers_sensor()
 
-        logger.info(f"Published MQTT discovery for session '{self.session.name}'")
+        logger.debug(f"Published MQTT discovery for session '{self.session.name}'")
     
     async def remove_discovery(self):
         """Remove MQTT discovery configs (publish empty payloads)."""
@@ -424,7 +424,7 @@ class SonoriumMQTTManager:
                 )
                 # Log entity config publishes at info level for debugging
                 if "/config" in topic:
-                    logger.info(f"  MQTT: Published entity config to {topic}")
+                    logger.debug(f"  MQTT: Published entity config to {topic}")
             elif hasattr(self.mqtt_client, 'send'):
                 # fmtr.tools style
                 await self.mqtt_client.send(topic, payload, retain=retain)
@@ -654,7 +654,7 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
-        logger.info("    Published: select.sonorium_session")
+        logger.debug("    Published: select.sonorium_session")
 
         # Wait for HA to process discovery config before publishing state
         await asyncio.sleep(0.1)
