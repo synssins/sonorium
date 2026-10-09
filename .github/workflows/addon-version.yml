@@ -15,6 +15,7 @@ on:
     branches: ['**']
     paths:
       - 'sonorium_addon/**'
+      - '!sonorium_addon/README.md'  # docs only: no new version
   workflow_dispatch:
 
 permissions:

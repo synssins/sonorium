@@ -64,40 +64,54 @@ Add-on version numbers are set automatically from commit messages; see
 
 ## Screenshots
 
-### Channels View
-Create and manage multiple audio channels, each streaming to different speakers.
+### Channels
+Each channel plays its own theme on its own speakers.
 
 ![Channels](screenshots/Channels.png)
 
-### Theme Selection
-Choose from your library of ambient themes for each channel.
+### Edit Channel
+Search themes, then pick speakers by floor, room or one at a time.
 
-![Theme Selection](screenshots/Channels_Theme_Selection.png)
+![Edit Channel](screenshots/Channel_Editor.png)
 
-### Themes Library
-Organize your audio files into themes with favorites and categories.
+### Themes
+Your theme library, with favorites and categories.
 
 ![Themes](screenshots/Themes.png)
 
-### Settings
-Configure speakers, volume defaults, and other preferences.
+### Settings → Speakers
+Switch speakers on or off, set their room and volume offset, and play a test sound.
 
-![Settings](screenshots/Settings.png)
+![Speakers](screenshots/Settings_Speakers.png)
+
+### Add Speaker (Docker)
+Add a speaker the network scan didn't find, by its address.
+
+![Add Speaker](screenshots/Add_Speaker.png)
+
+### Settings → Connection (Docker)
+Connect Home Assistant and MQTT, both optional.
+
+![Connection](screenshots/Settings_Connection.png)
+
+### Settings → Logs
+Recent messages with filters, search, copy and download.
+
+![Logs](screenshots/Settings_Logs.png)
 
 ---
 
 ## What's New
 
-### Home Assistant Addon v1.3.0
+### v1.4.0
 
-- **Google Cast fixed.** Silent Cast speakers play again, and playback starts faster (#43).
-- **No more gaps when tracks loop** (#38).
-- **Stopped speakers free their channel**, and **Stop All** also stops paused channels (#29).
-- **MQTT entities stay in sync** after renames, deletes and theme changes, and after the Mosquitto broker restarts (#16, #33).
-- **More reliable startup.** Sonorium waits for the Mosquitto broker (#42) and runs on Proxmox's default virtual CPU (#18, #39).
-- **Uninstall removes settings**, which now live in the add-on's own config folder (#30).
-- **Logs.** A new `log_level` option, a short summary at the normal level, and no passwords in debug logs.
-- **Naming and plugins.** The add-on is named "Sonorium" (#40), and the Plugin Browser works again.
+- **Docker.** A new image, `ghcr.io/synssins/sonorium`, runs Sonorium on any Docker host, with or without Home Assistant. It finds network speakers on its own, and Home Assistant and MQTT are set up from the web UI (#32).
+- **New channel editor.** Search themes, and pick speakers by floor, room or one at a time; ticking a floor or room selects everything in it.
+- **Settings → Speakers.** Rename speakers, set their room and a volume offset, and play a short test sound. Only speakers switched on here appear in channels, and **Hide offline** tidies the list.
+- **Settings → Logs.** See, search, copy and download recent log messages from the web UI. If Sonorium fails to start, the web UI shows the logs instead.
+- **Speaker screens.** Nest Hub and other Google Cast displays show the Sonorium logo while playing.
+- **Presets follow the theme.** Changing a channel's theme switches to that theme's default preset.
+- **Smaller fixes.** Denon/Marantz receivers are recognised, settings pages stay readable on wide screens, and the browser tab shows Sonorium's icon.
 
 Full history: [sonorium_addon/CHANGELOG.md](sonorium_addon/CHANGELOG.md).
 
@@ -110,6 +124,13 @@ Full history: [sonorium_addon/CHANGELOG.md](sonorium_addon/CHANGELOG.md).
 - **Per-Channel Themes**: Each channel plays its own theme
 - **Flexible Speaker Selection**: Target individual speakers, entire rooms, floors, or custom speaker groups
 - **Live Speaker Management**: Add or remove speakers from active channels without interrupting playback
+
+### Speakers
+- **Speaker Settings**: Rename speakers, set their room, and add a volume offset for speakers that play louder or quieter than the rest
+- **Test Sound**: Play a short, quiet chime to check a speaker
+- **Choose What Sonorium Uses**: Speakers switched off in Settings never appear in channels
+- **Network Speakers (Docker)**: Finds Google Cast, Sonos, DLNA, AirPlay, LinkPlay and HEOS speakers on your network, or add one by address
+- **One Speaker, Two Paths (Docker)**: A speaker found both in Home Assistant and on the network is shown once, and you choose which way it plays
 
 ### Theme System
 - **Theme-Based Organization**: Audio files organized into theme folders (Thunder, Forest, Ocean, etc.)
@@ -134,6 +155,7 @@ Fine-tune how each audio file plays within a theme:
 - **Save/Load Presets** - Store track settings as named presets
 - **Quick Switching** - Select presets directly on channel cards
 - **Import/Export** - Share presets with the community
+- **Follows the Theme** - Changing a channel's theme switches to that theme's default preset
 
 ### Home Assistant Dashboard Integration (Addon)
 - **MQTT Entities** - Full dashboard control via MQTT (session select, theme/preset dropdowns, play/stop, volume)
@@ -146,6 +168,8 @@ Fine-tune how each audio file plays within a theme:
 - **Dark Theme**: Easy on the eyes
 - **Real-Time Status**: See what's playing across all channels
 - **Drag & Drop**: Upload audio files directly through the UI
+- **Logs Page**: Recent messages with filters, search and download, even when startup fails
+- **Speaker Screens**: Google Cast displays show the Sonorium logo while playing
 
 ## Why Ambient Sound?
 
@@ -227,6 +251,15 @@ Single-file themes loop seamlessly using crossfade blending—no jarring restart
 - Arylic/Linkplay speakers (via HTTP API)
 - **HEOS speakers (Denon/Marantz)** - Beta, via CLI protocol
 - *Coming soon: AirPlay (other devices), Chromecast*
+
+### Docker
+- Google Cast (Chromecast, Nest Hub, Google Home)
+- Sonos
+- DLNA/UPnP speakers
+- AirPlay
+- Arylic/LinkPlay
+- HEOS (Denon/Marantz)
+- Plus every Home Assistant speaker, if you connect Home Assistant
 
 ### Home Assistant Addon
 - Any media_player entity in Home Assistant
