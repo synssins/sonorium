@@ -1001,6 +1001,21 @@ class SonoriumMQTTManager:
             retain=True,
         )
 
+        # Republish the selection by its current name; after a rename the
+        # retained state still holds the old name, which HA rejects (#16)
+        import asyncio
+        await asyncio.sleep(0.1)
+        selected_name = ""
+        if self._selected_session_id:
+            session = self.state.sessions.get(self._selected_session_id)
+            if session:
+                selected_name = session.name or session.id
+        await self._mqtt_publish(
+            f"{self.prefix}/session/state",
+            selected_name,
+            retain=True,
+        )
+
     async def _subscribe_commands(self):
         """Subscribe to command topics."""
         # Build list of topics to subscribe

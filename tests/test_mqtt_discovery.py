@@ -115,6 +115,18 @@ class MQTTDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             unittest.mock.call.update_preset_options(), unittest.mock.call.update_state(),
         ])
 
+    async def test_rename_republishes_selected_session_by_new_name(self):
+        store = self.state_module.StateStore()
+        store.sessions[self.session.id] = self.session
+        manager = self.entities_module.SonoriumMQTTManager(store, Mock(), Mock())
+        manager._mqtt_publish = self.publish
+        manager._selected_session_id = self.session.id
+        self.session.name = "Night Mode"
+        with patch("asyncio.sleep", AsyncMock()):
+            await manager._update_session_selector_options()
+        states = [c.args[1] for c in self.publish.call_args_list if c.args[0] == "sonorium/session/state"]
+        self.assertEqual(states, ["Night Mode"])
+
     async def test_rename_and_restart_keep_all_discovery_configs(self):
         entities = self.make_entities(self.session)
         await entities.publish_discovery()
