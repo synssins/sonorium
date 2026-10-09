@@ -106,7 +106,11 @@ class Area:
     floor_id: Optional[str] = None
     floor_name: Optional[str] = None
     speakers: list[Speaker] = field(default_factory=list)
-    
+    # "ha", "local" (made in Sonorium), or both when the same name is in each
+    source: list[str] = field(default_factory=lambda: ["ha"])
+    # Sonorium's own ID when it merged into a Home Assistant area of the same name
+    local_id: Optional[str] = None
+
     def to_dict(self) -> dict:
         return {
             "area_id": self.area_id,
@@ -114,6 +118,8 @@ class Area:
             "floor_id": self.floor_id,
             "floor_name": self.floor_name,
             "speakers": [s.to_dict() for s in self.speakers],
+            "source": list(self.source),
+            "local_id": self.local_id,
         }
 
 
@@ -124,13 +130,17 @@ class Floor:
     name: str
     level: int = 0
     areas: list[Area] = field(default_factory=list)
-    
+    source: list[str] = field(default_factory=lambda: ["ha"])
+    local_id: Optional[str] = None
+
     def to_dict(self) -> dict:
         return {
             "floor_id": self.floor_id,
             "name": self.name,
             "level": self.level,
             "areas": [a.to_dict() for a in self.areas],
+            "source": list(self.source),
+            "local_id": self.local_id,
         }
 
 
@@ -205,6 +215,14 @@ class HARegistry:
         # Network speaker ID -> HA speaker ID it was merged into (same IP)
         self._merged_into: dict[str, str] = {}
 
+        # Floors and areas from Home Assistant as fetched, and Sonorium's own
+        # (Settings > Floors & Areas). self._floors/_areas hold both, merged.
+        self._ha_floors: dict[str, Floor] = {}
+        self._ha_areas: dict[str, Area] = {}
+        self._local_spaces_source: Optional[Callable[[], dict]] = None
+        # Sonorium floor/area ID -> Home Assistant ID it merged into (same name)
+        self._space_alias: dict[str, str] = {}
+
     def set_extra_speaker_source(self, source: Optional[Callable[[], list[dict]]]):
         """
         Add speakers that don't come from Home Assistant. `source` returns
@@ -212,6 +230,69 @@ class HARegistry:
         source (list); it's read on every refresh() and merge_extra_speakers().
         """
         self._extra_speaker_source = source
+
+    def set_local_spaces_source(self, source: Optional[Callable[[], dict]]):
+        """Sonorium's own floors and areas ({"floors": [...], "areas": [...]}), read on every rebuild."""
+        self._local_spaces_source = source
+
+    def resolve_space_id(self, space_id: Optional[str]) -> Optional[str]:
+        """The ID a floor or area is listed under (a Sonorium one may have merged into HA's)."""
+        return self._space_alias.get(space_id, space_id) if space_id else space_id
+
+    def _read_local_spaces(self) -> dict:
+        if self._local_spaces_source is None:
+            return {}
+        try:
+            return self._local_spaces_source() or {}
+        except Exception as e:
+            logger.warning(f"Could not read floors and areas: {e}")
+            return {}
+
+    def _merge_spaces(self) -> None:
+        """
+        Home Assistant's floors and areas plus Sonorium's own. One with the same
+        name (ignoring case) as Home Assistant's becomes that one, keeping HA's
+        name; anything that pointed at the Sonorium ID follows it.
+        """
+        local = self._read_local_spaces()
+        floors = {fid: replace(f, areas=[], source=["ha"], local_id=None) for fid, f in self._ha_floors.items()}
+        areas = {aid: replace(a, speakers=[], source=["ha"], local_id=None) for aid, a in self._ha_areas.items()}
+        alias: dict[str, str] = {}
+
+        floor_by_name = {f.name.casefold(): f for f in floors.values()}
+        next_level = max((f.level for f in floors.values()), default=-1) + 1
+        for item in local.get("floors") or []:
+            fid, name = item.get("id"), (item.get("name") or "").strip()
+            if not fid or not name:
+                continue
+            match = floor_by_name.get(name.casefold())
+            if match is not None:
+                match.source.append("local")
+                match.local_id = fid
+                alias[fid] = match.floor_id
+                continue
+            floors[fid] = Floor(floor_id=fid, name=name, level=next_level, source=["local"])
+            floor_by_name[name.casefold()] = floors[fid]
+            next_level += 1
+
+        area_by_name = {a.name.casefold(): a for a in areas.values()}
+        for item in local.get("areas") or []:
+            aid, name = item.get("id"), (item.get("name") or "").strip()
+            if not aid or not name:
+                continue
+            match = area_by_name.get(name.casefold())
+            if match is not None:
+                match.source.append("local")
+                match.local_id = aid
+                alias[aid] = match.area_id
+                if not match.floor_id and item.get("floor_id"):
+                    match.floor_id = alias.get(item["floor_id"], item["floor_id"])
+                continue
+            floor_id = item.get("floor_id")
+            areas[aid] = Area(area_id=aid, name=name, floor_id=alias.get(floor_id, floor_id), source=["local"])
+            area_by_name[name.casefold()] = areas[aid]
+
+        self._floors, self._areas, self._space_alias = floors, areas, alias
 
     def set_speaker_settings_source(self, source: Optional[Callable[[], dict]]):
         """Per-speaker settings by speaker ID (see core/speaker_settings.py), read on every rebuild."""
@@ -253,6 +334,7 @@ class HARegistry:
           (network speakers can be placed in HA areas too).
         """
         settings = self._read_settings()
+        self._merge_spaces()
 
         speakers: dict[str, Speaker] = {}
         for base in self._ha_speakers.values():
@@ -294,7 +376,7 @@ class HARegistry:
                 speaker.name = overrides["name"]
             speaker.default_area_id = speaker.area_id
             if "room" in overrides:
-                speaker.area_id = overrides["room"] or None
+                speaker.area_id = self.resolve_space_id(overrides["room"]) or None
             speaker.volume_offset = int(overrides.get("volume_offset", 0) or 0)
             play_via = overrides.get("play_via")
             speaker.play_via = play_via if any(m["id"] == play_via for m in speaker.merged) else "ha"
@@ -829,7 +911,7 @@ class HARegistry:
         from sonorium.runtime import ha_configured
         if not ha_configured():
             # Standalone without Home Assistant: no HA speakers to load
-            self._floors, self._areas, self._ha_speakers = {}, {}, {}
+            self._ha_floors, self._ha_areas, self._ha_speakers = {}, {}, {}
             return self._rebuild()
 
         logger.debug("Building speaker hierarchy from Home Assistant...")
@@ -840,21 +922,21 @@ class HARegistry:
         device_registry = {}
         if ws_floors or ws_areas or ws_entity_registry:
             logger.debug("  Using WebSocket API data for hierarchy")
-            self._floors = ws_floors
-            self._areas = ws_areas
+            self._ha_floors = ws_floors
+            self._ha_areas = ws_areas
             entity_registry = ws_entity_registry
             device_registry = ws_device_registry
         else:
             # Fall back to REST API (will likely fail for registries, but try anyway)
             logger.info("  WebSocket unavailable, trying REST API fallback...")
-            self._floors = self._fetch_floors()
-            self._areas = self._fetch_areas()
+            self._ha_floors = self._fetch_floors()
+            self._ha_areas = self._fetch_areas()
             entity_registry = self._fetch_entity_registry()
             # Note: device registry not available via REST API fallback
 
         # Always fetch speakers from states (REST API works for this)
         # Pass device_registry for inherited area lookups, areas for name-based matching fallback
-        self._ha_speakers = self._fetch_speakers(entity_registry, device_registry, self._areas)
+        self._ha_speakers = self._fetch_speakers(entity_registry, device_registry, self._ha_areas)
 
         # Build hierarchy (adds network speakers and per-speaker settings)
         hierarchy = self._rebuild()
@@ -1001,16 +1083,16 @@ class HARegistry:
         
         # Additions
         for floor_id in (include_floors or []):
-            speakers.update(self.get_speakers_on_floor(floor_id))
-        
+            speakers.update(self.get_speakers_on_floor(self.resolve_space_id(floor_id)))
+
         for area_id in (include_areas or []):
-            speakers.update(self.get_speakers_in_area(area_id))
+            speakers.update(self.get_speakers_in_area(self.resolve_space_id(area_id)))
         
         speakers.update(include_speakers or [])
         
         # Exclusions
         for area_id in (exclude_areas or []):
-            speakers -= set(self.get_speakers_in_area(area_id))
+            speakers -= set(self.get_speakers_in_area(self.resolve_space_id(area_id)))
         
         speakers -= set(exclude_speakers or [])
         

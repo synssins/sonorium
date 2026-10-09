@@ -84,9 +84,9 @@ def make_registry(ha_speakers=(), extras=(), settings=None, areas=None, floors=N
     """An HARegistry with HA data already 'fetched' (no Home Assistant calls)."""
     reg = registry_mod.HARegistry("http://ha/api", "token")
     for floor_id, name in (floors or {}).items():
-        reg._floors[floor_id] = registry_mod.Floor(floor_id=floor_id, name=name)
+        reg._ha_floors[floor_id] = registry_mod.Floor(floor_id=floor_id, name=name)
     for area_id, (name, floor_id) in (areas or {}).items():
-        reg._areas[area_id] = registry_mod.Area(area_id=area_id, name=name, floor_id=floor_id)
+        reg._ha_areas[area_id] = registry_mod.Area(area_id=area_id, name=name, floor_id=floor_id)
     for speaker in ha_speakers:
         reg._ha_speakers[speaker.entity_id] = speaker
     extras_list = list(extras)
@@ -516,3 +516,24 @@ def test_manual_speaker_endpoints(api, tmp_path):
     service.check_manual = AsyncMock(side_effect=manual_mod.ProbeError("Can't find x on the network"))
     assert client.post("/api/speakers/manual/check", json={"address": "x"}).json() == \
         {"found": False, "message": "Can't find x on the network"}
+
+
+def test_spaces_endpoints(api, monkeypatch):
+    from sonorium import runtime
+    monkeypatch.setattr(runtime, "feature_enabled", lambda name, overrides=None: False, raising=False)  # HA app
+    client = api.build()
+    assert client.get("/api/spaces").json()["editable"] is False  # HA app: read-only
+    assert client.post("/api/spaces/floors", json={"name": "Attic"}).status_code == 404
+
+    monkeypatch.setattr(runtime, "feature_enabled", lambda name, overrides=None: True)
+    api.registry.set_local_spaces_source(lambda: api.store.settings.local_spaces)
+    r = client.post("/api/spaces/floors", json={"name": "Attic"})
+    assert r.status_code == 201, r.text
+    attic = next(f for f in r.json()["floors"] if f["name"] == "Attic")
+    r = client.post("/api/spaces/areas", json={"name": "Loft", "floor_id": attic["id"]})
+    assert r.status_code == 201, r.text
+    loft = next(a for f in r.json()["floors"] for a in f["areas"] if a["name"] == "Loft")
+    assert loft["source"] == ["local"] and loft["local_id"] == "area_loft"
+    assert client.put("/api/speakers/media_player.office/settings", json={"room": "area_loft"}).status_code == 200
+    r = client.delete("/api/spaces/areas/area_loft")
+    assert r.status_code == 200 and "room" not in api.store.settings.speaker_settings.get("media_player.office", {})

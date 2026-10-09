@@ -71,3 +71,20 @@ def test_addon_mode_leaves_env_alone(monkeypatch, tmp_path):
     monkeypatch.delenv("SONORIUM__HA_CORE_API", raising=False)
     runtime.load_connection_into_env()
     assert "SONORIUM__HA_CORE_API" not in os.environ
+
+
+def test_install_type_and_features_addon(monkeypatch, tmp_path):
+    runtime = load_runtime(monkeypatch, tmp_path, standalone=False)
+    assert (runtime.INSTALL, runtime.INSTALL_LABEL) == ("addon", "HA App")
+    features = runtime.features()
+    assert features["connection_settings"] == {"available": False, "enabled": False, "overridable": False}
+    assert features["network_speakers"] == {"available": True, "enabled": False, "overridable": True}
+    assert runtime.feature_enabled("network_speakers", {"network_speakers": True})
+    assert not runtime.feature_enabled("connection_settings", {"connection_settings": True})  # hidden stays off
+
+
+def test_install_type_and_features_docker(monkeypatch, tmp_path):
+    monkeypatch.setenv("container", "docker")
+    runtime = load_runtime(monkeypatch, tmp_path)
+    assert (runtime.INSTALL, runtime.INSTALL_LABEL) == ("docker", "Docker")
+    assert all(f == {"available": True, "enabled": True, "overridable": False} for f in runtime.features().values())

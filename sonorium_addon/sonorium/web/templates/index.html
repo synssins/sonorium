@@ -91,6 +91,13 @@
                         </svg>
                         <span>Audio Settings</span>
                     </div>
+                    <div class="nav-sub-item" onclick="showView('settings-spaces')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                            <polyline points="9 22 9 12 15 12 15 22"/>
+                        </svg>
+                        <span>Floors &amp; Areas</span>
+                    </div>
                     <div class="nav-sub-item" onclick="showView('settings-speakers')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
@@ -125,6 +132,21 @@
                         </svg>
                         <span>Logs</span>
                     </div>
+                    <!-- Shown when this install has features that can be switched on -->
+                    <div class="nav-sub-item" id="nav-settings-advanced" style="display: none;" onclick="showView('settings-advanced')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="4" y1="21" x2="4" y2="14"/>
+                            <line x1="4" y1="10" x2="4" y2="3"/>
+                            <line x1="12" y1="21" x2="12" y2="12"/>
+                            <line x1="12" y1="8" x2="12" y2="3"/>
+                            <line x1="20" y1="21" x2="20" y2="16"/>
+                            <line x1="20" y1="12" x2="20" y2="3"/>
+                            <line x1="1" y1="14" x2="7" y2="14"/>
+                            <line x1="9" y1="8" x2="15" y2="8"/>
+                            <line x1="17" y1="16" x2="23" y2="16"/>
+                        </svg>
+                        <span>Advanced</span>
+                    </div>
                 </div>
             </div>
 
@@ -140,7 +162,7 @@
         </nav>
 
         <div class="sidebar-footer">
-            <span id="version-text">v...</span>
+            <span id="version-text">v...</span><span id="install-label" class="install-label" hidden></span>
         </div>
     </aside>
 
@@ -716,6 +738,15 @@ Example:
                 </div>
             </div>
 
+            <!-- Floors & Areas Settings View -->
+            <div id="view-settings-spaces" class="view">
+                <div class="settings-section">
+                    <h3>Floors &amp; Areas</h3>
+                    <p id="spaces-intro"></p>
+                    <div id="spaces-list"></div>
+                </div>
+            </div>
+
             <!-- Speakers Settings View -->
             <div id="view-settings-speakers" class="view">
                 <div class="settings-section">
@@ -793,6 +824,19 @@ Example:
                 <div class="settings-section">
                     <h3>Logs</h3>
                     <div id="settings-logs-root"></div>
+                </div>
+            </div>
+
+            <!-- Advanced Settings View (features this install has off by default) -->
+            <div id="view-settings-advanced" class="view">
+                <div class="settings-section">
+                    <h3>Advanced</h3>
+                    <p class="settings-warning">These change how Sonorium runs as a Home Assistant app. Leave them off unless you need them.</p>
+                    <div id="advanced-settings-form" class="settings-form"></div>
+                    <div id="advanced-restart" class="restart-bar" hidden>
+                        <span>Restart Sonorium to apply.</span>
+                        <button class="btn btn-primary btn-sm" onclick="restartForAdvancedSettings()">Restart now</button>
+                    </div>
                 </div>
             </div>
 
@@ -908,6 +952,35 @@ Example:
     </div>
 
     <!-- Add Speaker Modal (standalone only) -->
+    <!-- Add floor / Add area (Settings > Floors & Areas) -->
+    <div id="space-modal" class="modal-backdrop" onclick="if(event.target===this) closeSpaceModal()">
+        <div class="modal add-speaker" role="dialog" aria-labelledby="space-modal-title">
+            <div class="modal-header">
+                <h2 id="space-modal-title">Add area</h2>
+                <button class="modal-close" aria-label="Close" onclick="closeSpaceModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="session-field">
+                    <label for="space-name">Name</label>
+                    <input type="text" id="space-name" maxlength="60" autocomplete="off" onkeydown="if(event.key==='Enter') saveSpaceModal()">
+                </div>
+                <div class="session-field" id="space-floor-field">
+                    <label for="space-floor">Floor</label>
+                    <select id="space-floor"></select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeSpaceModal()">Cancel</button>
+                <button class="btn btn-primary" id="space-save" onclick="saveSpaceModal()">Add area</button>
+            </div>
+        </div>
+    </div>
+
     <div id="add-speaker-modal" class="modal-backdrop" onclick="if(event.target===this) closeAddSpeakerModal()">
         <div class="modal add-speaker" role="dialog" aria-labelledby="as-title">
             <div class="modal-header">
@@ -942,8 +1015,8 @@ Example:
                     <input type="text" id="as-name" placeholder="Leave empty to use the speaker's own name">
                 </div>
                 <div class="session-field">
-                    <label for="as-room">Room</label>
-                    <select id="as-room"><option value="">No room</option></select>
+                    <label for="as-room">Area</label>
+                    <select id="as-room"><option value="">No area</option></select>
                 </div>
                 <details class="adv">
                     <summary>Advanced</summary>

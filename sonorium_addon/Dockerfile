@@ -41,6 +41,11 @@ RUN pip3 install --no-cache-dir --break-system-packages \
     pydantic-settings \
     pychromecast
 
+# Network speakers (sonorium/network): on in Docker, off by default here and
+# switched on in Settings > Advanced. Same packages as the Docker image.
+RUN pip3 install --no-cache-dir --break-system-packages \
+    aiohttp zeroconf async-upnp-client pyatv
+
 # Copy local sonorium source code
 COPY sonorium/ /app/sonorium/
 COPY setup.py pyproject.toml README.md /app/
@@ -69,6 +74,6 @@ RUN chmod a+x /run.sh
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.4.0}"
+LABEL io.hass.version="${ADDON_VERSION:-1.4.1-dev.5}"
 
 CMD [ "/run.sh" ]

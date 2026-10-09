@@ -257,6 +257,25 @@ class ThemeMetadataManager:
             return True
         return False
 
+    def all_categories(self) -> list[str]:
+        """Every category used by a theme, in first-seen order."""
+        found: list[str] = []
+        for metadata in self._metadata_cache.values():
+            for category in metadata.categories or []:
+                if category not in found:
+                    found.append(category)
+        return found
+
+    def remove_category(self, category: str) -> int:
+        """Take a category off every theme that has it; returns how many changed."""
+        changed = 0
+        for folder, metadata in self._metadata_cache.items():
+            if category in (metadata.categories or []):
+                metadata.categories = [c for c in metadata.categories if c != category]
+                if self._save_metadata(folder, metadata):
+                    changed += 1
+        return changed
+
     def update_metadata(self, theme_id: str, **updates) -> Optional[ThemeMetadata]:
         """Update specific fields in theme metadata."""
         metadata = self.get_metadata(theme_id)

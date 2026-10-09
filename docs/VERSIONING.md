@@ -30,10 +30,12 @@ Windows app release workflow and are unrelated.
 
 | Prefix | Bump | Example |
 |---|---|---|
-| `fix:` `perf:` `refactor:` `build:` `revert:` | patch | `fix: Cast devices ignore play when idle` |
-| `feat:` | minor | `feat: fade in/out between themes` |
+| `feat:` `fix:` `perf:` `refactor:` `build:` `revert:` | patch | `feat: fade in/out between themes` |
 | `feat!:` or a `BREAKING CHANGE:` footer | major | `feat!: new state file format` |
 | anything else (`docs:`, `chore:`, no prefix) | forced by the workflow so HA still sees the change: next `-dev.N` on a branch, patch on `main` | |
+
+A minor or major release is never automatic. To make one, open **Actions → Add-on
+Version → Run workflow**, pick the branch, and set **bump** to `minor` or `major`.
 
 ## Working on a branch
 

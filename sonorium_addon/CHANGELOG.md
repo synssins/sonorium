@@ -2,6 +2,69 @@
 
 <!-- version list -->
 
+## v1.4.1-dev.5 (2026-10-09)
+
+### Bug Fixes
+
+- Settings menu cut off its last items
+  ([`7cb9384`](https://github.com/synssins/sonorium/commit/7cb9384b09302b2f946da09b4a556df860d31b46))
+
+
+## v1.4.1-dev.4 (2026-10-09)
+
+### Bug Fixes
+
+- Adding floors and areas failed with a 422
+  ([`7a499fa`](https://github.com/synssins/sonorium/commit/7a499fa582bac439d16d28add10bb0d21f1260d9))
+
+
+## v1.4.1-dev.3 (2026-10-09)
+
+### Features
+
+- Floors & Areas, editable outside the HA app
+  ([`7eb61af`](https://github.com/synssins/sonorium/commit/7eb61af806490817f6a857a232467576de4ead88))
+
+
+## v1.4.1-dev.2 (2026-10-09)
+
+### Continuous Integration
+
+- Features raise only the last version number
+  ([`56a5e4a`](https://github.com/synssins/sonorium/commit/56a5e4a0677cd124ceb940e001262cb7b5e8bcf5))
+
+### Documentation
+
+- README for 1.4.0 with new screenshots
+  ([`22659c7`](https://github.com/synssins/sonorium/commit/22659c716f53407d67013bd2100c8cbefaaa32e6))
+
+### Features
+
+- One install check decides what each install shows
+  ([`849091a`](https://github.com/synssins/sonorium/commit/849091a71a43d008e1710e990fd4ba295f5fa3e3))
+
+
+## v1.5.0-dev.1 (2026-10-09)
+
+### Documentation
+
+- README for 1.4.0 with new screenshots
+  ([`22659c7`](https://github.com/synssins/sonorium/commit/22659c716f53407d67013bd2100c8cbefaaa32e6))
+
+### Features
+
+- One install check decides what each install shows
+  ([`849091a`](https://github.com/synssins/sonorium/commit/849091a71a43d008e1710e990fd4ba295f5fa3e3))
+
+
+## v1.4.1-dev.1 (2026-10-09)
+
+### Documentation
+
+- Docker install in the README
+  ([`9d407a5`](https://github.com/synssins/sonorium/commit/9d407a5ab4c55205a17d2b348703e5f3d9e81513))
+
+
 ## v1.4.0 (2026-10-09)
 
 

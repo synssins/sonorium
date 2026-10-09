@@ -32,9 +32,11 @@ match = "^(?!main$).+"
 prerelease = true
 prerelease_token = "dev"
 
+# Features and fixes only raise the last number (1.4.0 -> 1.4.1). A minor or
+# major release is chosen by hand: run Add-on Version with "bump" set.
 [semantic_release.commit_parser_options]
-minor_tags = ["feat"]
-patch_tags = ["fix", "perf", "refactor", "build", "revert"]
+minor_tags = []
+patch_tags = ["feat", "fix", "perf", "refactor", "build", "revert"]
 
 [semantic_release.changelog]
 mode = "update"

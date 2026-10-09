@@ -36,13 +36,15 @@ async function init() {
             loadVersion(),
             loadPlugins(),
             loadConnectionSettings(),
-            loadNetworkInfo()
+            loadNetworkInfo(),
+            loadInstallInfo()
         ]);
         console.log('Data loaded, rendering...');
 
         // Restore saved view or default to sessions
         let savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
         if (savedView === 'settings-connection' && !connectionSettings) savedView = 'sessions';
+        if (savedView === 'settings-advanced' && !hasAdvancedSettings()) savedView = 'sessions';
 
         // Always render sessions first (needed for session cards)
         renderSessions();
@@ -447,10 +449,12 @@ function showView(viewName) {
         settings: 'Settings',
         'settings-connection': 'Connection',
         'settings-audio': 'Audio Settings',
+        'settings-spaces': 'Floors & Areas',
         'settings-speakers': 'Speakers',
         'settings-groups': 'Speaker Groups',
         'settings-plugins': 'Plugins',
         'settings-logs': 'Logs',
+        'settings-advanced': 'Advanced',
         status: 'Status'
     };
     document.getElementById('view-title').textContent = titles[viewName] || viewName;
@@ -480,6 +484,22 @@ function showView(viewName) {
         settings: '',
         'settings-connection': '',
         'settings-audio': '',
+        'settings-spaces': spacesEditable() ? `
+            <button class="btn btn-secondary" onclick="openSpaceModal('floor')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Add floor
+            </button>
+            <button class="btn btn-primary" onclick="openSpaceModal('area')">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                Add area
+            </button>
+        ` : '',
         'settings-speakers': networkInfo ? `
             <button class="btn btn-primary" onclick="openAddSpeakerModal()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -535,6 +555,8 @@ function showView(viewName) {
     }
     if (viewName === 'settings-groups') renderSettingsGroupsList();
     if (viewName === 'settings-plugins') renderPluginsView();
+    if (viewName === 'settings-advanced') renderAdvancedSettings();
+    if (viewName === 'settings-spaces') loadSpaces();
     if (viewName === 'settings-logs' && window.SonoriumLogs) {
         SonoriumLogs.mount(document.getElementById('settings-logs-root'), BASE_PATH);
     }
@@ -3344,6 +3366,233 @@ async function saveAudioSettings() {
 // Settings - Connection (standalone/Docker only; the HA add-on returns 404)
 let connectionSettings = null;
 
+// --- Settings > Floors & Areas ---
+// Home Assistant's floors and areas, plus Sonorium's own where this install can
+// edit them (Docker and the apps). The HA app shows HA's, read-only.
+
+let spacesData = null;
+let spaceModalKind = 'area';
+
+function spacesEditable() {
+    return !!installInfo && !!installInfo.features.space_editing?.enabled;
+}
+
+async function loadSpaces() {
+    try {
+        spacesData = await api('GET', '/spaces');
+    } catch (error) {
+        spacesData = null;
+        showToast(error.message, 'error');
+    }
+    renderSpaces();
+}
+
+function spaceBadges(space) {
+    return (space.source.includes('ha') ? '<span class="badge badge-ha">Home Assistant</span>' : '')
+        + (space.source.includes('local') ? '<span class="badge badge-local">Sonorium</span>' : '');
+}
+
+function spaceCount(n) {
+    return n === 0 ? 'No speakers' : `${n} speaker${n === 1 ? '' : 's'}`;
+}
+
+function spaceFloorOptions(selectedId) {
+    const floors = spacesData ? spacesData.floors : [];
+    return `<option value="" ${selectedId ? '' : 'selected'}>No floor</option>`
+        + floors.map(f => `<option value="${escapeHtml(f.id)}" ${f.id === selectedId ? 'selected' : ''}>${escapeHtml(f.name)}</option>`).join('');
+}
+
+const TRASH_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>';
+const PENCIL_ICON = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+
+function renderSpaceArea(area, floorId, editable) {
+    const own = editable && area.local_id && !area.source.includes('ha');
+    const name = own
+        ? `<div class="spk-name"><input value="${escapeHtml(area.name)}" aria-label="Area name" maxlength="60"
+               onchange="renameSpace('area', '${escapeHtml(area.local_id)}', this)"></div>`
+        : `<span class="name-static">${escapeHtml(area.name)}</span>`;
+    const floor = editable && area.local_id
+        ? `<select aria-label="Floor" onchange="moveSpaceArea('${escapeHtml(area.local_id)}', this.value)">${spaceFloorOptions(floorId)}</select>`
+        : '<span></span>';
+    const remove = editable && area.local_id
+        ? `<button class="icon-btn" title="Delete area" onclick="deleteSpace('area', '${escapeHtml(area.local_id)}', '${escapeHtml(area.name)}')">${TRASH_ICON}</button>`
+        : '';
+    return `<div class="space-row">${name}<span class="space-badges">${spaceBadges(area)}</span>${floor}
+        <span class="space-count">${spaceCount(area.speakers)}</span><div class="spk-actions">${remove}</div></div>`;
+}
+
+function renderSpaces() {
+    const list = document.getElementById('spaces-list');
+    const intro = document.getElementById('spaces-intro');
+    if (!list) return;
+    const editable = spacesEditable() && !!spacesData && spacesData.editable;
+    intro.textContent = editable
+        ? 'Group speakers by floor and area. A floor or area with the same name as one in Home Assistant becomes one.'
+        : 'From Home Assistant. Change them there.';
+    if (!spacesData) {
+        list.innerHTML = '';
+        return;
+    }
+    const groups = spacesData.floors.map(f => ({ floor: f, areas: f.areas }));
+    if (spacesData.unassigned_areas.length) groups.push({ floor: null, areas: spacesData.unassigned_areas });
+    if (!groups.length) {
+        list.innerHTML = `<div class="empty-state" style="padding: 2rem;"><p style="color: var(--text-muted);">${editable ? 'No floors or areas yet.' : 'Home Assistant has no floors or areas.'}</p></div>`;
+        return;
+    }
+    list.innerHTML = groups.map(({ floor, areas }) => {
+        const own = editable && floor && floor.local_id && !floor.source.includes('ha');
+        const actions = own
+            ? `<button class="icon-btn sm" title="Rename floor" onclick="promptRenameFloor('${escapeHtml(floor.local_id)}', '${escapeHtml(floor.name)}')">${PENCIL_ICON}</button>`
+            : '';
+        const remove = editable && floor && floor.local_id
+            ? `<button class="icon-btn sm" title="Delete floor" onclick="deleteSpace('floor', '${escapeHtml(floor.local_id)}', '${escapeHtml(floor.name)}')">${TRASH_ICON}</button>`
+            : '';
+        return `<div class="space-floor">
+            <div class="space-floor-head"><h4>${escapeHtml(floor ? floor.name : 'No floor')}</h4>
+                <span class="space-badges">${floor ? spaceBadges(floor) : ''}</span><span class="grow"></span>${actions}${remove}</div>
+            ${areas.map(a => renderSpaceArea(a, floor ? floor.id : '', editable)).join('')
+                || '<div class="space-count" style="text-align:left;padding:.25rem .75rem;">No areas</div>'}
+        </div>`;
+    }).join('');
+}
+
+async function afterSpacesChange(data) {
+    spacesData = data;
+    renderSpaces();
+    await loadSpeakerHierarchy();  // areas and floors in the speaker lists
+}
+
+async function renameSpace(kind, id, input) {
+    try {
+        await afterSpacesChange(await api('PUT', `/spaces/${kind === 'floor' ? 'floors' : 'areas'}/${encodeURIComponent(id)}`, { name: input.value }));
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSpaces();
+    }
+}
+
+function promptRenameFloor(id, current) {
+    const name = prompt('Floor name', current);
+    if (name !== null && name.trim() && name !== current) renameSpace('floor', id, { value: name });
+}
+
+async function moveSpaceArea(id, floorId) {
+    try {
+        await afterSpacesChange(await api('PUT', `/spaces/areas/${encodeURIComponent(id)}`, { floor_id: floorId || null }));
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderSpaces();
+    }
+}
+
+async function deleteSpace(kind, id, name) {
+    const message = kind === 'floor'
+        ? `Delete floor "${name}"? Its areas stay, without a floor.`
+        : `Delete area "${name}"? Its speakers move to No area.`;
+    if (!confirm(message)) return;
+    try {
+        await afterSpacesChange(await api('DELETE', `/spaces/${kind === 'floor' ? 'floors' : 'areas'}/${encodeURIComponent(id)}`));
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+function openSpaceModal(kind) {
+    spaceModalKind = kind;
+    const label = kind === 'floor' ? 'Add floor' : 'Add area';
+    document.getElementById('space-modal-title').textContent = label;
+    document.getElementById('space-save').textContent = label;
+    document.getElementById('space-name').value = '';
+    document.getElementById('space-floor-field').style.display = kind === 'area' ? '' : 'none';
+    document.getElementById('space-floor').innerHTML = spaceFloorOptions('');
+    document.getElementById('space-modal').classList.add('active');
+    setTimeout(() => document.getElementById('space-name').focus(), 50);
+}
+
+function closeSpaceModal() {
+    document.getElementById('space-modal').classList.remove('active');
+}
+
+async function saveSpaceModal() {
+    const name = document.getElementById('space-name').value;
+    const body = spaceModalKind === 'area' ? { name, floor_id: document.getElementById('space-floor').value || null } : { name };
+    try {
+        await afterSpacesChange(await api('POST', `/spaces/${spaceModalKind === 'floor' ? 'floors' : 'areas'}`, body));
+        closeSpaceModal();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// --- Install type: one server-side check decides which features this install shows ---
+
+let installInfo = null;
+
+const ADVANCED_FEATURES = {
+    network_speakers: {
+        label: 'Network speakers',
+        hint: "Add speakers by IP address, outside Home Assistant. Speakers on the network can't be found automatically from inside a Home Assistant app."
+    }
+};
+
+async function loadInstallInfo() {
+    try {
+        installInfo = await api('GET', '/install');
+    } catch (error) {
+        installInfo = null;  // older server: keep the defaults
+    }
+    const label = document.getElementById('install-label');
+    if (label && installInfo) {
+        label.textContent = installInfo.label;
+        label.hidden = false;
+    }
+    const advancedNav = document.getElementById('nav-settings-advanced');
+    if (advancedNav) advancedNav.style.display = hasAdvancedSettings() ? '' : 'none';
+}
+
+function hasAdvancedSettings() {
+    return !!installInfo && Object.keys(ADVANCED_FEATURES).some(name => installInfo.features[name]?.overridable);
+}
+
+function renderAdvancedSettings() {
+    const form = document.getElementById('advanced-settings-form');
+    if (!form || !installInfo) return;
+    form.innerHTML = Object.entries(ADVANCED_FEATURES)
+        .filter(([name]) => installInfo.features[name]?.overridable)
+        .map(([name, f]) => `
+            <div class="settings-row">
+                <div class="settings-label">
+                    <label for="adv-${name}">${f.label}</label>
+                    <span class="settings-hint">${f.hint}</span>
+                </div>
+                <label class="toggle-switch">
+                    <input type="checkbox" id="adv-${name}" ${installInfo.features[name].enabled ? 'checked' : ''}
+                           onchange="setAdvancedFeature('${name}', this.checked)">
+                    <span class="toggle-slider"></span>
+                </label>
+            </div>`).join('');
+}
+
+async function setAdvancedFeature(name, on) {
+    try {
+        await api('PUT', '/install/features', { [name]: on });
+        document.getElementById('advanced-restart').hidden = false;
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderAdvancedSettings();
+    }
+}
+
+async function restartForAdvancedSettings() {
+    try {
+        await api('PUT', '/install/features', { restart: true });
+        showToast('Restarting Sonorium...', 'success');
+        setTimeout(() => window.location.reload(), 8000);
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
 async function loadConnectionSettings() {
     try {
         connectionSettings = await api('GET', '/connection');
@@ -3780,7 +4029,7 @@ function settingsSpeakerGroups() {
         if ((area.speakers || []).length) groups.push({ title: area.name, speakers: area.speakers });
     }
     if ((speakerHierarchy?.unassigned_speakers || []).length) {
-        groups.push({ title: 'No room', speakers: speakerHierarchy.unassigned_speakers });
+        groups.push({ title: 'No area', speakers: speakerHierarchy.unassigned_speakers });
     }
     return groups;
 }
@@ -3872,7 +4121,7 @@ function renderSettingsSpeakerRow(speaker, isAllEnabled, rooms) {
     const online = speaker.online !== false;
     const room = speaker.area_id || '';
     const roomOptions = rooms.map(r => `<option value="${escapeHtml(r.id)}" ${r.id === room ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')
-        + `<option value="" ${room ? '' : 'selected'}>No room</option>`;
+        + `<option value="" ${room ? '' : 'selected'}>No area</option>`;
     const offset = speaker.volume_offset || 0;
     const offsets = [-20, -10, 0, 10, 20];
     if (!offsets.includes(offset)) {
@@ -3911,7 +4160,7 @@ function renderSettingsSpeakerRow(speaker, isAllEnabled, rooms) {
                 </div>
             </div>
             <span></span>
-            <select class="room" aria-label="Room" onchange="saveSpeakerRoom(this)">${roomOptions}</select>
+            <select class="room" aria-label="Area" onchange="saveSpeakerRoom(this)">${roomOptions}</select>
             <select class="offset" aria-label="Volume offset" onchange="saveSpeakerOffset(this)">${offsetOptions}</select>
             <div class="spk-actions">
                 <button type="button" class="icon-btn test" aria-label="Test ${escapeHtml(name)}" title="Play a short test sound" onclick="testSpeaker(this)">${TEST_ICON}</button>
@@ -4070,7 +4319,7 @@ async function rescanSpeakers() {
 function openAddSpeakerModal() {
     ['as-addr', 'as-name', 'as-port'].forEach(id => { document.getElementById(id).value = ''; });
     document.getElementById('as-type').value = 'auto';
-    document.getElementById('as-room').innerHTML = '<option value="">No room</option>'
+    document.getElementById('as-room').innerHTML = '<option value="">No area</option>'
         + allSpeakerRooms().map(r => `<option value="${escapeHtml(r.id)}">${escapeHtml(r.name)}</option>`).join('');
     const result = document.getElementById('as-result');
     result.style.display = 'none';
