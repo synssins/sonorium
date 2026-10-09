@@ -150,6 +150,10 @@ class ApiSonorium(api.Base):
             # Groups (subfolders of a theme, Themes 2.0)
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/groups', method=self.list_groups),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/groups/{group}', method=self.update_group),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/groups', method=self.create_group_folder),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/groups/{group}/rename', method=self.rename_group_folder),
+            api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/groups/{group}', method=self.delete_group_folder),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/{track_name:path}/move', method=self.move_track_to_group),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
 
             # Theme rename
@@ -1579,18 +1583,135 @@ class ApiSonorium(api.Base):
     # gap between plays (seconds) is a real interval, never scaled
     GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max")
 
-    def _theme_groups(self, theme_id: str):
-        """(theme, metadata, {group: [track keys]}) for a theme, or raise 404."""
+    def _theme_group_folder(self, theme_id: str):
+        """(theme, folder, metadata) for a theme, or raise 404."""
         theme, folder = self._get_theme_by_id(theme_id)
         metadata = self._theme_metadata_manager.get_metadata_by_folder(folder) if (folder and self._theme_metadata_manager) else None
         if not theme or not metadata:
             raise HTTPException(status_code=404, detail="Theme not found")
-        members: dict[str, list[str]] = {}
-        for inst in theme.instances:
-            group = getattr(inst.meta, "group", None)
-            if group:
-                members.setdefault(group, []).append(inst.name)
+        return theme, folder, metadata
+
+    def _theme_groups(self, theme_id: str):
+        """
+        (theme, metadata, {group: [track keys]}) for a theme, or raise 404.
+        Read from the folder, so empty groups and just-moved tracks show
+        before the theme refresh has run.
+        """
+        from sonorium.core import theme_groups
+        theme, folder, metadata = self._theme_group_folder(theme_id)
+        members = {name: theme_groups.group_track_keys(folder, name)
+                   for name in theme_groups.group_folder_names(folder)}
         return theme, metadata, members
+
+    @staticmethod
+    async def _json_object(request: Request) -> dict:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Expected a JSON object")
+        return body
+
+    def _save_group_change(self, folder, metadata, change) -> None:
+        """
+        After the files moved: carry the track keys along in metadata.json and
+        presets.json, save both, and rebuild the live themes.
+        """
+        from sonorium.core import theme_groups, theme_presets
+        presets = theme_presets.load_presets(folder)
+        migrated = theme_groups.migrate_keys(metadata, presets, change)
+        # TODO: per-user preset files (planned, docs/THEME_FORMAT.md 1.5) store
+        # track keys too; migrate them here with theme_groups.migrate_presets
+        # once they exist.
+        try:
+            if migrated != presets:
+                theme_presets.save_presets(folder, migrated)
+        except OSError as e:
+            logger.error(f"Theme '{metadata.name}': files moved but presets.json couldn't be saved ({e})")
+            self.schedule_theme_refresh()
+            raise HTTPException(status_code=500, detail="Files were moved, but presets.json couldn't be saved")
+        metadata.presets = migrated
+        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
+            self.schedule_theme_refresh()
+            raise HTTPException(status_code=500, detail="Files were moved, but metadata.json couldn't be saved")
+        self.schedule_theme_refresh()
+
+    @staticmethod
+    def _group_http_error(error):
+        return HTTPException(status_code=getattr(error, "status", 400), detail=str(error))
+
+    async def create_group_folder(self, theme_id: str, request: Request):
+        """Create an empty group (a subfolder). Body: {"name": "Lute"}. 201 {"name": ...}."""
+        from fastapi.responses import JSONResponse
+        from sonorium.core import theme_groups
+        theme, folder, metadata = self._theme_group_folder(theme_id)
+        body = await self._json_object(request)
+        try:
+            name = theme_groups.create_group(folder, body.get("name"))
+        except theme_groups.GroupError as e:
+            raise self._group_http_error(e)
+        logger.info(f"Theme '{metadata.name}': group '{name}' created")
+        return JSONResponse(status_code=201, content={"name": name})
+
+    async def rename_group_folder(self, theme_id: str, group: str, request: Request):
+        """Rename a group. Body: {"name": "New"}. Track keys follow in metadata and presets."""
+        from sonorium.core import theme_groups
+        theme, folder, metadata = self._theme_group_folder(theme_id)
+        body = await self._json_object(request)
+        try:
+            change = theme_groups.rename_group(folder, group, body.get("name"))
+        except theme_groups.GroupError as e:
+            raise self._group_http_error(e)
+        new = change.group_renames.get(group, group)
+        if change.group_renames:
+            self._save_group_change(folder, metadata, change)
+            logger.info(f"Theme '{metadata.name}': group '{group}' renamed to '{new}'")
+        return {"name": new, "tracks": change.track_keys}
+
+    async def delete_group_folder(self, theme_id: str, group: str):
+        """
+        Delete a group: its audio files move up to the theme folder (renamed
+        "x (2)" on a clash) and keep their settings. Audio files are never deleted.
+        """
+        from sonorium.core import theme_groups
+        theme, folder, metadata = self._theme_group_folder(theme_id)
+        try:
+            change = theme_groups.delete_group(folder, group)
+        except theme_groups.GroupError as e:
+            raise self._group_http_error(e)
+        self._save_group_change(folder, metadata, change)
+        result = {"name": group, "tracks": change.track_keys, "folder_removed": change.folder_removed}
+        if change.folder_removed:
+            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(change.track_keys)} tracks moved to the top level")
+        else:
+            result["left_behind"] = change.left_behind
+            result["message"] = (f"The tracks moved to the top level; the folder '{group}' was kept "
+                                 f"because it still holds other files")
+            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(change.track_keys)} tracks moved "
+                        f"to the top level; folder kept for {len(change.left_behind)} other files")
+        return result
+
+    async def move_track_to_group(self, theme_id: str, track_name: str, request: Request):
+        """Move a track into a group (created if missing) or, with {"group": null}, to the top level."""
+        from sonorium.core import theme_groups
+        from sonorium.theme_files import track_display_name
+        theme, folder, metadata = self._theme_group_folder(theme_id)
+        body = await self._json_object(request)
+        if "group" not in body:
+            raise HTTPException(status_code=400, detail="'group' is required (a group name, or null for the top level)")
+        group = body["group"]
+        try:
+            change = theme_groups.move_track(folder, track_name, group)
+        except theme_groups.GroupError as e:
+            raise self._group_http_error(e)
+        new_key = change.track_keys.get(track_name, track_name)
+        if change.track_keys:
+            self._save_group_change(folder, metadata, change)
+            where = f"into group '{new_key.rsplit('/', 1)[0]}'" if "/" in new_key else "to the top level"
+            renamed = f" as '{track_display_name(new_key)}'" if track_display_name(new_key) != track_display_name(track_name) else ""
+            logger.info(f"Theme '{metadata.name}': track '{track_display_name(track_name)}' moved {where}{renamed}")
+        return {"track": new_key}
 
     async def list_groups(self, theme_id: str):
         """A theme's groups: their master settings and their tracks."""

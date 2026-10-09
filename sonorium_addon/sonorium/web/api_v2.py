@@ -1566,7 +1566,12 @@ def create_api_router(
 
     @router.post("/themes/{theme_id}/upload")
     async def upload_theme_file(theme_id: str, request: Request):
-        """Upload an audio file to a theme folder."""
+        """
+        Upload an audio file to a theme folder. An optional "group" (form field
+        or query parameter) puts it in that group's folder, created if missing.
+        """
+        from sonorium.core import theme_groups
+
         theme_path = _find_theme_folder(theme_id)
         if not theme_path:
             raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
@@ -1578,22 +1583,34 @@ def create_api_router(
             if not file:
                 raise HTTPException(status_code=400, detail="No file provided")
 
+            # Only the file's own name: no folders, no path tricks
+            try:
+                filename = theme_groups.safe_upload_name(file.filename)
+            except theme_groups.GroupError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
             # Validate file extension
             valid_extensions = ['.mp3', '.wav', '.flac', '.ogg']
-            filename = file.filename
             ext = '.' + filename.split('.')[-1].lower() if '.' in filename else ''
 
             if ext not in valid_extensions:
                 raise HTTPException(status_code=400, detail=f"Invalid file type. Supported: {', '.join(valid_extensions)}")
 
-            # Save the file
-            file_path = theme_path / filename
+            # Optional group (created if missing)
+            group = form.get("group") or request.query_params.get("group")
+            try:
+                file_path = theme_groups.upload_path(theme_path, filename, group)
+            except theme_groups.GroupError as e:
+                raise HTTPException(status_code=e.status, detail=str(e))
+            target_folder = file_path.parent
 
             # Read and write the file content
             content = await file.read()
             file_path.write_bytes(content)
 
-            logger.info(f"Uploaded file to theme '{theme_id}': {filename} ({len(content)} bytes)")
+            group_name = target_folder.name if target_folder != theme_path else None
+            where = f" in group '{group_name}'" if group_name else ""
+            logger.info(f"Uploaded file to theme '{theme_id}'{where}: {filename} ({len(content)} bytes)")
             if on_themes_changed:
                 on_themes_changed()
 
@@ -1601,7 +1618,9 @@ def create_api_router(
                 "status": "ok",
                 "filename": filename,
                 "size": len(content),
-                "theme_id": theme_id
+                "theme_id": theme_id,
+                "group": group_name,
+                "track": f"{group_name}/{file_path.stem}" if group_name else file_path.stem,
             }
 
         except HTTPException:
