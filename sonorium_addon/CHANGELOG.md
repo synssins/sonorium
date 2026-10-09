@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.4 (2026-10-09)
+
+### Features
+
+- Connection settings page for standalone (Docker)
+  ([`1a6b6b6`](https://github.com/synssins/sonorium/commit/1a6b6b61df68133ef4b36004f9e7b7643d3956c9))
+
+
 ## v1.4.0-dev.3 (2026-10-09)
 
 ### Bug Fixes
