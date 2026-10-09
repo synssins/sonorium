@@ -1,4 +1,4 @@
-name: Sonorium (Dev)
+name: Sonorium
 version: "1.2.89-dev.5"
 slug: sonorium
 description: "Multi-zone ambient soundscape mixer for Home Assistant"

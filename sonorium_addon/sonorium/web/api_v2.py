@@ -1638,7 +1638,7 @@ def create_api_router(
         if _catalog_cache['data'] and (now - _catalog_cache['timestamp']) < CATALOG_CACHE_TTL:
             catalog = _catalog_cache['data']
         else:
-            catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium.dev/main/plugins/catalog.json'
+            catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium/main/plugins/catalog.json'
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
@@ -1697,7 +1697,7 @@ def create_api_router(
             raise HTTPException(status_code=400, detail='plugin_id is required')
 
         # Fetch catalog
-        catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium.dev/main/plugins/catalog.json'
+        catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium/main/plugins/catalog.json'
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
@@ -1722,7 +1722,7 @@ def create_api_router(
         if not zip_filename:
             raise HTTPException(status_code=500, detail='Plugin has no zip_file specified')
 
-        zip_url = f'https://raw.githubusercontent.com/synssins/sonorium.dev/main/plugins/{zip_filename}'
+        zip_url = f'https://raw.githubusercontent.com/synssins/sonorium/main/plugins/{zip_filename}'
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(zip_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:
