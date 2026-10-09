@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.14 (2026-10-09)
+
+### Bug Fixes
+
+- Only speakers switched on in Settings appear; picker hides offline ones
+  ([`8984411`](https://github.com/synssins/sonorium/commit/8984411e408a016e7b81b8fec1fda7d45f61154b))
+
+
 ## v1.4.0-dev.13 (2026-10-09)
 
 ### Bug Fixes
