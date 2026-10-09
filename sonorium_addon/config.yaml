@@ -25,7 +25,11 @@ services:
 
 map:
   - media:rw
-  - config:rw
+  # Sonorium's settings live in its own config folder (/config inside the
+  # container), which HA removes on uninstall when asked to delete data (#30).
+  # homeassistant_config is only used to migrate data from the old location.
+  - addon_config:rw
+  - homeassistant_config:rw
 
 ports:
   8080/tcp: 8008

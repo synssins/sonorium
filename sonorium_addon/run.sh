@@ -9,6 +9,25 @@ source /usr/lib/bashio/bashio.sh
 
 bashio::log.info "Starting Sonorium addon..."
 
+# One-time move of settings from Home Assistant's config folder to the
+# add-on's own config folder, so uninstalling can remove them (#30).
+# The old folder is renamed, not deleted, and is kept as a safety copy.
+LEGACY_DIR="/homeassistant/sonorium"
+DATA_DIR="/config/sonorium"
+if [[ ! -e "${DATA_DIR}/state.json" && -d "${LEGACY_DIR}" ]]; then
+    bashio::log.info "Moving Sonorium settings from ${LEGACY_DIR} to the add-on's own config folder..."
+    mkdir -p "${DATA_DIR}"
+    if cp -a "${LEGACY_DIR}/." "${DATA_DIR}/"; then
+        if mv "${LEGACY_DIR}" "${LEGACY_DIR}.migrated"; then
+            bashio::log.info "Settings moved. The old folder was kept as ${LEGACY_DIR}.migrated and can be deleted."
+        else
+            bashio::log.warning "Settings copied, but ${LEGACY_DIR} could not be renamed."
+        fi
+    else
+        bashio::log.error "Could not copy settings from ${LEGACY_DIR}; starting with what was copied."
+    fi
+fi
+
 # Log environment for debugging
 bashio::log.debug "Environment variables:"
 bashio::log.debug "  SUPERVISOR_TOKEN present: $([ -n "${SUPERVISOR_TOKEN:-}" ] && echo 'yes' || echo 'no')"
