@@ -267,6 +267,10 @@ class ApiSonorium(api.Base):
             )
             self.app.include_router(api_router)
             
+            # Keep MQTT entities in sync when idle sessions are stopped
+            if self._mqtt_manager:
+                self._cycle_manager.on_session_stopped = self._mqtt_manager.update_session_state
+
             # Start cycle manager background task
             await self._cycle_manager.start()
             logger.info("  CycleManager started")

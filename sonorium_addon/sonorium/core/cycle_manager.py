@@ -52,6 +52,10 @@ class CycleManager:
         
         # Track cycle state per session (session_id -> runtime state)
         self._cycle_state: dict[str, dict] = {}
+
+        # Optional async callback(session) when an idle session is stopped,
+        # so MQTT entities can reflect it
+        self.on_session_stopped = None
     
     def set_session_manager(self, session_manager: SessionManager):
         """Set the session manager (for deferred initialization)."""
@@ -89,9 +93,23 @@ class CycleManager:
                 await self._check_cycles()
             except Exception as e:
                 logger.error(f"CycleManager: Error in cycle loop: {e}")
+
+            try:
+                await self._release_idle_sessions()
+            except Exception as e:
+                logger.error(f"CycleManager: Error releasing idle sessions: {e}")
             
             await asyncio.sleep(self.check_interval)
     
+    async def _release_idle_sessions(self):
+        """Stop sessions nobody is listening to any more (#29)."""
+        if not self.session_manager:
+            return
+        for session in self.session_manager.release_idle_sessions():
+            self._cycle_state.pop(session.id, None)
+            if self.on_session_stopped:
+                await self.on_session_stopped(session)
+
     async def _check_cycles(self):
         """Check all playing sessions for needed theme cycles."""
         if not self.session_manager:

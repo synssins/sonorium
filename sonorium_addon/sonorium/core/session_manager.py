@@ -25,6 +25,10 @@ from sonorium.core.state import (
 )
 from sonorium.obs import logger
 
+# Stop a session once its channel has had no listeners this long. Long enough
+# to cover a Cast device's ~15s start-up and brief reconnects.
+IDLE_RELEASE_SECONDS = 90
+
 if TYPE_CHECKING:
     from sonorium.ha.registry import HARegistry
     from sonorium.ha.media_controller import HAMediaController
@@ -878,8 +882,37 @@ class SessionManager:
             Number of sessions stopped
         """
         count = 0
-        for session in self.state.sessions.values():
-            if session.is_playing:
+        for session in list(self.state.sessions.values()):
+            # A paused session still holds its channel (#29)
+            if session.is_playing or session.id in self._session_channels:
                 await self.stop(session.id)
                 count += 1
         return count
+
+    def release_idle_sessions(self, idle_after: float = IDLE_RELEASE_SECONDS) -> list[Session]:
+        """
+        Stop sessions whose channel has had no listeners for `idle_after` seconds,
+        e.g. when the speaker was stopped or switched to something else outside
+        Sonorium (#29). Speakers aren't told to stop: they may be playing
+        something else by now.
+
+        Returns:
+            Sessions that were stopped
+        """
+        if not self.channel_manager:
+            return []
+
+        stopped = []
+        for session_id, channel_id in list(self._session_channels.items()):
+            channel = self.channel_manager.get_channel(channel_id)
+            if not channel or channel.idle_seconds() < idle_after:
+                continue
+            logger.info(f"  Channel {channel_id} has had no listeners for {int(channel.idle_seconds())}s, stopping its session")
+            self._release_channel(session_id)
+            session = self.state.sessions.get(session_id)
+            if session:
+                session.is_playing = False
+                stopped.append(session)
+        if stopped:
+            self.state.save()
+        return stopped

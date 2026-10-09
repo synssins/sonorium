@@ -75,6 +75,9 @@ class Channel:
     # Active client count (for resource management)
     _client_count: int = 0
 
+    # When the channel last had a listener (or started playing), for idle detection
+    _last_listener_time: float = field(default_factory=time.monotonic)
+
     # Lock for thread-safe operations
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -136,6 +139,12 @@ class Channel:
         """Check if channel has connected clients."""
         return self._client_count > 0
 
+    def idle_seconds(self) -> float:
+        """Seconds this playing channel has had no listeners (0 if it has any)."""
+        if self.state != ChannelState.PLAYING or self._client_count > 0:
+            return 0.0
+        return time.monotonic() - self._last_listener_time
+
     @property
     def stream_path(self) -> str:
         """Get the stream URL path for this channel."""
@@ -164,6 +173,7 @@ class Channel:
                 # No generator running, start fresh
                 self._current_theme = theme
                 self.state = ChannelState.PLAYING
+                self._last_listener_time = time.monotonic()
                 self._theme_stream = theme.get_stream()
                 self._chunk_generator = self._theme_stream.iter_chunks()
                 self._ensure_generator_running()
@@ -322,11 +332,13 @@ class Channel:
     def client_connected(self) -> None:
         """Track a new client connection."""
         self._client_count += 1
+        self._last_listener_time = time.monotonic()
         logger.info(f"Channel {self.id}: Client connected ({self._client_count} total)")
 
     def client_disconnected(self) -> None:
         """Track a client disconnection."""
         self._client_count = max(0, self._client_count - 1)
+        self._last_listener_time = time.monotonic()
         logger.info(f"Channel {self.id}: Client disconnected ({self._client_count} remaining)")
 
     def get_current_sequence(self) -> int:
