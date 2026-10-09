@@ -75,7 +75,9 @@ class Channel:
     # Active client count (for resource management)
     _client_count: int = 0
 
-    # When the channel last had a listener (or started playing), for idle detection
+    # When a listener last pulled audio (or playback started), for idle detection.
+    # Connection count alone isn't enough: a Cast device stopped from HA can keep
+    # its connection open without reading.
     _last_listener_time: float = field(default_factory=time.monotonic)
 
     # Lock for thread-safe operations
@@ -140,10 +142,14 @@ class Channel:
         return self._client_count > 0
 
     def idle_seconds(self) -> float:
-        """Seconds this playing channel has had no listeners (0 if it has any)."""
-        if self.state != ChannelState.PLAYING or self._client_count > 0:
+        """Seconds since any listener pulled audio from this playing channel."""
+        if self.state != ChannelState.PLAYING:
             return 0.0
         return time.monotonic() - self._last_listener_time
+
+    def mark_listener_active(self) -> None:
+        """Record that a listener just pulled audio."""
+        self._last_listener_time = time.monotonic()
 
     @property
     def stream_path(self) -> str:
@@ -402,6 +408,7 @@ class ChannelStream:
                 chunks = self.channel.get_chunks_since(self._last_sequence)
 
                 if chunks:
+                    self.channel.mark_listener_active()
                     for seq, chunk in chunks:
                         self._last_sequence = seq
 

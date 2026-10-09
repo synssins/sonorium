@@ -907,7 +907,7 @@ class SessionManager:
             channel = self.channel_manager.get_channel(channel_id)
             if not channel or channel.idle_seconds() < idle_after:
                 continue
-            logger.info(f"  Channel {channel_id} has had no listeners for {int(channel.idle_seconds())}s, stopping its session")
+            logger.info(f"  Channel {channel_id}: no listener has pulled audio for {int(channel.idle_seconds())}s, stopping its session")
             self._release_channel(session_id)
             session = self.state.sessions.get(session_id)
             if session:
