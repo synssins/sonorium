@@ -116,6 +116,15 @@
                         </svg>
                         <span>Plugins</span>
                     </div>
+                    <div class="nav-sub-item" onclick="showView('settings-logs')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                            <polyline points="14 2 14 8 20 8"/>
+                            <line x1="8" y1="13" x2="16" y2="13"/>
+                            <line x1="8" y1="17" x2="16" y2="17"/>
+                        </svg>
+                        <span>Logs</span>
+                    </div>
                 </div>
             </div>
 
@@ -779,6 +788,14 @@ Example:
                 </div>
             </div>
 
+            <!-- Logs Settings View (filled by logs.js) -->
+            <div id="view-settings-logs" class="view">
+                <div class="settings-section">
+                    <h3>Logs</h3>
+                    <div id="settings-logs-root"></div>
+                </div>
+            </div>
+
             <!-- Status View -->
             <div id="view-status" class="view">
                 <div class="status-grid">
@@ -999,7 +1016,7 @@ Example:
             var base = window.SONORIUM_BASE || '';
 
             // Load scripts in order with error handling
-            function loadScript(src, callback) {
+            function loadScript(src, callback, onFail) {
                 var script = document.createElement('script');
                 script.src = base + src;
                 script.onload = function() {
@@ -1008,16 +1025,20 @@ Example:
                 };
                 script.onerror = function() {
                     console.error('Failed to load: ' + base + src);
+                    if (onFail) onFail();
                 };
                 document.body.appendChild(script);
             }
 
             console.log('Sonorium loading scripts with base:', base);
+            // Without the app script the page is unusable: show the logs instead
+            function showLogs() { window.location.href = base + '/logs'; }
+            loadScript('/static/js/logs.js');
             loadScript('/static/js/api.js', function() {
                 loadScript('/static/js/app.js', function() {
                     console.log('All scripts loaded');
-                });
-            });
+                }, showLogs);
+            }, showLogs);
         })();
     </script>
 </body>

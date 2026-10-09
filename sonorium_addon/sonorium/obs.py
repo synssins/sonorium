@@ -115,6 +115,10 @@ def get_logger(name: str, version: str = "") -> InstrumentedLogger:
         logger.addHandler(handler)
         logger.setLevel(log_level_from_env())
 
+        # Recent messages for the web UI's Logs page, from the very start
+        from sonorium import logbuffer
+        logbuffer.install(name, RequestLineFilter(logger))
+
     return logger
 
 

@@ -450,6 +450,7 @@ function showView(viewName) {
         'settings-speakers': 'Speakers',
         'settings-groups': 'Speaker Groups',
         'settings-plugins': 'Plugins',
+        'settings-logs': 'Logs',
         status: 'Status'
     };
     document.getElementById('view-title').textContent = titles[viewName] || viewName;
@@ -490,6 +491,23 @@ function showView(viewName) {
         ` : '',
         'settings-groups': '',
         'settings-plugins': '',
+        'settings-logs': `
+            <button class="btn btn-secondary" onclick="SonoriumLogs.copy(this)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                </svg>
+                <span>Copy</span>
+            </button>
+            <a class="btn btn-primary" href="${BASE_PATH}/api/logs/download">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="7 10 12 15 17 10"/>
+                    <line x1="12" y1="15" x2="12" y2="3"/>
+                </svg>
+                Download
+            </a>
+        `,
         status: `
             <button class="btn btn-secondary" onclick="refreshStatus()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -517,6 +535,9 @@ function showView(viewName) {
     }
     if (viewName === 'settings-groups') renderSettingsGroupsList();
     if (viewName === 'settings-plugins') renderPluginsView();
+    if (viewName === 'settings-logs' && window.SonoriumLogs) {
+        SonoriumLogs.mount(document.getElementById('settings-logs-root'), BASE_PATH);
+    }
     if (viewName === 'status') renderStatus();
 
     // Close mobile sidebar when navigating to a new view

@@ -2,13 +2,14 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
+from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from sonorium.theme import ThemeDefinition
 from sonorium import runtime
 from sonorium.version import __version__
 from sonorium.obs import logger
+from sonorium import logbuffer
 from fmtr.tools import api
 
 # Import ClientSonorium for type hints (replaces mqtt.Client)
@@ -83,6 +84,8 @@ class ApiSonorium(api.Base):
         @self.app.on_event("startup")
         async def startup_event():
             logger.debug("FastAPI startup event triggered")
+            # uvicorn's loggers don't pass messages up, and are set up just before this
+            logbuffer.attach("uvicorn")
             await self.initialize_v2()
         
         # Register shutdown event to stop cycle manager
@@ -112,6 +115,11 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
             api.Endpoint(method_http=self.app.get, path='/display.png', method=self.serve_display_image),
             api.Endpoint(method_http=self.app.get, path='/favicon.png', method=self.serve_favicon),
+
+            # Logs: kept apart from the v2 API so they work when it fails to start
+            api.Endpoint(method_http=self.app.get, path='/logs', method=self.logs_page),
+            api.Endpoint(method_http=self.app.get, path='/api/logs', method=self.get_logs),
+            api.Endpoint(method_http=self.app.get, path='/api/logs/download', method=self.download_logs),
             
             # Streaming - channel-based (new) - MUST come before theme-based!
             api.Endpoint(method_http=self.app.get, path='/stream/channel{channel_id:int}', method=self.stream_channel),
@@ -580,8 +588,30 @@ class ApiSonorium(api.Base):
         template_path = TEMPLATES_DIR / "index.html"
         if template_path.exists() and self._v2_initialized:
             return HTMLResponse(content=template_path.read_text(), headers={"Cache-Control": "no-cache"})
-        else:
-            return await self.legacy_ui()
+        if (TEMPLATES_DIR / "logs.html").exists():
+            return await self.logs_page()  # startup failed: show why
+        return await self.legacy_ui()
+
+    async def logs_page(self):
+        """Standalone log viewer, independent of the main web UI."""
+        html = (TEMPLATES_DIR / "logs.html").read_text()
+        if not self._v2_initialized:
+            html = html.replace("<!--STARTUP_NOTICE-->", '<p class="notice">Sonorium didn&#39;t finish starting. The logs below show why.</p>')
+        return HTMLResponse(content=html, headers={"Cache-Control": "no-cache"})
+
+    def _log_info(self) -> dict:
+        return {"version": __version__, "log_level": logging.getLevelName(logger.getEffectiveLevel()).lower()}
+
+    async def get_logs(self, after: int = 0):
+        """Recent log messages, oldest first; pass the last seq seen as `after` to get only newer ones."""
+        return {"entries": logbuffer.recent(after), **self._log_info()}
+
+    async def download_logs(self):
+        """Recent log messages as a text file."""
+        info = self._log_info()
+        text = f"Sonorium {info['version']} (log level: {info['log_level']})\n\n" + logbuffer.as_text(logbuffer.recent())
+        name = f"sonorium-logs-{info['version']}.txt"
+        return PlainTextResponse(text, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     async def serve_favicon(self):
         """Serve the browser tab icon."""
