@@ -50,6 +50,7 @@ class ApiSonorium(api.Base):
         self._channel_manager = None
         self._cycle_manager = None
         self._mqtt_manager = None
+        self._theme_refresh_task = None
         self._plugin_manager = None
         self._theme_metadata_manager = None
         
@@ -264,6 +265,7 @@ class ApiSonorium(api.Base):
                 cycle_manager=self._cycle_manager,
                 plugin_manager=self._plugin_manager,
                 mqtt_manager=self._mqtt_manager,
+                on_themes_changed=self.schedule_theme_refresh,
             )
             self.app.include_router(api_router)
             
@@ -852,6 +854,25 @@ class ApiSonorium(api.Base):
 
         return themes
 
+    def schedule_theme_refresh(self, delay: float = 2.0):
+        """
+        Rescan themes shortly after a change. Uploads arrive one file at a
+        time, so each call restarts the delay and only one rescan runs.
+        """
+        import asyncio
+
+        if self._theme_refresh_task and not self._theme_refresh_task.done():
+            self._theme_refresh_task.cancel()
+
+        async def refresh_later():
+            await asyncio.sleep(delay)
+            try:
+                await self.refresh_themes()
+            except Exception as e:
+                logger.error(f"Theme refresh after change failed: {e}")
+
+        self._theme_refresh_task = asyncio.get_running_loop().create_task(refresh_later())
+
     async def refresh_themes(self):
         """Rescan theme folders and reload themes."""
         from sonorium.theme import ThemeDefinition
@@ -962,6 +983,13 @@ class ApiSonorium(api.Base):
         # Update session manager's theme reference
         if self._session_manager:
             self._session_manager.set_themes(device.themes)
+
+        # Update theme options on the MQTT select entities (#33)
+        if self._mqtt_manager:
+            try:
+                await self._mqtt_manager.refresh_themes([{"id": t.id, "name": t.name} for t in device.themes])
+            except Exception as e:
+                logger.warning(f"Failed to refresh MQTT theme options: {e}")
 
         return {
             "status": "ok",

@@ -303,6 +303,7 @@ def create_api_router(
     cycle_manager=None,
     plugin_manager=None,
     mqtt_manager=None,
+    on_themes_changed=None,
 ) -> APIRouter:
     """
     Create the API router with all endpoints.
@@ -317,6 +318,8 @@ def create_api_router(
         cycle_manager: Optional CycleManager for theme cycling
         plugin_manager: Optional PluginManager for plugin endpoints
         mqtt_manager: Optional MQTT manager for HA entity updates
+        on_themes_changed: Optional callback after themes are added to or deleted,
+            so the theme list (and MQTT theme selects) gets rescanned
 
     Returns:
         Configured APIRouter
@@ -1299,6 +1302,8 @@ def create_api_router(
             file_path.write_bytes(content)
 
             logger.info(f"Uploaded file to theme '{theme_id}': {filename} ({len(content)} bytes)")
+            if on_themes_changed:
+                on_themes_changed()
 
             return {
                 "status": "ok",
@@ -1428,6 +1433,9 @@ def create_api_router(
                 if theme_id in favorites:
                     favorites.remove(theme_id)
                     state_store.save()
+
+            if on_themes_changed:
+                on_themes_changed()
 
             return {"status": "ok", "theme_id": theme_id, "message": "Theme deleted"}
         except Exception as e:

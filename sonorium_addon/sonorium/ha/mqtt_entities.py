@@ -583,6 +583,47 @@ class SonoriumMQTTManager:
 
         logger.info(f"  Refreshed MQTT discovery for session '{session.name}'")
 
+    async def _publish_global_theme_config(self):
+        """Publish the global theme select's discovery config (options = theme names)."""
+        # NOTE: Using "global_theme" to avoid conflict with stuck old "theme" entity
+        # Use theme NAMES for options, map to IDs internally
+        theme_options = [""]  # Empty = no theme
+        self._theme_name_to_id = {}  # Map theme names to IDs
+        self._theme_id_to_name = {}  # Map theme IDs to names
+        for theme in self._themes:
+            theme_id = theme.get("id")
+            theme_name = theme.get("name")
+            if theme_id and theme_name:
+                theme_options.append(theme_name)
+                self._theme_name_to_id[theme_name] = theme_id
+                self._theme_id_to_name[theme_id] = theme_name
+        logger.info(f"    Theme select options: {len(theme_options) - 1} themes")
+
+        config = {
+            "name": "Sonorium Theme",
+            "unique_id": f"{self.prefix}_global_theme",
+            "default_entity_id": f"select.{self.prefix}_global_theme",
+            "state_topic": f"{self.prefix}/theme/state",
+            "command_topic": f"{self.prefix}/theme/set",
+            "options": theme_options,
+            "icon": "mdi:music-box-multiple",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_global_theme/config",
+            json.dumps(config),
+            retain=True,
+        )
+
+    async def refresh_themes(self, themes: list[dict]):
+        """Republish theme selects after themes are added, renamed or deleted (#33)."""
+        self.set_themes(themes)
+        await self._publish_global_theme_config()
+        for entities in self._session_entities.values():
+            entities.themes = themes
+            await entities._publish_theme_select()
+        await self.sync_all_states()
+
     async def _publish_global_entities(self):
         """Publish global Sonorium entities including session selector and controls."""
         import asyncio
@@ -663,35 +704,7 @@ class SonoriumMQTTManager:
         await asyncio.sleep(0.1)
 
         # === GLOBAL THEME SELECT ===
-        # NOTE: Using "global_theme" to avoid conflict with stuck old "theme" entity
-        # Use theme NAMES for options, map to IDs internally
-        theme_options = [""]  # Empty = no theme
-        self._theme_name_to_id = {}  # Map theme names to IDs
-        self._theme_id_to_name = {}  # Map theme IDs to names
-        for theme in self._themes:
-            theme_id = theme.get("id")
-            theme_name = theme.get("name")
-            if theme_id and theme_name:
-                theme_options.append(theme_name)
-                self._theme_name_to_id[theme_name] = theme_id
-                self._theme_id_to_name[theme_id] = theme_name
-        logger.info(f"    Theme select options: {len(theme_options) - 1} themes")
-
-        config = {
-            "name": "Sonorium Theme",
-            "unique_id": f"{self.prefix}_global_theme",
-            "default_entity_id": f"select.{self.prefix}_global_theme",
-            "state_topic": f"{self.prefix}/theme/state",
-            "command_topic": f"{self.prefix}/theme/set",
-            "options": theme_options,
-            "icon": "mdi:music-box-multiple",
-            "device": self.device_info,
-        }
-        await self._mqtt_publish(
-            f"homeassistant/select/{self.prefix}_global_theme/config",
-            json.dumps(config),
-            retain=True,
-        )
+        await self._publish_global_theme_config()
         # Wait for HA to process discovery config before publishing state
         await asyncio.sleep(0.1)
         # Publish initial state

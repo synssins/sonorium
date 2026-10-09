@@ -127,6 +127,27 @@ class MQTTDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         states = [c.args[1] for c in self.publish.call_args_list if c.args[0] == "sonorium/session/state"]
         self.assertEqual(states, ["Night Mode"])
 
+    async def test_theme_changes_update_theme_select_options(self):
+        store = self.state_module.StateStore()
+        store.sessions[self.session.id] = self.session
+        sessions = Mock()
+        sessions.get_speaker_summary.return_value = "Study"
+        manager = self.entities_module.SonoriumMQTTManager(store, sessions, Mock())
+        manager._mqtt_publish = self.publish
+        manager.set_themes([{"id": "a", "name": "Rain"}])
+        await manager.add_session_entities(self.session)
+        self.publish.reset_mock()
+
+        await manager.refresh_themes([{"id": "b", "name": "Forest"}])
+
+        configs = {
+            c.args[0]: json.loads(c.args[1])
+            for c in self.publish.call_args_list if c.args[0].endswith("/config")
+        }
+        self.assertEqual(configs["homeassistant/select/sonorium_global_theme/config"]["options"], ["", "Forest"])
+        session_theme = next(v for k, v in configs.items() if k.endswith("_theme/config") and "global" not in k)
+        self.assertEqual(session_theme["options"], ["", "Forest"])
+
     async def test_rename_and_restart_keep_all_discovery_configs(self):
         entities = self.make_entities(self.session)
         await entities.publish_discovery()
