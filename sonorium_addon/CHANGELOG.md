@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.9 (2026-10-09)
+
+### Features
+
+- **network**: Manual speakers, speaker types and last-scan info in the network service
+  ([`10bcc86`](https://github.com/synssins/sonorium/commit/10bcc8622550f76402636a10a062de4e93f98e46))
+
+- **speakers**: Per-speaker settings, merged duplicates, volume offsets and test sound
+  ([`7ad4241`](https://github.com/synssins/sonorium/commit/7ad4241e1d1b381c153be14e51df9d5441831b16))
+
+- **ui**: New channel editor, Settings > Speakers and Add speaker dialog
+  ([`305735a`](https://github.com/synssins/sonorium/commit/305735a1c1542e244ad190ca05453e34e8b1eb9f))
+
+
 ## v1.4.0-dev.8 (2026-10-09)
 
 ### Bug Fixes
