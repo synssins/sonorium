@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0-dev.10 (2026-10-09)
+
+### Build System
+
+- Pin PyAV to 19.x
+  ([`1df0ca7`](https://github.com/synssins/sonorium/commit/1df0ca79663d0b078e3a64c2f0e8654df49da3fe))
+
+
 ## v1.3.0-dev.9 (2026-10-09)
 
 ### Bug Fixes
