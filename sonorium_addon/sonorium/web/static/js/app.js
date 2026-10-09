@@ -2080,102 +2080,412 @@ async function loadTrackMixer(themeId, preservePresetSelection = false) {
     }
 
     try {
-        const result = await api('GET', `/themes/${themeId}/tracks`);
-        if (result.error) {
-            container.innerHTML = `<div class="track-mixer-empty">${result.error}</div>`;
+        trackMixerView = null;
+        await loadTrackMixerData(themeId);
+        if (!trackMixerTracks.length && !trackMixerGroups.length) {
+            container.innerHTML = renderTrackMixerToolbar() + '<div class="track-mixer-empty">No audio files in this theme</div>';
             return;
         }
-
-        const tracks = (result.tracks || []).sort((a, b) => a.name.localeCompare(b.name));
-        if (tracks.length === 0) {
-            container.innerHTML = '<div class="track-mixer-empty">No audio files in this theme</div>';
-            return;
-        }
-
-        container.innerHTML = tracks.map(track => {
-            const presencePercent = Math.round(track.presence * 100);
-            const volumePercent = Math.round((track.volume || 1.0) * 100);
-            const playbackMode = track.playback_mode || 'auto';
-            const seamlessLoop = track.seamless_loop || false;
-            const exclusive = track.exclusive || false;
-            return `
-            <div class="track-item ${track.muted ? 'muted' : ''}" data-track="${escapeHtml(track.name)}">
-                <div class="track-preview-cell">
-                    <button class="track-preview-btn"
-                            onclick="toggleTrackPreview('${escapeHtml(track.name)}')"
-                            title="Preview track">
-                        <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                            <path d="M8 5v14l11-7z"/>
-                        </svg>
-                        <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="display:none;">
-                            <rect x="6" y="6" width="12" height="12"/>
-                        </svg>
-                    </button>
-                </div>
-                <div class="track-name-cell">
-                    <span class="track-name">${escapeHtml(track.name)}</span>
-                </div>
-                <div class="track-mode-cell">
-                    <select class="track-mode-select"
-                            onchange="setTrackPlaybackMode('${escapeHtml(track.name)}', this.value)"
-                            title="How this sound plays: Auto = picks best mode based on file length. Continuous = loops forever. Sparse = plays once then waits minutes before playing again. Presence = fades in and out randomly.">
-                        <option value="auto" ${playbackMode === 'auto' ? 'selected' : ''}>Auto</option>
-                        <option value="continuous" ${playbackMode === 'continuous' ? 'selected' : ''}>Continuous</option>
-                        <option value="sparse" ${playbackMode === 'sparse' ? 'selected' : ''}>Sparse</option>
-                        <option value="presence" ${playbackMode === 'presence' ? 'selected' : ''}>Presence</option>
-                    </select>
-                    <label class="track-seamless-label" title="Skip the crossfade when looping. Use this for audio files that already loop smoothly on their own.">
-                        <input type="checkbox" ${seamlessLoop ? 'checked' : ''}
-                               onchange="setTrackSeamlessLoop('${escapeHtml(track.name)}', this.checked)">
-                        Gapless
-                    </label>
-                    <label class="track-exclusive-label" title="When checked, only one exclusive sound plays at a time. Great for things like random bird calls or thunder that shouldn't overlap.">
-                        <input type="checkbox" ${exclusive ? 'checked' : ''}
-                               onchange="setTrackExclusive('${escapeHtml(track.name)}', this.checked)">
-                        Exclusive
-                    </label>
-                </div>
-                <div class="track-sliders-cell">
-                    <div class="track-slider-row" title="How loud this sound is in the mix. 100% = full volume, 0% = silent.">
-                        <span class="track-slider-label">Vol</span>
-                        <div class="track-slider-wrapper">
-                            <input type="range" class="track-slider track-volume-slider"
-                                   min="0" max="100" value="${volumePercent}"
-                                   onchange="setTrackVolume('${escapeHtml(track.name)}', this.value)"
-                                   oninput="updateSliderDisplay(this)">
-                        </div>
-                        <span class="track-slider-value track-volume-value">${volumePercent}%</span>
-                    </div>
-                    <div class="track-slider-row" title="How often this sound plays. For sparse sounds: 100% = every ~3 min, 10% = every ~27 min (with random variation). For presence mode: higher = more often audible.">
-                        <span class="track-slider-label">Pres</span>
-                        <div class="track-slider-wrapper">
-                            <input type="range" class="track-slider track-presence-slider"
-                                   min="0" max="100" value="${presencePercent}"
-                                   onchange="setTrackPresence('${escapeHtml(track.name)}', this.value)"
-                                   oninput="updateSliderDisplay(this)">
-                        </div>
-                        <span class="track-slider-value track-presence-value">${presencePercent}%</span>
-                    </div>
-                </div>
-                <div class="track-mute-cell">
-                    <button class="track-mute-btn ${track.muted ? 'muted' : ''}"
-                            onclick="toggleTrackMute('${escapeHtml(track.name)}')"
-                            title="${track.muted ? 'Unmute' : 'Mute'}">
-                        ${track.muted ? '🔇' : '🔊'}
-                    </button>
-                </div>
-            </div>`;
-        }).join('');
+        renderTrackMixer();
     } catch (error) {
         console.error('Failed to load tracks:', error);
-        container.innerHTML = '<div class="track-mixer-empty">Failed to load tracks</div>';
+        container.innerHTML = `<div class="track-mixer-empty">${escapeHtml(error.message || 'Failed to load tracks')}</div>`;
     }
+}
+
+// --- Track mixer: tracks, groups (theme subfolders) and each group's page ---
+// A group plays one of its tracks at a time. Its master Volume and How often
+// multiply each track's own value; its Gap between plays is a real interval.
+
+let trackMixerTracks = [];
+let trackMixerGroups = [];
+let trackMixerView = null;  // null: the theme's track list; otherwise a group's name
+
+function trackDisplayName(key) {
+    return key.includes('/') ? key.slice(key.indexOf('/') + 1) : key;
+}
+
+function trackGroupOf(key) {
+    return key.includes('/') ? key.slice(0, key.indexOf('/')) : null;
+}
+
+function jsArg(text) {
+    // A value for an inline onclick/onchange handler argument
+    return escapeHtml(JSON.stringify(String(text)));
+}
+
+async function loadTrackMixerData(themeId) {
+    const result = await api('GET', `/themes/${themeId}/tracks`);
+    if (result.error) throw new Error(result.error);
+    trackMixerTracks = (result.tracks || []).sort((a, b) => a.name.localeCompare(b.name));
+    try {
+        trackMixerGroups = (await api('GET', `/themes/${themeId}/groups`)).groups || [];
+    } catch (error) {
+        trackMixerGroups = [];  // older server without groups
+    }
+    // Groups that exist only as a folder prefix in track keys (defensive)
+    for (const t of trackMixerTracks) {
+        const g = trackGroupOf(t.name);
+        if (g && !trackMixerGroups.some(x => x.name === g)) trackMixerGroups.push({ name: g, settings: {}, tracks: [] });
+    }
+    trackMixerGroups.sort((a, b) => a.name.localeCompare(b.name));
+    if (trackMixerView && !trackMixerGroups.some(g => g.name === trackMixerView)) trackMixerView = null;
+}
+
+function groupMaster(group, key) {
+    const value = group?.settings?.[key];
+    return value === undefined || value === null ? 1 : value;
+}
+
+function playsAtHint(trackValue, master) {
+    if (master >= 0.999) return '';
+    return `plays at ${Math.round(trackValue * master * 100)}%`;
+}
+
+function renderTrackRow(track, group) {
+    const key = track.name;
+    const presencePercent = Math.round(track.presence * 100);
+    const volumePercent = Math.round((track.volume ?? 1.0) * 100);
+    const playbackMode = track.playback_mode || 'auto';
+    const seamlessLoop = track.seamless_loop || false;
+    const k = jsArg(key);
+    const modes = group
+        ? [['auto', 'Auto'], ['sparse', 'Sparse'], ['presence', 'Presence']]
+        : [['auto', 'Auto'], ['continuous', 'Continuous'], ['sparse', 'Sparse'], ['presence', 'Presence']];
+    const groupControl = group
+        ? `<button class="btn btn-sm btn-secondary track-move-out" onclick="moveTrackToGroup(${k}, null)" title="Move out of group">Move out</button>`
+        : `<select class="track-group-select" onchange="onTrackGroupSelect(${k}, this)" title="Group">
+               <option value="">No group</option>
+               ${trackMixerGroups.map(g => `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)}</option>`).join('')}
+               <option value="__new__">New group…</option>
+           </select>
+           ${track.exclusive ? `<label class="track-exclusive-label" title="Only one exclusive sound plays at a time (older themes). Put tracks in a group instead.">
+               <input type="checkbox" checked onchange="setTrackExclusive(${k}, this.checked)"> Exclusive</label>` : ''}`;
+    const volMaster = group ? groupMaster(group, 'volume') : 1;
+    const presMaster = group ? groupMaster(group, 'presence') : 1;
+    return `
+    <div class="track-item ${track.muted ? 'muted' : ''}" data-track="${escapeHtml(key)}" draggable="true"
+         ondragstart="onTrackDragStart(event, ${k})">
+        <div class="track-preview-cell">
+            <button class="track-preview-btn" onclick="toggleTrackPreview(${k})" title="Preview track">
+                <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8 5v14l11-7z"/></svg>
+                <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="display:none;"><rect x="6" y="6" width="12" height="12"/></svg>
+            </button>
+        </div>
+        <div class="track-name-cell">
+            <span class="track-drag-handle" aria-hidden="true">⋮⋮</span>
+            <span class="track-name">${escapeHtml(trackDisplayName(key))}</span>
+        </div>
+        <div class="track-mode-cell">
+            <select class="track-mode-select" onchange="setTrackPlaybackMode(${k}, this.value)"
+                    title="How this sound plays: Auto = picks by file length. Continuous = loops forever. Sparse = plays once, then waits. Presence = fades in and out.">
+                ${modes.map(([v, label]) => `<option value="${v}" ${playbackMode === v ? 'selected' : ''}>${label}</option>`).join('')}
+            </select>
+            ${group ? '' : `<label class="track-seamless-label" title="Skip the crossfade when looping, for files that already loop smoothly.">
+                <input type="checkbox" ${seamlessLoop ? 'checked' : ''} onchange="setTrackSeamlessLoop(${k}, this.checked)"> Gapless</label>`}
+            ${groupControl}
+        </div>
+        <div class="track-sliders-cell">
+            <div class="track-slider-row" title="How loud this sound is in the mix.">
+                <span class="track-slider-label">Vol</span>
+                <div class="track-slider-wrapper">
+                    <input type="range" class="track-slider track-volume-slider" min="0" max="100" value="${volumePercent}"
+                           data-master="${volMaster}"
+                           onchange="setTrackVolume(${k}, this.value)" oninput="updateSliderDisplay(this)">
+                </div>
+                <span class="track-slider-value track-volume-value">${volumePercent}%</span>
+            </div>
+            <div class="track-plays-at">${playsAtHint(volumePercent / 100, volMaster)}</div>
+            <div class="track-slider-row" title="How often this sound plays.">
+                <span class="track-slider-label">Pres</span>
+                <div class="track-slider-wrapper">
+                    <input type="range" class="track-slider track-presence-slider" min="0" max="100" value="${presencePercent}"
+                           data-master="${presMaster}"
+                           onchange="setTrackPresence(${k}, this.value)" oninput="updateSliderDisplay(this)">
+                </div>
+                <span class="track-slider-value track-presence-value">${presencePercent}%</span>
+            </div>
+            <div class="track-plays-at">${playsAtHint(presencePercent / 100, presMaster)}</div>
+        </div>
+        <div class="track-mute-cell">
+            <button class="track-mute-btn ${track.muted ? 'muted' : ''}" onclick="toggleTrackMute(${k})" title="${track.muted ? 'Unmute' : 'Mute'}">
+                ${track.muted ? '🔇' : '🔊'}
+            </button>
+        </div>
+    </div>`;
+}
+
+function renderTrackMixerToolbar() {
+    const targets = [['', 'Theme (no group)'], ...trackMixerGroups.map(g => [g.name, g.name])];
+    const selected = trackMixerView || '';
+    return `
+    <div class="track-mixer-toolbar">
+        <select id="track-upload-target" class="track-upload-target" aria-label="Upload to">
+            ${targets.map(([v, label]) => `<option value="${escapeHtml(v)}" ${v === selected ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
+        </select>
+        <button class="btn btn-sm btn-secondary" onclick="document.getElementById('track-upload-input').click()">Upload</button>
+        <input type="file" id="track-upload-input" multiple accept=".mp3,.wav,.flac,.ogg,audio/*" style="display:none"
+               onchange="uploadTracksToMixer(this.files); this.value = ''">
+        ${trackMixerView ? '' : '<button class="btn btn-sm btn-secondary" onclick="createTrackGroup()">New group</button>'}
+    </div>`;
+}
+
+function renderTrackMixer() {
+    const container = document.getElementById('track-mixer-list');
+    if (!container) return;
+    if (trackMixerView) {
+        renderTrackGroupPage(container, trackMixerGroups.find(g => g.name === trackMixerView));
+        return;
+    }
+    const ungrouped = trackMixerTracks.filter(t => !trackGroupOf(t.name));
+    const groupRows = trackMixerGroups.map(g => {
+        const count = trackMixerTracks.filter(t => trackGroupOf(t.name) === g.name).length;
+        const how = Math.round(groupMaster(g, 'presence') * 100);
+        const muted = !!g.settings?.muted;
+        const n = jsArg(g.name);
+        return `
+        <div class="track-group-row ${muted ? 'muted' : ''}" data-group="${escapeHtml(g.name)}"
+             onclick="openTrackGroup(${n})"
+             ondragover="event.preventDefault(); this.classList.add('drop-target')"
+             ondragleave="this.classList.remove('drop-target')"
+             ondrop="onTrackDrop(event, ${n}); this.classList.remove('drop-target')">
+            <span class="track-group-icon" aria-hidden="true">📁</span>
+            <span class="track-group-name">${escapeHtml(g.name)}</span>
+            <span class="badge">${count} track${count === 1 ? '' : 's'}</span>
+            <span class="track-group-meta">How often ${how}%</span>
+            <button class="track-mute-btn ${muted ? 'muted' : ''}" title="${muted ? 'Unmute group' : 'Mute group'}"
+                    onclick="event.stopPropagation(); setGroupSetting(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
+            <svg class="track-group-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        </div>`;
+    }).join('');
+    container.innerHTML = renderTrackMixerToolbar()
+        + groupRows
+        + (ungrouped.length ? ungrouped.map(t => renderTrackRow(t, null)).join('')
+            : (trackMixerGroups.length ? '' : '<div class="track-mixer-empty">No audio files in this theme</div>'));
+}
+
+function renderTrackGroupPage(container, group) {
+    if (!group) { trackMixerView = null; renderTrackMixer(); return; }
+    const tracks = trackMixerTracks.filter(t => trackGroupOf(t.name) === group.name);
+    const s = group.settings || {};
+    const n = jsArg(group.name);
+    const vol = Math.round(groupMaster(group, 'volume') * 100);
+    const how = Math.round(groupMaster(group, 'presence') * 100);
+    const gapMin = s.gap_min != null ? Math.round(s.gap_min / 6) / 10 : '';
+    const gapMax = s.gap_max != null ? Math.round(s.gap_max / 6) / 10 : '';
+    container.innerHTML = `
+    <div class="track-group-breadcrumb"
+         ondragover="event.preventDefault(); this.classList.add('drop-target')"
+         ondragleave="this.classList.remove('drop-target')"
+         ondrop="onTrackDrop(event, null); this.classList.remove('drop-target')">
+        <button class="btn btn-sm btn-secondary" onclick="closeTrackGroup()">← Theme tracks</button>
+        <span class="track-group-crumb">› ${escapeHtml(group.name)}</span>
+    </div>
+    ${renderTrackMixerToolbar()}
+    <div class="track-group-master">
+        <div class="track-group-master-row">
+            <label>Name</label>
+            <input type="text" class="track-group-rename" value="${escapeHtml(group.name)}" maxlength="60"
+                   onchange="renameTrackGroup(${n}, this.value)">
+            <button class="btn btn-sm btn-secondary btn-danger" onclick="deleteTrackGroup(${n})">Delete group</button>
+        </div>
+        <div class="track-slider-row" title="Multiplies each track's volume.">
+            <span class="track-slider-label">Volume</span>
+            <div class="track-slider-wrapper">
+                <input type="range" class="track-slider" min="0" max="100" value="${vol}"
+                       oninput="updateSliderDisplay(this); previewGroupMaster('volume', this.value)"
+                       onchange="setGroupSetting(${n}, 'volume', this.value / 100)">
+            </div>
+            <span class="track-slider-value">${vol}%</span>
+        </div>
+        <div class="track-slider-row" title="Multiplies each track's How often.">
+            <span class="track-slider-label">How often</span>
+            <div class="track-slider-wrapper">
+                <input type="range" class="track-slider" min="0" max="100" value="${how}"
+                       oninput="updateSliderDisplay(this); previewGroupMaster('presence', this.value)"
+                       onchange="setGroupSetting(${n}, 'presence', this.value / 100)">
+            </div>
+            <span class="track-slider-value">${how}%</span>
+        </div>
+        <div class="track-group-master-row">
+            <label>Gap between plays</label>
+            <input type="number" class="track-group-gap" min="0" step="0.5" value="${gapMin}" placeholder="2"
+                   onchange="setGroupGap(${n})" id="group-gap-min"> –
+            <input type="number" class="track-group-gap" min="0" step="0.5" value="${gapMax}" placeholder="2"
+                   onchange="setGroupGap(${n})" id="group-gap-max"> min
+            <label class="track-group-mute">
+                <input type="checkbox" ${s.muted ? 'checked' : ''} onchange="setGroupSetting(${n}, 'muted', this.checked)"> Mute group
+            </label>
+        </div>
+    </div>
+    ${tracks.length ? tracks.map(t => renderTrackRow(t, group)).join('')
+        : '<div class="track-mixer-empty">No tracks in this group. Upload, or drag tracks onto the group in the theme\'s track list.</div>'}`;
+}
+
+function openTrackGroup(name) {
+    trackMixerView = name;
+    renderTrackMixer();
+}
+
+function closeTrackGroup() {
+    trackMixerView = null;
+    renderTrackMixer();
+}
+
+// Live "plays at" hints while a group master slider moves (saved on release)
+function previewGroupMaster(key, percent) {
+    const selector = key === 'volume' ? '.track-volume-slider' : '.track-presence-slider';
+    document.querySelectorAll(`#track-mixer-list ${selector}`).forEach(slider => {
+        slider.dataset.master = percent / 100;
+        updatePlaysAt(slider);
+    });
+}
+
+function updatePlaysAt(slider) {
+    const hint = slider.closest('.track-slider-row')?.nextElementSibling;
+    if (!hint || !hint.classList.contains('track-plays-at')) return;
+    hint.textContent = playsAtHint(slider.value / 100, parseFloat(slider.dataset.master || '1'));
+}
+
+async function refreshTrackMixer() {
+    try {
+        await loadTrackMixerData(currentTrackMixerThemeId);
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+    renderTrackMixer();
+}
+
+async function setGroupSetting(name, key, value) {
+    try {
+        const result = await api('PUT', `/themes/${currentTrackMixerThemeId}/groups/${encodeURIComponent(name)}`, { [key]: value });
+        const group = trackMixerGroups.find(g => g.name === name);
+        if (group) group.settings = result.settings || group.settings;
+        renderTrackMixer();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+async function setGroupGap(name) {
+    const low = document.getElementById('group-gap-min').value;
+    const high = document.getElementById('group-gap-max').value;
+    const body = {
+        gap_min: low === '' ? null : parseFloat(low) * 60,
+        gap_max: high === '' ? null : parseFloat(high) * 60,
+    };
+    try {
+        const result = await api('PUT', `/themes/${currentTrackMixerThemeId}/groups/${encodeURIComponent(name)}`, body);
+        const group = trackMixerGroups.find(g => g.name === name);
+        if (group) group.settings = result.settings || group.settings;
+        renderTrackMixer();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+async function createTrackGroup(thenMoveKey) {
+    const name = (prompt('Group name') || '').trim();
+    if (!name) return null;
+    try {
+        await api('POST', `/themes/${currentTrackMixerThemeId}/groups`, { name });
+        if (thenMoveKey) {
+            await moveTrackToGroup(thenMoveKey, name);
+        } else {
+            await refreshTrackMixer();
+        }
+        return name;
+    } catch (error) {
+        showToast(error.message, 'error');
+        return null;
+    }
+}
+
+async function renameTrackGroup(name, newName) {
+    newName = (newName || '').trim();
+    if (!newName || newName === name) return;
+    try {
+        await api('POST', `/themes/${currentTrackMixerThemeId}/groups/${encodeURIComponent(name)}/rename`, { name: newName });
+        if (trackMixerView === name) trackMixerView = newName;
+        await refreshTrackMixer();
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderTrackMixer();
+    }
+}
+
+async function deleteTrackGroup(name) {
+    if (!confirm(`Delete group "${name}"? Its tracks move back to the theme; no audio files are deleted.`)) return;
+    try {
+        await api('DELETE', `/themes/${currentTrackMixerThemeId}/groups/${encodeURIComponent(name)}`);
+        trackMixerView = null;
+        await refreshTrackMixer();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+async function moveTrackToGroup(key, group) {
+    if ((trackGroupOf(key) || null) === (group || null)) return;
+    try {
+        await api('POST', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(key)}/move`, { group: group || null });
+        await refreshTrackMixer();
+    } catch (error) {
+        showToast(error.message, 'error');
+        renderTrackMixer();
+    }
+}
+
+function onTrackGroupSelect(key, select) {
+    const value = select.value;
+    if (value === '__new__') {
+        createTrackGroup(key).then(name => { if (!name) select.value = ''; });
+    } else if (value) {
+        moveTrackToGroup(key, value);
+    }
+}
+
+function onTrackDragStart(event, key) {
+    event.dataTransfer.setData('text/sonorium-track', key);
+    event.dataTransfer.effectAllowed = 'move';
+}
+
+function onTrackDrop(event, group) {
+    event.preventDefault();
+    event.stopPropagation();
+    const key = event.dataTransfer.getData('text/sonorium-track');
+    if (key) moveTrackToGroup(key, group);
+}
+
+async function uploadTracksToMixer(files) {
+    if (!files || !files.length || !currentTrackMixerThemeId) return;
+    const group = document.getElementById('track-upload-target')?.value || '';
+    let done = 0;
+    for (const file of files) {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            if (group) formData.append('group', group);
+            const query = group ? `?group=${encodeURIComponent(group)}` : '';
+            const response = await fetch(`${BASE_PATH}/api/themes/${currentTrackMixerThemeId}/upload${query}`, { method: 'POST', body: formData });
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.detail || error.error || 'Upload failed');
+            }
+            done++;
+        } catch (error) {
+            showToast(`${file.name}: ${error.message}`, 'error');
+        }
+    }
+    if (done) showToast(`Uploaded ${done} file${done === 1 ? '' : 's'}`, 'success');
+    await refreshTrackMixer();
 }
 
 function updateSliderDisplay(slider) {
     const row = slider.closest('.track-slider-row');
     const valueSpan = row.querySelector('.track-slider-value');
     valueSpan.textContent = slider.value + '%';
+    updatePlaysAt(slider);
 }
 
 // Legacy function for backwards compatibility
