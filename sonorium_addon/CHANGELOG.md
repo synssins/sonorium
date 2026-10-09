@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.6 (2026-10-09)
+
+### Bug Fixes
+
+- Network discovery works when another mDNS service holds port 5353
+  ([`3fbd6f1`](https://github.com/synssins/sonorium/commit/3fbd6f1b84c239be329056da77936ca0fbb73003))
+
+### Continuous Integration
+
+- Queue image builds for the same branch instead of cancelling.
+  ([`3fbd6f1`](https://github.com/synssins/sonorium/commit/3fbd6f1b84c239be329056da77936ca0fbb73003))
+
+
 ## v1.4.0-dev.5 (2026-10-09)
 
 ### Build System
