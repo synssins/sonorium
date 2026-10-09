@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.5 (2026-10-09)
+
+### Bug Fixes
+
+- Groups survive a theme refresh, presets save groups, safe metadata edits
+  ([`c72e428`](https://github.com/synssins/sonorium/commit/c72e428e2cc69eaa9e6b30beb173b87ed395033e))
+
+
 ## v1.4.2-dev.4 (2026-10-09)
 
 ### Bug Fixes
