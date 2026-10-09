@@ -39,6 +39,9 @@ class MQTTClient:
         self._client = paho_mqtt.Client(paho_mqtt.CallbackAPIVersion.VERSION2)
         self._connected = asyncio.Event()
         self._message_handler: Callable[[str, str], Awaitable[None]] | None = None
+        # Topics to (re)subscribe on every connect: with a clean session the
+        # broker forgets subscriptions when it restarts
+        self._topics: set[str] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
 
         # Set up callbacks
@@ -58,6 +61,8 @@ class MQTTClient:
     def _on_connect(self, client, userdata, flags, reason_code, properties=None):
         if reason_code == 0:
             logger.info("  MQTT connected successfully")
+            for topic in sorted(self._topics):
+                client.subscribe(topic)
             # Use call_soon_threadsafe since this callback runs in paho's thread
             if self._loop:
                 self._loop.call_soon_threadsafe(self._connected.set)
@@ -92,7 +97,7 @@ class MQTTClient:
 
     async def connect(self):
         """Connect to the MQTT broker."""
-        logger.info(f"Connecting to MQTT broker at {self.hostname}:{self.port}...")
+        logger.debug(f"Connecting to MQTT broker at {self.hostname}:{self.port}...")
 
         # Capture the event loop for thread-safe callbacks
         self._loop = asyncio.get_running_loop()
@@ -132,7 +137,10 @@ class MQTTClient:
             )
 
     def subscribe(self, topic: str):
-        """Subscribe to a topic."""
+        """Subscribe to a topic (and again after any reconnect)."""
+        if topic in self._topics:
+            return
+        self._topics.add(topic)
         self._client.subscribe(topic)
         logger.debug(f"  Subscribed to: {topic}")
 
@@ -245,15 +253,17 @@ class ClientSonorium:
                 else:
                     logger.warning("  Supervisor API returned no MQTT service data")
             except urllib.error.HTTPError as e:
-                logger.warning(f"  Supervisor API error: HTTP {e.code} - {e.reason}")
+                body = e.read().decode(errors="replace")[:200]
+                logger.warning(f"  Supervisor API error: HTTP {e.code} - {e.reason} {body}")
             except Exception as e:
                 logger.warning(f"  Supervisor API fallback failed: {type(e).__name__}: {e}")
 
         # Validate we have at least host and port
         if not mqtt_host:
             raise RuntimeError(
-                "MQTT host not configured. Either:\n"
-                "  1. Install the Mosquitto broker addon in Home Assistant, or\n"
+                "MQTT host not configured. No MQTT broker is registered with the Supervisor. Either:\n"
+                "  1. Install the Mosquitto broker addon in Home Assistant. If it is already\n"
+                "     installed, make sure it is started and 'Start on boot' is on, then restart Sonorium, or\n"
                 "  2. Set 'sonorium__mqtt_host' in addon configuration"
             )
         if not mqtt_port:
@@ -262,7 +272,7 @@ class ClientSonorium:
 
         # Log final configuration (mask password)
         auth_status = "with credentials" if mqtt_username else "anonymous"
-        logger.info(f"  MQTT config: {mqtt_host}:{mqtt_port} ({auth_status})")
+        logger.debug(f"  MQTT config: {mqtt_host}:{mqtt_port} ({auth_status})")
 
         # Create client
         return cls(

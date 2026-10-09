@@ -303,6 +303,7 @@ def create_api_router(
     cycle_manager=None,
     plugin_manager=None,
     mqtt_manager=None,
+    on_themes_changed=None,
 ) -> APIRouter:
     """
     Create the API router with all endpoints.
@@ -317,6 +318,8 @@ def create_api_router(
         cycle_manager: Optional CycleManager for theme cycling
         plugin_manager: Optional PluginManager for plugin endpoints
         mqtt_manager: Optional MQTT manager for HA entity updates
+        on_themes_changed: Optional callback after themes are added to or deleted,
+            so the theme list (and MQTT theme selects) gets rescanned
 
     Returns:
         Configured APIRouter
@@ -427,12 +430,17 @@ def create_api_router(
                 volume=request.volume,
                 cycle_config=request.cycle_config.to_config() if request.cycle_config else None,
             )
-            if mqtt_manager:
-                await mqtt_manager.add_session_entities(session)
-                await mqtt_manager.sync_all_states()
-            return _session_to_response(session, session_manager)
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+        if mqtt_manager:
+            try:
+                await mqtt_manager.add_session_entities(session)
+                await mqtt_manager.sync_all_states()
+            except Exception as e:
+                logger.warning(f"Failed to publish MQTT entities for new session: {e}")
+
+        return _session_to_response(session, session_manager)
     
     @router.get("/sessions/{session_id}")
     async def get_session(session_id: str) -> SessionResponse:
@@ -490,8 +498,11 @@ def create_api_router(
         if not session_manager.delete(session_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         if mqtt_manager:
-            await mqtt_manager.remove_session_entities(session_id)
-            await mqtt_manager.sync_all_states()
+            try:
+                await mqtt_manager.remove_session_entities(session_id)
+                await mqtt_manager.sync_all_states()
+            except Exception as e:
+                logger.warning(f"Failed to remove MQTT entities for deleted session: {e}")
     
     @router.post("/sessions/{session_id}/play")
     async def play_session(session_id: str) -> dict:
@@ -1291,6 +1302,8 @@ def create_api_router(
             file_path.write_bytes(content)
 
             logger.info(f"Uploaded file to theme '{theme_id}': {filename} ({len(content)} bytes)")
+            if on_themes_changed:
+                on_themes_changed()
 
             return {
                 "status": "ok",
@@ -1420,6 +1433,9 @@ def create_api_router(
                 if theme_id in favorites:
                     favorites.remove(theme_id)
                     state_store.save()
+
+            if on_themes_changed:
+                on_themes_changed()
 
             return {"status": "ok", "theme_id": theme_id, "message": "Theme deleted"}
         except Exception as e:
@@ -1622,7 +1638,7 @@ def create_api_router(
         if _catalog_cache['data'] and (now - _catalog_cache['timestamp']) < CATALOG_CACHE_TTL:
             catalog = _catalog_cache['data']
         else:
-            catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium.dev/main/plugins/catalog.json'
+            catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium/main/plugins/catalog.json'
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
@@ -1681,7 +1697,7 @@ def create_api_router(
             raise HTTPException(status_code=400, detail='plugin_id is required')
 
         # Fetch catalog
-        catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium.dev/main/plugins/catalog.json'
+        catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium/main/plugins/catalog.json'
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(catalog_url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
@@ -1706,7 +1722,7 @@ def create_api_router(
         if not zip_filename:
             raise HTTPException(status_code=500, detail='Plugin has no zip_file specified')
 
-        zip_url = f'https://raw.githubusercontent.com/synssins/sonorium.dev/main/plugins/{zip_filename}'
+        zip_url = f'https://raw.githubusercontent.com/synssins/sonorium/main/plugins/{zip_filename}'
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(zip_url, timeout=aiohttp.ClientTimeout(total=60)) as resp:

@@ -72,7 +72,7 @@ def get_host_ip_from_supervisor() -> str:
                     for addr in addresses:
                         ip = addr.split("/")[0]  # Remove CIDR notation
                         if not ip.startswith("169.254."):  # Skip link-local
-                            logger.info(f"Detected host IP from Supervisor: {ip}")
+                            logger.debug(f"Detected host IP from Supervisor: {ip}")
                             return ip
             logger.warning("No suitable IP found in Supervisor network info")
         else:
@@ -126,7 +126,7 @@ def apply_addon_env():
     options_path = Path("/data/options.json")
     if options_path.exists():
         from sonorium.obs import logger
-        logger.info(f'Converting addon "{options_path}" to environment variables...')
+        logger.debug(f'Converting addon "{options_path}" to environment variables...')
         try:
             with open(options_path) as f:
                 options = json.load(f)
@@ -174,15 +174,15 @@ class Settings(BaseSettings):
         """
         from sonorium.obs import logger
 
-        logger.info(f"Resolving stream URL (input: {self.stream_url})...")
+        logger.debug(f"Resolving stream URL (input: {self.stream_url})...")
         local_ip = get_local_ip()
-        logger.info(f"Detected local IP: {local_ip}")
+        logger.debug(f"Detected local IP: {local_ip}")
 
         # Handle "auto" or empty - build URL from detected IP
         if not self.stream_url or self.stream_url.lower() == "auto":
             if local_ip:
                 self.stream_url = f"http://{local_ip}:{self.stream_port}"
-                logger.info(f"Auto-configured stream URL: {self.stream_url}")
+                logger.debug(f"Auto-configured stream URL: {self.stream_url}")
             else:
                 # Fallback if IP detection fails
                 self.stream_url = f"http://127.0.0.1:{self.stream_port}"
@@ -216,10 +216,10 @@ class Settings(BaseSettings):
         from sonorium.version import __version__
 
         logger.info(f'Launching sonorium {__version__=} from entrypoint.')
-        logger.info(f'Stream URL: {self.stream_url}')
-        logger.info(f'Max channels: {self.max_channels}')
+        logger.debug(f'Stream URL: {self.stream_url}')
+        logger.debug(f'Max channels: {self.max_channels}')
 
-        logger.info(f'Launching...')
+        logger.debug(f'Launching...')
 
         client_ha = homeassistant_api.Client(api_url=self.ha_core_api, token=self.token)
         device = Sonorium(

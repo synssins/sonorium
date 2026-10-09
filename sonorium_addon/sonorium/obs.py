@@ -4,6 +4,8 @@ Replaces fmtr.tools logging with standard Python logging.
 """
 import functools
 import logging
+import os
+import re
 import sys
 
 from sonorium.paths import paths
@@ -34,7 +36,7 @@ class InstrumentedLogger(logging.Logger):
                     msg = message_template
 
                 if msg:
-                    self.info(msg)
+                    self.debug(msg)
                 return func(*args, **kwargs)
 
             @functools.wraps(func)
@@ -48,7 +50,7 @@ class InstrumentedLogger(logging.Logger):
                     msg = message_template
 
                 if msg:
-                    self.info(msg)
+                    self.debug(msg)
                 return await func(*args, **kwargs)
 
             # Return appropriate wrapper based on function type
@@ -58,6 +60,42 @@ class InstrumentedLogger(logging.Logger):
             return sync_wrapper
 
         return decorator
+
+
+class LevelPrefixFormatter(logging.Formatter):
+    """Prefix warnings and errors with their level so they stand out in the add-on log."""
+
+    def format(self, record):
+        message = super().format(record)
+        if record.levelno >= logging.WARNING:
+            time_part, _, text = message.partition(" ")
+            return f"{time_part} {record.levelname}: {text}"
+        return message
+
+
+class RequestLineFilter(logging.Filter):
+    """
+    HTTP request lines ("GET /api/sessions") arrive at info level from the API
+    layer, one per UI poll. Show them only at debug level.
+    """
+    REQUEST = re.compile(r"^(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS) \S")
+
+    def __init__(self, logger: logging.Logger):
+        super().__init__()
+        self._logger = logger
+
+    def filter(self, record):
+        if record.levelno == logging.INFO and self.REQUEST.match(str(record.msg)):
+            return self._logger.isEnabledFor(logging.DEBUG)
+        return True
+
+
+def log_level_from_env() -> int:
+    """Log level from SONORIUM_LOG_LEVEL (set from the add-on's log_level option); INFO by default."""
+    name = os.environ.get("SONORIUM_LOG_LEVEL", "info").strip().upper()
+    if name == "TRACE":
+        name = "DEBUG"
+    return logging.getLevelName(name) if isinstance(logging.getLevelName(name), int) else logging.INFO
 
 
 def get_logger(name: str, version: str = "") -> InstrumentedLogger:
@@ -72,11 +110,36 @@ def get_logger(name: str, version: str = "") -> InstrumentedLogger:
         # Force unbuffered stdout for Docker/container environments
         sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
         handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(logging.Formatter('%(asctime)s.%(msecs)03d %(message)s', datefmt='%H:%M:%S'))
+        handler.setFormatter(LevelPrefixFormatter('%(asctime)s.%(msecs)03d %(message)s', datefmt='%H:%M:%S'))
+        handler.addFilter(RequestLineFilter(logger))
         logger.addHandler(handler)
-        logger.setLevel(logging.DEBUG)
+        logger.setLevel(log_level_from_env())
 
     return logger
+
+
+def apply_level_to_library_console(level: int) -> None:
+    """
+    fmtr.tools configures Logfire to print every span (each HTTP request,
+    each instrumented call) to the console at info. Show those only at debug;
+    at the normal level Logfire prints warnings and errors only.
+    """
+    try:
+        import fmtr.tools.logging_tools  # noqa: F401 - configures Logfire once, on import
+        import logfire
+    except Exception:
+        return
+    min_level = "debug" if level <= logging.DEBUG else "warn" if level <= logging.WARNING else "error"
+    try:
+        logfire.configure(
+            service_name=paths.name_ns,
+            service_version=__version__,
+            send_to_logfire=False,
+            console=logfire.ConsoleOptions(colors="always", min_log_level=min_level),
+            scrubbing=False,
+        )
+    except Exception as e:
+        logging.getLogger(paths.name_ns).warning(f"Could not set library log level: {e}")
 
 
 # Create the main logger
@@ -84,3 +147,4 @@ logger = get_logger(
     name=paths.name_ns,
     version=__version__,
 )
+apply_level_to_library_console(logger.level)

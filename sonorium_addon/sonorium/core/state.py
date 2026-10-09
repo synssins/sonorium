@@ -391,7 +391,7 @@ class StateStore:
                     session.is_playing = False
                     logger.info(f"  Reset session '{session.name}' to stopped state")
 
-            logger.info(f"  Loaded {len(self.state.sessions)} sessions, {len(self.state.speaker_groups)} groups")
+            logger.debug(f"  Loaded {len(self.state.sessions)} sessions, {len(self.state.speaker_groups)} groups")
         except Exception as e:
             logger.error(f"  Failed to load state: {e}")
             self.state = SonoriumState()
@@ -409,7 +409,7 @@ class StateStore:
             data = self.state.to_dict()
             self.state_file.write_text(json.dumps(data, indent=2))
             
-            logger.info(f"  Saved {len(self.state.sessions)} sessions, {len(self.state.speaker_groups)} groups")
+            logger.debug(f"  Saved {len(self.state.sessions)} sessions, {len(self.state.speaker_groups)} groups")
         except Exception as e:
             logger.error(f"  Failed to save state: {e}")
             raise

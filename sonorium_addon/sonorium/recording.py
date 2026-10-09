@@ -347,7 +347,7 @@ class RecordingThemeStream:
 
                         if i % LOG_THRESHOLD == 0:
                             vol_mean = round(abs(data).mean())
-                            logger.info(f'{self.__class__.__name__} Yielding chunk #{i} {data.shape=}, {buffer.shape=}, {vol_mean=}')
+                            logger.debug(f'{self.__class__.__name__} Yielding chunk #{i} {data.shape=}, {buffer.shape=}, {vol_mean=}')
                         i += 1
 
             container.close()
@@ -381,16 +381,21 @@ class CrossfadeRecordingStream:
             raise ValueError('No audio stream')
         stream = next(iter(container.streams.audio))
         
+        def convert(frame_resamp):
+            data = frame_resamp.to_ndarray()
+            # Downmix to mono
+            data = data.mean(axis=0).astype(np.float32)
+            # Apply instance volume
+            return data * self.instance.volume
+
         def decode():
             try:
                 for frame_orig in container.decode(stream):
                     for frame_resamp in resampler.resample(frame_orig):
-                        data = frame_resamp.to_ndarray()
-                        # Downmix to mono
-                        data = data.mean(axis=0).astype(np.float32)
-                        # Apply instance volume
-                        data = data * self.instance.volume
-                        yield data
+                        yield convert(frame_resamp)
+                # Flush samples still held by the resampler at end of file
+                for frame_resamp in resampler.resample(None):
+                    yield convert(frame_resamp)
             finally:
                 container.close()
         
@@ -403,7 +408,7 @@ class CrossfadeRecordingStream:
         track_duration = self.instance.meta.duration_samples
         crossfade_start = max(0, track_duration - CROSSFADE_SAMPLES)
         
-        logger.info(f'CrossfadeStream: {self.instance.name} duration={track_duration} samples ({track_duration/SAMPLE_RATE:.1f}s), crossfade at {crossfade_start} ({crossfade_start/SAMPLE_RATE:.1f}s)')
+        logger.debug(f'CrossfadeStream: {self.instance.name} duration={track_duration} samples ({track_duration/SAMPLE_RATE:.1f}s), crossfade at {crossfade_start} ({crossfade_start/SAMPLE_RATE:.1f}s)')
         
         # Start first decoder
         current_decoder = self._create_decoder()
@@ -420,38 +425,49 @@ class CrossfadeRecordingStream:
         fade_in = np.sin(np.linspace(0, np.pi/2, CROSSFADE_SAMPLES)).astype(np.float32)
         
         next_buffer = np.empty(0, dtype=np.float32)
-        
+        current_done = False
+        next_done = False
+
         while True:
             # Fill buffer from current decoder
-            while len(buffer) < self.CHUNK_SIZE * 2:
+            while not current_done and len(buffer) < self.CHUNK_SIZE * 2:
                 try:
                     chunk = next(current_decoder)
                     buffer = np.concatenate([buffer, chunk.flatten()])
                 except StopIteration:
-                    # Current track ended - should have transitioned already
-                    # Start fresh if we somehow got here
-                    logger.debug(f'CrossfadeStream: Track ended, starting fresh')
-                    current_decoder = self._create_decoder()
-                    samples_played = 0
-                    in_crossfade = False
-                    continue
-            
+                    # The track ends here. The crossfade runs a little past the
+                    # end of the file (and metadata durations can be slightly
+                    # off), so finish the fade over silence instead of
+                    # restarting the track, which caused audible gaps (#38).
+                    current_done = True
+                    actual_duration = samples_played + len(buffer)
+                    if actual_duration != track_duration:
+                        logger.debug(f'CrossfadeStream: {self.instance.name} decoded {actual_duration} samples, expected {track_duration}')
+                        track_duration = actual_duration
+                        crossfade_start = max(0, track_duration - CROSSFADE_SAMPLES)
+
+            if len(buffer) < self.CHUNK_SIZE:
+                buffer = np.concatenate([buffer, np.zeros(self.CHUNK_SIZE - len(buffer), dtype=np.float32)])
+
             # Check if we should start crossfade
-            if not in_crossfade and samples_played >= crossfade_start:
-                logger.info(f'CrossfadeStream: Starting crossfade at sample {samples_played}')
+            if not in_crossfade and (samples_played >= crossfade_start or current_done):
+                logger.debug(f'CrossfadeStream: Starting crossfade at sample {samples_played}')
                 in_crossfade = True
                 crossfade_position = 0
                 next_decoder = self._create_decoder()
                 next_buffer = np.empty(0, dtype=np.float32)
-            
+                next_done = False
+
             # If in crossfade, also fill next_buffer
             if in_crossfade:
-                while len(next_buffer) < self.CHUNK_SIZE * 2:
+                while not next_done and len(next_buffer) < self.CHUNK_SIZE * 2:
                     try:
                         chunk = next(next_decoder)
                         next_buffer = np.concatenate([next_buffer, chunk.flatten()])
                     except StopIteration:
-                        break
+                        next_done = True
+                if len(next_buffer) < self.CHUNK_SIZE:
+                    next_buffer = np.concatenate([next_buffer, np.zeros(self.CHUNK_SIZE - len(next_buffer), dtype=np.float32)])
             
             # Extract chunk
             output_chunk = buffer[:self.CHUNK_SIZE].copy()
@@ -484,9 +500,10 @@ class CrossfadeRecordingStream:
                 
                 # Check if crossfade complete
                 if crossfade_position >= CROSSFADE_SAMPLES:
-                    logger.info(f'CrossfadeStream: Crossfade complete, switching to new track instance')
+                    logger.debug(f'CrossfadeStream: Crossfade complete, switching to new track instance')
                     current_decoder = next_decoder
                     buffer = next_buffer
+                    current_done = next_done
                     next_decoder = None
                     next_buffer = np.empty(0, dtype=np.float32)
                     samples_played = crossfade_position  # We're this far into the new track
@@ -503,7 +520,7 @@ class CrossfadeRecordingStream:
             if chunk_count % LOG_THRESHOLD == 0:
                 vol_mean = round(abs(output_chunk).mean())
                 status = "XFADE" if in_crossfade else "PLAY"
-                logger.info(f'CrossfadeStream [{status}]: chunk #{chunk_count}, samples={samples_played}, vol={vol_mean}')
+                logger.debug(f'CrossfadeStream [{status}]: chunk #{chunk_count}, samples={samples_played}, vol={vol_mean}')
 
             yield output_data
 
@@ -550,7 +567,7 @@ class SparsePlaybackStream:
         file_duration_samples = self.instance.meta.duration_samples
         file_duration_seconds = self.instance.meta.duration_seconds
 
-        logger.info(f'SparsePlaybackStream: {self.instance.name} - short file ({file_duration_seconds:.1f}s), using sparse playback' +
+        logger.debug(f'SparsePlaybackStream: {self.instance.name} - short file ({file_duration_seconds:.1f}s), using sparse playback' +
                     (', exclusive=True' if self.instance.exclusive else ''))
 
         # Pre-generate fade curves for the short file

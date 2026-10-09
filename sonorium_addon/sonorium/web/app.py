@@ -49,9 +49,9 @@ STATIC_DIR = next((p for p in _static_candidates if p.exists()), _static_candida
 ADDON_DIR = Path("/app") if Path("/app/logo.png").exists() else Path(__file__).parent.parent.parent
 
 # Log paths at module load time
-logger.info(f"TEMPLATES_DIR: {TEMPLATES_DIR} (exists: {TEMPLATES_DIR.exists()})")
-logger.info(f"STATIC_DIR: {STATIC_DIR} (exists: {STATIC_DIR.exists()})")
-logger.info(f"ADDON_DIR: {ADDON_DIR} (exists: {ADDON_DIR.exists()})")
+logger.debug(f"TEMPLATES_DIR: {TEMPLATES_DIR} (exists: {TEMPLATES_DIR.exists()})")
+logger.debug(f"STATIC_DIR: {STATIC_DIR} (exists: {STATIC_DIR.exists()})")
+logger.debug(f"ADDON_DIR: {ADDON_DIR} (exists: {ADDON_DIR.exists()})")
 
 
 class SonoriumApp:

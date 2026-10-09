@@ -41,7 +41,7 @@ on Python 3.11 and uploads a JUnit test report, including when tests fail.
 Run the same suite locally:
 
 ```sh
-python -m pip install 'pytest>=8,<9'
+python -m pip install 'pytest>=8,<9' 'numpy<2.4' av
 python -m pytest tests -v
 ```
 
@@ -50,6 +50,9 @@ LAN speakers and are excluded from automated collection. The live Linkplay
 streaming test is reported as skipped; its offline detection test runs in CI.
 Run hardware diagnostics directly on a machine with access to the speakers,
 for example `python tests/test_linkplay_integration.py --ip <speaker-ip>`.
+
+Add-on version numbers are set automatically from commit messages; see
+[docs/VERSIONING.md](docs/VERSIONING.md).
 
 ## Screenshots
 
@@ -77,59 +80,18 @@ Configure speakers, volume defaults, and other preferences.
 
 ## What's New
 
-### Home Assistant Addon v1.2.88-dev
+### Home Assistant Addon v1.3.0
 
-#### Bug Fixes
-- **Mobile Sidebar Close** - Fixed mobile menu not closing when tapping the hamburger button or the overlay area. The sidebar now properly collapses on mobile devices.
-- **Single Speaker Toggle** - Fixed speaker toggle bouncing back to enabled when users with only one speaker tried to disable it.
+- **Google Cast fixed.** Silent Cast speakers play again, and playback starts faster (#43).
+- **No more gaps when tracks loop** (#38).
+- **Stopped speakers free their channel**, and **Stop All** also stops paused channels (#29).
+- **MQTT entities stay in sync** after renames, deletes and theme changes, and after the Mosquitto broker restarts (#16, #33).
+- **More reliable startup.** Sonorium waits for the Mosquitto broker (#42) and runs on Proxmox's default virtual CPU (#18, #39).
+- **Uninstall removes settings**, which now live in the add-on's own config folder (#30).
+- **Logs.** A new `log_level` option, a short summary at the normal level, and no passwords in debug logs.
+- **Naming and plugins.** The add-on is named "Sonorium" (#40), and the Plugin Browser works again.
 
-### Home Assistant Addon v1.2.83
-
-#### Plugin Browser & Catalog
-- **Browse Available Plugins** - New "Browse Catalog" tab in Settings → Plugins lets you discover and install plugins directly from the Sonorium plugin repository with one click.
-- **One-Click Install** - Install plugins without manually downloading ZIP files. The catalog shows installed status and available updates.
-
-#### UI Improvements
-- **Page Refresh Persistence** - Refreshing the browser now stays on your current page instead of returning to Channels view.
-- **Settings Menu Stays Expanded** - When viewing any Settings sub-page, the Settings menu remains expanded through page refreshes.
-- **Speaker IP Addresses** - The Settings → Speakers page now displays each speaker's IP address.
-
-#### Bug Fixes
-- **MQTT Entity Compatibility** - Updated for Home Assistant Core 2026.4+ compatibility.
-- **Plugin Catalog Refresh** - Uninstalling a plugin now immediately updates the catalog's "Installed" status.
-
-### Home Assistant Addon v1.2.70
-
-- **Renamed Sonos Entity Support** - Sonos speakers are now detected using Home Assistant's entity registry `platform` field rather than relying on the entity_id containing "sonos". Users who have renamed their Sonos entities will now have them properly detected.
-- **Device-Inherited Area Fix** - Speakers assigned to an area via their parent device (rather than directly on the entity) now properly display their area instead of "Unassigned".
-
-### Home Assistant Addon v1.2.67
-
-- **Max Channels Setting Now Works** - Fixed an issue where the `sonorium__max_channels` addon setting was ignored. Users can now configure up to 10 channels as intended.
-
-### Home Assistant Addon v1.2.66
-
-#### Google Cast Streaming Fixed
-- **HA API Fallback** - When Cast device IP cannot be discovered (e.g., device on different VLAN), Sonorium now falls back to Home Assistant's `media_player.play_media` service. This allows Cast streaming to work across VLANs without manual IP configuration.
-- **mDNS Discovery** - Added zeroconf/mDNS discovery as an additional IP resolution method for Cast devices on the same network segment.
-- **Improved Device Detection** - Broader Cast device recognition (Nest Hub, Chromecast, Google Home variants).
-
-#### Sonos WebSocket Fix
-- **Large Installation Support** - Fixed "message too big" error that occurred when querying device registry in Home Assistant installations with many devices. Increased WebSocket message limit from 1MB to 10MB.
-
-#### Settings → Speakers UI Fix
-- **Restored Floor/Room Hierarchy** - Fixed a regression where the Settings → Speakers page showed a spinning circle instead of the proper floor/area/speaker tree view.
-
-#### Sparse Playback Timing
-- **Exclusive Track Spacing** - Increased the minimum gap between exclusive tracks from 30 seconds to 2 minutes. This prevents multiple exclusive tracks (like different lute songs in a tavern theme) from playing back-to-back.
-
-### Windows App v0.2.48-dev (Beta)
-
-> ⚠️ **Beta Testing:** This version is available in the [dev channel](https://github.com/synssins/sonorium.dev) for testing. Please report issues!
-
-- **HEOS Speaker Support (Beta)** - Denon/Marantz HEOS speakers discovered and controlled via CLI protocol
-- **HEOS Discovery** - Automatic detection of HEOS devices via SSDP and mDNS
-- **pyheos Integration** - Uses pyheos library for reliable HEOS communication (falls back to raw telnet)
+Full history: [sonorium_addon/CHANGELOG.md](sonorium_addon/CHANGELOG.md).
 
 ---
 
@@ -198,6 +160,8 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 
 ### Home Assistant Addon
 
+Sonorium needs the **Mosquitto broker** add-on (Settings → Add-ons → Add-on Store), started with **Start on boot** on.
+
 1. **Install** the addon using the button above
 2. **Open Sonorium** from your Home Assistant sidebar
 3. **Add Themes**: Create themes and upload audio via the web interface
@@ -235,7 +199,7 @@ Single-file themes loop seamlessly using crossfade blending—no jarring restart
 
 ### Home Assistant Addon
 - Any media_player entity in Home Assistant
-- **Google Cast** (Chromecast, Nest Hub, Google Home) - with HA API fallback for cross-VLAN setups
+- **Google Cast** (Chromecast, Nest Hub, Google Home), played through Home Assistant's Cast integration
 - **Sonos** - Native streaming via SoCo library
 - Organized by floors, areas, and custom groups
 

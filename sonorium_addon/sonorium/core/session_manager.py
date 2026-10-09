@@ -25,6 +25,10 @@ from sonorium.core.state import (
 )
 from sonorium.obs import logger
 
+# Stop a session once its channel has had no listeners this long. Long enough
+# to cover a Cast device's ~15s start-up and brief reconnects.
+IDLE_RELEASE_SECONDS = 90
+
 if TYPE_CHECKING:
     from sonorium.ha.registry import HARegistry
     from sonorium.ha.media_controller import HAMediaController
@@ -238,7 +242,7 @@ class SessionManager:
         channel = self.channel_manager.get_available_channel()
         if channel:
             self._session_channels[session.id] = channel.id
-            logger.info(f"  Assigned channel {channel.id} to session {session.id}")
+            logger.debug(f"  Assigned channel {channel.id} to session {session.id}")
         
         return channel
     
@@ -249,7 +253,7 @@ class SessionManager:
             channel = self.channel_manager.get_channel(channel_id)
             if channel:
                 channel.stop()
-                logger.info(f"  Released channel {channel_id} from session {session_id}")
+                logger.debug(f"  Released channel {channel_id} from session {session_id}")
     
     def get_session_channel(self, session_id: str) -> Optional[int]:
         """Get the channel ID assigned to a session."""
@@ -726,7 +730,9 @@ class SessionManager:
         if not session:
             logger.warning(f"  Session {session_id} not found")
             return False
-        
+
+        logger.info(f"Playing session '{session.name}'...")
+
         if not session.theme_id:
             logger.warning(f"  Session has no theme selected")
             return False
@@ -750,11 +756,11 @@ class SessionManager:
             theme = self.get_theme(session.theme_id)
             if theme:
                 channel.set_theme(theme)
-                logger.info(f"  Channel {channel.id}: theme '{theme.name}'")
+                logger.debug(f"  Channel {channel.id}: theme '{theme.name}'")
         
         # Build stream URL (channel-based if available)
         stream_url = self.get_stream_url(session)
-        logger.info(f"  Stream URL: {stream_url}")
+        logger.debug(f"  Stream URL: {stream_url}")
         
         # Mark as playing immediately (optimistic update)
         session.is_playing = True
@@ -782,7 +788,7 @@ class SessionManager:
             await self.media_controller.set_volume_multi(speakers, volume_level)
             
             success_count = sum(1 for v in results.values() if v)
-            logger.info(f"  Started playback on {success_count}/{len(speakers)} speakers")
+            logger.info(f"  '{session.name}': {success_count}/{len(speakers)} speakers started")
             
         except Exception as e:
             logger.error(f"  Error starting playback: {e}")
@@ -878,8 +884,37 @@ class SessionManager:
             Number of sessions stopped
         """
         count = 0
-        for session in self.state.sessions.values():
-            if session.is_playing:
+        for session in list(self.state.sessions.values()):
+            # A paused session still holds its channel (#29)
+            if session.is_playing or session.id in self._session_channels:
                 await self.stop(session.id)
                 count += 1
         return count
+
+    def release_idle_sessions(self, idle_after: float = IDLE_RELEASE_SECONDS) -> list[Session]:
+        """
+        Stop sessions whose channel has had no listeners for `idle_after` seconds,
+        e.g. when the speaker was stopped or switched to something else outside
+        Sonorium (#29). Speakers aren't told to stop: they may be playing
+        something else by now.
+
+        Returns:
+            Sessions that were stopped
+        """
+        if not self.channel_manager:
+            return []
+
+        stopped = []
+        for session_id, channel_id in list(self._session_channels.items()):
+            channel = self.channel_manager.get_channel(channel_id)
+            if not channel or channel.idle_seconds() < idle_after:
+                continue
+            logger.info(f"  Channel {channel_id}: no listener has pulled audio for {int(channel.idle_seconds())}s, stopping its session")
+            self._release_channel(session_id)
+            session = self.state.sessions.get(session_id)
+            if session:
+                session.is_playing = False
+                stopped.append(session)
+        if stopped:
+            self.state.save()
+        return stopped

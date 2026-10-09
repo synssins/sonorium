@@ -9,20 +9,73 @@ source /usr/lib/bashio/bashio.sh
 
 bashio::log.info "Starting Sonorium addon..."
 
+# One-time copy of settings from Home Assistant's config folder (where older
+# versions kept them) to the add-on's own config folder, which uninstalling can
+# remove (#30). A marker per add-on install (the container hostname is unique per
+# install) stops the copy from happening again, e.g. after uninstall + reinstall.
+# The old folder is left untouched. bashio exits on any failed command, so every
+# step here must be guarded.
+LEGACY_DIR="/homeassistant/sonorium"
+DATA_DIR="/config/sonorium"
+MIGRATED_MARKER="${LEGACY_DIR}/.migrated_to_${HOSTNAME}"
+if [[ ! -e "${DATA_DIR}/state.json" && -d "${LEGACY_DIR}" && ! -e "${MIGRATED_MARKER}" ]]; then
+    bashio::log.info "Copying Sonorium settings from ${LEGACY_DIR} to the add-on's own config folder..."
+    if mkdir -p "${DATA_DIR}" && cp -a "${LEGACY_DIR}/." "${DATA_DIR}/"; then
+        rm -f "${DATA_DIR}"/.migrated_to_* || true
+        touch "${MIGRATED_MARKER}" || bashio::log.warning "Could not write ${MIGRATED_MARKER}"
+        bashio::log.info "Settings copied. ${LEGACY_DIR} is no longer used by this add-on and can be deleted."
+    else
+        bashio::log.error "Could not copy all settings from ${LEGACY_DIR}; starting with what was copied."
+    fi
+fi
+
 # Log environment for debugging
 bashio::log.debug "Environment variables:"
 bashio::log.debug "  SUPERVISOR_TOKEN present: $([ -n "${SUPERVISOR_TOKEN:-}" ] && echo 'yes' || echo 'no')"
 
-# Export addon configuration as environment variables
-export SONORIUM__STREAM_URL="$(bashio::config 'sonorium__stream_url')"
-export SONORIUM__PATH_AUDIO="$(bashio::config 'sonorium__path_audio')"
-export SONORIUM__MAX_CHANNELS="$(bashio::config 'sonorium__max_channels')"
+# Log level: "info" shows a summary, "debug" adds per-theme/per-speaker detail and versions
+# Read options from the options file rather than with bashio: at debug log
+# level bashio logs the whole options API response, passwords included.
+option() {
+    jq -r --arg key "$1" '.[$key] // empty' /data/options.json
+}
 
-# MQTT Configuration - Priority: Manual config > bashio::services > Python fallback
-MQTT_HOST_CONFIG="$(bashio::config 'sonorium__mqtt_host')"
-MQTT_PORT_CONFIG="$(bashio::config 'sonorium__mqtt_port')"
-MQTT_USER_CONFIG="$(bashio::config 'sonorium__mqtt_username')"
-MQTT_PASS_CONFIG="$(bashio::config 'sonorium__mqtt_password')"
+if [[ -n "$(option log_level)" ]]; then
+    export SONORIUM_LOG_LEVEL="$(option log_level)"
+fi
+
+# Export addon configuration as environment variables
+export SONORIUM__STREAM_URL="$(option sonorium__stream_url)"
+export SONORIUM__PATH_AUDIO="$(option sonorium__path_audio)"
+export SONORIUM__MAX_CHANNELS="$(option sonorium__max_channels)"
+
+# MQTT Configuration - Priority: Manual config > Supervisor MQTT service > Python fallback
+
+# Query the Supervisor's MQTT service directly rather than with bashio::services:
+# at debug log level bashio logs the whole API response, broker password included.
+mqtt_service_available() {
+    curl -sf -o /dev/null -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/services/mqtt
+}
+mqtt_service() {
+    curl -sf -H "Authorization: Bearer ${SUPERVISOR_TOKEN}" http://supervisor/services/mqtt | jq -r ".data.${1} // empty"
+}
+MQTT_HOST_CONFIG="$(option sonorium__mqtt_host)"
+MQTT_PORT_CONFIG="$(option sonorium__mqtt_port)"
+MQTT_USER_CONFIG="$(option sonorium__mqtt_username)"
+MQTT_PASS_CONFIG="$(option sonorium__mqtt_password)"
+
+# The Mosquitto add-on registers the MQTT service each time it starts. At boot
+# Sonorium can start first, so wait for it instead of failing (issue #42).
+if [[ -z "${MQTT_HOST_CONFIG}" || "${MQTT_HOST_CONFIG}" == "auto" ]] && ! mqtt_service_available; then
+    bashio::log.warning "No MQTT broker is registered with the Supervisor yet. Waiting up to 2 minutes for the Mosquitto broker add-on to start..."
+    for _ in $(seq 1 24); do
+        sleep 5
+        if mqtt_service_available; then
+            bashio::log.info "MQTT broker is now available"
+            break
+        fi
+    done
+fi
 
 # Check if user provided manual MQTT config (not "auto" or empty)
 if [[ -n "${MQTT_HOST_CONFIG}" && "${MQTT_HOST_CONFIG}" != "auto" ]]; then
@@ -31,17 +84,18 @@ if [[ -n "${MQTT_HOST_CONFIG}" && "${MQTT_HOST_CONFIG}" != "auto" ]]; then
     export SONORIUM__MQTT_PORT="${MQTT_PORT_CONFIG:-1883}"
     export SONORIUM__MQTT_USERNAME="${MQTT_USER_CONFIG}"
     export SONORIUM__MQTT_PASSWORD="${MQTT_PASS_CONFIG}"
-elif bashio::services.available "mqtt"; then
+elif mqtt_service_available; then
     # Auto-detect from Supervisor services (recommended HA method)
     bashio::log.info "Auto-detecting MQTT from Supervisor services..."
-    export SONORIUM__MQTT_HOST="$(bashio::services mqtt "host")"
-    export SONORIUM__MQTT_PORT="$(bashio::services mqtt "port")"
-    export SONORIUM__MQTT_USERNAME="$(bashio::services mqtt "username")"
-    export SONORIUM__MQTT_PASSWORD="$(bashio::services mqtt "password")"
+    export SONORIUM__MQTT_HOST="$(mqtt_service host)"
+    export SONORIUM__MQTT_PORT="$(mqtt_service port)"
+    export SONORIUM__MQTT_USERNAME="$(mqtt_service username)"
+    export SONORIUM__MQTT_PASSWORD="$(mqtt_service password)"
     bashio::log.info "MQTT auto-detected: ${SONORIUM__MQTT_HOST}:${SONORIUM__MQTT_PORT}"
 else
-    bashio::log.warning "MQTT service not available from Supervisor"
-    bashio::log.warning "Set manual MQTT config or install Mosquitto broker addon"
+    bashio::log.warning "No MQTT broker is registered with the Supervisor."
+    bashio::log.warning "If the Mosquitto broker add-on is installed, make sure it is started and 'Start on boot' is on, then restart Sonorium."
+    bashio::log.warning "Using a different MQTT broker? Set sonorium__mqtt_host (and port/username/password) in Sonorium's configuration."
     # Export config values anyway - Python will handle the error
     export SONORIUM__MQTT_HOST="${MQTT_HOST_CONFIG}"
     export SONORIUM__MQTT_PORT="${MQTT_PORT_CONFIG}"
@@ -64,42 +118,72 @@ fi
 
 # Test critical Python imports (helps diagnose segfaults)
 # These tests run in the same order as sonorium imports them
-bashio::log.info "Testing Python imports..."
+bashio::log.debug "Testing Python imports..."
+IMPORTS_OK=true
 
 # Test individual imports first
 if ! python3 -c "import numpy" 2>&1; then
     bashio::log.error "FAILED: numpy import"
+    IMPORTS_OK=false
+    # A VM with a basic virtual CPU (Proxmox's default "kvm64") hides CPU
+    # features that numpy builds can require (issues #18, #39).
+    if [[ "$(uname -m)" == "x86_64" ]] && ! grep -qw sse4_2 /proc/cpuinfo; then
+        bashio::log.error "This CPU doesn't report SSE4.2. If Home Assistant runs in a virtual machine (Proxmox, etc.),"
+        bashio::log.error "set the VM's CPU type to 'host', then fully shut down and start the VM."
+        bashio::log.error "In Proxmox: VM -> Hardware -> Processors -> Type: host."
+    fi
 fi
 if ! python3 -c "import av" 2>&1; then
     bashio::log.error "FAILED: av (PyAV) import"
+    IMPORTS_OK=false
 fi
 if ! python3 -c "import pydantic" 2>&1; then
     bashio::log.error "FAILED: pydantic import"
+    IMPORTS_OK=false
 fi
 if ! python3 -c "import fastapi" 2>&1; then
     bashio::log.error "FAILED: fastapi import"
+    IMPORTS_OK=false
 fi
 
 # Test combined imports (order matters - this is how recording.py imports them)
 # This catches issues where individual imports work but combination causes segfault
-bashio::log.info "Testing combined imports (numpy + av)..."
-if ! python3 -c "import numpy; import av; print('Combined import OK')" 2>&1; then
+bashio::log.debug "Testing combined imports (numpy + av)..."
+if ! python3 -c "import numpy; import av" 2>&1; then
     bashio::log.error "FAILED: Combined numpy+av import"
     bashio::log.error "This may indicate a compatibility issue with virtualized environments"
     bashio::log.error "Please report this issue with your HA OS version and architecture"
+    IMPORTS_OK=false
 fi
 
 # Test the actual recording module import
-bashio::log.info "Testing sonorium.recording import..."
-if ! python3 -c "from sonorium.recording import RecordingMetadata; print('Recording module OK')" 2>&1; then
+bashio::log.debug "Testing sonorium.recording import..."
+if ! python3 -c "from sonorium.recording import RecordingMetadata" 2>&1; then
     bashio::log.error "FAILED: sonorium.recording import"
+    IMPORTS_OK=false
 fi
 
-bashio::log.info "Python imports OK"
+if [[ "${IMPORTS_OK}" == "true" ]]; then
+    bashio::log.info "Python imports OK"
+    bashio::log.debug "Library versions: $(python3 - <<'PY' 2>/dev/null || true
+from importlib.metadata import version, PackageNotFoundError
+names = ["numpy", "av", "fastapi", "uvicorn", "starlette", "pydantic", "paho-mqtt", "pychromecast", "soco", "websockets", "httpx"]
+out = []
+for n in names:
+    try:
+        out.append(f"{n} {version(n)}")
+    except PackageNotFoundError:
+        pass
+print(", ".join(out))
+PY
+)"
+else
+    bashio::log.error "One or more Python imports failed (see above). Sonorium will probably not start."
+fi
 
 # Check if sonorium command exists
 if ! command -v sonorium &> /dev/null; then
-    bashio::log.info "Running via Python module..."
+    bashio::log.debug "Running via Python module..."
     exec python3 -m sonorium.entrypoint
 fi
 

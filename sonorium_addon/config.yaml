@@ -1,5 +1,5 @@
-name: Sonorium (Dev)
-version: "1.2.88-dev"
+name: Sonorium
+version: "1.3.1-dev.1"
 slug: sonorium
 description: "Multi-zone ambient soundscape mixer for Home Assistant"
 url: https://github.com/synssins/sonorium
@@ -25,7 +25,12 @@ services:
 
 map:
   - media:rw
-  - config:rw
+  # Sonorium's settings live in its own config folder (/config inside the
+  # container), which HA removes on uninstall when asked to delete data (#30).
+  # homeassistant_config is only used to copy settings from the old location
+  # once (a small marker file is left there so it only happens once).
+  - addon_config:rw
+  - homeassistant_config:rw
 
 ports:
   8080/tcp: 8008
@@ -33,6 +38,7 @@ ports_description:
   8080/tcp: "Sonorium Web UI and streaming API (direct access)"
 
 options:
+  log_level: info
   sonorium__stream_url: "auto"
   sonorium__path_audio: "/media/sonorium"
   sonorium__max_channels: 6
@@ -42,6 +48,7 @@ options:
   sonorium__mqtt_password: ""
 
 schema:
+  log_level: list(trace|debug|info|notice|warning|error|fatal)?
   sonorium__stream_url: str?
   sonorium__path_audio: str
   sonorium__max_channels: int(1,10)

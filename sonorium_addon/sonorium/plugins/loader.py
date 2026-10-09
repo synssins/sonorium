@@ -268,7 +268,7 @@ def instantiate_plugin(
             settings=settings,
             audio_path=audio_path or Path("/media/sonorium"),
         )
-        logger.info(f"Instantiated plugin: {instance.name} v{instance.version}")
+        logger.debug(f"Instantiated plugin: {instance.name} v{instance.version}")
         return instance
     except Exception as e:
         logger.error(f"Failed to instantiate plugin {plugin_class.__name__}: {e}")

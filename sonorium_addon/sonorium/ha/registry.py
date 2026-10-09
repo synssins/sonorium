@@ -201,7 +201,7 @@ class HARegistry:
             return [], [], [], []
 
         ws_url = self._get_websocket_url()
-        logger.info(f"Connecting to HA WebSocket: {ws_url}")
+        logger.debug(f"Connecting to HA WebSocket: {ws_url}")
 
         floors_data = []
         areas_data = []
@@ -231,7 +231,7 @@ class HARegistry:
                     logger.error(f"WebSocket auth failed: {auth_result_msg}")
                     return [], [], []
 
-                logger.info("  WebSocket authenticated successfully")
+                logger.debug("  WebSocket authenticated successfully")
 
                 # Step 4: Fetch floor registry
                 await websocket.send(json.dumps({
@@ -242,7 +242,7 @@ class HARegistry:
                 floors_msg = json.loads(floors_response)
                 if floors_msg.get("success"):
                     floors_data = floors_msg.get("result", [])
-                    logger.info(f"  WebSocket: Found {len(floors_data)} floors")
+                    logger.debug(f"  WebSocket: Found {len(floors_data)} floors")
 
                 # Step 5: Fetch area registry
                 await websocket.send(json.dumps({
@@ -253,7 +253,7 @@ class HARegistry:
                 areas_msg = json.loads(areas_response)
                 if areas_msg.get("success"):
                     areas_data = areas_msg.get("result", [])
-                    logger.info(f"  WebSocket: Found {len(areas_data)} areas")
+                    logger.debug(f"  WebSocket: Found {len(areas_data)} areas")
 
                 # Step 6: Fetch entity registry (may be very large)
                 try:
@@ -268,7 +268,7 @@ class HARegistry:
                         entities_data = entities_msg.get("result", [])
                         # Filter to media_player entities only
                         entities_data = [e for e in entities_data if e.get("entity_id", "").startswith("media_player.")]
-                        logger.info(f"  WebSocket: Found {len(entities_data)} media_player entities")
+                        logger.debug(f"  WebSocket: Found {len(entities_data)} media_player entities")
                 except Exception as entity_err:
                     logger.warning(f"  WebSocket: Could not fetch entity registry (large install?): {entity_err}")
                     logger.info("  WebSocket: Will try to match speakers to areas by name instead")
@@ -283,7 +283,7 @@ class HARegistry:
                     devices_msg = json.loads(devices_response)
                     if devices_msg.get("success"):
                         devices_data = devices_msg.get("result", [])
-                        logger.info(f"  WebSocket: Found {len(devices_data)} devices")
+                        logger.debug(f"  WebSocket: Found {len(devices_data)} devices")
                 except Exception as device_err:
                     logger.warning(f"  WebSocket: Could not fetch device registry: {device_err}")
 
@@ -382,7 +382,7 @@ class HARegistry:
                     level=item.get("level") or 0,
                 )
                 floors[floor.floor_id] = floor
-            logger.info(f"  Found {len(floors)} floors")
+            logger.debug(f"  Found {len(floors)} floors")
         else:
             logger.info("  Floor registry not available via REST API (this is normal - floors may need WebSocket API)")
         return floors
@@ -400,7 +400,7 @@ class HARegistry:
                     floor_id=item.get("floor_id"),
                 )
                 areas[area.area_id] = area
-            logger.info(f"  Found {len(areas)} areas")
+            logger.debug(f"  Found {len(areas)} areas")
         else:
             logger.info("  Area registry not available via REST API (this is normal - areas may need WebSocket API)")
         return areas
@@ -415,7 +415,7 @@ class HARegistry:
                 entity_id = entity.get("entity_id", "")
                 if entity_id.startswith("media_player."):
                     entity_map[entity_id] = entity
-            logger.info(f"  Found {len(entity_map)} media_player entities in registry")
+            logger.debug(f"  Found {len(entity_map)} media_player entities in registry")
         else:
             logger.info("  Entity registry not available via REST API (area assignments may be unavailable)")
         return entity_map
@@ -531,7 +531,7 @@ class HARegistry:
         areas = areas or {}
 
         try:
-            logger.info("Fetching media players from HA states...")
+            logger.debug("Fetching media players from HA states...")
             states = self._get("/states")
 
             if not isinstance(states, list):
@@ -586,11 +586,11 @@ class HARegistry:
                 )
                 speakers[entity_id] = speaker
 
-            logger.info(f"  Found {len(speakers)} media players (from {media_player_count} total)")
+            logger.debug(f"  Found {len(speakers)} media players (from {media_player_count} total)")
             if matched_by_device > 0:
-                logger.info(f"  Matched {matched_by_device} speakers to areas via device inheritance")
+                logger.debug(f"  Matched {matched_by_device} speakers to areas via device inheritance")
             if matched_by_name > 0:
-                logger.info(f"  Matched {matched_by_name} speakers to areas by name")
+                logger.debug(f"  Matched {matched_by_name} speakers to areas by name")
 
         except Exception as e:
             logger.error(f"  Failed to fetch media players from states: {e}")
@@ -607,14 +607,14 @@ class HARegistry:
         Tries WebSocket API first (required for floor/area/entity/device registries),
         falls back to REST API for states.
         """
-        logger.info("Building speaker hierarchy from Home Assistant...")
+        logger.debug("Building speaker hierarchy from Home Assistant...")
 
         # Try WebSocket API first for registries (floors, areas, entity registry, device registry)
         ws_floors, ws_areas, ws_entity_registry, ws_device_registry = self._fetch_registries_via_websocket()
 
         device_registry = {}
         if ws_floors or ws_areas or ws_entity_registry:
-            logger.info("  Using WebSocket API data for hierarchy")
+            logger.debug("  Using WebSocket API data for hierarchy")
             self._floors = ws_floors
             self._areas = ws_areas
             entity_registry = ws_entity_registry
@@ -657,7 +657,7 @@ class HARegistry:
                 hierarchy.unassigned_speakers.append(speaker)
 
         if linked_count > 0:
-            logger.info(f"  Linked {linked_count} speakers to areas")
+            logger.debug(f"  Linked {linked_count} speakers to areas")
         elif self._areas:
             logger.warning(f"  No speakers linked to areas! Area keys sample: {list(self._areas.keys())[:5]}")
         
@@ -682,7 +682,7 @@ class HARegistry:
         self._hierarchy = hierarchy
 
         total_speakers = len(hierarchy.get_all_speakers())
-        logger.info(f"  Hierarchy complete: {len(hierarchy.floors)} floors, {len(hierarchy.unassigned_areas)} unassigned areas, {len(hierarchy.unassigned_speakers)} unassigned speakers, {total_speakers} total speakers")
+        logger.debug(f"  Hierarchy complete: {len(hierarchy.floors)} floors, {len(hierarchy.unassigned_areas)} unassigned areas, {len(hierarchy.unassigned_speakers)} unassigned speakers, {total_speakers} total speakers")
 
         return hierarchy
 

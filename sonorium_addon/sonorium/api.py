@@ -32,6 +32,19 @@ PACKAGE_ROOT = Path(__file__).parent.parent
 LOGO_PATH = PACKAGE_ROOT / "logo.png"
 
 
+class RevalidatingStaticFiles(StaticFiles):
+    """
+    Static files the browser must revalidate before reuse (a cheap 304 when
+    unchanged), so an updated app.js/styles.css isn't served from a stale
+    cache after an add-on update (#28).
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 class ApiSonorium(api.Base):
     TITLE = f'Sonorium {__version__} Streaming API'
     URL_DOCS = '/docs'
@@ -50,13 +63,14 @@ class ApiSonorium(api.Base):
         self._channel_manager = None
         self._cycle_manager = None
         self._mqtt_manager = None
+        self._theme_refresh_task = None
         self._plugin_manager = None
         self._theme_metadata_manager = None
         
         # Register startup event to initialize v2
         @self.app.on_event("startup")
         async def startup_event():
-            logger.info("FastAPI startup event triggered")
+            logger.debug("FastAPI startup event triggered")
             await self.initialize_v2()
         
         # Register shutdown event to stop cycle manager
@@ -67,8 +81,8 @@ class ApiSonorium(api.Base):
 
         # Mount static files (CSS, JS) for the web UI
         if STATIC_DIR.exists():
-            self.app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-            logger.info(f"Mounted static files from: {STATIC_DIR}")
+            self.app.mount("/static", RevalidatingStaticFiles(directory=STATIC_DIR), name="static")
+            logger.debug(f"Mounted static files from: {STATIC_DIR}")
         else:
             logger.warning(f"Static directory not found: {STATIC_DIR}")
 
@@ -148,19 +162,19 @@ class ApiSonorium(api.Base):
             from sonorium.web.api_v2 import create_api_router
             from sonorium.settings import settings
             
-            logger.info("Initializing Sonorium v2 components...")
+            logger.debug("Initializing Sonorium v2 components...")
             
             # Initialize state store
             self._state_store = StateStore()
             self._state_store.load()
-            logger.info(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
+            logger.debug(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
 
             # Initialize theme metadata manager
             from sonorium.core.theme_metadata import ThemeMetadataManager
             audio_path = self.client.device.path_audio
             self._theme_metadata_manager = ThemeMetadataManager(audio_path)
             theme_metadata = self._theme_metadata_manager.scan_themes()
-            logger.info(f"  Theme metadata: {len(theme_metadata)} themes scanned")
+            logger.debug(f"  Theme metadata: {len(theme_metadata)} themes scanned")
 
             # Migrate any theme data from state.json to metadata.json (one-time migration)
             self._migrate_theme_data_to_metadata()
@@ -171,14 +185,14 @@ class ApiSonorium(api.Base):
             # Initialize channel manager
             max_channels = getattr(settings, 'max_channels', 6)
             self._channel_manager = ChannelManager(max_channels=max_channels)
-            logger.info(f"  Channel manager: {max_channels} channels available")
+            logger.debug(f"  Channel manager: {max_channels} channels available")
             
             # Initialize HA registry
             api_url = f"{settings.ha_supervisor_api.replace('/core', '')}/core/api"
             self._ha_registry = HARegistry(api_url, settings.token)
             try:
                 self._ha_registry.refresh()
-                logger.info(f"  HA registry loaded: {len(self._ha_registry.hierarchy.floors)} floors")
+                logger.debug(f"  HA registry loaded: {len(self._ha_registry.hierarchy.floors)} floors")
             except Exception as e:
                 logger.warning(f"  Could not load HA registry (floors/areas may not work): {e}")
             
@@ -187,7 +201,7 @@ class ApiSonorium(api.Base):
             
             # Use configured stream URL (from SONORIUM__STREAM_URL env var)
             stream_base_url = settings.stream_url
-            logger.info(f"  Stream base URL: {stream_base_url}")
+            logger.debug(f"  Stream base URL: {stream_base_url}")
             
             # Initialize cycle manager
             self._cycle_manager = CycleManager(
@@ -225,7 +239,7 @@ class ApiSonorium(api.Base):
                     audio_path=audio_path,
                 )
                 await self._plugin_manager.initialize()
-                logger.info(f"  Plugin manager: {len(self._plugin_manager.plugins)} plugin(s) loaded")
+                logger.debug(f"  Plugin manager: {len(self._plugin_manager.plugins)} plugin(s) loaded")
             except Exception as e:
                 logger.warning(f"  Failed to initialize plugin manager: {e}")
                 self._plugin_manager = None
@@ -247,7 +261,7 @@ class ApiSonorium(api.Base):
                 self.client.mqtt_client.set_message_handler(self._mqtt_manager.handle_command)
 
                 await self._mqtt_manager.initialize()
-                logger.info(f"  MQTT entity manager: {len(self._state_store.sessions)} session entities published")
+                logger.debug(f"  MQTT entity manager: {len(self._state_store.sessions)} session entities published")
             except Exception as e:
                 logger.warning(f"  Failed to initialize MQTT entity manager: {e}")
                 import traceback
@@ -264,15 +278,21 @@ class ApiSonorium(api.Base):
                 cycle_manager=self._cycle_manager,
                 plugin_manager=self._plugin_manager,
                 mqtt_manager=self._mqtt_manager,
+                on_themes_changed=self.schedule_theme_refresh,
             )
             self.app.include_router(api_router)
             
+            # Keep MQTT entities in sync when idle sessions are stopped
+            if self._mqtt_manager:
+                self._cycle_manager.on_session_stopped = self._mqtt_manager.update_session_state
+
             # Start cycle manager background task
             await self._cycle_manager.start()
-            logger.info("  CycleManager started")
+            logger.debug("  CycleManager started")
             
             self._v2_initialized = True
-            logger.info("  Sonorium v2 initialization complete!")
+            logger.debug("  Sonorium v2 initialization complete!")
+            self._log_startup_summary()
             
         except ImportError as e:
             logger.error(f"  Failed to import v2 modules: {e}")
@@ -354,7 +374,7 @@ class ApiSonorium(api.Base):
                 migrated_any = True
 
         if migrated_any:
-            logger.info("  Theme data migration complete")
+            logger.debug("  Theme data migration complete")
 
     def _apply_saved_track_settings(self):
         """Apply saved track settings from metadata.json to theme instances on startup."""
@@ -367,7 +387,7 @@ class ApiSonorium(api.Base):
         if not device.themes:
             return
 
-        logger.info("  Applying saved track settings to themes...")
+        logger.debug("  Applying saved track settings to themes...")
         for theme in device.themes:
             if not theme.instances:
                 continue
@@ -407,7 +427,7 @@ class ApiSonorium(api.Base):
                 inst.crossfade_enabled = not track_settings.seamless_loop
                 inst.exclusive = track_settings.exclusive
 
-            logger.info(f"    Applied settings to theme '{theme.name}'")
+            logger.debug(f"    Applied settings to theme '{theme.name}'")
 
     async def shutdown_v2(self):
         """Shutdown v2 components gracefully."""
@@ -415,11 +435,22 @@ class ApiSonorium(api.Base):
             await self._cycle_manager.stop()
             logger.info("CycleManager stopped")
 
+    def _log_startup_summary(self):
+        """One-line summary at normal log level; details are at debug level."""
+        try:
+            themes = len(self.client.device.themes)
+            speakers = len(self._ha_registry.hierarchy.get_all_speakers()) if self._ha_registry and self._ha_registry.hierarchy else 0
+            sessions = len(self._state_store.sessions) if self._state_store else 0
+            mqtt = "connected" if self._mqtt_manager else "not available"
+            logger.info(f"Sonorium {__version__} ready: {themes} themes, {speakers} speakers detected, {sessions} channels, MQTT {mqtt}")
+        except Exception as e:
+            logger.warning(f"Could not build startup summary: {e}")
+
     async def web_ui(self):
         """Serve the main web UI (v2 if available, else v1)."""
         template_path = TEMPLATES_DIR / "index.html"
         if template_path.exists() and self._v2_initialized:
-            return HTMLResponse(content=template_path.read_text())
+            return HTMLResponse(content=template_path.read_text(), headers={"Cache-Control": "no-cache"})
         else:
             return await self.legacy_ui()
 
@@ -848,6 +879,25 @@ class ApiSonorium(api.Base):
 
         return themes
 
+    def schedule_theme_refresh(self, delay: float = 2.0):
+        """
+        Rescan themes shortly after a change. Uploads arrive one file at a
+        time, so each call restarts the delay and only one rescan runs.
+        """
+        import asyncio
+
+        if self._theme_refresh_task and not self._theme_refresh_task.done():
+            self._theme_refresh_task.cancel()
+
+        async def refresh_later():
+            await asyncio.sleep(delay)
+            try:
+                await self.refresh_themes()
+            except Exception as e:
+                logger.error(f"Theme refresh after change failed: {e}")
+
+        self._theme_refresh_task = asyncio.get_running_loop().create_task(refresh_later())
+
     async def refresh_themes(self):
         """Rescan theme folders and reload themes."""
         from sonorium.theme import ThemeDefinition
@@ -866,7 +916,7 @@ class ApiSonorium(api.Base):
 
         # Scan for theme folders
         theme_folders = [folder for folder in path_audio.iterdir() if folder.is_dir()]
-        logger.info(f'Found {len(theme_folders)} theme folder(s)')
+        logger.debug(f'Found {len(theme_folders)} theme folder(s)')
 
         # Step 1: Build theme_metas FIRST (before creating ThemeDefinitions)
         new_theme_metas = {}
@@ -879,7 +929,7 @@ class ApiSonorium(api.Base):
                 theme_name = folder.name
                 new_theme_metas[theme_name] = IndexList(RecordingMetadata(path) for path in audio_files)
                 theme_names_with_audio.append(theme_name)
-                logger.info(f'Found theme "{theme_name}" with {len(audio_files)} audio files')
+                logger.debug(f'Found theme "{theme_name}" with {len(audio_files)} audio files')
 
         # Step 2: Update device.theme_metas BEFORE creating ThemeDefinitions
         # This is critical because ThemeDefinition.__init__ looks up theme_metas[name]
@@ -906,7 +956,7 @@ class ApiSonorium(api.Base):
 
             theme_def = ThemeDefinition(sonorium=device, name=theme_name, theme_id=theme_id)
             new_themes.append(theme_def)
-            logger.info(f'Created ThemeDefinition "{theme_name}" with {len(theme_def.instances)} instances')
+            logger.debug(f'Created ThemeDefinition "{theme_name}" with {len(theme_def.instances)} instances')
 
         # Step 4: Update device.themes
         device.themes = new_themes
@@ -958,6 +1008,13 @@ class ApiSonorium(api.Base):
         # Update session manager's theme reference
         if self._session_manager:
             self._session_manager.set_themes(device.themes)
+
+        # Update theme options on the MQTT select entities (#33)
+        if self._mqtt_manager:
+            try:
+                await self._mqtt_manager.refresh_themes([{"id": t.id, "name": t.name} for t in device.themes])
+            except Exception as e:
+                logger.warning(f"Failed to refresh MQTT theme options: {e}")
 
         return {
             "status": "ok",

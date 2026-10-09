@@ -9,171 +9,203 @@
   ],
   "short_file_threshold": 15.0,
   "tracks": {
-    "Collecting_glassess_195": {
-      "volume": 1.0,
-      "presence": 0.42,
-      "muted": false,
-      "playback_mode": "sparse",
-      "exclusive": false,
-      "seamless_loop": true
-    },
-    "Cutlery_321": {
-      "volume": 1.0,
-      "presence": 0.26,
-      "muted": false,
-      "playback_mode": "sparse",
-      "exclusive": false,
-      "seamless_loop": true
-    },
-    "fireplace_663": {
-      "volume": 1.0,
+    "Collecting_glassess_195.mp3": {
       "presence": 1.0,
       "muted": false,
+      "volume": 1.0,
       "playback_mode": "auto",
-      "exclusive": false,
-      "seamless_loop": false
+      "seamless_loop": false,
+      "exclusive": false
     },
-    "glass_clink_653": {
-      "volume": 0.61,
-      "presence": 0.4,
-      "muted": false,
-      "playback_mode": "sparse",
-      "exclusive": false,
-      "seamless_loop": false
-    },
-    "Lute_-_Greensleeves_753": {
-      "volume": 1.0,
-      "presence": 0.0,
-      "muted": false,
-      "playback_mode": "sparse",
-      "exclusive": true,
-      "seamless_loop": true
-    },
-    "Lute_1_9542": {
-      "volume": 1.0,
-      "presence": 0.0,
-      "muted": false,
-      "playback_mode": "sparse",
-      "exclusive": true,
-      "seamless_loop": true
-    },
-    "Pouring_water_into_glass_199": {
-      "volume": 1.0,
-      "presence": 0.35,
-      "muted": false,
-      "playback_mode": "sparse",
-      "exclusive": false,
-      "seamless_loop": false
-    },
-    "Quiet_British_Pub_768": {
-      "volume": 0.58,
+    "Cutlery_321.mp3": {
       "presence": 1.0,
       "muted": false,
-      "playback_mode": "auto",
-      "exclusive": false,
-      "seamless_loop": false
-    },
-    "StrangerEight_1441": {
       "volume": 1.0,
-      "presence": 0.0,
+      "playback_mode": "auto",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "glass_clink_653.mp3": {
+      "presence": 1.0,
       "muted": false,
-      "playback_mode": "sparse",
-      "exclusive": true,
-      "seamless_loop": true
+      "volume": 1.0,
+      "playback_mode": "auto",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "Wooden_Door_Slamming_723.mp3": {
+      "presence": 1.0,
+      "muted": false,
+      "volume": 1.0,
+      "playback_mode": "auto",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "fireplace_663.mp3": {
+      "presence": 1.0,
+      "muted": false,
+      "volume": 1.0,
+      "playback_mode": "auto",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "Pouring_water_into_glass_199.mp3": {
+      "presence": 1.0,
+      "muted": false,
+      "volume": 1.0,
+      "playback_mode": "auto",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "Lute_-_Greensleeves_753.mp3": {
+      "presence": 1.0,
+      "muted": false,
+      "volume": 1.0,
+      "playback_mode": "auto",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "Quiet_British_Pub_768.mp3": {
+      "presence": 1.0,
+      "muted": false,
+      "volume": 1.0,
+      "playback_mode": "auto",
+      "seamless_loop": false,
+      "exclusive": false
     },
     "Wooden_Door_Slamming_723": {
-      "volume": 1.0,
       "presence": 0.47,
       "muted": false,
+      "volume": 1.0,
       "playback_mode": "sparse",
-      "exclusive": false,
-      "seamless_loop": true
+      "seamless_loop": true,
+      "exclusive": false
+    },
+    "Quiet_British_Pub_768": {
+      "presence": 1.0,
+      "muted": false,
+      "volume": 0.38,
+      "playback_mode": "auto",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "Pouring_water_into_glass_199": {
+      "presence": 0.35,
+      "muted": false,
+      "volume": 1.0,
+      "playback_mode": "sparse",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "Lute_-_Greensleeves_753": {
+      "presence": 0.17,
+      "muted": false,
+      "volume": 1.0,
+      "playback_mode": "sparse",
+      "seamless_loop": false,
+      "exclusive": true
+    },
+    "glass_clink_653": {
+      "presence": 0.4,
+      "muted": false,
+      "volume": 0.61,
+      "playback_mode": "sparse",
+      "seamless_loop": false,
+      "exclusive": false
+    },
+    "Cutlery_321": {
+      "presence": 0.26,
+      "muted": false,
+      "volume": 1.0,
+      "playback_mode": "sparse",
+      "seamless_loop": true,
+      "exclusive": false
+    },
+    "Collecting_glassess_195": {
+      "presence": 0.42,
+      "muted": false,
+      "volume": 1.0,
+      "playback_mode": "sparse",
+      "seamless_loop": true,
+      "exclusive": false
+    },
+    "fireplace_663": {
+      "presence": 1.0,
+      "muted": false,
+      "volume": 1.0,
+      "playback_mode": "auto",
+      "seamless_loop": false,
+      "exclusive": false
     }
   },
   "presets": {
-    "c2050c03": {
+    "slow_night_at_the_inn": {
       "name": "Slow night at the inn",
       "is_default": true,
       "tracks": {
-        "Collecting_glassess_195": {
-          "volume": 1.0,
-          "presence": 0.42,
-          "muted": false,
-          "playback_mode": "sparse",
-          "exclusive": false,
-          "seamless_loop": true
-        },
-        "Cutlery_321": {
-          "volume": 1.0,
-          "presence": 0.26,
-          "muted": false,
-          "playback_mode": "sparse",
-          "exclusive": false,
-          "seamless_loop": true
-        },
         "fireplace_663": {
           "volume": 1.0,
           "presence": 1.0,
-          "muted": false,
           "playback_mode": "auto",
+          "seamless_loop": false,
           "exclusive": false,
-          "seamless_loop": false
-        },
-        "glass_clink_653": {
-          "volume": 0.61,
-          "presence": 0.4,
-          "muted": false,
-          "playback_mode": "sparse",
-          "exclusive": false,
-          "seamless_loop": false
-        },
-        "Lute_-_Greensleeves_753": {
-          "volume": 1.0,
-          "presence": 0.0,
-          "muted": false,
-          "playback_mode": "sparse",
-          "exclusive": true,
-          "seamless_loop": true
-        },
-        "Lute_1_9542": {
-          "volume": 1.0,
-          "presence": 0.0,
-          "muted": false,
-          "playback_mode": "sparse",
-          "exclusive": true,
-          "seamless_loop": true
-        },
-        "Pouring_water_into_glass_199": {
-          "volume": 1.0,
-          "presence": 0.35,
-          "muted": false,
-          "playback_mode": "sparse",
-          "exclusive": false,
-          "seamless_loop": false
-        },
-        "Quiet_British_Pub_768": {
-          "volume": 0.58,
-          "presence": 1.0,
-          "muted": false,
-          "playback_mode": "auto",
-          "exclusive": false,
-          "seamless_loop": false
-        },
-        "StrangerEight_1441": {
-          "volume": 1.0,
-          "presence": 0.0,
-          "muted": false,
-          "playback_mode": "sparse",
-          "exclusive": true,
-          "seamless_loop": true
+          "muted": false
         },
         "Wooden_Door_Slamming_723": {
           "volume": 1.0,
           "presence": 0.47,
-          "muted": false,
           "playback_mode": "sparse",
+          "seamless_loop": true,
           "exclusive": false,
-          "seamless_loop": true
+          "muted": false
+        },
+        "Quiet_British_Pub_768": {
+          "volume": 0.38,
+          "presence": 1.0,
+          "playback_mode": "auto",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": false
+        },
+        "glass_clink_653": {
+          "volume": 0.61,
+          "presence": 0.4,
+          "playback_mode": "sparse",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": false
+        },
+        "Lute_-_Greensleeves_753": {
+          "volume": 1.0,
+          "presence": 0.17,
+          "playback_mode": "sparse",
+          "seamless_loop": false,
+          "exclusive": true,
+          "muted": false
+        },
+        "Pouring_water_into_glass_199": {
+          "volume": 1.0,
+          "presence": 0.35,
+          "playback_mode": "sparse",
+          "seamless_loop": false,
+          "exclusive": false,
+          "muted": false
+        },
+        "Cutlery_321": {
+          "volume": 1.0,
+          "presence": 0.26,
+          "playback_mode": "sparse",
+          "seamless_loop": true,
+          "exclusive": false,
+          "muted": false
+        },
+        "Collecting_glassess_195": {
+          "volume": 1.0,
+          "presence": 0.42,
+          "playback_mode": "sparse",
+          "seamless_loop": true,
+          "exclusive": false,
+          "muted": false
         }
       }
     }

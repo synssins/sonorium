@@ -105,7 +105,7 @@ class SessionMQTTEntities:
         await asyncio.sleep(0.05)
         await self._publish_speakers_sensor()
 
-        logger.info(f"Published MQTT discovery for session '{self.session.name}'")
+        logger.debug(f"Published MQTT discovery for session '{self.session.name}'")
     
     async def remove_discovery(self):
         """Remove MQTT discovery configs (publish empty payloads)."""
@@ -122,7 +122,7 @@ class SessionMQTTEntities:
             topic = self._get_discovery_topic(component, suffix)
             await self.mqtt_publish(topic, "", retain=True)
 
-        logger.info(f"Removed MQTT discovery for session '{self.session.name}'")
+        logger.debug(f"Removed MQTT discovery for session '{self.session.name}'")
     
     async def update_state(self):
         """Publish current state for all entities."""
@@ -424,7 +424,7 @@ class SonoriumMQTTManager:
                 )
                 # Log entity config publishes at info level for debugging
                 if "/config" in topic:
-                    logger.info(f"  MQTT: Published entity config to {topic}")
+                    logger.debug(f"  MQTT: Published entity config to {topic}")
             elif hasattr(self.mqtt_client, 'send'):
                 # fmtr.tools style
                 await self.mqtt_client.send(topic, payload, retain=retain)
@@ -442,7 +442,7 @@ class SonoriumMQTTManager:
         conditions). These old entities clutter the HA entity registry.
         """
         import asyncio
-        logger.info("  Clearing stale entities from old addon versions...")
+        logger.debug("  Clearing stale entities from old addon versions...")
 
         # Known stale entities from old addon versions that need to be deleted
         # Format: (component, object_id)
@@ -462,6 +462,9 @@ class SonoriumMQTTManager:
             ("switch", f"{self.prefix}_play"),
             ("select", f"{self.prefix}_theme"),
             ("sensor", f"{self.prefix}_active_sessions"),
+            # Old single media player (read by the mqtt_media_player custom
+            # integration, which errors on these after every HA restart)
+            ("media_player", self.prefix),
         ]
 
         for component, object_id in stale_entities:
@@ -469,14 +472,18 @@ class SonoriumMQTTManager:
             # Empty payload deletes the entity from HA
             await self._mqtt_publish(topic, "", retain=True)
 
-        logger.info(f"    Cleared {len(stale_entities)} stale entity configs")
+        # Retained state of that old media player
+        for field in ("state", "title", "artist", "volume", "available"):
+            await self._mqtt_publish(f"{self.prefix}/player/{field}", "", retain=True)
+
+        logger.debug(f"    Cleared {len(stale_entities)} stale entity configs")
 
         # Give HA time to process the deletions before creating new entities
         await asyncio.sleep(0.5)
 
     async def initialize(self):
         """Initialize MQTT entities for all sessions."""
-        logger.info("Initializing MQTT entities...")
+        logger.debug("Initializing MQTT entities...")
 
         # Clear stale entities first
         await self._clear_stale_entities()
@@ -489,7 +496,7 @@ class SonoriumMQTTManager:
         if self.state.sessions and not self._selected_session_id:
             first_session = next(iter(self.state.sessions.values()))
             self._selected_session_id = first_session.id
-            logger.info(f"  Auto-selected session: {first_session.name}")
+            logger.debug(f"  Auto-selected session: {first_session.name}")
 
         # Publish global entities
         await self._publish_global_entities()
@@ -497,7 +504,7 @@ class SonoriumMQTTManager:
         # Subscribe to command topics
         await self._subscribe_commands()
 
-        logger.info(f"MQTT initialized with {len(self._session_entities)} sessions")
+        logger.debug(f"MQTT initialized with {len(self._session_entities)} sessions")
     
     async def add_session_entities(self, session: Session):
         """Add MQTT entities for a new session."""
@@ -583,10 +590,51 @@ class SonoriumMQTTManager:
 
         logger.info(f"  Refreshed MQTT discovery for session '{session.name}'")
 
+    async def _publish_global_theme_config(self):
+        """Publish the global theme select's discovery config (options = theme names)."""
+        # NOTE: Using "global_theme" to avoid conflict with stuck old "theme" entity
+        # Use theme NAMES for options, map to IDs internally
+        theme_options = [""]  # Empty = no theme
+        self._theme_name_to_id = {}  # Map theme names to IDs
+        self._theme_id_to_name = {}  # Map theme IDs to names
+        for theme in self._themes:
+            theme_id = theme.get("id")
+            theme_name = theme.get("name")
+            if theme_id and theme_name:
+                theme_options.append(theme_name)
+                self._theme_name_to_id[theme_name] = theme_id
+                self._theme_id_to_name[theme_id] = theme_name
+        logger.debug(f"    Theme select options: {len(theme_options) - 1} themes")
+
+        config = {
+            "name": "Sonorium Theme",
+            "unique_id": f"{self.prefix}_global_theme",
+            "default_entity_id": f"select.{self.prefix}_global_theme",
+            "state_topic": f"{self.prefix}/theme/state",
+            "command_topic": f"{self.prefix}/theme/set",
+            "options": theme_options,
+            "icon": "mdi:music-box-multiple",
+            "device": self.device_info,
+        }
+        await self._mqtt_publish(
+            f"homeassistant/select/{self.prefix}_global_theme/config",
+            json.dumps(config),
+            retain=True,
+        )
+
+    async def refresh_themes(self, themes: list[dict]):
+        """Republish theme selects after themes are added, renamed or deleted (#33)."""
+        self.set_themes(themes)
+        await self._publish_global_theme_config()
+        for entities in self._session_entities.values():
+            entities.themes = themes
+            await entities._publish_theme_select()
+        await self.sync_all_states()
+
     async def _publish_global_entities(self):
         """Publish global Sonorium entities including session selector and controls."""
         import asyncio
-        logger.info("  Publishing global entities...")
+        logger.debug("  Publishing global entities...")
 
         # === SESSION SELECTOR ===
         # Dropdown to select which session to control (uses names, maps to IDs)
@@ -613,7 +661,7 @@ class SonoriumMQTTManager:
             json.dumps(config),
             retain=True,
         )
-        logger.info("    Published: select.sonorium_session")
+        logger.debug("    Published: select.sonorium_session")
 
         # Wait for HA to process discovery config before publishing state
         await asyncio.sleep(0.1)
@@ -663,35 +711,7 @@ class SonoriumMQTTManager:
         await asyncio.sleep(0.1)
 
         # === GLOBAL THEME SELECT ===
-        # NOTE: Using "global_theme" to avoid conflict with stuck old "theme" entity
-        # Use theme NAMES for options, map to IDs internally
-        theme_options = [""]  # Empty = no theme
-        self._theme_name_to_id = {}  # Map theme names to IDs
-        self._theme_id_to_name = {}  # Map theme IDs to names
-        for theme in self._themes:
-            theme_id = theme.get("id")
-            theme_name = theme.get("name")
-            if theme_id and theme_name:
-                theme_options.append(theme_name)
-                self._theme_name_to_id[theme_name] = theme_id
-                self._theme_id_to_name[theme_id] = theme_name
-        logger.info(f"    Theme select options: {len(theme_options) - 1} themes")
-
-        config = {
-            "name": "Sonorium Theme",
-            "unique_id": f"{self.prefix}_global_theme",
-            "default_entity_id": f"select.{self.prefix}_global_theme",
-            "state_topic": f"{self.prefix}/theme/state",
-            "command_topic": f"{self.prefix}/theme/set",
-            "options": theme_options,
-            "icon": "mdi:music-box-multiple",
-            "device": self.device_info,
-        }
-        await self._mqtt_publish(
-            f"homeassistant/select/{self.prefix}_global_theme/config",
-            json.dumps(config),
-            retain=True,
-        )
+        await self._publish_global_theme_config()
         # Wait for HA to process discovery config before publishing state
         await asyncio.sleep(0.1)
         # Publish initial state
@@ -851,7 +871,7 @@ class SonoriumMQTTManager:
         # Wait for HA to process discovery config before publishing state
         await asyncio.sleep(0.1)
 
-        logger.info("  Global entities published: session, play, theme, preset, volume, status, speakers, stop_all, active_sessions")
+        logger.debug("  Global entities published: session, play, theme, preset, volume, status, speakers, stop_all, active_sessions")
 
         # Update active sessions count (publishes initial state)
         await self._update_active_sessions_count()
@@ -998,6 +1018,21 @@ class SonoriumMQTTManager:
         await self._mqtt_publish(
             f"homeassistant/select/{self.prefix}_session/config",
             json.dumps(config),
+            retain=True,
+        )
+
+        # Republish the selection by its current name; after a rename the
+        # retained state still holds the old name, which HA rejects (#16)
+        import asyncio
+        await asyncio.sleep(0.1)
+        selected_name = ""
+        if self._selected_session_id:
+            session = self.state.sessions.get(self._selected_session_id)
+            if session:
+                selected_name = session.name or session.id
+        await self._mqtt_publish(
+            f"{self.prefix}/session/state",
+            selected_name,
             retain=True,
         )
 

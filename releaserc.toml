@@ -1,0 +1,48 @@
+# python-semantic-release config for the Home Assistant add-on version.
+# Used by .github/workflows/addon-version.yml — see docs/VERSIONING.md.
+#
+# Single source of truth: sonorium_addon/sonorium/version.
+# The build_command writes the new version there, then sync_version.py
+# copies it into config.yaml (what HA Supervisor reads) and the Dockerfile.
+
+[semantic_release]
+tag_format = "addon-v{version}"
+commit_message = "chore(release): add-on {version} [skip ci]"
+commit_author = "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+build_command = """
+printf '%s\\n' "$NEW_VERSION" > sonorium_addon/sonorium/version
+python sonorium_addon/sync_version.py
+"""
+assets = [
+    "sonorium_addon/sonorium/version",
+    "sonorium_addon/config.yaml",
+    "sonorium_addon/Dockerfile",
+]
+allow_zero_version = false
+no_git_verify = true
+
+[semantic_release.branches.main]
+match = "^main$"
+prerelease = false
+
+# Every other branch (the fix branch) gets -dev.N pre-releases so each
+# push shows up as an update in HA when installed via repo-url#branch.
+[semantic_release.branches.dev]
+match = "^(?!main$).+"
+prerelease = true
+prerelease_token = "dev"
+
+[semantic_release.commit_parser_options]
+minor_tags = ["feat"]
+patch_tags = ["fix", "perf", "refactor", "build", "revert"]
+
+[semantic_release.changelog]
+mode = "update"
+exclude_commit_patterns = ["^chore\\(release\\)"]
+
+[semantic_release.changelog.default_templates]
+# Inside the add-on folder so HA shows it in the update dialog.
+changelog_file = "sonorium_addon/CHANGELOG.md"
+
+[semantic_release.remote]
+type = "github"

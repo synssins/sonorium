@@ -4,91 +4,42 @@
 
 **Multi-Zone Ambient Soundscape Mixer for Home Assistant**
 
-[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium.dev)
+[![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium)
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
-## What's New in v1.2.83
+## What's New in v1.3.0
 
-### Plugin Browser & Catalog
+- **Google Cast fixed.** Cast speakers (Chromecast, Nest Hub, Google Home) that stayed silent now play, and playback starts about 5 seconds faster. Thanks to @sh00t2kill (#43).
+- **No more gaps when tracks loop.** The loop crossfade was cut short and the track restarted from the beginning on every loop (#38).
+- **Stopped speakers free their channel.** If a channel's speakers stop taking audio for 90 seconds (stopped from the speaker or from Home Assistant), Sonorium stops the channel. **Stop All** also stops paused channels (#29).
+- **MQTT entities stay in sync.**
+  - Channel renames, deletes and theme changes update Home Assistant's entities (#16, #33).
+  - Commands from Home Assistant keep working after the Mosquitto broker restarts.
+- **More reliable startup.**
+  - Sonorium waits for the Mosquitto broker to start instead of failing (#42).
+  - It runs on virtual machines with a basic virtual CPU, such as Proxmox's default `kvm64` (#18, #39).
+- **Uninstall removes settings.** Settings, channels and plugins now live in the add-on's own config folder, and existing settings are copied there automatically on first start (#30). Themes stay in `/media/sonorium`.
+- **Quieter, safer logs.**
+  - A new `log_level` option: `info` shows a short summary; `debug` adds detail and library versions.
+  - Debug logs no longer contain the MQTT password.
+- **Name and plugins.** The add-on is now just "Sonorium" (#40), and the Plugin Browser works again.
+- **Mobile.** Your browser and the HA app always load the current version of the page after an update (#28).
 
-- **Browse Available Plugins** - New "Browse Catalog" tab in Settings → Plugins lets you discover and install plugins directly from the Sonorium plugin repository with one click.
-- **One-Click Install** - Install plugins without manually downloading ZIP files. The catalog shows installed status and available updates.
-
-### UI Improvements
-
-- **Page Refresh Persistence** - Refreshing the browser now stays on your current page instead of returning to Channels view. Your navigation state is preserved across refreshes.
-- **Settings Menu Stays Expanded** - When viewing any Settings sub-page (Audio, Speakers, Groups, Plugins), the Settings menu remains expanded through page refreshes.
-- **Speaker IP Addresses** - The Settings → Speakers page now displays each speaker's IP address for easier network troubleshooting.
-
-### Bug Fixes
-
-- **MQTT Entity Compatibility** - Updated MQTT discovery to use `default_entity_id` instead of deprecated `object_id` for Home Assistant Core 2026.4+ compatibility.
-- **Plugin Catalog Refresh** - Uninstalling a plugin now immediately updates the catalog's "Installed" status without requiring a page refresh.
-
----
-
-## What's New in v1.2.70
-
-### Sonos Detection Improvement
-
-- **Renamed Sonos Entity Support** - Sonos speakers are now detected using Home Assistant's entity registry `platform` field rather than relying on the entity_id containing "sonos". Users who have renamed their Sonos entities to custom names will now have them properly detected and streamed via the SoCo library for reliable playback.
-
-### Device-Inherited Area Fix
-
-- **Speakers Show Correct Areas** - Fixed an issue where speakers assigned to an area via their parent device (rather than directly on the entity) would show as "Unassigned" in Sonorium. The addon now checks both entity-level and device-level area assignments.
-
----
-
-## What's New in v1.2.67
-
-### Configuration Fix
-
-- **Max Channels Setting Now Works** - Fixed an issue where the `sonorium__max_channels` addon setting was ignored. Users can now configure up to 10 channels as intended.
-
----
-
-## What's New in v1.2.66
-
-### Google Cast Streaming Fixed
-
-Sonorium now reliably streams to Google Cast devices (Chromecast, Nest Hub, Google Home) even in complex network setups:
-
-- **HA API Fallback** - When Cast device IP cannot be discovered (e.g., device on a different VLAN where mDNS doesn't work), Sonorium automatically falls back to Home Assistant's `media_player.play_media` service. HA's native Cast integration already knows how to reach the device.
-- **mDNS Discovery** - Added zeroconf/mDNS network discovery as an additional IP resolution method for Cast devices on the same network segment.
-- **Improved Device Detection** - Broader recognition of Cast device types including Nest Hub displays, Chromecast variants, and Google Home speakers.
-
-### Sonos WebSocket Fix
-
-- **Large Installation Support** - Fixed "message too big" WebSocket error that occurred when querying the device registry in Home Assistant installations with many devices (9000+). Increased message limit from 1MB to 10MB.
-
-### Settings → Speakers UI Restored
-
-- **Floor/Room Hierarchy** - Fixed a regression where the Settings → Speakers page displayed a spinning circle instead of the proper floor/area/speaker tree view.
-
-### Sparse Playback Timing
-
-- **Exclusive Track Spacing** - Increased the minimum gap between exclusive tracks from 30 seconds to 2 minutes. This prevents multiple exclusive tracks (like different lute songs in a tavern theme) from playing back-to-back.
-
----
+Full history: [CHANGELOG.md](CHANGELOG.md).
 
 ## MQTT Discovery Troubleshooting
 
-Session MQTT discovery IDs and topics keep the session's original slug, stored as
-`entity_slug` in `/config/sonorium/state.json`. Renaming a session updates its
-display names without changing its discovery identity, including after restarts.
-Existing state files acquire the slug from each session's current name when loaded.
+Channels keep the MQTT identity they were created with, so renaming a channel
+changes its display name but not its entity IDs. Your automations keep working.
 
-Older versions could leave retained discovery configs behind when a renamed
-session was loaded after a restart. These obsolete configs are not automatically
-removed, because their previous names are not recorded in the state file.
-
-To remove an existing duplicate, identify its obsolete discovery topic using
-Home Assistant's MQTT device diagnostics or an MQTT client. Publish an empty,
-retained payload to that exact `homeassistant/<component>/<object_id>/config`
-topic. Only remove the obsolete topic, not the active session's config. Deleting
-the entity in Home Assistant alone can allow the broker's retained config to
-recreate it. Back up any automations referencing an entity before removing it.
+Versions before 1.3.0 could leave behind entities for channels that were
+renamed or deleted. To remove one, find its discovery topic
+(`homeassistant/<component>/<object_id>/config`, shown in the entity's MQTT
+info), then go to Settings → Devices & services → MQTT → **Configure**, enter
+that topic under **Publish a packet**, leave the payload empty, tick **Retain**
+and publish. Only remove leftover topics, not current channels. Back up any
+automations that use the entity first.
 
 ## Acknowledgements
 
@@ -208,6 +159,11 @@ All theme management is done through the Sonorium web interface:
 
 **Bundled Themes:** Sleigh Ride, Tavern, and "A Rainy Day... Or is it?" are included out of the box.
 
+## Requirements
+
+- **An MQTT broker.** Install the **Mosquitto broker** add-on (Settings → Add-ons → Add-on Store), start it, and turn on **Start on boot**. Sonorium finds it automatically. Without a broker, Sonorium won't start and the sidebar shows **502: Bad Gateway**. Using a different broker? Set `sonorium__mqtt_host` (and port, username, password) in Sonorium's configuration.
+- **Home Assistant in a virtual machine (Proxmox etc.):** if Sonorium's log shows a numpy or CPU error at startup, set the VM's CPU type to **host** (Proxmox: VM → Hardware → Processors → Type), then fully shut down and start the VM. The default `kvm64` type hides CPU features some audio libraries need.
+
 ## Quick Start
 
 1. **Install** the addon and start it
@@ -222,9 +178,16 @@ All theme management is done through the Sonorium web interface:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
+| `log_level` | `info` | `info` shows a startup summary and errors; `debug` adds per-theme and per-speaker detail and library versions |
 | `sonorium__stream_url` | `auto` | Base URL for streams (auto-detects HA IP) |
 | `sonorium__path_audio` | `/media/sonorium` | Path to theme folders |
 | `sonorium__max_channels` | `6` | Maximum concurrent channels (1-10) |
+| `sonorium__mqtt_host` | `auto` | MQTT broker. `auto` uses the Mosquitto broker add-on; set a host only for a different broker (plus port, username, password) |
+
+### Where data is stored
+
+- **Settings, channels and plugins:** the add-on's own config folder (`addon_configs/<id>_sonorium/sonorium` in your HA config share). Uninstalling with "delete data" removes it.
+- **Themes and audio:** `/media/sonorium`. These are your files and are never deleted by an uninstall.
 
 ### Web UI Settings
 
@@ -265,9 +228,10 @@ Sonorium provides a REST API for integration and automation:
 - Check the channel volume and master gain aren't set to 0
 
 ### Cast Device Not Playing
-- This is usually a network/VLAN issue—v1.2.66 adds HA API fallback to handle this automatically
-- Check addon logs for "Using HA API fallback" message
-- Verify HA can control the Cast device (test volume control)
+- Update to 1.3.0 or later: earlier versions sent an option that made idle Cast devices ignore playback
+- Check that Home Assistant itself can control the device (change its volume from HA)
+- Cast devices take about 10 seconds to start: they fill a buffer before playing
+- In the add-on's **Log** tab, the lines from "Playing session" to "speakers started" show what happened
 
 ### Speakers Not Showing
 - Ensure speakers are media_player entities in Home Assistant
@@ -285,4 +249,4 @@ See LICENSE file for details.
 
 ## Contributing
 
-Contributions are welcome! Please see the [ROADMAP](https://github.com/synssins/sonorium/blob/main/ROADMAP.md) for planned features and development direction.
+Contributions are welcome! Please open an issue to discuss changes before submitting a PR.

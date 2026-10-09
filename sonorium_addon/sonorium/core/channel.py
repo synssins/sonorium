@@ -75,6 +75,11 @@ class Channel:
     # Active client count (for resource management)
     _client_count: int = 0
 
+    # When a listener last pulled audio (or playback started), for idle detection.
+    # Connection count alone isn't enough: a Cast device stopped from HA can keep
+    # its connection open without reading.
+    _last_listener_time: float = field(default_factory=time.monotonic)
+
     # Lock for thread-safe operations
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
@@ -136,6 +141,16 @@ class Channel:
         """Check if channel has connected clients."""
         return self._client_count > 0
 
+    def idle_seconds(self) -> float:
+        """Seconds since any listener pulled audio from this playing channel."""
+        if self.state != ChannelState.PLAYING:
+            return 0.0
+        return time.monotonic() - self._last_listener_time
+
+    def mark_listener_active(self) -> None:
+        """Record that a listener just pulled audio."""
+        self._last_listener_time = time.monotonic()
+
     @property
     def stream_path(self) -> str:
         """Get the stream URL path for this channel."""
@@ -152,7 +167,7 @@ class Channel:
                 return
 
             old_theme = self._current_theme.name if self._current_theme else "none"
-            logger.info(f"Channel {self.id}: Changing theme from '{old_theme}' to '{theme.name}'")
+            logger.debug(f"Channel {self.id}: Changing theme from '{old_theme}' to '{theme.name}'")
 
             self._theme_version += 1
 
@@ -164,6 +179,7 @@ class Channel:
                 # No generator running, start fresh
                 self._current_theme = theme
                 self.state = ChannelState.PLAYING
+                self._last_listener_time = time.monotonic()
                 self._theme_stream = theme.get_stream()
                 self._chunk_generator = self._theme_stream.iter_chunks()
                 self._ensure_generator_running()
@@ -216,11 +232,11 @@ class Channel:
         self._generator_running = True
         self._generator_thread = threading.Thread(target=self._generator_loop, daemon=True)
         self._generator_thread.start()
-        logger.info(f"Channel {self.id}: Started generator thread")
+        logger.debug(f"Channel {self.id}: Started generator thread")
 
     def _generator_loop(self):
         """Background thread that generates audio chunks."""
-        logger.info(f"Channel {self.id}: Generator loop started")
+        logger.debug(f"Channel {self.id}: Generator loop started")
 
         start_time = time.time()
         audio_time = 0.0
@@ -259,7 +275,7 @@ class Channel:
             # Wake up any waiting clients so they can exit
             with self._data_available:
                 self._data_available.notify_all()
-            logger.info(f"Channel {self.id}: Generator loop stopped")
+            logger.debug(f"Channel {self.id}: Generator loop stopped")
 
     def _do_crossfade_in_thread(self):
         """Perform crossfade to pending theme (called from generator thread)."""
@@ -322,11 +338,13 @@ class Channel:
     def client_connected(self) -> None:
         """Track a new client connection."""
         self._client_count += 1
+        self._last_listener_time = time.monotonic()
         logger.info(f"Channel {self.id}: Client connected ({self._client_count} total)")
 
     def client_disconnected(self) -> None:
         """Track a client disconnection."""
         self._client_count = max(0, self._client_count - 1)
+        self._last_listener_time = time.monotonic()
         logger.info(f"Channel {self.id}: Client disconnected ({self._client_count} remaining)")
 
     def get_current_sequence(self) -> int:
@@ -390,6 +408,7 @@ class ChannelStream:
                 chunks = self.channel.get_chunks_since(self._last_sequence)
 
                 if chunks:
+                    self.channel.mark_listener_active()
                     for seq, chunk in chunks:
                         self._last_sequence = seq
 
@@ -404,7 +423,7 @@ class ChannelStream:
                     self.channel.wait_for_data(timeout=0.05)
 
         finally:
-            logger.info(f'Channel {self.channel.id}: Client stream closed')
+            logger.debug(f'Channel {self.channel.id}: Client stream closed')
             self.channel.client_disconnected()
             output.close()
 
@@ -425,7 +444,7 @@ class ChannelManager:
         for i in range(1, max_channels + 1):
             self._channels[i] = Channel(id=i)
 
-        logger.info(f"ChannelManager initialized with {max_channels} channels")
+        logger.debug(f"ChannelManager initialized with {max_channels} channels")
 
     def get_channel(self, channel_id: int) -> Optional[Channel]:
         """Get a channel by ID."""
