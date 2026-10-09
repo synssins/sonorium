@@ -35,10 +35,11 @@ def load_session_manager():
                 sys.modules[name] = mod
 
 
-def make_manager(enabled):
+def make_manager(enabled, exact=True):
     module, state = load_session_manager()
     manager = module.SessionManager.__new__(module.SessionManager)
-    manager.state = SimpleNamespace(settings=SimpleNamespace(enabled_speakers=enabled), speaker_groups={})
+    settings = state.SonoriumSettings(enabled_speakers=list(enabled), enabled_speakers_exact=exact)
+    manager.state = SimpleNamespace(settings=settings, speaker_groups={})
     manager.registry = Mock()
     manager.registry.resolve_selection.return_value = ["media_player.a", "media_player.disabled", "net:dlna:x"]
     session = SimpleNamespace(speaker_group_id=None, adhoc_selection=SimpleNamespace(
@@ -51,11 +52,47 @@ def test_disabled_speakers_are_not_played():
     assert manager.get_resolved_speakers(session) == ["media_player.a", "net:dlna:x"]
 
 
-def test_no_enabled_list_means_all_enabled():
+def test_only_switched_on_speakers_are_played():
     manager, session = make_manager([])
+    assert manager.get_resolved_speakers(session) == []
+
+
+def test_old_empty_list_still_means_all_until_converted():
+    manager, session = make_manager([], exact=False)
     assert manager.get_resolved_speakers(session) == ["media_player.a", "media_player.disabled", "net:dlna:x"]
 
 
-def test_all_disabled_plays_nothing():
-    manager, session = make_manager(["__none__"])
+def test_old_none_marker_plays_nothing():
+    manager, session = make_manager(["__none__"], exact=False)
     assert manager.get_resolved_speakers(session) == []
+
+
+def settings_module():
+    return load_session_manager()[1]
+
+
+def test_old_state_file_loads_as_not_exact():
+    state = settings_module()
+    assert state.SonoriumSettings.from_dict({"enabled_speakers": []}).enabled_speakers_exact is False
+    assert state.SonoriumSettings().enabled_speakers_exact is True  # new installs
+
+
+def test_migration_keeps_what_was_visible():
+    state = settings_module()
+    s = state.SonoriumSettings.from_dict({"enabled_speakers": []})
+    assert s.migrate_enabled_speakers(["a", "b"]) is True
+    assert (s.enabled_speakers, s.enabled_speakers_exact) == (["a", "b"], True)
+    s = state.SonoriumSettings.from_dict({"enabled_speakers": ["__none__"]})
+    s.migrate_enabled_speakers(["a", "b"])
+    assert s.enabled_speakers == []
+    s = state.SonoriumSettings.from_dict({"enabled_speakers": ["b"]})
+    s.migrate_enabled_speakers(["a", "b"])
+    assert s.enabled_speakers == ["b"]
+
+
+def test_migration_waits_for_the_speaker_list():
+    state = settings_module()
+    s = state.SonoriumSettings.from_dict({"enabled_speakers": []})
+    assert s.migrate_enabled_speakers([]) is False
+    assert s.enabled_speakers_exact is False
+    assert s.speaker_enabled("anything") is True  # old meaning kept meanwhile

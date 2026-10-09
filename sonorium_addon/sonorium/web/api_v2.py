@@ -194,7 +194,7 @@ class UpdateSettingsRequest(BaseModel):
 
 class SpeakerSettingsResponse(BaseModel):
     """Speaker settings response with hierarchy."""
-    enabled_speakers: list[str]  # Empty = all enabled
+    enabled_speakers: list[str]  # Exact: only these are switched on
     hierarchy: Optional[dict] = None  # Full speaker hierarchy
 
 
@@ -1105,11 +1105,8 @@ def create_api_router(
         settings = state_store.settings
         if request.room:
             settings.speaker_settings[speaker.id] = {"room": request.room}
-        # An explicit enabled list would hide the new speaker: it was added on purpose, so enable it
-        if settings.enabled_speakers == ["__none__"]:
-            settings.enabled_speakers = [speaker.id]
-        elif settings.enabled_speakers and speaker.id not in settings.enabled_speakers:
-            settings.enabled_speakers.append(speaker.id)
+        # Added on purpose, so switch it on
+        _set_speaker_enabled(speaker.id, True)
         state_store.save()
         ha_registry.merge_extra_speakers()
 
@@ -1130,10 +1127,7 @@ def create_api_router(
         for other in settings.speaker_settings.values():
             if other.get("play_via") == speaker_id:
                 other.pop("play_via", None)
-        if speaker_id in settings.enabled_speakers:
-            settings.enabled_speakers.remove(speaker_id)
-            if not settings.enabled_speakers:
-                settings.enabled_speakers = ["__none__"]
+        _set_speaker_enabled(speaker_id, False)
         state_store.save()
         ha_registry.merge_extra_speakers()
         return {"removed": speaker_id}
@@ -1153,6 +1147,34 @@ def create_api_router(
             "count": len(speakers),
         }
     
+    # --- Enabled speakers (Settings > Speakers): an exact list ---
+
+    def _migrate_enabled_speakers():
+        """Convert an older "empty = all" list once the speaker list is known."""
+        if ha_registry and state_store.settings.migrate_enabled_speakers(ha_registry.get_all_speaker_ids()):
+            state_store.save()
+
+    def _set_speaker_enabled(speaker_id: str, enabled: bool):
+        _migrate_enabled_speakers()
+        settings = state_store.settings
+        if not settings.enabled_speakers_exact:
+            # Speaker list still unknown: start an exact list from what we know
+            settings.enabled_speakers = [s for s in settings.enabled_speakers if s != "__none__"]
+            settings.enabled_speakers_exact = True
+        if enabled and speaker_id not in settings.enabled_speakers:
+            settings.enabled_speakers.append(speaker_id)
+        elif not enabled and speaker_id in settings.enabled_speakers:
+            settings.enabled_speakers.remove(speaker_id)
+
+    def _enabled_speakers_response() -> SpeakerSettingsResponse:
+        _migrate_enabled_speakers()
+        settings = state_store.settings
+        all_ids = ha_registry.get_all_speaker_ids() if ha_registry else []
+        return SpeakerSettingsResponse(
+            enabled_speakers=settings.effective_enabled_speakers(all_ids),
+            hierarchy=ha_registry.get_hierarchy_dict() if ha_registry else None,
+        )
+
     # --- Settings Endpoints ---
     
     @router.get("/settings")
@@ -1214,124 +1236,48 @@ def create_api_router(
     @router.get("/settings/speakers")
     async def get_speaker_settings() -> SpeakerSettingsResponse:
         """Get enabled speakers and full hierarchy."""
-        settings = state_store.settings
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
+        return _enabled_speakers_response()
 
     @router.put("/settings/speakers")
     async def update_speaker_settings(request: UpdateSpeakerSettingsRequest) -> SpeakerSettingsResponse:
         """Update enabled speakers list."""
         settings = state_store.settings
-        settings.enabled_speakers = request.enabled_speakers
+        settings.enabled_speakers = [s for s in request.enabled_speakers if s != "__none__"]
+        settings.enabled_speakers_exact = True
         state_store.save()
-
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
+        return _enabled_speakers_response()
 
     @router.post("/settings/speakers/enable")
     async def enable_speaker(request: SingleSpeakerRequest) -> SpeakerSettingsResponse:
-        """Enable a single speaker."""
-        settings = state_store.settings
-        entity_id = request.entity_id
-
-        # If enabled_speakers is empty, all are enabled - nothing to do
-        if not settings.enabled_speakers:
-            # Actually if empty = all enabled, then enabling one speaker doesn't change anything
-            pass
-        elif settings.enabled_speakers == ["__none__"]:
-            # Sentinel value means no speakers enabled - replace with just this speaker
-            settings.enabled_speakers = [entity_id]
-            state_store.save()
-        else:
-            # Add to enabled list if not already there
-            if entity_id not in settings.enabled_speakers:
-                settings.enabled_speakers.append(entity_id)
-                state_store.save()
-
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
+        """Switch a speaker on."""
+        _set_speaker_enabled(request.entity_id, True)
+        state_store.save()
+        return _enabled_speakers_response()
 
     @router.post("/settings/speakers/disable")
     async def disable_speaker(request: SingleSpeakerRequest) -> SpeakerSettingsResponse:
-        """Disable a single speaker."""
-        settings = state_store.settings
-        entity_id = request.entity_id
-
-        # If enabled_speakers is empty, all are enabled - need to switch to explicit mode
-        if not settings.enabled_speakers:
-            # Get all speakers and add all except the one being disabled
-            if ha_registry:
-                all_speakers = ha_registry.get_all_speaker_ids()
-                settings.enabled_speakers = [s for s in all_speakers if s != entity_id]
-            else:
-                # Can't disable without knowing all speakers
-                raise HTTPException(status_code=400, detail="Cannot disable speaker: speaker list not available")
-        else:
-            # Remove from enabled list
-            if entity_id in settings.enabled_speakers:
-                settings.enabled_speakers.remove(entity_id)
-
-        # If enabled_speakers is now empty (user disabled their only speaker),
-        # use sentinel value to indicate "no speakers enabled" (not "all enabled")
-        if not settings.enabled_speakers:
-            settings.enabled_speakers = ["__none__"]
-
+        """Switch a speaker off."""
+        _set_speaker_enabled(request.entity_id, False)
         state_store.save()
-
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
+        return _enabled_speakers_response()
 
     @router.post("/settings/speakers/enable-all")
     async def enable_all_speakers() -> SpeakerSettingsResponse:
-        """Enable all speakers (clear the enabled list)."""
+        """Switch every known speaker on."""
         settings = state_store.settings
-        settings.enabled_speakers = []  # Empty = all enabled
+        settings.enabled_speakers = ha_registry.get_all_speaker_ids() if ha_registry else []
+        settings.enabled_speakers_exact = True
         state_store.save()
-
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
+        return _enabled_speakers_response()
 
     @router.post("/settings/speakers/disable-all")
     async def disable_all_speakers() -> SpeakerSettingsResponse:
-        """Disable all speakers (set to special sentinel value)."""
+        """Switch every speaker off."""
         settings = state_store.settings
-        settings.enabled_speakers = ["__none__"]  # Special value = no speakers enabled
+        settings.enabled_speakers = []
+        settings.enabled_speakers_exact = True
         state_store.save()
-
-        hierarchy = None
-        if ha_registry:
-            hierarchy = ha_registry.get_hierarchy_dict()
-        return SpeakerSettingsResponse(
-            enabled_speakers=settings.enabled_speakers,
-            hierarchy=hierarchy,
-        )
-
-    # --- Custom Speaker Areas (fallback when HA areas unavailable) ---
+        return _enabled_speakers_response()
 
     @router.get("/settings/speaker-areas")
     async def get_custom_speaker_areas() -> dict:

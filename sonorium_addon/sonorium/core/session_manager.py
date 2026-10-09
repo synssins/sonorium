@@ -663,10 +663,7 @@ class SessionManager:
         return self._only_enabled(self._resolve_selection(session))
 
     def _only_enabled(self, speaker_ids: list[str]) -> list[str]:
-        enabled = list(getattr(self.state.settings, "enabled_speakers", None) or [])
-        if not enabled:
-            return speaker_ids  # nothing configured yet: every speaker is enabled
-        return [speaker_id for speaker_id in speaker_ids if speaker_id in enabled]
+        return [speaker_id for speaker_id in speaker_ids if self.state.settings.speaker_enabled(speaker_id)]
 
     def _resolve_selection(self, session: Session) -> list[str]:
         if session.speaker_group_id:

@@ -1194,12 +1194,13 @@ function onChannelPresetChange() {
 
 // Speaker Tree
 function isSpeakerEnabled(entityId) {
-    if (!enabledSpeakers || enabledSpeakers.length === 0) return true;
-    return enabledSpeakers.includes(entityId);
+    // Only speakers switched on in Settings > Speakers (an exact list)
+    return (enabledSpeakers || []).includes(entityId);
 }
 
+// Channel picker: switched-on speakers that are online
 function getEnabledSpeakersInArea(area) {
-    return (area.speakers || []).filter(s => isSpeakerEnabled(s.entity_id));
+    return (area.speakers || []).filter(s => isSpeakerEnabled(s.entity_id) && s.online !== false);
 }
 
 function getEnabledAreasInFloor(floor) {
@@ -1343,6 +1344,7 @@ function pickerCount(ids, selected) {
 }
 
 function pickerMatches(speaker, query) {
+    if (speaker.online === false) return false;
     return !query || (speaker.name || '').toLowerCase().includes(query);
 }
 
@@ -1458,7 +1460,7 @@ function renderSpeakerChips(selected) {
     if (!container) return;
     const known = allHierarchySpeakers();
     const knownIds = new Set(known.map(s => s.entity_id));
-    const chips = known.filter(s => selected.has(s.entity_id)).map(s => [s.entity_id, s.name])
+    const chips = known.filter(s => selected.has(s.entity_id) && s.online !== false).map(s => [s.entity_id, s.name])
         .concat([...selected].filter(id => !knownIds.has(id)).map(id => [id, id]));
     container.innerHTML = chips.map(([id, name]) => `
         <span class="chip">${escapeHtml(name)}<button type="button" data-id="${escapeHtml(id)}" aria-label="Remove ${escapeHtml(name)}"
@@ -3804,7 +3806,7 @@ function renderSettingsSpeakerTree() {
         : null;
 
     const query = (document.getElementById('spk-search')?.value || '').trim().toLowerCase();
-    const isAllEnabled = !enabledSpeakers || enabledSpeakers.length === 0;
+    const isAllEnabled = false;  // the enabled list is exact
     const rooms = allSpeakerRooms();
     const html = settingsSpeakerGroups().map(group => {
         const rows = group.speakers.filter(s => speakerMatchesSettingsFilter(s, query));

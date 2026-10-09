@@ -218,6 +218,15 @@ class ApiSonorium(api.Base):
             except Exception as e:
                 logger.warning(f"  Could not load HA registry (floors/areas may not work): {e}")
 
+            # Older settings used "no speakers listed = all enabled"; make the list
+            # exact (keeping what was visible) now that the speakers are known
+            try:
+                if self._state_store.settings.migrate_enabled_speakers(self._ha_registry.get_all_speaker_ids()):
+                    self._state_store.save()
+                    logger.info(f"  Speaker settings updated: {len(self._state_store.settings.enabled_speakers)} speakers switched on")
+            except Exception as e:
+                logger.warning(f"  Could not update speaker settings: {e}")
+
             # Initialize media controller
             self._media_controller = HAMediaController(api_url, settings.token)
             if self._network_service:
