@@ -1223,8 +1223,9 @@ class ApiSonorium(api.Base):
                     metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
 
                 if metadata:
-                    # Apply short_file_threshold from metadata
+                    # Apply short_file_threshold and group settings from metadata
                     theme.short_file_threshold = metadata.short_file_threshold
+                    theme.groups = dict(getattr(metadata, "groups", None) or {})
 
                 for inst in theme.instances:
                     if metadata:
@@ -1718,6 +1719,17 @@ class ApiSonorium(api.Base):
 
     # ==================== Preset API ====================
 
+    def _get_current_group_settings(self, theme_id: str) -> dict:
+        """The theme's group master settings as a preset saves them ({group: {volume, presence, muted}})."""
+        from sonorium.recording import GROUP_TRACK_SETTINGS
+        theme, _ = self._get_theme_by_id(theme_id)
+        groups = getattr(theme, "groups", None) or {} if theme else {}
+        return {
+            name: {k: v for k, v in (settings or {}).items() if k in GROUP_TRACK_SETTINGS}
+            for name, settings in groups.items()
+            if not (settings or {}).get("legacy_exclusive")
+        }
+
     def _get_current_track_settings(self, theme_id: str) -> dict:
         """Get current track settings for a theme as a preset-compatible dict."""
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
@@ -1737,8 +1749,8 @@ class ApiSonorium(api.Base):
             }
         return tracks
 
-    def _apply_preset_to_theme(self, theme_id: str, preset_tracks: dict) -> bool:
-        """Apply preset track settings to a theme. Returns True on success."""
+    def _apply_preset_to_theme(self, theme_id: str, preset_tracks: dict, preset_groups: dict | None = None) -> bool:
+        """Apply preset track settings (and group master settings) to a theme. Returns True on success."""
         from sonorium.recording import PlaybackMode
 
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
@@ -1761,10 +1773,21 @@ class ApiSonorium(api.Base):
                 inst.exclusive = settings.get("exclusive", False)
                 inst.is_enabled = not settings.get("muted", False)
 
+        # Group master settings from the preset
+        if preset_groups:
+            from sonorium.recording import GROUP_TRACK_SETTINGS
+            merged = dict(getattr(theme, "groups", None) or {})
+            for name, values in preset_groups.items():
+                merged[name] = {**(merged.get(name) or {}),
+                                **{k: v for k, v in (values or {}).items() if k in GROUP_TRACK_SETTINGS}}
+            theme.groups = merged
+
         # Persist to metadata.json
         if self._theme_metadata_manager and theme_folder:
             metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
             if metadata:
+                if preset_groups:
+                    metadata.groups = dict(theme.groups)
                 # Update track settings in metadata
                 for track_name, settings in preset_tracks.items():
                     track_settings = metadata.get_track_settings(track_name)
@@ -1856,6 +1879,7 @@ class ApiSonorium(api.Base):
                     "name": name,
                     "is_default": is_default,
                     "tracks": tracks,
+                    "groups": self._get_current_group_settings(theme_id),
                 }
 
                 # Save via metadata manager (updates cache and file)
@@ -1916,7 +1940,7 @@ class ApiSonorium(api.Base):
                 preset = metadata_obj.presets[preset_id]
                 tracks = preset.get("tracks", {})
 
-                if not self._apply_preset_to_theme(theme_id, tracks):
+                if not self._apply_preset_to_theme(theme_id, tracks, preset.get("groups")):
                     raise HTTPException(status_code=500, detail="Failed to apply preset")
 
                 return {
@@ -1936,7 +1960,7 @@ class ApiSonorium(api.Base):
         preset = presets[preset_id]
         tracks = preset.get("tracks", {})
 
-        if not self._apply_preset_to_theme(theme_id, tracks):
+        if not self._apply_preset_to_theme(theme_id, tracks, preset.get("groups")):
             raise HTTPException(status_code=500, detail="Failed to apply preset")
 
         return {
@@ -1963,8 +1987,9 @@ class ApiSonorium(api.Base):
                 # Capture current settings from live theme instances
                 tracks = self._get_current_track_settings(theme_id)
 
-                # Update the preset's tracks while preserving name and is_default
+                # Update the preset's tracks and groups while preserving name and is_default
                 metadata_obj.presets[preset_id]["tracks"] = tracks
+                metadata_obj.presets[preset_id]["groups"] = self._get_current_group_settings(theme_id)
 
                 # Save via metadata manager (updates cache and file)
                 if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
@@ -1986,6 +2011,7 @@ class ApiSonorium(api.Base):
 
         tracks = self._get_current_track_settings(theme_id)
         presets[preset_id]["tracks"] = tracks
+        presets[preset_id]["groups"] = self._get_current_group_settings(theme_id)
         metadata["presets"] = presets
 
         if not self._write_theme_metadata(theme_id, metadata):

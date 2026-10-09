@@ -1665,14 +1665,14 @@ def create_api_router(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-        # Read existing metadata and merge
+        # Read existing metadata and merge. If it can't be read, refuse: writing
+        # only the edited fields would lose the theme's id and track settings.
+        from sonorium.core.theme_presets import BrokenJsonError, read_json, write_json_atomic
         metadata_path = theme_path / "metadata.json"
-        metadata = {}
-        if metadata_path.exists():
-            try:
-                metadata = json.loads(metadata_path.read_text())
-            except Exception:
-                pass
+        try:
+            metadata = read_json(metadata_path) or {}
+        except BrokenJsonError as e:
+            raise HTTPException(status_code=409, detail=f"metadata.json can't be read ({e}); refresh themes to repair it first")
 
         if "description" in body:
             metadata["description"] = body["description"]
@@ -1698,9 +1698,12 @@ def create_api_router(
                     theme.short_file_threshold = threshold
                     logger.info(f"Updated short_file_threshold for '{theme_id}' to {threshold}s")
 
-        # Write back
+        # Write back (temporary file, then rename), and reload so the theme
+        # manager's copy can't overwrite the change later
         try:
-            metadata_path.write_text(json.dumps(metadata, indent=2))
+            write_json_atomic(metadata_path, metadata)
+            if on_themes_changed:
+                on_themes_changed()
             return {"status": "ok", "metadata": metadata}
         except Exception as e:
             logger.error(f"Failed to write metadata: {e}")

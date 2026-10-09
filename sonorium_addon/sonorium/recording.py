@@ -831,6 +831,12 @@ class SparsePlaybackStream:
             # Check for updated presence
             presence = self.instance.presence
 
+            # 0% means never: stay silent, checking again every second
+            if presence <= 0.0:
+                for _ in range(max(1, SAMPLE_RATE // self.CHUNK_SIZE)):
+                    yield silence_chunk
+                continue
+
             # On first play, delay with a random portion of the interval
             # This prevents all sparse tracks from playing at stream start
             if first_play:
