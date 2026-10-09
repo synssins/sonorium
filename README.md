@@ -8,7 +8,7 @@
 
 Sonorium lets you create immersive ambient audio environments. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to speakers throughout your home or directly through your computer.
 
-## Two Ways to Use Sonorium
+## Ways to Use Sonorium
 
 ### Standalone Windows App
 
@@ -31,6 +31,14 @@ Integrate with your smart home for whole-house audio.
 - Use any Home Assistant media_player
 - Organize speakers by room, floor, or area
 - Control from the HA dashboard
+
+### Docker
+
+Runs on any Docker host, with or without Home Assistant.
+
+- Finds Google Cast, Sonos, DLNA, AirPlay, LinkPlay and HEOS speakers on your network
+- Home Assistant and MQTT are optional, set up from the web UI
+- Image: `ghcr.io/synssins/sonorium:latest`
 
 ## Automated Tests
 
@@ -167,6 +175,29 @@ Sonorium needs the **Mosquitto broker** add-on (Settings → Add-ons → Add-on 
 3. **Add Themes**: Create themes and upload audio via the web interface
 4. **Create a Channel**: Select a theme and speakers
 5. **Play**: Hit the play button
+
+### Docker
+
+```yaml
+services:
+  sonorium:
+    image: ghcr.io/synssins/sonorium:latest
+    container_name: sonorium
+    network_mode: host        # needed to find speakers on your network
+    environment:
+      - PUID=1000             # optional: owner of the files Sonorium writes
+      - PGID=1000
+      - TZ=Etc/UTC            # your time zone, for log times
+    volumes:
+      - ./sonorium/config:/config          # settings and channels
+      - ./sonorium/media:/media/sonorium   # themes and audio
+    restart: unless-stopped
+```
+
+1. **Start** it with `docker compose up -d`
+2. **Open** `http://<docker-host>:8008`
+3. **Optional:** connect Home Assistant and MQTT under **Settings → Connection**
+4. **Create a Channel** and press play
 
 ## Documentation
 
