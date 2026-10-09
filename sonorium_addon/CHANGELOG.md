@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.17 (2026-10-09)
+
+### Continuous Integration
+
+- Push the release commit and tag with retries
+  ([`7786e5c`](https://github.com/synssins/sonorium/commit/7786e5c2e7120c5714e85d57ad05c9a5177e6832))
+
+### Features
+
+- See-through logo on speaker screens and in the browser tab
+  ([`a209454`](https://github.com/synssins/sonorium/commit/a209454fdbadf06fe2374dd50db70fd185b5c958))
+
+
 ## v1.4.0-dev.16 (2026-10-09)
 
 ### Features
