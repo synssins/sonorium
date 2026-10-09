@@ -1620,6 +1620,19 @@ body {
     border-top: 1px solid var(--border-color);
 }
 
+/* New/Edit Channel: wide enough for the theme grid and speaker list, shrinking
+   with the page (min-width 400px overflowed phones). The speaker list grows
+   inside the dialog instead of scrolling in its own box. */
+#session-modal .modal {
+    width: min(760px, 100%);
+    min-width: 0;
+}
+
+#session-modal .speaker-dropdown-content {
+    max-height: none;
+    overflow: visible;
+}
+
 /* Settings */
 .settings-section {
     background: var(--bg-card);
