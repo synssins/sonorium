@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.13 (2026-10-09)
+
+### Bug Fixes
+
+- Show Sonorium's icon in the browser tab
+  ([`aac7bcf`](https://github.com/synssins/sonorium/commit/aac7bcf6b081b20d14fe56475308adf82c2cc01a))
+
+
 ## v1.4.0-dev.12 (2026-10-09)
 
 ### Bug Fixes
