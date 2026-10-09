@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.1-dev.1 (2026-10-09)
+
+### Documentation
+
+- Docker install in the README
+  ([`9d407a5`](https://github.com/synssins/sonorium/commit/9d407a5ab4c55205a17d2b348703e5f3d9e81513))
+
+
 ## v1.4.0 (2026-10-09)
 
 
