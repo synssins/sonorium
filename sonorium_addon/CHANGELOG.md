@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.4.0-dev.1 (2026-10-09)
+
+### Build System
+
+- Standalone Docker image published to ghcr.io/synssins/sonorium
+  ([`ff2a86c`](https://github.com/synssins/sonorium/commit/ff2a86cfe436c5b61dc31740746532f9d6305cd2))
+
+### Features
+
+- Standalone mode for running Sonorium in Docker without HA Supervisor
+  ([`12e3528`](https://github.com/synssins/sonorium/commit/12e3528d955d2ea5560a5b29caabafe8c4ec40fb))
+
+
 ## v1.3.0 (2026-10-09)
 
 ### Continuous Integration
