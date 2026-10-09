@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.1 (2026-10-09)
+
+### Bug Fixes
+
+- Presets only change the settings they saved; same track order on every system
+  ([`8af848a`](https://github.com/synssins/sonorium/commit/8af848a71b33264144a93888578da18505582d59))
+
+- Rebuilt themes use track keys and group folders; theme format spec v2
+  ([`affd782`](https://github.com/synssins/sonorium/commit/affd78285ece401e74f7e7b9bfb0a047445a273c))
+
+- Themes with many occasional sounds no longer play quietly
+  ([`5fe61c2`](https://github.com/synssins/sonorium/commit/5fe61c2dbdf3fa0268bfc1cea9b307fb74f5711c))
+
+- Two channels on one theme each keep their own preset
+  ([`f671a49`](https://github.com/synssins/sonorium/commit/f671a4950c315498bda20942627b9296dfa8b0ef))
+
+### Features
+
+- Theme group folders, one shared theme scanner
+  ([`29cb7a1`](https://github.com/synssins/sonorium/commit/29cb7a1a51a86a05b0c051dc647c22d02e3a8111))
+
+- Themes 2.0 — presets.json, conversion and broken-file recovery
+  ([`5fb8ae1`](https://github.com/synssins/sonorium/commit/5fb8ae10a8565102e79b7eaafbd1481a8ee05d64))
+
+
 ## v1.4.1 (2026-10-09)
 
 
