@@ -1550,6 +1550,7 @@ def create_api_router(
             if icon and icon != "🎵":  # Only store non-default icons
                 metadata["icon"] = icon
             if metadata:
+                metadata["spec_version"] = 2
                 metadata_path = theme_path / "metadata.json"
                 metadata_path.write_text(json.dumps(metadata, indent=2))
 
@@ -1749,14 +1750,32 @@ def create_api_router(
             zip_buffer = io.BytesIO()
             theme_name = theme_path.name
 
+            import json
+            from sonorium.core.theme_metadata import theme_documents_for_export
+            from sonorium.core.theme_presets import METADATA_FILE, PRESETS_FILE
+
+            def is_theme_json(path):
+                # The theme's own JSON files, their backups and broken copies
+                if path.parent != theme_path:
+                    return False
+                return any(path.name == base or path.name.startswith(base + ".")
+                           for base in (METADATA_FILE, PRESETS_FILE))
+
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
                 # Walk through all files in the theme folder
                 for file_path in theme_path.rglob('*'):
-                    if file_path.is_file():
+                    if file_path.is_file() and not is_theme_json(file_path):
                         # Use relative path within the theme folder
                         arcname = f"{theme_name}/{file_path.relative_to(theme_path)}"
                         zip_file.write(file_path, arcname)
                         logger.debug(f"Added to zip: {arcname}")
+
+                # Always the 2.0 layout: metadata.json without presets, plus presets.json
+                metadata_doc, presets_doc = theme_documents_for_export(theme_path)
+                zip_file.writestr(f"{theme_name}/{METADATA_FILE}",
+                                  json.dumps(metadata_doc, indent=2, ensure_ascii=False))
+                zip_file.writestr(f"{theme_name}/{PRESETS_FILE}",
+                                  json.dumps(presets_doc, indent=2, ensure_ascii=False))
 
             zip_buffer.seek(0)
 
@@ -1866,25 +1885,20 @@ def create_api_router(
                     files_extracted += 1
                     logger.debug(f"Extracted: {relative_path}")
 
-                # Generate new UUID for imported theme if metadata.json exists
-                metadata_path = target_path / "metadata.json"
-                if metadata_path.exists():
-                    try:
-                        metadata = json.loads(metadata_path.read_text())
-                        # Generate new UUID to avoid conflicts
-                        import uuid
-                        metadata["id"] = str(uuid.uuid4())
-                        metadata_path.write_text(json.dumps(metadata, indent=2))
-                    except Exception as e:
-                        logger.warning(f"Could not update metadata UUID: {e}")
-                else:
-                    # Create basic metadata
-                    import uuid
-                    metadata = {
-                        "id": str(uuid.uuid4()),
-                        "name": theme_folder_name
-                    }
-                    metadata_path.write_text(json.dumps(metadata, indent=2))
+                # Convert 1.0 themes and recover broken JSON files, then give
+                # the imported theme a new UUID to avoid conflicts
+                from sonorium.core.theme_metadata import load_theme_folder, save_theme_folder
+                import uuid
+                problems = []
+                try:
+                    metadata = load_theme_folder(target_path)
+                    problems = list(metadata.problems)
+                    metadata.id = str(uuid.uuid4())
+                    if not save_theme_folder(target_path, metadata):
+                        problems.append("Couldn't save the theme files")
+                except Exception as e:
+                    logger.warning(f"Could not prepare imported theme files: {e}")
+                    problems.append(f"Couldn't prepare the theme files: {e}")
 
                 logger.info(f"Imported theme '{theme_folder_name}' with {files_extracted} files")
 
@@ -1892,7 +1906,8 @@ def create_api_router(
                     "status": "ok",
                     "theme_folder": theme_folder_name,
                     "files_extracted": files_extracted,
-                    "path": str(target_path)
+                    "path": str(target_path),
+                    "problems": problems,
                 }
 
         except zipfile.BadZipFile:

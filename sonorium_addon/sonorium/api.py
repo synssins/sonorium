@@ -940,29 +940,35 @@ class ApiSonorium(api.Base):
         return None
 
     def _read_theme_metadata(self, theme_id: str) -> dict:
-        """Read metadata.json from theme folder."""
-        import json
+        """Read metadata.json from theme folder, with its presets (from presets.json) under "presets"."""
+        from sonorium.core import theme_presets
         folder = self._find_theme_folder(theme_id)
         if folder:
-            meta_path = folder / "metadata.json"
-            if meta_path.exists():
-                try:
-                    return json.loads(meta_path.read_text())
-                except Exception:
-                    pass
+            try:
+                metadata = theme_presets.read_json(folder / theme_presets.METADATA_FILE)
+            except theme_presets.BrokenJsonError:
+                metadata = None
+            if metadata is not None:
+                metadata["presets"] = theme_presets.load_presets(folder)
+                return metadata
         return {}
 
     def _write_theme_metadata(self, theme_id: str, metadata: dict) -> bool:
-        """Write metadata.json to theme folder. Returns True on success."""
-        import json
+        """Write metadata.json (and presets.json if "presets" is given) to theme folder. Returns True on success."""
+        from sonorium.core import theme_presets
         folder = self._find_theme_folder(theme_id)
         if not folder:
             logger.error(f"Cannot write metadata: theme folder not found for '{theme_id}'")
             return False
 
-        meta_path = folder / "metadata.json"
+        meta_path = folder / theme_presets.METADATA_FILE
+        metadata = dict(metadata)
+        presets = metadata.pop("presets", None)
         try:
-            meta_path.write_text(json.dumps(metadata, indent=2))
+            # Presets first, so a failed write never loses them
+            if presets is not None:
+                theme_presets.save_presets(folder, presets)
+            theme_presets.write_json_atomic(meta_path, metadata)
             logger.info(f"Wrote metadata to {meta_path}")
             return True
         except Exception as e:
@@ -1050,6 +1056,7 @@ class ApiSonorium(api.Base):
                     "has_audio": True,
                     "categories": metadata_dict.get("categories", []),
                     "short_file_threshold": metadata_dict.get("short_file_threshold", theme.short_file_threshold),
+                    "problems": [],
                 })
                 continue
 
@@ -1069,6 +1076,7 @@ class ApiSonorium(api.Base):
                 "has_audio": True,
                 "categories": metadata.categories,
                 "short_file_threshold": metadata.short_file_threshold,
+                "problems": list(metadata.problems),
             })
 
         # Then scan for empty theme folders (using device.path_audio, not hardcoded)
@@ -1103,6 +1111,7 @@ class ApiSonorium(api.Base):
                         "is_favorite": metadata.is_favorite,
                         "has_audio": False,
                         "categories": metadata.categories,
+                        "problems": list(metadata.problems),
                     })
 
         return themes
