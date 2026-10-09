@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0 (2026-10-09)
+
+### Continuous Integration
+
+- Bump -dev.N instead of the patch version for non-releasing commits on branches
+  ([`7559fd4`](https://github.com/synssins/sonorium/commit/7559fd4712b05f953f8bdc851d3506f98bebddff))
+
+
 ## v1.3.1-dev.1 (2026-10-09)
 
 ### Chores
