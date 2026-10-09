@@ -76,8 +76,14 @@ jobs:
             echo "No Conventional Commit bump; forcing ${force[*]}"
           fi
 
-          sr version "${force[@]}" --no-vcs-release
-          echo "Add-on version is now $(cat sonorium_addon/sonorium/version)" >> "$GITHUB_STEP_SUMMARY"
+          # Commit and tag locally, then push with retries: GitHub has
+          # occasionally rejected the tag push with a bare "(failed)".
+          sr version "${force[@]}" --no-vcs-release --no-push
+          version=$(cat sonorium_addon/sonorium/version)
+          retry() { for i in 1 2 3 4 5; do "$@" && return 0; echo "push failed, retrying ($i)"; sleep $((i * 5)); done; return 1; }
+          retry git push origin "HEAD:refs/heads/$BRANCH"
+          retry git push origin "refs/tags/addon-v$version"
+          echo "Add-on version is now $version" >> "$GITHUB_STEP_SUMMARY"
 
   docker:
     name: Docker image
