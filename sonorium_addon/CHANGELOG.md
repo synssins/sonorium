@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0-dev.3 (2026-10-09)
+
+### Bug Fixes
+
+- Apply the log level to Logfire's console output too
+  ([`5dd8510`](https://github.com/synssins/sonorium/commit/5dd851093b27b8b3636911c4114659764d86b1f0))
+
+
 ## v1.3.0-dev.2 (2026-10-09)
 
 ### Bug Fixes
