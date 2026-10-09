@@ -17,6 +17,12 @@ on:
       - 'sonorium_addon/**'
       - '!sonorium_addon/README.md'  # docs only: no new version
   workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Version bump. Features and fixes only ever raise the last number; pick minor or major for a bigger release.'
+        type: choice
+        options: [auto, minor, major]
+        default: auto
 
 permissions:
   contents: write
@@ -52,6 +58,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ github.ref_name }}
+          BUMP: ${{ inputs.bump || 'auto' }}
         run: |
           set -euo pipefail
           sr() { semantic-release -c releaserc.toml "$@"; }
@@ -75,6 +82,13 @@ jobs:
               force=(--patch --as-prerelease)
             fi
             echo "No Conventional Commit bump; forcing ${force[*]}"
+          fi
+
+          # A bigger release, chosen by hand when running the workflow
+          if [ "$BUMP" != "auto" ]; then
+            force=("--$BUMP")
+            [ "$BRANCH" = "main" ] || force+=(--as-prerelease)
+            echo "Manual $BUMP bump: ${force[*]}"
           fi
 
           # Commit and tag locally, then push with retries: GitHub has
