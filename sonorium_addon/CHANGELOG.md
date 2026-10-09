@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v1.3.1-dev.1 (2026-10-09)
+
+### Chores
+
+- Make the Windows app's Tavern theme match the add-on's
+  ([#41](https://github.com/synssins/sonorium/pull/41),
+  [`bcf6d0b`](https://github.com/synssins/sonorium/commit/bcf6d0b6a21729fe3d5e1c37dfd3015144fd1c46))
+
+### Documentation
+
+- README updates for 1.3.0; trim old release notes
+  ([`2f2382e`](https://github.com/synssins/sonorium/commit/2f2382e72afd8ddba64253b3c3187e2ab6265666))
+
+
 ## v1.3.0-dev.10 (2026-10-09)
 
 ### Build System
