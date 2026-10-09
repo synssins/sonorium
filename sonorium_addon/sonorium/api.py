@@ -146,6 +146,11 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/playback_mode', method=self.set_track_playback_mode),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/seamless_loop', method=self.set_track_seamless_loop),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/exclusive', method=self.set_track_exclusive),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/{track_name:path}/use-group', method=self.use_group_setting),
+
+            # Groups (subfolders of a theme, Themes 2.0)
+            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/groups', method=self.list_groups),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/groups/{group}', method=self.update_group),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
 
             # Theme rename
@@ -477,9 +482,12 @@ class ApiSonorium(api.Base):
 
             # Apply short_file_threshold from metadata
             theme.short_file_threshold = metadata.short_file_threshold
+            # Group settings (Themes 2.0), read by the theme's grouped tracks
+            theme.groups = dict(getattr(metadata, "groups", None) or {})
 
             for inst in theme.instances:
                 track_settings = metadata.tracks.get(inst.name)
+                inst.own_fields = set(getattr(track_settings, "own", None) or [])
                 if not track_settings:
                     # Use defaults
                     inst.presence = 1.0
@@ -996,6 +1004,17 @@ class ApiSonorium(api.Base):
         for key, value in settings.items():
             if hasattr(track_settings, key):
                 setattr(track_settings, key, value)
+
+        # A track in a group: a setting changed on the track is now its own,
+        # instead of the group's (Use group setting undoes this)
+        if "/" in track_name:
+            from sonorium.recording import GROUP_TRACK_SETTINGS
+            own = set(track_settings.own) | (set(settings) & set(GROUP_TRACK_SETTINGS))
+            track_settings.own = sorted(own)
+            theme, _ = self._get_theme_by_id(theme_id)
+            for inst in (theme.instances if theme else []):
+                if inst.name == track_name:
+                    inst.own_fields = set(own)
 
         # Save back to metadata.json
         return self._theme_metadata_manager.save_metadata(metadata.id, metadata)
@@ -1565,6 +1584,104 @@ class ApiSonorium(api.Base):
         self._save_track_setting_to_metadata(theme_id, track_name, seamless_loop=seamless)
 
         return {"status": "ok", "track": track_name, "seamless_loop": seamless}
+
+    # --- Groups ---
+
+    GROUP_SETTING_KEYS = ("presence", "volume", "muted", "playback_mode", "gap_min", "gap_max")
+
+    def _theme_groups(self, theme_id: str):
+        """(theme, metadata, {group: [track keys]}) for a theme, or raise 404."""
+        theme, folder = self._get_theme_by_id(theme_id)
+        metadata = self._theme_metadata_manager.get_metadata_by_folder(folder) if (folder and self._theme_metadata_manager) else None
+        if not theme or not metadata:
+            raise HTTPException(status_code=404, detail="Theme not found")
+        members: dict[str, list[str]] = {}
+        for inst in theme.instances:
+            group = getattr(inst.meta, "group", None)
+            if group:
+                members.setdefault(group, []).append(inst.name)
+        return theme, metadata, members
+
+    async def list_groups(self, theme_id: str):
+        """A theme's groups: their settings and tracks (each track's own settings listed)."""
+        theme, metadata, members = self._theme_groups(theme_id)
+        groups = []
+        for name, keys in sorted(members.items()):
+            settings = dict((metadata.groups or {}).get(name) or {})
+            groups.append({
+                "name": name,
+                "settings": {k: v for k, v in settings.items() if k in self.GROUP_SETTING_KEYS},
+                "tracks": [{"key": key, "own": list(metadata.tracks[key].own) if key in metadata.tracks else []}
+                           for key in keys],
+            })
+        return {"groups": groups}
+
+    async def update_group(self, theme_id: str, group: str, request: Request):
+        """
+        Change a group's settings; its tracks follow them unless a track sets its own.
+        Body: any of presence, volume (0-1), muted, playback_mode, gap_min, gap_max
+        (seconds between plays). null removes a setting.
+        """
+        from sonorium.recording import PlaybackMode
+        theme, metadata, members = self._theme_groups(theme_id)
+        if group not in members:
+            raise HTTPException(status_code=404, detail="Group not found")
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Expected a JSON object")
+
+        settings = dict((metadata.groups or {}).get(group) or {})
+        for key, value in body.items():
+            if key not in self.GROUP_SETTING_KEYS:
+                raise HTTPException(status_code=400, detail=f"Unknown group setting '{key}'")
+            if value is None:
+                settings.pop(key, None)
+                continue
+            try:
+                if key in ("presence", "volume"):
+                    value = max(0.0, min(1.0, float(value)))
+                elif key in ("gap_min", "gap_max"):
+                    value = max(0.0, float(value))
+                elif key == "muted":
+                    value = bool(value)
+                elif key == "playback_mode":
+                    value = PlaybackMode(value).value
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"Invalid value for '{key}'")
+            settings[key] = value
+        if "gap_min" in settings and "gap_max" in settings and settings["gap_min"] > settings["gap_max"]:
+            settings["gap_min"], settings["gap_max"] = settings["gap_max"], settings["gap_min"]
+
+        metadata.groups = {**(metadata.groups or {}), group: settings}
+        self._theme_metadata_manager.save_metadata(metadata.id, metadata)
+        theme.groups = dict(metadata.groups)  # live: playing channels follow (gap: next time the theme starts)
+        logger.info(f"Theme '{theme.name}': group '{group}' settings changed")
+        return {"name": group, "settings": settings}
+
+    async def use_group_setting(self, theme_id: str, track_name: str, request: Request):
+        """
+        Put a grouped track's setting(s) back to the group's.
+        Body: {"settings": ["volume", ...]} (omit for all of them).
+        """
+        from sonorium.recording import GROUP_TRACK_SETTINGS
+        theme, metadata, members = self._theme_groups(theme_id)
+        if not any(track_name in keys for keys in members.values()):
+            raise HTTPException(status_code=404, detail="Track not found in a group")
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        names = set((body or {}).get("settings") or GROUP_TRACK_SETTINGS)
+        track_settings = metadata.get_track_settings(track_name)
+        track_settings.own = sorted(set(track_settings.own) - names)
+        self._theme_metadata_manager.save_metadata(metadata.id, metadata)
+        for inst in theme.instances:
+            if inst.name == track_name:
+                inst.own_fields = set(track_settings.own)
+        return {"track": track_name, "own": track_settings.own}
 
     async def set_track_exclusive(self, theme_id: str, track_name: str, request: Request):
         """Set exclusive playback for a specific track in a theme.

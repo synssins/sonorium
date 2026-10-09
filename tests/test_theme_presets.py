@@ -167,6 +167,19 @@ def test_broken_presets_json_is_kept_and_emptied(mods, tmp_path):
     assert "presets.json" in loaded.problems[0]
 
 
+def test_broken_presets_json_restored_from_conversion_backup(mods, tmp_path):
+    folder = make_theme(tmp_path, metadata=legacy_metadata())
+    mods.meta.load_theme_folder(folder)  # converts: presets.json + metadata.json.pre-presets.bak
+    (folder / "presets.json").write_text("{ broken", encoding="utf-8")
+
+    loaded = mods.meta.load_theme_folder(folder)
+
+    assert set(loaded.presets) == set(legacy_metadata()["presets"])
+    assert read(folder / "presets.json")["presets"] == legacy_metadata()["presets"]
+    assert len(list(folder.glob("presets.json.broken-*"))) == 1
+    assert any("restored" in p for p in loaded.problems)
+
+
 def test_one_broken_theme_does_not_stop_the_others(mods, tmp_path):
     make_theme(tmp_path, name="Broken", raw_metadata="[1, 2")
     make_theme(tmp_path, name="Fine", metadata=legacy_metadata())

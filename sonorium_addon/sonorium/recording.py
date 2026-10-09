@@ -1,4 +1,5 @@
 from enum import Enum
+import random
 import threading
 import time
 import numpy as np
@@ -32,7 +33,15 @@ class ExclusionGroupCoordinator:
     # Initial delay before any exclusive track can play on stream start
     INITIAL_DELAY = 60.0
 
-    def __init__(self):
+    def _next_gap(self) -> float:
+        if self._gap_range:
+            return random.uniform(*self._gap_range)
+        return self.MIN_GAP_AFTER_EXCLUSIVE
+
+    def __init__(self, gap_range: tuple[float, float] | None = None):
+        # The group's gap between plays (seconds, random in the range each time);
+        # MIN_GAP_AFTER_EXCLUSIVE when the group doesn't set one
+        self._gap_range = gap_range
         self._lock = threading.Lock()
         self._playing_track: str | None = None  # Name of currently playing exclusive track
         self._play_end_time: float = 0  # When current track will finish
@@ -72,8 +81,8 @@ class ExclusionGroupCoordinator:
                     # Track finished - start cooldown
                     self._last_played_track = self._playing_track
                     self._playing_track = None
-                    self._cooldown_until = now + self.MIN_GAP_AFTER_EXCLUSIVE
-                    logger.debug(f'ExclusionGroup: "{self._last_played_track}" finished, cooldown until +{self.MIN_GAP_AFTER_EXCLUSIVE}s')
+                    self._cooldown_until = now + self._next_gap()
+                    logger.debug(f'ExclusionGroup: "{self._last_played_track}" finished, cooldown until +{self._cooldown_until - now:.0f}s')
                 else:
                     # Track still playing
                     return False
@@ -101,8 +110,8 @@ class ExclusionGroupCoordinator:
                 self._last_played_track = track_name
                 self._playing_track = None
                 self._play_end_time = 0
-                self._cooldown_until = now + self.MIN_GAP_AFTER_EXCLUSIVE
-                logger.debug(f'ExclusionGroup: "{track_name}" finished, cooldown until +{self.MIN_GAP_AFTER_EXCLUSIVE}s')
+                self._cooldown_until = now + self._next_gap()
+                logger.debug(f'ExclusionGroup: "{track_name}" finished, cooldown until +{self._cooldown_until - now:.0f}s')
 
     def is_blocked(self, track_name: str) -> bool:
         """Check if a track is blocked from playing."""
@@ -117,7 +126,7 @@ class ExclusionGroupCoordinator:
             if self._playing_track is not None and now >= self._play_end_time:
                 self._last_played_track = self._playing_track
                 self._playing_track = None
-                self._cooldown_until = now + self.MIN_GAP_AFTER_EXCLUSIVE
+                self._cooldown_until = now + self._next_gap()
 
             # Blocked if another track is playing
             if self._playing_track is not None and self._playing_track != track_name:
@@ -147,7 +156,7 @@ class ExclusionGroupCoordinator:
             if self._playing_track is not None:
                 remaining = self._play_end_time - now
                 if remaining > 0:
-                    return remaining + self.MIN_GAP_AFTER_EXCLUSIVE
+                    return remaining + (self._gap_range[0] if self._gap_range else self.MIN_GAP_AFTER_EXCLUSIVE)
 
             # In cooldown
             if now < self._cooldown_until:
@@ -275,6 +284,7 @@ class RecordingThemeInstance:
         self.crossfade_enabled = True  # Enable crossfade looping by default
         self.playback_mode = PlaybackMode.AUTO  # How playback/looping is handled
         self.exclusive = False  # If True, only one exclusive track can play at a time
+        self.own_fields: set[str] = set()  # in a group: settings this track sets itself
 
     @property
     def short_file_threshold(self) -> float:
@@ -321,6 +331,35 @@ class RecordingThemeInstance:
 # Group for tracks marked exclusive in themes from before group folders
 LEGACY_EXCLUSIVE_GROUP = "Exclusive"
 
+# Settings a group can give its tracks, as saved (metadata.json "groups", presets)
+# -> the track attribute each one sets
+GROUP_TRACK_SETTINGS = {"volume": "volume", "presence": "presence", "muted": "is_enabled", "playback_mode": "playback_mode"}
+GROUP_KEY_PREFIX = "@group:"  # a channel's preset values for a group, in its overrides dict
+
+
+def group_setting_value(setting: str, value):
+    """A saved group/track setting as the track attribute value."""
+    if setting == "muted":
+        return not value
+    if setting == "playback_mode":
+        try:
+            return PlaybackMode(value)
+        except ValueError:
+            return PlaybackMode.AUTO
+    return value
+
+
+def group_gap_range(group_settings: dict | None) -> tuple[float, float] | None:
+    """A group's gap between plays in seconds (gap_min, gap_max), if it sets one."""
+    if not group_settings:
+        return None
+    low, high = group_settings.get("gap_min"), group_settings.get("gap_max")
+    if low is None and high is None:
+        return None
+    low = float(low if low is not None else high)
+    high = float(high if high is not None else low)
+    return (min(low, high), max(low, high))
+
 # Track settings a preset can set, as RecordingThemeInstance attribute names
 PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive")
 
@@ -355,6 +394,17 @@ def preset_track_overrides(preset_tracks: dict) -> dict:
     return overrides
 
 
+def preset_group_overrides(preset_groups: dict) -> dict:
+    """A preset's group settings ({"Lute": {"presence": .4, "muted": false}}) as channel overrides."""
+    overrides = {}
+    for group, settings in (preset_groups or {}).items():
+        overrides[GROUP_KEY_PREFIX + group] = {
+            GROUP_TRACK_SETTINGS[key]: group_setting_value(key, value)
+            for key, value in (settings or {}).items() if key in GROUP_TRACK_SETTINGS
+        }
+    return overrides
+
+
 class TrackView:
     """
     A theme's track as one channel hears it: the channel's preset values where
@@ -369,17 +419,33 @@ class TrackView:
         self._overrides = overrides
 
     def __getattr__(self, name):
-        group = self._instance.meta.group if hasattr(self._instance.meta, "group") else None
-        if group:
-            # A track in a group folder: the group decides when it plays, one at a time
-            if name == "exclusive":
-                return True
-            if name == "playback_mode":
-                return PlaybackMode.SPARSE
         if name in PRESET_TRACK_FIELDS:
             track = self._overrides.get(self._instance.name)
             if track is not None and name in track:
-                return track[name]
+                return track[name]  # 1. the channel's preset, for this track
+        group = getattr(self._instance.meta, "group", None)
+        if group:
+            return self._group_value(group, name)
+        return getattr(self._instance, name)
+
+    def _group_value(self, group: str, name: str):
+        """A track in a group folder: its own setting, else the group's (preset, then theme)."""
+        if name == "exclusive":
+            return True  # one track of a group at a time
+        setting = next((s for s, attr in GROUP_TRACK_SETTINGS.items() if attr == name), None)
+        if setting is None:
+            return getattr(self._instance, name)
+        if setting in getattr(self._instance, "own_fields", ()):
+            return getattr(self._instance, name)  # 2. the track's own setting
+        preset_group = self._overrides.get(GROUP_KEY_PREFIX + group)
+        if preset_group is not None and name in preset_group:
+            return preset_group[name]  # 3. the channel's preset, for the group
+        theme_groups = getattr(getattr(self._instance, "theme", None), "groups", None) or {}
+        saved = theme_groups.get(group) or {}
+        if setting in saved:
+            return group_setting_value(setting, saved[setting])  # 4. the group's setting
+        if name == "playback_mode":
+            return PlaybackMode.SPARSE  # 5. defaults: groups play events
         return getattr(self._instance, name)
 
     @property

@@ -137,14 +137,14 @@ class SessionManager:
 
     def preset_overrides(self, theme_id: str, preset_id: Optional[str]) -> dict:
         """A channel's preset layer for a theme ({} for no preset, or one that isn't found)."""
-        from sonorium.recording import preset_track_overrides
+        from sonorium.recording import preset_group_overrides, preset_track_overrides
         if not preset_id:
             return {}
         preset = self._theme_presets(theme_id).get(preset_id)
         if not preset:
             logger.warning(f"  Preset '{preset_id}' not found for theme '{theme_id}'")
             return {}
-        return preset_track_overrides(preset.get("tracks", {}))
+        return {**preset_track_overrides(preset.get("tracks", {})), **preset_group_overrides(preset.get("groups", {}))}
 
     def _channel_for(self, session: Session):
         channel_id = self._session_channels.get(session.id)

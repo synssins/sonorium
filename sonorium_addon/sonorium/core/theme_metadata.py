@@ -47,6 +47,9 @@ class TrackSettings:
     playback_mode: str = "auto"     # auto/continuous/sparse/presence
     seamless_loop: bool = False
     exclusive: bool = False
+    # For a track in a group: the settings it sets itself ("volume", "presence",
+    # "muted", "playback_mode"); the others come from the group
+    own: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -232,6 +235,16 @@ def _read_presets_doc(folder: Path, problems: list[str], rename_broken: bool):
         return theme_presets.load_presets_doc(folder), False
     except BrokenJsonError as e:
         _note_broken(folder, e, problems, rename_broken)
+        # The backup made when the theme was converted still has its presets
+        try:
+            backup = theme_presets.read_json(folder / PRE_PRESETS_BACKUP) or {}
+        except BrokenJsonError:
+            backup = {}
+        restored = backup.get("presets") if isinstance(backup.get("presets"), dict) else None
+        if restored:
+            logger.warning(f"Theme '{folder.name}': restored {len(restored)} presets from {PRE_PRESETS_BACKUP}")
+            problems.append(f"Presets were restored from {PRE_PRESETS_BACKUP}; changes made after the theme was converted are in the .broken file")
+            return {"presets": dict(restored)}, True
         return {}, True
 
 

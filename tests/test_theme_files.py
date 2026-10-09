@@ -62,3 +62,36 @@ def test_groups_in_the_mixer(tmp_path, monkeypatch):
     assert recording.TrackView(fire_instance, {}).exclusion_group is None
     fire_instance.exclusive = True  # old single exclusive flag
     assert recording.TrackView(fire_instance, {}).exclusion_group == "Exclusive"
+
+
+def test_group_settings_and_track_overrides(tmp_path, monkeypatch):
+    monkeypatch.setitem(sys.modules, "sonorium.theme_files", theme_files)
+    pytest.importorskip("numpy")
+    pytest.importorskip("av")
+    from test_crossfade_loop import recording
+
+    theme_dir = make_theme(tmp_path)
+    theme = SimpleNamespace(groups={"Lute": {"volume": 0.5, "presence": 0.2, "muted": False, "playback_mode": "sparse",
+                                             "gap_min": 30, "gap_max": 90}},
+                            short_file_threshold=15.0)
+    song = recording.RecordingThemeInstance(recording.RecordingMetadata(theme_dir / "Lute" / "Lute song 1.wav", theme_dir), theme)
+    song.volume = 0.9  # the track's stored value, used only once it's the track's own
+
+    view = recording.TrackView(song, {})
+    assert (view.volume, view.presence) == (0.5, 0.2)  # from the group
+    song.own_fields = {"volume"}
+    assert (view.volume, view.presence) == (0.9, 0.2)  # own volume, group presence
+
+    preset = {**recording.preset_group_overrides({"Lute": {"presence": 0.7, "muted": True}}),
+              **recording.preset_track_overrides({"Lute/Lute song 1": {"presence": 0.05}})}
+    with_preset = recording.TrackView(song, preset)
+    assert with_preset.presence == 0.05  # the preset's track setting wins
+    assert with_preset.is_enabled is False  # the preset's group mute (track has no own mute)
+    assert with_preset.volume == 0.9  # own setting beats the preset's group (which doesn't set volume anyway)
+
+    assert recording.group_gap_range(theme.groups["Lute"]) == (30.0, 90.0)
+    assert recording.group_gap_range({"gap_max": 10}) == (10.0, 10.0)
+    assert recording.group_gap_range({}) is None
+    coordinator = recording.ExclusionGroupCoordinator((30.0, 90.0))
+    assert all(30.0 <= coordinator._next_gap() <= 90.0 for _ in range(50))
+    assert recording.ExclusionGroupCoordinator()._next_gap() == recording.ExclusionGroupCoordinator.MIN_GAP_AFTER_EXCLUSIVE

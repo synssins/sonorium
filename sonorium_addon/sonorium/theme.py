@@ -57,6 +57,9 @@ class ThemeDefinition:
         # Can be customized per theme via metadata.json
         self.short_file_threshold = DEFAULT_SHORT_FILE_THRESHOLD
 
+        # Group settings by group name (metadata.json "groups"), read by grouped tracks
+        self.groups: dict[str, dict] = {}
+
         # Use theme-specific recordings instead of all recordings
         if name in self.sonorium.theme_metas:
             theme_metas = self.sonorium.theme_metas[name]
@@ -104,7 +107,7 @@ class ThemeStream:
     """
 
     def __init__(self, theme_def: ThemeDefinition, overrides: dict | None = None):
-        from sonorium.recording import TrackView
+        from sonorium.recording import TrackView, group_gap_range
 
         self.theme_def = theme_def
         # This stream's preset values; changed in place when the channel's preset changes
@@ -123,7 +126,10 @@ class ThemeStream:
         for instance in theme_def.instances:
             track = TrackView(instance, self.overrides)
             group = track.exclusion_group
-            coordinator = self.exclusion_coordinators.setdefault(group, ExclusionGroupCoordinator()) if group else None
+            if group and group not in self.exclusion_coordinators:
+                gap = group_gap_range((getattr(theme_def, "groups", None) or {}).get(group))
+                self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap)
+            coordinator = self.exclusion_coordinators.get(group) if group else None
             self.recording_streams.append(track.get_stream(exclusion_coordinator=coordinator))
 
     @cached_property
