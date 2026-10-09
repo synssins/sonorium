@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.4 (2026-10-09)
+
+### Bug Fixes
+
+- Leave headroom for MP3 encoding in the soft limiter
+  ([`ad8e643`](https://github.com/synssins/sonorium/commit/ad8e6437c34db404810237e49111a244e3ce298a))
+
+
 ## v1.4.2-dev.3 (2026-10-09)
 
 ### Features
