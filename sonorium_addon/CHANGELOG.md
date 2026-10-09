@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.3.0-dev.4 (2026-10-09)
+
+### Bug Fixes
+
+- Instrumented-call traces at debug; explicit play lines at info
+  ([`b8127df`](https://github.com/synssins/sonorium/commit/b8127df425275ea923ce156c7cda9282c2fdf7ec))
+
+
 ## v1.3.0-dev.3 (2026-10-09)
 
 ### Bug Fixes
