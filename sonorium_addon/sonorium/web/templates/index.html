@@ -69,6 +69,14 @@
                     </svg>
                 </div>
                 <div class="nav-sub-items">
+                    <!-- Standalone (Docker) only: shown when /api/connection exists -->
+                    <div class="nav-sub-item" id="nav-settings-connection" style="display: none;" onclick="showView('settings-connection')">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                        </svg>
+                        <span>Connection</span>
+                    </div>
                     <div class="nav-sub-item" onclick="showView('settings-audio')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M3 18v-6a9 9 0 0 1 18 0v6"/>
@@ -539,6 +547,109 @@ Example:
             </div>
 
             <!-- Audio Settings View -->
+            <!-- Connection Settings View (standalone/Docker only) -->
+            <div id="view-settings-connection" class="view">
+                <div class="settings-section">
+                    <h3>Home Assistant</h3>
+                    <p>Optional. Connect to use Home Assistant's speakers alongside the ones Sonorium finds on your network.</p>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                        <div id="conn-ha-dot" class="channel-status"></div>
+                        <span id="conn-ha-status" class="settings-hint">Not configured</span>
+                    </div>
+                    <div class="settings-form">
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-ha-url">Home Assistant URL</label>
+                                <span class="settings-hint">For example http://homeassistant.local:8123</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="url" id="conn-ha-url" placeholder="http://homeassistant.local:8123">
+                            </div>
+                        </div>
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-ha-token">Access token</label>
+                                <span class="settings-hint">In Home Assistant: your profile, Security, Long-lived access tokens. Leave blank to keep the saved token.</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="password" id="conn-ha-token" autocomplete="off" placeholder="Paste a long-lived access token">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>MQTT</h3>
+                    <p>Optional. Lets Home Assistant control Sonorium with dashboard entities and automations.</p>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
+                        <div id="conn-mqtt-dot" class="channel-status"></div>
+                        <span id="conn-mqtt-status" class="settings-hint">Not configured</span>
+                    </div>
+                    <div class="settings-form">
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-mqtt-host">Broker</label>
+                                <span class="settings-hint">Host name or IP of your MQTT broker</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="text" id="conn-mqtt-host" placeholder="192.168.1.10">
+                            </div>
+                        </div>
+                        <div class="settings-row">
+                            <div class="settings-label">
+                                <label for="conn-mqtt-port">Port</label>
+                                <span class="settings-hint">Usually 1883</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="number" id="conn-mqtt-port" value="1883" min="1" max="65535">
+                            </div>
+                        </div>
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-mqtt-user">Username</label>
+                                <span class="settings-hint">Leave blank if your broker allows anonymous connections</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="text" id="conn-mqtt-user" autocomplete="off">
+                            </div>
+                        </div>
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-mqtt-pass">Password</label>
+                                <span class="settings-hint">Leave blank to keep the saved password</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="password" id="conn-mqtt-pass" autocomplete="off">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <h3>Streaming</h3>
+                    <p>The address your speakers use to reach Sonorium.</p>
+                    <div class="settings-form">
+                        <div class="settings-row settings-row-input">
+                            <div class="settings-label">
+                                <label for="conn-stream-url">Stream URL</label>
+                                <span class="settings-hint">This machine's IP address and port 8008, for example http://192.168.1.20:8008</span>
+                            </div>
+                            <div class="settings-control">
+                                <input type="url" id="conn-stream-url" placeholder="http://192.168.1.20:8008">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="settings-section">
+                    <p>Saving restarts Sonorium so the changes take effect. Playing channels stop for a few seconds.</p>
+                    <div class="settings-actions">
+                        <button id="conn-save-btn" class="btn btn-primary btn-sm" onclick="saveConnectionSettings()">Save and Restart</button>
+                    </div>
+                    <span id="conn-saved" class="settings-hint" style="display: none;">Saved. Sonorium is restarting...</span>
+                </div>
+            </div>
+
             <div id="view-settings-audio" class="view">
                 <div class="settings-section">
                     <h3>Audio Settings</h3>

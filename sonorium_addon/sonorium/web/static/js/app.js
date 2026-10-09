@@ -34,12 +34,14 @@ async function init() {
             loadChannels(),
             loadAudioSettings(),
             loadVersion(),
-            loadPlugins()
+            loadPlugins(),
+            loadConnectionSettings()
         ]);
         console.log('Data loaded, rendering...');
 
         // Restore saved view or default to sessions
-        const savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
+        let savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
+        if (savedView === 'settings-connection' && !connectionSettings) savedView = 'sessions';
 
         // Always render sessions first (needed for session cards)
         renderSessions();
@@ -442,6 +444,7 @@ function showView(viewName) {
         speakers: 'Speakers',
         themes: 'Themes',
         settings: 'Settings',
+        'settings-connection': 'Connection',
         'settings-audio': 'Audio Settings',
         'settings-speakers': 'Speakers',
         'settings-groups': 'Speaker Groups',
@@ -473,6 +476,7 @@ function showView(viewName) {
         `,
         themes: '',
         settings: '',
+        'settings-connection': '',
         'settings-audio': '',
         'settings-speakers': '',
         'settings-groups': '',
@@ -497,6 +501,7 @@ function showView(viewName) {
         renderSettingsSpeakerTree();
         renderSettingsGroupsList();
     }
+    if (viewName === 'settings-connection') renderConnectionSettings();
     if (viewName === 'settings-audio') renderAudioSettings();
     if (viewName === 'settings-speakers') {
         renderSettingsSpeakerTree();
@@ -3160,6 +3165,81 @@ async function saveAudioSettings() {
         showToast('Audio settings saved', 'success');
     } catch (error) {
         showToast(error.message || 'Failed to save settings', 'error');
+    }
+}
+
+// Settings - Connection (standalone/Docker only; the HA add-on returns 404)
+let connectionSettings = null;
+
+async function loadConnectionSettings() {
+    try {
+        connectionSettings = await api('GET', '/connection');
+    } catch (error) {
+        connectionSettings = null;
+    }
+    const nav = document.getElementById('nav-settings-connection');
+    if (nav) nav.style.display = connectionSettings ? '' : 'none';
+}
+
+function setConnectionStatus(dotId, textId, configured, connected, problem) {
+    document.getElementById(dotId).className = connected ? 'channel-status active' : 'channel-status';
+    document.getElementById(textId).textContent =
+        !configured ? 'Not configured' : (connected ? 'Connected' : `Not connected: ${problem}`);
+}
+
+function renderConnectionSettings() {
+    const c = connectionSettings;
+    if (!c) return;
+    document.getElementById('conn-ha-url').value = c.ha_url || '';
+    document.getElementById('conn-ha-token').value = '';
+    document.getElementById('conn-ha-token').placeholder = c.ha_token_set ? 'Saved (hidden)' : 'Paste a long-lived access token';
+    document.getElementById('conn-mqtt-host').value = c.mqtt_host || '';
+    document.getElementById('conn-mqtt-port').value = c.mqtt_port || 1883;
+    document.getElementById('conn-mqtt-user').value = c.mqtt_username || '';
+    document.getElementById('conn-mqtt-pass').value = '';
+    document.getElementById('conn-mqtt-pass').placeholder = c.mqtt_password_set ? 'Saved (hidden)' : '';
+    document.getElementById('conn-stream-url').value = c.stream_url || '';
+    setConnectionStatus('conn-ha-dot', 'conn-ha-status', !!c.ha_url, c.ha_connected, 'check the address and token');
+    setConnectionStatus('conn-mqtt-dot', 'conn-mqtt-status', !!c.mqtt_host, c.mqtt_connected, 'check the broker address and login');
+    document.getElementById('conn-saved').style.display = 'none';
+    document.getElementById('conn-save-btn').disabled = false;
+}
+
+async function saveConnectionSettings() {
+    const value = id => document.getElementById(id).value.trim();
+    const settings = {
+        ha_url: value('conn-ha-url'),
+        mqtt_host: value('conn-mqtt-host'),
+        mqtt_port: value('conn-mqtt-port') || 1883,
+        mqtt_username: value('conn-mqtt-user'),
+        stream_url: value('conn-stream-url')
+    };
+    // Secrets are only sent when typed; blank keeps the saved value
+    if (value('conn-ha-token')) settings.ha_token = value('conn-ha-token');
+    if (value('conn-mqtt-pass')) settings.mqtt_password = value('conn-mqtt-pass');
+
+    const button = document.getElementById('conn-save-btn');
+    try {
+        button.disabled = true;
+        await api('PUT', '/connection', settings);
+        document.getElementById('conn-ha-token').value = '';
+        document.getElementById('conn-mqtt-pass').value = '';
+        document.getElementById('conn-saved').style.display = '';
+        // Wait for the restart to finish, then reload so everything reflects the new settings
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        for (let i = 0; i < 30; i++) {
+            try {
+                await api('GET', '/connection');
+                window.location.reload();
+                return;
+            } catch (error) {
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+        }
+        showToast('Sonorium is taking a while to restart. Refresh the page in a moment.', 'error');
+    } catch (error) {
+        button.disabled = false;
+        showToast(error.message || 'Failed to save connection settings', 'error');
     }
 }
 
