@@ -1,8 +1,12 @@
 """
 Theme Metadata Management
 
-All theme-specific data is stored in the theme's metadata.json file.
+All theme-specific data is stored in the theme folder: metadata.json for the
+theme and its tracks, presets.json for presets (Themes 2.0, see theme_presets.py).
 This makes themes portable - renaming folders or moving themes preserves all settings.
+
+Loading a folder converts a 1.0 theme (presets inside metadata.json) to 2.0 and
+recovers from broken JSON files; see load_theme_folder().
 
 The theme_id in metadata.json is the canonical identifier. Folder names are just
 filesystem paths that Sonorium discovers and maps to the persistent theme_id.
@@ -10,13 +14,28 @@ filesystem paths that Sonorium discovers and maps to the persistent theme_id.
 
 from __future__ import annotations
 
-import json
+import shutil
 import uuid
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 
+from sonorium.core import theme_presets
+from sonorium.core.theme_presets import (
+    METADATA_FILE,
+    PRESETS_FILE,
+    SPEC_VERSION,
+    BrokenJsonError,
+)
 from sonorium.obs import logger
+
+AUDIO_EXTENSIONS = ('.mp3', '.wav', '.flac', '.ogg')
+
+# Name of the group that 1.0 "exclusive" tracks belong to after conversion
+LEGACY_EXCLUSIVE_GROUP = "Exclusive"
+
+# Theme folders already warned about being read-only (warn once per theme)
+_warned_read_only: set[str] = set()
 
 
 @dataclass
@@ -68,11 +87,22 @@ class ThemeMetadata:
     # Per-track settings (keyed by filename)
     tracks: dict[str, TrackSettings] = field(default_factory=dict)
 
-    # Presets (existing functionality)
+    # Presets. Kept in memory here but stored in presets.json, not metadata.json.
     presets: dict[str, dict] = field(default_factory=dict)
 
     # Attribution info (for imported themes)
     attribution: Optional[dict] = None
+
+    # Theme file format version (1 = presets inside metadata.json, 2 = presets.json)
+    spec_version: int = SPEC_VERSION
+
+    # Group settings keyed by group name. Only stored for now. A 1.0 theme with
+    # exclusive tracks gets {"Exclusive": {"legacy_exclusive": True}}; the tracks
+    # keep their own exclusive flag, so playback is unchanged.
+    groups: dict[str, dict] = field(default_factory=dict)
+
+    # Problems found while loading (e.g. a broken file), for the UI. Not saved.
+    problems: list[str] = field(default_factory=list, compare=False)
 
     def __post_init__(self):
         # Generate ID if not present
@@ -92,8 +122,9 @@ class ThemeMetadata:
         return self.tracks[track_name]
 
     def to_dict(self) -> dict:
-        """Convert to dict for JSON serialization."""
+        """Convert to the metadata.json dict (presets are stored in presets.json)."""
         data = {
+            "spec_version": self.spec_version,
             "id": self.id,
             "name": self.name,
             "description": self.description,
@@ -103,7 +134,7 @@ class ThemeMetadata:
             "short_file_threshold": self.short_file_threshold,
             "tracks": {k: v.to_dict() if isinstance(v, TrackSettings) else v
                       for k, v in self.tracks.items()},
-            "presets": self.presets,
+            "groups": self.groups,
         }
         if self.attribution:
             data["attribution"] = self.attribution
@@ -118,7 +149,8 @@ class ThemeMetadata:
         # Extract known fields
         kwargs = {}
         for key in ['id', 'name', 'description', 'icon', 'is_favorite',
-                    'categories', 'short_file_threshold', 'presets', 'attribution']:
+                    'categories', 'short_file_threshold', 'presets', 'attribution',
+                    'spec_version', 'groups']:
             if key in data:
                 kwargs[key] = data[key]
 
@@ -130,6 +162,190 @@ class ThemeMetadata:
             }
 
         return cls(**kwargs)
+
+
+# --- Theme folder load / save (Themes 2.0) ------------------------------------
+
+PRE_PRESETS_BACKUP = METADATA_FILE + ".pre-presets.bak"
+
+
+def _default_metadata(folder: Path, theme_id: Optional[str] = None) -> ThemeMetadata:
+    """Fresh metadata for a folder: its audio files with default track settings."""
+    tracks = {}
+    try:
+        for f in sorted(folder.iterdir()):
+            if f.is_file() and f.suffix.lower() in AUDIO_EXTENSIONS:
+                tracks[f.name] = TrackSettings()
+    except OSError:
+        pass
+    return ThemeMetadata(id=theme_id or "", name=folder.name, tracks=tracks)
+
+
+def _is_legacy(raw: dict) -> bool:
+    """True for a 1.0 metadata.json (no spec_version, or below 2)."""
+    version = raw.get("spec_version")
+    return not isinstance(version, int) or version < SPEC_VERSION
+
+
+def _convert_fields(metadata: ThemeMetadata) -> None:
+    """
+    1.0 -> 2.0 changes inside metadata.json. Tracks marked exclusive are
+    recorded as members of an "Exclusive" group; their flag is kept as is,
+    so playback doesn't change.
+    """
+    metadata.spec_version = SPEC_VERSION
+    if any(getattr(t, "exclusive", False) for t in metadata.tracks.values()):
+        metadata.groups.setdefault(LEGACY_EXCLUSIVE_GROUP, {"legacy_exclusive": True})
+
+
+def _note_broken(folder: Path, error: BrokenJsonError, problems: list[str], rename: bool = True) -> None:
+    """Keep a broken file aside, log it and record it for the UI."""
+    kept = theme_presets.keep_broken(error.path) if rename else None
+    kept_as = f", kept as {kept.name}" if kept else ""
+    logger.warning(f"Theme '{folder.name}': can't read {error}{kept_as}. Using defaults")
+    problems.append(f"Couldn't read {error}; defaults were used")
+
+
+def _warn_read_only(folder: Path, error: Exception) -> None:
+    key = str(folder)
+    if key in _warned_read_only:
+        return
+    _warned_read_only.add(key)
+    logger.warning(f"Theme '{folder.name}': can't write to the folder, using its files as they are ({error})")
+
+
+def _read_metadata(folder: Path, problems: list[str], rename_broken: bool):
+    """(metadata, raw dict or None). A broken file gives rebuilt defaults."""
+    path = folder / METADATA_FILE
+    try:
+        raw = theme_presets.read_json(path)
+        if raw is None:
+            return None, None
+        try:
+            return ThemeMetadata.from_dict(raw), raw
+        except (TypeError, ValueError, AttributeError) as e:
+            raise BrokenJsonError(path, f"unexpected content ({e})") from e
+    except BrokenJsonError as e:
+        theme_id = theme_presets.recover_theme_id(path)
+        _note_broken(folder, e, problems, rename_broken)
+        return _default_metadata(folder, theme_id), None
+
+
+def _read_presets_doc(folder: Path, problems: list[str], rename_broken: bool):
+    """(presets.json document, was_broken)."""
+    try:
+        return theme_presets.load_presets_doc(folder), False
+    except BrokenJsonError as e:
+        _note_broken(folder, e, problems, rename_broken)
+        return {}, True
+
+
+def _save_presets_verified(folder: Path, presets: dict) -> None:
+    """Save presets.json and check it reads back with the same presets. Raises OSError."""
+    theme_presets.save_presets(folder, presets)
+    try:
+        saved = theme_presets.load_presets_doc(folder).get("presets")
+    except BrokenJsonError as e:
+        raise OSError(str(e)) from e
+    if saved != presets:
+        raise OSError(f"{PRESETS_FILE} did not read back the same")
+
+
+def load_theme_folder(folder: Path) -> ThemeMetadata:
+    """
+    Load a theme folder's metadata and presets, converting a 1.0 theme to 2.0.
+
+    Conversion (idempotent):
+      - presets in metadata.json move to presets.json (presets.json wins on the
+        same id), presets.json is verified, metadata.json is backed up once to
+        metadata.json.pre-presets.bak, then "presets" is removed from it
+      - spec_version becomes 2; exclusive tracks are recorded in an "Exclusive" group
+    A broken metadata.json/presets.json is kept as <name>.broken-<time> and
+    rebuilt with defaults; the problem is listed in metadata.problems.
+    If the folder can't be written, the files are used as they are (presets
+    still read from metadata.json) and a warning is logged once.
+    """
+    folder = Path(folder)
+    problems: list[str] = []
+    meta_path = folder / METADATA_FILE
+
+    metadata, raw = _read_metadata(folder, problems, rename_broken=True)
+    is_new = metadata is None
+    if is_new:
+        metadata = ThemeMetadata(name=folder.name)
+
+    legacy_presets = {}
+    has_legacy_key = raw is not None and "presets" in raw
+    if has_legacy_key and isinstance(raw["presets"], dict):
+        legacy_presets = dict(raw["presets"])
+    legacy = raw is not None and _is_legacy(raw)
+
+    doc, presets_broken = _read_presets_doc(folder, problems, rename_broken=True)
+    presets = dict(legacy_presets)
+    presets.update(doc.get("presets") or {})
+    metadata.presets = presets
+
+    if legacy:
+        _convert_fields(metadata)
+
+    write_meta = raw is None or legacy or has_legacy_key or "id" not in raw
+    if not metadata.name:
+        metadata.name = folder.name
+        write_meta = True
+    write_presets = has_legacy_key or presets_broken or not (folder / PRESETS_FILE).exists()
+
+    try:
+        if write_presets:
+            _save_presets_verified(folder, presets)
+        if has_legacy_key and meta_path.exists() and not (folder / PRE_PRESETS_BACKUP).exists():
+            shutil.copy2(meta_path, folder / PRE_PRESETS_BACKUP)
+        if write_meta:
+            theme_presets.write_json_atomic(meta_path, metadata.to_dict())
+    except OSError as e:
+        _warn_read_only(folder, e)
+    else:
+        if legacy or has_legacy_key:
+            logger.info(f"Theme '{metadata.name}' converted to the 2.0 format")
+        elif is_new:
+            logger.debug(f"Created new metadata for theme '{folder.name}' with id={metadata.id[:8]}...")
+
+    metadata.problems = problems
+    return metadata
+
+
+def save_theme_folder(folder: Path, metadata: ThemeMetadata) -> bool:
+    """Save metadata.json and presets.json (presets first, so none are lost). Returns True on success."""
+    folder = Path(folder)
+    try:
+        try:
+            current = theme_presets.load_presets_doc(folder).get("presets")
+        except BrokenJsonError:
+            current = None
+        if current != metadata.presets or not (folder / PRESETS_FILE).exists():
+            theme_presets.save_presets(folder, metadata.presets)
+        theme_presets.write_json_atomic(folder / METADATA_FILE, metadata.to_dict())
+        return True
+    except OSError as e:
+        logger.error(f"Failed to save theme files in {folder}: {e}")
+        return False
+
+
+def theme_documents_for_export(folder: Path) -> tuple[dict, dict]:
+    """(metadata.json dict, presets.json dict) in the 2.0 layout, without writing anything."""
+    folder = Path(folder)
+    problems: list[str] = []
+    metadata, raw = _read_metadata(folder, problems, rename_broken=False)
+    if metadata is None:
+        metadata = ThemeMetadata(name=folder.name)
+    if raw is not None and _is_legacy(raw):
+        _convert_fields(metadata)
+    legacy_presets = raw.get("presets") if raw is not None else None
+    doc, _ = _read_presets_doc(folder, problems, rename_broken=False)
+    doc = dict(doc)
+    presets = dict(legacy_presets) if isinstance(legacy_presets, dict) else {}
+    presets.update(doc.get("presets") or {})
+    doc["presets"] = presets
+    return metadata.to_dict(), doc
 
 
 class ThemeMetadataManager:
@@ -188,47 +404,19 @@ class ThemeMetadataManager:
         return themes
 
     def _load_or_create_metadata(self, folder: Path) -> ThemeMetadata:
-        """Load metadata.json or create with defaults if not exists."""
-        metadata_path = folder / "metadata.json"
-
-        if metadata_path.exists():
-            try:
-                data = json.loads(metadata_path.read_text(encoding='utf-8'))
-                metadata = ThemeMetadata.from_dict(data)
-
-                # Ensure name is set (use folder name as fallback)
-                if not metadata.name:
-                    metadata.name = folder.name
-                    self._save_metadata(folder, metadata)
-
-                return metadata
-            except Exception as e:
-                logger.error(f"Failed to load metadata from {metadata_path}: {e}")
-
-        # Create new metadata with folder name as default name
-        metadata = ThemeMetadata(
-            name=folder.name
-        )
-
-        # Save immediately so ID is persisted
-        self._save_metadata(folder, metadata)
-        logger.debug(f"Created new metadata for theme '{folder.name}' with id={metadata.id[:8]}...")
-
-        return metadata
+        """Load metadata.json and presets.json (converting 1.0 themes), or create defaults."""
+        try:
+            return load_theme_folder(folder)
+        except Exception as e:
+            # One bad theme must never stop the others from loading
+            logger.error(f"Theme '{folder.name}': failed to load ({e})")
+            metadata = _default_metadata(folder, theme_presets.recover_theme_id(folder / METADATA_FILE))
+            metadata.problems = [f"Couldn't load the theme files: {e}"]
+            return metadata
 
     def _save_metadata(self, folder: Path, metadata: ThemeMetadata) -> bool:
-        """Save metadata to folder's metadata.json."""
-        metadata_path = folder / "metadata.json"
-
-        try:
-            metadata_path.write_text(
-                json.dumps(metadata.to_dict(), indent=2, ensure_ascii=False),
-                encoding='utf-8'
-            )
-            return True
-        except Exception as e:
-            logger.error(f"Failed to save metadata to {metadata_path}: {e}")
-            return False
+        """Save metadata to folder's metadata.json and its presets to presets.json."""
+        return save_theme_folder(folder, metadata)
 
     def get_folder_for_id(self, theme_id: str) -> Optional[Path]:
         """Get the folder path for a theme ID."""

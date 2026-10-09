@@ -92,15 +92,18 @@ class SessionManager:
         self.theme_metadata_manager = manager
 
     def _theme_presets(self, theme_id: str) -> dict:
-        """A theme's presets ({preset_id: data}), from the metadata cache or its metadata.json."""
+        """A theme's presets ({preset_id: data}), from the metadata cache or its presets.json."""
+        from sonorium.core.theme_presets import load_presets
+
         if self.theme_metadata_manager:
             folder = self.theme_metadata_manager.get_folder_for_id(theme_id)
             if folder:
                 metadata = self.theme_metadata_manager.get_metadata_by_folder(folder)
                 if metadata:
                     return dict(metadata.presets or {})
+                return load_presets(folder)
 
-        # Fallback: read directly from file
+        # Fallback: find the folder by the id in its metadata.json
         import json
         if self.themes and len(self.themes) > 0:
             first_theme = self.themes[0]
@@ -112,8 +115,8 @@ class SessionManager:
                             metadata = json.loads(metadata_path.read_text())
                         except Exception:
                             continue
-                        if metadata.get("id") == theme_id:
-                            return dict(metadata.get("presets") or {})
+                        if isinstance(metadata, dict) and metadata.get("id") == theme_id:
+                            return load_presets(folder)
         return {}
 
     def preset_for_theme(self, theme_id: str, requested: Optional[str] = None) -> Optional[str]:
