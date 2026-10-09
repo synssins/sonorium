@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Optional
 
+from sonorium.display import display_image_url
 from sonorium.obs import logger
 from sonorium.network.models import NetworkSpeaker, SpeakerType
 
@@ -197,7 +198,7 @@ class NetworkStreamingManager:
             cast = self._connect_chromecast(speaker)
             session.device = cast
             mc = cast.media_controller
-            mc.play_media(session.stream_url, "audio/mpeg", title=STREAM_TITLE)
+            mc.play_media(session.stream_url, "audio/mpeg", title=STREAM_TITLE, thumb=display_image_url(session.stream_url))
             for _ in range(20):
                 time.sleep(0.5)
                 if mc.status.player_state in ("PLAYING", "BUFFERING"):

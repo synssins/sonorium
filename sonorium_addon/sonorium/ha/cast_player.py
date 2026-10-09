@@ -22,6 +22,7 @@ import uuid
 from typing import Optional, TYPE_CHECKING
 from concurrent.futures import ThreadPoolExecutor
 
+from sonorium.display import DISPLAY_TITLE, display_image_url
 from sonorium.obs import logger
 from sonorium.runtime import STANDALONE, ha_websocket_url
 
@@ -529,7 +530,7 @@ class CastPlayer:
                 return False
 
             mc = cast.media_controller
-            mc.play_media(url, content_type)
+            mc.play_media(url, content_type, title=DISPLAY_TITLE, thumb=display_image_url(url))
 
             # Wait for playback to start
             import time
@@ -574,6 +575,10 @@ class CastPlayer:
                 "media_content_id": media_url,
                 "media_content_type": "audio/mpeg",
             }
+            # Shown on Cast displays: HA's Cast integration passes title/thumb
+            # on to the Default Media Receiver (only Cast-supported keys here)
+            image = display_image_url(media_url)
+            data["extra"] = {"title": DISPLAY_TITLE, **({"thumb": image} if image else {})}
 
             logger.debug(f"  Cast: Using HA API fallback for {entity_id}")
             logger.debug(f"  Cast: POST {url}")
