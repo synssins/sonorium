@@ -656,6 +656,7 @@ const CH_ICON_THEME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="non
 const CH_ICON_VOLUME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
 const CH_ICON_PLAY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 const CH_ICON_STOP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
+const CH_ICON_LISTEN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>';
 
 // Channels switched to playlist mode on their card, until a playlist is picked
 const chPlaylistMode = new Set();
@@ -673,6 +674,7 @@ function renderSessionCard(session) {
                 <span class="ch-icon" aria-hidden="true">${themeIconOf(session.theme_id)}</span>
                 <div class="ch-title"><span class="ch-name">${name}</span><span class="ch-sub" title="Speakers">${escapeHtml(speakers)}</span></div>
                 <span class="ch-state${isPlaying ? ' on' : ''}">${isPlaying ? 'Playing' : 'Stopped'}</span>
+                <button type="button" class="icon-btn sm ch-listen${chListen.id === id ? ' on' : ''}" aria-pressed="${chListen.id === id}" aria-label="Listen on this device" title="Listen on this device" onclick="chToggleListen(${spArg(id)})">${CH_ICON_LISTEN}</button>
                 <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
                 <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
             </div>
@@ -797,6 +799,45 @@ function chMenu(button, sessionId) {
     xMenu(`ch:${sessionId}`, button,
         xMenuItem('Delete…', `spClosePop(); deleteSession(${spArg(sessionId)})`, { icon: SP_ICON_TRASH, cls: 'danger' }),
         { cls: 'menu sp-menu x-menu' });
+}
+
+// Listen here: this browser plays the channel's own stream (one channel at a time). The server
+// runs the mix for it even while the speakers are stopped; Play and Stop stay the speakers'.
+const chListen = { id: null, audio: null };
+
+async function chToggleListen(sessionId) {
+    const again = chListen.id === sessionId;
+    await chStopListening();
+    if (again) return;
+    try {
+        const result = await api('POST', `/sessions/${sessionId}/listen`);
+        const audio = new Audio(`${BASE_PATH}${result.stream_path}?local=1`);
+        chListen.id = sessionId;
+        chListen.audio = audio;
+        // The stream ends when the channel goes (deleted, or released on the server)
+        const ended = () => { if (chListen.audio === audio) { chListen.id = null; chListen.audio = null; renderSessions(); } };
+        audio.addEventListener('ended', ended);
+        audio.addEventListener('error', ended);
+        renderSessions();
+        await audio.play();
+    } catch (error) {
+        await chStopListening();
+        showToast(error.message, 'error');
+    }
+}
+
+async function chStopListening() {
+    const { id, audio } = chListen;
+    if (!id) return;
+    chListen.id = null;
+    chListen.audio = null;
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();  // closes the stream
+    renderSessions();
+    try {
+        await api('DELETE', `/sessions/${id}/listen`);
+    } catch (error) { /* the server releases it once no browser listens */ }
 }
 
 // The mode buttons: back to a theme stops the playlist (the channel keeps its theme);
@@ -9437,6 +9478,7 @@ const PAGE_HELP = {
         ${helpTerm('Play / Pause', 'starts or stops the channel on its speakers.')}
         ${helpTerm('Edit', 'changes the channel\'s name, theme or playlist, preset, volume and speakers.')}
         ${helpTerm('Delete', 'removes the channel. You confirm first.')}
+        ${helpTerm('Listen here', 'the headphones button plays the channel on this device too, even while its speakers are stopped. Press it again to stop. Play and Stop are for the speakers.')}
         ${helpTerm('Recent changes', 'the channel\'s latest changes with their times: started, stopped, theme, preset, sequence step, playlist entry.')}
         <h4>New channel</h4>
         ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it after the theme and speakers.')}
