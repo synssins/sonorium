@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.28 (2026-10-10)
+
+### Features
+
+- **ui**: Channels page: Listen here button on each channel block
+  ([`5e85480`](https://github.com/synssins/sonorium/commit/5e854801b6d1ec4451d4a7019458e4c7e8a7e5f0))
+
+
 ## v1.6.1-dev.27 (2026-10-10)
 
 ### Features
