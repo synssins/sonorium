@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.19 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Pages never grow wider than a phone screen
+  ([`2075117`](https://github.com/synssins/sonorium/commit/207511778bbc4c397f8fd81fe07f7576831a5116))
+
+
 ## v1.4.2-dev.18 (2026-10-10)
 
 ### Bug Fixes
