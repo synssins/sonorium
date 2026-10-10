@@ -2,8 +2,6 @@
 
 ![Sonorium](https://raw.githubusercontent.com/synssins/sonorium/main/logo.png)
 
-[Announcements](#announcements) · [About](#about) · [Features](#features) · [Installation](#installation) · [What's new](#whats-new) · [API Reference](#api-reference) · [Acknowledgements](#acknowledgements) · [License](#license) · [Contributing](#contributing)
-
 ## Announcements
 
 > ## ⭐ Major Release: 1.5.0, Themes 2.0
