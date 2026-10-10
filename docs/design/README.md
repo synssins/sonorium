@@ -70,3 +70,33 @@ exactly the same size (fixed height), three per row on desktop, one on a phone:
   preset, sequence step, playlist entry; not Ebb & Flow movement), in a fixed-height box.
 - A full-width Play button at the bottom, accent coloured; while playing it is Stop, highlighted
   in red (btn-danger), not grey. A playing block has an accent border.
+
+## A sequence step's While playing view
+
+`Step_While.dc.html`, `Step_While_Phone.dc.html` (approved, with these later decisions that
+override the board where they differ):
+
+- The sequence editor's Advanced dialog for a step (functions tx* in app.js; opened from a
+  preset row's ⋯ › Advanced… in the Sequences editor, sq*) gets a first tab **While playing**
+  (with a count of changed values), then the existing **Coming in** and **Leaving <preset>** tabs.
+- While playing lists the theme's tracks exactly like the Theme Editor: the same sections
+  (Unassigned is left out: nothing in it plays), the same groups, rows and controls (Mode text,
+  Volume (two knobs for Ebb & Flow), Interval / Duration (Shorter … Longer, no number), Mute),
+  a group header with its Volume, Interval/Duration, Mute, and Gap (Intermittent) or Pause
+  between plays (Ebb & Flow). An Ebb & Flow track's ⋯ menu: Rise (Gradual … Sudden), Pause
+  between plays, Pause (low–high seconds). An Ebb & Flow group's ⋯ menu: Same Rise for every
+  file (+ its Rise slider). No moving tracks, no uploads, no new groups, no fades, no Gapless.
+- Each value shows the preset's unless this step changes it; a changed value is shown in the
+  accent green (slider value text, select border, mute button ring, gap inputs, switch label).
+  A value set back to the preset's counts as unchanged again.
+- **Revert changes** (top right of the list, and in each track's and group's ⋯ menu) puts back
+  the values as they were when Save was last pressed. Footer: "N changes from the preset" ·
+  Save · Cancel.
+- Help: an "In a sequence step" part (see the board's <p class="hi new"> lines; "Back to the
+  preset" there is now "Revert changes": "puts back the settings as they were when Save was
+  last pressed: for one track or group in its ⋯ menu, or for everything at the top of the list.
+  A value set back to the preset's follows the preset again.").
+- Storage/API (already on the server): GET/PUT /api/v2/themes/{id}/sequences/{sid}/while/{preset}
+  with {"tracks": {key: {volume, volume_low, presence, muted, rise, pause_between, pause_min,
+  pause_max}}, "groups": {name: {volume, presence, muted, gap_min, gap_max, pause_between, rise}}};
+  every field listed, null = the preset's value. Channels on that step follow a save.
