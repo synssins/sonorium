@@ -3,7 +3,7 @@ Linked files, end to end: two real themes on disk ("Camping" with crickets
 and an empty "Weather" group, "Rain" with rain), the real metadata manager,
 the real theme refresh and the real mixer, with generated tone mp3s told
 apart by FFT. A linked file can be ungrouped or in any group (intrusion
-groups are retired: see test_linked_files.py for their conversion).
+groups are retired: their one-time conversion, and Auto's, are at the end).
 """
 
 import asyncio
@@ -652,3 +652,147 @@ def test_copying_a_link_into_the_theme(world):
     run(api.refresh_themes())
     refused(api.copy_link_in("camping-id", "Weather/Rain", Body({"group": None})), 409)
     assert "Weather/Rain" in metadata_on_disk(world, "Camping")["links"]
+
+
+# --- one-time conversions on load: intrusion groups and Auto retired -------------
+
+def read_json(path):
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def test_intrusion_groups_are_converted_once_with_backups(tmp_path, tones):
+    """Each intrusion group: its links ungrouped (own mode kept), then removed like "delete group"."""
+    import shutil
+    root = tmp_path / "themes"
+    write_theme(root / "Rain", "rain-id")
+    shutil.copy(tones / "rain.mp3", root / "Rain" / "Rain.mp3")
+    camping = root / "Camping"
+    write_theme(camping, "camping-id",
+                groups={"Weather": {"mode": "intrusion", "volume": 0.5}, "Storms": {"mode": "intrusion"},
+                        "Birds": {"mode": "merry_go_round"}},
+                tracks={"Crickets": {"playback_mode": "continuous"}, "Rain": {"playback_mode": "continuous"},
+                        "Weather/Rain": {"muted": True, "playback_mode": "sparse", "presence": 0.4},
+                        "Weather/Thunder": {"volume": 0.3, "playback_mode": "continuous"},
+                        "Storms/Rain": {"muted": False, "playback_mode": "continuous"}},
+                presets={"p": {"name": "P", "tracks": {"Weather/Rain": {"muted": False}, "Weather/Thunder": {"muted": False},
+                                                       "Storms/Rain": {"volume": 0.1}},
+                               "groups": {"Weather": {"volume": 0.7}, "Birds": {"muted": True}}}})
+    metadata = read_json(camping / "metadata.json")
+    metadata["links"] = {"Weather/Rain": {"theme": "rain-id", "track": "Rain"},
+                         "Storms/Rain": {"theme": "rain-id", "track": "Rain"}}
+    metadata["ebb_duration"] = True
+    (camping / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    presets = read_json(camping / "presets.json")
+    presets["sequences"] = {"s": {"name": "S", "presets": ["p"], "at_end": "stop",
+                                  "transitions": {"p": {"in": {"Weather/Rain": {"styles": ["gusts"]}}, "out": {}}},
+                                  "while": {"p": {"tracks": {"Weather/Thunder": {"volume": 0.5}},
+                                                  "groups": {"Weather": {"muted": False}, "Birds": {"volume": 0.2}}}}}}
+    (camping / "presets.json").write_text(json.dumps(presets), encoding="utf-8")
+    shutil.copy(tones / "crickets.mp3", camping / "Crickets.mp3")
+    shutil.copy(tones / "rain.mp3", camping / "Rain.mp3")  # the top-level "Rain" is taken by a file
+    (camping / "Weather").mkdir()
+    shutil.copy(tones / "thunder.mp3", camping / "Weather" / "Thunder.mp3")
+    (camping / "Birds").mkdir()  # "Storms" has no folder: it only held a link
+    original_meta, original_presets = (camping / "metadata.json").read_text(), (camping / "presets.json").read_text()
+
+    loaded = m.meta.load_theme_folder(camping)
+
+    # The groups are gone (the other one stays); their files are in the theme folder, the links ungrouped
+    assert set(loaded.groups) == {"Birds"}
+    assert not (camping / "Weather").exists() and (camping / "Thunder.mp3").exists()
+    assert loaded.links == {"Rain (2)": {"theme": "rain-id", "track": "Rain"}, "Rain (3)": {"theme": "rain-id", "track": "Rain"}}
+    assert loaded.tracks["Rain (3)"].playback_mode == "sparse" and loaded.tracks["Rain (3)"].presence == 0.4  # its own mode
+    assert loaded.tracks["Rain (3)"].muted is True and loaded.tracks["Rain (2)"].muted is False
+    assert loaded.tracks["Thunder"].volume == 0.3 and "Weather/Thunder" not in loaded.tracks
+    assert loaded.tracks["Rain"].playback_mode == "continuous"  # the theme's own file, untouched
+    # Presets and sequences follow; the removed groups' entries go
+    assert loaded.presets["p"]["tracks"] == {"Rain (3)": {"muted": False}, "Thunder": {"muted": False}, "Rain (2)": {"volume": 0.1}}
+    assert loaded.presets["p"]["groups"] == {"Birds": {"muted": True}}
+    saved = read_json(camping / "presets.json")
+    assert saved["presets"] == loaded.presets
+    sequence = saved["sequences"]["s"]
+    assert sequence["transitions"]["p"]["in"] == {"Rain (3)": {"styles": ["gusts"]}}
+    assert sequence["while"]["p"] == {"tracks": {"Thunder": {"volume": 0.5}}, "groups": {"Birds": {"volume": 0.2}}}
+    on_disk = read_json(camping / "metadata.json")
+    assert on_disk["intrusions_retired"] is True and set(on_disk["links"]) == {"Rain (2)", "Rain (3)"}
+    # The originals, kept once
+    assert (camping / "metadata.json.pre-links.bak").read_text() == original_meta
+    assert (camping / "presets.json.pre-links.bak").read_text() == original_presets
+    # The files match the settings (nothing to add or remove)
+    assert m.meta.sync_entries_with_files(camping, loaded) is None
+
+    # Loading again changes nothing (and keeps the first backups)
+    meta_now, presets_now = (camping / "metadata.json").read_text(), (camping / "presets.json").read_text()
+    again = m.meta.load_theme_folder(camping)
+    assert again.links == loaded.links and again.presets == loaded.presets and set(again.groups) == {"Birds"}
+    assert (camping / "metadata.json").read_text() == meta_now and (camping / "presets.json").read_text() == presets_now
+    assert (camping / "metadata.json.pre-links.bak").read_text() == original_meta
+
+    # The old mode is still read (a theme that couldn't be converted plays on), never offered
+    assert m.recording.group_mode({"mode": "intrusion"}) == m.recording.GROUP_MODE_INTRUSION
+
+
+def test_auto_playback_modes_are_resolved_once_with_backups(tmp_path, tones, monkeypatch):
+    """Each "auto" track gets the mode it played as; Ebb & Flow values become Duration."""
+    import shutil
+    root = tmp_path / "themes"
+    write_theme(root / "Rain", "rain-id", tracks={"Rain": {"playback_mode": "continuous"}})
+    shutil.copy(tones / "rain.mp3", root / "Rain" / "Rain.mp3")
+    mix_folder = root / "Mix"
+    write_theme(mix_folder, "mix-id",
+                tracks={"Long": {"presence": 1.0}, "Calm": {"presence": 0.3}, "Short": {"presence": 0.5},
+                        "Shorter": {"presence": 1.0}, "G/Grouped": {"presence": 0.4}, "Linked": {"presence": 0.2},
+                        "Missing": {"presence": 0.5}, "Set": {"presence": 0.3, "playback_mode": "sparse"}},
+                presets={"a": {"name": "A", "tracks": {"Long": {"presence": 0.4}, "Short": {"playback_mode": "auto", "presence": 1.0},
+                                                       "Calm": {"volume": 0.5}, "Set": {"playback_mode": "auto"}}},
+                         "b": {"name": "B", "tracks": {"Calm": {"presence": 0.2}, "Long": {"muted": True}}}})
+    metadata = read_json(mix_folder / "metadata.json")
+    metadata["links"] = {"Linked": {"theme": "rain-id", "track": "Rain"}}
+    metadata["ebb_duration"] = metadata["intrusions_retired"] = True
+    (mix_folder / "metadata.json").write_text(json.dumps(metadata), encoding="utf-8")
+    for name in ("Long", "Calm", "NoEntry", "Set"):
+        shutil.copy(tones / "crickets.mp3", mix_folder / f"{name}.mp3")
+    (mix_folder / "G").mkdir()
+    shutil.copy(tones / "crickets.mp3", mix_folder / "G" / "Grouped.mp3")
+    tone_mp3(mix_folder / "Short.mp3", 5.0, THUNDER_HZ)
+    shutil.copy(mix_folder / "Short.mp3", mix_folder / "Shorter.mp3")
+    original_meta, original_presets = (mix_folder / "metadata.json").read_text(), (mix_folder / "presets.json").read_text()
+
+    # Lengths can't be read (playback not loaded): nothing changes, tried again next time
+    monkeypatch.setattr(m.meta, "track_seconds", lambda path: None)
+    assert m.meta.load_theme_folder(mix_folder).tracks["Long"].playback_mode == "auto"
+    assert not (mix_folder / "metadata.json.pre-auto.bak").exists()
+    assert (mix_folder / "metadata.json").read_text() == original_meta
+    monkeypatch.undo()
+
+    loaded = m.meta.load_theme_folder(mix_folder)
+    modes = {k: (t.playback_mode, t.presence) for k, t in loaded.tracks.items()}
+    assert modes["Long"] == ("continuous", 1.0)
+    assert modes["Calm"] == ("presence", pytest.approx(0.7))  # Ebb & Flow: the value is Duration now
+    assert modes["Short"] == ("sparse", 0.5) and modes["Shorter"] == ("continuous", 1.0)
+    assert modes["G/Grouped"] == ("presence", 0.4)  # in a group: its group plays it, the value is kept
+    assert modes["Linked"] == ("presence", pytest.approx(0.8))  # a linked file: its source file's length
+    assert modes["Missing"] == ("auto", 0.5)  # no file: left as it was
+    assert modes["Set"] == ("sparse", 0.3)  # never was auto
+    assert "NoEntry" not in loaded.tracks  # no entry: decided at play time, as before
+    a, b = loaded.presets["a"]["tracks"], loaded.presets["b"]["tracks"]
+    assert a["Long"] == {"presence": pytest.approx(0.6), "playback_mode": "presence"}  # its value made it Ebb & Flow
+    assert a["Short"] == {"playback_mode": "continuous", "presence": 1.0}
+    assert a["Calm"] == {"volume": 0.5}  # follows the theme's (converted) settings
+    # Auto in the preset, at the theme's presence 0.3, a long file: Ebb & Flow, the value as Duration
+    assert a["Set"] == {"playback_mode": "presence", "presence": pytest.approx(0.7)}
+    assert b["Calm"] == {"presence": pytest.approx(0.8)} and b["Long"] == {"muted": True}
+    on_disk = read_json(mix_folder / "metadata.json")
+    assert on_disk["auto_retired"] is True and on_disk["tracks"]["Calm"]["playback_mode"] == "presence"
+    assert read_json(mix_folder / "presets.json")["presets"] == loaded.presets
+    assert (mix_folder / "metadata.json.pre-auto.bak").read_text() == original_meta
+    assert (mix_folder / "presets.json.pre-auto.bak").read_text() == original_presets
+
+    # Once: a track that gets "auto" later (a file added by hand) keeps it and is decided at play time
+    changes = m.meta.sync_entries_with_files(mix_folder, loaded)
+    assert "NoEntry" in changes["added"]
+    m.meta.save_theme_folder(mix_folder, loaded)
+    again = m.meta.load_theme_folder(mix_folder)
+    assert again.tracks["NoEntry"].playback_mode == "auto"
+    assert again.tracks["Calm"].presence == pytest.approx(0.7)
+    assert (mix_folder / "metadata.json.pre-auto.bak").read_text() == original_meta
