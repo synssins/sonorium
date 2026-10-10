@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.18 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Help wording for Cancel, Save preset and Save theme
+  ([`8dd93c2`](https://github.com/synssins/sonorium/commit/8dd93c2b6008a468aec0f5d403ed2f37aa008362))
+
+
 ## v1.4.2-dev.17 (2026-10-10)
 
 ### Features
