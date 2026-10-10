@@ -2640,21 +2640,35 @@ body.sidebar-open .sidebar-overlay {
 .te .upload-zone.over { background: rgba(6, 214, 160, .14); }
 .te .upload-zone svg { flex: none; color: var(--accent-primary); }
 .te .upload-zone strong { color: var(--text-primary); }
-.te .thead-wrap { overflow: hidden; scrollbar-gutter: stable; scrollbar-width: thin; }
 .te .thead { padding: .375rem calc(.75rem + 1px); border-bottom: 1px solid var(--border-color); background: var(--bg-card); font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
 .te .thead .c { text-align: center; }
 
 /* Track list (the only part that scrolls) */
 .te .modal-body.tlist { flex: 1; min-height: 0; padding: .5rem 1.5rem 1rem; overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: thin; transition: opacity .2s; }
 .te .tlist.busy { opacity: .6; pointer-events: none; }
-/* Aligned table: Name narrow, Mode tucked against it, short sliders, Mute then ⋯ */
-.te .tgrid { display: grid; grid-template-columns: 18px 28px minmax(120px, 220px) 124px minmax(110px, 168px) minmax(110px, 168px) 36px 32px; column-gap: .75rem; align-items: center; }
+/* Aligned table: Name, Mode, short sliders, Mute then ⋯ */
+.te .tgrid2 { display: grid; grid-template-columns: 18px 28px minmax(140px, 1fr) 132px minmax(110px, 168px) minmax(110px, 168px) 36px 32px; column-gap: .75rem; align-items: center; }
+.te .trow.tgrid2 { min-height: 52px; padding: .25rem .75rem; border-bottom: 1px solid rgba(51,65,85,.55); }
+.te .ghead.tgrid2 { min-height: 56px; padding: .25rem .75rem; }
+/* Sections by playback type: header (name, count, description, New group), column headings, groups, tracks */
+.te .cat { margin: 0 0 1rem; border: 1px solid var(--border-color); border-radius: .5rem; background: var(--bg-card); overflow: hidden; }
+.te .cat-head { display: flex; align-items: center; gap: .5rem; min-height: 44px; padding: .375rem .75rem; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); }
+.te .cat-title { font-size: .9375rem; font-weight: 600; color: var(--text-primary); }
+.te .cat-desc { font-size: .75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.te .cat-thead { padding: .375rem .75rem .25rem; font-size: .6875rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); border-bottom: 1px solid rgba(51,65,85,.55); }
+.te .cat .grp-sec { margin: 0; border-width: 0 0 1px; border-radius: 0; }
+.te .cat-unassigned { border-style: dashed; }
+.te .cat-unassigned .trow { opacity: .9; }
+.te .un-note { grid-column: 5 / 8; font-size: .75rem; color: var(--text-muted); }
+.te .nm-cell { display: flex; flex-direction: column; gap: .125rem; min-width: 0; }
+.te .nm-cell .lk-from { display: inline-flex; align-items: center; gap: .25rem; font-size: .6875rem; color: var(--text-muted); }
+/* Ebb & Flow's Duration shows no number: "Shorter" and "Longer" sit under its ends */
+.te .mx-hint.dur-ends { display: flex; justify-content: space-between; color: var(--text-muted); }
+.te .mx:has(.dur-ends) .track-slider-value { display: none; }
 .te .sec { margin-bottom: .625rem; border: 1px solid var(--border-color); border-radius: .5rem; background: var(--bg-card); }
-.te .sec.drop { outline: 2px dashed var(--accent-primary); outline-offset: -1px; background: rgba(6, 214, 160, .06); }
+.te .sec.drop, .te .cat.drop { outline: 2px dashed var(--accent-primary); outline-offset: -1px; background: rgba(6, 214, 160, .06); }
 .te .drop-note { display: none; font-size: .75rem; font-weight: 600; color: var(--accent-primary); }
 .te .sec.drop .drop-note { display: inline; }
-.te .slabel { display: flex; align-items: center; gap: .5rem; min-height: 36px; padding: 0 .75rem; border-bottom: 1px solid var(--border-color); font-size: .75rem; font-weight: 600; color: var(--text-secondary); }
-.te .slabel .drop-note { margin-left: auto; }
 .te .empty-row { padding: .75rem; font-size: .8125rem; color: var(--text-muted); text-align: center; }
 .te .c-lbl { display: none; font-size: .75rem; color: var(--text-muted); }
 .te .trow { box-sizing: border-box; min-height: 48px; padding: .5rem .75rem; border-bottom: 1px solid rgba(51, 65, 85, .55); }
@@ -2689,7 +2703,7 @@ body.sidebar-open .sidebar-overlay {
 .te .mx-ctl .track-slider-value { min-width: 34px; font-size: .75rem; color: var(--text-secondary); }
 .te .mx-hint { font-size: .6875rem; line-height: 1.1; color: var(--accent-secondary); }
 .te .mx-hint:empty { display: none; }
-.te .master .track-slider, .te .pg-master .track-slider { accent-color: var(--accent-secondary); }
+.te .master .track-slider { accent-color: var(--accent-secondary); }
 
 /* Groups: collapsible sections; header row carries the master controls */
 .te .grp-sec { background: var(--bg-secondary); }
@@ -2708,7 +2722,6 @@ body.sidebar-open .sidebar-overlay {
 .te .pb-confirm { font-size: .8125rem; color: var(--text-primary); }
 .te .grp-confirm-btns { display: inline-flex; gap: .5rem; }
 .te .gap-ctl { display: flex; align-items: center; gap: .375rem; margin-left: auto; font-size: .75rem; color: var(--text-muted); white-space: nowrap; }
-.te .pg-master { display: none; }
 .te .master { min-width: 0; }
 
 /* Footer: preset field on the left, save actions on the right */
@@ -2780,17 +2793,14 @@ body.sidebar-open .sidebar-overlay {
     .te .upload-zone .uz-drop { display: none; }
     .te .upload-zone .link-btn { min-height: 44px; }
     .te .upload-zone .uz-target { width: 100%; order: 5; }
-    .te .thead-wrap { display: none; }
     .te .modal-body.tlist { padding: .625rem 1rem 1rem; }
 
     .te .sec { display: flex; flex-direction: column; gap: .5rem; padding: .5rem; }
-    .te .slabel { min-height: 32px; padding: 0 .25rem; border-bottom: 0; }
     .te .c-lbl { display: block; }
     .te .drag-handle { display: none; }
     .te .track-mute-btn { width: 40px; height: 40px; flex: none; }
     .te .icon-btn.sm { width: 40px; height: 40px; }
     /* Card: ▶ name mute ⋯ / Mode / Volume / Interval */
-    .te .trow.tgrid { grid-template-columns: 36px minmax(0, 1fr) 40px 40px; grid-template-areas: "play name mute more" "mode mode mode mode" "vol vol vol vol" "pres pres pres pres"; row-gap: .375rem; column-gap: .5rem; min-height: 0; padding: .5rem .625rem .625rem; border: 1px solid var(--border-color); border-radius: .5rem; background: var(--bg-card); }
     .te .sec > .trow:last-child { border-bottom: 1px solid var(--border-color); }
     .te .trow.in-grp { border-left: 3px solid rgba(139, 92, 246, .6); }
     .te .trow.in-grp .trk-name { padding-left: 0; border-left: 0; }
@@ -2808,19 +2818,38 @@ body.sidebar-open .sidebar-overlay {
     .te .mx .mx-ctl .track-slider { height: 28px; }
     .te .mx .mx-ctl .track-slider-value { font-size: .8125rem; }
     .te .mx .mx-hint { grid-column: 2; font-size: .75rem; }
-    /* Group: header row, then the master block */
-    .te .ghead.tgrid { display: flex; align-items: center; gap: .5rem; min-height: 48px; padding: 0 .125rem; border-bottom: 0; }
-    .te .ghead .master, .te .ghead .gap-ctl, .te .ghead .gmode { display: none; }
+    /* Group: header row (name, Gap / Crossfade / Pause between plays, mute, ⋯), then its sliders full width */
     .te .ghead .chev-btn { width: 40px; height: 40px; }
     .te .gname-cell { flex: 1; }
     .te .gname { font-size: 1rem; }
     .te .grp-rename { width: 100%; min-height: 40px; }
     .te .grp-confirm-btns { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
     .te .grp-confirm-btns .btn { min-height: 40px; justify-content: center; }
-    .te .pg-master { display: flex; flex-direction: column; gap: .375rem; padding: .5rem .625rem .625rem; border: 1px solid rgba(139, 92, 246, .35); border-radius: .5rem; background: rgba(139, 92, 246, .06); }
-    .te .pg-master .mlabel { font-size: .625rem; text-transform: uppercase; letter-spacing: .05em; color: #c4b5fd; }
-    .te .gap-row { display: flex; align-items: center; gap: .5rem; min-height: 40px; font-size: .8125rem; color: var(--text-muted); }
-    .te .gap-row .c-lbl { width: 72px; flex: none; }
+    /* Sections: no column headings; the description wraps under the name; rows are cards */
+    .te .cat-thead { display: none; }
+    .te .cat-desc { white-space: normal; flex: 1 0 100%; order: 5; }
+    .te .cat-head { flex-wrap: wrap; }
+    .te .trow.tgrid2 { grid-template-columns: 36px minmax(0, 1fr) 40px 40px; grid-template-areas: "play name mute more" "mode mode mode mode" "vol vol vol vol" "pres pres pres pres"; row-gap: .375rem; column-gap: .5rem; min-height: 0; padding: .5rem .625rem .625rem; margin: .5rem; border: 1px solid var(--border-color); border-radius: .5rem; }
+    .te .trow.tgrid2 .drag-handle { display: none; }
+    .te .trow.tgrid2 .track-preview-btn { grid-area: play; }
+    .te .trow.tgrid2 .nm-cell { grid-area: name; }
+    .te .trow.tgrid2 .c-mode { grid-area: mode; }
+    .te .trow.tgrid2 .mx[data-kind="volume"] { grid-area: vol; }
+    .te .trow.tgrid2 .mx[data-kind="presence"] { grid-area: pres; }
+    .te .trow.tgrid2 .track-mute-btn { grid-area: mute; }
+    .te .trow.tgrid2 .more-btn { grid-area: more; }
+    .te .trow.tgrid2 .un-note { grid-column: 1 / -1; }
+    .te .trow.tgrid2 .no-pres { display: none; }
+    .te .ghead.tgrid2 { display: flex; flex-wrap: wrap; }
+    .te .ghead.tgrid2 { padding: .5rem .625rem; row-gap: .375rem; }
+    .te .ghead.tgrid2 .gname-cell { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .5rem; }
+    .te .ghead.tgrid2 .gsw { flex: 1 0 100%; min-width: 0; justify-content: space-between; min-height: 32px; }
+    .te .ghead.tgrid2 .gsw .gap-word { white-space: normal; text-align: left; min-width: 0; }
+    .te .ghead.tgrid2 .gmode, .te .ghead.tgrid2 .no-pres { display: none; }
+    .te .ghead.tgrid2 .master { display: block; flex: 1 0 100%; order: 10; }
+    /* Gap / Crossfade: a line of their own, above the sliders (too wide beside mute and ⋯) */
+    .te .ghead.tgrid2 .gname-cell .gap-ctl { display: none; }
+    .te .ghead.tgrid2 .gap-row { display: flex; flex: 1 0 100%; order: 9; margin-left: 0; }
 
     /* Footer: preset field + Load/New, then Save theme / Save preset / Cancel */
     .te .modal-footer.foot { flex-direction: column; align-items: stretch; gap: .5rem; padding: .625rem 1rem; }
@@ -3591,14 +3620,15 @@ html { scrollbar-gutter: stable; }
 /* Theme Editor: Gap / Crossfade on its own line under the group name, left-aligned with it;
  * no text selection while dragging rows */
 .te .ghead .gname-cell .gap-ctl { flex-basis: 100%; margin-left: 0; }
+.te .ghead .gap-row { display: none; }
 .te #te-tracks .trow, .te #te-tracks .ghead { -webkit-user-select: none; user-select: none; }
 .te #te-tracks input { -webkit-user-select: text; user-select: text; }
 
 /* ==========================================================================
-   Intrusions: intrusion groups, files linked from other themes, the
-   "Add from another theme" picker (#te-pk) and the intrusion mark on presets
+   Files linked from other themes, the "Add from another theme" picker
+   (#te-pk) and the intrusion mark on presets
    ========================================================================== */
-/* Marks: a link (intrusion group, linked file); two overlapping circles (a preset that turns intrusion tracks on) */
+/* Marks: a link (linked file); two overlapping circles (a preset that turns intrusion tracks on) */
 .int-ic { display: inline-flex; align-items: center; flex: none; color: #c4b5fd; }
 .int-ic svg, .te .pdd .int-ic svg, .te-pop .mi .int-ic svg { color: #c4b5fd; }
 .te-help-body .int-ic { display: inline; vertical-align: -1px; }
@@ -3606,13 +3636,7 @@ html { scrollbar-gutter: stable; }
 .te .pdd .pdd-name { flex: 0 1 auto; }
 .te .pdd .def-star { flex: none; }
 .te-pop .int-col { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 20px; }
-/* Intrusion group: faint purple edge; an empty one offers the picker */
-.te .int-sec { border-color: rgba(139, 92, 246, .45); }
-.te .empty-row .link-btn { display: inline-flex; align-items: center; gap: .375rem; }
 /* Linked rows: name, then "from <theme>" in muted text with a link mark */
-.te .lk-cell { display: flex; flex-direction: column; justify-content: center; gap: .125rem; min-width: 0; }
-.te .in-grp .lk-cell { padding-left: .75rem; border-left: 2px solid rgba(139, 92, 246, .5); }
-.te .in-grp .lk-cell .trk-name { padding-left: 0; border-left: 0; }
 .te .lk-from { display: flex; align-items: center; gap: .3rem; min-width: 0; font-size: .6875rem; line-height: 1.2; color: var(--text-muted); white-space: nowrap; }
 .te .lk-src { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .te .lk-ic { display: inline-flex; flex: none; color: #c4b5fd; }
@@ -3685,12 +3709,8 @@ button.pk-row { cursor: pointer; }
 .session-field.open { position: relative; z-index: 40; }
 
 @media (max-width: 760px) {
-    /* Four toolbar actions: two per row */
+    /* Toolbar actions: two per row */
     .te .tbar { grid-template-columns: 1fr 1fr; }
-    /* Linked row card: the name cell holds name and source */
-    .te .trow .lk-cell { grid-area: name; }
-    .te .trow.in-grp .lk-cell { padding-left: 0; border-left: 0; }
-    .te .trow .lk-cell .trk-name { font-size: .9375rem; }
     /* Picker: full screen; rows become cards with a meta line */
     .pk-backdrop { padding: 0; }
     .modal.pk { width: 100%; height: 100%; height: 100dvh; border-radius: 0; border: 0; }
@@ -4074,11 +4094,15 @@ button.pk-row { cursor: pointer; }
 .te .trow .mx-ctl:has(.dual) .track-slider-value { min-width: 46px; }
 /* Ebb & Flow group: Pause between plays, under the group's name like Gap */
 .te .gsw { display: inline-flex; align-items: center; gap: .5rem; padding: 0; border: 0; background: none; color: var(--text-muted); font-size: .75rem; cursor: pointer; white-space: nowrap; }
-.te .gap-row .gsw { font-size: .8125rem; }
 .te .gsw .sw { position: relative; flex: none; width: 30px; height: 18px; border-radius: 18px; background: var(--border-color); transition: .2s; }
 .te .gsw .sw:before { content: ""; position: absolute; left: 3px; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: .2s; }
 .te .gsw .sw.on { background: var(--accent-primary); }
 .te .gsw .sw.on:before { transform: translateX(12px); }
+/* Rise in an Ebb & Flow track's (or group's) ⋯ menu: Gradual … Sudden */
+.te-pop .mi-row.msl { display: grid; grid-template-columns: 44px auto minmax(90px, 1fr) auto; column-gap: .5rem; align-items: center; }
+.te-pop .msl .msl-end { font-size: .6875rem; color: var(--text-muted); }
+.te-pop .msl .track-slider { width: 100%; }
+.te-pop .msl-note { padding: 0 .625rem .375rem; font-size: .6875rem; color: var(--text-muted); text-align: right; }
 .ad-sl-hd { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; font-size: .6875rem; line-height: 1.2; color: var(--text-muted); white-space: nowrap; }
 .ad-sl-lbl { font-weight: 600; color: var(--text-secondary); }
 .ad-sl-val { color: var(--text-secondary); font-variant-numeric: tabular-nums; }

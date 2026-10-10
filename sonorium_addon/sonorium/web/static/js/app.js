@@ -2620,10 +2620,11 @@ const TE_ICON_X = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" s
 const TE_ICON_GRIP = '<svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="3" cy="8" r="1.5"/><circle cx="9" cy="8" r="1.5"/><circle cx="3" cy="13" r="1.5"/><circle cx="9" cy="13" r="1.5"/></svg>';
 const TE_ICON_CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
 const TE_ICON_CHEV_UP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>';
+const TE_ICON_FOLDER_PLUS = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>';
 const TE_ICON_FOLDER_LG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>';
 const TE_ICON_PLAY = '<svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 const TE_ICON_STOP = '<svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
-// Intrusion groups and linked files: a link marker
+// Files linked from another theme: a link marker
 const TE_ICON_LINK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
 const TE_ICON_LINK_SM = TE_ICON_LINK.replace('width="14" height="14"', 'width="12" height="12"');
 const TE_ICON_UNLINK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18.84 12.25l1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71"/><line x1="8" y1="2" x2="8" y2="5"/><line x1="2" y1="8" x2="5" y2="8"/><line x1="16" y1="19" x2="16" y2="22"/><line x1="19" y1="16" x2="22" y2="16"/></svg>';
@@ -2634,14 +2635,23 @@ function intrusionMark() {
     return `<span class="int-ic" title="Turns on intrusion tracks" role="img" aria-label="Turns on intrusion tracks">${ICON_INTRUSION}</span>`;
 }
 
-const TE_MODES = [['auto', 'Auto'], ['continuous', 'Background'], ['sparse', 'Intermittent'], ['presence', 'Ebb & Flow']];
-// A group's mode: one track at a time with a gap, a continuous bed crossfading file to file,
-// every file at once rising and falling (Ebb & Flow), or Intrusion (each track plays by its own
-// mode; it can hold files linked from other themes)
-const TE_GROUP_MODES = [['intermittent', 'Intermittent'], ['merry_go_round', 'Merry-go-round'], ['ebb_flow', 'Ebb & Flow'], ['intrusion', 'Intrusion']];
+// The track list's sections, in order, one per playback mode. A section's groups play its way
+// (group: the group mode; groupLabel: shown as the mode of the group and its tracks); pres is the
+// heading of its second slider (none: no slider).
+const TE_SECTIONS = [
+    { mode: 'unassigned', label: 'Unassigned', desc: 'Not played. Pick a Mode, or drag files into a section or a group.',
+        empty: 'Uploads and files from another theme start here' },
+    { mode: 'continuous', label: 'Background', desc: 'Plays all the time, looping smoothly. Groups here are Merry-go-round.',
+        group: 'merry_go_round', groupLabel: 'Merry-go-round', groupTip: 'A Merry-go-round group: one file crossfades into the next' },
+    { mode: 'sparse', label: 'Intermittent', desc: 'Plays now and then. Groups here take turns, one track at a time with a gap.', pres: 'Interval',
+        group: 'intermittent', groupLabel: 'Intermittent', groupTip: 'A group whose tracks take turns, with a gap between them' },
+    { mode: 'presence', label: 'Ebb & Flow', desc: 'Always heard, rising and falling. Groups here play every file at once.', pres: 'Duration',
+        group: 'ebb_flow', groupLabel: 'Ebb & Flow', groupTip: 'A group whose files all play at once, each rising and falling' },
+];
+const TE_MODES = TE_SECTIONS.map(s => [s.mode, s.label]);
 // Ebb & Flow settings of a track (saved with PUT …/ebb), and their defaults
-const TE_EBB_FIELDS = ['volume_low', 'pause_between', 'pause_min', 'pause_max'];
-const TE_EBB_DEFAULTS = { volume_low: 0.2, pause_between: false, pause_min: 30, pause_max: 300 };
+const TE_EBB_FIELDS = ['volume_low', 'pause_between', 'pause_min', 'pause_max', 'rise'];
+const TE_EBB_DEFAULTS = { volume_low: 0.2, pause_between: false, pause_min: 30, pause_max: 300, rise: 0 };
 const TE_GROUP_CROSSFADE = 10;  // seconds, when the group sets none
 // The server rebuilds its theme list about 2 s after files move, rename or upload
 const TE_REBUILD_WAIT_MS = 2600;
@@ -2669,7 +2679,6 @@ const te = {
     confirmDel: null,      // group waiting for delete confirmation
     drag: null,            // track key being dragged
     pk: null,              // "Add from another theme" picker state (null = closed)
-    pickAfter: null,       // a new intrusion group: open the picker once its name is set
     msgTimer: null,
     loadSeq: 0,
 };
@@ -2695,20 +2704,37 @@ function teGroupMode(group) {
     return mode === 'merry_go_round' || mode === 'intrusion' || mode === 'ebb_flow' ? mode : 'intermittent';
 }
 
-// The track plays as Ebb & Flow: its own mode (on its own or in an Intrusion group), or an Ebb & Flow group
-function teIsEbb(track, group = undefined) {
-    if (group === undefined) group = trackGroupOf(track.name) ? teGroup(trackGroupOf(track.name)) : null;
-    if (group && teGroupMode(group) === 'ebb_flow') return true;
-    return (!group || teIsIntrusion(group)) && track.playback_mode === 'presence';
+// The section a group belongs to (an older group without a mode takes turns: Intermittent)
+function teGroupSection(group) {
+    return TE_SECTIONS.find(s => s.group === teGroupMode(group)) || null;
 }
 
-function teIsIntrusion(group) {
-    return !!group && teGroupMode(group) === 'intrusion';
+// The group a track plays in: null when ungrouped, or in an Intrusion group (until the server retires
+// them, those tracks play by their own mode and show as ungrouped)
+function teTrackGroup(track) {
+    const group = trackGroupOf(track.name) ? teGroup(trackGroupOf(track.name)) : null;
+    return group && teGroupMode(group) !== 'intrusion' ? group : null;
 }
 
-// The linked files of a group (tracks from other themes)
-function teGroupLinks(name) {
-    return te.tracks.filter(t => t.linked && trackGroupOf(t.name) === name);
+// The groups shown in the sections (not Intrusion groups)
+function teListedGroups() {
+    return te.groups.filter(g => teGroupMode(g) !== 'intrusion');
+}
+
+// The section a track sits in (a playback mode): its group's, or its own. Auto shows where it
+// resolves to: a short file Intermittent, a long one Ebb & Flow, either Background at 100% interval.
+function teSectionOf(track) {
+    const group = teTrackGroup(track);
+    if (group) return teGroupSection(group).mode;
+    const mode = track.playback_mode || 'auto';
+    if (TE_SECTIONS.some(s => s.mode === mode)) return mode;
+    if ((track.presence ?? 1) >= 1) return 'continuous';
+    return track.is_short_file ? 'sparse' : 'presence';
+}
+
+// The track plays as Ebb & Flow: its own mode, or an Ebb & Flow group
+function teIsEbb(track) {
+    return teSectionOf(track) === 'presence';
 }
 
 function groupMaster(group, key) {
@@ -2763,7 +2789,7 @@ function openThemeEditModal(themeId) {
         cats: [...(theme.categories || [])], catText: '', catHi: 0, catFocus: false,
         threshold: theme.short_file_threshold ?? null,
         closed: {}, presets: [], sequences: [], seqDefaults: null, selPreset: '', mixDirty: false, mixSnap: null,
-        upload: null, renaming: null, confirmDel: null, drag: null, pk: null, pickAfter: null,
+        upload: null, renaming: null, confirmDel: null, drag: null, pk: null,
     });
     currentTrackMixerThemeId = themeId;
 
@@ -2797,8 +2823,8 @@ function openThemeEditModal(themeId) {
 // tracks between groups, creating/deleting groups and saved presets stay.
 
 const TE_TRACK_FIELDS = ['volume', 'presence', 'muted', 'playback_mode', 'seamless_loop', 'exclusive', 'fade_in', 'fade_out',
-    'volume_low', 'pause_between', 'pause_min', 'pause_max'];
-const TE_GROUP_FIELDS = ['volume', 'presence', 'muted', 'gap_min', 'gap_max', 'mode', 'crossfade', 'pause_between'];
+    ...TE_EBB_FIELDS];
+const TE_GROUP_FIELDS = ['volume', 'presence', 'muted', 'gap_min', 'gap_max', 'mode', 'crossfade', 'pause_between', 'rise'];
 
 function teMixSnapshot() {
     const tracks = {};
@@ -3121,11 +3147,9 @@ function refreshTrackMixer(afterFileChange = false) {
     return teLoadTracks(afterFileChange);
 }
 
-function teModeOptions(track, inGroup) {
-    const modes = TE_MODES;
-    let current = track.playback_mode || 'auto';
-    if (!modes.some(([v]) => v === current)) current = 'auto';
-    return modes.map(([v, label]) => `<option value="${v}"${v === current ? ' selected' : ''}>${label}</option>`).join('');
+function teModeOptions(track) {
+    const current = teSectionOf(track);
+    return TE_MODES.map(([v, label]) => `<option value="${v}"${v === current ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
 }
 
 function teGaplessAllowed(track) {
@@ -3133,7 +3157,9 @@ function teGaplessAllowed(track) {
     return mode === 'continuous' || (mode === 'auto' && !track.is_short_file);
 }
 
-function teSliderCell(kind, label, percent, attrs, hint) {
+// A slider with its value and a hint under it. Ebb & Flow's Duration shows no value:
+// "Shorter" and "Longer" sit under its ends instead (ends = true).
+function teSliderCell(kind, label, percent, attrs, hint, ends = false) {
     return `
         <div class="mx" data-kind="${kind}">
             <span class="c-lbl">${label}</span>
@@ -3141,7 +3167,7 @@ function teSliderCell(kind, label, percent, attrs, hint) {
                 <div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="100" value="${percent}" ${attrs}></div>
                 <span class="track-slider-value">${percent}%</span>
             </div>
-            <span class="mx-hint">${hint || ''}</span>
+            ${ends ? '<span class="mx-hint dur-ends"><span>Shorter</span><span>Longer</span></span>' : `<span class="mx-hint">${hint || ''}</span>`}
         </div>`;
 }
 
@@ -3219,65 +3245,69 @@ function teSetEbbPause(key, input) {
     teSetEbb(key, { pause_min: low, pause_max: high }, true);
 }
 
+// A track's row in its section (group: the group it plays in, or null). Unassigned rows show the
+// file's length instead of the sliders and mute.
 function teRenderRow(track, group) {
     const key = track.name;
     const k = jsArg(key);
     const name = trackDisplayName(key);
+    const section = TE_SECTIONS.find(s => s.mode === teSectionOf(track));
     const vol = Math.round((track.volume ?? 1) * 100);
     const pres = Math.round((track.presence ?? 1) * 100);
     const volMaster = group ? groupMaster(group, 'volume') : 1;
     const presMaster = group ? groupMaster(group, 'presence') : 1;
     const playing = currentPreviewTrack === key && trackPreviewAudio && !trackPreviewAudio.paused;
-    // Ungrouped tracks and an Intrusion group's tracks keep their own mode and settings
-    const own = !group || teIsIntrusion(group);
     const link = track.linked || null;  // a file linked from another theme
     const missing = !!link?.missing;    // its source is gone: shown greyed, only ⋯ works
     const off = missing ? ' disabled' : '';
-    const ebb = teIsEbb(track, group);
-    const advOn = (own && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive || !!track.fade_in || !!track.fade_out
-        || (ebb && !!track.pause_between);
+    const ebb = section.mode === 'presence';
+    const advOn = (!group && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive || !!track.fade_in || !!track.fade_out
+        || (ebb && (!!track.pause_between || !!track.rise));
     const muted = track.muted || (group && group.settings?.muted);
-    const cls = ['trow', 'tgrid', group ? 'in-grp' : '', muted ? 'muted' : '', link ? 'linked' : '', missing ? 'missing' : '',
+    const cls = ['trow', 'tgrid2', group ? 'in-grp' : '', muted ? 'muted' : '', link ? 'linked' : '', missing ? 'missing' : '',
         playing ? 'previewing' : ''].filter(Boolean).join(' ');
     const label = escapeHtml(name);
-    let nameCell = `<span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>`;
+    let from = '';
     if (link) {
         const source = escapeHtml(link.theme_name || 'another theme');
-        nameCell = `<div class="lk-cell">${nameCell}
-            <span class="lk-from" title="Linked from ${source}">${missing
-                ? '<span class="badge badge-missing">Missing</span>'
-                : `<span class="lk-ic">${TE_ICON_LINK_SM}</span>`}<span class="lk-src">from ${source}</span></span></div>`;
+        from = `<span class="lk-from" title="Linked from ${source}">${missing
+            ? '<span class="badge badge-missing">Missing</span>'
+            : `<span class="lk-ic">${TE_ICON_LINK_SM}</span>`}<span class="lk-src">from ${source}</span></span>`;
+    }
+    let controls;
+    if (section.mode === 'unassigned') {
+        controls = `<span class="un-note">${missing ? '' : pkFormatLength(track.duration_seconds)}</span>`;
+    } else {
+        const presCell = !section.pres ? '<span class="no-pres"></span>' : teSliderCell('presence', section.pres, pres,
+            `aria-label="${section.pres}: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'presence', this.value)"${off}`,
+            playsAtHint(pres / 100, presMaster), ebb);
+        controls = `
+        ${ebb ? teDualCell(track, k, label, vol, volMaster, off) : teSliderCell('volume', 'Volume', vol,
+            `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"${off}`,
+            playsAtHint(vol / 100, volMaster))}
+        ${presCell}
+        <button class="track-mute-btn${track.muted ? ' muted' : ''}" title="${track.muted ? 'Unmute' : 'Mute'}"
+                aria-label="${track.muted ? 'Unmute' : 'Mute'}: ${label}" aria-pressed="${!!track.muted}"
+                onclick="teToggleTrackMute(${k})"${off}>${track.muted ? '🔇' : '🔊'}</button>`;
     }
     return `
     <div class="${cls}" data-track="${escapeHtml(key)}">
-        ${te.groupsOk ? `<span class="drag-handle" draggable="true" title="Drag to another section" aria-label="Drag ${label}"
+        ${te.groupsOk ? `<span class="drag-handle" draggable="true" title="Drag to another section or group" aria-label="Drag ${label}"
               ondragstart="teDragStart(event, ${k})" ondragend="teDragEnd()">${TE_ICON_GRIP}</span>` : '<span></span>'}
         <button class="track-preview-btn${playing ? ' playing' : ''}" title="${missing ? 'File missing' : playing ? 'Stop preview' : 'Preview'}"
                 aria-label="Preview: ${label}" onclick="toggleTrackPreview(${k})"${off}>
             ${TE_ICON_PLAY.replace('<svg', `<svg style="display:${playing ? 'none' : 'block'}"`)}
             ${TE_ICON_STOP.replace('<svg', `<svg style="display:${playing ? 'block' : 'none'}"`)}
         </button>
-        ${nameCell}
+        <div class="nm-cell"><span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>${from}</div>
         <div class="c-mode">
             <span class="c-lbl">Mode</span>
-            ${!own
-                ? (teGroupMode(group) === 'merry_go_round'
-                    ? `<span class="te-mode-fixed" title="The group crossfades from one file to the next">Merry-go-round</span>`
-                    : teGroupMode(group) === 'ebb_flow'
-                    ? `<span class="te-mode-fixed" title="Every file of the group plays at once, rising and falling">Ebb &amp; Flow</span>`
-                    : `<span class="te-mode-fixed" title="In a group, each track plays once on its turn">Intermittent</span>`)
-                : `<select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"${off}
-                    title="Auto picks by file length. Background plays all the time. Intermittent plays now and then. Ebb &amp; Flow is always heard, rising and falling.">${teModeOptions(track, false)}</select>`}
+            ${group
+                ? `<span class="te-mode-fixed" title="Set by its group">${escapeHtml(section.groupLabel)}</span>`
+                : `<select class="track-mode-select" aria-label="Mode: ${label}" title="Moves the track to that section"
+                    onchange="teSetMode(${k}, this.value)"${off}>${teModeOptions(track)}</select>`}
         </div>
-        ${ebb ? teDualCell(track, k, label, vol, volMaster, off) : teSliderCell('volume', 'Volume', vol,
-            `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"${off}`,
-            playsAtHint(vol / 100, volMaster))}
-        ${teSliderCell('presence', 'Interval', pres,
-            `aria-label="Interval: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'presence', this.value)"${off}`,
-            playsAtHint(pres / 100, presMaster))}
-        <button class="track-mute-btn${track.muted ? ' muted' : ''}" title="${track.muted ? 'Unmute' : 'Mute'}"
-                aria-label="${track.muted ? 'Unmute' : 'Mute'}: ${label}" aria-pressed="${!!track.muted}"
-                onclick="teToggleTrackMute(${k})"${off}>${track.muted ? '🔇' : '🔊'}</button>
+        ${controls}
         <button class="icon-btn sm more-btn" aria-label="More for ${label}" aria-haspopup="menu"
                 onclick="teMenu('${link ? 'link' : 'track'}', this, ${k})">${TE_ICON_MORE}${advOn ? '<span class="adv-dot"></span>' : ''}</button>
     </div>`;
@@ -3299,9 +3329,11 @@ function teRenderGroup(group) {
     const renaming = te.renaming === name;
     const confirming = te.confirmDel === name;
     const count = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
+    // Under the group's name: Gap (Intermittent), Crossfade (Merry-go-round) or the Pause between plays switch
+    // (Ebb & Flow). On a phone, Gap and Crossfade get their own line in the header (.gap-row).
     const gap = (cls) => `
         <div class="${cls}">
-            <span class="${cls === 'gap-row' ? 'c-lbl' : 'gap-word'}">Gap</span>
+            <span class="gap-word">Gap</span>
             <input class="num" type="number" min="0" step="0.5" placeholder="2" value="${teEsc(gapMin)}" aria-label="${label} minimum gap, minutes"
                    data-gap="min" onchange="teSetGroupGap(${n}, this)">
             <span>–</span>
@@ -3311,24 +3343,16 @@ function teRenderGroup(group) {
         </div>`;
     const crossfade = (cls) => `
         <div class="${cls}">
-            <span class="${cls === 'gap-row' ? 'c-lbl' : 'gap-word'}">Crossfade</span>
+            <span class="gap-word">Crossfade</span>
             <input class="num" type="number" min="1" max="60" step="1" placeholder="${TE_GROUP_CROSSFADE}" value="${teEsc(s.crossfade ?? '')}"
                    aria-label="${label} crossfade, seconds" onchange="teSetGroupCrossfade(${n}, this)">
             <span>s</span>
         </div>`;
-    const pauseSwitch = (cls) => `
-        <div class="${cls}">
-            ${cls === 'gap-row' ? '<span class="c-lbl"></span>' : ''}
-            <button type="button" class="gsw" role="switch" aria-checked="${!!s.pause_between}" aria-label="${label} pause between plays"
-                    title="Every file pauses between plays, at staggered times, so one is always playing"
-                    onclick="teSetGroupValue(${n}, 'pause_between', ${!s.pause_between})"><span class="gap-word">Pause between plays</span><span class="sw${s.pause_between ? ' on' : ''}"></span></button>
-        </div>`;
-    const isInt = mode === 'intrusion';
-    // An Intrusion group's tracks play by their own settings: no gap, no crossfade
-    const timing = isInt ? () => '' : mode === 'merry_go_round' ? crossfade : mode === 'ebb_flow' ? pauseSwitch : gap;
-    const modeSelect = `<select class="track-mode-select" aria-label="${label} group mode" onchange="teSetGroupMode(${n}, this.value, this)"
-            title="Intermittent plays one track at a time with a gap. Merry-go-round makes a continuous bed. Ebb &amp; Flow plays every file at once, each rising and falling. Intrusion: each track plays by its own mode.">${
-            TE_GROUP_MODES.map(([v, text]) => `<option value="${v}"${v === mode ? ' selected' : ''}>${text}</option>`).join('')}</select>`;
+    const pauseSwitch = `
+        <button type="button" class="gsw" role="switch" aria-checked="${!!s.pause_between}" aria-label="${label} pause between plays"
+                title="Every file pauses between plays, at staggered times, so one is always playing"
+                onclick="teSetGroupValue(${n}, 'pause_between', ${!s.pause_between})"><span class="gap-word">Pause between plays</span><span class="sw${s.pause_between ? ' on' : ''}"></span></button>`;
+    const timing = mode === 'merry_go_round' ? crossfade : mode === 'ebb_flow' ? null : gap;
     let nameCell;
     if (renaming) {
         nameCell = `<input class="inp sm grp-rename" type="text" maxlength="60" enterkeyhint="done" aria-label="Group name" value="${label}"
@@ -3341,43 +3365,56 @@ function teRenderGroup(group) {
                     </span>`;
     } else {
         nameCell = `<button class="gname" title="Double-click to rename" ondblclick="teStartRename(${n})">${label}</button>
-                    ${isInt ? `<span class="int-ic" title="Intrusion group" role="img" aria-label="Intrusion group">${TE_ICON_LINK}</span>` : ''}
                     <span class="badge badge-type">${count}</span>`;
     }
-    const masterSlider = (kind, text, value) => teSliderCell(kind, text, value,
-        `aria-label="${label} group ${text.toLowerCase()}" oninput="teGroupSliderInput(this, ${n})" onchange="teSetGroupValue(${n}, '${kind}', this.value)"`, '');
+    const section = teGroupSection(group);
+    const masterSlider = (kind, text, value, ends = false) => teSliderCell(kind, text, value,
+        `aria-label="${label} group ${text.toLowerCase()}" oninput="teGroupSliderInput(this, ${n})" onchange="teSetGroupValue(${n}, '${kind}', this.value)"`, '', ends);
     return `
-    <div class="sec grp-sec${open ? ' open-sec' : ''}${muted ? ' gmuted' : ''}${isInt ? ' int-sec' : ''}" data-group="${label}"
+    <div class="sec grp-sec${open ? ' open-sec' : ''}${muted ? ' gmuted' : ''}" data-group="${label}"
          ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, ${n})">
-        <div class="ghead tgrid${muted ? ' muted' : ''}">
+        <div class="ghead tgrid2${muted ? ' muted' : ''}">
             <button class="chev-btn${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${label}"
                     onclick="teToggleGroup(${n})">${TE_ICON_CHEV}</button>
             <span class="folder">${TE_ICON_FOLDER_LG}</span>
             <div class="gname-cell${confirming ? ' wide' : ''}">
                 ${nameCell}
                 <span class="drop-note">Drop to add</span>
-                ${confirming ? '' : timing('gap-ctl')}
+                ${confirming ? '' : timing ? timing('gap-ctl') : pauseSwitch}
             </div>
-            ${confirming ? '' : `<div class="c-mode gmode">${modeSelect}</div>`}
+            ${confirming || !timing ? '' : timing('gap-ctl gap-row')}
+            ${confirming ? '' : `<div class="c-mode gmode"><span class="te-mode-fixed" title="Set by the section">${escapeHtml(section.groupLabel)}</span></div>`}
             <div class="master">${masterSlider('volume', 'Volume', vol)}</div>
-            <div class="master">${masterSlider('presence', 'Interval', pres)}</div>
+            ${section.pres ? `<div class="master">${masterSlider('presence', section.pres, pres, mode === 'ebb_flow')}</div>` : '<span class="no-pres"></span>'}
             <button class="track-mute-btn${muted ? ' muted' : ''}" title="${muted ? 'Unmute group' : 'Mute group'}"
                     aria-label="${muted ? 'Unmute group' : 'Mute group'}: ${label}" aria-pressed="${muted}"
                     onclick="teSetGroupValue(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
             <button class="icon-btn sm" aria-label="More for group ${label}" aria-haspopup="menu" onclick="teMenu('group', this, ${n})">${TE_ICON_MORE}</button>
         </div>
         ${open ? `
-        <div class="pg-master">
-            <span class="mlabel">Group</span>
-            <div class="c-mode"><span class="c-lbl">Mode</span>${modeSelect}</div>
-            ${masterSlider('volume', 'Volume', vol)}
-            ${masterSlider('presence', 'Interval', pres)}
-            ${timing('gap-row')}
-        </div>
         ${tracks.map(t => teRenderRow(t, group)).join('')}
-        ${tracks.length ? '' : isInt
-            ? `<div class="empty-row"><button class="link-btn" onclick="pkOpen(${n})">${TE_ICON_LINK}Add from another theme</button></div>`
-            : `<div class="empty-row">Drag tracks here or use ⋯ › Move to group</div>`}` : ''}
+        ${tracks.length ? '' : '<div class="empty-row">Drag files here</div>'}` : ''}
+    </div>`;
+}
+
+// One section of the track list: its header, column headings, groups, then its ungrouped tracks
+function teRenderSection(section) {
+    const tracks = te.tracks.filter(t => teSectionOf(t) === section.mode);
+    const groups = te.groupsOk && section.group ? te.groups.filter(g => teGroupMode(g) === section.group) : [];
+    const ungrouped = tracks.filter(t => !teTrackGroup(t));
+    const unassigned = section.mode === 'unassigned';
+    return `
+    <div class="cat cat-${unassigned ? 'unassigned' : section.mode}" data-section="${section.mode}"
+         ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDropSection(event, '${section.mode}')">
+        <div class="cat-head"><span class="cat-title">${escapeHtml(section.label)}</span><span class="badge badge-type">${tracks.length}</span>
+            <span class="cat-desc">${escapeHtml(section.desc)}</span><span class="grow"></span>
+            ${section.group && te.groupsOk ? `<button class="btn btn-sm btn-secondary" title="${escapeHtml(section.groupTip)}"
+                onclick="teNewGroup('${section.group}')">${TE_ICON_FOLDER_PLUS}New group</button>` : ''}</div>
+        ${!unassigned && tracks.length ? `<div class="thead tgrid2 cat-thead"><span></span><span></span><span>Name</span><span>Mode</span>
+            <span>Volume</span><span>${section.pres || ''}</span><span class="c">Mute</span><span></span></div>` : ''}
+        ${groups.map(teRenderGroup).join('')}
+        ${ungrouped.map(t => teRenderRow(t, null)).join('')}
+        ${groups.length || ungrouped.length ? '' : `<div class="empty-row">${escapeHtml(section.empty || 'Drag files here, or make a group')}</div>`}
     </div>`;
 }
 
@@ -3385,25 +3422,8 @@ function teRenderTracks() {
     const list = document.getElementById('te-tracks');
     if (!list || !te.themeId) return;
     document.getElementById('te-track-count').textContent = te.tracks.length;
-    document.getElementById('te-newgroup-btn').hidden = !te.groupsOk;
-    document.getElementById('te-intrusion-btn').hidden = !te.groupsOk;
-    const ungrouped = te.tracks.filter(t => !te.groupsOk || !trackGroupOf(t.name));
-    const groupsHtml = te.groupsOk ? te.groups.map(teRenderGroup).join('') : '';
-    let themeHtml;
-    if (!te.tracks.length && !te.groups.length) {
-        themeHtml = '<div class="empty-row">No audio files in this theme. Use Upload to add some.</div>';
-    } else {
-        themeHtml = `
-        <div class="sec theme-sec" ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, null)">
-            <div class="slabel"><span>${te.groups.length ? 'Theme (no group)' : 'Tracks'}</span>
-                <span class="badge badge-type">${ungrouped.length} track${ungrouped.length === 1 ? '' : 's'}</span>
-                <span class="drop-note">Drop to move out of group</span></div>
-            ${ungrouped.map(t => teRenderRow(t, null)).join('')}
-            ${ungrouped.length ? '' : '<div class="empty-row">All tracks are in groups</div>'}
-        </div>`;
-    }
     const scroll = list.scrollTop;
-    list.innerHTML = `<section aria-label="Tracks">${groupsHtml}${themeHtml}</section>`;
+    list.innerHTML = `<section aria-label="Tracks">${TE_SECTIONS.map(teRenderSection).join('')}</section>`;
     list.scrollTop = scroll;
     teUpdateMarquees();
     const rename = list.querySelector('.grp-rename');
@@ -3454,7 +3474,7 @@ function teSliderInput(slider) {
     if (row && cell.dataset.kind === 'volume' && trackPreviewAudio && row.dataset.track === currentPreviewTrack) {
         previewRampVolume(trackPreviewAudio, (slider.value / 100) * parseFloat(slider.dataset.master || '1'));
     }
-    const hint = cell.querySelector('.mx-hint');
+    const hint = cell.querySelector('.mx-hint:not(.dur-ends)');
     if (hint) hint.textContent = playsAtHint(slider.value / 100, parseFloat(slider.dataset.master || '1'));
 }
 
@@ -3464,10 +3484,6 @@ function teGroupSliderInput(slider, name) {
     const kind = slider.closest('.mx').dataset.kind;
     const section = slider.closest('.grp-sec');
     if (!section) return;
-    // Keep the desktop header and the phone master block in step
-    section.querySelectorAll(`.master .mx[data-kind="${kind}"] .track-slider, .pg-master .mx[data-kind="${kind}"] .track-slider`).forEach(other => {
-        if (other !== slider) { other.value = slider.value; teSliderInput(other); }
-    });
     section.querySelectorAll(`.trow .mx[data-kind="${kind}"] .track-slider`).forEach(trackSlider => {
         trackSlider.dataset.master = slider.value / 100;
         teSliderInput(trackSlider);
@@ -3637,40 +3653,20 @@ async function teSetGroupGap(name, input) {
     teRenderTracks();
 }
 
-// Mode: Intermittent, Merry-go-round or Intrusion. Playing channels follow at once; the preview restarts.
-// Leaving Intrusion removes the group's linked files, so that asks first.
-async function teSetGroupMode(name, mode, select = null) {
-    const group = teGroup(name);
-    const wasInt = teIsIntrusion(group);
-    if (wasInt && mode !== 'intrusion' && teGroupLinks(name).length) {
-        if (select) select.value = 'intrusion';
-        teMenu('intoff', select || teMenuAnchor(), JSON.stringify([name, mode]));
-        return;
-    }
-    setTimeout(teRestartMixPreview, 300);
-    await teSetGroupValue(name, 'mode', mode);
-    if (wasInt !== (mode === 'intrusion')) teLoadPresets(false);  // which presets turn intrusion tracks on
-}
-
-// "Are you sure?" said yes: remove the group's linked files and change its mode
-async function teConfirmIntrusionOff(arg) {
-    const [name, mode] = JSON.parse(arg);
-    teCloseMenu();
-    try {
-        await api('PUT', teGroupUrl(name), { mode, remove_links: true });
-        teFlash(`${name} is ${TE_GROUP_MODES.find(([v]) => v === mode)?.[1] || mode}`);
-        teMarkMixChanged();
-    } catch (error) {
-        showToast(error.message || 'Failed to change the group', 'error');
-    }
-    await teLoadTracks(true, false);  // the server rebuilt the theme before answering
-    teLoadPresets(false);
-}
-
 async function teSetGroupCrossfade(name, input) {
     const seconds = parseFloat(input.value);
     const value = input.value === '' || !Number.isFinite(seconds) ? null : Math.min(60, Math.max(1, seconds));
     await teSetGroupValue(name, 'crossfade', value);
+}
+
+// Same Rise for every file (Ebb & Flow group): on sets the group's Rise, off removes it so each
+// file uses its own. The menu stays open, now with or without the group's Rise slider.
+async function teToggleGroupRise(name) {
+    const on = teGroup(name)?.settings?.rise != null;
+    await teSetGroupValue(name, 'rise', on ? null : 0.5);
+    const button = document.querySelector(`#te-tracks .grp-sec[data-group="${CSS.escape(name)}"] .ghead [aria-haspopup="menu"]`);
+    if (button) teMenu('group', button, name, true);
+    else teCloseMenu();
 }
 
 function teUniqueGroupName(base = 'New group') {
@@ -3680,49 +3676,29 @@ function teUniqueGroupName(base = 'New group') {
     return name;
 }
 
-// Add intrusion: a new group in Intrusion mode; name it, then pick files from another theme
-async function teAddIntrusion() {
-    teCloseMenu();
-    if (!te.groupsOk || !te.themeId) return;
-    const wanted = teUniqueGroupName('Intrusion');
-    try {
-        const result = await api('POST', `/themes/${te.themeId}/groups`, { name: wanted });
-        const name = result?.name || wanted;
-        const changed = await api('PUT', teGroupUrl(name), { mode: 'intrusion' });
-        delete te.closed[name];
-        let group = teGroup(name);
-        if (!group) {
-            group = { name, settings: {}, tracks: [], links: [] };
-            te.groups.push(group);
-            te.groups.sort((a, b) => a.name.localeCompare(b.name));
-        }
-        group.settings = changed?.settings || { ...(group.settings || {}), mode: 'intrusion' };
-        te.renaming = name;
-        te.pickAfter = name;
-        teRenderTracks();
-    } catch (error) {
-        showToast(error.message || 'Failed to create group', 'error');
-    }
-}
-
-async function teNewGroup(moveKey = null) {
+// A section's New group (mode: the section's group mode), or a track's ⋯ › New group (moveKey: the
+// track goes into it). Named inline next.
+async function teNewGroup(mode, moveKey = null) {
     teCloseMenu();
     if (!te.groupsOk || !te.themeId) return;
     const wanted = teUniqueGroupName();
     try {
         const result = await api('POST', `/themes/${te.themeId}/groups`, { name: wanted });
         const name = result?.name || wanted;
+        const changed = await api('PUT', teGroupUrl(name), { mode });
         delete te.closed[name];
+        te.renaming = name;
         if (moveKey) {
             await api('POST', teTrackUrl(moveKey, 'move'), { group: name });
-            te.renaming = name;
             await teLoadTracks(true, false);
         } else {
-            if (!teGroup(name)) {
-                te.groups.push({ name, settings: {}, tracks: [] });
+            let group = teGroup(name);
+            if (!group) {
+                group = { name, settings: {}, tracks: [] };
+                te.groups.push(group);
                 te.groups.sort((a, b) => a.name.localeCompare(b.name));
             }
-            te.renaming = name;
+            group.settings = changed?.settings || { ...(group.settings || {}), mode };
             teRenderTracks();
         }
     } catch (error) {
@@ -3746,30 +3722,18 @@ function teRenameKey(event, name) {
         event.stopPropagation();
         te.renaming = null;
         teRenderTracks();
-        if (te.pickAfter === name) {  // a new intrusion group keeps its name; on to its files
-            te.pickAfter = null;
-            pkOpen(name);
-        }
     }
 }
 
 async function teCommitRename(name, value) {
     if (te.renaming !== name) return;
-    const pick = te.pickAfter === name;
-    te.pickAfter = null;
-    const finalName = await teRenameGroup(name, value);
-    if (pick && finalName && teGroup(finalName)) pkOpen(finalName);
-}
-
-// Rename a group; returns the name it has afterwards
-async function teRenameGroup(name, value) {
     te.renaming = null;
     const newName = (value || '').trim();
-    if (!newName || newName === name) { teRenderTracks(); return name; }
+    if (!newName || newName === name) { teRenderTracks(); return; }
     if (te.groups.some(g => g.name !== name && g.name.toLowerCase() === newName.toLowerCase())) {
         showToast('A group with that name exists', 'warning');
         teRenderTracks();
-        return name;
+        return;
     }
     try {
         const result = await api('POST', teGroupUrl(name, '/rename'), { name: newName });
@@ -3783,11 +3747,9 @@ async function teRenameGroup(name, value) {
         teSetUpload(te.upload);
         teRenderTracks();
         await teLoadTracks(true, false);
-        return finalName;
     } catch (error) {
         showToast(error.message || 'Failed to rename group', 'error');
         teRenderTracks();
-        return name;
     }
 }
 
@@ -3816,17 +3778,11 @@ async function teDeleteGroup(name) {
     }
 }
 
-async function teMoveTrack(key, group, anchor = null) {
-    if ((trackGroupOf(key) || null) === (group || null)) { teCloseMenu(); return; }
-    // A linked file moves between Intrusion groups; anywhere else it is copied in (asked first)
-    const linked = teTrack(key)?.linked;
-    if (linked && !teIsIntrusion(group ? teGroup(group) : null)) {
-        const button = anchor || te.menuBtn
-            || document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(key)}"] .more-btn`);
-        teMenu('copyin', button, JSON.stringify([key, group || null]));
-        return;
-    }
+// Into a group (or, with null, out of one). A file dragged into a group plays its way: its own
+// mode follows the group's section, so it stays there if it is dragged out again.
+async function teMoveTrack(key, group) {
     teCloseMenu();
+    if ((trackGroupOf(key) || null) === (group || null)) return;
     // Move the row now; the server's answer (and any rename on a name clash) follows
     const track = te.tracks.find(t => t.name === key);
     if (track) {
@@ -3834,7 +3790,12 @@ async function teMoveTrack(key, group, anchor = null) {
         teRenderTracks();
     }
     try {
-        await api('POST', teTrackUrl(key, 'move'), { group: group || null });
+        const result = await api('POST', teTrackUrl(key, 'move'), { group: group || null });
+        const section = group ? teGroupSection(teGroup(group)) : null;
+        if (section && track && track.playback_mode !== section.mode) {
+            await api('PUT', teTrackUrl(result?.track || track.name, 'playback_mode'), { playback_mode: section.mode });
+            teMarkMixChanged();
+        }
         teFlash(`Moved ${trackDisplayName(key)} to ${group || 'theme'}`);
         await teLoadTracks(true, false);  // the server rebuilt the theme before answering
     } catch (error) {
@@ -3843,20 +3804,24 @@ async function teMoveTrack(key, group, anchor = null) {
     }
 }
 
-// A linked file copied into this theme (its group's folder or the theme folder): the link goes,
-// the track keeps its settings and preset values under its new name
-async function teCopyIn(arg) {
-    const [key, group] = JSON.parse(arg);
+// Into a section, ungrouped: out of its group first, then that section's mode
+async function teMoveToSection(key, mode) {
     teCloseMenu();
-    if (currentPreviewTrack === key) stopTrackPreview();
+    const track = teTrack(key);
+    if (!track) return;
+    if (!teTrackGroup(track)) {
+        if (teSectionOf(track) !== mode) teSetMode(key, mode);
+        return;
+    }
     try {
-        await api('POST', `/themes/${te.themeId}/links/${encodeURIComponent(key)}/copy-in`, { group });
-        teFlash(`Copied ${trackDisplayName(key)} to ${group || 'theme'}`);
+        const result = await api('POST', teTrackUrl(key, 'move'), { group: null });
+        await api('PUT', teTrackUrl(result?.track || trackDisplayName(key), 'playback_mode'), { playback_mode: mode });
+        teMarkMixChanged();
+        setTimeout(teRestartMixPreview, 300);
     } catch (error) {
-        showToast(error.message || 'Failed to copy the file', 'error');
+        showToast(error.message || 'Failed to move track', 'error');
     }
     await teLoadTracks(true, false);  // the server rebuilt the theme before answering
-    teLoadPresets(false);
 }
 
 async function teRemoveLink(key) {
@@ -3872,7 +3837,7 @@ async function teRemoveLink(key) {
     teLoadPresets(false);
 }
 
-// Drag & drop (desktop): drag a track by its handle onto a group or the theme section
+// Drag & drop (desktop): drag a track by its handle onto a group or a section
 function teDragStart(event, key) {
     te.drag = key;
     teCloseMenu();
@@ -3891,28 +3856,44 @@ function teDragEnd() {
     document.querySelectorAll('#te-tracks .dragging, #te-tracks .drop').forEach(el => el.classList.remove('dragging', 'drop'));
 }
 
-function teDragOver(event, section) {
+// Over a group (data-group) or a section (data-section, a mode). A group sits inside its section,
+// so it takes the drag and the section doesn't light up behind it.
+function teDragOver(event, target) {
     if (!te.drag) return;
-    const from = trackGroupOf(te.drag);
-    const to = section.dataset.group || null;
-    if ((from || null) === (to || null)) return;
-    // A missing linked file can't be copied in: it only moves between Intrusion groups
-    if (teTrack(te.drag)?.linked?.missing && !teIsIntrusion(to ? teGroup(to) : null)) return;
+    const track = teTrack(te.drag);
+    if (!track) return;
+    const group = target.dataset.group;
+    if (group !== undefined) {
+        event.stopPropagation();
+        target.closest('.cat')?.classList.remove('drop');
+        if ((trackGroupOf(te.drag) || null) === group) return;
+    } else if (!teTrackGroup(track) && teSectionOf(track) === target.dataset.section) {
+        return;
+    }
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
-    section.classList.add('drop');
+    target.classList.add('drop');
 }
 
-function teDragLeave(event, section) {
-    if (!section.contains(event.relatedTarget)) section.classList.remove('drop');
+function teDragLeave(event, target) {
+    if (!target.contains(event.relatedTarget)) target.classList.remove('drop');
 }
 
 function teDrop(event, group) {
     if (!te.drag) return;
     event.preventDefault();
+    event.stopPropagation();
     const key = te.drag;
     teDragEnd();
     teMoveTrack(key, group);
+}
+
+function teDropSection(event, mode) {
+    if (!te.drag) return;
+    event.preventDefault();
+    const key = te.drag;
+    teDragEnd();
+    teMoveToSection(key, mode);
 }
 
 // Upload
@@ -4161,13 +4142,23 @@ function teMenuHtml(kind, arg) {
         ${opts.disabled ? 'disabled' : ''} ${opts.title ? `title="${escapeHtml(opts.title)}"` : ''} onclick="${action}">${opts.icon || ''}${label}${opts.after || ''}</button>`;
     const sep = '<div class="msep"></div>';
     const preset = teSelectedPreset();
-    // Ebb & Flow: Pause between plays (the group's, when it's on, overrides) and the Pause range
+    // A Rise slider, Gradual … Sudden (0..1 stored as 0..100)
+    const riseRow = (id, value, title, action, disabled) => `
+        <div class="mi-row msl" title="${escapeHtml(title)}"><label for="${id}">Rise</label><span class="msl-end">Gradual</span>
+            <input id="${id}" type="range" class="track-slider" min="0" max="100" value="${Math.round((value ?? 0) * 100)}"
+                   onchange="${action}"${disabled ? ' disabled' : ''}><span class="msl-end">Sudden</span></div>`;
+    // Ebb & Flow: Rise and Pause between plays (the group's, when it sets them, override) and the Pause range
     const ebbRows = (track, k, disabled) => {
-        const group = trackGroupOf(track.name) ? teGroup(trackGroupOf(track.name)) : null;
+        const group = teTrackGroup(track);
         const byGroup = !!(group && teGroupMode(group) === 'ebb_flow' && group.settings?.pause_between);
+        const riseByGroup = !!(group && teGroupMode(group) === 'ebb_flow' && group.settings?.rise != null);
         const on = byGroup || !!track.pause_between;
         const low = track.pause_min ?? TE_EBB_DEFAULTS.pause_min, high = track.pause_max ?? TE_EBB_DEFAULTS.pause_max;
-        return mi('Pause between plays', `teToggleEbbPause(${k})`, {
+        return riseRow('te-rise', riseByGroup ? group.settings.rise : track.rise,
+                'How fast it rises: gradual, as smoothly as it falls, or sudden, jumping up and easing back down',
+                `teSetEbb(${k}, { rise: this.value / 100 })`, disabled || riseByGroup)
+            + (riseByGroup ? '<div class="msl-note">set by group</div>' : '') + sep
+            + mi('Pause between plays', `teToggleEbbPause(${k})`, {
                 disabled: disabled || byGroup,
                 title: byGroup ? "The group's Pause between plays is on" : 'Plays to the end of the file, then pauses',
                 after: `${byGroup ? '<span class="mi-note">set by group</span>' : ''}<span class="sw${on ? ' on' : ''}"></span>` })
@@ -4178,6 +4169,16 @@ function teMenuHtml(kind, arg) {
                 <input class="num" type="number" min="0" step="1" inputmode="numeric" data-pause="max" value="${teEsc(high)}"
                        aria-label="Longest pause, seconds" onchange="teSetEbbPause(${k}, this)"${disabled ? ' disabled' : ''}>
                 <span>s</span></div>`;
+    };
+    // Move to group: out of its group, or into another one
+    const moveRows = (track, k, disabled) => {
+        const here = teTrackGroup(track)?.name || null;
+        return '<div class="mhead">Move to group</div>'
+            + [{ name: null, label: 'Theme (no group)' }, ...teListedGroups().map(g => ({ name: g.name, label: g.name }))].map(m => {
+                const cur = m.name === here;
+                return mi(escapeHtml(m.label), `teMoveTrack(${k}, ${m.name === null ? 'null' : jsArg(m.name)})`, {
+                    cls: cur ? 'cur' : '', disabled: cur || disabled, icon: TE_ICON_FOLDER, after: cur ? '<span class="mi-note">here</span>' : '' });
+            }).join('');
     };
     // A file's own fades, at the top of a track's menu
     const fadeRows = (track, k, disabled) => [['fade_in', 'Fade in', 'Seconds it fades in each time the file starts'],
@@ -4203,7 +4204,7 @@ function teMenuHtml(kind, arg) {
         case 'upload':
             return { cls: 'menu', align: 'right', html: `<div class="mhead">Upload to</div>
                 ${mi('Theme (no group)', "tePickUpload('')", { cls: te.upload === '' ? 'cur' : '' })}
-                ${te.groups.map(g => mi(escapeHtml(g.name), `tePickUpload(${jsArg(g.name)})`, { cls: te.upload === g.name ? 'cur' : '', icon: TE_ICON_FOLDER })).join('')}` };
+                ${teListedGroups().map(g => mi(escapeHtml(g.name), `tePickUpload(${jsArg(g.name)})`, { cls: te.upload === g.name ? 'cur' : '', icon: TE_ICON_FOLDER })).join('')}` };
         case 'reset':
             return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
                 <span class="pop-title">Reset all tracks and groups to defaults?</span>
@@ -4213,11 +4214,11 @@ function teMenuHtml(kind, arg) {
             const track = teTrack(arg);
             if (!track) return null;
             const k = jsArg(arg);
-            const inGroup = trackGroupOf(arg);
             const gaplessOk = teGaplessAllowed(track);
+            const section = TE_SECTIONS.find(s => s.mode === teSectionOf(track));
             let html = fadeRows(track, k, false);
             if (teIsEbb(track)) html += sep + ebbRows(track, k, false);
-            if ((!inGroup || teIsIntrusion(teGroup(inGroup))) && gaplessOk) {
+            if (!teTrackGroup(track) && gaplessOk) {
                 html += sep + mi('Gapless', `teToggleGapless(${k})`, {
                     title: 'Loop without a crossfade',
                     after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
@@ -4229,13 +4230,9 @@ function teMenuHtml(kind, arg) {
             }
             if (te.groupsOk) {
                 if (html) html += sep;
-                html += '<div class="mhead">Move to group</div>';
-                html += [{ name: null, label: 'Theme (no group)' }, ...te.groups.map(g => ({ name: g.name, label: g.name }))].map(m => {
-                    const here = (m.name || null) === (inGroup || null);
-                    return mi(escapeHtml(m.label), `teMoveTrack(${k}, ${m.name === null ? 'null' : jsArg(m.name)})`, {
-                        cls: here ? 'cur' : '', disabled: here, icon: TE_ICON_FOLDER, after: here ? '<span class="mi-note">here</span>' : '' });
-                }).join('');
-                html += mi('New group', `teNewGroup(${k})`, { icon: TE_ICON_PLUS });
+                html += moveRows(track, k, false);
+                // A new group in the track's section (Unassigned has none)
+                if (section.group) html += mi('New group', `teNewGroup('${section.group}', ${k})`, { icon: TE_ICON_PLUS });
             }
             html += (html ? sep : '') + mi('Reset track', `teResetTrack(${k})`, { icon: TE_ICON_RESET });
             return { cls: 'menu', align: 'right', html };
@@ -4245,7 +4242,6 @@ function teMenuHtml(kind, arg) {
             const track = teTrack(arg);
             if (!track?.linked) return null;
             const k = jsArg(arg);
-            const inGroup = trackGroupOf(arg);
             const missing = !!track.linked.missing;
             const gaplessOk = teGaplessAllowed(track);
             let html = fadeRows(track, k, missing);
@@ -4255,16 +4251,7 @@ function teMenuHtml(kind, arg) {
                     disabled: missing, title: 'Loop without a crossfade',
                     after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
             }
-            if (te.groupsOk) {
-                html += sep + '<div class="mhead">Move to group</div>';
-                html += [{ name: null, label: 'Theme (no group)' }, ...te.groups.map(g => ({ name: g.name, label: g.name }))].map(m => {
-                    const here = (m.name || null) === (inGroup || null);
-                    const copy = !teIsIntrusion(m.name ? teGroup(m.name) : null);  // copied in, asked first
-                    return mi(escapeHtml(m.label), `teMoveTrack(${k}, ${m.name === null ? 'null' : jsArg(m.name)})`, {
-                        cls: here ? 'cur' : '', disabled: here || (copy && missing), icon: TE_ICON_FOLDER,
-                        after: here ? '<span class="mi-note">here</span>' : '' });
-                }).join('');
-            }
+            if (te.groupsOk) html += sep + moveRows(track, k, missing);
             html += sep + mi('Reset track', `teResetTrack(${k})`, { icon: TE_ICON_RESET, disabled: missing });
             html += sep + mi('Remove link…', `teMenu('lnkdel', te.menuBtn, ${k})`, { icon: TE_ICON_UNLINK, cls: 'danger' });
             return { cls: 'menu', align: 'right', html };
@@ -4275,29 +4262,19 @@ function teMenuHtml(kind, arg) {
                 <span class="pop-title">Remove link to ${escapeHtml(trackDisplayName(arg))}?</span>
                 <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
                     <button type="button" class="btn btn-sm btn-danger" onclick="teRemoveLink(${jsArg(arg)})">Remove</button></div>` };
-        case 'copyin': {
-            const [key] = JSON.parse(arg);
-            const source = teTrack(key)?.linked?.theme_name || 'another theme';
-            return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
-                <span class="pop-title">This will copy the file from ${escapeHtml(source)} to this theme. Are you sure?</span>
-                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
-                    <button type="button" class="btn btn-sm btn-primary" onclick="teCopyIn(${jsArg(arg)})">Copy</button></div>` };
-        }
-        case 'intoff': {
-            const [name, mode] = JSON.parse(arg);
-            const count = teGroupLinks(name).length;
-            const label = TE_GROUP_MODES.find(([v]) => v === mode)?.[1] || mode;
-            return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
-                <span class="pop-title">Change ${escapeHtml(name)} to ${escapeHtml(label)}? ${count} linked file${count === 1 ? ' is' : 's are'} removed.</span>
-                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
-                    <button type="button" class="btn btn-sm btn-danger" onclick="teConfirmIntrusionOff(${jsArg(arg)})">Change</button></div>` };
-        }
         case 'group': {
+            const group = teGroup(arg);
+            if (!group) return null;
             const n = jsArg(arg);
+            // Ebb & Flow: one Rise for every file (stored on the group; off, each file's own)
+            const rise = group.settings?.rise;
+            const riseRows = teGroupMode(group) !== 'ebb_flow' ? '' : mi('Same Rise for every file', `teToggleGroupRise(${n})`, {
+                    title: "Off: each file's own Rise", after: `<span class="sw${rise != null ? ' on' : ''}"></span>` })
+                + (rise != null ? riseRow('te-grise', rise, 'How fast every file rises', `teSetGroupValue(${n}, 'rise', this.value / 100)`) : '') + sep;
             return { cls: 'menu', align: 'right', html: `
+                ${riseRows}
                 ${mi('Rename…', `teStartRename(${n})`)}
                 ${mi(`Upload into ${escapeHtml(arg)}`, `tePickUpload(${n})`)}
-                ${teIsIntrusion(teGroup(arg)) ? mi('Add from another theme…', `pkOpen(${n})`, { icon: TE_ICON_LINK }) : ''}
                 ${sep}${mi('Delete group…', `teAskDelete(${n})`, { cls: 'danger' })}` };
         }
         case 'presets': {
@@ -4433,7 +4410,7 @@ document.addEventListener('keydown', event => {
 });
 
 // ============================================
-// Add from another theme: link files into an intrusion group (#te-pk)
+// Add from another theme: link files into this theme (#te-pk); they start in Unassigned
 // Step 1: pick a theme. Step 2: that theme's tracks, read-only, to tick.
 // ============================================
 
@@ -4443,12 +4420,10 @@ function pkFormatLength(seconds) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function pkOpen(target) {
+function pkOpen() {
     teCloseMenu();
-    if (!te.themeId || !teGroup(target)) return;
-    if (te.closed[target]) { delete te.closed[target]; teRenderTracks(); }
-    te.pk = { target, step: 1, q: '', sourceId: null, source: null, tracks: [], checked: {}, loading: false, error: '', busy: false, seq: 0 };
-    document.getElementById('pk-target').textContent = `to ${target}`;
+    if (!te.themeId) return;
+    te.pk = { step: 1, q: '', sourceId: null, source: null, tracks: [], checked: {}, loading: false, error: '', busy: false, seq: 0 };
     document.getElementById('te-pk').style.display = 'flex';
     pkRender(true);
     document.getElementById('pk-q')?.focus();
@@ -4469,11 +4444,10 @@ function pkThemes() {
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
-// Already linked into this group: shown ticked and disabled
+// Already linked into this theme: shown ticked and disabled
 function pkAdded(track) {
     const pk = te.pk;
-    return te.tracks.some(t => t.linked && trackGroupOf(t.name) === pk.target
-        && t.linked.theme_id === pk.source?.id && t.linked.track === track.id);
+    return te.tracks.some(t => t.linked && t.linked.theme_id === pk.source?.id && t.linked.track === track.id);
 }
 
 function pkFree() {
@@ -4639,10 +4613,8 @@ async function pkAdd() {
     pk.busy = true;
     pkRenderFoot();
     try {
-        await api('POST', `/themes/${te.themeId}/links`, { theme: pk.source?.id || pk.sourceId, tracks: keys, group: pk.target });
-        const target = pk.target;
+        await api('POST', `/themes/${te.themeId}/links`, { theme: pk.source?.id || pk.sourceId, tracks: keys, group: null });
         pkClose();
-        delete te.closed[target];
         teFlash(`Added ${keys.length} linked file${keys.length === 1 ? '' : 's'}`);
         await teLoadTracks(true, false);  // the server rebuilt the theme before answering
         teLoadPresets(false);
