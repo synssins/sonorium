@@ -227,6 +227,8 @@ Access Settings from the sidebar to configure:
 
 ### Troubleshooting
 
+**Which version am I on?** The version and the install type (Home Assistant app or Docker) are at the bottom left of the menu. On a phone, open the menu from the top bar to see them. Include both when you report a problem.
+
 #### No Sound
 - Check that your media player supports HTTP audio streams
 - Verify the stream URL is accessible from your speaker

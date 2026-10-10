@@ -259,6 +259,8 @@ services:
 
 ### Documentation
 
+**Which version am I on?** The version and the install type (Home Assistant app or Docker) are at the bottom left of the menu. On a phone, open the menu from the top bar to see them. Include both when you report a problem.
+
 Full documentation is available in the **[Wiki](https://github.com/synssins/sonorium/wiki)**:
 
 - [Getting Started](https://github.com/synssins/sonorium/wiki/Getting-Started) - Home Assistant installation
