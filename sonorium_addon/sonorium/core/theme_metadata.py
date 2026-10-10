@@ -392,7 +392,8 @@ class ThemeMetadataManager:
             from sonorium.theme_files import theme_audio_files
             audio_files = theme_audio_files(folder)
 
-            if not audio_files:
+            # No audio yet is fine for a theme made in Sonorium (it has metadata.json)
+            if not audio_files and not (folder / METADATA_FILE).is_file():
                 logger.debug(f"Skipping folder with no audio: {folder.name}")
                 continue
 

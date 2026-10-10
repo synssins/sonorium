@@ -1257,7 +1257,9 @@ class ApiSonorium(api.Base):
             # Top-level files and group folders (sonorium/theme_files.py)
             audio_files = theme_audio_files(folder)
 
-            if audio_files:
+            # A theme made in Sonorium has its metadata.json before it has any
+            # audio: load it empty, so it can be edited, saved and given presets
+            if audio_files or (folder / "metadata.json").is_file():
                 theme_name = folder.name
                 new_theme_metas[theme_name] = IndexList(RecordingMetadata(path, folder) for path in audio_files)
                 theme_names_with_audio.append(theme_name)

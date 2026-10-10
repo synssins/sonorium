@@ -108,7 +108,8 @@ class Sonorium:
             # Top-level files and group folders (sonorium/theme_files.py)
             audio_files = theme_audio_files(folder)
 
-            if audio_files:
+            # A theme made in Sonorium has its metadata.json before it has any audio
+            if audio_files or (folder / "metadata.json").is_file():
                 theme_name = folder.name
                 self.theme_metas[theme_name] = IndexList(RecordingMetadata(path, folder) for path in audio_files)
 

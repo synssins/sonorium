@@ -287,3 +287,15 @@ def test_the_legacy_exclusive_group_is_kept(mods, tmp_path):
                                             "groups": {"Exclusive": {"legacy_exclusive": True}}})
     _sync(mods, folder)
     assert "Exclusive" in read(folder / "metadata.json")["groups"]
+
+
+def test_a_new_empty_theme_is_loaded(mods, tmp_path):
+    """A theme made in Sonorium has metadata.json but no audio yet: it must load, so it can be edited."""
+    (tmp_path / "Camping").mkdir()
+    (tmp_path / "Camping" / "metadata.json").write_text(json.dumps({"id": "camp", "name": "Camping"}), encoding="utf-8")
+    (tmp_path / "Not a theme").mkdir()  # no audio, no metadata.json: still skipped
+    _exec("sonorium.core.theme_groups", "core/theme_groups.py")
+    manager = mods.meta.ThemeMetadataManager(tmp_path)
+    themes = manager.scan_themes()
+    assert list(themes) == ["camp"]
+    assert manager.get_folder_for_id("camp") == tmp_path / "Camping"
