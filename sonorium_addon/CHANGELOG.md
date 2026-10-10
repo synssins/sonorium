@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.5.3-dev.5 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Preview mix no longer reports an error when it restarts
+  ([`d976c69`](https://github.com/synssins/sonorium/commit/d976c694aee5417b0970fdd7967b2bf0aaa61201))
+
+### Features
+
+- Intrusion groups with files linked from other themes; 3 s fades on track on/off
+  ([`96bce19`](https://github.com/synssins/sonorium/commit/96bce19d219116cdeda4ca1a170b5361ea702305))
+
+
 ## v1.5.3-dev.4 (2026-10-10)
 
 ### Bug Fixes
