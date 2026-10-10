@@ -1059,7 +1059,27 @@ class PresenceMixingStream:
         self.exclusion_coordinator = exclusion_coordinator
         if exclusion_coordinator is not None:
             exclusion_coordinator.register_track(instance.name)
+        self._restart = False
         self.gen = self._gen()
+
+    def restart(self):
+        """
+        The track was turned on again (a preset, a sequence step, unmute): from
+        the next chunk it starts afresh instead of resuming where it paused,
+        from its file's beginning, with an active period beginning now and its
+        gain rising from silence (the mix's on fade on top). Ungrouped tracks
+        only: a grouped track keeps its turn rules.
+        """
+        if self.exclusion_coordinator is None:
+            self._restart = True
+
+    def _restart_base(self):
+        """A new base stream of the same kind, at the file's beginning."""
+        old = self.base_stream
+        gen = getattr(old, "gen", None)
+        if gen is not None:
+            gen.close()
+        self.base_stream = type(old)(old.instance)
 
     def _gen(self):
         """Generator that applies presence-based fading"""
@@ -1125,6 +1145,19 @@ class PresenceMixingStream:
         chunk_count = 0
 
         while True:
+            if self._restart:
+                # Turned on again: from the file's beginning, an active period
+                # starting now, fading in from silence
+                self._restart = False
+                self._restart_base()
+                presence = self.instance.presence
+                if presence > 0.0:
+                    is_active, current_gain, target_gain, fade_position = True, 0.0, 1.0, 0
+                    samples_until_change = get_next_duration(presence, True)
+                else:
+                    is_active, current_gain, target_gain, fade_position = False, 0.0, 0.0, 0
+                    samples_until_change = get_next_duration(presence, False)
+
             # Get base audio chunk
             try:
                 chunk = next(self.base_stream)

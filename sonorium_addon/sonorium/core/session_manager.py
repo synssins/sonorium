@@ -668,14 +668,19 @@ class SessionManager:
     
     # --- Changes made by sequences and playlists (not by hand) ---
 
-    def _apply_preset(self, session: Session, preset_id: Optional[str], glide: float) -> None:
-        """Switch the channel to a preset of its theme, gliding over `glide` seconds if it plays."""
+    def _apply_preset(self, session: Session, preset_id: Optional[str], glide: float,
+                      fade: Optional[float] = None) -> None:
+        """
+        Switch the channel to a preset of its theme, gliding over `glide` seconds
+        if it plays. Tracks it turns on or off fade over `fade` seconds (a
+        sequence step's ramp), else the usual theme.TRACK_TOGGLE_FADE_SECONDS.
+        """
         session.preset_id = preset_id or None
         if session.is_playing and session.theme_id:
             channel = self._channel_for(session)
             if channel:
                 channel.set_track_overrides(self.preset_overrides(session.theme_id, session.preset_id),
-                                            glide_seconds=glide)
+                                            glide_seconds=glide, fade_seconds=fade)
 
     def _apply_theme(self, session: Session, theme_id: str, preset_id: Optional[str]) -> None:
         """

@@ -98,12 +98,14 @@ def test_sequence_reverses_at_the_end(tmp_path):
     t.manager.start_sequence(t.session.id, "up_down")
     assert t.session.sequence_id == "up_down" and t.session.preset_id == "a"
     assert t.channel.glides()[-1] == 3.0  # started by hand: the quick glide
+    assert t.channel.fades[-1] is None  # and tracks turning on or off take the usual 3 s
     seen = []
     for when in (12.9, 13, 28, 43, 58, 73):  # 3 s glide + 10 s hold, then 5 s ramp + 10 s hold
         at(t, when)
         seen.append(t.session.preset_id)
     assert seen == ["a", "b", "c", "b", "a", "b"]
     assert t.channel.glides()[-1] == 5  # steps glide over the sequence's ramp
+    assert t.channel.fades[-1] == 5  # and tracks turning on or off fade over it too
 
 
 def test_sequence_restarts_at_the_end(tmp_path):
@@ -351,6 +353,7 @@ def test_next_skips_to_the_next_entry_or_sequence_step(tmp_path):
     t.manager.clear_playlist(t.session.id)
     assert run(t.manager.skip(t.session.id)) == "sequence"  # the entry's sequence keeps running
     assert t.session.preset_id == "dusk"
+    assert t.channel.glides()[-1] == 3.0 and t.channel.fades[-1] == 3.0  # Next by hand: the quick 3 s
     t.manager.stop_sequence(t.session.id)
     assert run(t.manager.skip(t.session.id)) is None
 
@@ -487,6 +490,7 @@ def test_a_sequence_entry_plays_one_full_pass_ignoring_the_play_time(tmp_path):
     assert starts[1] == pytest.approx(holds[0])  # the glide to w2 starts after w1's hold
     assert starts[2] - starts[1] == pytest.approx(30 + holds[1])
     assert t.channel.glides()[-2] == 30  # presets glide over the sequence's ramp
+    assert t.channel.fades[-2] == 30  # a playlist entry's sequence fades tracks over it too
     assert t.session.sequence_id is None and t.manager.runner.running_sequence(t.session.id) is None
 
 

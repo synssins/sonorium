@@ -14,7 +14,17 @@ In the API a channel is a **session** (`/api/sessions/{id}`).
 | Channel stops or pauses | The mix fades out, then the speakers are told to stop or pause | Crossfade |
 | Theme changes (by hand or by a playlist) | Old theme crossfades into the new one | Crossfade |
 | Preset picked by hand (web UI, API, MQTT) | Volume and interval glide to the new values; tracks turning on or off fade | 3 s |
-| Preset changed by a sequence | Same glide | The sequence's ramp time |
+| Preset changed by a sequence (also a playlist entry's sequence) | Same glide; tracks turning on or off fade over the same time | The sequence's ramp time (its own, else the theme's sequence default, default 30 s) |
+| Track muted or unmuted (mute button) | The track fades out or in | 3 s |
+
+"Next" on a running sequence is a step by hand: its glide and on/off fades take 3 s.
+
+A track that turns on (a preset, a sequence step, unmute) fades in from silence. An
+**Ebb & Flow** track (outside a group) also starts afresh when it turns on: from the
+beginning of its file, at the start of an active period, its level rising from silence
+(its own 6 s fade-in, with the on fade above on top), instead of resuming where it
+paused while it was off. Tracks that stay on are not touched, and grouped tracks
+(Intermittent, Merry-go-round) keep their own rules.
 
 The channel's volume setting never changes during a fade: the fade is applied to the
 channel's audio. Settings > Audio Settings > Master output gain is the output gain of every mix.

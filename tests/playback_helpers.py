@@ -112,6 +112,7 @@ class FakeChannel:
     def __init__(self, channel_id=1):
         self.id = channel_id
         self.calls = []
+        self.fades = []  # each set_track_overrides' on/off fade (None: the usual 3 s)
         self.theme = None
         self.playing = False
 
@@ -124,8 +125,9 @@ class FakeChannel:
         self.theme = theme
         self.playing = True
 
-    def set_track_overrides(self, overrides, glide_seconds=0.0):
+    def set_track_overrides(self, overrides, glide_seconds=0.0, fade_seconds=None):
         self.calls.append(("overrides", dict(overrides or {}), glide_seconds))
+        self.fades.append(fade_seconds)
 
     def fade_in(self, seconds):
         self.calls.append(("fade_in", seconds))

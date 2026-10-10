@@ -231,16 +231,18 @@ class Channel:
                 return getattr(instance, name, None)
         return None
 
-    def set_track_overrides(self, overrides: dict | None, glide_seconds: float = 0.0) -> None:
+    def set_track_overrides(self, overrides: dict | None, glide_seconds: float = 0.0,
+                            fade_seconds: float | None = None) -> None:
         """
         Change this channel's preset layer for the theme it's playing, in place,
         so the playing mix follows. Other channels are not affected.
 
         With `glide_seconds`, volume and presence (of tracks and group masters)
         move from where they are now to the new values over that long, counted
-        in audio played; other settings change at once (a track turning on or
-        off fades by itself, theme.TRACK_TOGGLE_FADE_SECONDS). A new glide
-        starts from wherever a running one has got to.
+        in audio played; other settings change at once. A track turning on or
+        off fades by itself, over `fade_seconds` (a sequence step passes its
+        ramp), else theme.TRACK_TOGGLE_FADE_SECONDS. A new glide starts from
+        wherever a running one has got to.
         """
         new = {key: dict(values) for key, values in (overrides or {}).items()}
         with self._lock:
@@ -248,44 +250,52 @@ class Channel:
                 # The change is for the theme that is about to fade in
                 self._pending_overrides = new
                 return
-            if glide_seconds <= 0 or self._chunk_generator is None:
-                self._glide = None
-                self._replace_overrides(new)
-                return
+            stream = self._theme_stream if fade_seconds is not None else None
+            before = stream.track_states() if stream is not None else None
+            self._change_overrides(new, glide_seconds)
+            if before is not None:
+                stream.fade_toggles(before, fade_seconds)
 
-            start, end = {}, {}
-            for key in set(self._track_overrides) | set(new):
-                old_values = self._track_overrides.get(key) or {}
-                new_values = new.get(key) or {}
-                for name in GLIDE_FIELDS:
-                    if name not in old_values and name not in new_values:
-                        continue
-                    base = self._base_value(key, name)
-                    a = old_values[name] if name in old_values else base
-                    b = new_values[name] if name in new_values else base
-                    if a is None or b is None:
-                        continue
-                    a, b = float(a), float(b)
-                    if a != b:
-                        start[(key, name)], end[(key, name)] = a, b
+    def _change_overrides(self, new: dict, glide_seconds: float) -> None:
+        """set_track_overrides' change itself (call with the lock held)."""
+        if glide_seconds <= 0 or self._chunk_generator is None:
+            self._glide = None
+            self._replace_overrides(new)
+            return
 
-            if not start:
-                self._glide = None
-                self._replace_overrides(new)
-                return
-            # Everything else switches now; the gliding values start where they are
-            working = {key: dict(values) for key, values in new.items()}
-            for (key, name), value in start.items():
-                working.setdefault(key, {})[name] = value
-            self._replace_overrides(working)
-            self._glide = {
-                "start": start,
-                "end": end,
-                "pos": 0,
-                "length": max(1, int(glide_seconds * SAMPLE_RATE)),
-                "final": new,
-            }
-            logger.debug(f"Channel {self.id}: Gliding {len(start)} value(s) over {glide_seconds:g}s")
+        start, end = {}, {}
+        for key in set(self._track_overrides) | set(new):
+            old_values = self._track_overrides.get(key) or {}
+            new_values = new.get(key) or {}
+            for name in GLIDE_FIELDS:
+                if name not in old_values and name not in new_values:
+                    continue
+                base = self._base_value(key, name)
+                a = old_values[name] if name in old_values else base
+                b = new_values[name] if name in new_values else base
+                if a is None or b is None:
+                    continue
+                a, b = float(a), float(b)
+                if a != b:
+                    start[(key, name)], end[(key, name)] = a, b
+
+        if not start:
+            self._glide = None
+            self._replace_overrides(new)
+            return
+        # Everything else switches now; the gliding values start where they are
+        working = {key: dict(values) for key, values in new.items()}
+        for (key, name), value in start.items():
+            working.setdefault(key, {})[name] = value
+        self._replace_overrides(working)
+        self._glide = {
+            "start": start,
+            "end": end,
+            "pos": 0,
+            "length": max(1, int(glide_seconds * SAMPLE_RATE)),
+            "final": new,
+        }
+        logger.debug(f"Channel {self.id}: Gliding {len(start)} value(s) over {glide_seconds:g}s")
 
     def _advance_glide(self, samples: int) -> None:
         """Move a running glide on by `samples` of audio (call with the lock held)."""

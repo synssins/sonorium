@@ -28,7 +28,8 @@ DEFAULT_OUTPUT_GAIN = 6.0
 DEFAULT_SHORT_FILE_THRESHOLD = 15.0
 
 # A track turning on or off in a playing mix (a preset change, the mute
-# button) fades in or out over this long instead of cutting
+# button) fades in or out over this long instead of cutting. A sequence step
+# fades the tracks it turns on or off over its ramp time instead.
 TRACK_TOGGLE_FADE_SECONDS = 3.0
 
 
@@ -141,6 +142,11 @@ class ThemeStream:
         self._intrusions: tuple = ()  # the groups in Intrusion mode (tracks play as ungrouped)
         # Track key -> its on/off fade gain (1 on, 0 off), ramped each chunk (TRACK_TOGGLE_FADE_SECONDS)
         self._toggle_gain: dict[str, float] = {}
+        # Track key -> on/off as last mixed, and the per-chunk step of its current on/off fade
+        self._toggle_on: dict[str, bool] = {}
+        self._toggle_step: dict[str, float] = {}
+        # Track key -> fade length (seconds) for the on/off change it just had (a sequence step's ramp)
+        self._next_fade: dict[str, float] = {}
         self._lock = threading.Lock()  # adopt (API thread) and mode changes (mixing thread)
         self._build(theme_def)
 
@@ -268,31 +274,69 @@ class ThemeStream:
         coordinator = getattr(stream, "exclusion_coordinator", None)
         return coordinator is not None and coordinator.is_playing(stream.instance.name)
 
+    def track_states(self) -> dict:
+        """Each track's on/off as the mix reads it now ({track key: bool})."""
+        return {name: bool(view.is_enabled) for name, view in list(self._views.items())}
+
+    def fade_toggles(self, before: dict, seconds: float) -> None:
+        """
+        The tracks whose on/off now differs from `before` (track_states() taken
+        just before a preset change) fade in or out over `seconds` instead of
+        TRACK_TOGGLE_FADE_SECONDS. Taken up by the next chunk mixed.
+        """
+        for name, on in self.track_states().items():
+            if name in before and before[name] != on:
+                self._next_fade[name] = seconds
+
+    @staticmethod
+    def _fade_step(seconds: float) -> float:
+        """How far an on/off fade of `seconds` moves per chunk (a fade of 0 still ramps over one chunk)."""
+        from sonorium.recording import RecordingThemeStream
+        if not seconds or seconds <= 0:
+            return 1.0
+        return min(1.0, RecordingThemeStream.CHUNK_SIZE / (seconds * SAMPLE_RATE))
+
     def _pull(self, step: float) -> list:
         """
         One chunk from each track stream, with its on/off fade: a track turned
-        off fades out over TRACK_TOGGLE_FADE_SECONDS and is then no longer
-        pulled (it pauses), except a group's turn holder, which runs on
-        silently so it ends on time; a track turned on fades in from silence.
-        A track already on when the mix starts (or joins it) starts at full level.
+        off fades out over TRACK_TOGGLE_FADE_SECONDS (a sequence step: its ramp,
+        see fade_toggles) and is then no longer pulled (it pauses), except a
+        group's turn holder, which runs on silently so it ends on time; a track
+        turned on fades in from silence, and an Ebb & Flow track starts afresh
+        (from its file's beginning, see PresenceMixingStream.restart). A track
+        already on when the mix starts (or joins it) starts at full level.
         """
         chunks, gains = [], {}
         for stream in list(self.recording_streams):
             name = stream.instance.name
             enabled = bool(stream.instance.is_enabled)
+            was = self._toggle_on.get(name)
+            self._toggle_on[name] = enabled
+            if was is not None and was != enabled:
+                seconds = self._next_fade.get(name)
+                self._toggle_step[name] = step if seconds is None else self._fade_step(seconds)
+            track_step = self._toggle_step.get(name, step)
             old = self._toggle_gain.get(name, 1.0 if enabled else 0.0)
-            new = min(1.0, old + step) if enabled else max(0.0, old - step)
+            new = min(1.0, old + track_step) if enabled else max(0.0, old - track_step)
             gains[name] = new
             if old <= 0.0 and new <= 0.0:
                 if self._holds_turn(stream):
                     next(stream)  # muted mid-play: runs on silently, so it ends on time
                 continue
+            if old <= 0.0:
+                restart = getattr(stream, "restart", None)
+                if restart is not None:
+                    restart()  # turned on from silence: an Ebb & Flow track starts afresh
             data = next(stream)
             if old < 1.0 or new < 1.0:
                 ramp = np.linspace(old, new, data.shape[-1], dtype=np.float32)
                 data = (data.astype(np.float32) * ramp).astype(np.int16)
             chunks.append(data)
         self._toggle_gain = gains
+        self._next_fade.clear()
+        for name in [n for n in self._toggle_on if n not in gains]:
+            self._toggle_on.pop(name, None)
+            self._toggle_step.pop(name, None)
         return chunks
 
     def iter_chunks(self):

@@ -225,7 +225,7 @@ class PlaybackRunner:
         run.index = nxt
         run.next_at = self.clock() + ramp + run.holds[nxt]
         if run.presets[nxt] != session.preset_id:
-            self.manager._apply_preset(session, run.presets[nxt], ramp)
+            self.manager._apply_preset(session, run.presets[nxt], ramp, fade=ramp)
             logger.info(f"  Channel '{session.name}': sequence '{run.sequence_id}' step {nxt + 1}/{len(run.presets)} "
                         f"'{run.presets[nxt]}' (glide {ramp:g}s, hold {run.holds[nxt]:.0f}s)")
 
@@ -260,7 +260,7 @@ class PlaybackRunner:
         run.index = nxt
         run.next_at = self.clock() + ramp + self._hold(sequence)
         if presets[nxt] != session.preset_id:
-            self.manager._apply_preset(session, presets[nxt], ramp)
+            self.manager._apply_preset(session, presets[nxt], ramp, fade=ramp)
             logger.info(f"  Channel '{session.name}': sequence '{sequence['name']}' step {nxt + 1}/{count} "
                         f"'{presets[nxt]}' (glide {ramp:g}s)")
 
