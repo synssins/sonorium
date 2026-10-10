@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.12 (2026-10-10)
+
+### Features
+
+- **ui**: Clearer playback mode names: Background, Intermittent, Ebb & Flow, Unique
+  ([`dbcd2f4`](https://github.com/synssins/sonorium/commit/dbcd2f44c66405b8bb6aa5fc97233c756c8821bf))
+
+
 ## v1.4.2-dev.11 (2026-10-10)
 
 ### Bug Fixes
