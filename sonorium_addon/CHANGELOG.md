@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.9 (2026-10-10)
+
+### Features
+
+- Hear Theme Editor changes live on playing channels
+  ([`01ed309`](https://github.com/synssins/sonorium/commit/01ed309eeee5a184724a706cca33a646a45bb899))
+
+
 ## v1.4.2-dev.8 (2026-10-10)
 
 ### Bug Fixes
