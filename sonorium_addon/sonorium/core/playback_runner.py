@@ -8,7 +8,9 @@ Runs sequences and playlists on channels (docs/PLAYBACK.md).
 - A **playlist** plays its entries (a theme, plus a preset or a sequence of
   it) one after another, each for a random time in [play_min, play_max],
   in order or shuffled (never the same entry twice in a row), then repeats
-  or stops.
+  or stops. An entry with a sequence plays one pass of it instead (each
+  preset once, first to last, at the sequence's hold and ramp times); with
+  the playlist's fit_sequences the pass is scaled to fit a play time.
 
 Times are counted on the monotonic wall clock. Only playing channels run:
 stopping a channel stops its timers (the sequence and playlist it has are
@@ -44,6 +46,19 @@ class SequenceRun:
     index: int = 0
     direction: int = 1
     next_at: float = 0.0
+    # One pass for a playlist entry: the presets, each one's hold and the
+    # ramp, planned when the entry starts (None: an ordinary, endless run)
+    presets: Optional[list] = None
+    holds: Optional[list] = None
+    ramp: Optional[float] = None
+
+    @property
+    def single_pass(self) -> bool:
+        return self.holds is not None
+
+
+# A pass's last preset: nothing more to step to (the playlist moves on)
+NEVER = float("inf")
 
 
 @dataclass
@@ -120,19 +135,30 @@ class PlaybackRunner:
 
     # --- Sequences ---
 
-    def start_sequence(self, session: Session, sequence_id: str, glide: float = PRESET_GLIDE_SECONDS) -> dict:
-        """
-        Run a sequence of the channel's theme from its first preset. On a
-        stopped channel it is only set (it starts when the channel plays).
-        Raises LookupError (unknown sequence) or ValueError (it has no presets).
-        """
-        sequence = self.sequence(session.theme_id, sequence_id)
+    def check_sequence(self, theme_id: Optional[str], sequence_id: str) -> dict:
+        """The sequence, if it can run. Raises LookupError (unknown) or ValueError (no presets)."""
+        sequence = self.sequence(theme_id, sequence_id)
         if sequence is None:
             raise LookupError(f"Sequence '{sequence_id}' not found for this channel's theme")
         if not sequence["presets"]:
             raise ValueError(f"Sequence '{sequence['name']}' has no presets")
+        return sequence
+
+    def start_sequence(self, session: Session, sequence_id: str, glide: float = PRESET_GLIDE_SECONDS,
+                       apply: bool = True) -> dict:
+        """
+        Run a sequence of the channel's theme from its first preset. On a
+        stopped channel it is only set (it starts when the channel plays).
+        With apply=False the channel is already on (or crossfading to) the
+        first preset. Raises LookupError (unknown sequence) or ValueError
+        (it has no presets).
+        """
+        sequence = self.check_sequence(session.theme_id, sequence_id)
         session.sequence_id = sequence_id
-        self.manager._apply_preset(session, sequence["presets"][0], glide)
+        if apply:
+            self.manager._apply_preset(session, sequence["presets"][0], glide)
+        else:
+            session.preset_id = sequence["presets"][0]
         if session.is_playing:
             self._sequences[session.id] = SequenceRun(
                 sequence_id, session.theme_id, next_at=self.clock() + glide + self._hold(sequence))
@@ -150,7 +176,24 @@ class PlaybackRunner:
             logger.info(f"  Channel '{session.name}': sequence stopped")
         return had
 
+    def _advance_pass(self, session: Session, run: SequenceRun, glide: Optional[float] = None) -> None:
+        """A playlist entry's pass: the next preset, or nothing more after the last one."""
+        nxt = run.index + 1
+        if nxt >= len(run.presets):
+            run.next_at = NEVER
+            return
+        ramp = run.ramp if glide is None else glide
+        run.index = nxt
+        run.next_at = self.clock() + ramp + run.holds[nxt]
+        if run.presets[nxt] != session.preset_id:
+            self.manager._apply_preset(session, run.presets[nxt], ramp)
+            logger.info(f"  Channel '{session.name}': sequence '{run.sequence_id}' step {nxt + 1}/{len(run.presets)} "
+                        f"'{run.presets[nxt]}' (glide {ramp:g}s, hold {run.holds[nxt]:.0f}s)")
+
     def _advance_sequence(self, session: Session, run: SequenceRun, glide: Optional[float] = None) -> None:
+        if run.single_pass and run.theme_id == session.theme_id:
+            self._advance_pass(session, run, glide)
+            return
         sequence = self.sequence(session.theme_id, run.sequence_id)
         if sequence is None or not sequence["presets"] or run.theme_id != session.theme_id:
             logger.info(f"  Channel '{session.name}': its sequence is gone, stopping it")
@@ -216,9 +259,19 @@ class PlaybackRunner:
                 session.playlist_position = 0
 
     def clear_playlist(self, session: Session) -> bool:
-        """Stop the channel's playlist; the channel keeps playing what it plays now. True if it had one."""
+        """
+        Stop the channel's playlist; the channel keeps playing what it plays
+        now. An entry's sequence pass carries on as an ordinary sequence.
+        True if it had one.
+        """
         had = session.playlist_id is not None
         self._playlists.pop(session.id, None)
+        run = self._sequences.get(session.id)
+        if run is not None and run.single_pass:
+            run.presets = run.holds = run.ramp = None
+            if run.next_at == NEVER:
+                sequence = self.sequence(session.theme_id, run.sequence_id)
+                run.next_at = self.clock() + (self._hold(sequence) if sequence else 0.0)
         session.playlist_id = None
         session.playlist_order = []
         session.playlist_position = 0
@@ -254,11 +307,38 @@ class PlaybackRunner:
         self._sequences.pop(session.id, None)
         session.sequence_id = sequence["id"] if sequence else None
         if session.is_playing:
-            now = self.clock()
-            if sequence:
-                self._sequences[session.id] = SequenceRun(sequence["id"], theme_id, next_at=now + self._hold(sequence))
-            self._playlists[session.id] = PlaylistRun(session.playlist_id, next_at=now + self._play_time(playlist))
+            self._start_entry_timers(session, playlist, sequence)
         return True
+
+    def _plan_pass(self, session: Session, sequence: dict, playlist: dict) -> tuple[SequenceRun, float]:
+        """
+        One pass of an entry's sequence: each preset once, first to last. Each
+        hold is drawn in the sequence's range; with the playlist's
+        fit_sequences, holds and ramps are scaled so the pass lasts a play
+        time drawn from play_min-play_max. Returns (run, length in seconds).
+        """
+        from sonorium.core.sequences import fit_pass
+        presets = list(sequence["presets"])
+        holds = [self._hold(sequence) for _ in presets]
+        ramp = float(sequence["ramp"])
+        if playlist.get("fit_sequences"):
+            length = self._play_time(playlist)
+            holds, ramp = fit_pass(holds, ramp, length)
+        else:
+            length = sum(holds) + (len(presets) - 1) * ramp
+        run = SequenceRun(sequence["id"], session.theme_id, presets=presets, holds=holds, ramp=ramp)
+        return run, length
+
+    def _start_entry_timers(self, session: Session, playlist: dict, sequence: Optional[dict]) -> None:
+        """Timers for the playlist entry the channel is on: its play time, or its sequence's pass."""
+        now = self.clock()
+        if sequence:
+            run, length = self._plan_pass(session, sequence, playlist)
+            run.next_at = now + run.holds[0] if len(run.presets) > 1 else NEVER
+            self._sequences[session.id] = run
+        else:
+            length = self._play_time(playlist)
+        self._playlists[session.id] = PlaylistRun(session.playlist_id, next_at=now + length)
 
     def _step_position(self, session: Session, playlist: dict) -> bool:
         """Move to the next entry; at the end start a new round if it repeats. False at the end of a non-repeating playlist."""
@@ -342,7 +422,16 @@ class PlaybackRunner:
         if session.playlist_id and session.id not in self._playlists:
             playlist = self.playlist(session.playlist_id)
             if playlist is not None:
-                self._playlists[session.id] = PlaylistRun(session.playlist_id, next_at=now + self._play_time(playlist))
+                entry = self._entry(session, playlist) if playlist.get("entries") and self._order_ok(session, playlist) else {}
+                sequence = None
+                if (session.sequence_id and entry.get("sequence_id") == session.sequence_id
+                        and entry.get("theme_id") == session.theme_id):
+                    sequence = self.sequence(session.theme_id, session.sequence_id)
+                    if sequence is not None and not sequence["presets"]:
+                        sequence = None
+                self._start_entry_timers(session, playlist, sequence)
+                if sequence is not None:
+                    return
         if session.sequence_id:
             sequence = self.sequence(session.theme_id, session.sequence_id)
             if sequence is not None and sequence["presets"]:
@@ -418,17 +507,26 @@ class PlaybackRunner:
             run = self._sequences.get(session.id)
             presets = self.manager._theme_presets(session.theme_id) if session.theme_id else {}
             current = session.preset_id
+            change_at = run.next_at if run else None
+            if change_at == NEVER:  # a pass's last preset: the playlist moves on next
+                playlist_run = self._playlists.get(session.id)
+                change_at = playlist_run.next_at if playlist_run else None
+            if run is not None and run.single_pass:
+                steps = len(run.presets)
+            else:
+                steps = len(sequence["presets"]) if sequence else 0
             result["sequence"] = {
                 "id": session.sequence_id,
                 "name": sequence["name"] if sequence else session.sequence_id,
                 "running": run is not None,
+                "single_pass": bool(run is not None and run.single_pass),
                 "step": (run.index + 1) if run else None,
-                "steps": len(sequence["presets"]) if sequence else 0,
+                "steps": steps,
                 "at_end": sequence["at_end"] if sequence else None,
                 "current_preset_id": current,
                 "current_preset_name": (presets.get(current) or {}).get("name", current) if current else None,
-                "next_change_at": self._iso(run.next_at) if run else None,
-                "seconds_until_change": self._seconds_left(run.next_at) if run else None,
+                "next_change_at": self._iso(change_at),
+                "seconds_until_change": self._seconds_left(change_at),
             }
         if session.playlist_id:
             playlist = self.playlist(session.playlist_id) or {}

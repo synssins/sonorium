@@ -21,6 +21,10 @@ A sequence's own hold_min / hold_max / ramp (seconds) override the theme's
 sequence_defaults; null (or absent) uses the default. "owner" is null for a
 theme sequence (every sequence for now; per-user sequences come later).
 
+A channel picks a sequence where it picks a preset: the choice is the
+sequence id with SEQUENCE_PREFIX ("seq:gentle_storm"), see choice_id() and
+sequence_choice().
+
 This module only reads, checks and writes those keys; the runtime is in
 core/playback_runner.py.
 """
@@ -44,6 +48,8 @@ TIMING_FIELDS = ("hold_min", "hold_max", "ramp")
 DEFAULTS = {"hold_min": 300.0, "hold_max": 900.0, "ramp": 30.0}
 MAX_SECONDS = 7 * 24 * 3600  # a week: anything longer is a typo
 MAX_NAME = 100
+# A channel's preset choice that is a sequence: "seq:<sequence_id>"
+SEQUENCE_PREFIX = "seq:"
 
 
 class SequenceError(ValueError):
@@ -199,8 +205,69 @@ def new_sequence_id(name: str, existing) -> str:
     return sequence_id
 
 
+def choice_id(sequence_id: str) -> str:
+    """The preset choice that starts a sequence: "seq:<sequence_id>"."""
+    return f"{SEQUENCE_PREFIX}{sequence_id}"
+
+
+def sequence_choice(value) -> Optional[str]:
+    """The sequence id if a preset choice is a sequence ("seq:<id>"), else None."""
+    if isinstance(value, str) and value.startswith(SEQUENCE_PREFIX) and len(value) > len(SEQUENCE_PREFIX):
+        return value[len(SEQUENCE_PREFIX):]
+    return None
+
+
+def pass_range(count: int, timing: dict) -> tuple[float, float]:
+    """
+    Shortest and longest time (seconds) of one pass through `count` presets:
+    each preset held once (hold_min to hold_max) with a ramp between them.
+    """
+    if count <= 0:
+        return 0.0, 0.0
+    ramps = (count - 1) * timing["ramp"]
+    return count * timing["hold_min"] + ramps, count * timing["hold_max"] + ramps
+
+
+def fit_pass(holds: list[float], ramp: float, total: float) -> tuple[list[float], float]:
+    """
+    Squeeze (or stretch) one pass so it lasts exactly `total` seconds: the
+    holds (one per preset) and the ramp (between presets) are scaled by the
+    same factor. A ramp never exceeds half the shortest hold: if it would,
+    the holds become equal shares and the ramp at most half of one. Returns
+    (holds, ramp); with no time to share (all zero) the holds are equal.
+    """
+    count = len(holds)
+    total = max(0.0, float(total))
+    if count == 0:
+        return [], 0.0
+    if count == 1:
+        return [total], 0.0
+    ramps = count - 1
+    length = sum(holds) + ramps * ramp
+    if length <= 0 or min(holds) <= 0:
+        holds = [1.0] * count  # equal shares, scaled below
+        length = count + ramps * ramp
+    scale = total / length
+    holds = [h * scale for h in holds]
+    ramp = ramp * scale
+    if ramp <= min(holds) / 2:
+        return holds, ramp
+    # Equal shares: keep the scaled ramp if it fits in half a hold, else half a hold
+    hold = (total - ramps * ramp) / count
+    if ramp > hold / 2:
+        hold = total / (count + ramps / 2)
+        ramp = hold / 2
+    return [hold] * count, ramp
+
+
 def to_response(sequence_id: str, sequence: dict, defaults: dict) -> dict:
-    """A sequence as the API returns it: its saved fields plus id and the timing it plays with."""
+    """
+    A sequence as the API returns it: its saved fields plus id, the timing it
+    plays with ("effective") and how long one pass takes ("pass_min",
+    "pass_max": every preset once, with the ramps between them).
+    """
+    effective = resolve_timing(sequence, defaults)
+    pass_min, pass_max = pass_range(len(sequence.get("presets") or []), effective)
     return {
         "id": sequence_id,
         "name": sequence.get("name", sequence_id),
@@ -210,8 +277,22 @@ def to_response(sequence_id: str, sequence: dict, defaults: dict) -> dict:
         "hold_max": sequence.get("hold_max"),
         "ramp": sequence.get("ramp"),
         "owner": sequence.get("owner"),
-        "effective": resolve_timing(sequence, defaults),
+        "effective": effective,
+        "pass_min": pass_min,
+        "pass_max": pass_max,
     }
+
+
+def to_choice(sequence_id: str, sequence: dict, defaults: dict, preset_intrusion: dict) -> dict:
+    """
+    A sequence as a choice next to a theme's presets: to_response() plus its
+    preset choice ("choice": "seq:<id>") and "has_intrusion" (true if any of
+    its presets turns on an intrusion; `preset_intrusion` is {preset_id: bool}).
+    """
+    result = to_response(sequence_id, sequence, defaults)
+    result["choice"] = choice_id(sequence_id)
+    result["has_intrusion"] = any(preset_intrusion.get(p, False) for p in result["presets"])
+    return result
 
 
 def drop_preset(folder: Path, preset_id: str) -> list[str]:

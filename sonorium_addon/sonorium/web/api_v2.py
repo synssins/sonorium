@@ -47,7 +47,7 @@ class SpaceRequest(BaseModel):
 class CreateSessionRequest(BaseModel):
     """Request to create a new session."""
     theme_id: Optional[str] = None
-    preset_id: Optional[str] = None
+    preset_id: Optional[str] = None  # A preset id, "" for none, or "seq:<sequence_id>" to run a sequence
     speaker_group_id: Optional[str] = None
     adhoc_selection: Optional[SpeakerSelectionModel] = None
     custom_name: Optional[str] = None
@@ -57,7 +57,7 @@ class CreateSessionRequest(BaseModel):
 class UpdateSessionRequest(BaseModel):
     """Request to update an existing session."""
     theme_id: Optional[str] = None
-    preset_id: Optional[str] = None
+    preset_id: Optional[str] = None  # A preset id, "" for none, or "seq:<sequence_id>" to run a sequence
     speaker_group_id: Optional[str] = None
     adhoc_selection: Optional[SpeakerSelectionModel] = None
     custom_name: Optional[str] = None
@@ -79,6 +79,7 @@ class SessionResponse(BaseModel):
     speaker_summary: str  # Human-readable summary
     channel_id: Optional[int] = None  # Assigned channel (if playing)
     sequence_id: Optional[str] = None  # The sequence it runs (of its theme)
+    preset_choice: Optional[str] = None  # What its preset menu shows: "seq:<id>" while a sequence runs, else preset_id
     playlist_id: Optional[str] = None  # The playlist it plays
     sequence: Optional[dict] = None  # Sequence status: name, step, current preset, next change
     playlist: Optional[dict] = None  # Playlist status: name, entry, theme, next change
@@ -139,8 +140,6 @@ class SettingsResponse(BaseModel):
     show_in_sidebar: bool
     auto_create_quick_play: bool
     master_gain: int
-    default_cycle_interval: int
-    default_cycle_randomize: bool
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -152,8 +151,6 @@ class UpdateSettingsRequest(BaseModel):
     show_in_sidebar: Optional[bool] = None
     auto_create_quick_play: Optional[bool] = None
     master_gain: Optional[int] = Field(default=None, ge=0, le=100)
-    default_cycle_interval: Optional[int] = Field(default=None, ge=1, le=1440)
-    default_cycle_randomize: Optional[bool] = None
 
 
 class SpeakerSettingsResponse(BaseModel):
@@ -245,6 +242,13 @@ class ChannelResponse(BaseModel):
 
 # --- Helper Functions ---
 
+def _preset_choice(session) -> Optional[str]:
+    """The channel's choice in a preset menu: its sequence ("seq:<id>") while it has one, else its preset."""
+    from sonorium.core.sequences import choice_id
+    sequence_id = getattr(session, 'sequence_id', None)
+    return choice_id(sequence_id) if sequence_id else getattr(session, 'preset_id', None)
+
+
 def _session_to_response(session, session_manager) -> SessionResponse:
     """Convert a Session to SessionResponse."""
     try:
@@ -266,6 +270,7 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         speaker_summary=session_manager.get_speaker_summary(session),
         channel_id=session_manager.get_session_channel(session.id),
         sequence_id=getattr(session, 'sequence_id', None),
+        preset_choice=_preset_choice(session),
         playlist_id=getattr(session, 'playlist_id', None),
         sequence=playback.get("sequence"),
         playlist=playback.get("playlist"),
@@ -416,6 +421,8 @@ def create_api_router(
                 custom_name=request.custom_name,
                 volume=request.volume,
             )
+        except LookupError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e).strip("'\""))
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -443,15 +450,20 @@ def create_api_router(
         old_session = session_manager.get(session_id)
         old_name = old_session.name if old_session else None
 
-        session, added_speakers, removed_speakers = session_manager.update(
-            session_id=session_id,
-            theme_id=request.theme_id,
-            preset_id=request.preset_id,
-            speaker_group_id=request.speaker_group_id,
-            adhoc_selection=request.adhoc_selection.to_selection() if request.adhoc_selection else None,
-            custom_name=request.custom_name,
-            volume=request.volume,
-        )
+        try:
+            session, added_speakers, removed_speakers = session_manager.update(
+                session_id=session_id,
+                theme_id=request.theme_id,
+                preset_id=request.preset_id,
+                speaker_group_id=request.speaker_group_id,
+                adhoc_selection=request.adhoc_selection.to_selection() if request.adhoc_selection else None,
+                custom_name=request.custom_name,
+                volume=request.volume,
+            )
+        except LookupError as e:  # preset_id "seq:<id>" names no sequence of the theme
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e).strip("'\""))
+        except ValueError as e:  # that sequence has no presets left
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
@@ -585,6 +597,7 @@ def create_api_router(
         return {
             "session_id": session.id,
             "sequence_id": session.sequence_id,
+            "preset_choice": _preset_choice(session),
             "playlist_id": session.playlist_id,
             **session_manager.playback_status(session),
         }
@@ -1493,8 +1506,6 @@ def create_api_router(
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
-            default_cycle_interval=settings.default_cycle_interval,
-            default_cycle_randomize=settings.default_cycle_randomize,
         )
 
     @router.put("/settings")
@@ -1518,10 +1529,6 @@ def create_api_router(
             settings.master_gain = request.master_gain
             if on_master_gain:
                 on_master_gain()
-        if request.default_cycle_interval is not None:
-            settings.default_cycle_interval = request.default_cycle_interval
-        if request.default_cycle_randomize is not None:
-            settings.default_cycle_randomize = request.default_cycle_randomize
 
         state_store.save()
 
@@ -1533,8 +1540,6 @@ def create_api_router(
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
-            default_cycle_interval=settings.default_cycle_interval,
-            default_cycle_randomize=settings.default_cycle_randomize,
         )
 
     # --- Speaker Settings Endpoints ---

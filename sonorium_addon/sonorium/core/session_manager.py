@@ -451,12 +451,20 @@ class SessionManager:
             Created session
 
         Raises:
-            ValueError: If max sessions exceeded
+            ValueError: If max sessions exceeded, or the sequence chosen as
+                the preset ("seq:<id>") has no presets
+            LookupError: The sequence chosen as the preset is unknown
         """
         # Check limits (hardcoded max of 20 sessions)
         max_sessions = 20
         if len(self.state.sessions) >= max_sessions:
             raise ValueError(f"Maximum of {max_sessions} sessions allowed")
+
+        # A sequence chosen as the preset: it starts on its first preset
+        from sonorium.core.sequences import sequence_choice
+        sequence_id = sequence_choice(preset_id)
+        if sequence_id is not None:
+            preset_id = self.runner.check_sequence(theme_id, sequence_id)["presets"][0]
 
         # Generate ID
         session_id = str(uuid.uuid4())[:8]
@@ -492,6 +500,8 @@ class SessionManager:
         
         # Store and save
         self.state.sessions[session_id] = session
+        if sequence_id is not None:
+            self.runner.start_sequence(session, sequence_id, apply=False)
         self.state.save()
         
         logger.info(f"  Created session '{session.name}' ({session_id})")
@@ -525,15 +535,28 @@ class SessionManager:
         If theme changes on a playing session, triggers seamless crossfade.
         Choosing a different theme stops the channel's playlist and sequence;
         choosing a different preset stops its sequence and glides to the preset.
+        A preset choice "seq:<sequence_id>" starts that sequence of the
+        (new) theme from its first preset, like start_sequence().
 
         Returns:
             Tuple of (session, added_speakers, removed_speakers)
             Returns (None, set(), set()) if session not found
+
+        Raises:
+            LookupError: the chosen sequence is unknown for the theme
+            ValueError: the chosen sequence has no presets
+            (both before anything changes)
         """
         session = self.state.sessions.get(session_id)
         if not session:
             logger.warning(f"  Session {session_id} not found")
             return None, set(), set()
+
+        from sonorium.core.sequences import sequence_choice
+        sequence_id = sequence_choice(preset_id)
+        if sequence_id is not None:
+            target_theme = theme_id if theme_id is not None else session.theme_id
+            preset_id = self.runner.check_sequence(target_theme, sequence_id)["presets"][0]
 
         # Track if theme or preset is changing
         theme_changed = theme_id is not None and theme_id != session.theme_id
@@ -579,6 +602,10 @@ class SessionManager:
             session.name, session.name_source = self.generate_session_name(
                 session.adhoc_selection, group
             )
+
+        if sequence_id is not None:
+            # The channel is on (or crossfading/gliding to) its first preset
+            self.runner.start_sequence(session, sequence_id, apply=False)
 
         self.state.save()
 

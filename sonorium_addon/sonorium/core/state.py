@@ -81,9 +81,8 @@ class SonoriumSettings:
     # Master output gain (0-100, applied to all streams)
     master_gain: int = 60
 
-    # Default cycling settings (applied to new sessions)
-    default_cycle_interval: int = 60  # minutes
-    default_cycle_randomize: bool = False
+    # (default_cycle_interval / default_cycle_randomize were removed with theme
+    # cycling; from_dict drops them from older state files)
 
     # Speaker availability - only speakers switched on in Settings > Speakers are
     # visible/targetable in Sonorium. The list is exact: empty = none switched on.

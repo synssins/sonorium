@@ -255,7 +255,10 @@ def test_playlist_plays_each_entry_for_a_random_time_and_applies_it(tmp_path):
         t.clock.now = playlist_run.next_at
         run(runner.tick())
     assert themes == ["tavern", "forest", "storm", "tavern", "forest", "storm"]
-    assert all(10 <= d <= 20 for d in durations) and len(set(durations)) > 3
+    others = [d for theme, d in zip(themes, durations) if theme != "forest"]
+    assert all(10 <= d <= 20 for d in others) and len(set(others)) > 3
+    # The entry with a sequence plays one full pass of it: 50 s, a 4 s ramp, 50 s
+    assert [d for theme, d in zip(themes, durations) if theme == "forest"] == pytest.approx([104, 104])
     crossfades = [c for c in t.channel.calls if c[0] == "set_theme"]
     assert crossfades[-1][2] == 4.5  # theme changes crossfade over the Crossfade setting
 
@@ -285,6 +288,8 @@ def test_playlist_without_repeat_stops_the_channel_at_the_end(tmp_path):
     at(t, 10)
     assert t.session.theme_id == "forest" and t.session.is_playing
     at(t, 20)
+    assert t.session.is_playing  # the sequence entry plays one full pass (50 + 4 + 50 s)
+    at(t, 114)
     assert not t.session.is_playing
     t.controller.stop_multi.assert_awaited()
     assert t.session.playlist_id == "p1"  # play again: it starts over
@@ -345,6 +350,187 @@ def test_entry_with_a_missing_theme_is_skipped(tmp_path):
     run(t.manager.play(t.session.id))
     t.manager.set_playlist(t.session.id, "p1")
     assert t.session.theme_id == "tavern"
+
+
+# --- Sequences picked like presets ---
+
+def test_picking_a_sequence_as_the_preset_starts_it(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.update(t.session.id, preset_id="seq:up_down")
+    assert t.session.sequence_id == "up_down" and t.session.preset_id == "a"
+    sequence_run = t.manager.runner.running_sequence(t.session.id)
+    assert sequence_run is not None and not sequence_run.single_pass
+    at(t, 13)
+    assert t.session.preset_id == "b"  # it runs like one started on its own
+    # Another sequence replaces it; a normal preset stops it
+    t.manager.update(t.session.id, preset_id="seq:loop")
+    assert t.session.sequence_id == "loop" and t.session.preset_id == "a"
+    t.manager.update(t.session.id, preset_id="c")
+    assert t.session.sequence_id is None and t.manager.runner.running_sequence(t.session.id) is None
+    assert t.session.preset_id == "c"
+
+
+def test_a_new_theme_or_stopping_the_channel_stops_a_picked_sequence(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.update(t.session.id, preset_id="seq:loop")
+    t.manager.update(t.session.id, theme_id="tavern")
+    assert t.session.sequence_id is None and t.manager.runner.running_sequence(t.session.id) is None
+
+    # A new theme with one of its sequences: crossfade to its first preset, then it runs
+    t.manager.update(t.session.id, theme_id="forest", preset_id="seq:day")
+    assert (t.session.theme_id, t.session.preset_id, t.session.sequence_id) == ("forest", "dawn", "day")
+    assert [c for c in t.channel.calls if c[0] == "set_theme"][-1][1] == "forest"
+    assert t.manager.runner.running_sequence(t.session.id) is not None
+
+    run(t.manager.stop(t.session.id))
+    assert t.manager.runner.running_sequence(t.session.id) is None  # its timer stops
+
+
+def test_a_bad_sequence_choice_changes_nothing(tmp_path):
+    themes = json.loads(json.dumps(THEMES))
+    themes["storm"]["sequences"]["empty"] = {"name": "Empty", "presets": ["gone"]}
+    t = build(tmp_path, themes)
+    t.manager.update(t.session.id, preset_id="b")
+    with pytest.raises(LookupError):
+        t.manager.update(t.session.id, preset_id="seq:nope")
+    with pytest.raises(ValueError):
+        t.manager.update(t.session.id, preset_id="seq:empty")
+    with pytest.raises(LookupError):  # a sequence of another theme
+        t.manager.update(t.session.id, preset_id="seq:day")
+    with pytest.raises(LookupError):  # checked against the new theme, before the theme changes
+        t.manager.update(t.session.id, theme_id="tavern", preset_id="seq:up_down")
+    assert (t.session.theme_id, t.session.preset_id, t.session.sequence_id) == ("storm", "b", None)
+
+
+def test_a_channel_can_be_created_on_a_sequence(tmp_path):
+    t = build(tmp_path)
+    session = t.manager.create(theme_id="forest", preset_id="seq:day")
+    assert (session.preset_id, session.sequence_id) == ("dawn", "day")
+    with pytest.raises(LookupError):
+        t.manager.create(theme_id="forest", preset_id="seq:nope")
+
+
+# --- Playlist entries with a sequence: one pass ---
+
+WIND = {"presets": {f"w{i}": {"name": f"Wind {i}", "tracks": {}} for i in range(1, 5)},
+        "sequences": {"gust": {"name": "Gust", "presets": ["w1", "w2", "w3", "w4"], "at_end": "reverse",
+                               "hold_min": 300, "hold_max": 900, "ramp": 30}}}
+
+
+def walk(t, until_theme, limit=50):
+    """Run the timers change by change; returns [(seconds since start, preset, ramp glide)] until the theme changes."""
+    runner, start = t.manager.runner, t.clock.now
+    steps = [(0.0, t.session.preset_id)]
+    for _ in range(limit):
+        times = [r.next_at for r in (runner.running_sequence(t.session.id), runner.running_playlist(t.session.id)) if r]
+        t.clock.now = min(times)
+        run(runner.tick())
+        if t.session.theme_id == until_theme:
+            return steps, t.clock.now - start
+        if t.session.preset_id != steps[-1][1]:
+            steps.append((t.clock.now - start, t.session.preset_id))
+    raise AssertionError("the playlist never moved on")
+
+
+def wind_playlist(tmp_path, **extra):
+    themes = json.loads(json.dumps(THEMES))
+    themes["wind"] = WIND
+    t = build(tmp_path, themes)
+    add_playlist(t, [{"theme_id": "wind", "preset_id": None, "sequence_id": "gust"},
+                     {"theme_id": "tavern", "preset_id": None, "sequence_id": None}], **extra)
+    run(t.manager.play(t.session.id))
+    t.manager.set_playlist(t.session.id, "p1")
+    return t
+
+
+def test_a_sequence_entry_plays_one_full_pass_ignoring_the_play_time(tmp_path):
+    t = wind_playlist(tmp_path, play_min=10, play_max=20)
+    assert (t.session.theme_id, t.session.preset_id) == ("wind", "w1")
+    sequence_run = t.manager.runner.running_sequence(t.session.id)
+    assert sequence_run.single_pass and sequence_run.ramp == 30
+    holds = list(sequence_run.holds)
+    assert all(300 <= h <= 900 for h in holds) and len(set(holds)) == 4  # drawn in the sequence's range
+
+    steps, length = walk(t, "tavern")
+    assert [p for _, p in steps] == ["w1", "w2", "w3", "w4"]  # each preset once, first to last
+    assert length == pytest.approx(sum(holds) + 3 * 30)  # then the playlist moves on (not 10-20 s)
+    starts = [s for s, _ in steps]
+    assert starts[1] == pytest.approx(holds[0])  # the glide to w2 starts after w1's hold
+    assert starts[2] - starts[1] == pytest.approx(30 + holds[1])
+    assert t.channel.glides()[-2] == 30  # presets glide over the sequence's ramp
+    assert t.session.sequence_id is None and t.manager.runner.running_sequence(t.session.id) is None
+
+
+def test_fit_sequences_squeezes_the_pass_into_the_play_time(tmp_path):
+    t = wind_playlist(tmp_path, play_min=600, play_max=600, fit_sequences=True)
+    sequence_run = t.manager.runner.running_sequence(t.session.id)
+    holds, ramp = list(sequence_run.holds), sequence_run.ramp
+    assert sum(holds) + 3 * ramp == pytest.approx(600)  # 4 presets and 3 ramps in 10 minutes
+    assert 0 < ramp <= min(holds) / 2
+    assert ramp < 30  # scaled down with the holds
+
+    steps, length = walk(t, "tavern")
+    assert [p for _, p in steps] == ["w1", "w2", "w3", "w4"]
+    assert length == pytest.approx(600)
+    assert t.channel.glides()[-2] == pytest.approx(ramp)
+
+
+def test_status_of_a_sequence_entry_reports_the_preset_and_next_change(tmp_path):
+    t = wind_playlist(tmp_path, play_min=600, play_max=600, fit_sequences=True)
+    runner = t.manager.runner
+    status = t.manager.playback_status(t.session)
+    assert status["sequence"]["single_pass"] and status["sequence"]["steps"] == 4
+    assert status["sequence"]["current_preset_id"] == "w1"
+    assert status["sequence"]["seconds_until_change"] == round(runner.running_sequence(t.session.id).holds[0])
+    assert status["playlist"]["seconds_until_change"] == 600
+    for _ in range(3):  # to the last preset
+        t.clock.now = runner.running_sequence(t.session.id).next_at
+        run(runner.tick())
+    status = t.manager.playback_status(t.session)
+    assert status["sequence"]["current_preset_id"] == "w4" and status["sequence"]["step"] == 4
+    # Nothing more in the pass: the next change is the playlist's
+    assert status["sequence"]["next_change_at"] and status["playlist"]["next_change_at"]
+    assert status["sequence"]["seconds_until_change"] == status["playlist"]["seconds_until_change"] > 0
+
+
+def test_stopping_the_playlist_keeps_the_entry_sequence_running(tmp_path):
+    t = wind_playlist(tmp_path, play_min=600, play_max=600, fit_sequences=True)
+    t.manager.clear_playlist(t.session.id)
+    sequence_run = t.manager.runner.running_sequence(t.session.id)
+    assert sequence_run is not None and not sequence_run.single_pass
+    t.clock.now = sequence_run.next_at
+    run(t.manager.runner.tick())
+    assert t.session.preset_id == "w2" and t.session.sequence_id == "gust"
+
+
+def test_fit_pass_shares_and_ramp_limit():
+    fit = m.sequences.fit_pass
+    holds, ramp = fit([300, 600, 900, 400], 30, 600)
+    assert sum(holds) + 3 * ramp == pytest.approx(600) and ramp == pytest.approx(30 * 600 / 2290)
+    assert holds[2] / holds[0] == pytest.approx(3)  # in proportion
+    # A long ramp would be more than half a hold: equal holds, ramp at most half of one
+    holds, ramp = fit([10, 10, 10, 10], 100, 600)
+    assert len(set(holds)) == 1 and ramp <= holds[0] / 2 + 1e-9
+    assert sum(holds) + 3 * ramp == pytest.approx(600)
+    holds, ramp = fit([1, 100, 100, 100], 10, 600)  # one tiny hold: equal shares, ramp kept
+    assert len({round(h, 6) for h in holds}) == 1 and ramp <= holds[0] / 2
+    assert sum(holds) + 3 * ramp == pytest.approx(600)
+    holds, ramp = fit([0, 0], 0, 60)  # no time to share: equal holds
+    assert holds == [30, 30] and ramp == 0
+    assert fit([500], 30, 60) == ([60], 0.0)
+
+
+def test_pass_min_and_max():
+    defaults = {"hold_min": 10, "hold_max": 10, "ramp": 5}
+    up_down = m.sequences.to_response("up_down", THEMES["storm"]["sequences"]["up_down"], defaults)
+    assert (up_down["pass_min"], up_down["pass_max"]) == (3 * 10 + 2 * 5, 3 * 10 + 2 * 5)
+    random_hold = m.sequences.to_response("random_hold", THEMES["storm"]["sequences"]["random_hold"], defaults)
+    assert (random_hold["pass_min"], random_hold["pass_max"]) == (2 * 10 + 2, 2 * 20 + 2)
+    choice = m.sequences.to_choice("up_down", THEMES["storm"]["sequences"]["up_down"], defaults, {"b": True})
+    assert choice["choice"] == "seq:up_down" and choice["has_intrusion"] is True
+    assert m.sequences.to_choice("up_down", {"presets": ["a"]}, defaults, {"b": True})["has_intrusion"] is False
 
 
 # --- Cycling becomes playlists ---

@@ -2415,11 +2415,31 @@ class ApiSonorium(api.Base):
 
         return True
 
+    @staticmethod
+    def _sequence_choices(folder, preset_intrusion: dict) -> list:
+        """
+        A theme's sequences as choices next to its presets (core/sequences.py
+        to_choice): id, name, presets, at_end, effective timing, pass_min /
+        pass_max, "choice" ("seq:<id>") and has_intrusion.
+        """
+        from sonorium.core import sequences as seq
+        if not folder:
+            return []
+        try:
+            defaults = seq.load_defaults(folder)
+            return [seq.to_choice(sid, data, defaults, preset_intrusion)
+                    for sid, data in seq.load_sequences(folder).items()]
+        except Exception as e:
+            logger.warning(f"Could not read the sequences in {folder}: {e}")
+            return []
+
     async def list_presets(self, theme_id: str):
         """
         List all presets for a theme. "has_intrusion": the preset turns on at
         least one track of an intrusion group (its settings over the theme's);
         "default_has_intrusion": the theme's own settings do (no preset).
+        "sequences": the theme's sequences, which a channel can pick like a
+        preset (preset_id "seq:<id>"); has_intrusion if any of its presets has.
         """
         from sonorium.core.intrusions import enables_intrusion
         theme, theme_folder = self._get_theme_by_id(theme_id)
@@ -2438,8 +2458,10 @@ class ApiSonorium(api.Base):
                         "track_count": len(preset_data.get("tracks", {})),
                         "has_intrusion": enables_intrusion(metadata_obj, intrusion_keys, preset_data),
                     })
+                intrusion = {p["id"]: p["has_intrusion"] for p in result}
                 return {"theme_id": theme_id, "presets": result,
-                        "default_has_intrusion": enables_intrusion(metadata_obj, intrusion_keys)}
+                        "default_has_intrusion": enables_intrusion(metadata_obj, intrusion_keys),
+                        "sequences": self._sequence_choices(theme_folder, intrusion)}
 
         # Fallback to direct file I/O
         metadata = self._read_theme_metadata(theme_id)
@@ -2454,7 +2476,8 @@ class ApiSonorium(api.Base):
                 "track_count": len(preset_data.get("tracks", {})),
             })
 
-        return {"theme_id": theme_id, "presets": result}
+        return {"theme_id": theme_id, "presets": result,
+                "sequences": self._sequence_choices(self._find_theme_folder(theme_id), {})}
 
     async def create_preset(self, theme_id: str, request: Request):
         """Create a new preset from current track settings."""

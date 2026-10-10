@@ -26,8 +26,16 @@ one sequence of the theme it plays: each preset holds for a random time between 
 minimum and maximum, then the channel glides to the next one over the ramp time. At the end
 it goes back in reverse, starts again, or stops on the last preset.
 
-- Picking a preset by hand, or choosing a different theme, stops the sequence.
+**A sequence is picked like a preset.** Wherever a channel's preset is chosen (web UI, API,
+Home Assistant), the theme's sequences are choices too. In the API the choice is the preset
+id `seq:<sequence_id>`; picking it starts the sequence from its first preset.
+
+- Picking a normal preset (or no preset), choosing a different theme, or deleting the
+  sequence stops it.
 - Stopping the channel stops the timer; playing again starts the sequence from its first preset.
+
+One **pass** of a sequence is each of its presets once, first to last, with the ramps between
+them: `pass_min` = presets x hold minimum + ramps, `pass_max` = presets x hold maximum + ramps.
 
 ## Playlists
 
@@ -46,6 +54,7 @@ the server's `state.json` (add-on: `/config/sonorium/state.json`) under `"playli
   "repeat": true,
   "play_min": 1800,
   "play_max": 3600,
+  "fit_sequences": false,
   "owner": null
 }
 ```
@@ -53,7 +62,8 @@ the server's `state.json` (add-on: `/config/sonorium/state.json`) under `"playli
 | Field | Meaning |
 |---|---|
 | `entries` | Each entry is a theme, plus at most one of its presets or sequences. With neither, the theme's default preset plays. |
-| `play_min`, `play_max` | Seconds (1 to 604800). One range for the whole playlist: every entry plays for a random time in it, drawn fresh each time. Default 1800-3600. |
+| `play_min`, `play_max` | Seconds (1 to 604800). One range for the whole playlist: every entry plays for a random time in it, drawn fresh each time. Default 1800-3600. An entry with a sequence ignores it unless `fit_sequences` is on. |
+| `fit_sequences` | `false` (default): an entry with a sequence plays **one full pass** of it (each preset once, first to last, holds drawn in the sequence's range, its ramps between them), however long that takes, then the playlist moves on. `true`: the entry's time is drawn from `play_min`-`play_max` like any entry and the pass is squeezed (or stretched) to end exactly then: holds and ramps are scaled by the same factor; if a ramp would be longer than half a hold, the holds become equal shares and the ramp at most half of one. |
 | `order` | `in_order`, or `shuffle`: each round plays every entry once in a random order, never the same entry twice in a row (also across rounds). |
 | `repeat` | `true`: start a new round at the end. `false`: the channel stops (fading out) after the last entry; playing it again starts from the first entry. |
 | `owner` | `null` (every playlist is shared for now; per-user playlists come later). |
@@ -63,7 +73,10 @@ On a channel:
 - A channel plays a theme **or** a playlist. Choosing a theme by hand stops the playlist; the
   channel keeps playing.
 - Each new entry crossfades to its theme (or glides to its preset on the same theme) and
-  starts its sequence, if it has one.
+  starts its sequence, if it has one (one pass, see `fit_sequences`; the sequence's `at_end`
+  is not used).
+- Stopping the playlist during a sequence entry leaves the sequence running as an ordinary
+  (endless) sequence.
 - The channel's playlist and its place in it are saved, so a stopped channel (or a restarted
   server) carries on with the entry it was on.
 - An entry whose theme was deleted is skipped.
@@ -101,15 +114,21 @@ presets left, Next with nothing running or on a stopped channel).
 | PUT | `/themes/{theme_id}/sequence_defaults` | any of `hold_min`, `hold_max`, `ramp` |
 
 A sequence is returned as `{id, name, presets, at_end, hold_min, hold_max, ramp, owner,
-effective: {hold_min, hold_max, ramp}}`; `effective` is the timing it plays with (its own,
-or the theme's defaults).
+effective: {hold_min, hold_max, ramp}, pass_min, pass_max}`; `effective` is the timing it plays
+with (its own, or the theme's defaults); `pass_min` and `pass_max` are the seconds one pass
+takes at the shortest and longest holds.
+
+The theme's preset list, `GET /themes/{theme_id}/presets`, has its `presets` as before plus
+`sequences`: each sequence as above with `choice` (`"seq:<id>"`, the preset id that picks it)
+and `has_intrusion` (true if any of its presets has an intrusion), so a preset menu can list
+them after the presets.
 
 ### Playlists
 
 | Method | Path | Body / result |
 |---|---|---|
 | GET | `/playlists` | `{playlists: [...]}` |
-| POST | `/playlists` | `{name, entries, order?, repeat?, play_min?, play_max?}` -> 201, the playlist with its `id` |
+| POST | `/playlists` | `{name, entries, order?, repeat?, play_min?, play_max?, fit_sequences?}` -> 201, the playlist with its `id` |
 | GET | `/playlists/{playlist_id}` | the playlist |
 | PUT | `/playlists/{playlist_id}` | any of the fields; only those change |
 | DELETE | `/playlists/{playlist_id}` | `{status, playlist_id, stopped_on: [session ids]}` |
@@ -118,7 +137,8 @@ or the theme's defaults).
 
 | Method | Path | Body / result |
 |---|---|---|
-| POST | `/sessions/{id}/sequence` | `{sequence_id}`: run a sequence of the channel's theme from its first preset |
+| PUT | `/sessions/{id}` | `{preset_id: "seq:<sequence_id>"}` (with `theme_id` too, to change theme): run that sequence of the (new) theme from its first preset. 404 unknown sequence, 409 no presets left; nothing changes then. `{preset_id: "<preset>"}` or `""` stops it. `POST /sessions` takes the same `preset_id`. |
+| POST | `/sessions/{id}/sequence` | `{sequence_id}`: run a sequence of the channel's theme from its first preset (the same as the preset choice) |
 | DELETE | `/sessions/{id}/sequence` | stop the sequence (the channel stays on its preset) |
 | PUT | `/sessions/{id}/playlist` | `{playlist_id}`: play a playlist from its first entry |
 | DELETE | `/sessions/{id}/playlist` | stop the playlist (the channel keeps its theme) |
@@ -126,12 +146,13 @@ or the theme's defaults).
 | GET | `/sessions/{id}/playback` | the status below |
 
 On a stopped channel, a sequence or playlist is only set: it starts when the channel plays.
-`GET /sessions` and `/sessions/{id}` include `sequence_id`, `playlist_id` and the same
-`sequence` and `playlist` status objects:
+`GET /sessions` and `/sessions/{id}` include `sequence_id`, `preset_choice` (what the preset
+menu shows: `"seq:<sequence_id>"` while a sequence is set, else `preset_id`), `playlist_id` and
+the same `sequence` and `playlist` status objects:
 
 ```json
 {
-  "sequence": {"id": "gentle_storm", "name": "Gentle storm", "running": true, "step": 2, "steps": 3,
+  "sequence": {"id": "gentle_storm", "name": "Gentle storm", "running": true, "single_pass": false, "step": 2, "steps": 3,
                "at_end": "reverse", "current_preset_id": "rain", "current_preset_name": "Rain",
                "next_change_at": "2026-10-10T21:14:03+00:00", "seconds_until_change": 412},
   "playlist": {"id": "1a2b3c4d", "name": "Evening", "running": true, "entry_index": 1, "position": 1,
@@ -140,8 +161,10 @@ On a stopped channel, a sequence or playlist is only set: it starts when the cha
 }
 ```
 
-`running` is false while the channel is stopped. `entry_index` is the entry in `entries`;
-`position` is the place in this round's order (they differ when shuffled).
+`running` is false while the channel is stopped. `single_pass` is true for a playlist entry's
+sequence (one pass); on its last preset `next_change_at` is the playlist's next change.
+`entry_index` is the entry in `entries`; `position` is the place in this round's order (they
+differ when shuffled).
 
 Stop and pause return at once; the fade and the speaker commands follow in the background.
 
@@ -151,11 +174,20 @@ Each channel has these entities (`<channel>` is its entity slug, for example `be
 
 | Entity | What it does |
 |---|---|
-| `select.sonorium_<channel>_preset` | Pick a preset (3 s glide). Stops a running sequence. |
-| `select.sonorium_<channel>_sequence` | `None` or one of the current theme's sequences. Picking one starts it; `None` stops it. The options follow the theme and its sequences. |
-| `select.sonorium_<channel>_playlist` | `None` or one of all playlists. Picking one plays it on the channel; `None` stops the playlist (the channel keeps playing its theme). |
+| `select.sonorium_<channel>_preset` | `(None)`, the theme's presets by name, then its sequences as "*name* (sequence)", for example `Gentle storm (sequence)`. A preset is picked with a 3 s glide and stops a running sequence; a sequence option starts that sequence; `(None)` clears the preset (the theme's own settings) and stops a sequence. While a sequence runs (picked here or by a playlist entry) the state is its option. The options follow the theme, its presets and its sequences. |
+| `select.sonorium_<channel>_playlist` | `(None)` or one of all playlists. Picking one plays it on the channel; `(None)` stops the playlist (the channel keeps playing its theme). |
 | `button.sonorium_<channel>_next` | Next playlist entry, or the sequence's next preset. Ignored when the channel is stopped or nothing runs. |
 | `sensor.sonorium_<channel>_step` | What the playlist and sequence are on, for example `Evening: Storm (2/3) \| Gentle storm: Rain (2/3)`, or `Off`. Its attributes are the status object above. |
+
+The "nothing" option is `(None)`, not `None`: Home Assistant's MQTT select reads a `None`
+state as "no option" and would show the entity as unknown. Commands accept `None`, `(None)` or
+an empty payload. Each select's state is published right after its discovery config, so it
+starts as `(None)` (or the current choice), never unknown. The global `select.sonorium_preset`
+(for the selected channel) has the same options.
+
+Earlier builds had a separate `select.sonorium_<channel>_sequence`; it is gone (its sequences
+are options of the Preset select). Sonorium empties its retained discovery config at startup,
+so Home Assistant removes the entity.
 
 Topics follow the existing pattern: discovery under `homeassistant/<component>/sonorium_<channel>_<name>/config`,
 state on `sonorium/<channel>/<name>/state`, commands on `sonorium/<channel>/<name>/set`
@@ -170,4 +202,9 @@ Example automation step:
     entity_id: select.sonorium_bedroom_playlist
   data:
     option: Evening
+- action: select.select_option
+  target:
+    entity_id: select.sonorium_bedroom_preset
+  data:
+    option: Gentle storm (sequence)
 ```

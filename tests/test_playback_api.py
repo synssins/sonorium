@@ -56,6 +56,7 @@ def test_sequence_crud(api):
     body = r.json()
     assert body["id"] == "night_falls" and body["owner"] is None
     assert body["hold_min"] is None and body["effective"] == {"hold_min": 300, "hold_max": 900, "ramp": 30}
+    assert (body["pass_min"], body["pass_max"]) == (2 * 300 + 30, 2 * 900 + 30)  # one pass: each preset once
 
     r = c.put("/api/themes/tavern/sequences/night_falls", json={"ramp": 12, "at_end": "reverse"})
     assert r.status_code == 200, r.text
@@ -104,6 +105,12 @@ def test_sequence_defaults(api):
     assert c.put("/api/themes/tavern/sequence_defaults", json={"speed": 1}).status_code == 400
 
 
+def test_pass_length_in_the_listing(api):
+    listed = {s["id"]: s for s in api.client.get("/api/themes/storm/sequences").json()["sequences"]}
+    assert (listed["up_down"]["pass_min"], listed["up_down"]["pass_max"]) == (40, 40)  # 3 x 10 s + 2 x 5 s
+    assert (listed["random_hold"]["pass_min"], listed["random_hold"]["pass_max"]) == (22, 42)
+
+
 def test_deleting_a_running_sequence_stops_it(api):
     c = api.client
     assert c.post(f"/api/sessions/{api.session.id}/sequence", json={"sequence_id": "loop"}).status_code == 200
@@ -128,8 +135,11 @@ def test_playlist_crud(api):
     assert playlist["entries"][2] == {"theme_id": "storm", "preset_id": None, "sequence_id": None}
     assert playlist["owner"] is None and playlist["order"] == "shuffle"
     assert [p["id"] for p in c.get("/api/playlists").json()["playlists"]] == [pid]
+    assert playlist["fit_sequences"] is False  # default: a sequence entry plays one full pass
     r = c.put(f"/api/playlists/{pid}", json={"name": "Late", "repeat": True})
     assert r.status_code == 200 and r.json()["name"] == "Late" and r.json()["play_min"] == 600
+    r = c.put(f"/api/playlists/{pid}", json={"fit_sequences": True})
+    assert r.status_code == 200 and r.json()["fit_sequences"] is True and r.json()["name"] == "Late"
     assert c.get(f"/api/playlists/{pid}").json()["repeat"] is True
     assert json.loads(api.store.state_file.read_text())["playlists"][pid]["name"] == "Late"
     assert c.delete(f"/api/playlists/{pid}").status_code == 200
@@ -145,6 +155,8 @@ def test_playlist_crud(api):
     ({"entries": [{"theme_id": "forest", "preset_id": "dawn", "sequence_id": "day"}]}, "not both"),
     ({"order": "random"}, "order"),
     ({"repeat": "yes"}, "repeat"),
+    ({"fit_sequences": "yes"}, "fit_sequences"),
+    ({"fit_sequences": 1}, "fit_sequences"),
     ({"play_min": 100, "play_max": 50}, "play_min"),
     ({"play_min": 0}, "play_min"),
 ])
@@ -191,6 +203,59 @@ def test_channel_sequence_playlist_and_next(api):
     assert c.delete(f"/api/sessions/{sid}/playlist").json()["playlist"] is None
     c.delete(f"/api/sessions/{sid}/sequence")
     assert c.post(f"/api/sessions/{sid}/next").status_code == 409  # nothing runs
+
+
+def test_picking_a_sequence_as_the_channel_preset(api):
+    c = api.client
+    sid = api.session.id
+    r = c.put(f"/api/sessions/{sid}", json={"preset_id": "seq:up_down"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert (body["preset_choice"], body["sequence_id"], body["preset_id"]) == ("seq:up_down", "up_down", "a")
+    assert body["sequence"]["name"] == "Up and down"
+    assert c.get(f"/api/sessions/{sid}/playback").json()["preset_choice"] == "seq:up_down"
+
+    runner_tests.run(api.manager.play(sid))
+    assert api.manager.runner.running_sequence(sid) is not None
+    r = c.put(f"/api/sessions/{sid}", json={"preset_id": "b"})  # a normal preset stops it
+    assert (r.json()["preset_choice"], r.json()["sequence_id"], r.json()["sequence"]) == ("b", None, None)
+    assert api.manager.runner.running_sequence(sid) is None
+
+    c.put(f"/api/sessions/{sid}", json={"preset_id": "seq:loop"})
+    r = c.put(f"/api/sessions/{sid}", json={"theme_id": "tavern"})  # a new theme stops it
+    assert r.json()["sequence_id"] is None and r.json()["preset_choice"] == "quiet"
+
+    r = c.put(f"/api/sessions/{sid}", json={"theme_id": "forest", "preset_id": "seq:day"})
+    assert (r.json()["theme_id"], r.json()["preset_choice"], r.json()["preset_id"]) == ("forest", "seq:day", "dawn")
+    runner_tests.run(api.manager.stop(sid))  # stopping the channel stops its timer
+    assert api.manager.runner.running_sequence(sid) is None
+
+    assert c.put(f"/api/sessions/{sid}", json={"preset_id": "seq:nope"}).status_code == 404
+    assert c.get(f"/api/sessions/{sid}").json()["theme_id"] == "forest"  # nothing changed
+
+
+def test_a_sequence_with_no_presets_is_a_conflict(api):
+    doc = presets_doc(api)
+    doc["sequences"]["empty"] = {"name": "Empty", "presets": ["gone"]}
+    (api.folders["storm"] / "presets.json").write_text(json.dumps(doc), encoding="utf-8")
+    assert api.client.put(f"/api/sessions/{api.session.id}", json={"preset_id": "seq:empty"}).status_code == 409
+
+
+def test_creating_a_channel_on_a_sequence(api):
+    r = api.client.post("/api/sessions", json={"theme_id": "storm", "preset_id": "seq:loop"})
+    assert r.status_code == 201, r.text
+    assert (r.json()["preset_choice"], r.json()["preset_id"]) == ("seq:loop", "a")
+    assert api.client.post("/api/sessions", json={"theme_id": "storm", "preset_id": "seq:nope"}).status_code == 404
+
+
+def test_cycling_settings_are_gone(api):
+    settings = api.client.get("/api/settings").json()
+    assert "default_cycle_interval" not in settings and "default_cycle_randomize" not in settings
+    r = api.client.put("/api/settings", json={"default_cycle_interval": 30, "default_volume": 40})
+    assert r.status_code == 200 and r.json()["default_volume"] == 40 and "default_cycle_interval" not in r.json()
+    # Older state files with the fields still load
+    loaded = m.state.SonoriumSettings.from_dict({"default_cycle_interval": 30, "default_cycle_randomize": True})
+    assert not hasattr(loaded, "default_cycle_interval")
 
 
 def test_deleting_a_playlist_clears_it_from_channels(api):

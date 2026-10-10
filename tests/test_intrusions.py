@@ -259,6 +259,24 @@ def test_d_has_intrusion_flag_on_presets(world):
     flags = {p["id"]: p["has_intrusion"] for p in listed["presets"]}
     assert flags == {"rain": True, "quiet": False, "group_off": False}
     assert listed["default_has_intrusion"] is False  # linked files start muted
+    assert listed["sequences"] == []
+
+    # Sequences are listed next to the presets (a channel picks them like a
+    # preset); one has an intrusion if any of its presets has
+    from sonorium.core import sequences as seq
+    folder = api._theme_metadata_manager.get_folder_for_id("camping-id")
+    seq.save_sequences(folder, {
+        "wet": {"name": "Wet", "presets": ["quiet", "rain"], "at_end": "reverse", "ramp": 20},
+        "dry": {"name": "Dry", "presets": ["quiet", "group_off"], "at_end": "stop"},
+    })
+    listed = run(api.list_presets("camping-id"))
+    assert [p["id"] for p in listed["presets"]] == ["rain", "quiet", "group_off"]  # unchanged
+    sequences = {s["id"]: s for s in listed["sequences"]}
+    assert sequences["wet"]["has_intrusion"] is True and sequences["dry"]["has_intrusion"] is False
+    wet = sequences["wet"]
+    assert (wet["name"], wet["presets"], wet["at_end"], wet["choice"]) == ("Wet", ["quiet", "rain"], "reverse", "seq:wet")
+    assert wet["effective"] == {"hold_min": 300, "hold_max": 900, "ramp": 20}
+    assert (wet["pass_min"], wet["pass_max"]) == (2 * 300 + 20, 2 * 900 + 20)
 
     # A preset saved from the editor keeps the linked track (muted here)
     run(api.create_preset("camping-id", Body({"name": "Snapshot"})))

@@ -12,12 +12,16 @@ Global, stored in state.json under "playlists" ({playlist_id: data}):
       "order": "in_order" | "shuffle",
       "repeat": true,
       "play_min": 1800, "play_max": 3600,
+      "fit_sequences": false,
       "owner": null
     }
 
 Each entry plays for a random time between play_min and play_max seconds
 (one range for the whole playlist, drawn fresh for every entry), then the
-next one starts. The runtime is in core/playback_runner.py.
+next one starts. An entry with a sequence plays one full pass of it (each
+of its presets once, at the sequence's own hold and ramp times) instead;
+with fit_sequences the pass is squeezed into a play_min-play_max time like
+any other entry. The runtime is in core/playback_runner.py.
 
 Theme cycling (a channel's cycle_config) was replaced by playlists:
 migrate_cycling() turns each channel's cycling into a playlist once.
@@ -84,6 +88,7 @@ def clean_playlist(data: dict, theme_exists, theme_presets, theme_sequences,
     result.setdefault("repeat", True)
     result.setdefault("play_min", DEFAULT_PLAY_MIN)
     result.setdefault("play_max", DEFAULT_PLAY_MAX)
+    result.setdefault("fit_sequences", False)
     result.setdefault("owner", None)
 
     if "name" in data or current is None:
@@ -112,6 +117,11 @@ def clean_playlist(data: dict, theme_exists, theme_presets, theme_sequences,
             raise PlaylistError("repeat must be true or false")
         result["repeat"] = data["repeat"]
 
+    if "fit_sequences" in data:
+        if not isinstance(data["fit_sequences"], bool):
+            raise PlaylistError("fit_sequences must be true or false")
+        result["fit_sequences"] = data["fit_sequences"]
+
     for key in ("play_min", "play_max"):
         if key in data:
             result[key] = _seconds(data[key], key)
@@ -139,6 +149,7 @@ def to_response(playlist_id: str, playlist: dict) -> dict:
         "repeat": bool(playlist.get("repeat", True)),
         "play_min": playlist.get("play_min", DEFAULT_PLAY_MIN),
         "play_max": playlist.get("play_max", DEFAULT_PLAY_MAX),
+        "fit_sequences": bool(playlist.get("fit_sequences", False)),
         "owner": playlist.get("owner"),
     }
 
@@ -182,6 +193,7 @@ def migrate_cycling(state, all_theme_ids: list[str]) -> int:
             "repeat": True,
             "play_min": seconds,
             "play_max": seconds,
+            "fit_sequences": False,
             "owner": None,
         }
         made += 1

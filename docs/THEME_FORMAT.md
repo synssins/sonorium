@@ -702,9 +702,9 @@ A sequence plays some of a theme's presets in order on a channel, gliding from o
 |---|---|---|
 | `sequence_defaults.hold_min`, `.hold_max` | seconds | The theme's default time on each preset: a random time in this range. Built-in default 300-900. |
 | `sequence_defaults.ramp` | seconds | The theme's default glide time between presets. Built-in default 30. |
-| `sequences.<id>.name` | string | Shown in the Sequence menus and the MQTT Sequence select (1-100 characters, unique in the theme). |
+| `sequences.<id>.name` | string | Shown with the theme's presets wherever a channel's preset is picked (web UI, and as "*name* (sequence)" in the MQTT Preset select); 1-100 characters, unique in the theme. |
 | `sequences.<id>.presets` | list of preset IDs | In play order; only these presets are ever reached ("Gentle storm" never reaches Tornado). |
-| `sequences.<id>.at_end` | `reverse`, `restart`, `stop` | At the last preset: go back (ping-pong: 1 2 3 2 1 2 ...), start again at the first, or stop and stay on the last preset. Default `reverse`. |
+| `sequences.<id>.at_end` | `reverse`, `restart`, `stop` | At the last preset: go back (ping-pong: 1 2 3 2 1 2 ...; shown as "Reverse"), start again at the first, or stop and stay on the last preset. Default `reverse`. Not used by a playlist entry, which plays one pass. |
 | `sequences.<id>.hold_min`, `hold_max`, `ramp` | seconds or null | The sequence's own timing; null (or missing) uses `sequence_defaults`. |
 | `sequences.<id>.owner` | null | Every sequence is a theme sequence for now; the field is kept for per-user sequences later. |
 
@@ -716,8 +716,10 @@ when it plays.
 
 ### 5.2 How a sequence plays (`core/playback_runner.py`)
 
-- A channel runs at most one sequence, of the theme it plays. Starting it applies the first
-  preset (a 3 s glide if the channel is playing).
+- A channel runs at most one sequence, of the theme it plays. It is picked like a preset: the
+  channel's preset choice `seq:<sequence_id>` starts it (see `docs/PLAYBACK.md`). Starting it
+  applies the first preset (a 3 s glide if the channel is playing, the theme crossfade if the
+  theme changes with it).
 - Each preset holds for `uniform(hold_min, hold_max)` seconds, drawn fresh each step, then the
   channel glides to the next preset over `ramp` seconds; the next hold starts when the glide ends.
   Holds are timed on the server's monotonic clock (checked every second).
@@ -726,6 +728,10 @@ when it plays.
 - Stopping or pausing the channel stops the timer; the channel keeps the sequence, and playing
   again starts it from its first preset. The sequence a channel runs is saved in `state.json`.
 - Next (API or MQTT button) moves to the next step at once with a 3 s glide.
+- One **pass** is each preset once, first to last: between `n * hold_min + (n - 1) * ramp` and
+  `n * hold_max + (n - 1) * ramp` seconds for `n` presets (the API returns these as `pass_min`
+  and `pass_max`). A playlist entry with a sequence plays one pass, then the playlist moves on;
+  with the playlist's `fit_sequences` the pass is scaled to the entry's play time (docs/PLAYBACK.md).
 
 ### 5.3 Generator rule
 

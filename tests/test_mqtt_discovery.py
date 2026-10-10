@@ -148,12 +148,17 @@ class MQTTDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         session_theme = next(v for k, v in configs.items() if k.endswith("_theme/config") and "global" not in k)
         self.assertEqual(session_theme["options"], ["", "Forest"])
 
+    def config_calls(self):
+        """The discovery configs published (not states, not cleared retired entities)."""
+        return [call for call in self.publish.call_args_list
+                if call.args[0].startswith("homeassistant/") and call.args[1]]
+
     async def test_rename_and_restart_keep_all_discovery_configs(self):
         entities = self.make_entities(self.session)
         await entities.publish_discovery()
         original = {
             call.args[0]: json.loads(call.args[1])
-            for call in self.publish.call_args_list
+            for call in self.config_calls()
         }
         self.session.name = "Night Mode"
         restarted = self.make_entities(
@@ -161,8 +166,8 @@ class MQTTDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.publish.reset_mock()
         await restarted.publish_discovery()
-        self.assertEqual(len(self.publish.call_args_list), len(self.entities_module.SessionMQTTEntities.ENTITIES))
-        for call in self.publish.call_args_list:
+        self.assertEqual(len(self.config_calls()), len(self.entities_module.SessionMQTTEntities.ENTITIES))
+        for call in self.config_calls():
             topic, payload = call.args
             config = json.loads(payload)
             previous = original[topic]
@@ -200,7 +205,8 @@ class MQTTDiscoveryTests(unittest.IsolatedAsyncioTestCase):
     async def test_removal_after_restart_clears_original_topics(self):
         original = self.make_entities(self.session)
         await original.publish_discovery()
-        topics = {call.args[0] for call in self.publish.call_args_list}
+        # Every discovery config it published, and the retired ones it cleared
+        topics = {call.args[0] for call in self.publish.call_args_list if call.args[0].startswith("homeassistant/")}
         self.session.name = "Night Mode"
         restarted = self.make_entities(
             self.state_module.Session.from_dict(self.session.to_dict())
