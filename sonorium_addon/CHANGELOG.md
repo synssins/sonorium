@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.8 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Save theme closes the editor; Cancel puts back unsaved changes
+  ([`745b72b`](https://github.com/synssins/sonorium/commit/745b72b5b3a11c3cd22c3cf97c17f7a9ffab2c43))
+
+
 ## v1.4.2-dev.7 (2026-10-10)
 
 ### Bug Fixes
