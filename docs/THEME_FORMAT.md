@@ -157,6 +157,10 @@ written first, so a failed save never loses presets.
 | `playback_mode` | string | `"auto"` | `auto`, `continuous`, `sparse` or `presence` (3.2). Unknown strings become `auto` on apply (`api.py:503-506`). | `:47` |
 | `seamless_loop` | bool | `false` | `true` turns the loop **crossfade off** (hard cut at the loop point). | `:48`, `api.py:507` |
 | `exclusive` | bool | `false` | Version 1 way to put a top-level track in the single legacy group "Exclusive" (3.6). Ignored for tracks in a group folder (always exclusive). | `:49`, `recording.py:332`, `:452-453`, `:467-473` |
+| `fade_in`, `fade_out` | number, seconds | `0` | The file's own fades (0 = off, at most 30): applied as the file is decoded, so every start, end and loop has them. Not in presets. | `recording.py` `file_fade_samples` |
+| `volume_low` | number 0.0-1.0 | `0.2` | Ebb & Flow: the lower knob of the Volume slider (`volume` is the upper one). The level moves between them. Saved in presets. | `recording.py` `ebb_level` |
+| `pause_between` | bool | `false` | Ebb & Flow: play the file once from start to end, fade out, pause, come back. An Ebb & Flow group's own `pause_between` overrides it when on. Saved in presets. | `recording.py` `PresenceMixingStream._gen_wander` |
+| `pause_min`, `pause_max` | number, seconds | `30`, `300` | Ebb & Flow: the pause, uniform in this range each time; also the stagger before the first start when `pause_between` is on. Saved in presets. | same |
 
 A track with no entry in `tracks` uses all defaults (`api.py:489-497`, `:1249-1255`).
 Entries whose key matches no track are kept in the file but ignored (the bundled Tavern
@@ -206,8 +210,9 @@ means "no change" (100 %, not muted, default gap).
 | `volume` | number 0.0-1.0 | Group master volume. **Multiplies** each grouped track's own volume (track 50 % x group 50 % = 25 %). | `recording.py:338`, `:454-456` |
 | `presence` | number 0.0-1.0 | Group master presence. **Multiplies** each grouped track's own presence. | same |
 | `muted` | bool | `true` mutes every track in the group. | `:338`, `:457-459` |
-| `gap_min`, `gap_max` | number, seconds | The group's random rest after any of its tracks finishes: uniform in `[gap_min, gap_max]` each time. Never scaled by presence. If only one is set, it is used for both; if reversed, they are swapped. Without either, the rest is 120 s (3.6). | `:354-363`, `:36-39` |
-| `mode` | string | `"intermittent"` (default; also when missing or unknown): one track at a time with the gap. `"merry_go_round"`: a continuous bed, each file crossfading into the next (3.6). `"intrusion"`: each track plays as its own settings say, like an ungrouped track, and the group can hold linked files (2.6). A theme setting: presets never save it. | `recording.py` `group_mode`, `theme.py` `_bed_groups`, `_intrusion_groups` |
+| `gap_min`, `gap_max` | number, seconds | The group's random rest after any of its tracks finishes: uniform in `[gap_min, gap_max]` each time. Never scaled by presence. If only one is set, it is used for both; if reversed, they are swapped. Without either, the rest is 120 s (3.6). Saved in presets: a channel playing a preset that has them uses them. | `:354-363`, `:36-39`, `recording.py` `preset_gap_range` |
+| `pause_between` | bool | Ebb & Flow mode only: every file of the group pauses between plays, at staggered times, and a file only fades out for its pause while another unmuted file of the group plays, so the group is never silent. Off (or missing): each file's own `pause_between`. Saved in presets. | `recording.py` `EbbGroup`, `group_pauses` |
+| `mode` | string | `"intermittent"` (default; also when missing or unknown): one track at a time with the gap. `"merry_go_round"`: a continuous bed, each file crossfading into the next (3.6). `"ebb_flow"`: every file plays at once as Ebb & Flow, no turns. `"intrusion"`: each track plays as its own settings say, like an ungrouped track, and the group can hold linked files (2.6). A theme setting: presets never save it. | `recording.py` `group_mode`, `theme.py` `_bed_groups`, `_intrusion_groups` |
 | `crossfade` | number, seconds | Merry-go-round only: the overlap between one file and the next. Default 10; kept within 1-60. Ignored in Intermittent mode. Not saved in presets. | `recording.py` `group_crossfade` |
 | `legacy_exclusive` | bool | Written by the conversion for version 1 themes with `exclusive` tracks (1.4). Read by nothing. | `core/theme_metadata.py:185-193` |
 
@@ -219,8 +224,9 @@ API (`api.py:151-152`):
   `intrusion` (mode is `"intrusion"`) and `links` (`[{key, theme_id, theme_name, track,
   missing}]`) (`api.py` `list_groups`).
 - `PUT /api/themes/{id}/groups/{group}` changes any of `presence`, `volume` (clamped 0-1),
-  `muted`, `gap_min`, `gap_max` (clamped `>= 0`), `mode` (`"intermittent"`, `"merry_go_round"`
-  or `"intrusion"`, anything else gives 400) and `crossfade` (a number, clamped 1-60);
+  `muted`, `gap_min`, `gap_max` (clamped `>= 0`), `mode` (`"intermittent"`, `"merry_go_round"`,
+  `"ebb_flow"` or `"intrusion"`, anything else gives 400), `crossfade` (a number, clamped 1-60)
+  and `pause_between` (a boolean);
   `null` removes a key; other keys give 400; a group that is not a folder group gives 404
   (`api.py:1607-1647`). A group that holds linked files can't leave Intrusion mode (409)
   unless the body also has `"remove_links": true`: then its links are removed first, with

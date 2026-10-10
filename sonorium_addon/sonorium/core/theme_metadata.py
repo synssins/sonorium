@@ -49,6 +49,10 @@ class TrackSettings:
     exclusive: bool = False
     fade_in: float = 0.0            # the file's own fades, seconds (0 = off)
     fade_out: float = 0.0
+    volume_low: float = 0.2         # Ebb & Flow: the lower knob of the Volume slider
+    pause_between: bool = False     # Ebb & Flow: play the file once, then pause
+    pause_min: float = 30.0         # Ebb & Flow: the pause, seconds (random in this range)
+    pause_max: float = 300.0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -58,6 +62,18 @@ class TrackSettings:
         if data is None:
             return cls()
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
+
+
+# Ebb & Flow settings, in metadata.json and presets under these names
+# (recording.EBB_TRACK_SETTINGS is the same list, for playback)
+EBB_TRACK_SETTINGS = ("volume_low", "pause_between", "pause_min", "pause_max")
+
+
+def reset_ebb_settings(track) -> None:
+    """A track's Ebb & Flow settings as a new track has them."""
+    defaults = TrackSettings()
+    for key in EBB_TRACK_SETTINGS:
+        setattr(track, key, getattr(defaults, key))
 
 
 @dataclass

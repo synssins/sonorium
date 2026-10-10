@@ -2636,8 +2636,12 @@ function intrusionMark() {
 
 const TE_MODES = [['auto', 'Auto'], ['continuous', 'Background'], ['sparse', 'Intermittent'], ['presence', 'Ebb & Flow']];
 // A group's mode: one track at a time with a gap, a continuous bed crossfading file to file,
-// or Intrusion (each track plays by its own mode; it can hold files linked from other themes)
-const TE_GROUP_MODES = [['intermittent', 'Intermittent'], ['merry_go_round', 'Merry-go-round'], ['intrusion', 'Intrusion']];
+// every file at once rising and falling (Ebb & Flow), or Intrusion (each track plays by its own
+// mode; it can hold files linked from other themes)
+const TE_GROUP_MODES = [['intermittent', 'Intermittent'], ['merry_go_round', 'Merry-go-round'], ['ebb_flow', 'Ebb & Flow'], ['intrusion', 'Intrusion']];
+// Ebb & Flow settings of a track (saved with PUT …/ebb), and their defaults
+const TE_EBB_FIELDS = ['volume_low', 'pause_between', 'pause_min', 'pause_max'];
+const TE_EBB_DEFAULTS = { volume_low: 0.2, pause_between: false, pause_min: 30, pause_max: 300 };
 const TE_GROUP_CROSSFADE = 10;  // seconds, when the group sets none
 // The server rebuilds its theme list about 2 s after files move, rename or upload
 const TE_REBUILD_WAIT_MS = 2600;
@@ -2688,7 +2692,14 @@ function jsArg(text) {
 
 function teGroupMode(group) {
     const mode = group?.settings?.mode;
-    return mode === 'merry_go_round' || mode === 'intrusion' ? mode : 'intermittent';
+    return mode === 'merry_go_round' || mode === 'intrusion' || mode === 'ebb_flow' ? mode : 'intermittent';
+}
+
+// The track plays as Ebb & Flow: its own mode (on its own or in an Intrusion group), or an Ebb & Flow group
+function teIsEbb(track, group = undefined) {
+    if (group === undefined) group = trackGroupOf(track.name) ? teGroup(trackGroupOf(track.name)) : null;
+    if (group && teGroupMode(group) === 'ebb_flow') return true;
+    return (!group || teIsIntrusion(group)) && track.playback_mode === 'presence';
 }
 
 function teIsIntrusion(group) {
@@ -2785,8 +2796,9 @@ function openThemeEditModal(themeId) {
 // values from when the window opened (or from the last save). Uploads, moving
 // tracks between groups, creating/deleting groups and saved presets stay.
 
-const TE_TRACK_FIELDS = ['volume', 'presence', 'muted', 'playback_mode', 'seamless_loop', 'exclusive', 'fade_in', 'fade_out'];
-const TE_GROUP_FIELDS = ['volume', 'presence', 'muted', 'gap_min', 'gap_max', 'mode', 'crossfade'];
+const TE_TRACK_FIELDS = ['volume', 'presence', 'muted', 'playback_mode', 'seamless_loop', 'exclusive', 'fade_in', 'fade_out',
+    'volume_low', 'pause_between', 'pause_min', 'pause_max'];
+const TE_GROUP_FIELDS = ['volume', 'presence', 'muted', 'gap_min', 'gap_max', 'mode', 'crossfade', 'pause_between'];
 
 function teMixSnapshot() {
     const tracks = {};
@@ -2805,7 +2817,8 @@ async function teRestoreMix() {
         if (!before) continue;  // moved or uploaded since: nothing to put back
         for (const f of TE_TRACK_FIELDS) {
             if (before[f] !== undefined && before[f] !== t[f]) {
-                calls.push(api('PUT', teTrackUrl(t.name, f.startsWith('fade_') ? 'fades' : f), { [f]: before[f] }));
+                const url = f.startsWith('fade_') ? 'fades' : TE_EBB_FIELDS.includes(f) ? 'ebb' : f;
+                calls.push(api('PUT', teTrackUrl(t.name, url), { [f]: before[f] }));
             }
         }
     }
@@ -3132,6 +3145,80 @@ function teSliderCell(kind, label, percent, attrs, hint) {
         </div>`;
 }
 
+// Ebb & Flow's Volume: two knobs, the lowest and the highest level it moves between
+function teDualCell(track, k, label, vol, master, off) {
+    const low = Math.min(vol, Math.round((track.volume_low ?? TE_EBB_DEFAULTS.volume_low) * 100));
+    return `
+        <div class="mx" data-kind="volume">
+            <span class="c-lbl">Volume</span>
+            <div class="mx-ctl">
+                <div class="track-slider-wrapper"><div class="dual" data-master="${master}" title="Rises and falls between these two levels">
+                    <span class="dual-track"></span><span class="dual-fill" style="left: ${low}%; width: ${vol - low}%"></span>
+                    <input type="range" min="0" max="100" value="${low}" data-knob="low" aria-label="Lowest volume: ${label}"
+                           oninput="teDualInput(this)" onchange="teSetEbb(${k}, { volume_low: this.value / 100 })"${off}>
+                    <input type="range" min="0" max="100" value="${vol}" data-knob="high" aria-label="Highest volume: ${label}"
+                           oninput="teDualInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"${off}>
+                </div></div>
+                <span class="track-slider-value">${low}–${vol}%</span>
+            </div>
+            <span class="mx-hint">${teDualHint(low, vol, master)}</span>
+        </div>`;
+}
+
+function teDualHint(low, high, master) {
+    return master >= 0.999 ? '' : `plays at ${Math.round(low * master)}–${Math.round(high * master)}%`;
+}
+
+// A knob moves: it can't pass the other one; the label, the fill and the preview follow
+function teDualInput(input) {
+    const box = input.closest('.dual');
+    const lowInput = box.querySelector('[data-knob="low"]');
+    const highInput = box.querySelector('[data-knob="high"]');
+    if (+lowInput.value > +highInput.value) {
+        if (input === lowInput) lowInput.value = highInput.value; else highInput.value = lowInput.value;
+    }
+    const low = +lowInput.value, high = +highInput.value;
+    const fill = box.querySelector('.dual-fill');
+    fill.style.left = `${low}%`;
+    fill.style.width = `${high - low}%`;
+    const cell = box.closest('.mx');
+    cell.querySelector('.track-slider-value').textContent = `${low}–${high}%`;
+    cell.querySelector('.mx-hint').textContent = teDualHint(low, high, parseFloat(box.dataset.master || '1'));
+    const row = box.closest('.trow');
+    if (input === highInput && row && trackPreviewAudio && row.dataset.track === currentPreviewTrack) {
+        previewRampVolume(trackPreviewAudio, (high / 100) * parseFloat(box.dataset.master || '1'));
+    }
+}
+
+// Ebb & Flow settings of a track: { volume_low, pause_between, pause_min, pause_max } (any of them)
+async function teSetEbb(key, values, render = false) {
+    try {
+        const result = await api('PUT', teTrackUrl(key, 'ebb'), values);
+        const track = teTrack(key);
+        if (track) TE_EBB_FIELDS.forEach(f => { if (result && f in result) track[f] = result[f]; });
+        teMarkMixChanged();
+    } catch (error) {
+        showToast(error.message || 'Failed to save', 'error');
+        render = true;
+    }
+    if (render) teRenderTracks();
+}
+
+function teToggleEbbPause(key) {
+    const track = teTrack(key);
+    teCloseMenu();
+    if (track) teSetEbb(key, { pause_between: !track.pause_between }, true);
+}
+
+// The Pause range (seconds): saved when a field is left
+function teSetEbbPause(key, input) {
+    const row = input.closest('.mi-row');
+    const read = which => Math.max(0, parseFloat(row.querySelector(`[data-pause="${which}"]`).value) || 0);
+    let low = read('min'), high = read('max');
+    if (high < low) [low, high] = [high, low];
+    teSetEbb(key, { pause_min: low, pause_max: high }, true);
+}
+
 function teRenderRow(track, group) {
     const key = track.name;
     const k = jsArg(key);
@@ -3146,7 +3233,9 @@ function teRenderRow(track, group) {
     const link = track.linked || null;  // a file linked from another theme
     const missing = !!link?.missing;    // its source is gone: shown greyed, only ⋯ works
     const off = missing ? ' disabled' : '';
-    const advOn = (own && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive || !!track.fade_in || !!track.fade_out;
+    const ebb = teIsEbb(track, group);
+    const advOn = (own && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive || !!track.fade_in || !!track.fade_out
+        || (ebb && !!track.pause_between);
     const muted = track.muted || (group && group.settings?.muted);
     const cls = ['trow', 'tgrid', group ? 'in-grp' : '', muted ? 'muted' : '', link ? 'linked' : '', missing ? 'missing' : '',
         playing ? 'previewing' : ''].filter(Boolean).join(' ');
@@ -3174,11 +3263,13 @@ function teRenderRow(track, group) {
             ${!own
                 ? (teGroupMode(group) === 'merry_go_round'
                     ? `<span class="te-mode-fixed" title="The group crossfades from one file to the next">Merry-go-round</span>`
+                    : teGroupMode(group) === 'ebb_flow'
+                    ? `<span class="te-mode-fixed" title="Every file of the group plays at once, rising and falling">Ebb &amp; Flow</span>`
                     : `<span class="te-mode-fixed" title="In a group, each track plays once on its turn">Intermittent</span>`)
                 : `<select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"${off}
                     title="Auto picks by file length. Background plays all the time. Intermittent plays now and then. Ebb &amp; Flow is always heard, rising and falling.">${teModeOptions(track, false)}</select>`}
         </div>
-        ${teSliderCell('volume', 'Volume', vol,
+        ${ebb ? teDualCell(track, k, label, vol, volMaster, off) : teSliderCell('volume', 'Volume', vol,
             `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"${off}`,
             playsAtHint(vol / 100, volMaster))}
         ${teSliderCell('presence', 'Interval', pres,
@@ -3225,11 +3316,18 @@ function teRenderGroup(group) {
                    aria-label="${label} crossfade, seconds" onchange="teSetGroupCrossfade(${n}, this)">
             <span>s</span>
         </div>`;
+    const pauseSwitch = (cls) => `
+        <div class="${cls}">
+            ${cls === 'gap-row' ? '<span class="c-lbl"></span>' : ''}
+            <button type="button" class="gsw" role="switch" aria-checked="${!!s.pause_between}" aria-label="${label} pause between plays"
+                    title="Every file pauses between plays, at staggered times, so one is always playing"
+                    onclick="teSetGroupValue(${n}, 'pause_between', ${!s.pause_between})"><span class="gap-word">Pause between plays</span><span class="sw${s.pause_between ? ' on' : ''}"></span></button>
+        </div>`;
     const isInt = mode === 'intrusion';
     // An Intrusion group's tracks play by their own settings: no gap, no crossfade
-    const timing = isInt ? () => '' : mode === 'merry_go_round' ? crossfade : gap;
+    const timing = isInt ? () => '' : mode === 'merry_go_round' ? crossfade : mode === 'ebb_flow' ? pauseSwitch : gap;
     const modeSelect = `<select class="track-mode-select" aria-label="${label} group mode" onchange="teSetGroupMode(${n}, this.value, this)"
-            title="Intermittent plays one track at a time with a gap. Merry-go-round makes a continuous bed. Intrusion: each track plays by its own mode.">${
+            title="Intermittent plays one track at a time with a gap. Merry-go-round makes a continuous bed. Ebb &amp; Flow plays every file at once, each rising and falling. Intrusion: each track plays by its own mode.">${
             TE_GROUP_MODES.map(([v, text]) => `<option value="${v}"${v === mode ? ' selected' : ''}>${text}</option>`).join('')}</select>`;
     let nameCell;
     if (renaming) {
@@ -3374,6 +3472,12 @@ function teGroupSliderInput(slider, name) {
         trackSlider.dataset.master = slider.value / 100;
         teSliderInput(trackSlider);
     });
+    if (kind === 'volume') {
+        section.querySelectorAll('.trow .dual').forEach(box => {
+            box.dataset.master = slider.value / 100;
+            teDualInput(box.querySelector('[data-knob="high"]'));
+        });
+    }
 }
 
 function teMarkMixChanged() {
@@ -3460,6 +3564,10 @@ async function teResetTrack(key) {
         if (track.fade_in || track.fade_out) {
             await api('PUT', teTrackUrl(key, 'fades'), { fade_in: 0, fade_out: 0 });
             track.fade_in = track.fade_out = 0;
+        }
+        if (TE_EBB_FIELDS.some(f => track[f] !== undefined && track[f] !== TE_EBB_DEFAULTS[f])) {
+            await api('PUT', teTrackUrl(key, 'ebb'), TE_EBB_DEFAULTS);
+            Object.assign(track, TE_EBB_DEFAULTS);
         }
         teMarkMixChanged();
         teFlash(`Reset ${trackDisplayName(key)}`);
@@ -4053,6 +4161,24 @@ function teMenuHtml(kind, arg) {
         ${opts.disabled ? 'disabled' : ''} ${opts.title ? `title="${escapeHtml(opts.title)}"` : ''} onclick="${action}">${opts.icon || ''}${label}${opts.after || ''}</button>`;
     const sep = '<div class="msep"></div>';
     const preset = teSelectedPreset();
+    // Ebb & Flow: Pause between plays (the group's, when it's on, overrides) and the Pause range
+    const ebbRows = (track, k, disabled) => {
+        const group = trackGroupOf(track.name) ? teGroup(trackGroupOf(track.name)) : null;
+        const byGroup = !!(group && teGroupMode(group) === 'ebb_flow' && group.settings?.pause_between);
+        const on = byGroup || !!track.pause_between;
+        const low = track.pause_min ?? TE_EBB_DEFAULTS.pause_min, high = track.pause_max ?? TE_EBB_DEFAULTS.pause_max;
+        return mi('Pause between plays', `teToggleEbbPause(${k})`, {
+                disabled: disabled || byGroup,
+                title: byGroup ? "The group's Pause between plays is on" : 'Plays to the end of the file, then pauses',
+                after: `${byGroup ? '<span class="mi-note">set by group</span>' : ''}<span class="sw${on ? ' on' : ''}"></span>` })
+            + `<div class="mi-row dgrid"><label for="te-pause-min" title="Stays quiet this long, in seconds, picked at random each time">Pause</label>
+                <input id="te-pause-min" class="num" type="number" min="0" step="1" inputmode="numeric" data-pause="min" value="${teEsc(low)}"
+                       aria-label="Shortest pause, seconds" onchange="teSetEbbPause(${k}, this)"${disabled ? ' disabled' : ''}>
+                <span>–</span>
+                <input class="num" type="number" min="0" step="1" inputmode="numeric" data-pause="max" value="${teEsc(high)}"
+                       aria-label="Longest pause, seconds" onchange="teSetEbbPause(${k}, this)"${disabled ? ' disabled' : ''}>
+                <span class="u">s</span></div>`;
+    };
     // A file's own fades, at the top of a track's menu
     const fadeRows = (track, k, disabled) => [['fade_in', 'Fade in', 'Seconds it fades in each time the file starts'],
         ['fade_out', 'Fade out', 'Seconds it fades out each time the file ends']].map(([f, label, tip]) => `
@@ -4090,9 +4216,10 @@ function teMenuHtml(kind, arg) {
             const inGroup = trackGroupOf(arg);
             const gaplessOk = teGaplessAllowed(track);
             let html = fadeRows(track, k, false);
-            if (!inGroup || teIsIntrusion(teGroup(inGroup))) {
+            if (teIsEbb(track)) html += sep + ebbRows(track, k, false);
+            if ((!inGroup || teIsIntrusion(teGroup(inGroup))) && gaplessOk) {
                 html += sep + mi('Gapless', `teToggleGapless(${k})`, {
-                    disabled: !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Background only',
+                    title: 'Loop without a crossfade',
                     after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
             }
             if (track.exclusive) {
@@ -4121,9 +4248,13 @@ function teMenuHtml(kind, arg) {
             const inGroup = trackGroupOf(arg);
             const missing = !!track.linked.missing;
             const gaplessOk = teGaplessAllowed(track);
-            let html = fadeRows(track, k, missing) + sep + mi('Gapless', `teToggleGapless(${k})`, {
-                disabled: missing || !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Background only',
-                after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
+            let html = fadeRows(track, k, missing);
+            if (teIsEbb(track)) html += sep + ebbRows(track, k, missing);
+            if (gaplessOk) {
+                html += sep + mi('Gapless', `teToggleGapless(${k})`, {
+                    disabled: missing, title: 'Loop without a crossfade',
+                    after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
+            }
             if (te.groupsOk) {
                 html += sep + '<div class="mhead">Move to group</div>';
                 html += [{ name: null, label: 'Theme (no group)' }, ...te.groups.map(g => ({ name: g.name, label: g.name }))].map(m => {

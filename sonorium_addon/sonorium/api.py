@@ -148,6 +148,7 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/playback_mode', method=self.set_track_playback_mode),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/seamless_loop', method=self.set_track_seamless_loop),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/fades', method=self.set_track_fades),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/ebb', method=self.set_track_ebb),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/exclusive', method=self.set_track_exclusive),
 
             # Groups (subfolders of a theme, Themes 2.0)
@@ -498,6 +499,7 @@ class ApiSonorium(api.Base):
 
     def _apply_saved_track_settings(self):
         """Apply saved track settings from metadata.json to theme instances on startup."""
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, reset_ebb_settings
         if not self._theme_metadata_manager:
             return
 
@@ -537,6 +539,7 @@ class ApiSonorium(api.Base):
                     inst.crossfade_enabled = True
                     inst.exclusive = False
                     inst.fade_in = inst.fade_out = 0.0
+                    reset_ebb_settings(inst)
                     if getattr(inst.meta, "link", None):
                         inst.is_enabled = False  # a linked file without settings stays off
                     continue
@@ -552,6 +555,8 @@ class ApiSonorium(api.Base):
                 inst.crossfade_enabled = not track_settings.seamless_loop
                 inst.exclusive = track_settings.exclusive
                 inst.fade_in, inst.fade_out = track_settings.fade_in, track_settings.fade_out
+                for key in EBB_TRACK_SETTINGS:
+                    setattr(inst, key, getattr(track_settings, key))
 
             logger.debug(f"    Applied settings to theme '{theme.name}'")
 
@@ -1329,6 +1334,7 @@ class ApiSonorium(api.Base):
 
     async def refresh_themes(self):
         """Rescan theme folders and reload themes."""
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, reset_ebb_settings
         from sonorium.theme import ThemeDefinition
         from sonorium.recording import RecordingMetadata, PlaybackMode
         from fmtr.tools.iterator_tools import IndexList
@@ -1447,6 +1453,8 @@ class ApiSonorium(api.Base):
                             inst.crossfade_enabled = not track_settings.seamless_loop
                             inst.exclusive = track_settings.exclusive
                             inst.fade_in, inst.fade_out = track_settings.fade_in, track_settings.fade_out
+                            for key in EBB_TRACK_SETTINGS:
+                                setattr(inst, key, getattr(track_settings, key))
                             continue
 
                     # Use defaults if no metadata (a linked file stays off)
@@ -1457,6 +1465,7 @@ class ApiSonorium(api.Base):
                     inst.crossfade_enabled = True
                     inst.exclusive = False
                     inst.fade_in = inst.fade_out = 0.0
+                    reset_ebb_settings(inst)
 
         logger.info(f'Theme refresh complete: {len(device.themes)} themes loaded')
 
@@ -1512,6 +1521,7 @@ class ApiSonorium(api.Base):
         mode); a linked file has "linked": {theme_id, theme_name, track, missing},
         and a linked file whose source is gone is listed too (missing, not played).
         """
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, TrackSettings
         from sonorium.core.intrusions import is_intrusion_group
         theme, theme_folder = self._get_theme_by_id(theme_id)
         if not theme:
@@ -1542,6 +1552,7 @@ class ApiSonorium(api.Base):
                 "exclusive": track_settings.exclusive if track_settings else inst.exclusive,
                 "fade_in": track_settings.fade_in if track_settings else getattr(inst, "fade_in", 0.0),
                 "fade_out": track_settings.fade_out if track_settings else getattr(inst, "fade_out", 0.0),
+                **{key: getattr(track_settings, key) if track_settings else getattr(inst, key) for key in EBB_TRACK_SETTINGS},
                 "group": getattr(inst.meta, "group", None),
                 "intrusion_group": is_intrusion_group((getattr(theme, "groups", None) or {}).get(getattr(inst.meta, "group", None))),
             })
@@ -1569,6 +1580,7 @@ class ApiSonorium(api.Base):
                     "exclusive": track_settings.exclusive if track_settings else False,
                     "fade_in": track_settings.fade_in if track_settings else 0.0,
                     "fade_out": track_settings.fade_out if track_settings else 0.0,
+                    **{key: getattr(track_settings or TrackSettings(), key) for key in EBB_TRACK_SETTINGS},
                     "group": group,
                     "intrusion_group": is_intrusion_group((metadata.groups or {}).get(group)),
                     "linked": self._link_info(link),
@@ -1832,6 +1844,47 @@ class ApiSonorium(api.Base):
 
         return {"status": "ok", "track": track_name, "seamless_loop": seamless}
 
+    async def set_track_ebb(self, theme_id: str, track_name: str, request: Request):
+        """
+        A track's Ebb & Flow settings. Body, any of: {"volume_low": 0..1 (the
+        Volume slider's lower knob), "pause_between": bool, "pause_min": s,
+        "pause_max": s}. Playing channels follow at once.
+        """
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS
+        from fastapi.responses import JSONResponse
+        theme, _ = self._get_theme_by_id(theme_id)
+        if not theme:
+            return JSONResponse({"error": "Theme not found"}, status_code=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+        if not isinstance(body, dict) or not body:
+            return JSONResponse({"error": "Expected volume_low, pause_between, pause_min or pause_max"}, status_code=400)
+        track_inst = next((inst for inst in theme.instances if inst.name == track_name), None)
+        if track_inst is None:
+            return JSONResponse({"error": "Track not found"}, status_code=404)
+        values = {}
+        for key, raw in body.items():
+            if key not in EBB_TRACK_SETTINGS:
+                return JSONResponse({"error": f"Unknown setting '{key}'"}, status_code=400)
+            if key == "pause_between":
+                if not isinstance(raw, bool):
+                    return JSONResponse({"error": "pause_between must be true or false"}, status_code=400)
+                values[key] = raw
+                continue
+            try:
+                number = float(raw)
+            except (TypeError, ValueError):
+                return JSONResponse({"error": f"{key} must be a number"}, status_code=400)
+            if number != number or isinstance(raw, bool):
+                return JSONResponse({"error": f"{key} must be a number"}, status_code=400)
+            values[key] = max(0.0, min(1.0, number)) if key == "volume_low" else round(max(0.0, min(86400.0, number)), 1)
+        for key, value in values.items():
+            setattr(track_inst, key, value)
+        self._save_track_setting_to_metadata(theme_id, track_name, **values)
+        return {"status": "ok", "track": track_name, **{key: getattr(track_inst, key) for key in EBB_TRACK_SETTINGS}}
+
     async def set_track_fades(self, theme_id: str, track_name: str, request: Request):
         """
         A file's own Fade in / Fade out, seconds (0 or empty = off, at most 30).
@@ -1879,7 +1932,7 @@ class ApiSonorium(api.Base):
     # overlap in seconds. Mode and crossfade are theme settings, not in presets.
     # Mode "intrusion": the tracks play as their own settings say (no turns)
     # and the group can hold files linked from other themes.
-    GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max", "mode", "crossfade")
+    GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max", "mode", "crossfade", "pause_between")
 
     def _theme_group_folder(self, theme_id: str):
         """(theme, folder, metadata) for a theme, or raise 404."""
@@ -2104,8 +2157,9 @@ class ApiSonorium(api.Base):
                     value = max(0.0, min(1.0, float(value)))
                 elif key in ("gap_min", "gap_max"):
                     value = max(0.0, float(value))
-                elif key == "muted":
-                    value = bool(value)
+                elif key in ("muted", "pause_between"):
+                    if not isinstance(value, bool):
+                        raise ValueError(value)
                 elif key == "mode":
                     if value not in GROUP_MODES:
                         raise ValueError(value)
@@ -2351,7 +2405,7 @@ class ApiSonorium(api.Base):
     async def reset_theme_tracks(self, theme_id: str):
         """Reset all track settings to defaults for a theme (linked files stay muted)."""
         from sonorium.recording import PlaybackMode
-        from sonorium.core.theme_metadata import TrackSettings
+        from sonorium.core.theme_metadata import TrackSettings, reset_ebb_settings
 
         theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
@@ -2365,6 +2419,8 @@ class ApiSonorium(api.Base):
             inst.playback_mode = PlaybackMode.AUTO
             inst.crossfade_enabled = True
             inst.exclusive = False
+            inst.fade_in = inst.fade_out = 0.0
+            reset_ebb_settings(inst)
 
         # Clear persisted settings in metadata.json
         if self._theme_metadata_manager:
@@ -2393,6 +2449,7 @@ class ApiSonorium(api.Base):
 
     def _get_current_track_settings(self, theme_id: str) -> dict:
         """Get current track settings for a theme as a preset-compatible dict."""
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
         theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
@@ -2407,11 +2464,13 @@ class ApiSonorium(api.Base):
                 "seamless_loop": not inst.crossfade_enabled,
                 "exclusive": inst.exclusive,
                 "muted": not inst.is_enabled,
+                **{key: getattr(inst, key) for key in EBB_TRACK_SETTINGS},
             }
         return tracks
 
     def _apply_preset_to_theme(self, theme_id: str, preset_tracks: dict, preset_groups: dict | None = None) -> bool:
         """Apply preset track settings (and group master settings) to a theme. Returns True on success."""
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS
         from sonorium.recording import PlaybackMode
 
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
@@ -2433,6 +2492,9 @@ class ApiSonorium(api.Base):
                 inst.crossfade_enabled = not settings.get("seamless_loop", False)
                 inst.exclusive = settings.get("exclusive", False)
                 inst.is_enabled = not settings.get("muted", False)
+                for key in EBB_TRACK_SETTINGS:
+                    if key in settings:
+                        setattr(inst, key, settings[key])
 
         # Group master settings from the preset
         if preset_groups:
@@ -2458,6 +2520,9 @@ class ApiSonorium(api.Base):
                     track_settings.playback_mode = settings.get("playback_mode", "auto")
                     track_settings.seamless_loop = settings.get("seamless_loop", False)
                     track_settings.exclusive = settings.get("exclusive", False)
+                    for key in EBB_TRACK_SETTINGS:
+                        if key in settings:
+                            setattr(track_settings, key, settings[key])
 
                 self._theme_metadata_manager.save_metadata(metadata.id, metadata)
 

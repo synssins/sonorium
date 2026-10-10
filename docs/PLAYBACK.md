@@ -27,14 +27,29 @@ beginning of its file, its level rising from silence to its first level over 6 s
 
 ## Ebb & Flow
 
-An Ebb & Flow track outside a group is always heard; its level wanders. It glides (an
-S-curve, 5 to 20 s) to a random level between 20% and 100% of the track's volume, at
-least 15 points away from where it is, holds there 5 to 30 s, then moves again.
-Interval sets the average level: 20% + 80% x interval, so at 50% it averages 60%.
-Levels are drawn as floor + (1 - floor) x u^k with k = (1 - interval) / interval, so a
-high interval mostly stays near full and a low one near the floor. At 100% it stays
-full, like Background. A track of the old Exclusive switch (in a group) still takes
-turns: it fades in on its turn, plays a while, fades out and hands the turn back.
+An Ebb & Flow track rises and falls between the two knobs of its Volume slider
+(`volume_low` and `volume`). It glides (an S-curve) to a random level in that range, at
+least a quarter of the range away from where it is, holds, then moves again. Interval
+sets how lively: at 0 the glides take 15-40 s and the holds 20-60 s; at 100% the
+glides take 2-6 s and the holds 2-10 s (in between, in proportion). A group's Volume
+and Interval scale its tracks' values down (both knobs).
+
+With **Pause between plays** each play starts at the file's beginning, rising from
+silence, runs once to the file's end (fading out over one glide time so it is silent
+at the end), then pauses for a random time in the track's Pause range (`pause_min` to
+`pause_max`, seconds). The first start is staggered the same way. A paused track is not
+decoded or mixed.
+
+An **Ebb & Flow group** (`"mode": "ebb_flow"`) plays every file at once, each as Ebb &
+Flow, no turns. With the group's Pause between plays on, every file pauses between
+plays: the first file to start plays at once, the others start staggered, and a file
+only fades out for its pause while another unmuted file of the group is playing (else
+it plays another pass), and a paused file comes back at once if none is playing. So
+the group is never silent. With the group's switch off, each file follows its own
+Pause between plays and nothing keeps the group from falling silent.
+
+A track of the old Exclusive switch (in a group) still takes turns: it fades in on its
+turn, plays a while, fades out and hands the turn back.
 
 The channel's volume setting never changes during a fade: the fade is applied to the
 channel's audio. Settings > Audio Settings > Master output gain is the output gain of every mix.

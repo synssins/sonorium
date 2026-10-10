@@ -166,6 +166,8 @@ class ThemeStream:
         self.recording_streams = []
         self._beds: tuple = ()  # the groups playing as a merry-go-round
         self._intrusions: tuple = ()  # the groups in Intrusion mode (tracks play as ungrouped)
+        self._ebbs: tuple = ()  # the groups in Ebb & Flow mode (every file at once)
+        self.ebb_groups: dict = {}  # Ebb & Flow group -> its EbbGroup (the never-silent cycle)
         # Track key -> its on/off fade gain (1 on, 0 off), ramped each chunk (TRACK_TOGGLE_FADE_SECONDS)
         self._toggle_gain: dict[str, float] = {}
         # Track key -> on/off as last mixed, and the per-chunk step of its current on/off fade
@@ -204,7 +206,16 @@ class ThemeStream:
             gap = lambda g=group: preset_gap_range(g, self.overrides, getattr(self.theme_def, "groups", None))
             self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap, clock=lambda: self.audio_seconds)
         coordinator = self.exclusion_coordinators.get(group) if group else None
-        return track.get_stream(exclusion_coordinator=coordinator)
+        stream = track.get_stream(exclusion_coordinator=coordinator)
+        ebb = getattr(track, "ebb_group_name", None)
+        if ebb and hasattr(stream, "ebb_group"):
+            from sonorium.recording import EbbGroup, group_pauses
+            if ebb not in self.ebb_groups:
+                self.ebb_groups[ebb] = EbbGroup(
+                    lambda g=ebb: group_pauses(g, self.overrides, getattr(self.theme_def, "groups", None)))
+            self.ebb_groups[ebb].register(track.name, track)
+            stream.ebb_group = self.ebb_groups[ebb]
+        return stream
 
     def _bed_groups(self, theme_def=None) -> tuple:
         """The groups set to Merry-go-round now."""
@@ -217,6 +228,12 @@ class ThemeStream:
         from sonorium.recording import GROUP_MODE_INTRUSION, group_mode
         groups = getattr(theme_def or self.theme_def, "groups", None) or {}
         return tuple(sorted(g for g, s in list(groups.items()) if group_mode(s) == GROUP_MODE_INTRUSION))
+
+    def _ebb_groups_now(self, theme_def=None) -> tuple:
+        """The groups set to Ebb & Flow now."""
+        from sonorium.recording import GROUP_MODE_EBB_FLOW, group_mode
+        groups = getattr(theme_def or self.theme_def, "groups", None) or {}
+        return tuple(sorted(g for g, s in list(groups.items()) if group_mode(s) == GROUP_MODE_EBB_FLOW))
 
     def _new_bed(self, group: str):
         """A Merry-go-round group's stream. It reads the group's files and settings from this stream's theme now."""
@@ -245,17 +262,20 @@ class ThemeStream:
 
         beds = self._bed_groups(theme_def)
         intrusions = self._intrusion_groups(theme_def)
-        # Groups that became or stopped being Intrusion: their tracks get new
-        # streams (taking turns or not is decided when a stream is made)
-        switched = set(intrusions) ^ set(self._intrusions)
+        ebbs = self._ebb_groups_now(theme_def)
+        # Groups that became or stopped being Intrusion or Ebb & Flow: their
+        # tracks get new streams (taking turns or not is decided when a stream is made)
+        switched = (set(intrusions) ^ set(self._intrusions)) | (set(ebbs) ^ set(self._ebbs))
         old_tracks, old_beds = {}, {}
         for stream in self.recording_streams:
             if isinstance(stream, MerryGoRoundStream):
                 old_beds[stream.group] = stream
             else:
                 old_tracks[stream.instance.name] = stream
-        for group in beds + intrusions:
+        for group in beds + intrusions + ebbs:
             self.exclusion_coordinators.pop(group, None)  # turns start over if it goes back to Intermittent
+        for group in [g for g in self.ebb_groups if g not in ebbs or g in switched]:
+            self.ebb_groups.pop(group, None)
         self.theme_def = theme_def
         before = set(self._views)
         streams, seen = [], set()
@@ -282,6 +302,7 @@ class ThemeStream:
         self.recording_streams = streams  # one assignment: the mixer sees the old list or the new one
         self._beds = beds
         self._intrusions = intrusions
+        self._ebbs = ebbs
         return sorted(names - before), sorted(before - names)
 
     def adopt(self, theme_def: ThemeDefinition):
@@ -298,11 +319,13 @@ class ThemeStream:
             logger.info(f'ThemeStream "{theme_def.name}": {len(added)} track(s) joined, {len(left)} left')
 
     def _follow_group_modes(self):
-        """A group switched between Intermittent, Merry-go-round and Intrusion: rebuild its streams."""
-        if self._bed_groups() == self._beds and self._intrusion_groups() == self._intrusions:
+        """A group switched between Intermittent, Merry-go-round, Ebb & Flow and Intrusion: rebuild its streams."""
+        if (self._bed_groups() == self._beds and self._intrusion_groups() == self._intrusions
+                and self._ebb_groups_now() == self._ebbs):
             return
         with self._lock:
-            if self._bed_groups() != self._beds or self._intrusion_groups() != self._intrusions:
+            if (self._bed_groups() != self._beds or self._intrusion_groups() != self._intrusions
+                    or self._ebb_groups_now() != self._ebbs):
                 self._build(self.theme_def)
                 logger.info(f'ThemeStream "{self.theme_def.name}": group modes changed '
                             f'(merry-go-round: {", ".join(self._beds) or "none"})')

@@ -239,6 +239,10 @@ class SessionManager:
                 inst.crossfade_enabled = not settings.get("seamless_loop", False)
                 inst.exclusive = settings.get("exclusive", False)
                 inst.is_enabled = not settings.get("muted", False)
+                from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS
+                for key in EBB_TRACK_SETTINGS:
+                    if key in settings:
+                        setattr(inst, key, settings[key])
                 applied_count += 1
 
         logger.info(f"  Applied preset '{preset_id}' to theme '{theme.name}' ({applied_count} tracks)")

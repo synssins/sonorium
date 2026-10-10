@@ -126,3 +126,46 @@ def test_mode_and_crossfade_stay_out_of_presets(m):
     api._get_theme_by_id = lambda theme_id: (theme, None)
     # The gap is saved in presets; mode and crossfade stay theme settings
     assert api._get_current_group_settings("t1") == {"Bed": {"volume": 0.5, "gap_min": 30}}
+
+
+def test_ebb_flow_group_and_its_pause_between_plays(m):
+    metadata = m.meta.ThemeMetadata(id="t1", name="Storm")
+    theme = SimpleNamespace(name="Storm", groups={})
+    api = make_api(m, metadata, theme)
+    settings = run(api.update_group("t1", "Bed", Body({"mode": "ebb_flow", "pause_between": True})))["settings"]
+    assert settings == {"mode": "ebb_flow", "pause_between": True}
+    # In presets with the master controls; the mode stays a theme setting
+    theme.groups = {"Bed": {"mode": "ebb_flow", "pause_between": True, "volume": 0.8}}
+    api._get_theme_by_id = lambda theme_id: (theme, None)
+    assert api._get_current_group_settings("t1") == {"Bed": {"pause_between": True, "volume": 0.8}}
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException):
+        run(api.update_group("t1", "Bed", Body({"pause_between": "yes"})))
+
+
+def test_track_ebb_settings_save_and_go_into_presets(m):
+    inst = SimpleNamespace(name="Waves", volume=0.8, presence=0.5, playback_mode=SimpleNamespace(value="presence"),
+                           crossfade_enabled=True, exclusive=False, is_enabled=True,
+                           volume_low=0.2, pause_between=False, pause_min=30.0, pause_max=300.0)
+    theme = SimpleNamespace(name="Storm", instances=[inst], groups={})
+    metadata = m.meta.ThemeMetadata(id="t1", name="Storm")
+    api = make_api(m, metadata, theme)
+    api._get_theme_by_id = lambda theme_id: (theme, "folder")
+    api._find_theme_folder = lambda theme_id: "folder"
+    api._theme_metadata_manager.get_metadata_by_folder.return_value = metadata
+    result = run(api.set_track_ebb("t1", "Waves", Body({"volume_low": 0.35, "pause_between": True, "pause_min": 30, "pause_max": 600})))
+    assert (result["volume_low"], result["pause_between"], result["pause_min"], result["pause_max"]) == (0.35, True, 30.0, 600.0)
+    saved = metadata.tracks["Waves"]
+    assert (saved.volume_low, saved.pause_between, saved.pause_max) == (0.35, True, 600.0)
+    # Saved in metadata.json and read back (an exported theme carries it)
+    reloaded = m.meta.ThemeMetadata.from_dict(json.loads(json.dumps(metadata.to_dict())))
+    assert reloaded.tracks["Waves"].pause_between is True and reloaded.tracks["Waves"].volume_low == 0.35
+    # A preset saves them, and loading one puts them back
+    preset = api._get_current_track_settings("t1")["Waves"]
+    assert (preset["volume_low"], preset["pause_between"], preset["pause_min"], preset["pause_max"]) == (0.35, True, 30.0, 600.0)
+    inst.pause_between, inst.volume_low = False, 0.2
+    api._apply_preset_to_theme("t1", {"Waves": preset})
+    assert inst.pause_between is True and inst.volume_low == 0.35 and metadata.tracks["Waves"].pause_between is True
+    # Bad values are refused
+    assert run(api.set_track_ebb("t1", "Waves", Body({"pause_between": "yes"}))).status_code == 400
+    assert run(api.set_track_ebb("t1", "Waves", Body({"loudness": 1}))).status_code == 400

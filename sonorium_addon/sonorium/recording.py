@@ -9,6 +9,8 @@ from sonorium.obs import logger
 import av
 
 LOG_THRESHOLD = 500
+EBB_DEFAULT_LOW = 0.2  # Ebb & Flow's lower Volume knob, until a track sets one
+DEFAULT_PAUSE = (30.0, 300.0)  # Ebb & Flow's Pause between plays, seconds, until a track sets its own
 
 
 class ExclusionGroupCoordinator:
@@ -490,6 +492,10 @@ class RecordingThemeInstance:
         self.exclusive = False  # If True, only one exclusive track can play at a time
         self.fade_in = 0.0  # The file's own fades, seconds (0 = off), see file_fade_samples
         self.fade_out = 0.0
+        # Ebb & Flow: the lower knob of the Volume slider, and Pause between plays with its range (seconds)
+        self.volume_low = EBB_DEFAULT_LOW
+        self.pause_between = False
+        self.pause_min, self.pause_max = DEFAULT_PAUSE
 
     @property
     def short_file_threshold(self) -> float:
@@ -524,7 +530,7 @@ class RecordingThemeInstance:
 
         # PRESENCE: Wrap with fade in/out based on presence value. In a group the
         # wrapper is always used, so the track waits its turn even at 100%.
-        if mode == PlaybackMode.PRESENCE and (self.presence < 1.0 or (self.exclusive and exclusion_coordinator)):
+        if mode == PlaybackMode.PRESENCE:
             return PresenceMixingStream(base_stream, self, exclusion_coordinator if self.exclusive else None)
 
         return base_stream
@@ -541,7 +547,8 @@ LEGACY_EXCLUSIVE_GROUP = "Exclusive"
 # track attribute each one acts on. Volume and presence multiply the track's own
 # value (track 50% x group 50% = 25%); muted mutes every track in the group.
 # The gap between plays (gap_min/gap_max, seconds) is a real interval, never scaled.
-GROUP_TRACK_SETTINGS = {"volume": "volume", "presence": "presence", "muted": "is_enabled"}
+GROUP_TRACK_SETTINGS = {"volume": "volume", "presence": "presence", "muted": "is_enabled",
+                        "pause_between": "pause_between"}
 GROUP_GAP_SETTINGS = ("gap_min", "gap_max")
 # What a preset saves for a group: the master controls and the gap
 GROUP_PRESET_SETTINGS = (*GROUP_TRACK_SETTINGS, *GROUP_GAP_SETTINGS)
@@ -581,7 +588,10 @@ def group_gap_range(group_settings: dict | None) -> tuple[float, float] | None:
 GROUP_MODE_INTERMITTENT = "intermittent"
 GROUP_MODE_MERRY_GO_ROUND = "merry_go_round"
 GROUP_MODE_INTRUSION = "intrusion"
-GROUP_MODES = (GROUP_MODE_INTERMITTENT, GROUP_MODE_MERRY_GO_ROUND, GROUP_MODE_INTRUSION)
+# Ebb & Flow: every file of the group plays at once as Ebb & Flow (no turns);
+# the group's Pause between plays runs them on a staggered, never-silent cycle
+GROUP_MODE_EBB_FLOW = "ebb_flow"
+GROUP_MODES = (GROUP_MODE_INTERMITTENT, GROUP_MODE_MERRY_GO_ROUND, GROUP_MODE_EBB_FLOW, GROUP_MODE_INTRUSION)
 # Merry-go-round crossfade (groups[name]["crossfade"], seconds)
 DEFAULT_GROUP_CROSSFADE = 10.0
 MIN_GROUP_CROSSFADE = 1.0
@@ -606,7 +616,11 @@ def group_crossfade(group_settings: dict | None) -> float:
     return max(MIN_GROUP_CROSSFADE, min(MAX_GROUP_CROSSFADE, value))
 
 # Track settings a preset can set, as RecordingThemeInstance attribute names
-PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive")
+PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive",
+                       "volume_low", "pause_between", "pause_min", "pause_max")
+# Ebb & Flow settings, saved in metadata.json and presets under the same names
+# (theme_metadata.EBB_TRACK_SETTINGS; repeated here so this module stands alone)
+EBB_TRACK_SETTINGS = ("volume_low", "pause_between", "pause_min", "pause_max")
 
 
 def preset_track_overrides(preset_tracks: dict) -> dict:
@@ -635,6 +649,9 @@ def preset_track_overrides(preset_tracks: dict) -> dict:
                 track["playback_mode"] = PlaybackMode.AUTO
         if "exclusive" in settings:
             track["exclusive"] = settings["exclusive"]
+        for key in EBB_TRACK_SETTINGS:
+            if key in settings:
+                track[key] = settings[key]
         overrides[track_name] = track
     return overrides
 
@@ -654,6 +671,14 @@ def preset_group_overrides(preset_groups: dict) -> dict:
         values.update({key: value for key, value in (settings or {}).items() if key in GROUP_GAP_SETTINGS})
         overrides[GROUP_KEY_PREFIX + group] = values
     return overrides
+
+
+def group_pauses(group: str, overrides: dict | None, theme_groups: dict | None) -> bool:
+    """An Ebb & Flow group's Pause between plays as a channel plays it: its preset's, else the theme's."""
+    preset = (overrides or {}).get(GROUP_KEY_PREFIX + group) or {}
+    if "pause_between" in preset:
+        return bool(preset["pause_between"])
+    return bool(((theme_groups or {}).get(group) or {}).get("pause_between"))
 
 
 def preset_gap_range(group: str, overrides: dict | None, theme_groups: dict | None) -> tuple[float, float] | None:
@@ -714,6 +739,17 @@ class TrackView:
             return self._in_group(group, name, value)
         return value
 
+    def _ebb_group(self, group: str) -> bool:
+        """A group in Ebb & Flow mode: every file plays at once as Ebb & Flow."""
+        theme_groups = getattr(getattr(self._instance, "theme", None), "groups", None) or {}
+        return group_mode(theme_groups.get(group)) == GROUP_MODE_EBB_FLOW
+
+    @property
+    def ebb_group_name(self) -> str | None:
+        """The Ebb & Flow group this track plays in, if it does."""
+        group = getattr(self._instance.meta, "group", None)
+        return group if group and self._ebb_group(group) else None
+
     def _intrusion_group(self, group: str) -> bool:
         """A group in Intrusion mode: its tracks play as their own settings say."""
         theme_groups = getattr(getattr(self._instance, "theme", None), "groups", None) or {}
@@ -743,6 +779,16 @@ class TrackView:
         """A track in a group folder: the group's master controls act on the track's own value."""
         if name in ("exclusive", "playback_mode") and self._intrusion_group(group):
             return value  # an intrusion group doesn't take turns: the track's own mode
+        if name in ("exclusive", "playback_mode", "pause_between") and self._ebb_group(group):
+            if name == "exclusive":
+                return False  # no turns: every file plays at once
+            if name == "playback_mode":
+                return PlaybackMode.PRESENCE
+            # Pause between plays: the group's, when it's on, else the track's own
+            return bool(self._group_master(group, name)) or bool(value)
+        if name == "volume_low":
+            master = self._group_master(group, "volume")
+            return value * master if master is not None and value is not None else value
         if name == "exclusive":
             return True  # one track of a group at a time
         if name in ("volume", "presence"):
@@ -762,7 +808,7 @@ class TrackView:
     def exclusion_group(self) -> str | None:
         """The named group this track plays in, one at a time: its folder, or "Exclusive" for the old flag."""
         group = getattr(self._instance.meta, "group", None)
-        if group and not self._intrusion_group(group):
+        if group and not self._intrusion_group(group) and not self._ebb_group(group):
             return group
         return LEGACY_EXCLUSIVE_GROUP if self.exclusive else None
 
@@ -1233,42 +1279,83 @@ class SparsePlaybackStream:
         return next(self.gen)
 
 
-# Ebb & Flow outside a group: the level wanders, never silent. Each move picks
-# a new level between EBB_FLOOR and full (of the track's volume), at least
-# EBB_MIN_MOVE away, glides there over EBB_GLIDE seconds and holds for
-# EBB_HOLD seconds. Interval (presence) sets the average level:
-# EBB_FLOOR + (1 - EBB_FLOOR) x interval. At 100% it stays full.
-EBB_FLOOR = 0.2
-EBB_MIN_MOVE = 0.15
-EBB_GLIDE = (5.0, 20.0)
-EBB_HOLD = (5.0, 30.0)
+# Ebb & Flow: the level glides from one random level to the next between the
+# two knobs of the track's Volume (volume_low .. volume), holds, and moves
+# again. Interval (presence) sets how lively: at 0 the glides take
+# EBB_GLIDE_SLOW seconds and the holds EBB_HOLD_SLOW, at 100% EBB_GLIDE_FAST
+# and EBB_HOLD_FAST. Each move goes at least a quarter of the range.
+EBB_GLIDE_SLOW, EBB_GLIDE_FAST = (15.0, 40.0), (2.0, 6.0)
+EBB_HOLD_SLOW, EBB_HOLD_FAST = (20.0, 60.0), (2.0, 10.0)
 
 
-def ebb_level(presence: float, current, rng=random) -> float:
-    """
-    The next Ebb & Flow level (0..1 of the track's volume). Drawn as
-    floor + (1 - floor) x u^k with k = (1 - p) / p, whose mean is p: a high
-    interval mostly stays near full, a low one near the floor.
-    """
+def ebb_timing(presence: float) -> tuple[tuple[float, float], tuple[float, float]]:
+    """(glide range, hold range) in seconds for an Interval (0 slow and gradual .. 1 quick)."""
     p = min(1.0, max(0.0, float(presence)))
-    if p >= 1.0:
+    lerp = lambda a, b: (a[0] + (b[0] - a[0]) * p, a[1] + (b[1] - a[1]) * p)
+    return lerp(EBB_GLIDE_SLOW, EBB_GLIDE_FAST), lerp(EBB_HOLD_SLOW, EBB_HOLD_FAST)
+
+
+def ebb_level(low: float, current, rng=random) -> float:
+    """The next level, as a share of the top knob: anywhere from `low` to 1, at least a quarter of that range away."""
+    low = min(1.0, max(0.0, float(low)))
+    span = 1.0 - low
+    if span < 0.02:
         return 1.0
-    k = (1.0 - p) / max(p, 0.01)
-    level = EBB_FLOOR
-    for _ in range(8):
-        level = EBB_FLOOR + (1.0 - EBB_FLOOR) * rng.random() ** k
-        if current is None or abs(level - current) >= EBB_MIN_MOVE:
-            break
-    return level
+    if current is None:
+        return low + span * rng.random()
+    # Uniform over the levels at least a quarter of the range away (below, above, or both)
+    step = 0.25 * span
+    below = (low, max(low, current - step))
+    above = (min(1.0, current + step), 1.0)
+    room = (below[1] - below[0]) + (above[1] - above[0])
+    if room <= 0:
+        return low if current - low > 1.0 - current else 1.0
+    x = rng.random() * room
+    return below[0] + x if x < below[1] - below[0] else above[0] + (x - (below[1] - below[0]))
+
+
+class EbbGroup:
+    """
+    An Ebb & Flow group's files, for the group's Pause between plays: the
+    first file to start plays at once and the others start staggered, and a
+    file only fades out for its pause while another (unmuted) file of the
+    group is playing, so the group is never silent.
+    """
+
+    def __init__(self, cycling):
+        self._cycling = cycling  # () -> bool: the group's Pause between plays is on
+        self._views = {}
+        self._sounding = {}
+
+    def cycling(self) -> bool:
+        return bool(self._cycling())
+
+    def register(self, name: str, view) -> None:
+        self._views[name] = view
+
+    def set_sounding(self, name: str, on: bool) -> None:
+        self._sounding[name] = on
+
+    def others_sounding(self, name: str) -> bool:
+        return any(on and other != name and getattr(self._views.get(other), "is_enabled", True)
+                   for other, on in list(self._sounding.items()))
+
+    def claim_first(self, name: str) -> bool:
+        """Nothing of the group plays yet: this file starts now."""
+        if self.others_sounding(name):
+            return False
+        self._sounding[name] = True
+        return True
 
 
 class PresenceMixingStream:
     """
     Ebb & Flow.
 
-    Outside a group (see _gen_wander) the track is always heard and its level
-    wanders: it glides to a random level between EBB_FLOOR and full, holds,
-    then glides somewhere else. Interval (presence) sets the average level.
+    On its own or in an Ebb & Flow group (see _gen_wander) the level rises and
+    falls between the two knobs of the track's Volume; Interval sets how
+    lively. With Pause between plays, each play runs once from the file's
+    start to its end, fades out and pauses before the next.
 
     In a group of the old Exclusive switch (see _gen_turns) it takes turns:
     fades in on its turn, plays a while, fades out, and hands the turn back.
@@ -1286,6 +1373,7 @@ class PresenceMixingStream:
         if exclusion_coordinator is not None:
             exclusion_coordinator.register_track(instance.name)
         self._restart = False
+        self.ebb_group = None  # an Ebb & Flow group's EbbGroup, set by the mix
         self.gen = self._gen()
 
     @property
@@ -1302,15 +1390,15 @@ class PresenceMixingStream:
 
     def _log_move(self, level: float, seconds: float):
         logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} Ebb & Flow '
-                    f'to {round(level * 100)}% over {seconds:.0f}s')
+                    f'to {round(level * 100)}% volume over {seconds:.0f}s')
 
     def restart(self):
         """
         The track was turned on again (a preset, a sequence step, unmute): from
         the next chunk it starts afresh instead of resuming where it paused,
-        from its file's beginning, its level rising from silence to a first
-        level over TRACK_FADE_DURATION (the mix's on fade on top). Ungrouped
-        tracks only: a grouped track keeps its turn rules.
+        from its file's beginning, its level rising from silence (the mix's on
+        fade on top). Not for a track of the old Exclusive switch: it keeps its
+        turn rules.
         """
         if self.exclusion_coordinator is None:
             self._restart = True
@@ -1329,39 +1417,124 @@ class PresenceMixingStream:
         else:
             yield from self._gen_turns()
 
+    def _ebb_low(self) -> float:
+        """The lower knob as a share of the upper one (both as the channel plays them)."""
+        view = self.instance
+        get = getattr(view, "unpinned", None) or (lambda name: getattr(view, name))
+        top = float(get("volume") or 0.0)
+        low = get("volume_low")
+        low = EBB_DEFAULT_LOW if low is None else float(low)
+        return 1.0 if top <= 0 else min(1.0, low / top)
+
+    def _pause_samples(self) -> int:
+        """A pause between plays, drawn from the track's range (seconds)."""
+        low = getattr(self.instance, "pause_min", None)
+        high = getattr(self.instance, "pause_max", None)
+        low = DEFAULT_PAUSE[0] if low is None else max(0.0, float(low))
+        high = DEFAULT_PAUSE[1] if high is None else max(0.0, float(high))
+        return int(random.uniform(min(low, high), max(low, high)) * SAMPLE_RATE)
+
     def _gen_wander(self):
-        """Always heard: the level glides from one random level to the next (see ebb_level)."""
+        """
+        The level glides from one random level to the next between the two
+        knobs of the track's Volume (see ebb_level), at the pace its Interval
+        sets (see ebb_timing). With Pause between plays, each play starts at
+        the file's beginning rising from silence, runs to the file's end,
+        fades out and pauses for a while from the track's Pause range; the
+        first start is staggered the same way. In an Ebb & Flow group with the
+        group's Pause between plays on, see EbbGroup: never all quiet.
+        """
         rate = SAMPLE_RATE
-        presence = self.instance.presence
-        level = ebb_level(presence, None)  # joins the mix at a level, no fade
-        start = target = level
-        glide = done = 0  # samples: the glide's length, and how far it has got
-        hold = int(random.uniform(*EBB_HOLD) * rate)
+        name = self.instance.name
+        group = self.ebb_group
+        silence = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
+        state = "playing"  # playing, ending (fading out for a pause) or paused
+        level = start = target = 0.0
+        glide = done = hold = wait = 0  # samples
+        played = 0  # samples of the file into this pass
+        end_fade = 0  # samples: how long this play's fade-out at the file's end lasts
+
+        def pauses() -> bool:
+            return bool(getattr(self.instance, "pause_between", False))
+
+        def guarded() -> bool:
+            return group is not None and group.cycling()
+
+        def sounding(on: bool) -> None:
+            if group is not None:
+                group.set_sounding(name, on)
 
         def go(to: float, seconds: float):
             nonlocal start, target, glide, done
             start, target, glide, done = level, to, max(1, int(seconds * rate)), 0
-            self._log_move(to, seconds)
+            self._log_move(to * self._top(), seconds)
+
+        def new_play():
+            """From the file's beginning, rising from silence."""
+            nonlocal state, level, played, end_fade
+            self._restart_base()
+            state, level, played = "playing", 0.0, 0
+            glides, _ = ebb_timing(self.instance.presence)
+            end_fade = int(random.uniform(*glides) * rate)
+            go(ebb_level(self._ebb_low(), None), random.uniform(*glides))
+            sounding(True)
+
+        def pause(log_reason: str = ""):
+            nonlocal state, wait
+            state, wait = "paused", self._pause_samples()
+            sounding(False)
+            logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {name} Ebb & Flow '
+                        f'{log_reason}pausing for {wait / rate:.0f}s')
+
+        # Joining the mix
+        glides, holds = ebb_timing(self.instance.presence)
+        if pauses() and not (guarded() and group.claim_first(name)):
+            pause("starts staggered, ")
+        else:
+            level = start = target = ebb_level(self._ebb_low(), None)  # at a level: the mix fades the track in
+            hold = int(random.uniform(*holds) * rate)
+            end_fade = int(random.uniform(*glides) * rate)
+            sounding(True)
 
         while True:
             if self._restart:
-                # Turned on again: from the file's beginning, rising from silence
-                self._restart = False
-                self._restart_base()
-                level = 0.0
-                go(ebb_level(self.instance.presence, None), TRACK_FADE_DURATION)
+                self._restart = False  # turned on again
+                new_play()
+
+            if state == "paused":
+                if not pauses() or (guarded() and not group.others_sounding(name)):
+                    wait = 0  # back at once: looping again, or the group would fall silent
+                wait -= self.CHUNK_SIZE
+                if wait > 0:
+                    yield silence  # not decoded while it pauses
+                    continue
+                new_play()
 
             try:
                 chunk = next(self.base_stream)
             except StopIteration:
                 return
             n = chunk.shape[-1]
+            played += n
 
-            new_presence = self.instance.presence
-            if new_presence != presence:
-                presence = new_presence
-                if presence >= 1.0 and target < 1.0:
-                    go(1.0, TRACK_FADE_DURATION)  # Interval at 100%: full, like Background
+            # Pause between plays: fade out to reach silence at the file's end
+            length = int(getattr(self.instance.meta, "duration_samples", 0) or 0)
+            pass_length = max(n, length - int(getattr(self.base_stream, "overlap", 0) or 0))
+            if state == "playing" and pauses() and length:
+                left = pass_length - played
+                if left <= min(end_fade, pass_length // 3):
+                    if guarded() and not group.others_sounding(name):
+                        pass  # the only one playing: it carries on into another pass
+                    else:
+                        state = "ending"
+                        sounding(False)
+                        go(0.0, max(left, n) / rate)
+            elif state == "ending" and not pauses():
+                state = "playing"  # switched back to looping while fading out
+                sounding(True)
+                go(ebb_level(self._ebb_low(), level), random.uniform(*ebb_timing(self.instance.presence)[0]))
+            if played >= pass_length:
+                played -= pass_length  # the file looped
 
             if glide:
                 done = min(glide, done + n)
@@ -1369,18 +1542,28 @@ class PresenceMixingStream:
                 end = start + (target - start) * (0.5 - 0.5 * np.cos(np.pi * x))  # an S-curve glide
                 if done >= glide:
                     glide = 0
-                    hold = int(random.uniform(*EBB_HOLD) * rate)
+                    hold = int(random.uniform(*ebb_timing(self.instance.presence)[1]) * rate)
             else:
                 end = level
-                hold -= n
-                if hold <= 0 and presence < 1.0:
-                    go(ebb_level(presence, level), random.uniform(*EBB_GLIDE))
+                if state == "playing":
+                    hold -= n
+                    if hold <= 0:
+                        go(ebb_level(self._ebb_low(), level), random.uniform(*ebb_timing(self.instance.presence)[0]))
 
             if level != end or level < 1.0:
                 ramp = np.linspace(level, end, n, dtype=np.float32) if level != end else level
                 chunk = np.clip(chunk.astype(np.float32) * ramp, -32768, 32767).astype(np.int16)
             level = end
+            if state == "ending" and not glide:
+                pause()
             yield chunk
+
+    def _top(self) -> float:
+        get = getattr(self.instance, "unpinned", None) or (lambda name: getattr(self.instance, name))
+        try:
+            return float(get("volume") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
 
     def _gen_turns(self):
         """In a group (the old Exclusive switch): fades in on its turn, plays a while, fades out, hands the turn back."""

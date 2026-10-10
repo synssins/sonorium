@@ -36,7 +36,7 @@ THEME_CROSSFADE_SAMPLES = int(THEME_CROSSFADE_DURATION * SAMPLE_RATE)
 
 # Track settings that glide when a channel's preset changes (the others,
 # e.g. mute, switch at once; a track turning on or off fades by itself)
-GLIDE_FIELDS = ("volume", "presence")
+GLIDE_FIELDS = ("volume", "presence", "volume_low")
 
 # Chunk size for silence generation
 CHUNK_SIZE = 1024
