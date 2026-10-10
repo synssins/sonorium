@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.18 (2026-10-10)
+
+### Documentation
+
+- Approved design boards for sections, Ebb & Flow and a sequence step's While playing
+  ([`b0197d1`](https://github.com/synssins/sonorium/commit/b0197d1eb5a5a6618178ab4f57f9b0f8bd2b22aa))
+
+### Features
+
+- Linked files anywhere; intrusion groups and Auto retired once on load; uploads start Unassigned
+  ([`4c54025`](https://github.com/synssins/sonorium/commit/4c5402595a0c82da35a872fd23b3466c2d6e4e26))
+
+- **groups**: Moved and renamed keys follow into sequences; names linked files hold stay free
+  ([`b193769`](https://github.com/synssins/sonorium/commit/b193769564c79779e6c486b4e79c720aebec530f))
+
+
 ## v1.6.1-dev.14 (2026-10-10)
 
 ### Features
