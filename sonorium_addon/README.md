@@ -4,6 +4,10 @@
 
 ## Announcements
 
+> ## ⭐ 1.6.0: Merry-go-round and Intrusions
+>
+> Groups now have three modes. **Merry-go-round** turns a few recordings of the same scene into one continuous bed that crossfades from file to file and never repeats the same way. **Intrusion** lets a preset bring in sounds from another theme, like rain over a campsite, without copying any files. Tracks now fade in and out over 3 seconds when a preset turns them on or off.
+
 > ## ⭐ Major Release: 1.5.0, Themes 2.0
 >
 > This is a major update. Themes can now hold **groups**, channels playing the same theme can each use their **own preset**, the **Theme Editor**, the **Themes** page and every **Settings** page are rebuilt, and the playback modes have **new names**.
@@ -92,6 +96,20 @@ Recent messages with filters, search, copy and download.
 The **?** in the top bar explains the page you're on.
 
 ![Help on every page](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Page_Help.png)
+
+#### Intrusions (mockup)
+An Intrusion group with files linked from another theme, and presets marked ★ and ⚭.
+
+![Intrusions in the Theme Editor](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/mockups/Intrusions_Editor.png)
+
+#### Add from another theme (mockup)
+Pick a theme, preview its files, tick the ones to link.
+
+![Add from another theme](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/mockups/Intrusions_Picker.png)
+
+#### Preset marks on a channel (mockup)
+
+![Preset marks on a channel](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/mockups/Intrusions_Channel.png)
 
 #### On a phone
 The menu opens from the top bar.
@@ -267,11 +285,38 @@ automations that use the entity first.
 
 ## What's new
 
-### Next release
+### 1.6.0
 
 **Themes and playback**
-- **Merry-go-round groups.** A group can now play as a continuous bed: one file plays, then crossfades into another picked at random, never the same one twice in a row. Pick the mode and the crossfade length in the group's row in the Theme Editor. A single file crossfades into itself.
-- **Intrusions.** A group in the new Intrusion mode is a layer a preset can turn on, like rain over a campsite. Its tracks keep their own mode, and it can hold files linked from other themes (⋯ › Add from another theme) without copying them. Presets that turn one on show ⚭ in the Theme Editor and on the channel cards.
+- **Group modes.** A group's Mode is now **Intermittent** (one track at a time with a gap, as before), **Merry-go-round** or **Intrusion**. Pick it in the group's row in the Theme Editor.
+- **Merry-go-round.** One file plays, then crossfades into another picked at random, never the same one twice in a row. The group's **Crossfade** sets the overlap. A single file crossfades into itself, which also fixes recordings that fade in and out on their own.
+- **Intrusions.** An Intrusion group's tracks keep their own mode and settings. It can hold files **linked** from other themes: **⋯ › Add from another theme** opens a picker where you preview a theme's files and tick the ones you want. Linked files play from their own theme's folder, start muted, and are turned on by presets. A linked file whose source is gone shows **Missing**.
+- **Presets show what they do.** ★ marks the default preset; ⚭ marks a preset that turns intrusion tracks on. Both show in the Theme Editor and on the channel cards, and in the channel's Edit dialog.
+- **Smooth preset changes.** A track that a preset (or the mute button) turns on or off fades in or out over 3 seconds instead of cutting.
+- **Moving linked files.** Dragging a linked file to a normal group or out to the theme asks first, then copies the file into this theme. Exports copy linked files in, so a shared theme is complete.
+
+**Theme Editor**
+- **Instant moves.** Moving a track, and renaming or deleting a group, show at once. The list no longer greys out for a few seconds.
+- **Track preview** plays at the track's own volume, follows its Volume slider as you drag, and works for muted and linked tracks.
+- **Messages** show as small notices at the top right instead of in the footer.
+- **Group header.** Gap or Crossfade sits under the group's name.
+
+**Themes**
+- **New themes** can be edited, saved and given presets straight away, and keep the name you typed.
+
+**Fixes**
+- A new theme said "Theme not found" in the editor until Sonorium restarted.
+- Preview mix showed "Could not play the preview" when it restarted after a change, while still playing.
+- Dragging a track selected text across the list.
+
+**Known issue**
+- In the Home Assistant app, **Crossfade** and **Master output gain** on **Settings → Audio Settings** are saved but don't change the sound yet.
+
+### 1.5.2
+
+- **Clearer help** for Intermittent in groups and for track weight.
+- **Version and install type** are shown at the bottom left of the menu; the README says where to find them.
+- **Releases** no longer skip their version number after a merge.
 
 ### 1.5.0
 
@@ -324,7 +369,7 @@ automations that use the entity first.
 **Known issue**
 - In the Home Assistant app, **Crossfade** and **Master output gain** on **Settings → Audio Settings** are saved but don't change the sound yet.
 
-#### How a theme plays
+### How a theme plays
 
 These are the same words as the **?** help in the Theme Editor.
 
