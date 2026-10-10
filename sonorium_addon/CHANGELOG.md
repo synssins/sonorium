@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.15 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Help explains what modes do in a group; drop the word Unique
+  ([`1154691`](https://github.com/synssins/sonorium/commit/11546914a6a1a8f9daa87b78e4c2f50f0c0ed994))
+
+- **ui**: Help lists each item as an indented 'Term: text' line
+  ([`4b5e5d1`](https://github.com/synssins/sonorium/commit/4b5e5d186b47a385a3aae9a56426ac0a89a5d37d))
+
+### Documentation
+
+- Explain groups instead of a Unique mode
+  ([`40dc96e`](https://github.com/synssins/sonorium/commit/40dc96e345c446992f03d737f0a1b50f7b7291d4))
+
+
 ## v1.4.2-dev.14 (2026-10-10)
 
 ### Features
