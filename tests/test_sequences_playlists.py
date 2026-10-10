@@ -619,6 +619,67 @@ def old_state(**sessions):
     return {"version": 1, "settings": {}, "speaker_groups": {}, "sessions": sessions}
 
 
+# --- Listen here (a browser plays the channel's stream) ---
+
+def released(t):
+    return ("stop",) in t.channel.calls
+
+
+def test_listen_then_play_then_stop_then_unlisten(tmp_path):
+    t = build(tmp_path)
+    sid = t.session.id
+    assert t.manager.listen(sid) is t.channel
+    assert [c[0] for c in t.channel.calls] == ["set_theme", "fade_in", "expect_local"]  # the mix starts, speakers don't
+    assert not t.session.is_playing and not t.controller.play_media_multi.called
+    run(t.manager.play(sid))  # the speakers join the same channel
+    assert t.session.is_playing and t.controller.play_media_multi.called
+    assert t.manager.get_session_channel(sid) == t.channel.id
+    run(t.manager.stop(sid))  # only the speakers stop: the browser keeps the mix
+    assert t.controller.stop_multi.called and not released(t)
+    assert not any(c[0] == "fade_out" for c in t.channel.calls)
+    run(t.manager.unlisten(sid))  # nothing listens now
+    assert released(t) and t.manager.get_session_channel(sid) is None
+
+
+def test_play_then_listen_then_stop_then_unlisten(tmp_path):
+    t = build(tmp_path)
+    sid = t.session.id
+    run(t.manager.play(sid))
+    themes_set = sum(c[0] == "set_theme" for c in t.channel.calls)
+    t.manager.listen(sid)
+    assert sum(c[0] == "set_theme" for c in t.channel.calls) == themes_set  # already running: no restart
+    run(t.manager.stop(sid))
+    assert t.controller.stop_multi.called and not released(t)
+    run(t.manager.unlisten(sid))
+    assert released(t)
+
+
+def test_a_mix_kept_for_browsers_is_released_when_none_listens(tmp_path):
+    t = build(tmp_path)
+    sid = t.session.id
+    t.manager.listen(sid)
+    assert t.manager.release_idle_sessions() == [] and not released(t)  # a browser listens
+    t.channel.local_idle = 20  # the browser went without unlistening
+    assert t.manager.release_idle_sessions() == []  # nothing stopped for the speakers
+    assert released(t) and "Stopped" not in recent_texts(t)
+
+
+def test_speakers_keep_playing_when_the_browser_goes(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.listen(t.session.id)
+    t.channel.local_idle = 20
+    t.manager.release_idle_sessions()
+    assert t.session.is_playing and not released(t)  # the speakers still play
+
+
+def test_a_theme_picked_while_only_a_browser_listens_crossfades(tmp_path):
+    t = build(tmp_path)
+    t.manager.listen(t.session.id)
+    t.manager.update(t.session.id, theme_id="tavern")
+    assert [c[1] for c in t.channel.calls if c[0] == "set_theme"][-1] == "tavern"
+
+
 def old_session(sid, name, theme, **cycle):
     return {"id": sid, "name": name, "theme_id": theme, "cycle_config": cycle}
 

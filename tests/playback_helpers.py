@@ -142,6 +142,19 @@ class FakeChannel:
     def idle_seconds(self):
         return 0.0
 
+    # Listen here: how long no browser has listened (set by the test)
+    local_idle = 0.0
+
+    def local_idle_seconds(self):
+        return self.local_idle
+
+    def expect_local_listener(self):
+        self.calls.append(("expect_local",))
+
+    @property
+    def stream_path(self):
+        return f"/stream/channel{self.id}"
+
     def glides(self):
         return [c[2] for c in self.calls if c[0] == "overrides"]
 
