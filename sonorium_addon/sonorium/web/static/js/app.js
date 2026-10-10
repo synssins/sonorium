@@ -373,6 +373,9 @@ async function loadChannels() {
 // View Navigation
 function showView(viewName) {
     currentView = viewName;
+    // Themes page: fixed top bar and filter bar, only the collection scrolls
+    document.body.classList.toggle('tp-on', viewName === 'themes');
+    if (viewName !== 'themes') tpCloseMenu();
     // Persist view selection across page refreshes
     localStorage.setItem('sonorium_currentView', viewName);
 
@@ -480,7 +483,16 @@ function showView(viewName) {
                 Refresh
             </button>
         `,
-        themes: '',
+        themes: `
+            <button class="btn btn-primary tp-create" id="tp-create-btn" aria-label="Create theme" aria-haspopup="dialog" onclick="tpMenu('create', this)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                <span class="lbl">Create theme</span>
+            </button>
+            <button class="icon-btn" aria-label="More" aria-haspopup="menu" onclick="tpMenu('page', this)">${TE_ICON_MORE}</button>
+        `,
         settings: '',
         'settings-connection': '',
         'settings-audio': '',
@@ -1692,218 +1704,524 @@ async function loadCategories() {
     }
 }
 
-function renderThemeCard(theme) {
-    const hasAudio = theme.has_audio !== false && theme.total_tracks > 0;
-    const trackCount = theme.total_tracks || 0;
-    const trackText = trackCount === 0 ? 'No audio files' : `${trackCount} audio file${trackCount !== 1 ? 's' : ''}`;
+// ============================================
+// Themes page
+// Fixed top (title bar, search + filter bar, list column headers); only the
+// theme collection (#themes-browser) scrolls. Each theme shows once with its
+// categories as badges; the chips filter by one category. Menus and
+// popovers share one floating element (#tp-menu) placed next to the button
+// that opened it. Category management lives in a small dialog.
+// ============================================
 
-    return `
-    <div class="theme-browser-card ${!hasAudio ? 'no-audio' : ''}">
-        <div class="theme-browser-card-header">
-            <div class="theme-browser-icon">${resolveThemeIcon(theme.icon, theme.id)}</div>
-            <div class="theme-browser-content">
-                <div class="theme-browser-header">
-                    <span class="theme-browser-name">${escapeHtml(theme.name)}</span>
-                    <span class="theme-browser-favorite ${theme.is_favorite ? 'active' : ''}"
-                          onclick="toggleThemeFavorite('${theme.id}')"
-                          title="${theme.is_favorite ? 'Remove from favorites' : 'Add to favorites'}">
-                        ${theme.is_favorite ? '★' : '☆'}
-                    </span>
-                </div>
-                <div class="theme-browser-meta">
-                    <span>${trackText}</span>
-                    ${!hasAudio ? '<span style="color: var(--accent-warning);">Upload files to enable</span>' : ''}
-                </div>
-            </div>
-        </div>
-        ${theme.description
-            ? `<div class="theme-browser-description">${escapeHtml(theme.description)}</div>`
-            : `<div class="theme-browser-description-empty">No description</div>`
-        }
-        <div class="theme-browser-actions">
-            ${hasAudio ? `
-            <button class="theme-browser-preview-btn" onclick="startThemePreview('${theme.id}', '${escapeHtml(theme.name).replace(/'/g, "\\\'")}')" title="Preview in browser">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 5v14l11-7z"/>
-                </svg>
-            </button>
-            ` : ''}
-            <button class="theme-browser-edit-btn" onclick="openThemeEditModal('${theme.id}')" title="Edit theme">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-            </button>
-            <button class="theme-browser-delete-btn" onclick="confirmDeleteTheme('${theme.id}', '${escapeHtml(theme.name)}')" title="Delete theme">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    <line x1="10" y1="11" x2="10" y2="17"/>
-                    <line x1="14" y1="11" x2="14" y2="17"/>
-                </svg>
-            </button>
-        </div>
-    </div>`;
+const TP_VIEW_KEY = 'sonorium_themesView';
+const TP_SORTS = [['name', 'Name'], ['tracks', 'Most tracks']];
+const TP_PHONE = window.matchMedia('(max-width: 760px)');
+const TP_ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const TP_ICON_STOP = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
+const TP_ICON_EDIT = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+const TP_ICON_UPLOAD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+const TP_ICON_TAG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>';
+const TP_ICON_REFRESH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
+const TP_ICON_TRASH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+const TP_ICON_SEARCH = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+
+const tp = {
+    q: '',
+    cat: 'all',        // 'all', 'fav' or a category name
+    sort: 'name',
+    view: (() => {
+        try { return localStorage.getItem(TP_VIEW_KEY) === 'list' ? 'list' : 'cards'; } catch (e) { return 'cards'; }
+    })(),
+    menu: null,
+    menuBtn: null,
+    catConfirm: null,  // category waiting for "Delete?" in the dialog
+};
+
+function tpNorm(text) {
+    return String(text || '').toLowerCase().replace(/_+/g, ' ');
 }
 
-function renderCategorySection(categoryName, categoryThemes, isDeletable = true) {
-    const isFavorites = categoryName === '★ Favorites';
-    return `
-    <div class="theme-category-section">
-        <div class="theme-category-header">
-            <span class="theme-category-name">${escapeHtml(categoryName)}</span>
-            ${isDeletable && !isFavorites ? `
-            <div class="theme-category-actions">
-                <button class="btn btn-sm btn-danger" onclick="confirmDeleteCategory('${escapeHtml(categoryName)}')" title="Delete category">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"/>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
-                </button>
-            </div>` : ''}
-        </div>
-        <div class="theme-category-grid">
-            ${categoryThemes.map(theme => renderThemeCard(theme)).join('')}
-        </div>
-    </div>`;
+function tpPlural(n, word) {
+    return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
+
+function tpTheme(themeId) {
+    return themes.find(t => t.id === themeId) || null;
+}
+
+// Known categories plus any a theme carries that the list doesn't have yet
+function tpCategories() {
+    const list = [...themeCategories];
+    themes.forEach(t => (t.categories || []).forEach(c => { if (!list.includes(c)) list.push(c); }));
+    return list;
+}
+
+function tpIsCategory(key) {
+    return key !== 'all' && key !== 'fav';
+}
+
+function tpMatchesQuery(theme, query) {
+    if (!query) return true;
+    const name = String(theme.name || '');
+    return tpNorm(name).includes(query) || name.toLowerCase().includes(query)
+        || String(theme.description || '').toLowerCase().includes(query);
+}
+
+function tpInCat(theme, key) {
+    if (key === 'all') return true;
+    if (key === 'fav') return !!theme.is_favorite;
+    return (theme.categories || []).includes(key);
+}
+
+// Names of the channels currently playing this theme
+function tpPlayingOn(themeId) {
+    return sessions.filter(s => s.is_playing && s.theme_id === themeId).map(s => s.name || 'Channel');
+}
+
+function tpIsList() {
+    return tp.view === 'list' && !TP_PHONE.matches;
+}
+
+// ---------- Render ----------
 
 function renderThemesBrowser() {
-    const container = document.getElementById('themes-browser');
-    if (!themes || themes.length === 0) {
-        container.innerHTML = '<p style="color: var(--text-muted); padding: 1rem;">No themes found. Click "Create Theme" or add theme folders to /media/sonorium.</p>';
+    const box = document.getElementById('themes-browser');
+    if (!box) return;
+    // Menus hang from buttons that are about to be replaced
+    if (tp.menu && tp.menu !== 'create' && tp.menu !== 'page' && tp.menu !== 'sort') tpCloseMenu();
+
+    const cats = tpCategories();
+    if (tpIsCategory(tp.cat) && !cats.includes(tp.cat)) tp.cat = 'all';
+
+    if (currentView === 'themes') {
+        document.getElementById('view-title').innerHTML = `<span class="tp-title">Themes</span><span class="badge badge-type">${themes.length}</span>`;
+    }
+
+    const query = tp.q.trim().toLowerCase();
+    const hits = themes.filter(t => tpMatchesQuery(t, query));
+    const byName = (a, b) => tpNorm(a.name).localeCompare(tpNorm(b.name));
+    const cmp = tp.sort === 'tracks' ? (a, b) => ((b.total_tracks || 0) - (a.total_tracks || 0)) || byName(a, b) : byName;
+    const shown = hits.filter(t => tpInCat(t, tp.cat)).sort(cmp);
+
+    // Category chips: counts follow the search
+    const chipDefs = [{ k: 'all', label: 'All' }, { k: 'fav', label: 'Favorites', star: true }]
+        .concat(cats.map(c => ({ k: c, label: c })));
+    const chips = document.getElementById('tp-chips');
+    const chipScroll = chips.scrollLeft;
+    chips.innerHTML = chipDefs.map(c => {
+        const n = hits.filter(t => tpInCat(t, c.k)).length;
+        const on = tp.cat === c.k;
+        return `<button type="button" class="fchip${on ? ' on' : ''}${n === 0 && !on ? ' zero' : ''}" aria-pressed="${on}"
+            onclick="tpSetCat(${jsArg(c.k)})">${c.star ? '<span class="st">★</span>' : ''}${escapeHtml(c.label)}<span class="n">${n}</span></button>`;
+    }).join('');
+    chips.scrollLeft = chipScroll;
+
+    document.getElementById('tp-sort-lbl').textContent = (TP_SORTS.find(s => s[0] === tp.sort) || TP_SORTS[0])[1];
+    document.getElementById('tp-cnt').textContent = tpPlural(shown.length, 'theme');
+    document.getElementById('tp-cards-btn').setAttribute('aria-pressed', String(tp.view === 'cards'));
+    document.getElementById('tp-list-btn').setAttribute('aria-pressed', String(tp.view === 'list'));
+    document.getElementById('tp-clr').hidden = !tp.q;
+
+    const list = tpIsList();
+    document.getElementById('tp-lhead').hidden = !list || shown.length === 0;
+
+    if (shown.length === 0) {
+        box.innerHTML = themes.length === 0
+            ? `<div class="tp-empty"><strong>No themes</strong>
+                <button type="button" class="btn btn-sm btn-primary" onclick="tpMenu('create', document.getElementById('tp-create-btn'))">Create theme</button></div>`
+            : `<div class="tp-empty">${TP_ICON_SEARCH}<strong>No themes match</strong>
+                ${tp.q.trim() ? `<span>“${escapeHtml(tp.q.trim())}”</span>` : ''}
+                <button type="button" class="btn btn-sm btn-secondary" onclick="tpClearFilters()">Clear filters</button></div>`;
         return;
     }
 
-    let html = '';
+    box.innerHTML = list
+        ? `<div class="lwrap"><div class="lbody">${shown.map(tpRowHtml).join('')}</div></div>`
+        : `<div class="tp-grid">${shown.map(tpCardHtml).join('')}</div>`;
+    tpUpdateMarquees();
+}
 
-    // 1. Favorites section (always at top if any exist)
-    const favoriteThemes = themes.filter(t => t.is_favorite).sort((a, b) => a.name.localeCompare(b.name));
-    if (favoriteThemes.length > 0) {
-        html += renderCategorySection('★ Favorites', favoriteThemes, false);
-    }
+// Parts shared by cards and list rows
+function tpParts(theme) {
+    const id = jsArg(theme.id);
+    const name = escapeHtml(theme.name);
+    const tracks = theme.total_tracks || 0;
+    const playable = theme.has_audio !== false && tracks > 0;
+    const pv = currentPreviewThemeId === theme.id;
+    const fav = !!theme.is_favorite;
+    const on = tpPlayingOn(theme.id);
+    const starTitle = fav ? 'Remove from favorites' : 'Add to favorites';
+    const pvTitle = !playable ? 'No tracks' : pv ? 'Stop preview' : 'Preview here';
+    return {
+        id, name, tracks, playable, pv,
+        icon: escapeHtml(resolveThemeIcon(theme.icon, theme.id)),
+        desc: escapeHtml(theme.description || ''),
+        meta: tracks ? tpPlural(tracks, 'track') : 'No tracks',
+        cats: (theme.categories || []).map(c => `<span class="badge badge-type">${escapeHtml(c)}</span>`).join(''),
+        air: on.length ? `<span class="badge badge-air" title="Playing on ${escapeHtml(on.join(', '))}"><i></i>${escapeHtml(on[0])}${on.length > 1 ? ` +${on.length - 1}` : ''}</span>` : '',
+        onAir: on.length > 0,
+        star: `<button type="button" class="star-btn${fav ? ' on' : ''}" title="${starTitle}" aria-label="${starTitle}: ${name}"
+            aria-pressed="${fav}" onclick="toggleThemeFavorite(${id})">${fav ? '★' : '☆'}</button>`,
+        pvRound: `<button type="button" class="track-preview-btn${pv ? ' playing' : ''}" title="${pvTitle}" aria-label="${pvTitle}: ${name}"
+            ${playable ? '' : 'disabled'} onclick="tpPreview(${id})">${pv ? TP_ICON_STOP : TP_ICON_PLAY}</button>`,
+        pvLabeled: `<button type="button" class="btn btn-sm btn-secondary pv-btn${pv ? ' on' : ''}" title="${pvTitle}"
+            ${playable ? '' : 'disabled'} onclick="tpPreview(${id})">${pv ? TP_ICON_STOP : TP_ICON_PLAY}${pv ? 'Stop' : 'Preview'}</button>`,
+        more: `<button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu"
+            onclick="tpMenu('theme', this, ${id})">${TE_ICON_MORE}</button>`,
+        nameEl: (cls) => `<span class="trk-name${cls ? ' ' + cls : ''}" title="${name}"><span class="mq-in">${name}</span></span>`,
+    };
+}
 
-    // 2. Category sections (only show categories that have themes)
-    const usedCategories = new Set();
-    themes.forEach(t => (t.categories || []).forEach(c => usedCategories.add(c)));
+function tpCardHtml(theme) {
+    const p = tpParts(theme);
+    const phone = TP_PHONE.matches;
+    const edit = `<button type="button" class="btn btn-sm btn-secondary" onclick="tpEdit(${p.id})">${phone ? '' : TP_ICON_EDIT}Edit</button>`;
+    const tags = `<div class="tc-tags">${p.air}${p.cats}</div>`;
+    return `
+    <div class="tcard${p.onAir ? ' on-air' : ''}${p.pv ? ' pv' : ''}">
+        <div class="tc-top">
+            <span class="tc-icon" aria-hidden="true">${p.icon}</span>
+            <div class="tc-title">${p.nameEl('th-name')}<span class="tc-meta">${p.meta}</span></div>
+            ${p.star}
+        </div>
+        <div class="tc-desc" title="${p.desc}">${p.desc}</div>
+        ${phone
+            ? `<div class="tc-foot">${tags}${p.pvRound}${edit}${p.more}</div>`
+            : `${tags}<div class="tc-foot">${p.pvLabeled}<span class="grow"></span>${edit}${p.more}</div>`}
+    </div>`;
+}
 
-    for (const category of themeCategories) {
-        if (!usedCategories.has(category)) continue;
-        const categoryThemes = themes
-            .filter(t => (t.categories || []).includes(category))
-            .sort((a, b) => a.name.localeCompare(b.name));
-        if (categoryThemes.length > 0) {
-            html += renderCategorySection(category, categoryThemes, true);
-        }
-    }
+function tpRowHtml(theme) {
+    const p = tpParts(theme);
+    return `
+    <div class="lrow lgrid${p.pv ? ' pv' : ''}">
+        ${p.pvRound}
+        <div class="lname"><span class="ic" aria-hidden="true">${p.icon}</span>${p.nameEl('')}${p.air}</div>
+        <div class="tc-tags">${p.cats || '<span class="notag">—</span>'}</div>
+        <span class="lnum c" title="${p.meta}">${p.tracks}</span>
+        ${p.star}
+        <button type="button" class="btn btn-sm btn-secondary" onclick="tpEdit(${p.id})">Edit</button>
+        ${p.more}
+    </div>`;
+}
 
-    // 3. Uncategorized section (themes not in any category, excluding favorites-only)
-    const uncategorizedThemes = themes
-        .filter(t => (!t.categories || t.categories.length === 0))
-        .sort((a, b) => {
-            // Sort: themes with audio first, then alphabetically
-            if (a.has_audio && !b.has_audio) return -1;
-            if (!a.has_audio && b.has_audio) return 1;
-            return a.name.localeCompare(b.name);
+// Names that don't fit scroll slowly (same as the Theme Editor)
+function tpUpdateMarquees() {
+    requestAnimationFrame(() => {
+        document.querySelectorAll('#themes-browser .trk-name').forEach(el => {
+            const inner = el.firstElementChild;
+            el.classList.toggle('mq', !!inner && inner.scrollWidth > el.clientWidth + 1);
         });
-
-    if (uncategorizedThemes.length > 0) {
-        // If there are categories, show "Uncategorized" header; otherwise no header
-        if (html) {
-            html += renderCategorySection('Uncategorized', uncategorizedThemes, false);
-        } else {
-            // No categories exist, just show grid without header
-            html += `<div class="theme-category-grid">${uncategorizedThemes.map(theme => renderThemeCard(theme)).join('')}</div>`;
-        }
-    }
-
-    container.innerHTML = html || '<p style="color: var(--text-muted); padding: 1rem;">No themes found.</p>';
+    });
 }
 
-async function confirmDeleteCategory(categoryName) {
-    if (confirm(`Delete category "${categoryName}"?\n\nThemes in this category will not be deleted, only the category grouping.`)) {
-        try {
-            await api('DELETE', `/categories/${encodeURIComponent(categoryName)}`);
-            await loadCategories();
-            await loadThemes();
-            renderThemesBrowser();
-            showToast(`Category "${categoryName}" deleted`, 'success');
-        } catch (error) {
-            showToast(error.message || 'Failed to delete category', 'error');
-        }
-    }
+// ---------- Search, filter, sort, view ----------
+
+function tpSearch(input) {
+    tp.q = input.value;
+    renderThemesBrowser();
 }
 
-// Category Create Modal
-function openCategoryCreateModal() {
-    document.getElementById('category-create-name').value = '';
-
-    // Render theme checkboxes
-    const container = document.getElementById('category-theme-list');
-    if (themes && themes.length > 0) {
-        container.innerHTML = themes
-            .filter(t => t.has_audio)
-            .sort((a, b) => a.name.localeCompare(b.name))
-            .map(theme => `
-                <label class="category-theme-item">
-                    <input type="checkbox" value="${theme.id}">
-                    <span class="category-theme-item-name">${escapeHtml(theme.name)}</span>
-                    <span class="category-theme-item-meta">${theme.total_tracks} files</span>
-                </label>
-            `).join('');
-    } else {
-        container.innerHTML = '<p style="color: var(--text-muted); padding: 1rem;">No themes available</p>';
-    }
-
-    document.getElementById('category-create-modal').style.display = 'flex';
+function tpClearSearch() {
+    const input = document.getElementById('tp-q');
+    input.value = '';
+    tp.q = '';
+    renderThemesBrowser();
+    input.focus();
 }
 
-function closeCategoryCreateModal() {
-    document.getElementById('category-create-modal').style.display = 'none';
+function tpClearFilters() {
+    document.getElementById('tp-q').value = '';
+    tp.q = '';
+    tp.cat = 'all';
+    renderThemesBrowser();
 }
 
-async function createCategory() {
-    const name = document.getElementById('category-create-name').value.trim();
+function tpSetCat(key) {
+    tp.cat = key;
+    renderThemesBrowser();
+}
 
-    if (!name) {
-        showToast('Please enter a category name', 'error');
+function tpSetSort(key) {
+    tp.sort = key;
+    tpCloseMenu();
+    renderThemesBrowser();
+}
+
+function tpSetView(view) {
+    tp.view = view === 'list' ? 'list' : 'cards';
+    try { localStorage.setItem(TP_VIEW_KEY, tp.view); } catch (e) { /* not stored; fine */ }
+    renderThemesBrowser();
+}
+
+if (TP_PHONE.addEventListener) {
+    TP_PHONE.addEventListener('change', () => { if (currentView === 'themes') renderThemesBrowser(); });
+}
+
+// ---------- Theme actions ----------
+
+function tpPreview(themeId) {
+    if (currentPreviewThemeId === themeId) {
+        closeThemePreview();
         return;
     }
+    const theme = tpTheme(themeId);
+    if (theme) startThemePreview(theme.id, theme.name);
+}
 
+function tpEdit(themeId) {
+    tpCloseMenu();
+    openThemeEditModal(themeId);
+}
+
+function tpExport(themeId) {
+    tpCloseMenu();
+    exportThemeZip(themeId);
+}
+
+function tpImport() {
+    tpCloseMenu();
+    importThemeZip();
+}
+
+async function tpRefresh() {
+    tpCloseMenu();
+    await loadCategories();
+    await refreshThemes();
+}
+
+async function tpCreateTheme() {
+    const input = document.getElementById('tp-new-name');
+    const okBtn = document.getElementById('tp-new-ok');
+    const name = input ? input.value.trim() : '';
+    if (!name) return;
+    if (okBtn) okBtn.disabled = true;
+    const before = new Set(themes.map(t => t.id));
+    const category = tpIsCategory(tp.cat) ? tp.cat : null;
     try {
-        // Create the category
-        await api('POST', '/categories', { name });
-
-        // Get selected themes
-        const selectedThemes = Array.from(
-            document.querySelectorAll('#category-theme-list input[type="checkbox"]:checked')
-        ).map(cb => cb.value);
-
-        // Assign selected themes to this category
-        for (const themeId of selectedThemes) {
-            const theme = themes.find(t => t.id === themeId);
-            const existingCats = theme?.categories || [];
-            await api('POST', `/themes/${themeId}/categories`, {
-                categories: [...existingCats, name]
-            });
-            // Update local theme state
-            if (theme) {
-                theme.categories = [...existingCats, name];
-            }
+        const result = await api('POST', '/themes/create', { name, description: '', icon: '' });
+        // Created while a category is selected: put it in that category
+        if (category && result.theme_id) {
+            await api('POST', `/themes/${encodeURIComponent(result.theme_id)}/categories`, { categories: [category] });
         }
+        await loadThemes();
+        tpCloseMenu();
+        renderThemesBrowser();
+        renderThemeSelector();
+        showToast(`Created "${name}"`, 'success');
+        // Open it to add tracks, icon and description
+        const added = themes.filter(t => !before.has(t.id));
+        if (added.length === 1) openThemeEditModal(added[0].id);
+    } catch (error) {
+        showToast(error.message || 'Failed to create theme', 'error');
+        if (okBtn) okBtn.disabled = false;
+    }
+}
 
-        // Add to local categories list if themes were assigned
-        if (selectedThemes.length > 0 && !themeCategories.includes(name)) {
-            themeCategories.push(name);
+// ---------- Menus and popovers (one floating element) ----------
+
+function tpMenuSpec(kind, arg) {
+    const mi = (label, action, opts = {}) => `<button type="button" class="mi${opts.cls ? ' ' + opts.cls : ''}"
+        role="${opts.role || 'menuitem'}"${opts.checked !== undefined ? ` aria-checked="${opts.checked}"` : ''}
+        onclick="${action}">${opts.icon || ''}${label}</button>`;
+    const sep = '<div class="msep"></div>';
+    switch (kind) {
+        case 'page':
+            return { cls: 'menu', align: 'right', html: `
+                ${mi('Import theme…', 'tpImport()', { icon: TP_ICON_UPLOAD })}
+                ${mi('Manage categories…', 'tpOpenCats()', { icon: TP_ICON_TAG })}
+                ${sep}${mi('Refresh', 'tpRefresh()', { icon: TP_ICON_REFRESH })}` };
+        case 'sort':
+            return { cls: 'menu tp-sort-menu', align: 'right', html: TP_SORTS.map(([key, label]) =>
+                mi(label, `tpSetSort('${key}')`, { cls: tp.sort === key ? 'cur' : '', role: 'menuitemradio', checked: tp.sort === key })).join('') };
+        case 'theme': {
+            const theme = tpTheme(arg);
+            if (!theme) return null;
+            const id = jsArg(arg);
+            return { cls: 'menu', align: 'right', html: `
+                ${mi('Export', `tpExport(${id})`, { icon: TE_ICON_DOWNLOAD })}
+                ${sep}${mi('Delete…', `tpMenu('del', tp.menuBtn, ${id})`, { cls: 'danger', icon: TP_ICON_TRASH })}` };
         }
+        case 'del': {
+            const theme = tpTheme(arg);
+            if (!theme) return null;
+            return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
+                <span class="pop-title">Delete “${escapeHtml(theme.name)}”?</span>
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="tpCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="tpDeleteTheme(${jsArg(arg)})">Delete</button></div>` };
+        }
+        case 'create':
+            return { cls: 'pop', align: 'right', role: 'dialog', html: `
+                <span class="pop-title">New theme</span>
+                <input id="tp-new-name" class="inp sm" type="text" maxlength="80" enterkeyhint="done" autocomplete="off"
+                       placeholder="Theme name" aria-label="Theme name"
+                       oninput="document.getElementById('tp-new-ok').disabled = !this.value.trim()"
+                       onkeydown="if (event.key === 'Enter') { event.preventDefault(); tpCreateTheme(); }">
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="tpCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="tp-new-ok" disabled onclick="tpCreateTheme()">OK</button></div>` };
+    }
+    return null;
+}
 
+function tpMenu(kind, button, arg = null) {
+    const id = arg === null ? kind : `${kind}:${arg}`;
+    if (tp.menu === id) { tpCloseMenu(); return; }
+    const spec = tpMenuSpec(kind, arg);
+    if (!spec || !button || !button.isConnected) { tpCloseMenu(); return; }
+    const pop = document.getElementById('tp-menu');
+    pop.className = `te-pop ${spec.cls}`;
+    pop.setAttribute('role', spec.role || 'menu');
+    pop.innerHTML = spec.html;
+    pop.hidden = false;
+    if (tp.menuBtn && tp.menuBtn !== button) tp.menuBtn.removeAttribute('aria-expanded');
+    tp.menu = id;
+    tp.menuBtn = button;
+    button.setAttribute('aria-expanded', 'true');
+    tePlaceMenu(pop, button, spec.align || 'right', 'down');
+    const focus = pop.querySelector('input') || pop.querySelector('button:not([disabled])');
+    if (focus) focus.focus();
+}
+
+function tpCloseMenu() {
+    const pop = document.getElementById('tp-menu');
+    if (pop && !pop.hidden) {
+        pop.hidden = true;
+        pop.innerHTML = '';
+    }
+    if (tp.menuBtn) tp.menuBtn.removeAttribute('aria-expanded');
+    tp.menu = null;
+    tp.menuBtn = null;
+}
+
+document.addEventListener('mousedown', event => {
+    if (!tp.menu) return;
+    const pop = document.getElementById('tp-menu');
+    if (pop.contains(event.target) || tp.menuBtn?.contains(event.target)) return;
+    tpCloseMenu();
+}, true);
+
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || currentView !== 'themes') return;
+    if (tp.menu) {
+        const button = tp.menuBtn;
+        tpCloseMenu();
+        button?.focus();
+    } else if (tpCatsOpen()) {
+        if (tp.catConfirm) {
+            tp.catConfirm = null;
+            tpRenderCats();
+        } else {
+            tpCloseCats();
+        }
+    }
+});
+
+// Width changes move the buttons; height-only changes (phone keyboard) don't
+let tpLastWidth = window.innerWidth;
+window.addEventListener('resize', () => {
+    if (window.innerWidth === tpLastWidth) return;
+    tpLastWidth = window.innerWidth;
+    if (tp.menu) tpCloseMenu();
+    if (currentView === 'themes') tpUpdateMarquees();
+});
+
+// The collection scrolled away from the card a menu hangs from
+function tpOnScroll() {
+    if (tp.menu && (tp.menu.startsWith('theme:') || tp.menu.startsWith('del:'))) tpCloseMenu();
+}
+
+// ---------- Manage categories dialog ----------
+
+function tpCatsOpen() {
+    return document.getElementById('tp-cat-modal')?.classList.contains('active');
+}
+
+function tpOpenCats() {
+    tpCloseMenu();
+    tp.catConfirm = null;
+    const input = document.getElementById('tp-cm-new');
+    input.value = '';
+    tpCatNewInput();
+    tpRenderCats();
+    document.getElementById('tp-cat-modal').classList.add('active');
+    loadCategories().then(tpRenderCats);
+}
+
+function tpCloseCats() {
+    tp.catConfirm = null;
+    document.getElementById('tp-cat-modal').classList.remove('active');
+}
+
+function tpRenderCats() {
+    const box = document.getElementById('tp-cm-list');
+    if (!box) return;
+    const cats = tpCategories();
+    box.innerHTML = cats.length ? cats.map(cat => {
+        const n = themes.filter(t => (t.categories || []).includes(cat)).length;
+        const count = tpPlural(n, 'theme');
+        const arg = jsArg(cat);
+        if (tp.catConfirm === cat) {
+            return `<div class="cm-row">
+                <span class="cm-q">Delete “${escapeHtml(cat)}”? (${count})</span>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="tpCancelDeleteCat()">Cancel</button>
+                <button type="button" class="btn btn-sm btn-danger" onclick="tpDeleteCat(${arg})">Delete</button>
+            </div>`;
+        }
+        return `<div class="cm-row">
+            <span class="cm-name" title="${escapeHtml(cat)}">${escapeHtml(cat)}</span>
+            <span class="badge badge-type">${count}</span>
+            <button type="button" class="icon-btn sm" title="Delete" aria-label="Delete ${escapeHtml(cat)}" onclick="tpAskDeleteCat(${arg})">${TP_ICON_TRASH}</button>
+        </div>`;
+    }).join('') : '<div class="cm-none">—</div>';
+}
+
+function tpCatNewInput() {
+    const name = document.getElementById('tp-cm-new').value.trim();
+    const taken = tpCategories().some(c => c.toLowerCase() === name.toLowerCase());
+    document.getElementById('tp-cm-add').disabled = !name || taken;
+}
+
+async function tpAddCategory() {
+    const input = document.getElementById('tp-cm-new');
+    const name = input.value.trim().replace(/\s+/g, ' ');
+    if (!name || tpCategories().some(c => c.toLowerCase() === name.toLowerCase())) return;
+    try {
+        const result = await api('POST', '/categories', { name });
+        if (result && result.error) throw new Error(result.error);
+        await loadCategories();
+        input.value = '';
+        tpCatNewInput();
+        tpRenderCats();
+        renderThemesBrowser();
+        input.focus();
+    } catch (error) {
+        showToast(error.message || 'Failed to add category', 'error');
+    }
+}
+
+function tpAskDeleteCat(cat) {
+    tp.catConfirm = cat;
+    tpRenderCats();
+}
+
+function tpCancelDeleteCat() {
+    tp.catConfirm = null;
+    tpRenderCats();
+}
+
+async function tpDeleteCat(cat) {
+    try {
+        const result = await api('DELETE', `/categories/${encodeURIComponent(cat)}`);
+        if (result && result.error) throw new Error(result.error);
+        tp.catConfirm = null;
+        if (tp.cat === cat) tp.cat = 'all';
         await loadCategories();
         await loadThemes();
+        tpRenderCats();
         renderThemesBrowser();
-        closeCategoryCreateModal();
-        showToast(`Category "${name}" created${selectedThemes.length > 0 ? ` and assigned to ${selectedThemes.length} theme(s)` : ''}`, 'success');
+        showToast(`Category "${cat}" deleted`, 'success');
     } catch (error) {
-        showToast(error.message || 'Failed to create category', 'error');
+        showToast(error.message || 'Failed to delete category', 'error');
     }
 }
 
@@ -1923,16 +2241,17 @@ async function toggleThemeFavorite(themeId) {
     }
 }
 
-// Theme Delete
-function confirmDeleteTheme(themeId, themeName) {
-    if (confirm(`Delete theme "${themeName}"?\n\nThis will permanently delete the theme folder and all audio files. This action cannot be undone.`)) {
-        deleteTheme(themeId, themeName);
-    }
+// Theme Delete (asked first in the theme's ⋯ menu)
+async function tpDeleteTheme(themeId) {
+    const theme = tpTheme(themeId);
+    tpCloseMenu();
+    if (theme) await deleteTheme(themeId, theme.name);
 }
 
 async function deleteTheme(themeId, themeName) {
     try {
         await api('DELETE', `/themes/${themeId}`);
+        if (currentPreviewThemeId === themeId) closeThemePreview();
         // Remove from local state
         themes = themes.filter(t => t.id !== themeId);
         renderThemesBrowser();
@@ -3578,6 +3897,8 @@ function startThemePreview(themeId, themeName) {
     const nameEl = document.getElementById('preview-theme-name');
     player.style.display = 'flex';
     nameEl.textContent = themeName;
+    document.body.classList.add('preview-active');
+    renderThemesBrowser();
 
     themePreviewAudio.play().then(() => {
         themePreviewIsPlaying = true;
@@ -3634,7 +3955,9 @@ function closeThemePreview() {
     if (player) {
         player.style.display = 'none';
     }
+    document.body.classList.remove('preview-active');
     updateThemePreviewButton(false);
+    renderThemesBrowser();
 }
 
 function setThemePreviewVolume(value) {
@@ -3667,230 +3990,8 @@ function updateThemePreviewButton(isPlaying) {
 // End Theme Preview Playback
 // ============================================
 
-// Theme Creation
-let pendingThemeFiles = [];
-
-function openThemeCreateModal() {
-    // Reset form
-    document.getElementById('theme-create-name').value = '';
-    document.getElementById('theme-create-description').value = '';
-    document.getElementById('theme-file-list').innerHTML = '';
-    document.getElementById('theme-upload-progress').style.display = 'none';
-    document.getElementById('theme-file-upload-area').classList.remove('has-files');
-    document.getElementById('theme-create-submit').disabled = false;
-    pendingThemeFiles = [];
-
-    // Reset icon picker to default
-    document.querySelectorAll('#theme-icon-picker .icon-option').forEach(opt => {
-        opt.classList.remove('selected');
-    });
-    document.querySelector('#theme-icon-picker .icon-option[data-icon="🎵"]').classList.add('selected');
-    document.getElementById('theme-create-icon').value = '🎵';
-
-    // Populate category dropdown
-    const categorySelect = document.getElementById('theme-create-category');
-    categorySelect.innerHTML = '<option value="">No category</option>';
-    if (themeCategories && themeCategories.length > 0) {
-        themeCategories.forEach(cat => {
-            categorySelect.innerHTML += `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`;
-        });
-    }
-    categorySelect.innerHTML += '<option value="__new__">+ New Category...</option>';
-    document.getElementById('theme-create-new-category').style.display = 'none';
-    document.getElementById('theme-create-new-category').value = '';
-
-    // Setup drag and drop
-    const uploadArea = document.getElementById('theme-file-upload-area');
-    uploadArea.ondragover = (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-    };
-    uploadArea.ondragleave = () => {
-        uploadArea.classList.remove('dragover');
-    };
-    uploadArea.ondrop = (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-        handleThemeFileSelect(e.dataTransfer.files);
-    };
-
-    document.getElementById('theme-create-modal').style.display = 'flex';
-}
-
-function handleCategorySelectChange(select) {
-    const newCategoryInput = document.getElementById('theme-create-new-category');
-    if (select.value === '__new__') {
-        newCategoryInput.style.display = 'block';
-        newCategoryInput.focus();
-    } else {
-        newCategoryInput.style.display = 'none';
-    }
-}
-
-function closeThemeCreateModal() {
-    document.getElementById('theme-create-modal').style.display = 'none';
-    pendingThemeFiles = [];
-}
-
-function selectThemeIcon(element) {
-    // Remove selected from all icons
-    document.querySelectorAll('#theme-icon-picker .icon-option').forEach(opt => {
-        opt.classList.remove('selected');
-    });
-    // Add selected to clicked icon
-    element.classList.add('selected');
-    // Update hidden input
-    document.getElementById('theme-create-icon').value = element.dataset.icon;
-}
-
-function handleThemeFileSelect(fileList) {
-    const validExtensions = ['.mp3', '.wav', '.flac', '.ogg'];
-    const maxSize = 50 * 1024 * 1024; // 50MB
-
-    for (const file of fileList) {
-        const ext = '.' + file.name.split('.').pop().toLowerCase();
-        if (!validExtensions.includes(ext)) {
-            showToast(`Invalid file type: ${file.name}`, 'error');
-            continue;
-        }
-        if (file.size > maxSize) {
-            showToast(`File too large: ${file.name} (max 50MB)`, 'error');
-            continue;
-        }
-        // Avoid duplicates
-        if (!pendingThemeFiles.some(f => f.name === file.name)) {
-            pendingThemeFiles.push(file);
-        }
-    }
-
-    renderThemeFileList();
-}
-
-function renderThemeFileList() {
-    const container = document.getElementById('theme-file-list');
-    const uploadArea = document.getElementById('theme-file-upload-area');
-
-    if (pendingThemeFiles.length === 0) {
-        container.innerHTML = '';
-        uploadArea.classList.remove('has-files');
-        return;
-    }
-
-    uploadArea.classList.add('has-files');
-
-    container.innerHTML = pendingThemeFiles.map((file, index) => `
-        <div class="file-item">
-            <span class="file-item-name">${escapeHtml(file.name)}</span>
-            <span class="file-item-size">${formatFileSize(file.size)}</span>
-            <button class="file-item-remove" onclick="removeThemeFile(${index})" title="Remove">&times;</button>
-        </div>
-    `).join('');
-}
-
-function removeThemeFile(index) {
-    pendingThemeFiles.splice(index, 1);
-    renderThemeFileList();
-}
-
-function formatFileSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-}
-
-async function createTheme() {
-    const name = document.getElementById('theme-create-name').value.trim();
-    const description = document.getElementById('theme-create-description').value.trim();
-    const icon = document.getElementById('theme-create-icon').value;
-
-    // Get category selection
-    const categorySelect = document.getElementById('theme-create-category');
-    let category = categorySelect.value;
-    if (category === '__new__') {
-        category = document.getElementById('theme-create-new-category').value.trim();
-    }
-
-    if (!name) {
-        showToast('Please enter a theme name', 'error');
-        return;
-    }
-
-    // Disable submit button during creation
-    const submitBtn = document.getElementById('theme-create-submit');
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Creating...';
-
-    try {
-        // Step 1: Create the theme folder
-        const createResult = await api('POST', '/themes/create', { name, description, icon });
-        const themeId = createResult.theme_id;
-
-        // Step 2: Set category if selected
-        if (category) {
-            // If it's a new category, create it first
-            if (categorySelect.value === '__new__') {
-                await api('POST', '/categories', { name: category });
-            }
-            await api('POST', `/themes/${themeId}/categories`, { categories: [category] });
-            // Reload categories to update the list
-            await loadCategories();
-        }
-
-        // Step 3: Upload files if any
-        if (pendingThemeFiles.length > 0) {
-            const progressEl = document.getElementById('theme-upload-progress');
-            const progressFill = document.getElementById('theme-progress-fill');
-            const progressText = document.getElementById('theme-progress-text');
-            progressEl.style.display = 'block';
-
-            let uploaded = 0;
-            for (const file of pendingThemeFiles) {
-                progressText.textContent = `Uploading ${file.name}...`;
-                progressFill.style.width = `${(uploaded / pendingThemeFiles.length) * 100}%`;
-
-                await uploadThemeFile(themeId, file);
-                uploaded++;
-            }
-
-            progressFill.style.width = '100%';
-            progressText.textContent = 'Upload complete!';
-        }
-
-        // Refresh themes list
-        await loadThemes();
-        renderThemesBrowser();
-
-        closeThemeCreateModal();
-        showToast(`Theme "${name}" created successfully!`, 'success');
-
-    } catch (error) {
-        showToast(error.message || 'Failed to create theme', 'error');
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Create Theme';
-    }
-}
-
-async function uploadThemeFile(themeId, file) {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const response = await fetch(`${BASE_PATH}/api/themes/${themeId}/upload`, {
-        method: 'POST',
-        body: formData
-    });
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || error.error || 'Upload failed');
-    }
-
-    return response.json();
-}
-
 // Theme Export/Import
-async function exportThemeZip() {
-    const themeId = document.getElementById('theme-edit-id').value;
+async function exportThemeZip(themeId = document.getElementById('theme-edit-id').value) {
     if (!themeId) {
         showToast('No theme selected', 'error');
         return;

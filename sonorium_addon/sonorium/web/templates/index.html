@@ -204,33 +204,35 @@
                 </div>
             </div>
 
-            <!-- Themes View -->
-            <div id="view-themes" class="view">
-                <div class="themes-header">
-                    <h2>Themes</h2>
-                    <div class="themes-header-actions">
-                        <button class="btn btn-secondary" onclick="refreshThemes()" title="Rescan theme folders">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M23 4v6h-6"/>
-                                <path d="M1 20v-6h6"/>
-                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                            </svg>
-                            Refresh
+            <!-- Themes View: fixed search/filter bar; only #themes-browser scrolls.
+                 Chips, cards/rows and menus are rendered by app.js (tp* functions). -->
+            <div id="view-themes" class="view tp">
+                <div class="tp-bar">
+                    <div class="tp-search">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        <input id="tp-q" class="inp" type="text" placeholder="Search themes" aria-label="Search themes" autocomplete="off" oninput="tpSearch(this)">
+                        <button type="button" class="clr" id="tp-clr" aria-label="Clear search" onclick="tpClearSearch()" hidden>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         </button>
-                        <button class="btn btn-secondary" onclick="openCategoryCreateModal()">
-                            + Category
-                        </button>
-                        <button class="btn btn-secondary" onclick="importThemeZip()">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                <polyline points="17 8 12 3 7 8"/>
-                                <line x1="12" y1="3" x2="12" y2="15"/>
-                            </svg>
-                            Import Theme
-                        </button>
-                        <button class="btn btn-primary" onclick="openThemeCreateModal()">
-                            + Create Theme
-                        </button>
+                    </div>
+                    <div class="tp-tools">
+                        <span class="tp-cnt" id="tp-cnt"></span>
+                        <button type="button" class="sort-btn" aria-haspopup="menu" onclick="tpMenu('sort', this)"><span class="lab">Sort</span><span id="tp-sort-lbl">Name</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button>
+                        <div class="seg tp-view" role="group" aria-label="View">
+                            <button type="button" id="tp-cards-btn" aria-pressed="true" onclick="tpSetView('cards')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Cards</button>
+                            <button type="button" id="tp-list-btn" aria-pressed="false" onclick="tpSetView('list')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>List</button>
+                        </div>
+                    </div>
+                    <div class="fchips" id="tp-chips" role="group" aria-label="Category"></div>
+                    <div class="tp-lhead-wrap" id="tp-lhead" hidden>
+                        <div class="lwrap"><div class="lhead lgrid"><span></span><span>Name</span><span>Categories</span><span class="c">Tracks</span><span class="c">★</span><span></span><span></span></div></div>
+                    </div>
+                </div>
+
+                <div id="themes-browser" class="tp-scroll" onscroll="tpOnScroll()">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading themes...
                     </div>
                 </div>
 
@@ -260,12 +262,9 @@
                     </div>
                 </div>
 
-                <div id="themes-browser" class="themes-browser-enhanced">
-                    <div class="loading">
-                        <div class="spinner"></div>
-                        Loading themes...
-                    </div>
-                </div>
+
+                <!-- One floating menu/popover, filled and placed by tpMenu() -->
+                <div class="te-pop" id="tp-menu" hidden></div>
             </div>
 
             <!-- Theme Edit Modal: fixed top and footer; only the track list scrolls.
@@ -417,111 +416,22 @@
                 </div>
             </div>
 
-            <!-- Theme Create Modal -->
-            <div id="theme-create-modal" class="modal-backdrop" onclick="if(event.target===this) closeThemeCreateModal()">
-                <div class="modal" style="max-width: 700px;">
+            <!-- Manage categories (from the Themes page ⋯ menu) -->
+            <div id="tp-cat-modal" class="modal-backdrop" onclick="if(event.target===this) tpCloseCats()">
+                <div class="modal tp-cm" role="dialog" aria-modal="true" aria-labelledby="tp-cm-title">
                     <div class="modal-header">
-                        <h3>Create New Theme</h3>
-                        <button class="modal-close" onclick="closeThemeCreateModal()">&times;</button>
+                        <h2 id="tp-cm-title">Categories</h2>
+                        <button class="modal-close" aria-label="Close" onclick="tpCloseCats()">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
                     </div>
-                    <div class="modal-body">
-                        <div class="theme-create-form">
-                            <div>
-                                <label for="theme-create-name">Theme Name *</label>
-                                <input type="text" id="theme-create-name" placeholder="e.g., Rain Forest, Ocean Waves, Coffee Shop...">
-                            </div>
-                            <div>
-                                <label for="theme-create-description">Description</label>
-                                <textarea id="theme-create-description" placeholder="Describe the ambiance this theme creates..."></textarea>
-                            </div>
-                            <div>
-                                <label>Icon</label>
-                                <div class="icon-picker" id="theme-icon-picker">
-                                    <div class="icon-option selected" data-icon="🎵" onclick="selectThemeIcon(this)">🎵</div>
-                                    <div class="icon-option" data-icon="🌧️" onclick="selectThemeIcon(this)">🌧️</div>
-                                    <div class="icon-option" data-icon="🌊" onclick="selectThemeIcon(this)">🌊</div>
-                                    <div class="icon-option" data-icon="🌲" onclick="selectThemeIcon(this)">🌲</div>
-                                    <div class="icon-option" data-icon="🔥" onclick="selectThemeIcon(this)">🔥</div>
-                                    <div class="icon-option" data-icon="☕" onclick="selectThemeIcon(this)">☕</div>
-                                    <div class="icon-option" data-icon="🌙" onclick="selectThemeIcon(this)">🌙</div>
-                                    <div class="icon-option" data-icon="⛈️" onclick="selectThemeIcon(this)">⛈️</div>
-                                    <div class="icon-option" data-icon="🏙️" onclick="selectThemeIcon(this)">🏙️</div>
-                                    <div class="icon-option" data-icon="🐦" onclick="selectThemeIcon(this)">🐦</div>
-                                    <div class="icon-option" data-icon="🌿" onclick="selectThemeIcon(this)">🌿</div>
-                                    <div class="icon-option" data-icon="💧" onclick="selectThemeIcon(this)">💧</div>
-                                    <div class="icon-option" data-icon="❄️" onclick="selectThemeIcon(this)">❄️</div>
-                                    <div class="icon-option" data-icon="🌅" onclick="selectThemeIcon(this)">🌅</div>
-                                    <div class="icon-option" data-icon="🎹" onclick="selectThemeIcon(this)">🎹</div>
-                                    <div class="icon-option" data-icon="🎸" onclick="selectThemeIcon(this)">🎸</div>
-                                </div>
-                                <input type="hidden" id="theme-create-icon" value="🎵">
-                            </div>
-                            <div>
-                                <label>Category (optional)</label>
-                                <div class="category-select-row">
-                                    <select id="theme-create-category" onchange="handleCategorySelectChange(this)">
-                                        <option value="">No category</option>
-                                    </select>
-                                    <input type="text" id="theme-create-new-category" placeholder="New category name..." style="display: none;">
-                                </div>
-                            </div>
-                            <div>
-                                <label>Audio Files</label>
-                                <div id="theme-file-upload-area" class="file-upload-area"
-                                     onclick="document.getElementById('theme-file-input').click()">
-                                    <div class="file-upload-icon">🎵</div>
-                                    <div class="file-upload-text">
-                                        Drag & drop audio files here or click to browse
-                                    </div>
-                                    <div class="file-upload-hint">
-                                        Supports MP3, WAV, FLAC, OGG (max 50MB per file)
-                                    </div>
-                                </div>
-                                <input type="file" id="theme-file-input" class="file-upload-input"
-                                       multiple accept=".mp3,.wav,.flac,.ogg,audio/*"
-                                       onchange="handleThemeFileSelect(this.files)">
-                                <div id="theme-file-list" class="file-list"></div>
-                                <div id="theme-upload-progress" class="upload-progress" style="display: none;">
-                                    <div class="upload-progress-bar">
-                                        <div id="theme-progress-fill" class="upload-progress-fill"></div>
-                                    </div>
-                                    <div id="theme-progress-text" class="upload-progress-text">Uploading...</div>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="modal-body" id="tp-cm-list"></div>
+                    <div class="cm-add">
+                        <input id="tp-cm-new" class="inp sm" type="text" maxlength="60" autocomplete="off" placeholder="New category" aria-label="New category"
+                               oninput="tpCatNewInput()" onkeydown="if (event.key === 'Enter') { event.preventDefault(); tpAddCategory(); }">
+                        <button type="button" class="btn btn-sm btn-secondary" id="tp-cm-add" disabled onclick="tpAddCategory()">Add</button>
                     </div>
-                    <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="closeThemeCreateModal()">Cancel</button>
-                        <button class="btn btn-primary" id="theme-create-submit" onclick="createTheme()">Create Theme</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Category Create Modal -->
-            <div id="category-create-modal" class="modal-backdrop" onclick="if(event.target===this) closeCategoryCreateModal()">
-                <div class="modal" style="max-width: 500px;">
-                    <div class="modal-header">
-                        <h3>Create Category</h3>
-                        <button class="modal-close" onclick="closeCategoryCreateModal()">&times;</button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="theme-create-form">
-                            <div>
-                                <label for="category-create-name">Category Name *</label>
-                                <input type="text" id="category-create-name" placeholder="e.g., Weather, Nature, Urban...">
-                            </div>
-                            <div>
-                                <label>Add Themes to Category (optional)</label>
-                                <div id="category-theme-list" class="category-theme-list">
-                                    <!-- Populated dynamically -->
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="closeCategoryCreateModal()">Cancel</button>
-                        <button class="btn btn-primary" onclick="createCategory()">Create Category</button>
-                    </div>
+                    <div class="modal-footer"><button type="button" class="btn btn-primary" onclick="tpCloseCats()">Done</button></div>
                 </div>
             </div>
 
