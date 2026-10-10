@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.21 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: A section's column headings use the section's colour, not the old grey header's
+  ([`d41038a`](https://github.com/synssins/sonorium/commit/d41038a579b27484722be0e0f76b8cd07d7ca12e))
+
+
 ## v1.6.1-dev.20 (2026-10-10)
 
 
