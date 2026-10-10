@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.8 (2026-10-10)
+
+### Bug Fixes
+
+- The mix no longer ducks the moment a track starts fading in
+  ([`5687652`](https://github.com/synssins/sonorium/commit/56876522b8915249cc0ea07f66c32095a7a0bc6c))
+
+### Features
+
+- Advanced transitions for sequence steps; playback log with a filter
+  ([`121f2db`](https://github.com/synssins/sonorium/commit/121f2db11e54837068b37ca5b49a42e87e21b68f))
+
+
 ## v1.6.1-dev.7 (2026-10-10)
 
 ### Features
