@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.7 (2026-10-10)
+
+### Features
+
+- Sequence steps fade tracks over the ramp; Ebb & Flow tracks start fresh
+  ([`f2d8d6e`](https://github.com/synssins/sonorium/commit/f2d8d6e637860a7d0d5509bab4cc8767457d2515))
+
+
 ## v1.6.1-dev.6 (2026-10-10)
 
 ### Bug Fixes
