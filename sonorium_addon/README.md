@@ -2,21 +2,57 @@
 
 ![Sonorium](https://raw.githubusercontent.com/synssins/sonorium/main/logo.png)
 
+> ## ⭐ Major Release: Themes 2.0
+>
+> This is a major update. Themes can now hold **groups**, every channel can play its **own preset**, the **Theme Editor** and **Themes** page are rebuilt, and the playback modes have **new names**.
+>
+> Your themes are converted automatically the first time this version starts. Each theme's old settings file is kept next to it as `metadata.json.pre-presets.bak`.
+
 **Multi-Zone Ambient Soundscape Mixer for Home Assistant**
 
 [![Add Repository to Home Assistant](https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg)](https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fsynssins%2Fsonorium)
 
 Sonorium lets you create immersive ambient audio environments throughout your home. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to any combination of media players in your Home Assistant setup.
 
-## What's New in v1.4.0
+## What's New: Themes 2.0
 
-- **New channel editor.** Search themes, and pick speakers by floor, room or one at a time; ticking a floor or room selects everything in it.
-- **Settings → Speakers.** Rename speakers, set their room and a volume offset, and play a short test sound. Only speakers switched on here appear in channels, and **Hide offline** tidies the list.
-- **Settings → Logs.** See, search, copy and download recent log messages from Sonorium's web UI, without opening the add-on's Log tab. If Sonorium fails to start, its web UI shows the logs instead.
-- **Speaker screens.** Nest Hub and other Google Cast displays show the Sonorium logo while playing.
-- **Presets follow the theme.** Changing a channel's theme switches to that theme's default preset.
-- **Smaller fixes.** Denon/Marantz receivers are recognised, settings pages stay readable on wide screens, and the browser tab shows Sonorium's icon.
-- **Also new: a Docker version** for running Sonorium without the add-on system. See the [main README](https://github.com/synssins/sonorium#docker).
+- **Groups.** A folder inside a theme is a group: its tracks take turns, one at a time, never overlapping, with a random gap between them.
+- **A preset per channel.** Two channels can play the same theme with different presets.
+- **New Theme Editor.** Name, categories and description at the top; every track in one aligned table with its mode, volume, how often and mute; groups as sections you can collapse; upload, drag tracks between groups, and presets at the bottom. Changes are heard live, **Preview mix** plays the theme on the device you're editing from, and the **?** button explains it all.
+- **New Themes page.** Search, category chips, sort, and cards or a list. Each theme appears once, with its categories, a preview and a badge for the channel playing it.
+- **New mode names.** Continuous is now **Background**, Sparse is **Intermittent**, Presence is **Ebb & Flow**. Your saved settings keep working.
+- **Steadier sound.** The mix keeps an even level as tracks come and go, without clipping.
+- **Fixes.** A memory leak while playing is fixed, and tracks in a group can no longer overlap after a stall.
+
+### How a theme plays
+
+These are the same words as the **?** help in the Theme Editor.
+
+A theme is a set of tracks (sound files) mixed together. Each track has a **mode**, a **volume** and a **how often**.
+
+**Modes**
+
+- **Background:** plays all the time, looping smoothly. Rain, wind, a fire.
+- **Intermittent:** plays once, then goes quiet before playing again. *How often* sets the wait. Bird calls, a thunder crack, a door.
+- **Ebb & Flow:** fades in, plays a while, fades out, then stays quiet before coming back. *How often* sets how much of the time it's heard. Distant traffic, a passing crowd.
+- **Auto:** picks for you. Under 15 seconds plays Intermittent, longer plays Ebb & Flow. At 100% *how often*, either plays as Background.
+
+**Groups**
+
+- **Take turns:** a group is a folder of tracks where only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
+- **Gap:** after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.
+- **Intermittent only:** on its turn, a track plays its whole file once, then hands over. Background and Ebb & Flow are for the ambience outside groups.
+- **Volume, how often, mute:** the group's settings scale every track in it. A track's own *how often* sets how keen it is to take the next turn.
+- **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
+- **Deleting a group:** keeps its files; they move back into the theme.
+
+**Saving**
+
+- **Live:** changes are heard on speakers playing this theme, and on this device with Preview mix.
+- **Cancel:** Reverts unsaved changes.
+- **Save Preset:** Saves loaded preset
+- **Save Theme:** Saves theme with all changes (presets, name, etc) Required after saving a preset.
+- **New:** makes a new preset from the current mix.
 
 Full history: [CHANGELOG.md](CHANGELOG.md).
 
@@ -66,9 +102,19 @@ Search themes, then pick speakers by floor, room or one at a time.
 ![Edit Channel](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channel_Editor.png)
 
 ### Themes
-Your theme library, with favorites and categories.
+Search, filter by category, and switch between cards and a list.
 
 ![Themes](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Themes.png)
+
+### Edit Theme
+Tracks in one table, with groups, presets and a live preview.
+
+![Edit Theme](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Theme_Editor.png)
+
+### Theme Editor help
+The **?** button explains modes, groups and saving.
+
+![Theme Editor help](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Theme_Editor_Help.png)
 
 ### Settings → Speakers
 Switch speakers on or off, set their room and volume offset, and play a test sound.
