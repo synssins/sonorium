@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.24 (2026-10-10)
+
+### Features
+
+- **channels**: Keep each channel's recent changes and return them on the sessions API
+  ([`555b348`](https://github.com/synssins/sonorium/commit/555b348299ab2b7cba64cd9cd2a27a6a4511f835))
+
+
 ## v1.6.1-dev.22 (2026-10-10)
 
 ### Bug Fixes
