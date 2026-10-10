@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.0 (2026-10-10)
+
+### Documentation
+
+- 1.6.0 what's new and announcement; 1.5.2 and 1.5.0 kept under their own headings
+  ([`a3f9c51`](https://github.com/synssins/sonorium/commit/a3f9c5175caf1ccccff8c483766dec91e8815bb3))
+
+
 ## v1.5.3-dev.9 (2026-10-10)
 
 ### Bug Fixes
