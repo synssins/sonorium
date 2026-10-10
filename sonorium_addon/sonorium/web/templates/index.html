@@ -270,7 +270,7 @@
 
             <!-- Theme Edit Modal: fixed top and footer; only the track list scrolls.
                  Track rows, chips, presets and menus are rendered by app.js (te* functions). -->
-            <div id="theme-edit-modal" class="modal-backdrop te-backdrop" onclick="if(event.target===this) closeThemeEditModal()">
+            <div id="theme-edit-modal" class="modal-backdrop te-backdrop" onclick="if(event.target===this) teCancel()">
                 <div class="modal te" role="dialog" aria-modal="true" aria-labelledby="te-title">
                     <input type="hidden" id="theme-edit-id">
                     <div class="modal-header">
@@ -279,7 +279,7 @@
                             <button class="icon-btn sm hd-more" aria-label="More theme options" aria-haspopup="menu" onclick="teMenu('theme', this)">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
                             </button>
-                            <button class="modal-close" aria-label="Close" onclick="closeThemeEditModal()">
+                            <button class="modal-close" aria-label="Close" onclick="teCancel()">
                                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                             </button>
                         </div>
@@ -368,9 +368,9 @@
                             <span class="dirty" id="te-dirty" hidden><i></i>Mix changed</span>
                         </span>
                         <div class="foot-btns">
-                            <button class="btn btn-primary save-btn" title="Save theme" onclick="teSaveTheme()">Save theme<span class="sdot" id="te-sdot" title="Unsaved changes" hidden></span></button>
+                            <button class="btn btn-primary save-btn" title="Save theme" onclick="teSaveAndClose()">Save theme<span class="sdot" id="te-sdot" title="Unsaved changes" hidden></span></button>
                             <button class="btn btn-secondary" id="te-savepreset-btn" title="Save theme and preset" onclick="teSavePreset()">Save preset</button>
-                            <button class="btn btn-secondary" onclick="closeThemeEditModal()">Cancel</button>
+                            <button class="btn btn-secondary" onclick="teCancel()">Cancel</button>
                         </div>
                     </div>
 

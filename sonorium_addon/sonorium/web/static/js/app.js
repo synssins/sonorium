@@ -2067,7 +2067,7 @@ function openThemeEditModal(themeId) {
         icon: theme.icon ? resolveThemeIcon(theme.icon, themeId) : '',
         cats: [...(theme.categories || [])], catText: '', catHi: 0, catFocus: false,
         threshold: theme.short_file_threshold ?? null,
-        closed: {}, presets: [], selPreset: '', mixDirty: false,
+        closed: {}, presets: [], selPreset: '', mixDirty: false, mixSnap: null,
         upload: null, renaming: null, confirmDel: null, drag: null,
     });
     currentTrackMixerThemeId = themeId;
@@ -2094,6 +2094,58 @@ function openThemeEditModal(themeId) {
     loadCategories().then(teRenderCatList);
     teLoadPresets(true);
     teLoadTracks();
+}
+
+// ---------- Save theme closes; Cancel puts back what wasn't saved ----------
+// Track and group controls save as they change, so Cancel restores the
+// values from when the window opened (or from the last save). Uploads, moving
+// tracks between groups, creating/deleting groups and saved presets stay.
+
+const TE_TRACK_FIELDS = ['volume', 'presence', 'muted', 'playback_mode', 'seamless_loop', 'exclusive'];
+const TE_GROUP_FIELDS = ['volume', 'presence', 'muted', 'gap_min', 'gap_max'];
+
+function teMixSnapshot() {
+    const tracks = {};
+    for (const t of te.tracks) tracks[t.name] = Object.fromEntries(TE_TRACK_FIELDS.map(f => [f, t[f]]));
+    const groups = {};
+    for (const g of te.groups) groups[g.name] = Object.fromEntries(TE_GROUP_FIELDS.map(f => [f, g.settings?.[f] ?? null]));
+    return { tracks, groups };
+}
+
+async function teRestoreMix() {
+    const snap = te.mixSnap;
+    if (!snap || !te.themeId) return;
+    const calls = [];
+    for (const t of te.tracks) {
+        const before = snap.tracks[t.name];
+        if (!before) continue;  // moved or uploaded since: nothing to put back
+        for (const f of TE_TRACK_FIELDS) {
+            if (before[f] !== undefined && before[f] !== t[f]) {
+                calls.push(api('PUT', teTrackUrl(t.name, f), { [f]: before[f] }));
+            }
+        }
+    }
+    for (const g of te.groups) {
+        const before = snap.groups[g.name];
+        if (!before) continue;
+        const changed = TE_GROUP_FIELDS.filter(f => before[f] !== (g.settings?.[f] ?? null));
+        if (changed.length) calls.push(api('PUT', teGroupUrl(g.name), Object.fromEntries(changed.map(f => [f, before[f]]))));
+    }
+    const results = await Promise.allSettled(calls);
+    if (results.some(r => r.status === 'rejected')) showToast('Some settings could not be put back', 'error');
+}
+
+async function teCancel() {
+    if (!te.themeId) return closeThemeEditModal();
+    await teRestoreMix();
+    closeThemeEditModal();
+}
+
+async function teSaveAndClose() {
+    if (await teSaveTheme(true)) {
+        te.mixSnap = null;
+        closeThemeEditModal();
+    }
 }
 
 function closeThemeEditModal() {
@@ -2298,6 +2350,7 @@ async function teSaveTheme(quiet = false) {
         }
         document.getElementById('te-title-name').textContent = name;
         te.saved = teDetailsSnap();
+        te.mixSnap = teMixSnapshot();  // saved: Cancel no longer puts these back
         teDetailsChanged();
         await loadCategories();
         renderThemesBrowser();
@@ -2347,6 +2400,7 @@ async function teLoadTracks(afterFileChange = false) {
         const data = await teLoadData(themeId);
         if (seq !== te.loadSeq || te.themeId !== themeId) return;
         Object.assign(te, data);
+        if (!te.mixSnap) te.mixSnap = teMixSnapshot();  // what Cancel puts back
         if (te.upload && !teGroup(te.upload)) te.upload = '';
         teRenderTracks();
     } catch (error) {
