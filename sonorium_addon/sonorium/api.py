@@ -1744,7 +1744,15 @@ class ApiSonorium(api.Base):
         if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
             self.schedule_theme_refresh()
             raise HTTPException(status_code=500, detail="Files were moved, but metadata.json couldn't be saved")
-        self.schedule_theme_refresh()
+
+    async def _refresh_now(self):
+        """Rebuild the themes before answering, so the editor shows the change at once."""
+        if self._theme_refresh_task and not self._theme_refresh_task.done():
+            self._theme_refresh_task.cancel()
+        try:
+            await self.refresh_themes()
+        except Exception as e:
+            logger.error(f"Theme refresh after a group change failed: {e}")
 
     @staticmethod
     def _group_http_error(error):
@@ -1775,6 +1783,7 @@ class ApiSonorium(api.Base):
         new = change.group_renames.get(group, group)
         if change.group_renames:
             self._save_group_change(folder, metadata, change)
+            await self._refresh_now()
             logger.info(f"Theme '{metadata.name}': group '{group}' renamed to '{new}'")
         return {"name": new, "tracks": change.track_keys}
 
@@ -1790,6 +1799,7 @@ class ApiSonorium(api.Base):
         except theme_groups.GroupError as e:
             raise self._group_http_error(e)
         self._save_group_change(folder, metadata, change)
+        await self._refresh_now()
         result = {"name": group, "tracks": change.track_keys, "folder_removed": change.folder_removed}
         if change.folder_removed:
             logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(change.track_keys)} tracks moved to the top level")
@@ -1817,6 +1827,7 @@ class ApiSonorium(api.Base):
         new_key = change.track_keys.get(track_name, track_name)
         if change.track_keys:
             self._save_group_change(folder, metadata, change)
+            await self._refresh_now()
             where = f"into group '{new_key.rsplit('/', 1)[0]}'" if "/" in new_key else "to the top level"
             renamed = f" as '{track_display_name(new_key)}'" if track_display_name(new_key) != track_display_name(track_name) else ""
             logger.info(f"Theme '{metadata.name}': track '{track_display_name(track_name)}' moved {where}{renamed}")

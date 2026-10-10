@@ -2377,12 +2377,7 @@ function teWait(ms) {
 }
 
 function teFlash(text) {
-    const el = document.getElementById('te-msg');
-    if (!el) return;
-    el.textContent = text;
-    el.classList.add('show');
-    clearTimeout(te.msgTimer);
-    te.msgTimer = setTimeout(() => { el.textContent = ''; el.classList.remove('show'); }, 2600);
+    showToast(text, 'success');  // a toast: doesn't move focus or the footer
 }
 
 // ---------- Open / close ----------
@@ -2720,12 +2715,12 @@ async function teLoadData(themeId) {
     return { tracks, groups, groupsOk };
 }
 
-async function teLoadTracks(afterFileChange = false) {
+async function teLoadTracks(afterFileChange = false, waitForRebuild = afterFileChange) {
     const themeId = te.themeId;
     if (!themeId) return;
     const seq = ++te.loadSeq;
     const list = document.getElementById('te-tracks');
-    if (afterFileChange) {
+    if (waitForRebuild) {  // uploads: the server rebuilds the theme a moment later
         list.classList.add('busy');
         await teWait(TE_REBUILD_WAIT_MS);
     }
@@ -3141,7 +3136,7 @@ async function teNewGroup(moveKey = null) {
         if (moveKey) {
             await api('POST', teTrackUrl(moveKey, 'move'), { group: name });
             te.renaming = name;
-            await teLoadTracks(true);
+            await teLoadTracks(true, false);
         } else {
             if (!teGroup(name)) {
                 te.groups.push({ name, settings: {}, tracks: [] });
@@ -3195,7 +3190,7 @@ async function teCommitRename(name, value) {
         te.tracks.forEach(t => { if (trackGroupOf(t.name) === name) t.name = finalName + t.name.slice(name.length); });
         teSetUpload(te.upload);
         teRenderTracks();
-        await teLoadTracks(true);
+        await teLoadTracks(true, false);
     } catch (error) {
         showToast(error.message || 'Failed to rename group', 'error');
         teRenderTracks();
@@ -3220,7 +3215,7 @@ async function teDeleteGroup(name) {
         await api('DELETE', teGroupUrl(name));
         if (te.upload === name) teSetUpload('');
         teFlash(`Deleted group ${name}`);
-        await teLoadTracks(true);
+        await teLoadTracks(true, false);
     } catch (error) {
         showToast(error.message || 'Failed to delete group', 'error');
         teRenderTracks();
@@ -3230,13 +3225,19 @@ async function teDeleteGroup(name) {
 async function teMoveTrack(key, group) {
     teCloseMenu();
     if ((trackGroupOf(key) || null) === (group || null)) return;
+    // Move the row now; the server's answer (and any rename on a name clash) follows
+    const track = te.tracks.find(t => t.name === key);
+    if (track) {
+        track.name = group ? `${group}/${trackDisplayName(key)}` : trackDisplayName(key);
+        teRenderTracks();
+    }
     try {
         await api('POST', teTrackUrl(key, 'move'), { group: group || null });
         teFlash(`Moved ${trackDisplayName(key)} to ${group || 'theme'}`);
-        await teLoadTracks(true);
+        await teLoadTracks(true, false);  // the server rebuilt the theme before answering
     } catch (error) {
         showToast(error.message || 'Failed to move track', 'error');
-        teRenderTracks();
+        await teLoadTracks(false, false);
     }
 }
 

@@ -3589,3 +3589,9 @@ html { scrollbar-gutter: stable; }
     .main-header .btn { padding-top: 0; padding-bottom: 0; }
     .main-header .icon-btn { width: 36px; padding: 0; }
 }
+
+/* Theme Editor: Gap / Crossfade on its own line under the group name, left-aligned with it;
+ * no text selection while dragging rows */
+.te .ghead .gname-cell .gap-ctl { flex-basis: 100%; margin-left: 0; }
+.te #te-tracks .trow, .te #te-tracks .ghead { -webkit-user-select: none; user-select: none; }
+.te #te-tracks input { -webkit-user-select: text; user-select: text; }
