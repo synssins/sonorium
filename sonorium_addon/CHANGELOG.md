@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.1-dev.1 (2026-10-10)
+
+### Testing
+
+- Skip the connection-removal tests where FastAPI isn't installed
+  ([`06736c0`](https://github.com/synssins/sonorium/commit/06736c0466662b45b2eb611f090fdf8d941b01f8))
+
+
 ## v1.5.0 (2026-10-10)
 
 ### Documentation
