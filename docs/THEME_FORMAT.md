@@ -17,7 +17,8 @@ code and this document disagree, the code wins and this document has a bug.
 |---|---|
 | Track | One audio file in a theme. |
 | Version | One of several tracks that are variations of the same sound (for example three lute songs). |
-| Group | A named group: a subfolder of a theme. In Intermittent mode (the default) only one of its tracks plays at a time; in Merry-go-round mode its files make one continuous bed, each crossfading into the next (3.6); in Intrusion mode each track plays as its own settings say and the group can hold files linked from other themes (2.6). In every mode the group works like a mixer bus over its tracks. |
+| Group | A named group: a subfolder of a theme. In Intermittent mode (the default) only one of its tracks plays at a time; in Merry-go-round mode its files make one continuous bed, each crossfading into the next (3.6); in Ebb & Flow mode every file plays at once as Ebb & Flow. A group can hold files linked from other themes like its own (2.6). In every mode the group works like a mixer bus over its tracks. |
+| Linked file | An audio file of another theme, used by this theme without a copy (2.6): ungrouped or in any group, like a file of the theme. |
 | Preset | A saved set of track (and optionally group) settings for one theme. |
 | Sequence | Presets played in order inside one theme, gliding from one to the next (section 5). |
 | Playlist | Themes played in order on a channel (stored by the server, not in a theme; see `docs/PLAYBACK.md`). |
@@ -97,6 +98,21 @@ then renamed over the original (`core/theme_presets.py:60-75`).
 - A `metadata.json` without `id` is also rewritten, so the new ID is kept (`:296`).
 - The conversion is idempotent. If the folder cannot be written, the files are used as they are (presets still read from `metadata.json` in memory) and a warning is logged once per theme (`:309-310`, `:204-209`).
 
+Three more one-time conversions run on load, each marked in `metadata.json` so it runs once
+per theme, and each copying `metadata.json` and `presets.json` once to a backup before it
+writes (`core/theme_metadata.py` `load_theme_folder`):
+
+| Conversion | Marker | Backup | What it does |
+|---|---|---|---|
+| Ebb & Flow Interval -> Duration | `"ebb_duration": true` | `*.pre-duration.bak` | Every Ebb & Flow track's `presence` (its own mode `presence`, or in an Ebb & Flow group), in the theme and in each preset, becomes `1 - presence`: the slider now means Duration, higher is longer (`_flip_ebb_duration`). |
+| Intrusion groups retired | `"intrusions_retired": true` | `*.pre-links.bak` | For each group with `"mode": "intrusion"`: its linked files become ungrouped (key `"<name>"`, `" (2)"` on a clash; they keep their own `playback_mode`), then the group is removed as `DELETE .../groups/{name}` removes one: its own files move up to the theme folder (renamed `"x (2)"` on a clash), its entry leaves `groups` and every preset's `groups`. Every key follows in `tracks`, `links`, each preset's `tracks` and each sequence's `transitions` and `while` (`_retire_intrusions`, `core/intrusions.py` `retire_intrusion_groups`). The backup is made before any file moves; if a file can't be moved, that group is tried again on the next load. |
+| Auto retired | `"auto_retired": true` | `*.pre-auto.bak` | Every track whose `playback_mode` is `"auto"` in `tracks` or in a preset gets the mode it played as (3.2): a file shorter than `short_file_threshold` `sparse` when its presence is below 1, a longer one `presence`, else `continuous`. Becoming `presence` (Ebb & Flow), a track that plays its own mode (not in a group) gets `presence = 1 - presence` (Duration, as above); a grouped track keeps its value, since its group decides how it plays. A preset entry whose own presence makes it play differently from the theme's track gets its own `playback_mode` (and flipped presence). Lengths come from the files (a linked file's from its source); a track whose file is missing keeps `auto`. When lengths can't be read nothing changes and the theme isn't marked (`_retire_auto`). |
+
+After the Auto conversion, `"auto"` is only the default of a track **without** an entry in
+`tracks` (a file added to the folder by hand): it is still resolved at play time (3.2), so
+such files play as before. A new upload through the editor gets `"playback_mode":
+"unassigned"` instead (2.2).
+
 **Broken JSON files** (not UTF-8, not valid JSON, not a JSON object, `"presets"` not an
 object, or content the dataclasses reject) raise `BrokenJsonError`
 (`core/theme_presets.py:42-57`, `:100-107`; `core/theme_metadata.py:219-222`). Then:
@@ -110,7 +126,8 @@ object, or content the dataclasses reject) raise `BrokenJsonError`
 Theme export always writes the 2.0 layout (`metadata.json` without presets plus `presets.json`)
 without changing the folder (`core/theme_metadata.py:338-353`, `web/api_v2.py:1773-1778`).
 An exported theme is self-contained: linked files (2.6) are copied into the zip as normal files
-of their group, and `links` is left out (`core/intrusions.py` `export_entries`).
+where they sit (the theme folder or their group's), and `links` is left out
+(`core/intrusions.py` `export_entries`).
 
 **Generator rule:** write `presets.json` and set `"spec_version": 2` in `metadata.json`. A theme
 with presets inside `metadata.json` (version 1) still works: the server converts it on first load.
@@ -140,10 +157,11 @@ written first, so a failed save never loses presets.
 | `icon` | string | `""` | An emoji; empty means the UI picks one. | `:78` |
 | `is_favorite` | bool | `false` | User favourite flag. | `:81` |
 | `categories` | list of string | `[]` | Category names. | `:82` |
-| `short_file_threshold` | number (seconds) | `15.0` | Tracks shorter than this count as "short" when `playback_mode` is `auto` (3.2), and for grouped tracks (3.6). Must be `>= 0` (`web/api_v2.py:1688-1691`). | `:85`, `recording.py:255-257`, `:288-293` |
+| `short_file_threshold` | number (seconds) | `15.0` | Tracks shorter than this count as "short" when `playback_mode` is `auto` (3.2, and the Auto conversion, 1.4), and for grouped tracks (3.6). Must be `>= 0` (`web/api_v2.py:1688-1691`). | `:85`, `recording.py:255-257`, `:288-293` |
 | `tracks` | object: key -> TrackSettings | `{}` | Per-track settings, keyed by track key (1.2). | `:88`, `:112-116` |
 | `groups` | object: group name -> group settings | `{}` | Group master settings (2.5). | `:102` |
-| `links` | object: track key -> link | absent | Linked files of intrusion groups (2.6). Written only when non-empty. | `core/theme_metadata.py` `links` |
+| `links` | object: track key -> link | absent | Linked files (2.6), ungrouped or in any group. Written only when non-empty. | `core/theme_metadata.py` `links` |
+| `ebb_duration`, `intrusions_retired`, `auto_retired` | bool | absent | Markers of the one-time conversions done on load (1.4). Written only when true. A generator writing a new theme can set all three (it has no Interval values, intrusion groups or `auto` modes). | `core/theme_metadata.py` `load_theme_folder` |
 | `attribution` | object or absent | absent | Source and licence info (6.3). Written only when non-empty. | `:94`, `:139-140` |
 | `presets` | object | absent | **Version 1 only.** Moved to `presets.json` by the conversion (1.4); never written back. | `:91`, `:124-141` |
 
@@ -154,7 +172,7 @@ written first, so a failed save never loses presets.
 | `volume` | number 0.0-1.0 | `1.0` | Amplitude multiplier for the track. The API clamps to 0-1 (`api.py:1471`); the loader does not. | `core/theme_metadata.py:46` |
 | `presence` | number 0.0-1.0 | `1.0` | How often the track is heard (meaning depends on mode, 3.3-3.5). API clamps to 0-1 (`api.py:1397`). | `:44` |
 | `muted` | bool | `false` | Track is left out of the mix. | `:45` |
-| `playback_mode` | string | `"auto"` | `auto`, `continuous`, `sparse` or `presence` (3.2). Unknown strings become `auto` on apply (`api.py:503-506`). | `:47` |
+| `playback_mode` | string | `"auto"` | `continuous` (Background), `sparse` (Intermittent), `presence` (Ebb & Flow) or `unassigned` (not placed yet: **not played**; a new upload and a file linked without a group start so). `auto` (decided by the file's length at play time, 3.2) is retired: converted once on load (1.4), and only the default of a track without an entry. Unknown strings become `auto` on apply (`api.py:503-506`). A track in a group plays its group's way whatever its own mode (3.2). | `:47` |
 | `seamless_loop` | bool | `false` | `true` turns the loop **crossfade off** (hard cut at the loop point). | `:48`, `api.py:507` |
 | `exclusive` | bool | `false` | Version 1 way to put a top-level track in the single legacy group "Exclusive" (3.6). Ignored for tracks in a group folder (always exclusive). | `:49`, `recording.py:332`, `:452-453`, `:467-473` |
 | `fade_in`, `fade_out` | number, seconds | `0` | The file's own fades (0 = off, at most 30): applied as the file is decoded, so every start, end and loop has them. Not in presets. | `recording.py` `file_fade_samples` |
@@ -212,91 +230,96 @@ means "no change" (100 %, not muted, default gap).
 | `muted` | bool | `true` mutes every track in the group. | `:338`, `:457-459` |
 | `gap_min`, `gap_max` | number, seconds | The group's random rest after any of its tracks finishes: uniform in `[gap_min, gap_max]` each time. Never scaled by presence. If only one is set, it is used for both; if reversed, they are swapped. Without either, the rest is 120 s (3.6). Saved in presets: a channel playing a preset that has them uses them. | `:354-363`, `:36-39`, `recording.py` `preset_gap_range` |
 | `pause_between` | bool | Ebb & Flow mode only: every file of the group pauses between plays, at staggered times, and a file only fades out for its pause while another unmuted file of the group plays, so the group is never silent. Off (or missing): each file's own `pause_between`. Saved in presets. | `recording.py` `EbbGroup`, `group_pauses` |
-| `mode` | string | `"intermittent"` (default; also when missing or unknown): one track at a time with the gap. `"merry_go_round"`: a continuous bed, each file crossfading into the next (3.6). `"ebb_flow"`: every file plays at once as Ebb & Flow, no turns. `"intrusion"`: each track plays as its own settings say, like an ungrouped track, and the group can hold linked files (2.6). A theme setting: presets never save it. | `recording.py` `group_mode`, `theme.py` `_bed_groups`, `_intrusion_groups` |
+| `mode` | string | `"intermittent"` (default; also when missing or unknown): one track at a time with the gap. `"merry_go_round"`: a continuous bed, each file crossfading into the next (3.6). `"ebb_flow"`: every file plays at once as Ebb & Flow, no turns. `"intrusion"` is **retired**: still read (each track then plays as its own settings say), converted once on load (1.4), never accepted by the API. A theme setting: presets never save it. | `recording.py` `group_mode`, `theme.py` `_bed_groups`, `_intrusion_groups` |
 | `crossfade` | number, seconds | Merry-go-round only: the overlap between one file and the next. Default 10; kept within 1-60. Ignored in Intermittent mode. Not saved in presets. | `recording.py` `group_crossfade` |
 | `legacy_exclusive` | bool | Written by the conversion for version 1 themes with `exclusive` tracks (1.4). Read by nothing. | `core/theme_metadata.py:185-193` |
 
 API (`api.py:151-152`):
 
 - `GET /api/themes/{id}/groups` lists the theme's **folder** groups (and any group holding
-  links, 2.6), sorted by name, each with `name`, `settings` (only the seven keys above, as
+  links, 2.6), sorted by name, each with `name`, `settings` (only the keys above, as
   saved: no `mode` means Intermittent), `tracks` (track keys, linked ones included),
-  `intrusion` (mode is `"intrusion"`) and `links` (`[{key, theme_id, theme_name, track,
-  missing}]`) (`api.py` `list_groups`).
+  `intrusion` (mode is still `"intrusion"`: only before the conversion) and `links` (the
+  group's linked files: `[{key, theme_id, theme_name, track, missing}]`) (`api.py` `list_groups`).
 - `PUT /api/themes/{id}/groups/{group}` changes any of `presence`, `volume` (clamped 0-1),
-  `muted`, `gap_min`, `gap_max` (clamped `>= 0`), `mode` (`"intermittent"`, `"merry_go_round"`,
-  `"ebb_flow"` or `"intrusion"`, anything else gives 400), `crossfade` (a number, clamped 1-60)
-  and `pause_between` (a boolean);
+  `muted`, `gap_min`, `gap_max` (clamped `>= 0`), `mode` (`"intermittent"`, `"merry_go_round"`
+  or `"ebb_flow"`; `"intrusion"` or anything else gives 400), `crossfade` (a number, clamped 1-60),
+  `pause_between` (a boolean) and `rise` (0-1);
   `null` removes a key; other keys give 400; a group that is not a folder group gives 404
-  (`api.py:1607-1647`). A group that holds linked files can't leave Intrusion mode (409)
-  unless the body also has `"remove_links": true`: then its links are removed first, with
-  their settings and preset entries (never a file), and the answer lists them in
-  `removed_links`. A `remove_links` that is not a boolean gives 400.
-  Entering Intrusion mode creates the group folder if it is missing and rebuilds the theme. Everything
+  (`api.py` `update_group`). A group's linked files stay in it whatever its mode.
+  `"remove_links"` (from when only intrusion groups held links) is accepted and ignored;
+  not a boolean gives 400. Everything
   applies live to playing channels: volume, presence, mute and crossfade every chunk, the gap
   at the next gap, and a mode change rebuilds that group's streams
   (`ThemeStream._follow_group_modes`).
+- `DELETE /api/themes/{id}/groups/{group}` moves the group's files up to the theme folder
+  (`"x (2)"` on a clash) and makes its linked files ungrouped the same way (re-keyed only).
+  Keys follow in `metadata.json`, every preset and every sequence. `{"name", "tracks": {old
+  key: new key}, "folder_removed"}` (`api.py` `delete_group_folder`).
+- `POST /api/themes/{id}/tracks/{key}/move` with `{"group": name or null}` moves a track into a
+  group (its folder created if missing) or to the top level, `"x (2)"` on a clash (also with a
+  linked file's name there): `{"track": new key}`. Its settings follow in `metadata.json`,
+  every preset's `tracks` and every sequence's `transitions` and `while` (`api.py`
+  `move_track_to_group`, `_save_group_change`).
 
-### 2.6 Intrusion groups and linked files (built)
+### 2.6 Linked files (built)
 
-A group with `"mode": "intrusion"` is an **intrusion group**: an optional layer (rain over a
-campsite, a storm over a tavern) that a preset turns on. Two things set it apart:
-
-- **Its tracks play as their own settings say**, exactly like ungrouped tracks: their own
-  `playback_mode` (Background, Intermittent, Ebb & Flow or auto), presence and sparse gaps. No
-  turn-taking, no coordinator, no 60 s start delay, no merry-go-round (`TrackView._in_group`,
-  `exclusion_group`). The group's `volume`, `presence` and `muted` masters still multiply its
-  tracks (3.6); its gap and crossfade are not used.
-- **It can hold linked files**: audio files that live in another theme's folder and are not
-  copied. They are listed in this theme's `metadata.json`:
+A **linked file** is an audio file that lives in another theme's folder and is not copied:
+rain over a campsite, a storm over a tavern, used by this theme as one of its own files. It
+is an ordinary track of the theme: ungrouped, or in any group of any mode, where it plays as
+any file there does. It is listed in this theme's `metadata.json`:
 
 ```json
-"groups": { "Weather": { "mode": "intrusion" } },
-"links":  { "Weather/Rain": { "theme": "<source theme id>", "track": "Rain" } },
-"tracks": { "Weather/Rain": { "volume": 0.8, "muted": true, "presence": 1.0, "playback_mode": "auto",
-                              "seamless_loop": false, "exclusive": false } }
+"links":  { "Rain": { "theme": "<source theme id>", "track": "Rain" },
+            "Weather/Thunder": { "theme": "<source theme id>", "track": "Storm/Thunder" } },
+"tracks": { "Rain": { "volume": 0.8, "muted": true, "presence": 1.0, "playback_mode": "unassigned" } }
 ```
 
 | Rule | Value |
 |---|---|
-| Key | `"<group>/<display name of the source track>"`; `" (2)"`, `" (3)"`, ... when the theme already has that key (compared without case) (`core/intrusions.py` `free_link_key`). |
+| Key | `"<display name of the source track>"` ungrouped, or `"<group>/<display name>"` in a group; `" (2)"`, `" (3)"`, ... when the theme already has that key (a file, a track entry or another link; compared without case) (`core/intrusions.py` `free_link_key`). At most one `/`. |
 | Source | Found by the source theme's **id** (`metadata.json` `id`) and its track key, so renaming the source theme's folder keeps the link. Only real files can be linked, not another theme's links. |
-| Playback | A linked file is a track like any other: it is in the theme's track list, uses its own entry in this theme's `tracks`, belongs to the intrusion group, and presets save it. The file is read from the source folder. |
-| Added | Its settings start as a copy of the source theme's settings for that track, **muted**, so the theme's default sound doesn't change until a preset turns it on. |
+| Playback | A linked file is a track like any other: it is in the theme's track list, uses its own entry in this theme's `tracks`, belongs to its group (if any), and presets save it. The file is read from the source folder. |
+| Added | Its settings start as a copy of the source theme's settings for that track, **muted**, so the theme's default sound doesn't change until a preset turns it on. Added without a group it is **Unassigned** (`"playback_mode": "unassigned"`, not played until placed). |
+| Moved | Moving it into or out of a group (the editor's drag and drop, `POST .../tracks/{key}/move`) only re-keys it: no file moves. Its `links` and `tracks` entries, every preset's `tracks` and every sequence's `transitions` and `while` follow the new key. A file of the theme moved next to it never takes its name (`" (2)"`). |
 | Missing | A link whose source theme or file is gone is left out of playback and shown with `"missing": true`; the link and its settings are kept (`sync_entries_with_files` counts linked keys as present while the link exists). Links are only removed through the API. |
-| Folder | The group's folder is created when a group enters Intrusion mode or a file is linked into it, so an intrusion group may hold only linked files. A group that holds links also counts as a group without its folder. |
-| Group rename / delete | Links follow a renamed group; deleting the group drops its links (never a file). |
+| Folder | The group's folder is created when a file is linked or moved into it, so a group may hold only linked files. A group that holds links also counts as a group without its folder. |
+| Group rename / delete | Links follow a renamed group; deleting the group makes its links ungrouped (re-keyed, `" (2)"` on a clash), never dropped. |
 | Rescan | A theme rescan rebuilds every theme, so a source file removed or added updates the themes that link it, and playing channels follow (`ThemeStream.adopt`). |
-| Export | The linked files are copied into the zip as normal files of their group, `links` is dropped and the settings stay under the same keys: the exported theme is self-contained. Other themes are never bundled. |
+| Export | The linked files are copied into the zip as normal files where they sit (the theme folder or their group's folder), `links` is dropped and the settings stay under the same keys: the exported theme is self-contained. Other themes are never bundled. |
+| Preset mark | A preset that turns a linked file on gets the ⚭ mark (`has_intrusion`, 4.2). |
+
+Linked files used to live only in **intrusion groups** (`"mode": "intrusion"`). Those are
+converted once on load (1.4): their links become ungrouped and the groups are removed.
 
 API (`api.py`):
 
 - `GET /api/themes/{id}/links/source/{source_id}`: the source theme's tracks for a picker,
   read-only: `{theme_id, source: {id, name}, same_theme, tracks: [{id, name, display_name,
   group, duration_seconds, preview_url, linked_as}]}`. `preview_url` is the source theme's
-  `/api/themes/{source}/tracks/{key}/audio` (prefix the app's base path); `linked_as` is the key
+  `/api/themes/{source}/tracks/{key}/audio` (prefix the app's base path); `linked_as` is a key
   the track is already linked as in theme `id`, or null.
-- `POST /api/themes/{id}/links` with `{"theme": source id, "tracks": [source keys], "group":
-  intrusion group}` links them: 201 `{"links": [{key, theme, track, added}]}` (`added: false`
-  when the track was already linked into that group). 400 for a bad body, a group not in
-  Intrusion mode or the theme itself as source; 404 for an unknown theme, group or track.
+- `POST /api/themes/{id}/links` with `{"theme": source id, "tracks": [source keys]}` links them
+  ungrouped and Unassigned; with `"group": name` (any mode) into that group, as the source has
+  them. `"group": null` is the same as no group. 201 `{"links": [{key, theme, track, added}]}`
+  (`added: false` when the track was already linked there, ungrouped or in that group). 400
+  for a bad body (`group` not a name or null) or the theme itself as source; 404 for an
+  unknown theme, group or track.
 - `DELETE /api/themes/{id}/links/{key}` removes a link with its settings and preset entries
   (never a file); 404 if it is not a link.
-- `POST /api/themes/{id}/tracks/{key}/move` with a linked key moves the link into another
-  Intrusion group: it is re-keyed `"<group>/<name>"` (`" (2)"` on a clash) and its settings and
-  preset values move with it (`core/intrusions.py` `move_link`). Into a group not in Intrusion
-  mode or to the top level (`null`) gives 409 (copy it in instead); an unknown group gives 404.
+- `POST /api/themes/{id}/tracks/{key}/move` with a linked key and `{"group": name or null}`
+  re-keys it into that group (created if missing) or ungrouped (2.5): `{"track": new key}`.
+  400 for a bad group name.
 - `POST /api/themes/{id}/links/{key}/copy-in` with `{"group": name or null}` copies the linked
   file into this theme: the source file is copied (never moved) into the group's folder, or the
   theme folder for `null`, renamed `"x (2)"` etc. on a clash. The link is removed and the track's
-  settings and preset values move to its new key: `{"track": new key}`. 400 without `group`,
-  404 if it is not a link or the group is unknown, 409 when the source file is missing.
-- `GET /api/themes/{id}/tracks` gives each track its `group` and `intrusion_group`; a linked
-  track has `"linked": {theme_id, theme_name, track, missing}`, and missing linked tracks are
-  listed too (not playing).
+  settings, preset values and sequence entries move to its new key: `{"track": new key}`. 400
+  without `group`, 404 if it is not a link or the group is unknown, 409 when the source file is missing.
+- `GET /api/themes/{id}/tracks` gives each track its `group` (null when ungrouped) and
+  `intrusion_group` (only before the conversion); a linked track has `"linked": {theme_id,
+  theme_name, track, missing}`, and missing linked tracks are listed too (not playing).
 - `GET /api/themes/{id}/tracks/{key}/audio` serves a linked track's source file (preview).
-- Adding, moving, copying in or removing links and changing a group into or out of Intrusion
-  mode rebuild the theme at once; playing channels follow.
+- Adding, moving, copying in or removing links rebuild the theme at once; playing channels follow.
 
 ---
 
@@ -317,8 +340,12 @@ Generators should deliver 44.1 kHz mono files so no resampling or down-mix happe
 
 ### 3.2 playback_mode and how "auto" resolves (built)
 
-UI labels (the stored values don't change): `auto` = **Auto**, `continuous` = **Background**,
-`sparse` = **Intermittent**, `presence` = **Ebb & Flow**. The `presence` value is labelled **Interval**. `exclusive` has no label of its own: groups are how tracks take turns.
+UI labels (the stored values don't change): `unassigned` = **Unassigned**, `continuous` = **Background**,
+`sparse` = **Intermittent**, `presence` = **Ebb & Flow**. For Ebb & Flow the `presence` value is labelled **Duration** (higher is longer). `exclusive` has no label of its own: groups are how tracks take turns.
+
+`unassigned` never plays (a silent stream, nothing decoded). `auto` is no longer offered: it
+is converted once on load to the mode it resolves to below (1.4) and is only the default of a
+track without an entry in `tracks`, which still resolves at play time.
 
 Resolved once, when the track's stream is created (`recording.py:295-304`, `:306-324`), with
 the values the channel hears (preset and group applied, 4.2 and 3.6):
@@ -328,6 +355,7 @@ the values the channel hears (preset and group applied, 4.2 and 3.6):
 | `continuous` | Loop (3.3) | Loop (3.3) |
 | `sparse` | Sparse (3.4) | Sparse (3.4) |
 | `presence` | Loop, faded in and out (3.5) if `presence < 1`; plain loop if `presence >= 1` | same |
+| `unassigned` | Not played | Not played |
 | `auto`, `presence < 1.0` | Sparse | Presence |
 | `auto`, `presence >= 1.0` | Continuous | Continuous |
 
@@ -466,8 +494,8 @@ Rules (`ExclusionGroupCoordinator`, `recording.py`):
 | A pick nobody takes | if the picked track doesn't start within `PICK_TIMEOUT = 10.0` s (muted meanwhile), the group picks again |
 
 These rules are for groups in Intermittent mode (the default). A group in Merry-go-round mode has no
-coordinator; see "Merry-go-round" below. A group in Intrusion mode has none either: its tracks
-play as ungrouped tracks do (2.6).
+coordinator; see "Merry-go-round" below. A group still in the retired Intrusion mode (before
+its theme is converted, 1.4) has none either: its tracks play as ungrouped tracks do.
 
 Grouped tracks play Intermittent (3.6): the whole file once, start to finish, with only a 20 ms edge
 (`GROUP_EDGE_FADE_SECONDS`) so it doesn't click, and no sparse gap of their own; the group's gap
@@ -665,13 +693,14 @@ The mixer editor's "load preset" is different: it copies the preset's `tracks` i
 theme's own settings, filling missing fields with defaults, and saves them to
 `metadata.json`; it also applies the preset's `groups` to the theme's group master settings.
 
-**Intrusion flag.** `GET /api/themes/{id}/presets` gives each preset `"has_intrusion"`: true
-when, with the preset's values over the theme's own, at least one playable track of an
-intrusion group (2.6) is unmuted and its group is not muted. The response also has
-`"default_has_intrusion"`, the same test on the theme's own settings (no preset). It is for an
-icon in the UI only; playback doesn't read it. Linked tracks are added muted, so a theme's
-default normally has no intrusion; a preset that unmutes a linked track (and mutes what the
-intrusion should replace) has one.
+**Intrusion flag (the ⚭ mark).** `GET /api/themes/{id}/presets` gives each preset
+`"has_intrusion"`: true when, with the preset's values over the theme's own, at least one
+playable linked file (2.6), wherever it is, is unmuted and its group (if it has one) is not
+muted. The theme's own files never count. The response also has `"default_has_intrusion"`,
+the same test on the theme's own settings (no preset), and each sequence `"has_intrusion"`
+when any of its presets has. It is for an icon in the UI only; playback doesn't read it.
+Linked files are added muted, so a theme's default normally has none; a preset that unmutes a
+linked file (and mutes what it should replace) has one (`core/intrusions.py` `enables_intrusion`).
 
 ### 4.3 Generator rule
 
