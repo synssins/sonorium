@@ -3724,6 +3724,9 @@ button.pk-row { cursor: pointer; }
 .ch-next[disabled] { opacity: .4; cursor: default; transform: none; }
 .ch-vol { display: grid; grid-template-columns: 56px minmax(0, 1fr) 40px; align-items: center; column-gap: .5rem; }
 .ch-vol-ic { display: flex; color: var(--text-muted); }
+/* Listen on this device: the headphones button starts and stops the browser's stream */
+.ch-vol-ic.ch-listen { align-items: center; justify-content: center; width: 36px; height: 32px; padding: 0; border: 1px solid var(--border-color); border-radius: .375rem; background: var(--bg-secondary); cursor: pointer; }
+.ch-vol-ic.ch-listen:hover { color: var(--text-primary); border-color: var(--accent-secondary); }
 .ch-vol-val { font-size: .75rem; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
 .ch-recent { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: .25rem; padding: .5rem .625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; overflow: hidden; }
 .ch-recent-hd { font-size: .6875rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }

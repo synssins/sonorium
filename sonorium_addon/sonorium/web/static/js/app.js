@@ -674,7 +674,6 @@ function renderSessionCard(session) {
                 <span class="ch-icon" aria-hidden="true">${themeIconOf(session.theme_id)}</span>
                 <div class="ch-title"><span class="ch-name">${name}</span><span class="ch-sub" title="Speakers">${escapeHtml(speakers)}</span></div>
                 <span class="ch-state${isPlaying ? ' on' : ''}">${isPlaying ? 'Playing' : 'Stopped'}</span>
-                <button type="button" class="icon-btn sm ch-listen${chListen.id === id ? ' on' : ''}" aria-pressed="${chListen.id === id}" aria-label="Listen on this device" title="Listen on this device" onclick="chToggleListen(${spArg(id)})">${CH_ICON_LISTEN}</button>
                 <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
                 <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
             </div>
@@ -686,12 +685,18 @@ function renderSessionCard(session) {
                 </div>
             </div>
             ${chNowHtml(session)}
-            <div class="ch-vol">
-                <span class="ch-vol-ic">${CH_ICON_VOLUME}</span>
+            <div class="ch-vol" title="Volume on the speakers">
+                <span class="ch-vol-ic" aria-hidden="true">${CH_ICON_VOLUME}</span>
                 <input type="range" class="track-slider" min="0" max="100" value="${session.volume}" aria-label="Volume: ${name}"
                        oninput="updateSessionVolumeDisplay(${spArg(id)}, this.value)"
                        onchange="updateSessionVolume(${spArg(id)}, this.value)">
                 <span class="ch-vol-val">${session.volume}%</span>
+            </div>
+            <div class="ch-vol ch-local">
+                <button type="button" class="ch-vol-ic ch-listen${chListen.id === id ? ' on' : ''}" aria-pressed="${chListen.id === id}" aria-label="Listen on this device" title="Listen on this device" onclick="chToggleListen(${spArg(id)})">${CH_ICON_LISTEN}</button>
+                <input type="range" class="track-slider" min="0" max="100" value="${chLocalVolume()}" aria-label="Volume on this device: ${name}" title="Volume on this device"
+                       oninput="chSetLocalVolume(this)">
+                <span class="ch-vol-val">${chLocalVolume()}%</span>
             </div>
             ${chRecentHtml(session)}
             <div class="ch-foot">
@@ -758,7 +763,7 @@ function chNowHtml(session) {
     if (!text) return '<div class="ch-now"><span class="ch-now-txt"><span class="ch-none">No sequence or playlist</span></span></div>';
     const title = session.is_playing ? (playlist ? 'Next entry' : 'Next step') : 'Play the channel first';
     return `<div class="ch-now"><span class="ch-now-txt">${text}</span><button type="button" class="btn btn-sm btn-secondary ch-next" title="${title}"
-                    ${session.is_playing ? '' : 'disabled'} onclick="chNext(${spArg(session.id)})">${ICON_NEXT}Next</button></div>`;
+                    ${session.is_playing || session.listening ? '' : 'disabled'} onclick="chNext(${spArg(session.id)})">${ICON_NEXT}Next</button></div>`;
 }
 
 // " · next in m:ss" (counted down by chTick), or nothing
@@ -812,6 +817,7 @@ async function chToggleListen(sessionId) {
     try {
         const result = await api('POST', `/sessions/${sessionId}/listen`);
         const audio = new Audio(`${BASE_PATH}${result.stream_path}?local=1`);
+        audio.volume = chLocalVolume() / 100;
         chListen.id = sessionId;
         chListen.audio = audio;
         // The stream ends when the channel goes (deleted, or released on the server)
@@ -824,6 +830,23 @@ async function chToggleListen(sessionId) {
         await chStopListening();
         showToast(error.message, 'error');
     }
+}
+
+// The volume on this device while listening (the speakers keep theirs), remembered here
+function chLocalVolume() {
+    try {
+        const value = parseInt(localStorage.getItem('sonorium.listenVolume'), 10);
+        return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 100;
+    } catch (error) {
+        return 100;
+    }
+}
+
+function chSetLocalVolume(input) {
+    const value = Math.max(0, Math.min(100, parseInt(input.value, 10) || 0));
+    input.closest('.ch-vol').querySelector('.ch-vol-val').textContent = `${value}%`;
+    if (chListen.audio) previewRampVolume(chListen.audio, value / 100);
+    try { localStorage.setItem('sonorium.listenVolume', String(value)); } catch (error) { /* not kept: fine */ }
 }
 
 async function chStopListening() {
@@ -7633,7 +7656,7 @@ function escapeHtml(text) {
 // (sq*), the Playlists page and its editor edit playlists (pl*).
 // ============================================
 
-const ICON_SEQ = '<svg class="seqsh" width="26" height="12" viewBox="0 0 34 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"/><polyline points="10.5 4 12.5 6 10.5 8"/><path d="M15 9.5 18.5 2.5 22 9.5Z"/><polyline points="23.5 4 25.5 6 23.5 8"/><circle cx="29.5" cy="6" r="3.5"/></svg>';
+const ICON_SEQ = '<svg class="seqsh" width="21" height="12" viewBox="0 0 28 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"/><path d="M10.5 9.5 14 2.5 17.5 9.5Z"/><circle cx="23" cy="6" r="3.5"/></svg>';
 const ICON_PLAYLIST = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="15" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="10" y2="18"/><path d="M21 16V5l-4 1"/><circle cx="18" cy="16" r="3"/></svg>';
 const ICON_CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
 const ICON_CHEV_DOWN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';

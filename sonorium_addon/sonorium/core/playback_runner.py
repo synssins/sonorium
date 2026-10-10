@@ -114,6 +114,11 @@ class PlaybackRunner:
             **timing,
         }
 
+    def _live(self, session: Session) -> bool:
+        """The channel's mix runs (its speakers play, or a browser listens): its timers run."""
+        live = getattr(self.manager, "_live", None)
+        return live(session) if live is not None else session.is_playing
+
     def playlist(self, playlist_id: Optional[str]) -> Optional[dict]:
         if not playlist_id:
             return None
@@ -208,7 +213,7 @@ class PlaybackRunner:
         else:
             session.preset_id = sequence["presets"][0]
         self._cancel_transitions(session)
-        if session.is_playing:
+        if self._live(session):
             run = self._sequences[session.id] = SequenceRun(
                 sequence_id, session.theme_id, next_at=self.clock() + glide + self._hold(sequence))
             self._plan_transitions(session, run, glide)
@@ -268,7 +273,7 @@ class PlaybackRunner:
         current preset has finished) and lasts pre-fade + ramp.
         """
         run.planned = None
-        if not session.is_playing or run.next_at == NEVER:
+        if not self._live(session) or run.next_at == NEVER:
             return
         peek = self._peek_next(session, run)
         if peek is None:
@@ -458,7 +463,7 @@ class PlaybackRunner:
         self.manager._apply_theme(session, theme_id, preset_id)
         self._sequences.pop(session.id, None)
         session.sequence_id = sequence["id"] if sequence else None
-        if session.is_playing:
+        if self._live(session):
             self._start_entry_timers(session, playlist, sequence)
         return True
 
@@ -628,7 +633,7 @@ class PlaybackRunner:
         changed, ended = {}, []
         for session_id, run in list(self._playlists.items()):
             session = self.manager.state.sessions.get(session_id)
-            if session is None or not session.is_playing:
+            if session is None or not self._live(session):
                 self.on_stop(session_id)
                 continue
             if now >= run.next_at:
@@ -637,7 +642,7 @@ class PlaybackRunner:
                 changed[session_id] = session
         for session_id, run in list(self._sequences.items()):
             session = self.manager.state.sessions.get(session_id)
-            if session is None or not session.is_playing:
+            if session is None or not self._live(session):
                 self._sequences.pop(session_id, None)
                 continue
             if now >= run.next_at:

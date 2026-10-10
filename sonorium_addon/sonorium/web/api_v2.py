@@ -83,6 +83,7 @@ class SessionResponse(BaseModel):
     playlist_id: Optional[str] = None  # The playlist it plays
     sequence: Optional[dict] = None  # Sequence status: name, step, current preset, next change
     playlist: Optional[dict] = None  # Playlist status: name, entry, theme, next change
+    listening: bool = False  # a browser listens (its mix runs even with the speakers stopped)
     recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
     created_at: str
     last_played_at: Optional[str]
@@ -275,6 +276,7 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         playlist_id=getattr(session, 'playlist_id', None),
         sequence=playback.get("sequence"),
         playlist=playback.get("playlist"),
+        listening=session_manager.is_listened(session),
         recent=list(reversed(session.recent)),
         created_at=session.created_at,
         last_played_at=session.last_played_at,
@@ -701,7 +703,7 @@ def create_api_router(
     async def skip_session(session_id: str) -> dict:
         """Next playlist entry now (or, with no playlist, the sequence's next preset)."""
         session = _session_or_404(session_id)
-        if not session.is_playing:
+        if not (session.is_playing or session_manager.is_listened(session)):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The channel is not playing")
         result = await session_manager.skip(session_id)
         if result is None:

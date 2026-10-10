@@ -274,6 +274,10 @@ class SessionManager:
             logger.info(f"  Preset '{preset_id}' saved: {count} playing channel(s) follow it")
         return count
 
+    def is_listened(self, session: Session) -> bool:
+        """A browser listens to the channel."""
+        return session.id in self._listening
+
     def _live(self, session: Session) -> bool:
         """The channel's mix runs: its speakers play, or a browser listens."""
         return session.is_playing or session.id in self._listening
@@ -1165,7 +1169,8 @@ class SessionManager:
         session.is_playing = False
         self.note(session, "Stopped")
         self.state.save()
-        self.runner.on_stop(session_id)
+        if session_id not in self._listening:
+            self.runner.on_stop(session_id)
 
         # A browser listening keeps the mix: only the speakers pause
         if session_id not in self._listening and not await self._fade_out(session) and session.is_playing:
@@ -1198,7 +1203,8 @@ class SessionManager:
         session.is_playing = False
         self.note(session, "Stopped")
         self.state.save()
-        self.runner.on_stop(session_id)
+        if session_id not in self._listening:
+            self.runner.on_stop(session_id)
 
         # A browser listening keeps the mix (and the channel): only the speakers stop
         if session_id not in self._listening and not await self._fade_out(session) and session.is_playing:
@@ -1264,6 +1270,11 @@ class SessionManager:
         channel = self._assign_channel(session)
         if channel is None:
             return None
+        fresh_start = not self._live(session) and (self.runner.running_sequence(session_id) is None
+                                                   and self.runner.running_playlist(session_id) is None)
+        if fresh_start:
+            self.runner.before_play(session)  # the playlist entry, or the sequence's first preset
+            theme = self.get_theme(session.theme_id) or theme
         if not session.is_playing:
             # Speakers off: (re)start the mix, or cancel its fade-out after a stop or pause
             self._fading.pop(session_id, None)
@@ -1272,6 +1283,8 @@ class SessionManager:
             channel.fade_in(fade)
         channel.expect_local_listener()
         self._listening.add(session_id)
+        if fresh_start:
+            self.runner.after_play(session)  # its timers run while the browser listens
         logger.info(f"  '{session.name}': a browser listens on channel {channel.id}")
         return channel
 
@@ -1279,6 +1292,8 @@ class SessionManager:
         """The browser stopped listening: the mix stops too unless the speakers play."""
         self._listening.discard(session_id)
         session = self.state.sessions.get(session_id)
+        if session and not session.is_playing and session_id not in self._listening:
+            self.runner.on_stop(session_id)  # nothing plays it now: its sequence or playlist pauses
         if session and not session.is_playing and session_id in self._session_channels:
             if await self._fade_out(session) and session_id not in self._listening:
                 self._release_channel(session_id)

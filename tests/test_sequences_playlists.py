@@ -710,3 +710,22 @@ def test_cycling_is_converted_to_playlists_once():
     assert saved["cycling_migrated"] is True and len(saved["playlists"]) == 3
     again = m.state.SonoriumState.from_dict(saved)
     assert again.sessions["s1"].playlist_id == state.sessions["s1"].playlist_id
+
+
+def test_a_sequence_runs_while_only_a_browser_listens(tmp_path):
+    """Listening counts as playing for a sequence: it starts, its steps come, Next works; it pauses when nothing listens."""
+    t = build(tmp_path)
+    sid = t.session.id
+    t.manager.start_sequence(sid, "up_down")  # set on a stopped channel: nothing runs yet
+    assert t.manager.runner.running_sequence(sid) is None
+    t.manager.listen(sid)
+    assert t.manager.runner.running_sequence(sid) is not None and t.session.preset_id == "a"
+    assert run(t.manager.skip(sid)) is not None and t.session.preset_id == "b"  # Next
+    t.clock.now += 10_000
+    run(t.manager.runner.tick())
+    assert t.session.preset_id == "c"  # the next step came by itself
+    run(t.manager.play(sid))
+    run(t.manager.stop(sid))  # the speakers stop, the browser still listens: it keeps running
+    assert t.manager.runner.running_sequence(sid) is not None
+    run(t.manager.unlisten(sid))
+    assert t.manager.runner.running_sequence(sid) is None
