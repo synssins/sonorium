@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.3-dev.4 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: A track's preview plays at its volume and follows its slider
+  ([`fadb858`](https://github.com/synssins/sonorium/commit/fadb85840014f7fbcefc3d56f1d5c038deed4664))
+
+
 ## v1.5.3-dev.3 (2026-10-10)
 
 ### Bug Fixes
