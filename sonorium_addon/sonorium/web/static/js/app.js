@@ -21,6 +21,10 @@ let currentView = 'sessions';
 let sessionPresetsCache = {};
 // theme_id -> true when the theme's own settings (no preset) turn intrusion tracks on
 let sessionDefaultIntrusion = {};
+// theme_id -> its sequences (picked like presets: "seq:<id>")
+let sessionSequencesCache = {};
+// Every playlist (GET /playlists)
+let playlists = [];
 
 async function init() {
     console.log('Sonorium init() starting...');
@@ -39,7 +43,8 @@ async function init() {
             loadPlugins(),
             loadConnectionSettings(),
             loadNetworkInfo(),
-            loadInstallInfo()
+            loadInstallInfo(),
+            loadPlaylists()
         ]);
         console.log('Data loaded, rendering...');
 
@@ -73,6 +78,8 @@ async function init() {
 
         // Start heartbeat to track browser connection
         startHeartbeat();
+        // Channels running a sequence or playlist: keep their cards current
+        startPlaybackPolling();
 
         console.log('Sonorium init() complete');
     } catch (error) {
@@ -452,6 +459,7 @@ function showView(viewName) {
     // Update header
     const titles = {
         sessions: 'Channels',
+        playlists: 'Playlists',
         speakers: 'Speakers',
         themes: 'Themes',
         settings: 'Settings',
@@ -477,6 +485,9 @@ function showView(viewName) {
                 </svg>
                 New Channel
             </button>
+        `,
+        playlists: `
+            <button class="btn btn-primary sp-hbtn" aria-label="Add playlist" title="Add playlist" aria-haspopup="dialog" onclick="plOpen()">${SP_ICON_PLUS}<span class="lbl">Add playlist</span></button>
         `,
         speakers: `
             <button class="btn btn-secondary" onclick="refreshSpeakers()">
@@ -562,6 +573,7 @@ function showView(viewName) {
 
     // Load view-specific data
     if (viewName === 'speakers') renderSpeakersList();
+    if (viewName === 'playlists') renderPlaylistsPage();
     if (viewName === 'themes') renderThemesBrowser();
     if (viewName === 'settings') {
         renderSettingsSpeakerTree();
@@ -655,6 +667,7 @@ function renderSessionCard(session) {
                 </span>
             </div>
 
+            ${session.playlist_id ? plCardHtml(session) : `
             <div class="session-field">
                 <label>Theme</label>
                 <select onchange="updateSessionTheme('${session.id}', this.value)">
@@ -670,7 +683,9 @@ function renderSessionCard(session) {
             <div class="session-field session-preset-field" data-session-id="${session.id}" style="${session.theme_id ? '' : 'display:none;'}">
                 <label id="psel-lbl-${session.id}">Preset</label>
                 ${pselFieldHtml(session, hasPresets)}
+                ${seqNowHtml(session)}
             </div>
+            `}
 
             <div class="session-field">
                 <label>Speakers</label>
@@ -888,13 +903,15 @@ async function updateSessionTheme(sessionId, themeId) {
 
 async function updateSessionPreset(sessionId, presetId) {
     try {
-        await api('PUT', `/sessions/${sessionId}`, { preset_id: presetId || '' });  // '' = no preset
+        await api('PUT', `/sessions/${sessionId}`, { preset_id: presetId || '' });  // '' = no preset; "seq:<id>" runs a sequence
         // Update local session state
         const session = sessions.find(s => s.id === sessionId);
         if (session) {
-            session.preset_id = presetId || null;
+            const isSeq = (presetId || '').startsWith('seq:');
+            if (!isSeq) session.preset_id = presetId || null;
+            session.preset_choice = presetId || null;
         }
-        showToast(presetId ? 'Preset applied' : 'Using default settings', 'success');
+        showToast((presetId || '').startsWith('seq:') ? 'Sequence started' : (presetId ? 'Preset applied' : 'Using default settings'), 'success');
     } catch (error) {
         showToast(error.message, 'error');
     }
@@ -905,17 +922,21 @@ async function loadPresetsForTheme(themeId) {
     try {
         const result = await api('GET', `/themes/${themeId}/presets`);
         sessionPresetsCache[themeId] = result.presets || [];
+        sessionSequencesCache[themeId] = result.sequences || [];
         sessionDefaultIntrusion[themeId] = !!result.default_has_intrusion;
     } catch (error) {
         console.error(`Failed to load presets for theme ${themeId}:`, error);
         sessionPresetsCache[themeId] = [];
+        sessionSequencesCache[themeId] = [];
     }
 }
 
 // A theme's presets changed (Theme Editor closed): reload them for the channel cards
 async function refreshSessionPresets(themeId) {
-    if (!themeId || !sessions.some(s => s.theme_id === themeId)) return;
+    if (!themeId) return;
     delete sessionPresetsCache[themeId];
+    delete sessionSequencesCache[themeId];
+    if (!sessions.some(s => s.theme_id === themeId)) return;
     await loadPresetsForTheme(themeId);
     renderSessions();
 }
@@ -933,22 +954,29 @@ function presetMarks(isDefault, hasIntrusion) {
 
 function pselOptions(session) {
     const presets = sessionPresetsCache[session.theme_id] || [];
+    const seqs = sessionSequencesCache[session.theme_id] || [];
     return [
         { id: '', name: 'Default settings', dflt: true, def: false, int: !!sessionDefaultIntrusion[session.theme_id] },
         ...presets.map(p => ({ id: p.id, name: p.name, dflt: false, def: !!p.is_default, int: !!p.has_intrusion })),
+        ...seqs.map((q, i) => ({ id: `seq:${q.id}`, name: q.name, dflt: false, def: false, int: !!q.has_intrusion, seq: true, sep: i === 0 })),
     ];
+}
+
+// A preset option's marks: ★, ⚭, then the sequence mark
+function optionMarks(o) {
+    return presetMarks(o.def, o.int) + (o.seq ? seqMark() : '');
 }
 
 function pselFieldHtml(session, hasPresets) {
     const id = session.id;
     const options = hasPresets ? pselOptions(session) : [];
-    const sel = options.find(o => o.id === (session.preset_id || '')) || options[0];
+    const sel = options.find(o => o.id === sessionChoice(session)) || options[0];
     return `
                 <div class="psel">
                     <button type="button" class="psel-btn" id="psel-btn-${id}" aria-haspopup="listbox" aria-expanded="false"
                             aria-labelledby="psel-lbl-${id} psel-btn-${id}" ${hasPresets ? '' : 'disabled'}
                             onclick="pselToggle('${id}')" onkeydown="pselButtonKey(event, '${id}')">
-                        <span class="nm">${hasPresets ? escapeHtml(sel.name) : 'No presets available'}</span>${hasPresets ? presetMarks(sel.def, sel.int) : ''}
+                        <span class="nm">${hasPresets ? escapeHtml(sel.name) : 'No presets available'}</span>${hasPresets ? optionMarks(sel) : ''}
                         <span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></span>
                     </button>
                     <div class="psel-list" id="psel-list-${id}" role="listbox" tabindex="-1" aria-labelledby="psel-lbl-${id}" hidden
@@ -961,13 +989,13 @@ function pselRenderList(id) {
     const list = document.getElementById(`psel-list-${id}`);
     if (!session || !list) return;
     const options = pselOptions(session);
-    const current = session.preset_id || '';
+    const current = sessionChoice(session);
     list.innerHTML = options.map((o, i) => {
         const cur = o.id === current;
-        return `<div class="popt${cur ? ' cur' : ''}${o.dflt ? ' dflt' : ''}${i === pselActive ? ' hi' : ''}" role="option" id="psel-${id}-${i}"
+        return `${o.sep ? '<div class="psep" role="separator"></div>' : ''}<div class="popt${cur ? ' cur' : ''}${o.dflt ? ' dflt' : ''}${i === pselActive ? ' hi' : ''}" role="option" id="psel-${id}-${i}"
                      aria-selected="${cur}" onmousedown="event.preventDefault()" onclick="pselPick('${id}', ${i})" onmouseenter="pselHover('${id}', ${i})">
                     <span class="ck">${cur ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>' : ''}</span>
-                    <span class="nm">${escapeHtml(o.name)}</span>${presetMarks(o.def, o.int)}
+                    <span class="nm">${escapeHtml(o.name)}</span>${optionMarks(o)}
                 </div>`;
     }).join('');
     list.setAttribute('aria-activedescendant', `psel-${id}-${pselActive}`);
@@ -981,7 +1009,7 @@ function pselOpen(id) {
     const list = document.getElementById(`psel-list-${id}`);
     if (!session || !button || !list || button.disabled) return;
     pselOpenId = id;
-    pselActive = Math.max(0, pselOptions(session).findIndex(o => o.id === (session.preset_id || '')));
+    pselActive = Math.max(0, pselOptions(session).findIndex(o => o.id === sessionChoice(session)));
     list.hidden = false;
     button.setAttribute('aria-expanded', 'true');
     button.closest('.session-field')?.classList.add('open');
@@ -1019,11 +1047,12 @@ async function pselPick(id, index) {
     if (!session) return;
     const option = pselOptions(session)[index];
     pselClose();
-    if (!option || option.id === (session.preset_id || '')) {
+    if (!option || option.id === sessionChoice(session)) {
         document.getElementById(`psel-btn-${id}`)?.focus();
         return;
     }
     await updateSessionPreset(id, option.id);  // applies it live, as the select did
+    try { await loadSessions(); } catch (error) { /* keep what we have */ }
     renderSessions();
     document.getElementById(`psel-btn-${id}`)?.focus();
 }
@@ -1129,8 +1158,10 @@ function openNewSessionModal() {
 
     // Reset preset selection
     channelPresets = [];
+    channelSequences = [];
     selectedChannelPreset = '';
     document.getElementById('channel-preset-field').style.display = 'none';
+    chSetup(null);
 
     resetChannelEditorSearch();
     renderThemeSelector();
@@ -1155,8 +1186,9 @@ function editSession(sessionId) {
     selectedTheme = session.theme_id;
     selectedSpeakerGroupId = session.speaker_group_id || null;
 
-    // Store the session's preset to restore after loading presets
-    selectedChannelPreset = session.preset_id || '';
+    // Store the session's preset (or running sequence) to restore after loading presets
+    selectedChannelPreset = sessionChoice(session);
+    chSetup(session);
 
     if (session.adhoc_selection) {
         selectedSpeakers = {
@@ -1207,12 +1239,19 @@ async function saveSession() {
     const editId = document.getElementById('edit-session-id').value;
     const customName = document.getElementById('session-name').value.trim();
     const volume = parseInt(document.getElementById('session-volume').value);
+    const session = editId ? sessions.find(s => s.id === editId) : null;
+    const playlistMode = chMode === 'playlist';
+    if (playlistMode && !chPlaylistId) {
+        showToast('Choose a playlist', 'error');
+        return;
+    }
 
-    const data = {
-        theme_id: selectedTheme,
-        volume: volume,
-        preset_id: selectedChannelPreset || ''  // '' = no preset
-    };
+    const data = { volume: volume };
+    if (!playlistMode) {
+        data.theme_id = selectedTheme;
+        // Only a preset picked here: saving must not restart a running sequence
+        if (!editId || chPresetTouched) data.preset_id = selectedChannelPreset || '';  // '' = no preset
+    }
 
     // Use speaker group OR adhoc selection, not both
     if (selectedSpeakerGroupId) {
@@ -1233,13 +1272,19 @@ async function saveSession() {
     if (customName) data.custom_name = customName;
 
     try {
+        let sessionId = editId;
         if (editId) {
+            // Back to a theme: the playlist stops first (the channel keeps playing)
+            if (!playlistMode && session?.playlist_id) await api('DELETE', `/sessions/${editId}/playlist`);
             await api('PUT', `/sessions/${editId}`, data);
-            showToast('Channel updated', 'success');
         } else {
-            await api('POST', '/sessions', data);
-            showToast('Channel created', 'success');
+            const created = await api('POST', '/sessions', data);
+            sessionId = created?.id;
         }
+        if (playlistMode && sessionId && chPlaylistId !== (session?.playlist_id || '')) {
+            await api('PUT', `/sessions/${sessionId}/playlist`, { playlist_id: chPlaylistId });
+        }
+        showToast(editId ? 'Channel updated' : 'Channel created', 'success');
         closeSessionModal();
         await loadSessions();
         renderSessions();
@@ -1269,6 +1314,11 @@ function renderThemeSelector() {
 }
 
 function selectTheme(themeId) {
+    if (themeId !== selectedTheme) {
+        // Another theme: its default preset, as the server picks it
+        selectedChannelPreset = '';
+        chPresetTouched = false;
+    }
     selectedTheme = themeId;
     renderThemeSelector();
     loadChannelPresets(themeId);
@@ -1287,6 +1337,7 @@ function scrollSelectedThemeIntoView() {
 
 // Channel Preset Functions
 let channelPresets = [];
+let channelSequences = [];
 let selectedChannelPreset = '';
 let channelDefaultIntrusion = false;
 let dpselActive = 0;
@@ -1298,6 +1349,7 @@ async function loadChannelPresets(themeId) {
     if (!themeId) {
         presetField.style.display = 'none';
         channelPresets = [];
+        channelSequences = [];
         selectedChannelPreset = '';
         return;
     }
@@ -1305,12 +1357,14 @@ async function loadChannelPresets(themeId) {
     try {
         const result = await api('GET', `/themes/${themeId}/presets`);
         channelPresets = result.presets || [];
+        channelSequences = result.sequences || [];
         channelDefaultIntrusion = !!result.default_has_intrusion;
         updateChannelPresetDropdown();
         presetField.style.display = 'block';
     } catch (error) {
         console.error('Failed to load channel presets:', error);
         channelPresets = [];
+        channelSequences = [];
         updateChannelPresetDropdown();
         presetField.style.display = 'block';
     }
@@ -1332,6 +1386,13 @@ function updateChannelPresetDropdown() {
             option.textContent = preset.name;
             select.appendChild(option);
         });
+        // The theme's sequences, after the presets
+        channelSequences.forEach(seq => {
+            const option = document.createElement('option');
+            option.value = `seq:${seq.id}`;
+            option.textContent = seq.name;
+            select.appendChild(option);
+        });
 
         // Auto-select default preset if one exists
         const defaultPreset = channelPresets.find(p => p.is_default);
@@ -1348,6 +1409,7 @@ function updateChannelPresetDropdown() {
 function onChannelPresetChange() {
     const select = document.getElementById('channel-preset-select');
     selectedChannelPreset = select.value;
+    chPresetTouched = true;
     dpselRender();
 }
 
@@ -1356,10 +1418,14 @@ function onChannelPresetChange() {
 // Enter or Space picks, Esc closes.
 function dpselOptions() {
     const select = document.getElementById('channel-preset-select');
+    let firstSeq = true;
     return [...(select?.options || [])].map(o => {
         const preset = channelPresets.find(p => p.id === o.value);
-        return { id: o.value, name: o.value ? o.textContent : 'Default settings', disabled: o.disabled,
-                 def: !!preset?.is_default, int: preset ? !!preset.has_intrusion : (!o.disabled && channelDefaultIntrusion) };
+        const seq = o.value.startsWith('seq:') ? channelSequences.find(q => `seq:${q.id}` === o.value) : null;
+        const sep = !!seq && firstSeq;
+        if (seq) firstSeq = false;
+        return { id: o.value, name: o.value ? o.textContent : 'Default settings', disabled: o.disabled, seq: !!seq, sep,
+                 def: !!preset?.is_default, int: seq ? !!seq.has_intrusion : preset ? !!preset.has_intrusion : (!o.disabled && channelDefaultIntrusion) };
     });
 }
 
@@ -1375,7 +1441,7 @@ function dpselRender() {
         <button type="button" class="psel-btn" id="channel-preset-btn" aria-haspopup="listbox" aria-expanded="false"
                 aria-labelledby="channel-preset-lbl channel-preset-btn" ${empty ? 'disabled' : ''}
                 onclick="dpselToggle()" onkeydown="dpselButtonKey(event)">
-            <span class="nm">${empty ? 'No presets yet' : escapeHtml(sel.name)}</span>${empty ? '' : presetMarks(sel.def, sel.int)}
+            <span class="nm">${empty ? 'No presets yet' : escapeHtml(sel.name)}</span>${empty ? '' : optionMarks(sel)}
             <span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></span>
         </button>
         <div class="psel-list" id="channel-preset-list" role="listbox" tabindex="-1" aria-labelledby="channel-preset-lbl" hidden
@@ -1389,10 +1455,10 @@ function dpselRenderList() {
     if (!list || !select) return;
     list.innerHTML = dpselOptions().map((o, i) => {
         const cur = o.id === select.value;
-        return `<div class="popt${cur ? ' cur' : ''}${o.id ? '' : ' dflt'}${i === dpselActive ? ' hi' : ''}" role="option" id="dpsel-${i}"
+        return `${o.sep ? '<div class="psep" role="separator"></div>' : ''}<div class="popt${cur ? ' cur' : ''}${o.id ? '' : ' dflt'}${i === dpselActive ? ' hi' : ''}" role="option" id="dpsel-${i}"
                      aria-selected="${cur}" onmousedown="event.preventDefault()" onclick="dpselPick(${i})" onmouseenter="dpselActive = ${i}; dpselRenderList()">
                     <span class="ck">${cur ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>' : ''}</span>
-                    <span class="nm">${escapeHtml(o.name)}</span>${presetMarks(o.def, o.int)}
+                    <span class="nm">${escapeHtml(o.name)}</span>${optionMarks(o)}
                 </div>`;
     }).join('');
     list.setAttribute('aria-activedescendant', `dpsel-${dpselActive}`);
@@ -2684,7 +2750,7 @@ function openThemeEditModal(themeId) {
         icon: theme.icon ? resolveThemeIcon(theme.icon, themeId) : '',
         cats: [...(theme.categories || [])], catText: '', catHi: 0, catFocus: false,
         threshold: theme.short_file_threshold ?? null,
-        closed: {}, presets: [], selPreset: '', mixDirty: false, mixSnap: null,
+        closed: {}, presets: [], sequences: [], seqDefaults: null, selPreset: '', mixDirty: false, mixSnap: null,
         upload: null, renaming: null, confirmDel: null, drag: null, pk: null, pickAfter: null,
     });
     currentTrackMixerThemeId = themeId;
@@ -2767,6 +2833,7 @@ async function teSaveAndClose() {
 
 function closeThemeEditModal() {
     const themeId = te.themeId;
+    sqClose();
     pkClose();
     teCloseMenu();
     teCloseHelp();
@@ -3763,17 +3830,24 @@ async function teLoadPresets(selectDefault = false) {
     const themeId = te.themeId;
     if (!themeId) return;
     try {
-        const result = await api('GET', `/themes/${themeId}/presets`);
+        const [result, defaults] = await Promise.all([
+            api('GET', `/themes/${themeId}/presets`),
+            api('GET', `/themes/${themeId}/sequence_defaults`).catch(() => null),
+        ]);
         if (te.themeId !== themeId) return;
         te.presets = result.presets || [];
+        te.sequences = result.sequences || [];
+        if (defaults) te.seqDefaults = { hold_min: defaults.hold_min, hold_max: defaults.hold_max, ramp: defaults.ramp };
     } catch (error) {
         console.error('Failed to load presets:', error);
         te.presets = [];
+        te.sequences = [];
     }
     // Opens with no preset selected: a preset only changes when it's picked
     // on purpose and Save preset is pressed
     if (selectDefault) te.selPreset = '';
-    if (te.selPreset && !te.presets.some(p => p.id === te.selPreset)) te.selPreset = '';
+    if (te.selPreset && !te.presets.some(p => p.id === te.selPreset) && !teSelectedSeq()) te.selPreset = '';
+    teRenderSeqCount();
     teRenderPresetField();
 }
 
@@ -3790,12 +3864,15 @@ function teRenderPresetField() {
     const btn = document.getElementById('te-preset-btn');
     if (!btn) return;
     const preset = teSelectedPreset();
-    btn.classList.toggle('is-cur', !preset);
-    btn.setAttribute('aria-label', `Preset: ${preset ? preset.name : 'Current settings'}`);
-    btn.innerHTML = `<span class="pdd-name">${preset ? escapeHtml(preset.name) : '— Current settings —'}</span>${
-        preset?.is_default ? '<span class="def-star" title="Default">★</span>' : ''}${preset?.has_intrusion ? intrusionMark() : ''}
+    const seq = teSelectedSeq();  // a sequence: Load becomes Edit
+    btn.classList.toggle('is-cur', !preset && !seq);
+    btn.setAttribute('aria-label', `Preset: ${preset ? preset.name : seq ? seq.name : 'Current settings'}`);
+    btn.innerHTML = `<span class="pdd-name">${preset ? escapeHtml(preset.name) : seq ? escapeHtml(seq.name) : '— Current settings —'}</span>${
+        preset?.is_default ? '<span class="def-star" title="Default">★</span>' : ''}${(preset || seq)?.has_intrusion ? intrusionMark() : ''}${seq ? seqMark() : ''}
         ${preset && te.mixDirty ? '<span class="dirty dot-only" title="Mix changed"><i></i></span>' : ''}<span class="grow"></span>${TE_ICON_CHEV_UP}`;
-    document.getElementById('te-load-btn').disabled = !preset;
+    const load = document.getElementById('te-load-btn');
+    load.disabled = !preset && !seq;
+    load.textContent = seq ? 'Edit' : 'Load';
     document.getElementById('te-savepreset-btn').disabled = !preset;
     document.getElementById('te-dirty').hidden = !(preset && te.mixDirty);
 }
@@ -3807,6 +3884,8 @@ function teChoosePreset(id) {
 }
 
 async function teLoadPreset() {
+    const seq = teSelectedSeq();
+    if (seq) { teOpenSequence(seq.id); return; }
     const preset = teSelectedPreset();
     if (!preset || !te.themeId) return;
     teCloseMenu();
@@ -3926,11 +4005,6 @@ function teExportTheme() {
     exportThemeZip();
 }
 
-function teComingSoon() {
-    teCloseMenu();
-    teFlash('Sequences: coming soon');
-}
-
 // ---------- Menus and popovers (one floating element) ----------
 
 function teMenuHtml(kind, arg) {
@@ -3952,11 +4026,7 @@ function teMenuHtml(kind, arg) {
                 ${sep}${mi('Auto', "tePickIcon('')", { cls: current ? '' : 'cur', after: '<span class="mi-note">from theme</span>' })}` };
         }
         case 'seq':
-            return { cls: 'menu seq-menu', align: 'left', html: `
-                <div class="mhead">Theme sequences<span class="badge badge-soon">Coming soon</span></div>
-                ${mi('+ New sequence', 'teComingSoon()', { cls: 'add' })}
-                ${sep}<div class="mhead">My sequences</div>
-                ${mi('+ New sequence', 'teComingSoon()', { cls: 'add' })}` };
+            return { cls: 'menu seq-menu', align: 'left', focusButton: true, html: teSeqMenuHtml() };
         case 'upload':
             return { cls: 'menu', align: 'right', html: `<div class="mhead">Upload to</div>
                 ${mi('Theme (no group)', "tePickUpload('')", { cls: te.upload === '' ? 'cur' : '' })}
@@ -4060,6 +4130,11 @@ function teMenuHtml(kind, arg) {
                     ${p.id && !p.is_default ? `<button type="button" class="star-btn" title="Set as default"
                             aria-label="Set as default: ${escapeHtml(p.name)}"
                             onclick="teStarPreset(${jsArg(p.id)})">☆</button>` : '<span class="star-gap"></span>'}
+                </div>`).join('') + (te.sequences.length ? '<div class="msep"></div>' : '') + te.sequences.map(q => `
+                <div class="prow">
+                    <button type="button" class="mi${`seq:${q.id}` === te.selPreset ? ' cur' : ''}" role="option"
+                            aria-selected="${`seq:${q.id}` === te.selPreset}" onclick="teChoosePreset(${jsArg(`seq:${q.id}`)})"><span class="nm">${escapeHtml(q.name)}</span>${q.has_intrusion ? intrusionMark() : ''}${seqMark()}</button>
+                    <span class="star-gap"></span>
                 </div>`).join('');
             return { cls: 'menu preset-list', align: 'left', dir: 'up', role: 'listbox', html: rows };
         }
@@ -4112,7 +4187,7 @@ function teMenu(kind, button, arg = null, keepOpen = false) {
     te.menuBtn = button;
     button.setAttribute('aria-expanded', 'true');
     tePlaceMenu(pop, button, spec.align || 'right', spec.dir || 'down');
-    const focus = pop.querySelector('input') || (keepOpen ? null : pop.querySelector('button:not([disabled])'));
+    const focus = (spec.focusButton ? null : pop.querySelector('input')) || (keepOpen ? null : pop.querySelector('button:not([disabled])'));
     if (focus) { focus.focus(); if (focus.select && focus.value) focus.select(); }
 }
 
@@ -4156,7 +4231,7 @@ document.addEventListener('mousedown', event => {
 }, true);
 
 document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape' || !te.themeId) return;
+    if (event.key !== 'Escape' || !te.themeId || sqIsOpen()) return;
     if (document.getElementById('theme-edit-modal').style.display !== 'flex') return;
     // Another dialog (import/export preset) open on top: leave it alone
     const onTop = ['preset-import-modal', 'preset-export-modal'].some(id => document.getElementById(id)?.style.display === 'flex');
@@ -7021,7 +7096,7 @@ async function uninstallPlugin(pluginId, pluginName) {
 // ============================================
 
 // Pages with the fixed title bar, scrolling list and bottom action row
-const SP_VIEWS = ['settings-connection', 'settings-audio', 'settings-speakers', 'settings-groups', 'settings-plugins', 'settings-advanced', 'status'];
+const SP_VIEWS = ['playlists', 'settings-connection', 'settings-audio', 'settings-speakers', 'settings-groups', 'settings-plugins', 'settings-advanced', 'status'];
 // Pages whose title row lines up with the settings column (Logs keeps the full width)
 const SP_COL_VIEWS = SP_VIEWS.concat(['settings-spaces']);
 const SP_PHONE = window.matchMedia('(max-width: 760px)');
@@ -7116,6 +7191,7 @@ function spClosePop() {
     if (pop && !pop.hidden) {
         pop.hidden = true;
         pop.innerHTML = '';
+        pop.style.width = '';  // a list as wide as its field
     }
     if (spm.btn) spm.btn.removeAttribute('aria-expanded');
     spm.id = null;
@@ -7201,6 +7277,1145 @@ function escapeHtml(text) {
     // Quotes too, so the result is also safe inside attribute values
     return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+
+// ============================================
+// Sequences and playlists (docs/PLAYBACK.md)
+// A sequence is picked like a preset ("seq:<id>"); a playlist plays themes one
+// after another on a channel. The Theme Editor edits a theme's sequences
+// (sq*), the Playlists page and its editor edit playlists (pl*).
+// ============================================
+
+const ICON_SEQ = '<svg class="seqsh" width="26" height="12" viewBox="0 0 34 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"/><polyline points="10.5 4 12.5 6 10.5 8"/><path d="M15 9.5 18.5 2.5 22 9.5Z"/><polyline points="23.5 4 25.5 6 23.5 8"/><circle cx="29.5" cy="6" r="3.5"/></svg>';
+const ICON_PLAYLIST = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="15" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="10" y2="18"/><path d="M21 16V5l-4 1"/><circle cx="18" cy="16" r="3"/></svg>';
+const ICON_CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+const ICON_CHEV_DOWN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+const ICON_ARROW = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>';
+const ICON_UP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
+const ICON_DOWN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>';
+const ICON_COPY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const ICON_NEXT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>';
+const ICON_REPEAT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>';
+const ICON_IN_ORDER = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><polyline points="3 5 4 6 3 7"/><polyline points="3 11 4 12 3 13"/><polyline points="3 17 4 18 3 19"/></svg>';
+const ICON_SHUFFLE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>';
+const ICON_END = {
+    reverse: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" aria-hidden="true"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>',
+    restart: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
+    stop: '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>',
+};
+const SEQ_END_LABELS = { reverse: 'reverse', restart: 'start again', stop: 'stop' };
+
+// The sequence mark: square › triangle › circle, after ★ and ⚭
+function seqMark() {
+    return `<span class="seq-ic" title="Sequence" role="img" aria-label="Sequence">${ICON_SEQ}</span>`;
+}
+
+// What a channel's preset menu shows: its sequence ("seq:<id>") while one runs, else its preset ('' = none)
+function sessionChoice(session) {
+    const choice = session.preset_choice !== undefined && session.preset_choice !== null ? session.preset_choice : session.preset_id;
+    return choice || '';
+}
+
+// Seconds as minutes for a field: whole minutes, or one decimal
+function seqMinutes(seconds) {
+    if (seconds === null || seconds === undefined || seconds === '') return '';
+    const m = Number(seconds) / 60;
+    return Number.isInteger(m) ? String(m) : String(+m.toFixed(1));
+}
+
+// Minutes until a status's next change (at least 1), or null
+function minutesUntil(status) {
+    if (!status) return null;
+    const at = Date.parse(status.next_change_at || '');
+    let seconds = Number.isNaN(at) ? status.seconds_until_change : (at - Date.now()) / 1000;
+    if (seconds === null || seconds === undefined) return null;
+    return Math.max(1, Math.round(seconds / 60));
+}
+
+// A length in minutes: "45 min", "1 h 30 min", "2 h"
+function plDuration(minutes) {
+    const m = Math.round(minutes);
+    if (m < 60) return `${m} min`;
+    return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} h`;
+}
+
+function themeById(themeId) {
+    return themes.find(t => t.id === themeId) || null;
+}
+
+function themeIconOf(themeId) {
+    return resolveThemeIcon(themeById(themeId)?.icon, themeId);
+}
+
+// The preset or sequence an entry (or a channel) plays, with its marks: "Default settings" when neither
+function plWhatHtml(themeId, presetId, sequenceId) {
+    if (sequenceId) {
+        const seq = (sessionSequencesCache[themeId] || []).find(q => q.id === sequenceId);
+        return `<span class="wl">${escapeHtml(seq ? seq.name : sequenceId)}</span>${seq?.has_intrusion ? intrusionMark() : ''}${seqMark()}`;
+    }
+    if (presetId) {
+        const preset = (sessionPresetsCache[themeId] || []).find(p => p.id === presetId);
+        return `<span class="wl">${escapeHtml(preset ? preset.name : presetId)}</span>${presetMarks(!!preset?.is_default, !!preset?.has_intrusion)}`;
+    }
+    return '<span class="wl dflt">Default settings</span>';
+}
+
+async function loadPlaylists() {
+    try {
+        const result = await api('GET', '/playlists');
+        playlists = result?.playlists || [];
+    } catch (error) {
+        console.error('Failed to load playlists:', error);
+        playlists = [];
+    }
+}
+
+function playlistById(playlistId) {
+    return playlists.find(p => p.id === playlistId) || null;
+}
+
+// Presets and sequences of every theme the playlists use (for their names and marks)
+async function plLoadThemePresets(list = playlists) {
+    const ids = new Set();
+    list.forEach(p => (p.entries || []).forEach(e => { if (e.theme_id && themeById(e.theme_id)) ids.add(e.theme_id); }));
+    await Promise.all([...ids].map(loadPresetsForTheme));
+}
+
+// ---------- A small listbox like the channel card's preset field (card and Edit dialog playlist lists) ----------
+// XSEL[key] = { options(): [{ id, html, dflt, note, sep }], current(): id, pick(id) }
+const XSEL = {};
+const xs = { key: null, active: 0 };
+
+function xselHtml(key, labelId, innerHtml, disabled = false) {
+    const k = escapeHtml(key);
+    return `
+                <div class="psel xsel">
+                    <button type="button" class="psel-btn" id="xsel-btn-${k}" aria-haspopup="listbox" aria-expanded="false"
+                            aria-labelledby="${labelId} xsel-btn-${k}" ${disabled ? 'disabled' : ''}
+                            onclick="xselToggle(${spArg(key)})" onkeydown="xselButtonKey(event, ${spArg(key)})">
+                        ${innerHtml}<span class="chev">${ICON_CHEV_DOWN}</span>
+                    </button>
+                    <div class="psel-list" id="xsel-list-${k}" role="listbox" tabindex="-1" aria-labelledby="${labelId}" hidden
+                         onkeydown="xselListKey(event)"></div>
+                </div>`;
+}
+
+function xselRenderList() {
+    const spec = XSEL[xs.key];
+    const list = document.getElementById(`xsel-list-${xs.key}`);
+    if (!spec || !list) return;
+    const current = spec.current() || '';
+    list.innerHTML = spec.options().map((o, i) => {
+        const cur = o.id === current;
+        return `${o.sep ? '<div class="psep" role="separator"></div>' : ''}<div class="popt${cur ? ' cur' : ''}${o.dflt ? ' dflt' : ''}${i === xs.active ? ' hi' : ''}" role="option" id="xsel-${escapeHtml(xs.key)}-${i}"
+                     aria-selected="${cur}" onmousedown="event.preventDefault()" onclick="xselPick(${i})" onmouseenter="xselHover(${i})">
+                    <span class="ck">${cur ? ICON_CHECK : ''}</span>${o.html}${o.note ? `<span class="popt-note">${escapeHtml(o.note)}</span>` : ''}
+                </div>`;
+    }).join('');
+    list.setAttribute('aria-activedescendant', `xsel-${xs.key}-${xs.active}`);
+    list.querySelector('.popt.hi')?.scrollIntoView({ block: 'nearest' });
+}
+
+function xselOpen(key) {
+    xselClose();
+    pselClose();
+    const spec = XSEL[key];
+    const button = document.getElementById(`xsel-btn-${key}`);
+    const list = document.getElementById(`xsel-list-${key}`);
+    if (!spec || !button || !list || button.disabled) return;
+    xs.key = key;
+    xs.active = Math.max(0, spec.options().findIndex(o => o.id === (spec.current() || '')));
+    list.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    button.closest('.session-field')?.classList.add('open');
+    xselRenderList();
+    // Open upward when there's no room below the field
+    const bottom = button.closest('.modal-body, .modal')?.getBoundingClientRect().bottom ?? window.innerHeight;
+    list.classList.toggle('up', Math.min(bottom, window.innerHeight) - button.getBoundingClientRect().bottom < Math.min(list.scrollHeight, 280) + 8);
+    list.focus();
+}
+
+function xselClose(focusButton = false) {
+    const key = xs.key;
+    xs.key = null;
+    if (!key) return;
+    const button = document.getElementById(`xsel-btn-${key}`);
+    const list = document.getElementById(`xsel-list-${key}`);
+    if (list) { list.hidden = true; list.innerHTML = ''; }
+    if (button) {
+        button.setAttribute('aria-expanded', 'false');
+        button.closest('.session-field')?.classList.remove('open');
+        if (focusButton) button.focus();
+    }
+}
+
+function xselToggle(key) {
+    if (xs.key === key) xselClose(true);
+    else xselOpen(key);
+}
+
+function xselHover(index) {
+    if (xs.active === index) return;
+    xs.active = index;
+    xselRenderList();
+}
+
+function xselPick(index) {
+    const key = xs.key;
+    const spec = XSEL[key];
+    const option = spec?.options()[index];
+    xselClose(true);
+    if (!option) return;
+    if (option.id === (spec.current() || '')) return;
+    spec.pick(option.id);
+}
+
+function xselButtonKey(event, key) {
+    if (['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); xselOpen(key); }
+}
+
+function xselListKey(event) {
+    const spec = XSEL[xs.key];
+    if (!spec) return;
+    const count = spec.options().length;
+    if (event.key === 'ArrowDown') xs.active = Math.min(count - 1, xs.active + 1);
+    else if (event.key === 'ArrowUp') xs.active = Math.max(0, xs.active - 1);
+    else if (event.key === 'Home') xs.active = 0;
+    else if (event.key === 'End') xs.active = count - 1;
+    else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); xselPick(xs.active); return; }
+    else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); xselClose(true); return; }
+    else if (event.key === 'Tab') { xselClose(); return; }
+    else return;
+    event.preventDefault();
+    xselRenderList();
+}
+
+document.addEventListener('pointerdown', event => {
+    if (!xs.key) return;
+    const field = document.getElementById(`xsel-btn-${xs.key}`)?.closest('.xsel');
+    if (field && field.contains(event.target)) return;
+    xselClose();
+}, true);
+
+function playlistOptions(withNone) {
+    const none = withNone ? [{ id: '', html: '<span class="nm">(None)</span>', dflt: true }] : [];
+    return none.concat(playlists.map(p => ({
+        id: p.id, html: `<span class="pl-ic">${ICON_PLAYLIST}</span><span class="nm">${escapeHtml(p.name)}</span>`,
+        note: `${p.entries.length} ${p.entries.length === 1 ? 'entry' : 'entries'}`
+    })));
+}
+
+// ---------- Channel cards: a running sequence, a playlist ----------
+
+// Under the preset field: what a running sequence plays now and when it changes
+function seqNowHtml(session) {
+    const status = session.sequence;
+    if (!status || session.playlist_id) return '';
+    let text = '';
+    if (status.running) {
+        const n = minutesUntil(status);
+        text = `Now ${status.current_preset_name || 'Default settings'}${n ? ` · next change in ${n} min` : ''}`;
+    } else {
+        const seq = (sessionSequencesCache[session.theme_id] || []).find(q => q.id === status.id);
+        const first = seq && (sessionPresetsCache[session.theme_id] || []).find(p => p.id === seq.presets[0]);
+        if (first) text = `Starts on ${first.name}`;
+    }
+    return text ? `<div class="seq-now">${escapeHtml(text)}</div>` : '';
+}
+
+// A channel playing a playlist: the playlist (pick another, or (None)), the entry playing, Next
+function plCardHtml(session) {
+    const id = session.id;
+    const status = session.playlist || {};
+    const playlist = playlistById(session.playlist_id);
+    const key = `cpl:${id}`;
+    XSEL[key] = {
+        options: () => playlistOptions(true),
+        current: () => sessions.find(s => s.id === id)?.playlist_id || '',
+        pick: playlistId => plCardPick(id, playlistId),
+    };
+    const name = status.name || playlist?.name || 'Playlist';
+    const entry = playlist && status.entry_index !== null && status.entry_index !== undefined ? playlist.entries[status.entry_index] : null;
+    const themeId = status.theme_id || entry?.theme_id || session.theme_id;
+    const theme = themeById(themeId);
+    const sequenceId = entry ? entry.sequence_id : null;
+    const what = plWhatHtml(themeId, entry ? entry.preset_id : session.preset_id, sequenceId);
+    const total = status.entries ?? playlist?.entries.length ?? 0;
+    const n = status.running ? minutesUntil(status) : null;
+    const meta = `Entry ${(status.position ?? 0) + 1} of ${total}${n ? ` · next in ${n} min` : ''}`;
+    return `
+            <div class="session-field pl-field">
+                <label id="xsel-lbl-${escapeHtml(key)}">Playlist</label>
+                ${xselHtml(key, `xsel-lbl-${escapeHtml(key)}`, `<span class="pl-ic">${ICON_PLAYLIST}</span><span class="nm">${escapeHtml(name)}</span>`)}
+                <div class="pl-now">
+                    <span class="pl-ti" aria-hidden="true">${themeIconOf(themeId)}</span>
+                    <div class="pl-txt">
+                        <span class="pl-e"><span class="pl-th">${escapeHtml(theme ? theme.name : (themeId || ''))}</span><span class="pl-sep">·</span>${what}</span>
+                        <span class="pl-meta">${escapeHtml(meta)}</span>
+                    </div>
+                    <button type="button" class="btn btn-sm btn-secondary pl-next" title="${session.is_playing ? 'Play the next entry now' : 'Play the channel first'}"
+                            ${session.is_playing ? '' : 'disabled'} onclick="plNext(${spArg(id)})">${ICON_NEXT}Next</button>
+                </div>
+            </div>`;
+}
+
+async function plCardPick(sessionId, playlistId) {
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    try {
+        if (playlistId) {
+            await api('PUT', `/sessions/${sessionId}/playlist`, { playlist_id: playlistId });
+            showToast(`Playing “${playlistById(playlistId)?.name || 'playlist'}”`, 'success');
+        } else {
+            await api('DELETE', `/sessions/${sessionId}/playlist`);
+            showToast('Playlist stopped', 'success');
+        }
+        await loadSessions();
+        renderSessions();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+async function plNext(sessionId) {
+    try {
+        await api('POST', `/sessions/${sessionId}/next`);
+        await loadSessions();
+        renderSessions();
+        showToast('Next entry', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// The Channels page follows sequences and playlists: reload the channels every 15 s while it's shown
+let playbackPoll = null;
+
+function startPlaybackPolling() {
+    if (playbackPoll) return;
+    playbackPoll = setInterval(refreshPlayback, 15000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshPlayback(); });
+}
+
+function playbackBusy() {
+    // A list open, or a slider or select in use on a card: don't rebuild the cards under it
+    return !!pselOpenId || !!xs.key || !!document.activeElement?.closest?.('#sessions-container input, #sessions-container select');
+}
+
+async function refreshPlayback() {
+    if (currentView !== 'sessions' || document.hidden || playbackBusy()) return;
+    try {
+        await loadSessions();
+    } catch (error) {
+        return;
+    }
+    if (currentView === 'sessions' && !playbackBusy()) renderSessions();
+}
+
+// ---------- Channel Edit dialog: Theme or Playlist ----------
+let chMode = 'theme';
+let chPlaylistId = '';
+let chPresetTouched = false;   // only a preset picked here is sent (saving mustn't restart a sequence)
+
+function chSetup(session) {
+    chPresetTouched = false;
+    chPlaylistId = session?.playlist_id || '';
+    chSetMode(chPlaylistId ? 'playlist' : 'theme');
+}
+
+function chSetMode(mode) {
+    chMode = mode;
+    const isPl = mode === 'playlist';
+    document.getElementById('ch-mode-theme')?.setAttribute('aria-pressed', String(!isPl));
+    document.getElementById('ch-mode-playlist')?.setAttribute('aria-pressed', String(isPl));
+    document.querySelector('#session-modal .channel-editor')?.classList.toggle('pl-mode', isPl);
+    document.getElementById('ch-playlist-field').hidden = !isPl;
+    document.getElementById('ch-playlist-fill').hidden = !isPl;
+    if (isPl) chRenderPlaylist();
+    else scrollSelectedThemeIntoView();
+}
+
+function chRenderPlaylist() {
+    XSEL.chpl = {
+        options: () => playlistOptions(false),
+        current: () => chPlaylistId,
+        pick: playlistId => { chPlaylistId = playlistId; chRenderPlaylist(); },
+    };
+    const playlist = playlistById(chPlaylistId);
+    const inner = playlist
+        ? `<span class="pl-ic">${ICON_PLAYLIST}</span><span class="nm">${escapeHtml(playlist.name)}</span>`
+        : `<span class="nm none">${playlists.length ? 'Choose a playlist' : 'No playlists yet'}</span>`;
+    document.getElementById('ch-playlist-picker').innerHTML = xselHtml('chpl', 'ch-playlist-lbl', inner, playlists.length === 0);
+    const sum = document.getElementById('ch-playlist-sum');
+    sum.textContent = playlist ? plSummaryText(playlist) : '';
+    sum.hidden = !playlist;
+}
+
+function plSummaryText(p) {
+    const n = p.entries.length;
+    return `${n} ${n === 1 ? 'entry' : 'entries'} · ${p.order === 'shuffle' ? 'Shuffle' : 'In order'} · ${seqMinutes(p.play_min)}–${seqMinutes(p.play_max)} min each${p.repeat ? ' · Repeat' : ''}`;
+}
+
+// ---------- Floating menus over the dialogs (#sp-menu, placed under their button) ----------
+
+function xMenuItem(label, action, opts = {}) {
+    return `<button type="button" class="mi${opts.cls ? ' ' + opts.cls : ''}" role="${opts.role || 'menuitem'}" ${opts.disabled ? 'disabled' : ''}
+        ${opts.title ? `title="${escapeHtml(opts.title)}"` : ''} onclick="${action}">${opts.check !== undefined ? `<span class="ck">${opts.check ? ICON_CHECK : ''}</span>` : ''}${opts.icon || ''}<span class="mi-lbl">${label}</span>${opts.after || ''}${opts.note ? `<span class="mi-note">${escapeHtml(opts.note)}</span>` : ''}</button>`;
+}
+
+const X_SEP = '<div class="msep"></div>';
+
+// align: 'right' (right edges level), 'left', or 'field' (as wide as the button)
+function xMenu(id, button, html, { cls = 'menu sp-menu', role = 'menu', align = 'right' } = {}) {
+    const pop = spOpenPop(id, button, cls, html, role);
+    if (!pop) return null;
+    if (align !== 'right') xPlaceMenu(pop, button, align);
+    (pop.querySelector('.mi.cur') || pop.querySelector('button:not([disabled])'))?.focus();
+    return pop;
+}
+
+function xPlaceMenu(pop, button, align) {
+    const r = button.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    pop.style.left = '0px';
+    pop.style.top = '0px';
+    pop.style.maxHeight = '';
+    if (align === 'field') pop.style.width = `${Math.round(r.width)}px`;
+    const w = pop.offsetWidth;
+    let h = pop.offsetHeight;
+    const left = Math.max(8, Math.min(r.left, vw - w - 8));
+    const below = vh - r.bottom - 8;
+    const above = r.top - 8;
+    const up = h > below && above > below;
+    const room = (up ? above : below) - 4;
+    if (h > room) { pop.style.maxHeight = room + 'px'; h = room; }
+    pop.style.left = left + 'px';
+    pop.style.top = Math.max(8, up ? r.top - 4 - h : r.bottom + 4) + 'px';
+}
+
+// Drag and drop for the rows of both editors: one row at a time
+const rowDrag = { list: null, from: null };
+
+function rowDragStart(event, list, index) {
+    rowDrag.list = list;
+    rowDrag.from = index;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(index));
+    spClosePop();
+    requestAnimationFrame(() => event.target.closest('[data-i]')?.classList.add('dragging'));
+}
+
+function rowDragOver(event, list, index) {
+    if (rowDrag.list !== list || rowDrag.from === null) return;
+    event.preventDefault();
+    const row = event.currentTarget;
+    row.parentElement.querySelectorAll('.over, .over-after').forEach(el => { if (el !== row) el.classList.remove('over', 'over-after'); });
+    if (index !== rowDrag.from) row.classList.add(rowDrag.from < index ? 'over-after' : 'over');
+}
+
+function rowDragLeave(event) {
+    if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.classList.remove('over', 'over-after');
+}
+
+function rowDrop(event, list, index) {
+    if (rowDrag.list !== list || rowDrag.from === null) return;
+    event.preventDefault();
+    const from = rowDrag.from;
+    rowDragEnd();
+    if (list === 'sq') sqMove(from, index);
+    else plMove(from, index);
+}
+
+function rowDragEnd() {
+    rowDrag.list = null;
+    rowDrag.from = null;
+    document.querySelectorAll('.dragging, .over, .over-after').forEach(el => el.classList.remove('dragging', 'over', 'over-after'));
+}
+
+function moveItem(list, from, to) {
+    if (to < 0 || to >= list.length || from === to) return false;
+    const [item] = list.splice(from, 1);
+    list.splice(to, 0, item);
+    return true;
+}
+
+// ---------- Theme Editor: the theme's sequences ----------
+
+function teSelectedSeq() {
+    if (!te.selPreset || !te.selPreset.startsWith('seq:')) return null;
+    return te.sequences.find(q => `seq:${q.id}` === te.selPreset) || null;
+}
+
+function teSeqDefaults() {
+    return te.seqDefaults || { hold_min: 300, hold_max: 900, ramp: 30 };
+}
+
+function teRenderSeqCount() {
+    const badge = document.getElementById('te-seq-n');
+    if (badge) badge.textContent = String(te.sequences.length);
+}
+
+function teSeqMenuHtml() {
+    const d = teSeqDefaults();
+    const rows = te.sequences.map(q => xMenuItem(escapeHtml(q.name), `teOpenSequence(${jsArg(q.id)})`, {
+        after: `${q.has_intrusion ? intrusionMark() : ''}${seqMark()}`, note: spPlural(q.presets.length, 'preset') })).join('');
+    return `<div class="mhead">Sequences</div>${rows}
+        ${xMenuItem('Add sequence…', 'teOpenSequence(null)', { cls: 'add', icon: TE_ICON_PLUS })}
+        ${X_SEP}<div class="mhead">Theme defaults</div>
+        <div class="mi-row dgrid"><label for="te-sd-min">Time on each preset</label>
+            <input id="te-sd-min" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Default minimum minutes on each preset" value="${seqMinutes(d.hold_min)}" onchange="teSetSeqDefaults()">
+            <span>–</span>
+            <input id="te-sd-max" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Default maximum minutes on each preset" value="${seqMinutes(d.hold_max)}" onchange="teSetSeqDefaults()">
+            <span class="u">min</span></div>
+        <div class="mi-row dgrid"><label for="te-sd-ramp">Ramp</label><span></span><span></span>
+            <input id="te-sd-ramp" class="num" type="number" min="0" step="5" inputmode="numeric" aria-label="Default ramp seconds" value="${teEsc(d.ramp)}" onchange="teSetSeqDefaults()">
+            <span class="u">s</span></div>`;
+}
+
+async function teSetSeqDefaults() {
+    if (!te.themeId) return;
+    const get = id => document.getElementById(id);
+    const min = parseFloat(get('te-sd-min')?.value);
+    const max = parseFloat(get('te-sd-max')?.value);
+    const ramp = parseFloat(get('te-sd-ramp')?.value);
+    ['te-sd-min', 'te-sd-max', 'te-sd-ramp'].forEach(id => get(id)?.classList.remove('err'));
+    if (!(min > 0) || !(max > 0) || min > max) {
+        get('te-sd-min')?.classList.add('err');
+        get('te-sd-max')?.classList.add('err');
+        showToast(min > max ? 'Minimum is more than maximum' : 'Enter the time on each preset', 'error');
+        return;
+    }
+    if (!(ramp >= 0)) {
+        get('te-sd-ramp')?.classList.add('err');
+        showToast('Enter the ramp in seconds', 'error');
+        return;
+    }
+    try {
+        const result = await api('PUT', `/themes/${te.themeId}/sequence_defaults`, { hold_min: Math.round(min * 60), hold_max: Math.round(max * 60), ramp: Math.round(ramp) });
+        te.seqDefaults = { hold_min: result.hold_min, hold_max: result.hold_max, ramp: result.ramp };
+        teFlash('Theme defaults saved');
+        teLoadPresets(false);  // the sequences' times follow
+    } catch (error) {
+        showToast(error.message || 'Failed to save the defaults', 'error');
+    }
+}
+
+function teOpenSequence(id) {
+    teCloseMenu();
+    sqOpen(id);
+}
+
+// ---------- Sequence editor (#sq-modal) ----------
+const sq = { id: null, presets: [], end: 'reverse' };
+
+function sqIsOpen() {
+    return !!document.getElementById('sq-modal')?.classList.contains('active');
+}
+
+function sqOpen(id) {
+    const seq = id ? te.sequences.find(q => q.id === id) : null;
+    if (id && !seq) { showToast('Sequence not found', 'error'); return; }
+    spClosePop();
+    sq.id = seq ? seq.id : null;
+    sq.presets = seq ? seq.presets.filter(p => te.presets.some(x => x.id === p)) : [];
+    sq.end = seq?.at_end || 'reverse';
+    const d = teSeqDefaults();
+    const set = (fieldId, value, placeholder) => {
+        const input = document.getElementById(fieldId);
+        input.value = value;
+        input.placeholder = placeholder;
+        input.classList.remove('err');
+    };
+    set('sq-min', seq && seq.hold_min !== null ? seqMinutes(seq.hold_min) : '', seqMinutes(d.hold_min));
+    set('sq-max', seq && seq.hold_max !== null ? seqMinutes(seq.hold_max) : '', seqMinutes(d.hold_max));
+    set('sq-ramp', seq && seq.ramp !== null ? String(seq.ramp) : '', String(d.ramp));
+    const name = document.getElementById('sq-name');
+    name.value = seq ? seq.name : '';
+    name.classList.remove('err');
+    sqRenderHead();
+    sqRender();
+    document.getElementById('sq-modal').classList.add('active');
+    document.querySelector('#sq-modal .sq-list').scrollTop = 0;
+    if (!seq) setTimeout(() => name.focus(), 50);
+}
+
+function sqRenderHead() {
+    document.getElementById('sq-title-text').textContent = sq.id ? 'Edit sequence' : 'Add sequence';
+    document.getElementById('sq-sub').textContent = document.getElementById('te-name').value.trim() || document.getElementById('te-title-name').textContent;
+    document.getElementById('sq-more-btn').hidden = !sq.id;
+}
+
+function sqClose() {
+    spClosePop();
+    rowDragEnd();
+    document.getElementById('sq-modal')?.classList.remove('active');
+}
+
+function sqPreset(id) {
+    return te.presets.find(p => p.id === id) || null;
+}
+
+function sqTimingValues() {
+    const d = teSeqDefaults();
+    const raw = id => document.getElementById(id).value.trim();
+    const min = raw('sq-min'), max = raw('sq-max'), ramp = raw('sq-ramp');
+    return {
+        raw: { min, max, ramp },
+        min: min === '' ? d.hold_min / 60 : parseFloat(min),
+        max: max === '' ? d.hold_max / 60 : parseFloat(max),
+        ramp: ramp === '' ? d.ramp : parseFloat(ramp),
+    };
+}
+
+function sqTiming() {
+    ['sq-min', 'sq-max', 'sq-ramp'].forEach(id => document.getElementById(id).classList.remove('err'));
+    sqRenderSum();
+}
+
+function sqSetEnd(value) {
+    sq.end = value;
+    sqRender();
+}
+
+function sqRenderSum() {
+    const n = sq.presets.length;
+    const t = sqTimingValues();
+    const num = v => (Number.isFinite(v) ? +v.toFixed(1) : '?');
+    document.getElementById('sq-sum').textContent = n
+        ? `${spPlural(n, 'preset')} · ${num(t.min)}–${num(t.max)} min each · ${num(t.ramp)} s ramp`
+        : 'Add at least 2 presets';
+}
+
+function sqRender() {
+    document.querySelectorAll('#sq-modal .f-end .seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.end === sq.end)));
+    const n = sq.presets.length;
+    const flow = document.getElementById('sq-flow');
+    flow.hidden = n === 0;
+    flow.innerHTML = sq.presets.map(id => {
+        const p = sqPreset(id);
+        return `<span class="fstep"><span class="fchip">${escapeHtml(p ? p.name : id)}${presetMarks(!!p?.is_default, !!p?.has_intrusion)}</span><span class="farr">${ICON_ARROW}</span></span>`;
+    }).join('') + `<span class="fend${sq.end === 'stop' ? ' stop' : ''}">${ICON_END[sq.end] || ''}${SEQ_END_LABELS[sq.end] || ''}</span>`;
+    document.getElementById('sq-count').textContent = String(n);
+    const rows = document.getElementById('sq-rows');
+    rows.innerHTML = n ? sq.presets.map((id, i) => {
+        const p = sqPreset(id);
+        const name = escapeHtml(p ? p.name : id);
+        return `
+            <div class="sq-r sgrid" data-i="${i}" ondragover="rowDragOver(event, 'sq', ${i})" ondragleave="rowDragLeave(event)" ondrop="rowDrop(event, 'sq', ${i})">
+                <span class="drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag ${name}" ondragstart="rowDragStart(event, 'sq', ${i})" ondragend="rowDragEnd()">${TE_ICON_GRIP}</span>
+                <span class="sq-n">${i + 1}</span>
+                <span class="sq-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${presetMarks(!!p?.is_default, !!p?.has_intrusion)}</span>
+                <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="sqMenu('row', this, ${i})">${TE_ICON_MORE}</button>
+            </div>`;
+    }).join('') : `<div class="sq-empty"><button type="button" class="link-btn" onclick="sqMenu('add', this)">${TE_ICON_PLUS}Add preset</button></div>`;
+    spUpdateMarquees(rows);
+    sqRenderSum();
+}
+
+function sqMove(from, to) {
+    spClosePop();
+    if (moveItem(sq.presets, from, to)) sqRender();
+}
+
+function sqRemove(index) {
+    spClosePop();
+    sq.presets.splice(index, 1);
+    sqRender();
+}
+
+function sqAdd(id) {
+    spClosePop();
+    if (!sq.presets.includes(id)) sq.presets.push(id);
+    sqRender();
+}
+
+function sqMenu(kind, button, arg = null) {
+    if (kind === 'add') {
+        const items = te.presets.map(p => {
+            const added = sq.presets.includes(p.id);
+            return xMenuItem(escapeHtml(p.name), `sqAdd(${jsArg(p.id)})`, {
+                disabled: added, after: presetMarks(!!p.is_default, !!p.has_intrusion), note: added ? 'added' : '' });
+        }).join('');
+        xMenu('sq-add', button, `<div class="mhead">Add preset</div>${items || '<div class="mhead">No presets yet</div>'}`, { cls: 'menu sp-menu x-menu' });
+    } else if (kind === 'row') {
+        const n = sq.presets.length;
+        xMenu(`sq-row:${arg}`, button, `
+            ${xMenuItem('Move up', `sqMove(${arg}, ${arg - 1})`, { icon: ICON_UP, disabled: arg === 0 })}
+            ${xMenuItem('Move down', `sqMove(${arg}, ${arg + 1})`, { icon: ICON_DOWN, disabled: arg === n - 1 })}
+            ${X_SEP}${xMenuItem('Remove', `sqRemove(${arg})`, { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
+    } else if (kind === 'more') {
+        xMenu('sq-more', button, `
+            ${xMenuItem('Duplicate', 'sqDuplicate()', { icon: ICON_COPY })}
+            ${X_SEP}${xMenuItem('Delete sequence…', 'sqAskDelete()', { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
+    }
+}
+
+function sqDuplicate() {
+    spClosePop();
+    const name = document.getElementById('sq-name');
+    sq.id = null;
+    name.value = `${name.value.trim()} (copy)`;
+    sqRenderHead();
+    name.focus();
+}
+
+function sqAskDelete() {
+    const seq = te.sequences.find(q => q.id === sq.id);
+    if (!seq) return;
+    spConfirm('sq-del', spMenuAnchor() || document.getElementById('sq-more-btn'), { title: `Delete “${seq.name}”?`, ok: 'Delete', danger: true }, sqDelete);
+}
+
+async function sqDelete() {
+    const seq = te.sequences.find(q => q.id === sq.id);
+    if (!seq || !te.themeId) return;
+    try {
+        await api('DELETE', `/themes/${te.themeId}/sequences/${encodeURIComponent(seq.id)}`);
+        if (te.selPreset === `seq:${seq.id}`) te.selPreset = '';
+        sqClose();
+        teFlash(`Deleted “${seq.name}”`);
+        await teLoadPresets(false);
+    } catch (error) {
+        showToast(error.message || 'Failed to delete the sequence', 'error');
+    }
+}
+
+async function sqSave() {
+    if (!te.themeId) return;
+    const nameInput = document.getElementById('sq-name');
+    const name = nameInput.value.trim();
+    if (!name) {
+        nameInput.classList.add('err');
+        nameInput.focus();
+        showToast('Enter a name', 'error');
+        return;
+    }
+    if (te.sequences.some(q => q.id !== sq.id && q.name.toLowerCase() === name.toLowerCase())) {
+        nameInput.classList.add('err');
+        showToast('A sequence with that name exists', 'error');
+        return;
+    }
+    const t = sqTimingValues();
+    if (!(t.min > 0) || !(t.max > 0) || t.min > t.max) {
+        ['sq-min', 'sq-max'].forEach(id => document.getElementById(id).classList.add('err'));
+        showToast(t.min > t.max ? 'Minimum is more than maximum' : 'Enter the time on each preset', 'error');
+        return;
+    }
+    if (!(t.ramp >= 0)) {
+        document.getElementById('sq-ramp').classList.add('err');
+        showToast('Enter the ramp in seconds', 'error');
+        return;
+    }
+    if (sq.presets.length < 2) {
+        showToast('Add at least 2 presets', 'error');
+        return;
+    }
+    const body = {
+        name, presets: [...sq.presets], at_end: sq.end,
+        hold_min: t.raw.min === '' ? null : Math.round(t.min * 60),
+        hold_max: t.raw.max === '' ? null : Math.round(t.max * 60),
+        ramp: t.raw.ramp === '' ? null : Math.round(t.ramp),
+    };
+    try {
+        if (sq.id) await api('PUT', `/themes/${te.themeId}/sequences/${encodeURIComponent(sq.id)}`, body);
+        else await api('POST', `/themes/${te.themeId}/sequences`, body);
+        sqClose();
+        teFlash(`Saved “${name}”`);
+        await teLoadPresets(false);
+    } catch (error) {
+        showToast(error.message || 'Failed to save the sequence', 'error');
+    }
+}
+
+// ---------- Playlists page ----------
+const plOpenRows = {};
+
+async function renderPlaylistsPage() {
+    plRenderList();
+    const before = Object.keys(sessionPresetsCache).length;
+    await plLoadThemePresets();
+    if (Object.keys(sessionPresetsCache).length !== before && currentView === 'playlists') plRenderList();
+}
+
+function plPlayingOn(playlistId) {
+    return sessions.filter(s => s.playlist_id === playlistId && s.is_playing).map(s => s.name);
+}
+
+function plRenderList() {
+    const container = document.getElementById('playlists-list');
+    if (!container) return;
+    spSetTitle('playlists', 'Playlists', playlists.length);
+    document.getElementById('pll-bar').hidden = playlists.length === 0;
+    if (!playlists.length) {
+        container.innerHTML = '<div class="sp-empty"><strong>No playlists</strong><span>Themes in order or shuffled</span></div>';
+        return;
+    }
+    container.innerHTML = `<div class="sp-lbody">${playlists.map(p => {
+        const open = !!plOpenRows[p.id];
+        const name = escapeHtml(p.name);
+        const playing = plPlayingOn(p.id);
+        const n = p.entries.length;
+        const shuffle = p.order === 'shuffle';
+        const subs = p.entries.map((e, i) => {
+            const theme = themeById(e.theme_id);
+            return `
+                <div class="pll-srow">
+                    <span class="pll-gap"></span>
+                    <div class="pll-sname"><span class="sn">${i + 1}</span><span class="ti" aria-hidden="true">${theme ? themeIconOf(e.theme_id) : ''}</span><span class="trk-name${theme ? '' : ' gone'}" title="${escapeHtml(theme ? theme.name : 'Theme deleted')}"><span class="mq-in">${escapeHtml(theme ? theme.name : 'Theme deleted')}</span></span></div>
+                    <div class="swhat">${theme ? plWhatHtml(e.theme_id, e.preset_id, e.sequence_id) : ''}</div>
+                </div>`;
+        }).join('');
+        return `
+            <div class="pll-grp" data-id="${escapeHtml(p.id)}">
+                <div class="sp-lrow pll-grid pll-row">
+                    <button type="button" class="chev-btn pll-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Hide' : 'Show'} entries of ${name}" onclick="plToggleRow(${spArg(p.id)})">${SP_ICON_CHEV}</button>
+                    <div class="pll-name"><span class="pl-ic">${ICON_PLAYLIST}</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${playing.length ? `<span class="channel-status active" title="Playing on ${escapeHtml(playing.join(', '))}"></span>` : ''}</div>
+                    <span class="pll-num c" title="${n} ${n === 1 ? 'entry' : 'entries'}">${n}<span class="ph-only"> ${n === 1 ? 'entry' : 'entries'}</span></span>
+                    <span class="pll-meta"><span class="pll-ord">${shuffle ? ICON_SHUFFLE : ICON_IN_ORDER}${shuffle ? 'Shuffle' : 'In order'}</span>
+                    <span class="pll-time">${seqMinutes(p.play_min)}–${seqMinutes(p.play_max)} min</span>
+                    <span class="pll-rep c">${p.repeat ? `<span class="rep-ic" title="Repeats">${ICON_REPEAT}<span class="ph-only">Repeat</span></span>` : '<span class="dash" title="Stops after the last entry">–</span>'}</span></span>
+                    <button type="button" class="btn btn-sm btn-secondary pll-edit" onclick="plOpen(${spArg(p.id)})">Edit</button>
+                    <button type="button" class="icon-btn sm pll-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="plRowMenu(this, ${spArg(p.id)})">${SP_ICON_MORE}</button>
+                </div>
+                ${open ? `<div class="pll-subs">${subs || '<div class="sp-muted pll-none">No entries</div>'}</div>` : ''}
+            </div>`;
+    }).join('')}</div>`;
+    spUpdateMarquees(container);
+}
+
+function plToggleRow(playlistId) {
+    plOpenRows[playlistId] = !plOpenRows[playlistId];
+    plRenderList();
+}
+
+function plRowMenu(button, playlistId) {
+    xMenu(`pl:${playlistId}`, button, `
+        ${xMenuItem('Duplicate', `plDuplicate(${spArg(playlistId)})`, { icon: ICON_COPY })}
+        ${X_SEP}${xMenuItem('Delete…', `plAskDelete(${spArg(playlistId)})`, { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
+}
+
+function plAskDelete(playlistId, anchor = null) {
+    const p = playlistById(playlistId);
+    if (!p) return;
+    const playing = sessions.filter(s => s.playlist_id === playlistId).map(s => s.name);
+    spConfirm(`pl-del:${playlistId}`, anchor || spMenuAnchor(), {
+        title: `Delete “${p.name}”?`, sub: playing.length ? `${playing.join(', ')} ${playing.length === 1 ? 'stops' : 'stop'} playing it.` : '',
+        ok: 'Delete', danger: true }, () => plDelete(playlistId));
+}
+
+async function plDelete(playlistId) {
+    try {
+        await api('DELETE', `/playlists/${encodeURIComponent(playlistId)}`);
+        if (plIsOpen() && ple.id === playlistId) plClose();
+        await Promise.all([loadPlaylists(), loadSessions()]);
+        plRenderList();
+        renderSessions();
+        showToast('Playlist deleted', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+function plFreeName(base) {
+    const taken = new Set(playlists.map(p => p.name.toLowerCase()));
+    let name = `${base} (copy)`;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (copy ${n})`;
+    return name;
+}
+
+async function plDuplicate(playlistId) {
+    spClosePop();
+    const p = playlistById(playlistId);
+    if (!p) return;
+    try {
+        const created = await api('POST', '/playlists', {
+            name: plFreeName(p.name), entries: p.entries, order: p.order, repeat: p.repeat,
+            play_min: p.play_min, play_max: p.play_max, fit_sequences: !!p.fit_sequences });
+        await loadPlaylists();
+        if (created?.id) {
+            // Right under the original
+            const i = playlists.findIndex(x => x.id === created.id);
+            const at = playlists.findIndex(x => x.id === playlistId);
+            if (i > -1 && at > -1) { const [x] = playlists.splice(i, 1); playlists.splice(at + 1, 0, x); }
+        }
+        plRenderList();
+        showToast('Duplicated', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// ---------- Playlist editor (#pl-modal) ----------
+const ple = { id: null, entries: [], order: 'in_order', rowErr: false };
+
+function plIsOpen() {
+    return !!document.getElementById('pl-modal')?.classList.contains('active');
+}
+
+async function plOpen(playlistId = null) {
+    spClosePop();
+    const p = playlistId ? playlistById(playlistId) : null;
+    if (playlistId && !p) { showToast('Playlist not found', 'error'); return; }
+    ple.id = p ? p.id : null;
+    ple.entries = p ? p.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null })) : [];
+    ple.order = p?.order === 'shuffle' ? 'shuffle' : 'in_order';
+    ple.rowErr = false;
+    const name = document.getElementById('pl-name');
+    name.value = p ? p.name : '';
+    name.classList.remove('err');
+    document.getElementById('pl-min').value = seqMinutes(p ? p.play_min : 1800);
+    document.getElementById('pl-max').value = seqMinutes(p ? p.play_max : 3600);
+    ['pl-min', 'pl-max'].forEach(id => document.getElementById(id).classList.remove('err'));
+    document.getElementById('pl-repeat').checked = p ? !!p.repeat : true;
+    document.getElementById('pl-fit').checked = !!p?.fit_sequences;
+    plRenderHead();
+    plRenderOrder();
+    plRenderEntries();
+    document.getElementById('pl-modal').classList.add('active');
+    document.getElementById('pl-entries').scrollTop = 0;
+    if (!p) setTimeout(() => name.focus(), 50);
+    await plLoadThemePresets([{ entries: ple.entries }]);
+    if (plIsOpen()) plRenderEntries();
+}
+
+function plRenderHead() {
+    document.getElementById('pl-title').textContent = ple.id ? 'Edit playlist' : 'Add playlist';
+    document.getElementById('pl-save-btn').textContent = ple.id ? 'Save' : 'Add playlist';
+    document.getElementById('pl-more-btn').hidden = !ple.id;
+}
+
+function plClose() {
+    spClosePop();
+    rowDragEnd();
+    document.getElementById('pl-modal')?.classList.remove('active');
+}
+
+function plSetOrder(order) {
+    ple.order = order;
+    plRenderOrder();
+}
+
+function plRenderOrder() {
+    document.getElementById('pl-inorder').setAttribute('aria-pressed', String(ple.order !== 'shuffle'));
+    document.getElementById('pl-shuffle').setAttribute('aria-pressed', String(ple.order === 'shuffle'));
+}
+
+function plRange() {
+    return { min: parseFloat(document.getElementById('pl-min').value), max: parseFloat(document.getElementById('pl-max').value) };
+}
+
+function plTiming() {
+    ['pl-min', 'pl-max'].forEach(id => document.getElementById(id).classList.remove('err'));
+    plRenderEntries();
+}
+
+function plEntryNote(e) {
+    if (!e.sequence_id) return '';
+    const seq = (sessionSequencesCache[e.theme_id] || []).find(q => q.id === e.sequence_id);
+    if (document.getElementById('pl-fit').checked) {
+        const r = plRange();
+        return Number.isFinite(r.min) && Number.isFinite(r.max) ? `Fits into ${+r.min.toFixed(1)}–${+r.max.toFixed(1)} min` : '';
+    }
+    return seq ? `Plays the whole sequence, about ${Math.round(seq.pass_min / 60)}–${Math.round(seq.pass_max / 60)} min` : '';
+}
+
+function plRenderEntries() {
+    const n = ple.entries.length;
+    document.getElementById('pl-count').textContent = String(n);
+    const box = document.getElementById('pl-entries');
+    const scroll = box.scrollTop;
+    box.innerHTML = n ? `<div class="ebox">${ple.entries.map((e, i) => {
+        const theme = themeById(e.theme_id);
+        const note = plEntryNote(e);
+        const bad = ple.rowErr && !theme;
+        return `
+            <div class="erow egrid" data-i="${i}" ondragover="rowDragOver(event, 'pl', ${i})" ondragleave="rowDragLeave(event)" ondrop="rowDrop(event, 'pl', ${i})">
+                <span class="drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag entry ${i + 1}" ondragstart="rowDragStart(event, 'pl', ${i})" ondragend="rowDragEnd()">${TE_ICON_GRIP}</span>
+                <span class="en">${i + 1}</span>
+                <button type="button" class="wsel ewt${bad ? ' err' : ''}" aria-haspopup="listbox" aria-label="Theme for entry ${i + 1}" onclick="plMenu('theme', this, ${i})">
+                    <span class="wsel-in">${theme ? `<span class="ti" aria-hidden="true">${themeIconOf(e.theme_id)}</span><span class="wl">${escapeHtml(theme.name)}</span>` : '<span class="wl dflt">Choose theme</span>'}</span><span class="chev">${ICON_CHEV_DOWN}</span>
+                </button>
+                <button type="button" class="wsel eww" aria-haspopup="listbox" aria-label="Preset or sequence for entry ${i + 1}" ${theme ? '' : 'disabled'} onclick="plMenu('what', this, ${i})">
+                    <span class="wsel-in">${theme ? plWhatHtml(e.theme_id, e.preset_id, e.sequence_id) : '<span class="wl dflt">Default settings</span>'}</span><span class="chev">${ICON_CHEV_DOWN}</span>
+                </button>
+                <button type="button" class="icon-btn sm" aria-label="More for entry ${i + 1}" aria-haspopup="menu" onclick="plMenu('row', this, ${i})">${TE_ICON_MORE}</button>
+                ${note ? `<span class="enote">${escapeHtml(note)}</span>` : ''}
+            </div>`;
+    }).join('')}</div>` : `<div class="eempty"><span>No entries</span><button type="button" class="link-btn" onclick="plAddEntry()">${TE_ICON_PLUS}Add entry</button></div>`;
+    box.scrollTop = scroll;
+    const r = plRange();
+    const range = r.min > 0 && r.max >= r.min ? ` · ${plDuration(n * r.min)}–${plDuration(n * r.max)} per pass` : '';
+    document.getElementById('pl-sum').textContent = n ? `${n} ${n === 1 ? 'entry' : 'entries'}${range}` : 'No entries';
+}
+
+function plAddEntry() {
+    spClosePop();
+    ple.entries.push({ theme_id: '', preset_id: null, sequence_id: null });
+    plRenderEntries();
+    const box = document.getElementById('pl-entries');
+    box.scrollTop = box.scrollHeight;
+    box.querySelector('.erow:last-child .ewt')?.focus();
+}
+
+function plMove(from, to) {
+    spClosePop();
+    if (moveItem(ple.entries, from, to)) plRenderEntries();
+}
+
+function plSetEntry(index, patch) {
+    spClosePop();
+    const e = ple.entries[index];
+    if (!e) return;
+    Object.assign(e, patch);
+    plRenderEntries();
+    document.querySelectorAll('#pl-entries .erow')[index]?.querySelector(patch.theme_id !== undefined ? '.ewt' : '.eww')?.focus();
+}
+
+async function plPickTheme(index, themeId) {
+    const e = ple.entries[index];
+    if (!e) return;
+    if (e.theme_id === themeId) { spClosePop(); return; }
+    await loadPresetsForTheme(themeId);
+    plSetEntry(index, { theme_id: themeId, preset_id: null, sequence_id: null });
+}
+
+async function plMenu(kind, button, arg = null) {
+    if (kind === 'more') {
+        xMenu('ple-more', button, `
+            ${xMenuItem('Duplicate', 'plEdDuplicate()', { icon: ICON_COPY })}
+            ${X_SEP}${xMenuItem('Delete playlist…', 'plEdAskDelete()', { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
+    } else if (kind === 'row') {
+        const n = ple.entries.length;
+        xMenu(`ple-row:${arg}`, button, `
+            ${xMenuItem('Move up', `plMove(${arg}, ${arg - 1})`, { icon: ICON_UP, disabled: arg === 0 })}
+            ${xMenuItem('Move down', `plMove(${arg}, ${arg + 1})`, { icon: ICON_DOWN, disabled: arg === n - 1 })}
+            ${xMenuItem('Duplicate', `plDupEntry(${arg})`, { icon: ICON_COPY })}
+            ${X_SEP}${xMenuItem('Remove', `plRemoveEntry(${arg})`, { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
+    } else if (kind === 'theme') {
+        const e = ple.entries[arg];
+        const items = themes.map(t => xMenuItem(escapeHtml(t.name), `plPickTheme(${arg}, ${spArg(t.id)})`, {
+            role: 'option', check: t.id === e?.theme_id, cls: t.id === e?.theme_id ? 'cur' : '',
+            icon: `<span class="ti" aria-hidden="true">${resolveThemeIcon(t.icon, t.id)}</span>` })).join('');
+        xMenu(`ple-theme:${arg}`, button, items || '<div class="mhead">No themes yet</div>', { cls: 'menu sp-menu x-menu x-list', role: 'listbox', align: 'field' });
+    } else if (kind === 'what') {
+        const e = ple.entries[arg];
+        if (!e?.theme_id) return;
+        if (spm.id === `ple-what:${arg}`) { spClosePop(); return; }
+        await loadPresetsForTheme(e.theme_id);
+        const presets = sessionPresetsCache[e.theme_id] || [];
+        const seqs = sessionSequencesCache[e.theme_id] || [];
+        const none = !e.preset_id && !e.sequence_id;
+        let html = xMenuItem('Default settings', `plSetEntry(${arg}, { preset_id: null, sequence_id: null })`, { role: 'option', check: none, cls: `dflt${none ? ' cur' : ''}` });
+        html += presets.map(p => {
+            const cur = !e.sequence_id && e.preset_id === p.id;
+            return xMenuItem(escapeHtml(p.name), `plSetEntry(${arg}, { preset_id: ${spArg(p.id)}, sequence_id: null })`, {
+                role: 'option', check: cur, cls: cur ? 'cur' : '', after: presetMarks(!!p.is_default, !!p.has_intrusion) });
+        }).join('');
+        if (seqs.length) html += X_SEP + seqs.map(q => {
+            const cur = e.sequence_id === q.id;
+            return xMenuItem(escapeHtml(q.name), `plSetEntry(${arg}, { preset_id: null, sequence_id: ${spArg(q.id)} })`, {
+                role: 'option', check: cur, cls: cur ? 'cur' : '', after: `${q.has_intrusion ? intrusionMark() : ''}${seqMark()}` });
+        }).join('');
+        xMenu(`ple-what:${arg}`, button, html, { cls: 'menu sp-menu x-menu x-list', role: 'listbox', align: 'field' });
+    }
+}
+
+function plDupEntry(index) {
+    spClosePop();
+    const e = ple.entries[index];
+    if (!e) return;
+    ple.entries.splice(index + 1, 0, { ...e });
+    plRenderEntries();
+}
+
+function plRemoveEntry(index) {
+    spClosePop();
+    ple.entries.splice(index, 1);
+    plRenderEntries();
+}
+
+function plEdDuplicate() {
+    spClosePop();
+    const name = document.getElementById('pl-name');
+    ple.id = null;
+    name.value = plFreeName(name.value.trim());
+    plRenderHead();
+    name.focus();
+}
+
+function plEdAskDelete() {
+    plAskDelete(ple.id, spMenuAnchor() || document.getElementById('pl-more-btn'));
+}
+
+async function plSave() {
+    const nameInput = document.getElementById('pl-name');
+    const name = nameInput.value.trim();
+    if (!name) {
+        nameInput.classList.add('err');
+        nameInput.focus();
+        showToast('Enter a name', 'error');
+        return;
+    }
+    if (playlists.some(p => p.id !== ple.id && p.name.toLowerCase() === name.toLowerCase())) {
+        nameInput.classList.add('err');
+        showToast('A playlist with that name exists', 'error');
+        return;
+    }
+    const r = plRange();
+    if (!(r.min > 0) || !(r.max > 0) || r.min > r.max) {
+        ['pl-min', 'pl-max'].forEach(id => document.getElementById(id).classList.add('err'));
+        showToast(r.min > r.max ? 'Minimum is more than maximum' : 'Enter the play time', 'error');
+        return;
+    }
+    if (!ple.entries.length) {
+        showToast('Add at least one entry', 'error');
+        return;
+    }
+    if (ple.entries.some(e => !themeById(e.theme_id))) {
+        ple.rowErr = true;
+        plRenderEntries();
+        showToast('Choose a theme for every entry', 'error');
+        return;
+    }
+    const body = {
+        name,
+        entries: ple.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null })),
+        order: ple.order,
+        repeat: document.getElementById('pl-repeat').checked,
+        play_min: Math.round(r.min * 60),
+        play_max: Math.round(r.max * 60),
+        fit_sequences: document.getElementById('pl-fit').checked,
+    };
+    try {
+        const isNew = !ple.id;
+        const saved = isNew ? await api('POST', '/playlists', body) : await api('PUT', `/playlists/${encodeURIComponent(ple.id)}`, body);
+        if (isNew && saved?.id) plOpenRows[saved.id] = true;
+        plClose();
+        await Promise.all([loadPlaylists(), loadSessions()]);
+        if (currentView === 'playlists') plRenderList();
+        renderSessions();
+        showToast(isNew ? 'Playlist added' : 'Playlist saved', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// Esc in the sequence or playlist editor: closes its open menu, else the editor (never the Theme Editor under it)
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    const which = plIsOpen() ? 'pl' : sqIsOpen() ? 'sq' : null;
+    if (!which || xs.key) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (spm.id) {
+        const button = spm.btn;
+        spClosePop();
+        button?.focus();
+    } else if (which === 'pl') {
+        plClose();
+    } else {
+        sqClose();
+    }
+}, true);
 
 // Start
 init();
@@ -7389,16 +8604,36 @@ const PAGE_HELP = {
         <h4>Each channel</h4>
         ${helpTerm('Theme', 'the sound the channel plays. Picking another theme also picks that theme\'s default preset, if it has one.')}
         ${helpTerm('Preset', 'a saved mix of the theme\'s tracks. Default settings plays the theme without a preset.')}
+        ${helpTerm('Sequences', 'listed in the Preset menu after the presets, marked with the sequence icon. Picking one plays its presets in turn; the line under the field shows the preset playing now and when it changes. Picking a preset stops it.')}
+        ${helpTerm('Playlist', 'a channel can play a playlist instead of one theme: in Edit, choose Playlist. The card then shows the playlist and the entry playing now.')}
+        ${helpTerm('Next', 'plays the playlist\'s next entry now.')}
         ${helpTerm('Speakers', 'where the channel plays. Use Edit to change them.')}
         ${helpTerm('Volume', 'the channel\'s volume. It is saved when you let go of the slider.')}
         ${helpTerm('Play / Pause', 'starts or stops the channel on its speakers.')}
-        ${helpTerm('Edit', 'changes the channel\'s name, theme, preset, volume and speakers.')}
+        ${helpTerm('Edit', 'changes the channel\'s name, theme or playlist, preset, volume and speakers.')}
         ${helpTerm('Delete', 'removes the channel. You confirm first.')}
         <h4>New channel</h4>
         ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it after the theme and speakers.')}
         ${helpTerm('Speakers', 'pick floors, areas or single speakers. Only speakers turned on under Settings › Speakers are listed.')}
         ${helpTerm('Speaker group', 'picks a saved group instead of single speakers. Shown when you have speaker groups.')}
         ${helpTerm('Playing count', 'the number next to Channels in the menu is how many channels are playing.')}` },
+
+    playlists: { title: 'Playlists', html: `
+        <p>A playlist plays themes one after another on a channel.</p>
+        <h4>Each playlist</h4>
+        ${helpTerm('Entry', 'a theme, plus a preset or sequence of that theme if you want one. Without one, the theme plays its default settings.')}
+        ${helpTerm('Arrow', 'shows the entries.')}
+        ${helpTerm('Green dot', 'a channel is playing the playlist now.')}
+        ${helpTerm('Play each', 'every entry plays for a random time in this range (minutes), drawn fresh each time. Then the next entry starts.')}
+        ${helpTerm('In order, Shuffle', 'Shuffle mixes the order on every pass.')}
+        ${helpTerm('Repeat', 'starts over after the last entry. Without it the channel stops after the last entry.')}
+        ${helpTerm('⋯', 'Duplicate and Delete. You confirm a delete first.')}
+        <h4>Editing</h4>
+        ${helpTerm('Sequence entry', 'plays the whole sequence once, then the playlist moves on. Sequences are listed after the presets, marked with the sequence icon.')}
+        ${helpTerm('Fit sequences into the playlist time', 'a sequence entry plays for the playlist\'s time like any other entry, with its steps shortened or lengthened to fit.')}
+        ${helpTerm('Reorder', 'drag an entry, or use its ⋯ menu.')}
+        <h4>Playing one</h4>
+        ${helpTerm('Channel', 'in a channel\'s Edit, choose Playlist. Next on the channel card skips to the next entry.')}` },
 
     themes: { title: 'Themes', html: `
         <p>A theme is a set of tracks (sound files) mixed together. Every theme is listed here.</p>

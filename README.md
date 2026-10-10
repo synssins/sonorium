@@ -294,6 +294,23 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 
 ## What's new
 
+#### Next release
+
+**Sequences and playlists**
+- **Sequences.** A theme can have sequences: some of its presets in the order you choose. Each preset plays for a random time in a range, then the channel glides into the next one. At the end a sequence plays the list backwards, starts again or stops. Make and edit them from **Sequences** in the Theme Editor.
+- **Sequences in the Preset menu.** A theme's sequences are listed after its presets on the channel cards, in the channel's Edit dialog and in the Theme Editor, marked with the sequence icon. A channel running one shows the preset playing now and when it changes. In Home Assistant they are options of the channel's Preset select, as "*name* (sequence)".
+- **Playlists.** The new **Playlists** page holds themes that play one after another on a channel: each entry is a theme, with a preset or sequence if you want one, played in order or shuffled, for a random time in the playlist's range, once or on repeat. In a channel's **Edit**, choose **Playlist**; the card then shows the entry playing and a **Next** button. Home Assistant gets a Playlist select, a Next button and a Step sensor for each channel.
+- **Fit sequences into the playlist time.** A playlist option: a sequence entry plays for the playlist's time like any other entry, instead of playing the whole sequence.
+- **Theme cycling became playlists.** A channel's theme cycling is turned into a playlist once, on the first start of this version.
+
+**Playback**
+- **Channels fade in and out** when they start and stop, instead of cutting (#34).
+- **Preset glides.** Picking a preset glides the mix to it over 3 seconds; a sequence glides over its ramp time.
+
+**Fixes**
+- **Crossfade** and **Master output gain** on **Settings → Audio Settings** now change the sound in the Home Assistant app. Crossfade also sets how long a channel fades in and out.
+- After a confirmation on a settings page, an empty box could stay on the screen.
+
 #### 1.6.0
 
 **Themes and playback**
@@ -422,6 +439,19 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 - **Intrusion group:** a group in Intrusion mode, marked 🔗. Its tracks keep their own mode and settings, and it can hold files linked from other themes.
 - **Linked file:** plays here but stays in its own theme. Add one with the group's ⋯ › Add from another theme. New links start muted. If the file is gone, it shows Missing.
 - **Presets:** turn intrusion tracks on and other tracks off, like rain that mutes the crickets. A preset that turns intrusion tracks on shows ⚭.
+
+**Sequences**
+
+- **Sequence:** plays presets of this theme in the order you choose, gliding from one to the next. Marked with the sequence icon (square › triangle › circle).
+- **Sequences menu:** lists this theme's sequences. Pick one to edit it, or Add sequence to make one.
+- **Time on each preset:** each preset plays for a random time in this range (minutes), drawn fresh each time.
+- **Ramp:** how long the glide to the next preset takes (seconds).
+- **At the end:** Reverse plays the list backwards, Start again goes back to the first preset, Stop stays on the last one.
+- **Theme defaults:** empty fields use the theme's time and ramp, set at the bottom of the Sequences menu.
+- **Order:** drag a preset, or use its ⋯ menu.
+- **Save:** saves the sequence at once. Every channel playing this theme can pick it.
+- **Picking one:** preset lists show the sequences after the presets. Picking a preset by hand stops a running sequence.
+- **Edit:** pick a sequence in the preset field below, then Edit.
 
 **Saving**
 

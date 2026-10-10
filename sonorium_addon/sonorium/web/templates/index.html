@@ -61,6 +61,16 @@
                     <span>Channels</span>
                     <span id="playing-badge" class="nav-item-badge" style="display: none;">0</span>
                 </div>
+                <div class="nav-item" onclick="showView('playlists')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="6" x2="15" y2="6"/>
+                        <line x1="3" y1="12" x2="15" y2="12"/>
+                        <line x1="3" y1="18" x2="10" y2="18"/>
+                        <path d="M21 16V5l-4 1"/>
+                        <circle cx="18" cy="16" r="3"/>
+                    </svg>
+                    <span>Playlists</span>
+                </div>
             </div>
 
             <div class="nav-section">
@@ -245,6 +255,16 @@
                 </div>
             </div>
 
+            <!-- Playlists: column headers fixed, the playlist list scrolls (pl* in app.js) -->
+            <div id="view-playlists" class="view sp sp-ui">
+                <div class="sp-bar sp-bar-head" id="pll-bar" hidden>
+                    <div class="sp-wrap"><div class="sp-lhead pll-grid"><span></span><span>Name</span><span class="c">Entries</span><span>Order</span><span>Play each</span><span class="c">Repeat</span><span></span><span></span></div></div>
+                </div>
+                <div class="sp-scroll">
+                    <div class="sp-wrap" id="playlists-list"></div>
+                </div>
+            </div>
+
             <!-- Themes View: fixed search/filter bar; only #themes-browser scrolls.
                  Chips, cards/rows and menus are rendered by app.js (tp* functions). -->
             <div id="view-themes" class="view tp">
@@ -358,6 +378,17 @@
                             <p class="hi"><b>Intrusion group:</b> a group in Intrusion mode, marked <span class="int-ic" role="img" aria-label="link icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>. Its tracks keep their own mode and settings, and it can hold files linked from other themes.</p>
                             <p class="hi"><b>Linked file:</b> plays here but stays in its own theme. Add one with the group's ⋯ › Add from another theme. New links start muted. If the file is gone, it shows Missing.</p>
                             <p class="hi"><b>Presets:</b> turn intrusion tracks on and other tracks off, like rain that mutes the crickets. A preset that turns intrusion tracks on shows <span class="int-ic" role="img" aria-label="two circles icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg></span>.</p>
+                            <h4>Sequences</h4>
+                            <p class="hi"><b>Sequence:</b> plays presets of this theme in the order you choose, gliding from one to the next. Marked <span class="seq-ic" role="img" aria-label="sequence icon"><svg class="seqsh" width="22" height="10" viewBox="0 0 34 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"/><polyline points="10.5 4 12.5 6 10.5 8"/><path d="M15 9.5 18.5 2.5 22 9.5Z"/><polyline points="23.5 4 25.5 6 23.5 8"/><circle cx="29.5" cy="6" r="3.5"/></svg></span>.</p>
+                            <p class="hi"><b>Sequences menu:</b> lists this theme's sequences. Pick one to edit it, or Add sequence to make one.</p>
+                            <p class="hi"><b>Time on each preset:</b> each preset plays for a random time in this range (minutes), drawn fresh each time.</p>
+                            <p class="hi"><b>Ramp:</b> how long the glide to the next preset takes (seconds).</p>
+                            <p class="hi"><b>At the end:</b> Reverse plays the list backwards, Start again goes back to the first preset, Stop stays on the last one.</p>
+                            <p class="hi"><b>Theme defaults:</b> empty fields use the theme's time and ramp, set at the bottom of the Sequences menu.</p>
+                            <p class="hi"><b>Order:</b> drag a preset, or use its ⋯ menu.</p>
+                            <p class="hi"><b>Save:</b> saves the sequence at once. Every channel playing this theme can pick it.</p>
+                            <p class="hi"><b>Picking one:</b> preset lists show the sequences after the presets. Picking a preset by hand stops a running sequence.</p>
+                            <p class="hi"><b>Edit:</b> pick a sequence in the preset field below, then Edit.</p>
                             <h4>Saving</h4>
                             <p class="hi"><b>Live:</b> changes are heard on speakers playing this theme, and on this device with Preview mix.</p>
                             <p class="hi"><b>Cancel:</b> Reverts unsaved changes.</p>
@@ -399,7 +430,7 @@
                         <div class="tsec-head">
                             <h3>Tracks</h3><span class="badge badge-type" id="te-track-count">0</span>
                             <button class="btn btn-sm btn-secondary seq-btn" aria-haspopup="menu" onclick="teMenu('seq', this)">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><polyline points="3 5 4 6 3 7"/><polyline points="3 11 4 12 3 13"/><polyline points="3 17 4 18 3 19"/></svg>Sequences<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                                <span class="seq-ic"><svg class="seqsh" width="26" height="12" viewBox="0 0 34 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"/><polyline points="10.5 4 12.5 6 10.5 8"/><path d="M15 9.5 18.5 2.5 22 9.5Z"/><polyline points="23.5 4 25.5 6 23.5 8"/><circle cx="29.5" cy="6" r="3.5"/></svg></span>Sequences<span class="badge badge-type seq-n" id="te-seq-n">0</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
                             <button class="btn btn-sm btn-secondary te-mix-btn" id="te-mix-btn" aria-pressed="false" onclick="teToggleMixPreview()"
                                     title="Play the whole theme on this device, with your changes, without changing the speakers">
@@ -784,7 +815,22 @@ Example:
                         <input type="text" id="session-name" placeholder="Leave empty to auto-generate from selection">
                     </div>
 
-                    <div class="session-field grow">
+                    <div class="session-field ch-plays">
+                        <label id="ch-plays-lbl">Plays</label>
+                        <div class="seg" role="group" aria-labelledby="ch-plays-lbl">
+                            <button type="button" id="ch-mode-theme" aria-pressed="true" onclick="chSetMode('theme')">Theme</button>
+                            <button type="button" id="ch-mode-playlist" aria-pressed="false" onclick="chSetMode('playlist')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="15" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="10" y2="18"/><path d="M21 16V5l-4 1"/><circle cx="18" cy="16" r="3"/></svg>Playlist</button>
+                        </div>
+                    </div>
+
+                    <div class="session-field" id="ch-playlist-field" hidden>
+                        <label id="ch-playlist-lbl">Playlist</label>
+                        <div id="ch-playlist-picker"></div>
+                        <div class="pl-sum" id="ch-playlist-sum"></div>
+                    </div>
+                    <div class="session-field grow ch-pl-fill" id="ch-playlist-fill" hidden></div>
+
+                    <div class="session-field grow" id="ch-theme-field">
                         <label>Theme · <span id="theme-selected-name">None</span></label>
                         <div class="theme-panel">
                             <div class="picker-head">
@@ -850,6 +896,90 @@ Example:
                 <button class="btn btn-primary" onclick="saveSession()">
                     <span id="save-btn-text">Create Channel</span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sequence editor (over the Theme Editor): name, timing and the order fixed; the preset list scrolls (sq* in app.js) -->
+    <div id="sq-modal" class="modal-backdrop sq-back" onclick="if(event.target===this) sqClose()">
+        <div class="modal sq" role="dialog" aria-modal="true" aria-labelledby="sq-title">
+            <div class="modal-header">
+                <h2 id="sq-title"><span id="sq-title-text">Edit sequence</span> <span class="sub" id="sq-sub"></span></h2>
+                <div class="hd-acts">
+                    <button type="button" class="icon-btn sm hd-more" id="sq-more-btn" aria-label="More sequence actions" aria-haspopup="menu" onclick="sqMenu('more', this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+                    <button type="button" class="modal-close" aria-label="Close" onclick="sqClose()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                </div>
+            </div>
+            <div class="sq-top">
+                <div class="sq-row">
+                    <div class="fld f-sqname"><label class="fld-label" for="sq-name">Name</label><input id="sq-name" class="inp name" type="text" maxlength="100" autocomplete="off" placeholder="Sequence name" oninput="this.classList.remove('err')" onkeydown="if (event.key === 'Enter') { event.preventDefault(); sqSave(); }"></div>
+                </div>
+                <div class="sq-row">
+                    <div class="fld"><span class="fld-label" title="A random time in this range, drawn fresh each time. Empty uses the theme default.">Time on each preset</span>
+                        <div class="rng"><input id="sq-min" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Minimum minutes on each preset" oninput="sqTiming()"><span>–</span><input id="sq-max" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Maximum minutes on each preset" oninput="sqTiming()"><span>min</span></div></div>
+                    <div class="fld"><span class="fld-label" title="How long the glide to the next preset takes. Empty uses the theme default.">Ramp</span>
+                        <div class="rng"><input id="sq-ramp" class="num" type="number" min="0" step="5" inputmode="numeric" aria-label="Ramp seconds" oninput="sqTiming()"><span>s</span></div></div>
+                    <div class="fld f-end"><span class="fld-label" id="sq-end-lbl">At the end</span>
+                        <div class="seg" role="group" aria-labelledby="sq-end-lbl">
+                            <button type="button" data-end="reverse" onclick="sqSetEnd('reverse')">Reverse</button>
+                            <button type="button" data-end="restart" onclick="sqSetEnd('restart')">Start again</button>
+                            <button type="button" data-end="stop" onclick="sqSetEnd('stop')">Stop</button>
+                        </div></div>
+                </div>
+                <div class="flow" id="sq-flow" aria-label="Order"></div>
+            </div>
+            <div class="sq-fix">
+                <div class="sq-head"><h3>Presets</h3><span class="badge badge-type" id="sq-count">0</span><span class="grow"></span>
+                    <button type="button" class="btn btn-sm btn-secondary" aria-haspopup="menu" onclick="sqMenu('add', this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add preset<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button></div>
+                <div class="sq-thead sgrid"><span></span><span class="c">#</span><span>Preset</span><span></span></div>
+            </div>
+            <div class="sq-list"><div class="sq-box" id="sq-rows"></div></div>
+            <div class="modal-footer foot">
+                <span class="sq-sum" id="sq-sum"></span>
+                <span class="grow"></span>
+                <button type="button" class="btn btn-primary" onclick="sqSave()">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="sqClose()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Playlist editor: name and options fixed, the entries scroll (pl* in app.js) -->
+    <div id="pl-modal" class="modal-backdrop pl-back" onclick="if(event.target===this) plClose()">
+        <div class="modal ple" role="dialog" aria-modal="true" aria-labelledby="pl-title">
+            <div class="modal-header">
+                <h2 id="pl-title">Edit playlist</h2>
+                <div class="hd-acts">
+                    <button type="button" class="icon-btn sm hd-more" id="pl-more-btn" aria-label="More playlist actions" aria-haspopup="menu" onclick="plMenu('more', this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+                    <button type="button" class="modal-close" aria-label="Close" onclick="plClose()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                </div>
+            </div>
+            <div class="ple-top">
+                <div class="ple-row"><div class="fld ple-name"><label class="fld-label" for="pl-name">Name</label><input id="pl-name" class="inp name" type="text" maxlength="100" autocomplete="off" placeholder="Playlist name" oninput="this.classList.remove('err')" onkeydown="if (event.key === 'Enter') { event.preventDefault(); plSave(); }"></div></div>
+                <div class="ple-row">
+                    <div class="fld"><span class="fld-label" title="Every entry plays for a random time in this range, drawn fresh each time">Play each entry</span>
+                        <div class="rng"><input id="pl-min" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Minimum minutes per entry" oninput="plTiming()"><span>–</span><input id="pl-max" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Maximum minutes per entry" oninput="plTiming()"><span>min</span></div></div>
+                    <div class="fld"><span class="fld-label" id="pl-order-lbl">Order</span>
+                        <div class="seg" role="group" aria-labelledby="pl-order-lbl">
+                            <button type="button" id="pl-inorder" onclick="plSetOrder('in_order')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><polyline points="3 5 4 6 3 7"/><polyline points="3 11 4 12 3 13"/><polyline points="3 17 4 18 3 19"/></svg>In order</button>
+                            <button type="button" id="pl-shuffle" onclick="plSetOrder('shuffle')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>Shuffle</button>
+                        </div></div>
+                    <div class="fld"><span class="fld-label" id="pl-rep-lbl">Repeat</span>
+                        <div class="sw-fld"><label class="toggle-switch"><input type="checkbox" id="pl-repeat" aria-labelledby="pl-rep-lbl"><span class="toggle-slider"></span></label></div></div>
+                    <div class="fld"><span class="fld-label" id="pl-fit-lbl">Fit sequences into the playlist time</span>
+                        <div class="sw-fld"><label class="toggle-switch"><input type="checkbox" id="pl-fit" aria-labelledby="pl-fit-lbl" onchange="plRenderEntries()"><span class="toggle-slider"></span></label></div></div>
+                </div>
+            </div>
+            <div class="ple-fix">
+                <div class="ple-head"><h3>Entries</h3><span class="badge badge-type" id="pl-count">0</span><span class="grow"></span>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="plAddEntry()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add entry</button></div>
+                <div class="ple-thead egrid"><span></span><span class="c">#</span><span>Theme</span><span>Preset or sequence</span><span></span></div>
+            </div>
+            <div class="ple-scroll" id="pl-entries"></div>
+            <div class="modal-footer foot">
+                <span class="ple-sum" id="pl-sum"></span>
+                <span class="grow"></span>
+                <button type="button" class="btn btn-primary" id="pl-save-btn" onclick="plSave()">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="plClose()">Cancel</button>
             </div>
         </div>
     </div>
