@@ -6548,7 +6548,10 @@ function teToggleMixPreview() {
         showToast('Preview mix stopped', 'error');
         teStopMixPreview();
     });
-    teMixAudio.play().catch(() => {
+    const audio = teMixAudio;
+    audio.play().catch(error => {
+        // A restart (new src) interrupts this play() with an AbortError: not a failure
+        if (error?.name === 'AbortError' || teMixAudio !== audio) return;
         showToast('Could not play the preview', 'error');
         teStopMixPreview();
     });
@@ -6567,8 +6570,12 @@ function teStopMixPreview() {
 
 function teRestartMixPreview() {
     if (!teMixAudio || !te.themeId) return;
-    teMixAudio.src = teMixUrl();
-    teMixAudio.play().catch(() => teStopMixPreview());
+    const audio = teMixAudio;
+    audio.src = teMixUrl();
+    audio.play().catch(error => {
+        if (error?.name === 'AbortError' || teMixAudio !== audio) return;  // replaced by a newer restart
+        teStopMixPreview();
+    });
 }
 
 
