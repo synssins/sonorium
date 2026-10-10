@@ -985,6 +985,12 @@ Example:
                     <button type="button" class="modal-close te-help-x" aria-label="Close help" onclick="txToggleHelp()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
                 </div>
                 <div class="te-help-body">
+                    <h4>In a sequence step</h4>
+                    <p class="hi"><b>While playing:</b> changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green; anything you don't change follows the preset.</p>
+                    <p class="hi"><b>Revert changes:</b> puts back the settings as they were when Save was last pressed: for one track or group in its ⋯ menu, or for everything at the top of the list. A value set back to the preset's follows the preset again.</p>
+                    <p class="hi"><b>Coming in / Leaving:</b> how tracks change as the step starts and ends (see Advanced transitions).</p>
+                    <p class="hi"><b>Rise:</b> in an Ebb &amp; Flow track's ⋯ menu: how fast it rises. Gradual rises as smoothly as it falls. Sudden jumps up quickly and eases back down, like gusts of wind or waves on rocks. <i>Duration</i> sets how long each rise and fall takes. A group can set the same Rise for every file.</p>
+                    <h4>Advanced transitions</h4>
                     <p class="hi"><b>Advanced:</b> in a sequence, a preset's ⋯ › Advanced sets how each track comes in, and how it leaves.</p>
                     <p class="hi"><b>Coming in / Leaving:</b> tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.</p>
                     <p class="hi"><b>Smooth:</b> no button on. The track follows the sequence's ramp.</p>
@@ -999,7 +1005,22 @@ Example:
                 </div>
             </div>
             <div class="ad-ctx" id="tx-ctx"></div>
-            <div class="ad-top"><div class="seg ad-tabs" role="tablist" aria-label="Transition side" id="tx-tabs"></div></div>
+            <div class="ad-top st-top"><div class="seg ad-tabs" role="tablist" aria-label="Step" id="tx-tabs"></div><p class="st-note" id="tx-note" hidden></p></div>
+            <!-- While playing: the theme's tracks as the Theme Editor lists them, with this step's values (tw* in app.js) -->
+            <div class="te tw" id="tw" hidden>
+                <div class="tfix">
+                    <div class="tsec-head">
+                        <h3>Tracks</h3><span class="badge badge-type" id="tw-count">0</span>
+                        <span class="grow"></span>
+                        <div class="tbar">
+                            <button type="button" class="btn btn-sm btn-secondary" id="tw-revert" onclick="twRevertAll()" disabled>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>Revert changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-body tlist" id="tw-tracks" aria-label="Tracks"></div>
+            </div>
             <div class="ad-fix"><div class="sq-thead adgrid"><span></span><span>Track</span><span>Change</span><span>Style</span><span>Setting</span><span title="Starts this long before the step">Pre-fade</span></div></div>
             <div class="ad-list"><div class="sq-box" id="tx-rows"></div></div>
             <div class="modal-footer foot">

@@ -3158,10 +3158,11 @@ function teGaplessAllowed(track) {
 }
 
 // A slider with its value and a hint under it. Ebb & Flow's Duration shows no value:
-// "Shorter" and "Longer" sit under its ends instead (ends = true).
-function teSliderCell(kind, label, percent, attrs, hint, ends = false) {
+// "Shorter" and "Longer" sit under its ends instead (ends = true). ovr: ' ovr' when a
+// sequence step changes it (shown green).
+function teSliderCell(kind, label, percent, attrs, hint, ends = false, ovr = '') {
     return `
-        <div class="mx" data-kind="${kind}">
+        <div class="mx${ovr}" data-kind="${kind}">
             <span class="c-lbl">${label}</span>
             <div class="mx-ctl">
                 <div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="100" value="${percent}" ${attrs}></div>
@@ -3172,18 +3173,18 @@ function teSliderCell(kind, label, percent, attrs, hint, ends = false) {
 }
 
 // Ebb & Flow's Volume: two knobs, the lowest and the highest level it moves between
-function teDualCell(track, k, label, vol, master, off) {
+function teDualCell(track, k, label, vol, master, off, view = TE_VIEW) {
     const low = Math.min(vol, Math.round((track.volume_low ?? TE_EBB_DEFAULTS.volume_low) * 100));
     return `
-        <div class="mx" data-kind="volume">
+        <div class="mx${view.ovr('tracks', track.name, ['volume', 'volume_low'])}" data-kind="volume">
             <span class="c-lbl">Volume</span>
             <div class="mx-ctl">
                 <div class="track-slider-wrapper"><div class="dual" data-master="${master}" title="Rises and falls between these two levels">
                     <span class="dual-track"></span><span class="dual-fill" style="left: ${low}%; width: ${vol - low}%"></span>
                     <input type="range" min="0" max="100" value="${low}" data-knob="low" aria-label="Lowest volume: ${label}"
-                           oninput="teDualInput(this)" onchange="teSetEbb(${k}, { volume_low: this.value / 100 })"${off}>
+                           oninput="teDualInput(this)" onchange="${view.on.ebb}(${k}, { volume_low: this.value / 100 })"${off}>
                     <input type="range" min="0" max="100" value="${vol}" data-knob="high" aria-label="Highest volume: ${label}"
-                           oninput="teDualInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"${off}>
+                           oninput="teDualInput(this)" onchange="${view.on.value}(${k}, 'volume', this.value)"${off}>
                 </div></div>
                 <span class="track-slider-value">${low}–${vol}%</span>
             </div>
@@ -3236,20 +3237,46 @@ function teToggleEbbPause(key) {
     if (track) teSetEbb(key, { pause_between: !track.pause_between }, true);
 }
 
-// The Pause range (seconds): saved when a field is left
-function teSetEbbPause(key, input) {
+// The Pause range (seconds) in a track's menu, from either of its fields: { pause_min, pause_max }
+function teEbbPauseValues(input) {
     const row = input.closest('.mi-row');
     const read = which => Math.max(0, parseFloat(row.querySelector(`[data-pause="${which}"]`).value) || 0);
     let low = read('min'), high = read('max');
     if (high < low) [low, high] = [high, low];
-    teSetEbb(key, { pause_min: low, pause_max: high }, true);
+    return { pause_min: low, pause_max: high };
 }
+
+// The Pause range: saved when a field is left
+function teSetEbbPause(key, input) {
+    teSetEbb(key, teEbbPauseValues(input), true);
+}
+
+// ---------- The track list's views ----------
+// Sections, groups and rows are drawn for two views: the Theme Editor's (TE_VIEW, values saved as
+// they change) and a sequence step's While playing (twView(), the step's values over the preset).
+// A view gives the tracks and groups to show (closed: collapsed groups), ovr(part, name, fields):
+// ' ovr' where the step changes the preset's value (shown green), advOn(track, group, ebb): the
+// dot on a row's ⋯, and on: the functions its controls call. edit: the Theme Editor's own
+// controls (drag, the Mode menu, rename and delete, New group, Crossfade, the Unassigned section).
+const TE_VIEW = {
+    edit: true,
+    get tracks() { return te.tracks; },
+    get groups() { return te.groups; },
+    get closed() { return te.closed; },
+    ovr: () => '',
+    advOn: (track, group, ebb) => (!group && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive
+        || !!track.fade_in || !!track.fade_out || (ebb && (!!track.pause_between || !!track.rise)),
+    on: { value: 'teSetTrackValue', ebb: 'teSetEbb', mute: 'teToggleTrackMute', ebbPause: 'teToggleEbbPause', pause: 'teSetEbbPause',
+          group: 'teSetGroupValue', gap: 'teSetGroupGap', groupRise: 'teToggleGroupRise', fold: 'teToggleGroup', menu: 'teMenu' },
+};
 
 // A track's row in its section (group: the group it plays in, or null). Unassigned rows show the
 // file's length instead of the sliders and mute.
-function teRenderRow(track, group) {
+function teRenderRow(track, group, view = TE_VIEW) {
     const key = track.name;
     const k = jsArg(key);
+    const on = view.on;
+    const ovr = fields => view.ovr('tracks', key, fields);
     const name = trackDisplayName(key);
     const section = TE_SECTIONS.find(s => s.mode === teSectionOf(track));
     const vol = Math.round((track.volume ?? 1) * 100);
@@ -3261,8 +3288,7 @@ function teRenderRow(track, group) {
     const missing = !!link?.missing;    // its source is gone: shown greyed, only ⋯ works
     const off = missing ? ' disabled' : '';
     const ebb = section.mode === 'presence';
-    const advOn = (!group && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive || !!track.fade_in || !!track.fade_out
-        || (ebb && (!!track.pause_between || !!track.rise));
+    const advOn = view.advOn(track, group, ebb);
     const muted = track.muted || (group && group.settings?.muted);
     const cls = ['trow', 'tgrid2', group ? 'in-grp' : '', muted ? 'muted' : '', link ? 'linked' : '', missing ? 'missing' : '',
         playing ? 'previewing' : ''].filter(Boolean).join(' ');
@@ -3279,20 +3305,26 @@ function teRenderRow(track, group) {
         controls = `<span class="un-note">${missing ? '' : pkFormatLength(track.duration_seconds)}</span>`;
     } else {
         const presCell = !section.pres ? '<span class="no-pres"></span>' : teSliderCell('presence', section.pres, pres,
-            `aria-label="${section.pres}: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'presence', this.value)"${off}`,
-            playsAtHint(pres / 100, presMaster), ebb);
+            `aria-label="${section.pres}: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="${on.value}(${k}, 'presence', this.value)"${off}`,
+            playsAtHint(pres / 100, presMaster), ebb, ovr(['presence']));
         controls = `
-        ${ebb ? teDualCell(track, k, label, vol, volMaster, off) : teSliderCell('volume', 'Volume', vol,
-            `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"${off}`,
-            playsAtHint(vol / 100, volMaster))}
+        ${ebb ? teDualCell(track, k, label, vol, volMaster, off, view) : teSliderCell('volume', 'Volume', vol,
+            `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="${on.value}(${k}, 'volume', this.value)"${off}`,
+            playsAtHint(vol / 100, volMaster), false, ovr(['volume']))}
         ${presCell}
-        <button class="track-mute-btn${track.muted ? ' muted' : ''}" title="${track.muted ? 'Unmute' : 'Mute'}"
+        <button class="track-mute-btn${track.muted ? ' muted' : ''}${ovr(['muted'])}" title="${track.muted ? 'Unmute' : 'Mute'}"
                 aria-label="${track.muted ? 'Unmute' : 'Mute'}: ${label}" aria-pressed="${!!track.muted}"
-                onclick="teToggleTrackMute(${k})"${off}>${track.muted ? '🔇' : '🔊'}</button>`;
+                onclick="${on.mute}(${k})"${off}>${track.muted ? '🔇' : '🔊'}</button>`;
     }
+    // A sequence step doesn't change a track's mode: shown as text there
+    const mode = group
+        ? `<span class="te-mode-fixed" title="Set by its group">${escapeHtml(section.groupLabel)}</span>`
+        : view.edit ? `<select class="track-mode-select" aria-label="Mode: ${label}" title="Moves the track to that section"
+                    onchange="teSetMode(${k}, this.value)"${off}>${teModeOptions(track)}</select>`
+        : `<span class="te-mode-fixed">${escapeHtml(section.label)}</span>`;
     return `
     <div class="${cls}" data-track="${escapeHtml(key)}">
-        ${te.groupsOk ? `<span class="drag-handle" draggable="true" title="Drag to another section or group" aria-label="Drag ${label}"
+        ${view.edit && te.groupsOk ? `<span class="drag-handle" draggable="true" title="Drag to another section or group" aria-label="Drag ${label}"
               ondragstart="teDragStart(event, ${k})" ondragend="teDragEnd()">${TE_ICON_GRIP}</span>` : '<span></span>'}
         <button class="track-preview-btn${playing ? ' playing' : ''}" title="${missing ? 'File missing' : playing ? 'Stop preview' : 'Preview'}"
                 aria-label="Preview: ${label}" onclick="toggleTrackPreview(${k})"${off}>
@@ -3302,23 +3334,22 @@ function teRenderRow(track, group) {
         <div class="nm-cell"><span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>${from}</div>
         <div class="c-mode">
             <span class="c-lbl">Mode</span>
-            ${group
-                ? `<span class="te-mode-fixed" title="Set by its group">${escapeHtml(section.groupLabel)}</span>`
-                : `<select class="track-mode-select" aria-label="Mode: ${label}" title="Moves the track to that section"
-                    onchange="teSetMode(${k}, this.value)"${off}>${teModeOptions(track)}</select>`}
+            ${mode}
         </div>
         ${controls}
         <button class="icon-btn sm more-btn" aria-label="More for ${label}" aria-haspopup="menu"
-                onclick="teMenu('${link ? 'link' : 'track'}', this, ${k})">${TE_ICON_MORE}${advOn ? '<span class="adv-dot"></span>' : ''}</button>
+                onclick="${on.menu}('${link ? 'link' : 'track'}', this, ${k})">${TE_ICON_MORE}${advOn ? '<span class="adv-dot"></span>' : ''}</button>
     </div>`;
 }
 
-function teRenderGroup(group) {
+function teRenderGroup(group, view = TE_VIEW) {
     const name = group.name;
     const n = jsArg(name);
+    const on = view.on;
+    const ovr = fields => view.ovr('groups', name, fields);
     const label = escapeHtml(name);
-    const tracks = te.tracks.filter(t => trackGroupOf(t.name) === name);
-    const open = !te.closed[name];
+    const tracks = view.tracks.filter(t => trackGroupOf(t.name) === name);
+    const open = !view.closed[name];
     const s = group.settings || {};
     const muted = !!s.muted;
     const vol = Math.round(groupMaster(group, 'volume') * 100);
@@ -3326,19 +3357,19 @@ function teRenderGroup(group) {
     const gapMin = s.gap_min != null ? Math.round(s.gap_min / 6) / 10 : '';
     const gapMax = s.gap_max != null ? Math.round(s.gap_max / 6) / 10 : '';
     const mode = teGroupMode(group);
-    const renaming = te.renaming === name;
-    const confirming = te.confirmDel === name;
+    const renaming = view.edit && te.renaming === name;
+    const confirming = view.edit && te.confirmDel === name;
     const count = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
-    // Under the group's name: Gap (Intermittent), Crossfade (Merry-go-round) or the Pause between plays switch
-    // (Ebb & Flow). On a phone, Gap and Crossfade get their own line in the header (.gap-row).
+    // Under the group's name: Gap (Intermittent), Crossfade (Merry-go-round, not in a sequence step) or the
+    // Pause between plays switch (Ebb & Flow). On a phone, Gap and Crossfade get their own line in the header (.gap-row).
     const gap = (cls) => `
-        <div class="${cls}">
+        <div class="${cls}${ovr(['gap_min', 'gap_max'])}">
             <span class="gap-word">Gap</span>
             <input class="num" type="number" min="0" step="0.5" placeholder="2" value="${teEsc(gapMin)}" aria-label="${label} minimum gap, minutes"
-                   data-gap="min" onchange="teSetGroupGap(${n}, this)">
+                   data-gap="min" onchange="${on.gap}(${n}, this)">
             <span>–</span>
             <input class="num" type="number" min="0" step="0.5" placeholder="2" value="${teEsc(gapMax)}" aria-label="${label} maximum gap, minutes"
-                   data-gap="max" onchange="teSetGroupGap(${n}, this)">
+                   data-gap="max" onchange="${on.gap}(${n}, this)">
             <span>min</span>
         </div>`;
     const crossfade = (cls) => `
@@ -3349,10 +3380,10 @@ function teRenderGroup(group) {
             <span>s</span>
         </div>`;
     const pauseSwitch = `
-        <button type="button" class="gsw" role="switch" aria-checked="${!!s.pause_between}" aria-label="${label} pause between plays"
+        <button type="button" class="gsw${ovr(['pause_between'])}" role="switch" aria-checked="${!!s.pause_between}" aria-label="${label} pause between plays"
                 title="Every file pauses between plays, at staggered times, so one is always playing"
-                onclick="teSetGroupValue(${n}, 'pause_between', ${!s.pause_between})"><span class="gap-word">Pause between plays</span><span class="sw${s.pause_between ? ' on' : ''}"></span></button>`;
-    const timing = mode === 'merry_go_round' ? crossfade : mode === 'ebb_flow' ? null : gap;
+                onclick="${on.group}(${n}, 'pause_between', ${!s.pause_between})"><span class="gap-word">Pause between plays</span><span class="sw${s.pause_between ? ' on' : ''}"></span></button>`;
+    const timing = mode === 'intermittent' ? gap : mode === 'merry_go_round' && view.edit ? crossfade : null;
     let nameCell;
     if (renaming) {
         nameCell = `<input class="inp sm grp-rename" type="text" maxlength="60" enterkeyhint="done" aria-label="Group name" value="${label}"
@@ -3364,57 +3395,58 @@ function teRenderGroup(group) {
                         <button class="btn btn-sm btn-secondary" onclick="teCancelDelete()">Cancel</button>
                     </span>`;
     } else {
-        nameCell = `<button class="gname" title="Double-click to rename" ondblclick="teStartRename(${n})">${label}</button>
+        nameCell = `${view.edit ? `<button class="gname" title="Double-click to rename" ondblclick="teStartRename(${n})">${label}</button>`
+                                : `<span class="gname">${label}</span>`}
                     <span class="badge badge-type">${count}</span>`;
     }
     const section = teGroupSection(group);
     const masterSlider = (kind, text, value, ends = false) => teSliderCell(kind, text, value,
-        `aria-label="${label} group ${text.toLowerCase()}" oninput="teGroupSliderInput(this, ${n})" onchange="teSetGroupValue(${n}, '${kind}', this.value)"`, '', ends);
+        `aria-label="${label} group ${text.toLowerCase()}" oninput="teGroupSliderInput(this, ${n})" onchange="${on.group}(${n}, '${kind}', this.value)"`, '', ends, ovr([kind]));
+    const drop = view.edit ? ` ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, ${n})"` : '';
     return `
-    <div class="sec grp-sec${open ? ' open-sec' : ''}${muted ? ' gmuted' : ''}" data-group="${label}"
-         ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, ${n})">
+    <div class="sec grp-sec${open ? ' open-sec' : ''}${muted ? ' gmuted' : ''}" data-group="${label}"${drop}>
         <div class="ghead tgrid2${muted ? ' muted' : ''}">
             <button class="chev-btn${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${label}"
-                    onclick="teToggleGroup(${n})">${TE_ICON_CHEV}</button>
+                    onclick="${on.fold}(${n})">${TE_ICON_CHEV}</button>
             <span class="folder">${TE_ICON_FOLDER_LG}</span>
             <div class="gname-cell${confirming ? ' wide' : ''}">
                 ${nameCell}
-                <span class="drop-note">Drop to add</span>
-                ${confirming ? '' : timing ? timing('gap-ctl') : pauseSwitch}
+                ${view.edit ? '<span class="drop-note">Drop to add</span>' : ''}
+                ${confirming ? '' : timing ? timing('gap-ctl') : mode === 'ebb_flow' ? pauseSwitch : ''}
             </div>
             ${confirming || !timing ? '' : timing('gap-ctl gap-row')}
             ${confirming ? '' : `<div class="c-mode gmode"><span class="te-mode-fixed" title="Set by the section">${escapeHtml(section.groupLabel)}</span></div>`}
             <div class="master">${masterSlider('volume', 'Volume', vol)}</div>
             ${section.pres ? `<div class="master">${masterSlider('presence', section.pres, pres, mode === 'ebb_flow')}</div>` : '<span class="no-pres"></span>'}
-            <button class="track-mute-btn${muted ? ' muted' : ''}" title="${muted ? 'Unmute group' : 'Mute group'}"
+            <button class="track-mute-btn${muted ? ' muted' : ''}${ovr(['muted'])}" title="${muted ? 'Unmute group' : 'Mute group'}"
                     aria-label="${muted ? 'Unmute group' : 'Mute group'}: ${label}" aria-pressed="${muted}"
-                    onclick="teSetGroupValue(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
-            <button class="icon-btn sm" aria-label="More for group ${label}" aria-haspopup="menu" onclick="teMenu('group', this, ${n})">${TE_ICON_MORE}</button>
+                    onclick="${on.group}(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
+            <button class="icon-btn sm" aria-label="More for group ${label}" aria-haspopup="menu" onclick="${on.menu}('group', this, ${n})">${TE_ICON_MORE}</button>
         </div>
         ${open ? `
-        ${tracks.map(t => teRenderRow(t, group)).join('')}
-        ${tracks.length ? '' : '<div class="empty-row">Drag files here</div>'}` : ''}
+        ${tracks.map(t => teRenderRow(t, group, view)).join('')}
+        ${tracks.length || !view.edit ? '' : '<div class="empty-row">Drag files here</div>'}` : ''}
     </div>`;
 }
 
 // One section of the track list: its header, column headings, groups, then its ungrouped tracks
-function teRenderSection(section) {
-    const tracks = te.tracks.filter(t => teSectionOf(t) === section.mode);
-    const groups = te.groupsOk && section.group ? te.groups.filter(g => teGroupMode(g) === section.group) : [];
+function teRenderSection(section, view = TE_VIEW) {
+    const tracks = view.tracks.filter(t => teSectionOf(t) === section.mode);
+    const groups = te.groupsOk && section.group ? view.groups.filter(g => teGroupMode(g) === section.group) : [];
     const ungrouped = tracks.filter(t => !teTrackGroup(t));
     const unassigned = section.mode === 'unassigned';
+    const drop = view.edit ? ` ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDropSection(event, '${section.mode}')"` : '';
     return `
-    <div class="cat cat-${unassigned ? 'unassigned' : section.mode}" data-section="${section.mode}"
-         ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDropSection(event, '${section.mode}')">
+    <div class="cat cat-${unassigned ? 'unassigned' : section.mode}" data-section="${section.mode}"${drop}>
         <div class="cat-head"><span class="cat-title">${escapeHtml(section.label)}</span><span class="badge badge-type">${tracks.length}</span>
             <span class="cat-desc">${escapeHtml(section.desc)}</span><span class="grow"></span>
-            ${section.group && te.groupsOk ? `<button class="btn btn-sm btn-secondary" title="${escapeHtml(section.groupTip)}"
+            ${section.group && te.groupsOk && view.edit ? `<button class="btn btn-sm btn-secondary" title="${escapeHtml(section.groupTip)}"
                 onclick="teNewGroup('${section.group}')">${TE_ICON_FOLDER_PLUS}New group</button>` : ''}</div>
         ${!unassigned && tracks.length ? `<div class="thead tgrid2 cat-thead"><span></span><span></span><span>Name</span><span>Mode</span>
             <span>Volume</span><span>${section.pres || ''}</span><span class="c">Mute</span><span></span></div>` : ''}
-        ${groups.map(teRenderGroup).join('')}
-        ${ungrouped.map(t => teRenderRow(t, null)).join('')}
-        ${groups.length || ungrouped.length ? '' : `<div class="empty-row">${escapeHtml(section.empty || 'Drag files here, or make a group')}</div>`}
+        ${groups.map(g => teRenderGroup(g, view)).join('')}
+        ${ungrouped.map(t => teRenderRow(t, null, view)).join('')}
+        ${groups.length || ungrouped.length || !view.edit ? '' : `<div class="empty-row">${escapeHtml(section.empty || 'Drag files here, or make a group')}</div>`}
     </div>`;
 }
 
@@ -3632,7 +3664,8 @@ async function teSetGroupValue(name, key, value) {
     teRenderTracks();
 }
 
-async function teSetGroupGap(name, input) {
+// A group's Gap (minutes in the fields, seconds saved), from either field: { gap_min, gap_max }
+function teGapValues(input) {
     const box = input.parentElement;
     const read = which => {
         const raw = box.querySelector(`[data-gap="${which}"]`).value;
@@ -3642,10 +3675,15 @@ async function teSetGroupGap(name, input) {
     let low = read('min');
     let high = read('max');
     if (low != null && high != null && high < low) [low, high] = [high, low];
+    return { gap_min: low, gap_max: high };
+}
+
+async function teSetGroupGap(name, input) {
+    const gap = teGapValues(input);
     try {
-        const result = await api('PUT', teGroupUrl(name), { gap_min: low, gap_max: high });
+        const result = await api('PUT', teGroupUrl(name), gap);
         const group = teGroup(name);
-        if (group) group.settings = result?.settings || { ...(group.settings || {}), gap_min: low, gap_max: high };
+        if (group) group.settings = result?.settings || { ...(group.settings || {}), ...gap };
         teMarkMixChanged();
     } catch (error) {
         showToast(error.message || 'Failed to save gap', 'error');
@@ -4137,39 +4175,61 @@ function teExportTheme() {
 
 // ---------- Menus and popovers (one floating element) ----------
 
-function teMenuHtml(kind, arg) {
-    const mi = (label, action, opts = {}) => `<button type="button" class="mi${opts.cls ? ' ' + opts.cls : ''}" role="menuitem"
+const TE_MENU_SEP = '<div class="msep"></div>';
+
+function teMenuItem(label, action, opts = {}) {
+    return `<button type="button" class="mi${opts.cls ? ' ' + opts.cls : ''}" role="menuitem"
         ${opts.disabled ? 'disabled' : ''} ${opts.title ? `title="${escapeHtml(opts.title)}"` : ''} onclick="${action}">${opts.icon || ''}${label}${opts.after || ''}</button>`;
-    const sep = '<div class="msep"></div>';
-    const preset = teSelectedPreset();
-    // A Rise slider, Gradual … Sudden (0..1 stored as 0..100)
-    const riseRow = (id, value, title, action, disabled) => `
-        <div class="mi-row msl" title="${escapeHtml(title)}"><label for="${id}">Rise</label><span class="msl-end">Gradual</span>
+}
+
+// A Rise slider, Gradual … Sudden (0..1 stored as 0..100); ovr: ' ovr' when a sequence step changes it
+function teRiseRow(id, value, title, action, disabled, ovr = '') {
+    return `
+        <div class="mi-row msl${ovr}" title="${escapeHtml(title)}"><label for="${id}">Rise</label><span class="msl-end">Gradual</span>
             <input id="${id}" type="range" class="track-slider" min="0" max="100" value="${Math.round((value ?? 0) * 100)}"
                    onchange="${action}"${disabled ? ' disabled' : ''}><span class="msl-end">Sudden</span></div>`;
-    // Ebb & Flow: Rise and Pause between plays (the group's, when it sets them, override) and the Pause range
-    const ebbRows = (track, k, disabled) => {
-        const group = teTrackGroup(track);
-        const byGroup = !!(group && teGroupMode(group) === 'ebb_flow' && group.settings?.pause_between);
-        const riseByGroup = !!(group && teGroupMode(group) === 'ebb_flow' && group.settings?.rise != null);
-        const on = byGroup || !!track.pause_between;
-        const low = track.pause_min ?? TE_EBB_DEFAULTS.pause_min, high = track.pause_max ?? TE_EBB_DEFAULTS.pause_max;
-        return riseRow('te-rise', riseByGroup ? group.settings.rise : track.rise,
-                'How fast it rises: gradual, as smoothly as it falls, or sudden, jumping up and easing back down',
-                `teSetEbb(${k}, { rise: this.value / 100 })`, disabled || riseByGroup)
-            + (riseByGroup ? '<div class="msl-note">set by group</div>' : '') + sep
-            + mi('Pause between plays', `teToggleEbbPause(${k})`, {
-                disabled: disabled || byGroup,
-                title: byGroup ? "The group's Pause between plays is on" : 'Plays to the end of the file, then pauses',
-                after: `${byGroup ? '<span class="mi-note">set by group</span>' : ''}<span class="sw${on ? ' on' : ''}"></span>` })
-            + `<div class="mi-row dgrid"><label for="te-pause-min" title="Stays quiet this long, in seconds, picked at random each time">Pause</label>
-                <input id="te-pause-min" class="num" type="number" min="0" step="1" inputmode="numeric" data-pause="min" value="${teEsc(low)}"
-                       aria-label="Shortest pause, seconds" onchange="teSetEbbPause(${k}, this)"${disabled ? ' disabled' : ''}>
-                <span>–</span>
-                <input class="num" type="number" min="0" step="1" inputmode="numeric" data-pause="max" value="${teEsc(high)}"
-                       aria-label="Longest pause, seconds" onchange="teSetEbbPause(${k}, this)"${disabled ? ' disabled' : ''}>
-                <span>s</span></div>`;
-    };
+}
+
+// An Ebb & Flow track's menu rows (group: the group it plays in, or null): Rise and Pause between plays
+// (the group's, when it sets them, override) and the Pause range
+function teEbbRows(track, group, k, disabled, view = TE_VIEW) {
+    const byGroup = !!(group && teGroupMode(group) === 'ebb_flow' && group.settings?.pause_between);
+    const riseByGroup = !!(group && teGroupMode(group) === 'ebb_flow' && group.settings?.rise != null);
+    const on = byGroup || !!track.pause_between;
+    const low = track.pause_min ?? TE_EBB_DEFAULTS.pause_min, high = track.pause_max ?? TE_EBB_DEFAULTS.pause_max;
+    return teRiseRow('te-rise', riseByGroup ? group.settings.rise : track.rise,
+            'How fast it rises: gradual, as smoothly as it falls, or sudden, jumping up and easing back down',
+            `${view.on.ebb}(${k}, { rise: this.value / 100 })`, disabled || riseByGroup, view.ovr('tracks', track.name, ['rise']))
+        + (riseByGroup ? '<div class="msl-note">set by group</div>' : '') + TE_MENU_SEP
+        + teMenuItem('Pause between plays', `${view.on.ebbPause}(${k})`, {
+            disabled: disabled || byGroup,
+            title: byGroup ? "The group's Pause between plays is on" : 'Plays to the end of the file, then pauses',
+            after: `${byGroup ? '<span class="mi-note">set by group</span>' : ''}<span class="sw${on ? ' on' : ''}"></span>` })
+        + `<div class="mi-row dgrid"><label for="te-pause-min" title="Stays quiet this long, in seconds, picked at random each time">Pause</label>
+            <input id="te-pause-min" class="num" type="number" min="0" step="1" inputmode="numeric" data-pause="min" value="${teEsc(low)}"
+                   aria-label="Shortest pause, seconds" onchange="${view.on.pause}(${k}, this)"${disabled ? ' disabled' : ''}>
+            <span>–</span>
+            <input class="num" type="number" min="0" step="1" inputmode="numeric" data-pause="max" value="${teEsc(high)}"
+                   aria-label="Longest pause, seconds" onchange="${view.on.pause}(${k}, this)"${disabled ? ' disabled' : ''}>
+            <span>s</span></div>`;
+}
+
+// An Ebb & Flow group's menu rows: one Rise for every file (stored on the group; off, each file's own).
+// locked: the switch can't be turned off (a sequence step can't take away the preset's Rise).
+function teGroupRiseRows(group, n, view = TE_VIEW, locked = false) {
+    if (teGroupMode(group) !== 'ebb_flow') return '';
+    const rise = group.settings?.rise;
+    return teMenuItem('Same Rise for every file', `${view.on.groupRise}(${n})`, {
+            disabled: locked, title: "Off: each file's own Rise", after: `<span class="sw${rise != null ? ' on' : ''}"></span>` })
+        + (rise != null ? teRiseRow('te-grise', rise, 'How fast every file rises', `${view.on.group}(${n}, 'rise', this.value / 100)`,
+            false, view.ovr('groups', group.name, ['rise'])) : '') + TE_MENU_SEP;
+}
+
+function teMenuHtml(kind, arg) {
+    const mi = teMenuItem;
+    const sep = TE_MENU_SEP;
+    const preset = teSelectedPreset();
+    const ebbRows = (track, k, disabled) => teEbbRows(track, teTrackGroup(track), k, disabled);
     // Move to: Unassigned (out of its group, not played), or into a group
     const moveRows = (track, k, disabled) => {
         const here = teTrackGroup(track)?.name || null;
@@ -4270,13 +4330,8 @@ function teMenuHtml(kind, arg) {
             const group = teGroup(arg);
             if (!group) return null;
             const n = jsArg(arg);
-            // Ebb & Flow: one Rise for every file (stored on the group; off, each file's own)
-            const rise = group.settings?.rise;
-            const riseRows = teGroupMode(group) !== 'ebb_flow' ? '' : mi('Same Rise for every file', `teToggleGroupRise(${n})`, {
-                    title: "Off: each file's own Rise", after: `<span class="sw${rise != null ? ' on' : ''}"></span>` })
-                + (rise != null ? riseRow('te-grise', rise, 'How fast every file rises', `teSetGroupValue(${n}, 'rise', this.value / 100)`) : '') + sep;
             return { cls: 'menu', align: 'right', html: `
-                ${riseRows}
+                ${teGroupRiseRows(group, n)}
                 ${mi('Rename…', `teStartRename(${n})`)}
                 ${mi(`Upload into ${escapeHtml(arg)}`, `tePickUpload(${n})`)}
                 ${sep}${mi('Delete group…', `teAskDelete(${n})`, { cls: 'danger' })}` };
@@ -4751,7 +4806,7 @@ function toggleTrackPreview(trackName, url = null) {
 
     trackPreviewAudio = new Audio(audioUrl);
     // At the track's volume (and its group's), even when it's muted, so you hear the level it would play at
-    const row = document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(trackName)}"] .mx[data-kind="volume"] .track-slider`);
+    const row = trackPreviewRow(trackName)?.querySelector('.mx[data-kind="volume"] .track-slider');
     trackPreviewAudio.volume = row
         ? Math.max(0, Math.min(1, (row.value / 100) * parseFloat(row.dataset.master || '1')))
         : 0.8;
@@ -4808,8 +4863,14 @@ function stopTrackPreview() {
     }
 }
 
+// A track's row in the list on screen: a sequence step's While playing when it's shown, else the Theme Editor's
+function trackPreviewRow(trackName) {
+    const row = `.trow[data-track="${CSS.escape(trackName)}"]`;
+    return (twIsShown() && document.querySelector(`#tw-tracks ${row}`)) || document.querySelector(`#te-tracks ${row}`);
+}
+
 function updatePreviewButtonState(trackName, isPlaying) {
-    const trackItem = document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(trackName)}"]`)
+    const trackItem = trackPreviewRow(trackName)
         || document.querySelector(`#te-pk .pk-row[data-pv="${CSS.escape(trackName)}"]`);
     if (!trackItem) return;
     trackItem.classList.toggle(trackItem.classList.contains('pk-row') ? 'pv' : 'previewing', !!isPlaying);
@@ -7960,7 +8021,7 @@ function teOpenSequence(id) {
 }
 
 // ---------- Sequence editor (#sq-modal) ----------
-const sq = { id: null, presets: [], end: 'reverse', transitions: {} };
+const sq = { id: null, presets: [], end: 'reverse', transitions: {}, layers: {} };  // layers: While playing, not put yet
 
 function sqIsOpen() {
     return !!document.getElementById('sq-modal')?.classList.contains('active');
@@ -7974,6 +8035,7 @@ function sqOpen(id) {
     sq.presets = seq ? seq.presets.filter(p => te.presets.some(x => x.id === p)) : [];
     sq.end = seq?.at_end || 'reverse';
     sq.transitions = JSON.parse(JSON.stringify(seq?.transitions || {}));
+    sq.layers = {};
     const d = teSeqDefaults();
     const set = (fieldId, value, placeholder) => {
         const input = document.getElementById(fieldId);
@@ -8178,6 +8240,14 @@ async function sqSave({ keepOpen = false, quiet = false } = {}) {
     try {
         const saved = sq.id ? await api('PUT', `/themes/${te.themeId}/sequences/${encodeURIComponent(sq.id)}`, body)
                             : await api('POST', `/themes/${te.themeId}/sequences`, body);
+        // Steps' While playing layers from the Advanced dialog, for the presets still in it
+        const id = saved?.id || sq.id;
+        for (const [preset, layer] of Object.entries(sq.layers)) {
+            if (sq.presets.includes(preset)) {
+                await api('PUT', `/themes/${te.themeId}/sequences/${encodeURIComponent(id)}/while/${encodeURIComponent(preset)}`, layer);
+            }
+            delete sq.layers[preset];
+        }
         if (keepOpen) {
             sq.id = saved?.id || sq.id;
             sq.transitions = JSON.parse(JSON.stringify(saved?.transitions || body.transitions));
@@ -8350,7 +8420,7 @@ const TX_ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="
 const TX_ICON_STOP = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
 const TX_ICON_ARROW = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>';
 
-const tx = { open: false, step: null, name: '', prev: null, next: null, tab: 'in', rows: { in: [], out: [] }, keep: {}, loading: false };
+const tx = { open: false, step: null, index: 0, name: '', prev: null, next: null, tab: 'while', rows: { in: [], out: [] }, keep: {}, loading: false };
 
 function txIsOpen() {
     return !!document.getElementById('tx-modal')?.classList.contains('active');
@@ -8406,8 +8476,9 @@ async function txOpen(index) {
     if (!step || !te.themeId) return;
     const { prev, next } = txNeighbours(index);
     const name = id => sqPreset(id)?.name || id;
-    Object.assign(tx, { step, name: name(step), prev, next, prevName: prev ? name(prev) : '', nextName: next ? name(next) : '',
-                        tab: 'in', rows: { in: [], out: [] }, loading: true });
+    Object.assign(tx, { step, index, name: name(step), prev, next, prevName: prev ? name(prev) : '', nextName: next ? name(next) : '',
+                        tab: 'while', rows: { in: [], out: [] }, loading: true });
+    tw.vals = null;
     txHelp.close();
     txStopPreview();
     document.getElementById('tx-modal').classList.add('active');
@@ -8416,8 +8487,13 @@ async function txOpen(index) {
         const q = new URLSearchParams({ preset: step });
         if (prev) q.set('prev', prev);
         if (next) q.set('next', next);
-        const result = await api('GET', `/themes/${te.themeId}/transition_tracks?${q}`);
+        const [result, preset, layer] = await Promise.all([
+            api('GET', `/themes/${te.themeId}/transition_tracks?${q}`),
+            api('GET', `/themes/${te.themeId}/presets/${encodeURIComponent(step)}`),
+            twSavedLayer(step),
+        ]);
         if (tx.step !== step) return;
+        twStart(preset, layer);
         const saved = (sq.transitions || {})[step] || {};
         tx.rows = { in: (result.in || []).map(t => txRowFrom(t, 'in', saved.in)), out: (result.out || []).map(t => txRowFrom(t, 'out', saved.out)) };
         // Saved settings for tracks not listed here (they don't change at this step in this order) are kept
@@ -8432,10 +8508,12 @@ async function txOpen(index) {
     tx.loading = false;
     txRender();
     document.querySelector('#tx-modal .ad-list').scrollTop = 0;
+    document.getElementById('tw-tracks').scrollTop = 0;
 }
 
 function txClose() {
     txStopPreview();
+    stopTrackPreview();  // a file playing from While playing
     txHelp.close();
     spClosePop();
     tx.step = null;
@@ -8449,6 +8527,7 @@ function txCancel() {
 function txSetTab(tab) {
     if (tx.tab === tab) return;
     txStopPreview();
+    stopTrackPreview();
     tx.tab = tab;
     txRender();
     document.querySelector('#tx-modal .ad-list').scrollTop = 0;
@@ -8530,15 +8609,33 @@ function txRowHtml(r, i, ramp) {
 
 function txRender() {
     if (!tx.step) return;
-    const out = tx.tab === 'out';
+    const wp = tx.tab === 'while', out = tx.tab === 'out';
     const ramp = txRamp();
-    document.getElementById('tx-ttl').textContent = `${out ? 'Leaving' : 'Coming into'} ${tx.name}`;
-    const sub = out ? (tx.nextName ? `to ${tx.nextName} · ramp ${ramp} s` : `last preset · ramp ${ramp} s`)
+    const seqName = document.getElementById('sq-name').value.trim();
+    document.getElementById('tx-ttl').textContent = wp ? tx.name : `${out ? 'Leaving' : 'Coming into'} ${tx.name}`;
+    const sub = wp ? `${seqName ? `in ${seqName} · ` : ''}step ${tx.index + 1}`
+              : out ? (tx.nextName ? `to ${tx.nextName} · ramp ${ramp} s` : `last preset · ramp ${ramp} s`)
                     : (tx.prevName ? `from ${tx.prevName} · ramp ${ramp} s` : `sequence start · ramp ${ramp} s`);
     document.getElementById('tx-sub').textContent = sub;
-    document.getElementById('tx-ctx').textContent = sub;
-    document.getElementById('tx-tabs').innerHTML = [['in', 'Coming in'], ['out', `Leaving ${tx.name}`]].map(([k, label]) =>
-        `<button type="button" role="tab" aria-selected="${tx.tab === k}" aria-pressed="${tx.tab === k}" onclick="txSetTab('${k}')"><span class="tl">${escapeHtml(label)}</span><span class="badge badge-type">${tx.rows[k].length}</span></button>`).join('');
+    const ctx = document.getElementById('tx-ctx');
+    ctx.textContent = sub;
+    ctx.hidden = wp;
+    const note = document.getElementById('tx-note');
+    note.textContent = `For this step only. Anything you don't change follows the preset, ${tx.name}.`;
+    note.hidden = !wp;
+    const tabs = [['while', 'While playing', twCount()], ['in', 'Coming in', tx.rows.in.length],
+                  ['out', `Leaving<span class="tn">&nbsp;${escapeHtml(tx.name)}</span>`, tx.rows.out.length]];
+    document.getElementById('tx-tabs').innerHTML = tabs.map(([k, label, n]) =>
+        `<button type="button" role="tab" aria-selected="${tx.tab === k}" aria-pressed="${tx.tab === k}" onclick="txSetTab('${k}')"><span class="tl">${label}</span><span class="badge badge-type">${n}</span></button>`).join('');
+    // While playing: the Theme Editor's track list (#tw); Coming in / Leaving: the transition rows
+    document.getElementById('tw').hidden = !wp;
+    document.querySelector('#tx-modal .ad-fix').hidden = wp;
+    document.querySelector('#tx-modal .ad-list').hidden = wp;
+    if (wp) {
+        twRender();
+        txRenderSum();
+        return;
+    }
     const rows = tx.rows[tx.tab];
     const box = document.getElementById('tx-rows');
     box.innerHTML = tx.loading ? '<div class="sq-empty ad-empty">Loading…</div>'
@@ -8558,6 +8655,11 @@ function txRenderRow(i) {
 }
 
 function txRenderSum() {
+    if (tx.tab === 'while') {
+        const n = twCount();
+        document.getElementById('tx-sum').textContent = n ? `${n} ${n === 1 ? 'change' : 'changes'} from the preset` : 'Follows the preset';
+        return;
+    }
     const ramp = txRamp();
     const n = tx.rows.in.filter(txRowSet).length + tx.rows.out.filter(txRowSet).length;
     document.getElementById('tx-sum').textContent = n
@@ -8640,11 +8742,13 @@ async function txSave() {
     sq.transitions = { ...(sq.transitions || {}) };
     if (Object.keys(data).length) sq.transitions[step] = data;
     else delete sq.transitions[step];
+    // While playing: put with the sequence (sqSave), so a new sequence gets it once it's saved
+    if (tw.vals && twUnsaved()) sq.layers[step] = twLayer();
     const name = tx.name;
     txClose();
     sqRender();
     // Saving a part saves the whole: the sequence is saved with them (it stays open)
-    if (await sqSave({ keepOpen: true, quiet: true })) teFlash(`Saved transitions for “${name}”`);
+    if (await sqSave({ keepOpen: true, quiet: true })) teFlash(`Saved “${name}”`);
 }
 
 // --- Preview: one track's change on this device (Web Audio), following the edits ---
@@ -8792,6 +8896,256 @@ function txToggleHelp() {
     if (txHelp.isOpen()) return txHelp.close();
     spClosePop();
     txHelp.open();
+}
+
+// ---------- Sequence step: While playing (#tw, the Advanced dialog's first tab) ----------
+// How the theme plays while this step plays: the preset's values with the step's changes on top
+// (GET/PUT …/sequences/{id}/while/{preset}, core/sequences.py STEP_*_FIELDS), shown in the Theme
+// Editor's sections, groups and rows (twView()). Changes stay here until Save (txSave).
+const TW_FIELDS = {
+    tracks: ['volume', 'volume_low', 'presence', 'muted', 'rise', 'pause_between', 'pause_min', 'pause_max'],
+    groups: ['volume', 'presence', 'muted', 'gap_min', 'gap_max', 'pause_between', 'rise'],
+};
+const TW_TRACK_DEFAULTS = { volume: 1, presence: 1, muted: false, ...TE_EBB_DEFAULTS };
+const TW_GROUP_DEFAULTS = { volume: 1, presence: 1, muted: false, pause_between: false };
+const TW_SHARES = ['volume', 'volume_low', 'presence', 'rise'];  // 0..1, shown in whole percents
+const TW_ON = { value: 'twSetTrackValue', ebb: 'twSetEbb', mute: 'twToggleTrackMute', ebbPause: 'twToggleEbbPause', pause: 'twSetEbbPause',
+                group: 'twSetGroupValue', gap: 'twSetGroupGap', groupRise: 'twToggleGroupRise', fold: 'twToggleGroup', menu: 'twMenu' };
+
+// base: the preset's values and vals: this step's ({tracks: {key: {field: value}}, groups: {name: {…}}});
+// saved: vals as opened (Save closes the dialog); keep: the step's saved changes for tracks and groups
+// not listed here (kept on Save); modes: each track's section; menu: the open ⋯ menu ({kind, arg})
+const tw = { base: null, vals: null, saved: null, keep: null, modes: {}, closed: {}, menu: null };
+
+function twIsShown() {
+    return txIsOpen() && tx.tab === 'while';
+}
+
+// The step's layer as last saved: from this editor's Save when the sequence isn't saved yet, else the server's
+function twSavedLayer(step) {
+    if (sq.layers[step]) return sq.layers[step];
+    const saved = te.sequences.find(q => q.id === sq.id);
+    return saved?.presets.includes(step)
+        ? api('GET', `/themes/${te.themeId}/sequences/${encodeURIComponent(sq.id)}/while/${encodeURIComponent(step)}`) : null;
+}
+
+// The preset's values for every track and group that plays (Unassigned doesn't), with the layer over them.
+// A track the preset lists plays at 100% and unmuted where it sets no volume, interval or mute, as loading
+// it does; anything it doesn't set keeps the theme's value.
+function twStart(preset, layer) {
+    const base = { tracks: {}, groups: {} };
+    tw.modes = {};
+    for (const t of te.tracks) {
+        const own = preset.tracks?.[t.name];
+        const mode = teSectionOf({ ...t, playback_mode: own?.playback_mode ?? t.playback_mode, presence: own?.presence ?? t.presence });
+        if (mode === 'unassigned') continue;
+        tw.modes[t.name] = mode;
+        base.tracks[t.name] = Object.fromEntries(TW_FIELDS.tracks.map(f => [f,
+            own?.[f] ?? (own && !TE_EBB_FIELDS.includes(f) ? TW_TRACK_DEFAULTS[f] : t[f] ?? TW_TRACK_DEFAULTS[f])]));
+    }
+    for (const g of teListedGroups()) {
+        const own = preset.groups?.[g.name] || {};
+        base.groups[g.name] = Object.fromEntries(TW_FIELDS.groups.map(f => [f,
+            (f in own ? own[f] : g.settings?.[f]) ?? TW_GROUP_DEFAULTS[f] ?? null]));
+    }
+    tw.base = base;
+    tw.vals = { tracks: {}, groups: {} };
+    tw.keep = { tracks: {}, groups: {} };
+    for (const part of ['tracks', 'groups']) {
+        for (const [name, values] of Object.entries(base[part])) {
+            const step = layer?.[part]?.[name] || {};
+            tw.vals[part][name] = Object.fromEntries(Object.entries(values).map(([f, v]) => [f, step[f] ?? v]));
+        }
+        for (const [name, entry] of Object.entries(layer?.[part] || {})) {
+            if (!base[part][name]) tw.keep[part][name] = entry;
+        }
+    }
+    tw.saved = JSON.parse(JSON.stringify(tw.vals));
+    tw.closed = {};
+    tw.menu = null;
+}
+
+// The same as shown: shares in whole percents, gaps in tenths of a minute
+function twSame(field, a, b) {
+    if (a == null || b == null) return a == b;
+    if (TW_SHARES.includes(field)) return Math.round(a * 100) === Math.round(b * 100);
+    if (field === 'gap_min' || field === 'gap_max') return Math.round(a / 6) === Math.round(b / 6);
+    return a === b;
+}
+
+// A track's or group's values differ from the preset's (or, from = tw.saved, from the last save)
+function twDiffers(part, name, fields, from = tw.base) {
+    const vals = tw.vals[part][name];
+    return !!vals && fields.some(f => !twSame(f, vals[f], from[part][name][f]));
+}
+
+// Tracks and groups this step changes
+function twCount() {
+    if (!tw.vals) return 0;
+    return ['tracks', 'groups'].reduce((n, part) =>
+        n + Object.keys(tw.vals[part]).filter(name => twDiffers(part, name, TW_FIELDS[part])).length, 0);
+}
+
+function twUnsaved() {
+    return ['tracks', 'groups'].some(part => Object.keys(tw.vals[part]).some(name => twDiffers(part, name, TW_FIELDS[part], tw.saved)));
+}
+
+// The track list's view (see TE_VIEW): the theme's tracks and groups with this step's values. A step
+// doesn't change a track's mode: each stays in its preset's section.
+function twView() {
+    const ovr = (part, name, fields) => (twDiffers(part, name, fields) ? ' ovr' : '');
+    return {
+        edit: false,
+        tracks: te.tracks.filter(t => tw.vals.tracks[t.name]).map(t => ({ ...t, ...tw.vals.tracks[t.name], playback_mode: tw.modes[t.name] })),
+        groups: teListedGroups().map(g => ({ ...g, settings: { ...g.settings, ...tw.vals.groups[g.name] } })),
+        closed: tw.closed,
+        ovr,
+        advOn: (track, group, ebb) => ebb && !!ovr('tracks', track.name, ['rise', 'pause_between', 'pause_min', 'pause_max']),
+        on: TW_ON,
+    };
+}
+
+function twRender() {
+    const list = document.getElementById('tw-tracks');
+    if (!tw.vals) {
+        list.innerHTML = tx.loading ? '<div class="empty-row">Loading tracks…</div>' : '';
+        return;
+    }
+    const view = twView();
+    const scroll = list.scrollTop;
+    list.innerHTML = `<section aria-label="Tracks">${TE_SECTIONS.filter(s => s.mode !== 'unassigned').map(s => teRenderSection(s, view)).join('')}</section>`;
+    list.scrollTop = scroll;
+    spUpdateMarquees(list);
+    document.getElementById('tw-count').textContent = view.tracks.length;
+    document.getElementById('tw-revert').disabled = !twUnsaved();
+    twFollowMenu();
+}
+
+function twSet(part, name, values) {
+    if (!tw.vals?.[part][name]) return;
+    Object.assign(tw.vals[part][name], values);
+    txRender();
+}
+
+function twSetTrackValue(key, kind, percent) {
+    twSet('tracks', key, { [kind]: parseFloat(percent) / 100 });
+}
+
+// Ebb & Flow values of a track: { volume_low, rise } (any of them)
+function twSetEbb(key, values) {
+    twSet('tracks', key, values);
+}
+
+function twToggleTrackMute(key) {
+    const vals = tw.vals?.tracks[key];
+    if (vals && !teTrack(key)?.linked?.missing) twSet('tracks', key, { muted: !vals.muted });
+}
+
+function twToggleEbbPause(key) {
+    spClosePop();
+    twSet('tracks', key, { pause_between: !tw.vals.tracks[key].pause_between });
+}
+
+function twSetEbbPause(key, input) {
+    twSet('tracks', key, teEbbPauseValues(input));
+}
+
+function twSetGroupValue(name, key, value) {
+    twSet('groups', name, { [key]: key === 'volume' || key === 'presence' ? parseFloat(value) / 100 : value });
+}
+
+function twSetGroupGap(name, input) {
+    twSet('groups', name, teGapValues(input));
+}
+
+// Same Rise for every file: on starts halfway; off, each file's own Rise again
+function twToggleGroupRise(name) {
+    twSet('groups', name, { rise: tw.vals.groups[name].rise != null ? null : 0.5 });
+}
+
+function twToggleGroup(name) {
+    tw.closed[name] = !tw.closed[name];
+    twRender();
+}
+
+function twRevert(part, name) {
+    spClosePop();
+    tw.vals[part][name] = { ...tw.saved[part][name] };
+    txRender();
+    teFlash(`Reverted ${part === 'tracks' ? trackDisplayName(name) : name}`);
+}
+
+function twRevertAll() {
+    tw.vals = JSON.parse(JSON.stringify(tw.saved));
+    txRender();
+    teFlash('Reverted to the last save');
+}
+
+// ⋯ of a track (kind 'track' or 'link') or a group: Ebb & Flow's Rise and pauses, then Revert changes
+function twMenuHtml(kind, arg) {
+    const view = twView();
+    const revert = part => teMenuItem('Revert changes', `twRevert('${part}', ${jsArg(arg)})`,
+        { icon: TE_ICON_RESET, disabled: !twDiffers(part, arg, TW_FIELDS[part], tw.saved) });
+    if (kind === 'group') {
+        const group = view.groups.find(g => g.name === arg);
+        // The preset's own Rise for every file stays on: a step can't take it away
+        return group ? teGroupRiseRows(group, jsArg(arg), view, tw.base.groups[arg].rise != null) + revert('groups') : null;
+    }
+    const track = view.tracks.find(t => t.name === arg);
+    if (!track) return null;
+    const group = view.groups.find(g => g.name === teTrackGroup(track)?.name) || null;
+    return (teIsEbb(track) ? teEbbRows(track, group, jsArg(arg), !!track.linked?.missing, view) + TE_MENU_SEP : '') + revert('tracks');
+}
+
+function twMenuId(kind, arg) {
+    return `tw-${kind}:${arg}`;
+}
+
+function twMenu(kind, button, arg) {
+    const html = twMenuHtml(kind, arg);
+    if (!html) return;
+    tw.menu = { kind, arg };
+    xMenu(twMenuId(kind, arg), button, html, { cls: 'menu' });
+}
+
+// After a change: an open ⋯ menu shows the new values, next to its row's new button
+function twFollowMenu() {
+    const m = tw.menu;
+    if (!m || spm.id !== twMenuId(m.kind, m.arg)) return;
+    const row = m.kind === 'group' ? `.grp-sec[data-group="${CSS.escape(m.arg)}"] .ghead` : `.trow[data-track="${CSS.escape(m.arg)}"]`;
+    const button = document.querySelector(`#tw-tracks ${row} [aria-haspopup="menu"]`);
+    const html = button && twMenuHtml(m.kind, m.arg);
+    if (!html) { spClosePop(); return; }
+    const pop = document.getElementById('sp-menu');
+    const fresh = document.createElement('div');
+    fresh.innerHTML = html;
+    const rows = [...pop.children], next = [...fresh.children];
+    if (rows.length === next.length && rows.every((el, i) => el.tagName === next[i].tagName)) {
+        // The same rows: only their look (green Rise) and Revert follow, so a slider or field in use keeps its focus
+        rows.forEach((el, i) => {
+            el.className = next[i].className;
+            if (el.tagName === 'BUTTON') el.disabled = next[i].disabled;
+        });
+    } else {
+        pop.innerHTML = html;
+        pop.querySelector('button:not([disabled])')?.focus();
+    }
+    spm.btn = button;
+    button.setAttribute('aria-expanded', 'true');
+    spPlacePop(pop, button);
+}
+
+// What Save stores: each track and group this step changes, every field listed, null where it's the preset's
+function twLayer() {
+    const layer = { tracks: { ...tw.keep.tracks }, groups: { ...tw.keep.groups } };
+    for (const part of ['tracks', 'groups']) {
+        for (const [name, vals] of Object.entries(tw.vals[part])) {
+            const base = tw.base[part][name];
+            const entry = Object.fromEntries(TW_FIELDS[part].map(f => [f, twSame(f, vals[f], base[f]) ? null : vals[f]]));
+            if (Object.values(entry).some(v => v !== null)) layer[part][name] = entry;
+        }
+    }
+    return layer;
 }
 
 
