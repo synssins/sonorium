@@ -268,102 +268,114 @@
                 </div>
             </div>
 
-            <!-- Theme Edit Modal -->
-            <div id="theme-edit-modal" class="modal-backdrop" onclick="if(event.target===this) closeThemeEditModal()">
-                <div class="modal" style="min-width: 700px; max-width: 800px;">
+            <!-- Theme Edit Modal: fixed top and footer; only the track list scrolls.
+                 Track rows, chips, presets and menus are rendered by app.js (te* functions). -->
+            <div id="theme-edit-modal" class="modal-backdrop te-backdrop" onclick="if(event.target===this) closeThemeEditModal()">
+                <div class="modal te" role="dialog" aria-modal="true" aria-labelledby="te-title">
+                    <input type="hidden" id="theme-edit-id">
                     <div class="modal-header">
-                        <h3 id="theme-edit-title">Edit Theme</h3>
-                        <button class="modal-close" onclick="closeThemeEditModal()">&times;</button>
+                        <h2 id="te-title">Edit theme <span class="sub" id="te-title-name"></span></h2>
+                        <div class="hd-acts">
+                            <button class="icon-btn sm hd-more" aria-label="More theme options" aria-haspopup="menu" onclick="teMenu('theme', this)">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+                            </button>
+                            <button class="modal-close" aria-label="Close" onclick="closeThemeEditModal()">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
                     </div>
-                    <div class="modal-body">
-                        <div class="theme-edit-form">
-                            <input type="hidden" id="theme-edit-id">
-                            <div>
-                                <label>Theme Name</label>
-                                <input type="text" id="theme-edit-name" placeholder="Theme name...">
-                            </div>
-                            <div>
-                                <label>Icon</label>
-                                <div class="icon-picker">
-                                    <div class="icon-picker-current">
-                                        <span id="theme-edit-icon-preview" class="icon-preview">🎵</span>
-                                        <button type="button" class="btn btn-sm btn-secondary" onclick="toggleIconPicker()">Change</button>
-                                        <button type="button" class="btn btn-sm btn-secondary" onclick="clearThemeIcon()" title="Use auto-detected icon">Auto</button>
-                                    </div>
-                                    <input type="hidden" id="theme-edit-icon" value="">
-                                    <div id="icon-picker-dropdown" class="icon-picker-dropdown" style="display: none;">
-                                        <div class="icon-picker-grid" id="icon-picker-grid"></div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div>
-                                <label>Description</label>
-                                <textarea id="theme-edit-description" placeholder="Enter a description for this theme..."></textarea>
-                            </div>
-                            <div>
-                                <label>Categories</label>
-                                <div id="theme-edit-categories" class="category-checkboxes"></div>
-                                <div class="category-add-row">
-                                    <input type="text" id="theme-edit-new-category" placeholder="New category name...">
-                                    <button class="btn btn-sm btn-secondary" onclick="addNewCategoryFromEdit()">Add</button>
-                                </div>
-                            </div>
 
-                            <!-- Track Mixer Section -->
-                            <div class="track-mixer">
-                                <div class="track-mixer-header">
-                                    <h4>Track Presence <span style="font-weight: normal; font-size: 0.75rem; color: var(--text-muted);">(how often each track plays)</span></h4>
-                                    <button class="btn btn-sm btn-secondary track-mixer-reset" onclick="resetTrackMixer()" title="Reset all tracks to default">
-                                        Reset All
-                                    </button>
-                                </div>
-                                <!-- Preset Bar -->
-                                <div class="preset-bar">
-                                    <div class="preset-select-group">
-                                        <label for="preset-select">Preset:</label>
-                                        <select id="preset-select" onchange="onPresetSelectChange(this.value)">
-                                            <option value="">-- Current Settings --</option>
-                                        </select>
-                                        <button class="btn btn-sm btn-icon" onclick="loadSelectedPreset()" title="Load preset">
-                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
-                                        </button>
-                                        <button class="btn btn-sm btn-icon" onclick="setPresetAsDefault()" title="Set as default" id="preset-default-btn" style="display: none;">
-                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
-                                        </button>
-                                        <button class="btn btn-sm btn-icon" onclick="showRenamePresetModal()" title="Rename preset" id="preset-rename-btn" style="display: none;">
-                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>
-                                        </button>
-                                        <button class="btn btn-sm btn-icon btn-danger" onclick="deleteSelectedPreset()" title="Delete preset" id="preset-delete-btn" style="display: none;">
-                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                                        </button>
-                                        <button class="btn btn-sm btn-icon btn-success" onclick="updateSelectedPreset()" title="Update preset with current settings" id="preset-update-btn" style="display: none;">
-                                            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M17 3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V7l-4-4zm-5 16c-1.66 0-3-1.34-3-3s1.34-3 3-3 3 1.34 3 3-1.34 3-3 3zm3-10H5V5h10v4z"/></svg>
-                                        </button>
-                                    </div>
-                                    <div class="preset-actions">
-                                        <button class="btn btn-sm btn-secondary" onclick="saveCurrentAsPreset()">Save As...</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="showImportPresetModal()">Import</button>
-                                        <button class="btn btn-sm btn-secondary" onclick="exportSelectedPreset()" id="preset-export-btn" style="display: none;">Export</button>
-                                    </div>
-                                </div>
-                                <div id="track-mixer-list" class="track-list">
-                                    <div class="track-mixer-empty">Loading tracks...</div>
+                    <!-- Fixed: icon + Name + Categories on one row, Description below -->
+                    <div class="te-top">
+                        <div class="top-row">
+                            <button class="icon-tile" id="te-icon" title="Change icon" aria-label="Theme icon" aria-haspopup="menu" onclick="teMenu('icon', this)">🎵</button>
+                            <div class="fld f-name">
+                                <label class="fld-label" for="te-name">Name</label>
+                                <input id="te-name" class="inp name" type="text" autocomplete="off" oninput="teDetailsChanged()">
+                            </div>
+                            <div class="fld f-cats">
+                                <span class="fld-label" id="te-cat-label">Categories</span>
+                                <div class="cat-wrap">
+                                    <label class="chipfield" id="te-chipfield" for="te-cat">
+                                        <span class="te-chips" id="te-chips"></span>
+                                        <input id="te-cat" class="chip-input" type="text" autocomplete="off" enterkeyhint="done" role="combobox"
+                                               aria-autocomplete="list" aria-expanded="false" aria-controls="te-cat-list" aria-labelledby="te-cat-label"
+                                               oninput="teCatInput(this)" onkeydown="teCatKey(event)" onfocus="teCatFocus(true)" onblur="teCatFocus(false)">
+                                    </label>
+                                    <div class="ac" id="te-cat-list" role="listbox" hidden></div>
                                 </div>
                             </div>
                         </div>
+                        <div class="fld">
+                            <label class="fld-label" for="te-desc">Description</label>
+                            <textarea id="te-desc" class="inp desc" rows="1" placeholder="Optional" oninput="teAutoGrow(this); teDetailsChanged()"></textarea>
+                        </div>
                     </div>
-                    <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="exportThemeZip()" style="margin-right: auto;">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                                <polyline points="7 10 12 15 17 10"/>
-                                <line x1="12" y1="15" x2="12" y2="3"/>
-                            </svg>
-                            Export Theme
-                        </button>
-                        <button class="btn btn-secondary" onclick="closeThemeEditModal()">Cancel</button>
-                        <button class="btn btn-primary" onclick="saveThemeMetadata()">Save</button>
+
+                    <!-- Fixed: tracks toolbar + column headers -->
+                    <div class="tfix">
+                        <div class="tsec-head">
+                            <h3>Tracks</h3><span class="badge badge-type" id="te-track-count">0</span>
+                            <button class="btn btn-sm btn-secondary seq-btn" aria-haspopup="menu" onclick="teMenu('seq', this)">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><polyline points="3 5 4 6 3 7"/><polyline points="3 11 4 12 3 13"/><polyline points="3 17 4 18 3 19"/></svg>Sequences<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                            </button>
+                            <span class="grow"></span>
+                            <div class="tbar">
+                                <button class="btn btn-sm btn-secondary" aria-haspopup="menu" onclick="teMenu('upload', this)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Upload<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                                </button>
+                                <button class="btn btn-sm btn-secondary" id="te-newgroup-btn" onclick="teNewGroup()">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>New group
+                                </button>
+                                <button class="btn btn-sm btn-secondary" aria-haspopup="dialog" onclick="teMenu('reset', this)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>Reset all
+                                </button>
+                            </div>
+                        </div>
+                        <div class="upload-zone" id="te-upload-zone" hidden
+                             ondragover="teZoneDragOver(event)" ondragleave="this.classList.remove('over')" ondrop="teZoneDrop(event)">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                            <span class="uz-drop">Drop audio files here or</span>
+                            <button class="link-btn" onclick="document.getElementById('te-upload-input').click()">browse</button>
+                            <span class="grow"></span>
+                            <span class="uz-target">Upload to <strong id="te-upload-label"></strong></span>
+                            <button class="icon-btn sm" aria-label="Close upload" onclick="teSetUpload(null)">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <input type="file" id="te-upload-input" multiple accept=".mp3,.wav,.flac,.ogg,audio/*" hidden
+                               onchange="teUploadFiles(this.files); this.value = ''">
+                        <div class="thead-wrap"><div class="thead tgrid"><span></span><span></span><span>Name</span><span>Mode</span><span>Volume</span><span>How often</span><span class="c">Mute</span><span></span></div></div>
                     </div>
+
+                    <!-- Scrolls: the track list only -->
+                    <div class="modal-body tlist" id="te-tracks" onscroll="teCloseMenu()" aria-label="Tracks"></div>
+
+                    <!-- Footer: preset field on the left, save actions on the right -->
+                    <div class="modal-footer foot">
+                        <div class="pgroup" role="group" aria-label="Presets">
+                            <span class="pb-label">Preset</span>
+                            <button class="pdd" id="te-preset-btn" aria-haspopup="listbox" onclick="teMenu('presets', this)"></button>
+                            <button class="icon-btn sm" aria-label="More preset actions" aria-haspopup="menu" onclick="teMenu('pmore', this)">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
+                            </button>
+                            <button class="btn btn-secondary" id="te-load-btn" onclick="teLoadPreset()">Load</button>
+                            <button class="btn btn-secondary" aria-haspopup="dialog" onclick="teMenu('pnew', this)">New</button>
+                        </div>
+                        <span class="grow"></span>
+                        <span class="foot-status">
+                            <span class="pmsg" id="te-msg" role="status"></span>
+                            <span class="dirty" id="te-dirty" hidden><i></i>Mix changed</span>
+                        </span>
+                        <div class="foot-btns">
+                            <button class="btn btn-primary save-btn" title="Save theme" onclick="teSaveTheme()">Save theme<span class="sdot" id="te-sdot" title="Unsaved changes" hidden></span></button>
+                            <button class="btn btn-secondary" id="te-savepreset-btn" title="Save theme and preset" onclick="teSavePreset()">Save preset</button>
+                            <button class="btn btn-secondary" onclick="closeThemeEditModal()">Cancel</button>
+                        </div>
+                    </div>
+
+                    <!-- One floating menu/popover, filled and placed by teMenu() -->
+                    <div class="te-pop" id="te-menu" hidden></div>
                 </div>
             </div>
 
@@ -528,50 +540,6 @@ Example:
                     <div class="modal-footer">
                         <button class="btn btn-secondary" onclick="closeExportPresetModal()">Close</button>
                         <button class="btn btn-primary" onclick="copyPresetJson()">Copy to Clipboard</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Preset Save Modal -->
-            <div id="preset-save-modal" class="modal-backdrop" onclick="if(event.target===this) closePresetSaveModal()">
-                <div class="modal" style="max-width: 400px;">
-                    <div class="modal-header">
-                        <h3>Save Preset</h3>
-                        <button class="modal-close" onclick="closePresetSaveModal()">&times;</button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="theme-create-form">
-                            <div>
-                                <label for="preset-save-name">Preset Name *</label>
-                                <input type="text" id="preset-save-name" placeholder="e.g., Sleep Mode, Focus Mix...">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="closePresetSaveModal()">Cancel</button>
-                        <button class="btn btn-primary" onclick="confirmSavePreset()">Save</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Preset Rename Modal -->
-            <div id="preset-rename-modal" class="modal-backdrop" onclick="if(event.target===this) closeRenamePresetModal()">
-                <div class="modal" style="max-width: 400px;">
-                    <div class="modal-header">
-                        <h3>Rename Preset</h3>
-                        <button class="modal-close" onclick="closeRenamePresetModal()">&times;</button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="theme-create-form">
-                            <div>
-                                <label for="preset-rename-name">New Name *</label>
-                                <input type="text" id="preset-rename-name" placeholder="Enter new preset name...">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button class="btn btn-secondary" onclick="closeRenamePresetModal()">Cancel</button>
-                        <button class="btn btn-primary" onclick="confirmRenamePreset()">Rename</button>
                     </div>
                 </div>
             </div>
