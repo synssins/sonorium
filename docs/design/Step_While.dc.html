@@ -1,0 +1,1377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sonorium - Sequence step: While playing</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+/* ===== Theme Editor CSS copied from web/static/css/styles.css (as built) ===== */
+/* ==========================================================================
+   Theme Edit window (.modal.te)
+   Fixed: title bar, details, tracks toolbar + column headers, footer.
+   Only the track list (.tlist) scrolls. Grows with the viewport up to 960px
+   wide, nearly full height. Under 760px it becomes a full-screen sheet with
+   track cards. Menus/popovers share one fixed-position element (.te-pop).
+   ========================================================================== */
+.te-backdrop { padding: 1.5rem 2rem; }
+.modal.te { position: relative; width: min(960px, 100%); height: calc(100vh - 3rem); height: calc(100dvh - 3rem); max-width: none; max-height: none; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.te [hidden] { display: none !important; }
+.te .grow { flex: 1; }
+
+/* Title bar */
+.te .modal-header { flex: none; padding: .625rem 1rem .625rem 1.5rem; }
+.te .modal-header h2 { display: flex; align-items: baseline; gap: .625rem; min-width: 0; margin: 0; white-space: nowrap; }
+.te .modal-header .sub { overflow: hidden; text-overflow: ellipsis; font-size: .875rem; font-weight: 400; color: var(--text-muted); }
+.te .hd-acts { display: flex; align-items: center; gap: .25rem; flex: none; }
+.te .hd-acts .modal-close { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; }
+
+/* Fields: sized to their content */
+.te .fld { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.te .fld-label { margin: 0; font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.te .inp { box-sizing: border-box; min-height: 38px; padding: 0 .75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; color: var(--text-primary); font: inherit; font-size: .9375rem; }
+.te .inp:focus { outline: none; border-color: var(--accent-primary); }
+.te .inp.sm { min-height: 32px; padding: 0 .625rem; font-size: .875rem; }
+.te .inp.name { width: 100%; font-weight: 600; }
+/* Description: one line, grows to two, then scrolls */
+.te .inp.desc { display: block; width: 100%; height: 38px; min-height: 38px; max-height: calc(2.8em + 1rem + 2px); padding: .5rem .75rem; resize: none; overflow-y: auto; line-height: 1.4; font-size: .875rem; color: var(--text-secondary); }
+.te .num { box-sizing: border-box; width: 52px; min-height: 32px; padding: 0 .375rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .375rem; color: var(--text-primary); font: inherit; font-size: .8125rem; text-align: center; }
+.te .num:focus { outline: none; border-color: var(--accent-primary); }
+
+.te-top { flex: none; display: flex; flex-direction: column; gap: .5rem; padding: .75rem 1.5rem; }
+.te .top-row { display: flex; align-items: flex-end; gap: .625rem; }
+.te .f-name { flex: 0 1 360px; }
+.te .f-cats { flex: 1 1 0; max-width: 400px; }
+.te .icon-tile { display: flex; flex: none; align-items: center; justify-content: center; box-sizing: border-box; width: 38px; height: 38px; padding: 0; border: 1px solid var(--border-color); border-radius: .5rem; background: var(--bg-secondary); font-size: 1.25rem; cursor: pointer; }
+.te .icon-tile:hover { border-color: var(--accent-primary); }
+
+/* Categories: one chip field (one row; chips scroll sideways) + autocomplete */
+.te .cat-wrap { position: relative; }
+.te .chipfield { display: flex; flex-wrap: nowrap; align-items: center; gap: .375rem; box-sizing: border-box; height: 38px; margin: 0; padding: 0 .375rem; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; cursor: text; }
+.te .chipfield::-webkit-scrollbar { display: none; }
+.te .chipfield.focus { border-color: var(--accent-primary); }
+.te .te-chips { display: contents; }
+.te .chipfield .chip { flex: none; min-height: 28px; padding: 0 .125rem 0 .625rem; gap: .125rem; white-space: nowrap; }
+.te .chip-input { flex: 1 0 8ch; min-width: 8ch; min-height: 28px; padding: 0 .25rem; border: 0; background: transparent; color: var(--text-primary); font: inherit; font-size: .875rem; outline: none; }
+.te .ac { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30; max-height: 220px; overflow: auto; padding: .25rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .5rem; box-shadow: 0 10px 25px rgba(0, 0, 0, .45); }
+.te .ac-opt { display: flex; align-items: center; gap: .5rem; width: 100%; min-height: 34px; padding: 0 .625rem; border: 0; border-radius: .375rem; background: transparent; color: var(--text-primary); font: inherit; font-size: .875rem; text-align: left; cursor: pointer; }
+.te .ac-opt.hi { background: rgba(6, 214, 160, .12); }
+.te .ac-opt .plus { color: var(--accent-primary); font-weight: 700; }
+.te .ac-opt .key { margin-left: auto; padding: 0 .375rem; border: 1px solid var(--border-color); border-radius: 4px; font-size: .625rem; color: var(--text-muted); }
+
+/* Menus and popovers (one floating element, placed by teMenu) */
+.te-pop { position: fixed; z-index: 260; box-sizing: border-box; overflow: auto; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .5rem; box-shadow: 0 10px 25px rgba(0, 0, 0, .5); }
+.te-pop.menu { min-width: 210px; padding: .25rem; }
+.te-pop .mi { display: flex; align-items: center; gap: .5rem; width: 100%; min-height: 34px; padding: 0 .625rem; border: 0; border-radius: .375rem; background: none; color: var(--text-primary); font: inherit; font-size: .8125rem; text-align: left; white-space: nowrap; cursor: pointer; }
+.te-pop .mi:hover:not([disabled]) { background: var(--bg-card-hover); }
+.te-pop .mi[disabled] { color: var(--text-muted); cursor: default; }
+.te-pop .mi.cur { color: var(--accent-primary); }
+.te-pop .mi.cur-set { font-style: italic; }
+.te-pop .mi.danger { color: var(--accent-danger); }
+.te-pop .mi.danger[disabled] { color: var(--text-muted); }
+.te-pop .mi.add { color: var(--accent-primary); }
+.te-pop .mi svg { flex: none; color: var(--text-muted); }
+.te-pop .mi-note { margin-left: auto; font-size: .6875rem; color: var(--text-muted); }
+.te-pop .mi-row { display: flex; align-items: center; gap: .5rem; min-height: 40px; padding: 0 .625rem; font-size: .8125rem; color: var(--text-primary); white-space: nowrap; }
+.te-pop .mi-row label { flex: 1; margin: 0; }
+.te-pop .msep { height: 1px; margin: .25rem 0; background: var(--border-color); }
+.te-pop .mhead { display: flex; align-items: center; gap: .5rem; padding: .375rem .625rem .125rem; font-size: .625rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.te-pop .badge-soon { margin-left: auto; height: 18px; background: rgba(139, 92, 246, .18); color: #c4b5fd; font-size: .625rem; text-transform: none; letter-spacing: 0; }
+.te-pop.seq-menu { min-width: 250px; }
+.te-pop .num { box-sizing: border-box; width: 52px; min-height: 32px; padding: 0 .375rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .375rem; color: var(--text-primary); font: inherit; font-size: .8125rem; text-align: center; }
+.te-pop .num:focus { outline: none; border-color: var(--accent-primary); }
+/* On/off inside a menu item (Gapless, Exclusive) */
+.te-pop .sw { position: relative; flex: none; width: 30px; height: 18px; margin-left: auto; border-radius: 18px; background: var(--border-color); transition: .2s; }
+.te-pop .sw:before { content: ""; position: absolute; left: 3px; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: .2s; }
+.te-pop .sw.on { background: var(--accent-primary); }
+.te-pop .sw.on:before { transform: translateX(12px); }
+.te-pop .mi[disabled] .sw { opacity: .35; }
+/* Icon picker */
+.te-pop .icon-grid { display: grid; grid-template-columns: repeat(8, 36px); gap: .25rem; padding: .125rem; }
+.te-pop .ic { width: 36px; height: 36px; padding: 0; border: 1px solid transparent; border-radius: .375rem; background: transparent; font-size: 1.25rem; cursor: pointer; }
+.te-pop .ic:hover { background: var(--bg-card-hover); }
+.te-pop .ic.cur { border-color: var(--accent-primary); }
+/* Preset list: name + default star */
+.te-pop.preset-list { min-width: 300px; }
+.te-pop .prow { display: flex; align-items: center; gap: .125rem; }
+.te-pop .prow .mi { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.te-pop .star-btn { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: .375rem; background: none; color: var(--text-muted); font-size: 1rem; cursor: pointer; }
+.te-pop .star-btn:hover { background: var(--bg-card-hover); color: var(--accent-warning); }
+.te-pop .star-btn.on { color: var(--accent-warning); }
+.te-pop .star-gap { flex: none; width: 32px; }
+.te .def-star, .te-pop .def-star { color: var(--accent-warning); }
+/* New / Rename / Delete preset and Reset all: small popovers */
+.te-pop.pop { display: flex; flex-direction: column; gap: .625rem; width: 320px; max-width: calc(100vw - 16px); padding: .75rem; }
+.te-pop.pop.confirm { width: 290px; }
+.te-pop .pop-title { font-size: .8125rem; font-weight: 600; color: var(--text-primary); }
+.te-pop .inp { box-sizing: border-box; width: 100%; min-height: 32px; padding: 0 .625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; color: var(--text-primary); font: inherit; font-size: .875rem; }
+.te-pop .inp:focus { outline: none; border-color: var(--accent-primary); }
+.te-pop .pop-acts { display: flex; justify-content: flex-end; gap: .5rem; }
+.te-pop .btn[disabled] { opacity: .4; cursor: default; transform: none; }
+
+/* Tracks toolbar (fixed) */
+.te .tfix { flex: none; padding: 0 1.5rem; border-top: 1px solid var(--border-color); }
+.te .tsec-head { display: flex; align-items: center; gap: .5rem; margin: .625rem 0 .5rem; }
+.te .tsec-head h3 { margin: 0; font-size: 1rem; font-weight: 600; }
+.te .tsec-head .btn-sm { min-height: 32px; white-space: nowrap; }
+.te .tbar { display: flex; align-items: center; gap: .5rem; }
+.te .upload-zone { display: flex; align-items: center; gap: .75rem; margin-bottom: .75rem; padding: .75rem 1rem; border: 2px dashed var(--accent-primary); border-radius: .5rem; background: rgba(6, 214, 160, .06); font-size: .875rem; color: var(--text-secondary); }
+.te .upload-zone.over { background: rgba(6, 214, 160, .14); }
+.te .upload-zone svg { flex: none; color: var(--accent-primary); }
+.te .upload-zone strong { color: var(--text-primary); }
+.te .thead-wrap { overflow: hidden; scrollbar-gutter: stable; scrollbar-width: thin; }
+.te .thead { padding: .375rem calc(.75rem + 1px); border-bottom: 1px solid var(--border-color); background: var(--bg-card); font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.te .thead .c { text-align: center; }
+
+/* Track list (the only part that scrolls) */
+.te .modal-body.tlist { flex: 1; min-height: 0; padding: .5rem 1.5rem 1rem; overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: thin; transition: opacity .2s; }
+.te .tlist.busy { opacity: .6; pointer-events: none; }
+/* Aligned table: Name narrow, Mode tucked against it, short sliders, Mute then ⋯ */
+.te .tgrid { display: grid; grid-template-columns: 18px 28px minmax(120px, 220px) 124px minmax(110px, 168px) minmax(110px, 168px) 36px 32px; column-gap: .75rem; align-items: center; }
+.te .sec { margin-bottom: .625rem; border: 1px solid var(--border-color); border-radius: .5rem; background: var(--bg-card); }
+.te .sec.drop { outline: 2px dashed var(--accent-primary); outline-offset: -1px; background: rgba(6, 214, 160, .06); }
+.te .drop-note { display: none; font-size: .75rem; font-weight: 600; color: var(--accent-primary); }
+.te .sec.drop .drop-note { display: inline; }
+.te .slabel { display: flex; align-items: center; gap: .5rem; min-height: 36px; padding: 0 .75rem; border-bottom: 1px solid var(--border-color); font-size: .75rem; font-weight: 600; color: var(--text-secondary); }
+.te .slabel .drop-note { margin-left: auto; }
+.te .empty-row { padding: .75rem; font-size: .8125rem; color: var(--text-muted); text-align: center; }
+.te .c-lbl { display: none; font-size: .75rem; color: var(--text-muted); }
+.te .trow { box-sizing: border-box; min-height: 48px; padding: .5rem .75rem; border-bottom: 1px solid rgba(51, 65, 85, .55); }
+.te .sec > .trow:last-child { border-bottom: 0; }
+.te .trow:hover { background: var(--bg-card-hover); }
+.te .trow.dragging { opacity: .4; }
+.te .trow.muted .mx, .te .trow.muted .trk-name { opacity: .45; }
+.te .trow .track-mute-btn, .te .ghead .track-mute-btn { justify-self: center; }
+.te .trow .track-preview-btn { flex: none; }
+.te .track-mute-btn:not(.muted) { background: var(--bg-secondary); color: var(--text-primary); }
+.te .track-mode-select { width: 100%; min-height: 32px; padding: 0 .375rem; background: var(--bg-secondary); border-radius: .375rem; font-size: .8125rem; }
+.te .drag-handle { display: flex; align-items: center; justify-content: center; height: 28px; color: var(--text-muted); cursor: grab; }
+.te .drag-handle:hover { color: var(--text-primary); }
+.te .more-btn { position: relative; }
+.te .adv-dot { position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-primary); }
+.te .in-grp .trk-name { padding-left: .75rem; border-left: 2px solid rgba(139, 92, 246, .5); }
+/* Track names: one line; names that don't fit scroll slowly, pause, jump back, repeat */
+.te .trk-name { min-width: 0; overflow: hidden; overflow: clip; overflow-clip-margin: content-box; white-space: nowrap; text-overflow: ellipsis; font-size: .875rem; line-height: 1.3; color: var(--text-primary); container-type: inline-size; }
+.te .mq-in { display: inline-block; white-space: nowrap; }
+.te .trk-name.mq .mq-in { animation: te-marquee 14s linear infinite; }
+@keyframes te-marquee {
+    0%, 14% { transform: translateX(0); }
+    70%, 100% { transform: translateX(min(0px, calc(100cqw - 100%))); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .te .mq-in { display: inline; }
+    .te .trk-name.mq .mq-in { animation: none; }
+}
+/* Slider cell with the "plays at" hint under it */
+.te .mx { display: flex; flex-direction: column; gap: .125rem; min-width: 0; }
+.te .mx-ctl { display: flex; align-items: center; gap: .5rem; }
+.te .mx-ctl .track-slider-value { min-width: 34px; font-size: .75rem; color: var(--text-secondary); }
+.te .mx-hint { font-size: .6875rem; line-height: 1.1; color: var(--accent-secondary); }
+.te .mx-hint:empty { display: none; }
+.te .master .track-slider, .te .pg-master .track-slider { accent-color: var(--accent-secondary); }
+
+/* Groups: collapsible sections; header row carries the master controls */
+.te .grp-sec { background: var(--bg-secondary); }
+.te .ghead { box-sizing: border-box; min-height: 52px; padding: .5rem .75rem; border-bottom: 1px solid var(--border-color); }
+.te .grp-sec:not(.open-sec) .ghead { border-bottom: 0; }
+.te .ghead.muted .mx, .te .ghead.muted .gname { opacity: .55; }
+.te .chev-btn { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: .375rem; background: none; color: var(--text-secondary); cursor: pointer; }
+.te .chev-btn:hover { background: var(--bg-card-hover); color: var(--text-primary); }
+.te .chev-btn svg { transition: transform .15s; }
+.te .chev-btn.open svg { transform: rotate(90deg); }
+.te .folder { display: inline-flex; justify-self: center; color: var(--accent-warning); }
+.te .gname-cell { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; min-width: 0; }
+.te .gname-cell.wide { grid-column: span 2; }
+.te .gname { padding: 0; border: 0; background: none; color: var(--text-primary); font: inherit; font-size: .9375rem; font-weight: 600; text-align: left; cursor: text; }
+.te .grp-rename { width: 180px; }
+.te .pb-confirm { font-size: .8125rem; color: var(--text-primary); }
+.te .grp-confirm-btns { display: inline-flex; gap: .5rem; }
+.te .gap-ctl { display: flex; align-items: center; gap: .375rem; margin-left: auto; font-size: .75rem; color: var(--text-muted); white-space: nowrap; }
+.te .pg-master { display: none; }
+.te .master { min-width: 0; }
+
+/* Footer: preset field on the left, save actions on the right */
+.te .modal-footer.foot { flex: none; position: relative; display: flex; align-items: center; justify-content: flex-start; gap: .5rem; padding: .75rem 1.5rem; }
+.te .foot .btn { white-space: nowrap; }
+.te .foot .btn[disabled] { opacity: .4; cursor: default; transform: none; }
+.te .pgroup { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.te .pb-label { font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.te .pdd { display: inline-flex; align-items: center; gap: .5rem; box-sizing: border-box; width: 260px; min-width: 0; min-height: 38px; padding: 0 .625rem 0 .75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; color: var(--text-primary); font: inherit; font-size: .875rem; font-weight: 500; text-align: left; cursor: pointer; }
+.te .pdd:hover { border-color: var(--accent-primary); }
+.te .pdd .pdd-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.te .pdd.is-cur .pdd-name { color: var(--text-secondary); font-weight: 400; }
+.te .pdd svg { flex: none; color: var(--text-muted); }
+.te .foot-status { display: flex; align-items: center; gap: .75rem; }
+.te .pmsg { font-size: .75rem; color: var(--accent-primary); white-space: nowrap; }
+.te .dirty { display: inline-flex; align-items: center; gap: .375rem; font-size: .75rem; color: var(--accent-warning); white-space: nowrap; }
+.te .dirty i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-warning); }
+.te .pdd .dirty.dot-only { display: none; }
+.te .foot-btns { display: flex; align-items: center; gap: .5rem; }
+.te .save-btn { position: relative; }
+.te .sdot { position: absolute; top: -4px; right: -4px; box-sizing: border-box; width: 10px; height: 10px; border: 2px solid var(--bg-card); border-radius: 50%; background: var(--accent-warning); }
+
+/* Narrower desktops: the footer wraps under the preset field */
+@media (max-width: 900px) and (min-width: 761px) {
+    .te .modal-footer.foot { flex-wrap: wrap; }
+    .te .pdd { width: 200px; }
+}
+
+/* Phone: full-screen sheet, same sections; rows become stacked cards */
+@media (max-width: 760px) {
+    .te-backdrop { padding: 0; }
+    .modal.te { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; }
+    .te .modal-header { height: 52px; box-sizing: border-box; padding: 0 .5rem 0 1rem; }
+    .te .modal-header h2 { font-size: 1.0625rem; }
+    .te .modal-header .sub { display: none; }
+    .te .hd-acts .hd-more { width: 44px; height: 44px; border: 0; background: none; }
+    .te .hd-acts .modal-close { width: 44px; height: 44px; }
+    .te-top { padding: .625rem 1rem; }
+    .te .top-row { flex-wrap: wrap; gap: .5rem; }
+    .te .f-name { flex: 1 1 0; }
+    .te .f-cats { flex: 1 0 100%; max-width: none; order: 3; }
+    .te .icon-tile { width: 44px; height: 44px; font-size: 1.375rem; }
+    .te .inp { min-height: 44px; font-size: 1rem; }
+    .te .inp.desc { height: 44px; min-height: 44px; font-size: .9375rem; }
+    .te .chipfield { height: 44px; }
+    .te .chipfield .chip { min-height: 32px; }
+    .te .chip button { width: 30px; height: 30px; }
+    .te .chip-input { min-height: 32px; font-size: 1rem; }
+    .te .ac-opt { min-height: 44px; font-size: .9375rem; }
+    .te .num { width: 56px; min-height: 40px; font-size: .9375rem; }
+    .te-pop .mi { min-height: 44px; font-size: .9375rem; }
+    .te-pop .mi-row { min-height: 52px; font-size: .9375rem; }
+    .te-pop .num { width: 56px; min-height: 40px; font-size: .9375rem; }
+    .te-pop .star-btn { width: 44px; height: 44px; }
+    .te-pop .icon-grid { grid-template-columns: repeat(6, 44px); }
+    .te-pop .ic { width: 44px; height: 44px; }
+    .te-pop .inp { min-height: 44px; font-size: 1rem; }
+    .te-pop .pop-acts .btn { min-height: 44px; min-width: 88px; justify-content: center; }
+    .te-pop.pop, .te-pop.preset-list { width: calc(100vw - 32px); min-width: 0; }
+
+    .te .tfix { padding: 0 1rem; border-bottom: 1px solid var(--border-color); }
+    .te .tsec-head { flex-wrap: wrap; row-gap: .5rem; margin: .5rem 0 .625rem; }
+    .te .tsec-head .grow { order: 2; }
+    .te .tsec-head .seq-btn { order: 3; min-height: 40px; }
+    .te .tbar { order: 4; display: grid; grid-template-columns: 1fr 1fr 1fr; width: 100%; }
+    .te .tbar .btn { width: 100%; min-height: 40px; justify-content: center; }
+    .te .tbar .btn[hidden] { display: none; }
+    .te .upload-zone { flex-wrap: wrap; }
+    .te .upload-zone .uz-drop { display: none; }
+    .te .upload-zone .link-btn { min-height: 44px; }
+    .te .upload-zone .uz-target { width: 100%; order: 5; }
+    .te .thead-wrap { display: none; }
+    .te .modal-body.tlist { padding: .625rem 1rem 1rem; }
+
+    .te .sec { display: flex; flex-direction: column; gap: .5rem; padding: .5rem; }
+    .te .slabel { min-height: 32px; padding: 0 .25rem; border-bottom: 0; }
+    .te .c-lbl { display: block; }
+    .te .drag-handle { display: none; }
+    .te .track-mute-btn { width: 40px; height: 40px; flex: none; }
+    .te .icon-btn.sm { width: 40px; height: 40px; }
+    /* Card: ▶ name mute ⋯ / Mode / Volume / Interval */
+    .te .trow.tgrid { grid-template-columns: 36px minmax(0, 1fr) 40px 40px; grid-template-areas: "play name mute more" "mode mode mode mode" "vol vol vol vol" "pres pres pres pres"; row-gap: .375rem; column-gap: .5rem; min-height: 0; padding: .5rem .625rem .625rem; border: 1px solid var(--border-color); border-radius: .5rem; background: var(--bg-card); }
+    .te .sec > .trow:last-child { border-bottom: 1px solid var(--border-color); }
+    .te .trow.in-grp { border-left: 3px solid rgba(139, 92, 246, .6); }
+    .te .trow.in-grp .trk-name { padding-left: 0; border-left: 0; }
+    .te .trow .track-preview-btn { grid-area: play; width: 36px; height: 36px; }
+    .te .trow .trk-name { grid-area: name; font-size: .9375rem; }
+    .te .trow .track-mute-btn { grid-area: mute; }
+    .te .trow .more-btn { grid-area: more; }
+    .te .trow .c-mode { grid-area: mode; }
+    .te .trow .mx[data-kind="volume"] { grid-area: vol; }
+    .te .trow .mx[data-kind="presence"] { grid-area: pres; }
+    /* Label | control | value; sliders kept short */
+    .te .c-mode, .te .mx { display: grid; grid-template-columns: 72px minmax(0, 230px); align-items: center; column-gap: .5rem; min-height: 36px; }
+    .te .c-mode .track-mode-select { justify-self: start; width: auto; min-width: 132px; min-height: 40px; font-size: .9375rem; }
+    .te .mx .mx-ctl { grid-column: 2; }
+    .te .mx .mx-ctl .track-slider { height: 28px; }
+    .te .mx .mx-ctl .track-slider-value { font-size: .8125rem; }
+    .te .mx .mx-hint { grid-column: 2; font-size: .75rem; }
+    /* Group: header row, then the master block */
+    .te .ghead.tgrid { display: flex; align-items: center; gap: .5rem; min-height: 48px; padding: 0 .125rem; border-bottom: 0; }
+    .te .ghead .master, .te .ghead .gap-ctl, .te .ghead .gmode { display: none; }
+    .te .ghead .chev-btn { width: 40px; height: 40px; }
+    .te .gname-cell { flex: 1; }
+    .te .gname { font-size: 1rem; }
+    .te .grp-rename { width: 100%; min-height: 40px; }
+    .te .grp-confirm-btns { display: grid; grid-template-columns: 1fr 1fr; width: 100%; }
+    .te .grp-confirm-btns .btn { min-height: 40px; justify-content: center; }
+    .te .pg-master { display: flex; flex-direction: column; gap: .375rem; padding: .5rem .625rem .625rem; border: 1px solid rgba(139, 92, 246, .35); border-radius: .5rem; background: rgba(139, 92, 246, .06); }
+    .te .pg-master .mlabel { font-size: .625rem; text-transform: uppercase; letter-spacing: .05em; color: #c4b5fd; }
+    .te .gap-row { display: flex; align-items: center; gap: .5rem; min-height: 40px; font-size: .8125rem; color: var(--text-muted); }
+    .te .gap-row .c-lbl { width: 72px; flex: none; }
+
+    /* Footer: preset field + Load/New, then Save theme / Save preset / Cancel */
+    .te .modal-footer.foot { flex-direction: column; align-items: stretch; gap: .5rem; padding: .625rem 1rem; }
+    .te .foot > .grow { display: none; }
+    .te .pb-label { display: none; }
+    .te .pgroup .pdd { flex: 1; width: auto; min-height: 44px; }
+    .te .pgroup .icon-btn.sm { width: 44px; height: 44px; flex: none; }
+    .te .foot .btn { min-height: 44px; justify-content: center; padding-left: .5rem; padding-right: .5rem; }
+    .te .foot-btns { display: grid; grid-template-columns: 1fr 1fr 1fr; }
+    .te .pdd .dirty.dot-only { display: inline-flex; }
+    .te #te-dirty { display: none; }
+    .te .foot-status { position: absolute; left: 50%; bottom: calc(100% + .5rem); transform: translateX(-50%); pointer-events: none; }
+    .te .pmsg:empty { display: none; }
+    .te .pmsg { padding: .5rem .875rem; border: 1px solid var(--accent-primary); border-radius: 999px; background: var(--bg-sidebar); font-size: .8125rem; }
+}
+
+/* Theme Editor: Preview mix button, on while playing */
+.te-mix-btn.active {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+}
+
+/* Theme Editor: help panel under the ? button; scrolls; full screen on a phone */
+.te-help {
+    position: absolute; top: 56px; right: 12px; z-index: 30;
+    width: min(440px, calc(100% - 24px)); max-height: calc(100% - 72px);
+    display: flex; flex-direction: column;
+    background: var(--bg-card); color: var(--text-primary);
+    border: 1px solid var(--border-color); border-radius: 10px;
+    box-shadow: var(--shadow), 0 12px 32px rgba(0, 0, 0, .45);
+}
+.te-help[hidden] { display: none; }
+.te-help-hd { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: .25rem .5rem .25rem .875rem; border-bottom: 1px solid var(--border-color); }
+.te-help-x { display: none; }
+.te-help-body { overflow-y: auto; padding: .25rem .875rem .875rem; font-size: .875rem; line-height: 1.5; color: var(--text-secondary); }
+.te-help-body h4 { margin: .875rem 0 .25rem; font-size: .8125rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-primary); }
+.te-help-body p { margin: .375rem 0; }
+.te-help-body b, .te-help-body dt { color: var(--text-primary); }
+.te-help-body dl { margin: .25rem 0; }
+.te-help-body dt { font-weight: 600; margin-top: .5rem; }
+.te-help-body dd { margin: 0; }
+.te-help-body p.hi { margin: .375rem 0 .375rem .75rem; padding-left: 1rem; text-indent: -1rem; }
+@media (max-width: 760px) {
+    .te-help { top: 0; right: 0; width: 100%; max-height: none; height: 100%; border-radius: 0; border: 0; }
+    .te-help-x { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; }
+}
+
+/* Theme Editor: grouped tracks always play Intermittent (no mode choice) */
+.te-mode-fixed { display: inline-flex; align-items: center; min-height: 36px; padding: 0 .75rem; color: var(--text-secondary); font-size: .875rem; white-space: nowrap; }
+/* Shared bits from styles.css */
+.chip{display:inline-flex;align-items:center;gap:.25rem;padding:.25rem .25rem .25rem .625rem;background:rgba(6,214,160,.12);border:1px solid rgba(6,214,160,.4);border-radius:999px;font-size:.8125rem;color:var(--text-primary)}
+.chip button{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border:0;border-radius:999px;background:transparent;color:var(--text-secondary);cursor:pointer}
+.icon-btn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border:1px solid var(--border-color);border-radius:.375rem;background:var(--bg-card);color:var(--text-secondary);cursor:pointer;flex:none}
+.icon-btn:hover{color:var(--text-primary);border-color:var(--accent-secondary)}
+.icon-btn.sm{width:32px;height:32px}
+.btn-danger{background:var(--accent-danger);color:#fff}
+.btn[disabled]{opacity:.4;cursor:default;transform:none}
+.link-btn{display:inline-flex;align-items:center;gap:.375rem;background:none;border:0;color:var(--accent-primary);font:inherit;font-size:.8125rem;cursor:pointer;min-height:28px;padding:0 .25rem}
+
+/* ===== Board frame ===== */
+.board{position:relative;overflow:hidden;background:var(--bg-primary);color:var(--text-primary)}
+.board .modal-backdrop{position:absolute}
+.board .modal.te{height:100%}
+.board .te-pop{position:absolute}
+.board .scrim{position:absolute;inset:0;z-index:250}
+.board .toast-container{position:absolute}
+.ghost{position:absolute;inset:0;display:grid;grid-template-columns:240px 1fr}
+.ghost .side{background:var(--bg-sidebar)}
+.ghost .main{padding:2rem;display:grid;grid-template-columns:repeat(4,1fr);grid-auto-rows:150px;gap:1rem;align-content:start}
+.ghost .main div{border-radius:.75rem;background:var(--bg-card)}
+
+/* ===== PROPOSED (new CSS) ===== */
+/* Intrusion marker: one small link icon, accent purple (group name, preset names) */
+.int-ic{display:inline-flex;align-items:center;flex:none;color:#c4b5fd}
+.te .pdd .int-ic svg,.te-pop .mi .int-ic svg,.te-pop .int-ic svg,.int-ic svg{color:#c4b5fd}
+/* The canvas stylesheet is an older styles.css: undo its Name+Mode span on the group name cell */
+.te .gname-cell{grid-column:auto}
+.te .gname-cell.wide{grid-column:span 2}
+.te .pdd .pdd-name{flex:0 1 auto}
+.te .pdd .def-star{flex:none}
+/* Preset list: ★ toggle, then the intrusion column */
+.te-pop .int-col{display:inline-flex;align-items:center;justify-content:center;flex:none;width:20px}
+/* Linked rows: name, then "from <theme>" in muted text with a link marker */
+.lk-cell{display:flex;flex-direction:column;justify-content:center;gap:.125rem;min-width:0}
+.te .in-grp .lk-cell{padding-left:.75rem;border-left:2px solid rgba(139,92,246,.5)}
+.te .in-grp .lk-cell .trk-name{padding-left:0;border-left:0}
+.lk-from{display:flex;align-items:center;gap:.3rem;min-width:0;font-size:.6875rem;line-height:1.2;color:var(--text-muted);white-space:nowrap}
+.lk-src{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.lk-ic{display:inline-flex;flex:none;color:#c4b5fd}
+.badge-missing{height:16px;padding:0 .3rem;background:rgba(239,68,68,.15);color:var(--accent-danger);font-size:.625rem}
+/* Missing source: greyed, only ⋯ (Remove link) stays live */
+.te .trow.missing .trk-name,.te .trow.missing .mx,.te .trow.missing .c-mode,.te .trow.missing .track-preview-btn,.te .trow.missing .track-mute-btn{opacity:.4}
+.te .trow.missing .track-preview-btn,.te .trow.missing .track-mute-btn{cursor:default;transform:none}
+/* Previewing a muted row: its Volume slider sets the preview level, so it stays at full strength */
+.te .trow.muted.previewing .mx[data-kind="volume"]{opacity:1}
+.te .trow.previewing{background:rgba(6,214,160,.06)}
+/* Intrusion group section: faint purple edge */
+.te .int-sec{border-color:rgba(139,92,246,.45)}
+.te-pop .badge-soon{margin-left:auto}
+.te-help-body p.new b{color:var(--text-primary)}
+.te-help-body .int-ic{vertical-align:-1px}
+/* Toast (app: top right) */
+.board .toast-container{top:1rem;right:1rem;z-index:300;display:flex;flex-direction:column;gap:.5rem}
+.board .toast{display:flex;align-items:center;gap:.75rem;padding:.875rem 1rem;background:var(--bg-card);border:1px solid var(--accent-primary);border-radius:.5rem;box-shadow:var(--shadow);font-size:.875rem;color:var(--text-primary)}
+.board .toast svg{color:var(--accent-primary)}
+
+/* ----- Picker: another theme's files, read-only ----- */
+.board .pk-backdrop{z-index:220;padding:1.5rem 2rem;background:rgba(0,0,0,.55)}
+.modal.pk{width:min(720px,100%);height:min(680px,100%);min-width:0;max-width:none;max-height:none;display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--border-color)}
+.pk .modal-header{flex:none;padding:.625rem 1rem .625rem 1.5rem}
+.pk .modal-header h2{display:flex;align-items:baseline;gap:.625rem;min-width:0;margin:0;white-space:nowrap}
+.pk .modal-header .sub{overflow:hidden;text-overflow:ellipsis;font-size:.875rem;font-weight:400;color:var(--text-muted)}
+.pk .modal-close{display:inline-flex;align-items:center;justify-content:center;width:36px;height:36px}
+.pk-bar{flex:none;display:flex;align-items:center;gap:.625rem;min-height:38px;padding:.75rem 1.5rem .5rem}
+.pk .tp-search{flex:0 1 360px}
+.pk-tic{font-size:1.25rem;line-height:1}
+.pk-tname{font-size:.9375rem;font-weight:600;white-space:nowrap}
+.pk-headwrap{flex:none;padding:0 1.5rem;overflow:hidden;scrollbar-gutter:stable;scrollbar-width:thin}
+.pk-head{padding:.375rem calc(.75rem + 1px);font-size:.6875rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted)}
+.pk-head .c,.pk-row .c{justify-self:center;text-align:center;display:inline-flex;justify-content:center}
+.pk-body{flex:1;min-height:0;overflow-y:auto;scrollbar-gutter:stable;scrollbar-width:thin;padding:0 1.5rem 1rem}
+.pk-tg{display:grid;grid-template-columns:240px minmax(0,1fr) 60px 20px;column-gap:.75rem;align-items:center}
+.pk-fg{display:grid;grid-template-columns:28px 220px minmax(0,1fr) 64px 32px;column-gap:.75rem;align-items:center}
+.pk-row{box-sizing:border-box;width:100%;min-height:48px;padding:.375rem .75rem;border:0;border-bottom:1px solid rgba(51,65,85,.55);background:none;color:var(--text-primary);font:inherit;text-align:left}
+.pk-row:last-child{border-bottom:0}
+button.pk-row{cursor:pointer}
+.pk-row:hover{background:var(--bg-card-hover)}
+.pk-row.pv{background:rgba(6,214,160,.06)}
+.pk-row.added .trk-name{color:var(--text-secondary)}
+.pk .lname .pk-nm{flex:1;min-width:0}
+.pk-nm{display:flex;flex-direction:column;min-width:0;cursor:pointer}
+.pk-meta{display:none}
+.pk-grp{display:flex;align-items:center;gap:.375rem;min-width:0;font-size:.8125rem;color:var(--text-secondary)}
+.pk-grp svg{flex:none;color:var(--accent-warning)}
+.pk-chev{display:inline-flex;justify-self:end;color:var(--text-muted)}
+.pk input[type=checkbox]{width:18px;height:18px;margin:0;accent-color:var(--accent-primary);cursor:pointer}
+.pk input[type=checkbox][disabled]{opacity:.55;cursor:default}
+.pk-all{display:none}
+.pk .pk-foot{flex:none;align-items:center;gap:.5rem;padding:.75rem 1.5rem}
+.pk-count{font-size:.8125rem;color:var(--text-secondary);white-space:nowrap}
+.board{width:1600px;height:1100px}
+
+/* ===== PROPOSED (new CSS): file fades in the track menu ===== */
+.te-pop .mi-row .num::placeholder { color: var(--text-muted); }
+
+/* ===== PROPOSED (new CSS): Ebb & Flow group mode, Pause between plays ===== */
+.te .gsw { display: inline-flex; align-items: center; gap: .5rem; margin-left: 0; padding: 0; border: 0; background: none; color: var(--text-muted); font-size: .75rem; cursor: pointer; white-space: nowrap; }
+.te .gap-row .gsw { margin-left: 0; font-size: .8125rem; }
+.te .gsw .sw { position: relative; flex: none; width: 30px; height: 18px; border-radius: 18px; background: var(--border-color); transition: .2s; }
+.te .gsw .sw:before { content: ""; position: absolute; left: 3px; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: #fff; transition: .2s; }
+.te .gsw .sw.on { background: var(--accent-primary); }
+.te .gsw .sw.on:before { transform: translateX(12px); }
+.te-pop .mi-row.dgrid { display: grid; grid-template-columns: minmax(0, 1fr) 60px 10px 60px 14px; column-gap: .375rem; }
+.te-pop .mi-row.dgrid > span { text-align: center; }
+.te-pop .mi-row .num::placeholder { color: var(--text-muted); }
+
+/* Two-knob volume (Ebb & Flow): left = lowest, right = highest; the level moves between them */
+.te .dual { position: relative; flex: 1; min-width: 0; height: 20px; }
+.te .dual .dual-track { position: absolute; left: 0; right: 0; top: 7px; height: 6px; border-radius: 3px; background: var(--border-color); }
+.te .dual .dual-fill { position: absolute; top: 7px; height: 6px; border-radius: 3px; background: var(--accent-primary); }
+.te .dual input { position: absolute; inset: 0; width: 100%; height: 20px; margin: 0; background: none; pointer-events: none; -webkit-appearance: none; appearance: none; }
+.te .dual input::-webkit-slider-runnable-track { background: none; }
+.te .dual input::-webkit-slider-thumb { -webkit-appearance: none; pointer-events: auto; width: 16px; height: 16px; border-radius: 50%; background: var(--accent-primary); border: 0; cursor: pointer; }
+.te .dual input::-moz-range-thumb { pointer-events: auto; width: 16px; height: 16px; border-radius: 50%; background: var(--accent-primary); border: 0; cursor: pointer; }
+.te .dual input::-moz-range-track { background: none; }
+.te .trow .track-slider-value { min-width: 46px; }
+
+/* ===== PROPOSED (new CSS): a sequence step's While playing view ===== */
+.te .mx-hint.dur-ends { display: flex; justify-content: space-between; color: var(--text-muted); }
+.te .mx.ovr .mx-hint.dur-ends { color: var(--accent-primary); }
+/* Duration shows no number: its slider takes that space, so Shorter and Longer sit at its ends */
+.te .mx:has(.dur-ends) .track-slider-value { display: none; }
+.te .ebb-thead { padding: .5rem .75rem .25rem; border-bottom: 1px solid rgba(51,65,85,.55); }
+.te .trow .mx-hint:not(:empty) { font-variant-numeric: tabular-nums; }
+@media (max-width: 760px) { .te .ebb-thead { display: none; } }
+.te .st-top { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; }
+.te .st-note { margin: 0; font-size: .8125rem; color: var(--text-muted); }
+.te .st-tabs .badge { height: 18px; padding: 0 .35rem; font-size: .625rem; margin-left: .375rem; }
+/* A value this step changes: green, like the selection colour */
+.te .mx.ovr .track-slider-value { color: var(--accent-primary); font-weight: 600; }
+.te .c-mode.ovr .track-mode-select { border-color: var(--accent-primary); color: var(--accent-primary); }
+.te .track-mute-btn.ovr { box-shadow: 0 0 0 2px var(--accent-primary); }
+.te .gap-ctl.ovr .num, .te .gap-row.ovr .num { border-color: var(--accent-primary); color: var(--accent-primary); }
+.te .gsw.ovr .gap-word { color: var(--accent-primary); }
+.te .foot-status .chg { color: var(--accent-primary); }
+.te .st-tabs button { white-space: nowrap; }
+.te-pop .mi-row.msl { display: grid; grid-template-columns: 44px auto minmax(90px, 1fr) auto; column-gap: .5rem; align-items: center; }
+.te-pop .msl .msl-end { font-size: .6875rem; color: var(--text-muted); }
+.te-pop .msl .track-slider { width: 100%; }
+.te-pop .msl.ovr label { color: var(--accent-primary); font-weight: 600; }
+.te-pop .msl-note { padding: 0 .625rem .375rem; font-size: .6875rem; color: var(--text-muted); text-align: right; }
+@media (max-width: 760px) {
+    .te .st-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); width: 100%; box-sizing: border-box; }
+    .te .st-tabs button { justify-content: center; min-height: 40px; padding: 0 .375rem; }
+    .te .st-tabs .tn { display: none; }
+    .te .foot-status { position: static; transform: none; pointer-events: auto; }
+}
+.ph .te .foot-status { position: static; transform: none; pointer-events: auto; }
+</style>
+</helmet>
+<div class="board">
+<div class="ghost" aria-hidden="true"><div class="side"></div><div class="main"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div></div>
+<div class="modal-backdrop te-backdrop active">
+<div class="modal te" role="dialog" aria-labelledby="te-title">
+<div class="modal-header">
+<h2 id="te-title">OH S*** <span class="sub">in Storm builds · step 2</span></h2>
+<div class="hd-acts">
+<button class="icon-btn sm hd-more" aria-label="Help" aria-expanded="{{helpOpen}}" onClick="{{toggleHelp}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></button>
+<button class="icon-btn sm hd-more" aria-label="More theme options" aria-haspopup="menu" onClick="{{onThemeMenu}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg></button>
+<button class="modal-close" aria-label="Close"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+</div>
+</div>
+
+<sc-if value="{{helpOpen}}" hint-placeholder-val="{{ false }}">
+<div class="te-help" role="dialog" aria-label="Theme editor help">
+<div class="te-help-hd"><strong>How a theme plays</strong><button class="modal-close te-help-x" aria-label="Close help" onClick="{{closeHelp}}"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button></div>
+<div class="te-help-body">
+<p>A theme is a set of tracks (sound files) mixed together. Each track has a <b>mode</b>, a <b>volume</b> and an <b>interval</b>.</p>
+<h4>In a sequence step</h4>
+<p class="hi new"><b>While playing:</b> changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green; anything you don't change follows the preset.</p>
+<p class="hi new"><b>Revert changes:</b> puts back the settings as they were when Save was last pressed: for one track or group in its ⋯ menu, or for everything at the top of the list. A value set back to the preset's follows the preset again.</p>
+<p class="hi new"><b>Coming in / Leaving:</b> how tracks change as the step starts and ends (see Advanced transitions).</p>
+<p class="hi new"><b>Rise:</b> in an Ebb &amp; Flow track's ⋯ menu: how fast it rises. Gradual rises as smoothly as it falls. Sudden jumps up quickly and eases back down, like gusts of wind or waves on rocks. <i>Duration</i> sets how long each rise and fall takes. A group can set the same Rise for every file.</p>
+<h4>Modes</h4>
+<p class="hi"><b>Background:</b> plays all the time, looping smoothly. Rain, wind, a fire.</p>
+<p class="hi"><b>Intermittent:</b> plays once, then goes quiet before playing again. <i>Interval</i> sets the wait. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.</p>
+<p class="hi new"><b>Ebb &amp; Flow:</b> always heard, but never at one level: it rises and falls between the two knobs of its Volume slider, gliding from one level to the next, never the same way twice. <i>Duration</i> sets how long each rise and fall takes, from shorter to longer. Shorter moves more often in smaller steps; it doesn't just swing between the two knobs. Wind, surf, rain that gusts.</p>
+<p class="hi"><b>Auto:</b> picks for you. Under 15 seconds plays Intermittent, longer plays Ebb &amp; Flow. At 100% <i>interval</i>, either plays as Background.</p>
+<p class="hi new"><b>Fade in / Fade out:</b> for a file that starts or ends abruptly. In the track's ⋯ menu, set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.</p>
+<p class="hi new"><b>Pause between plays:</b> in an Ebb &amp; Flow track's ⋯ menu. Off, the file loops and is always heard, rising and falling. On, it plays once from start to finish, still rising and falling, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.</p>
+<p class="hi new"><b>Pause:</b> how long it stays quiet, in seconds, picked at random between the two numbers each time (600 is 10 minutes). It also staggers when tracks first start, so they don't all begin together.</p>
+<h4>Groups</h4>
+<p class="hi"><b>Take turns:</b> a group is a folder of tracks. In an Intermittent group only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.</p>
+<p class="hi"><b>Group mode:</b> Intermittent plays one track at a time with a gap; Merry-go-round makes a continuous bed.</p>
+<p class="hi"><b>Gap:</b> after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.</p>
+<p class="hi"><b>Intermittent group:</b> on its turn, a track plays its whole file once, start to finish, then hands over. Background and Ebb &amp; Flow are for the ambience outside groups.</p>
+<p class="hi"><b>Merry-go-round:</b> one file plays, then crossfades into another picked at random, never the same one twice in a row. Crossfade sets the overlap. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.</p>
+<p class="hi new"><b>Ebb &amp; Flow group:</b> every file plays at once, each rising and falling on its own. Each file keeps its own settings; the group's Volume and <i>Interval</i> scale them down. With the group's Pause between plays on, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its own Pause between plays.</p>
+<p class="hi"><b>Weight:</b> each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.</p>
+<p class="hi"><b>Interval:</b> how fast a track's weight wears off. Higher comes back sooner; lower plays less often.</p>
+<p class="hi"><b>Group volume, interval, mute:</b> scale every track in the group.</p>
+<p class="hi"><b>Moving tracks:</b> drag a track onto a group, or use its ⋯ menu.</p>
+<p class="hi"><b>Deleting a group:</b> keeps its files; they move back into the theme.</p>
+<h4>Intrusions</h4>
+<p class="hi new"><b>Intrusion group:</b> a group in Intrusion mode, marked <span class="int-ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></span>. Its tracks keep their own mode and settings, and it can hold files linked from other themes.</p>
+<p class="hi new"><b>Linked file:</b> plays here but stays in its own theme. Add one with the group's ⋯ › Add from another theme. New links start muted. If the file is gone, it shows Missing.</p>
+<p class="hi new"><b>Presets:</b> turn intrusion tracks on and other tracks off, like rain that mutes the crickets. A preset that turns intrusion tracks on shows <span class="int-ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="12" r="6"></circle><circle cx="15" cy="12" r="6"></circle></svg></span>.</p>
+<h4>Saving</h4>
+<p class="hi"><b>Live:</b> changes are heard on speakers playing this theme, and on this device with Preview mix.</p>
+<p class="hi"><b>Cancel:</b> Reverts unsaved changes.</p>
+<p class="hi"><b>Save Preset:</b> Saves loaded preset</p>
+<p class="hi"><b>Save Theme:</b> Saves theme with all changes (presets, name, etc) Required after saving a preset.</p>
+<p class="hi"><b>New:</b> makes a new preset from the current mix.</p>
+</div>
+</div>
+</sc-if>
+
+<div class="te-top st-top">
+<div class="seg st-tabs" role="tablist" aria-label="Step"><button type="button" role="tab" aria-selected="true" aria-pressed="true">While playing<span class="badge badge-type">{{ovrCount}}</span></button><button type="button" role="tab" aria-selected="false" aria-pressed="false">Coming in</button><button type="button" role="tab" aria-selected="false" aria-pressed="false">Leaving<span class="tn">&nbsp;OH S***</span></button></div>
+<p class="st-note">For this step only. Anything you don't change follows the preset, OH S***.</p>
+</div>
+
+<div class="tfix">
+<div class="tsec-head">
+<h3>Tracks</h3><span class="badge badge-type">{{trackCount}}</span>
+<button class="{{mixCls}}" aria-pressed="{{mixPressed}}" title="Play the whole theme on this device, with your changes, without changing the speakers" onClick="{{toggleMix}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg><span>{{mixLabel}}</span></button>
+<span class="grow"></span>
+<div class="tbar"><button class="btn btn-sm btn-secondary" disabled="{{noUnsaved}}" onClick="{{onBackAll}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>Revert changes</button></div>
+</div>
+<div class="thead-wrap"><div class="thead tgrid"><span></span><span></span><span>Name</span><span>Mode</span><span>Volume</span><span>Interval</span><span class="c">Mute</span><span></span></div></div>
+</div>
+
+<div class="modal-body tlist" aria-label="Tracks" onScroll="{{closeMenus}}">
+<section aria-label="Tracks">
+<sc-for list="{{groups}}" as="g" hint-placeholder-count="2">
+<div class="{{g.secCls}}">
+<sc-if value="{{g.isEbb}}" hint-placeholder-val="{{ false }}"><div class="thead tgrid ebb-thead"><span></span><span></span><span>Name</span><span>Mode</span><span>Volume</span><span>Duration</span><span class="c">Mute</span><span></span></div></sc-if>
+<div class="{{g.headCls}}">
+<button class="{{g.chevCls}}" aria-expanded="{{g.open}}" aria-label="{{g.chevLabel}}" onClick="{{g.onToggle}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg></button>
+<span class="folder"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"></path></svg></span>
+<div class="{{g.cellCls}}">
+<sc-if value="{{g.showName}}" hint-placeholder-val="{{ true }}"><button class="gname" title="Double-click to rename" onDoubleClick="{{g.startRename}}">{{g.name}}</button><sc-if value="{{g.isIntrusion}}" hint-placeholder-val="{{ false }}"><span class="int-ic" title="Intrusion group" aria-label="Intrusion group"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></span></sc-if><span class="badge badge-type">{{g.countLabel}}</span></sc-if>
+<sc-if value="{{g.renaming}}" hint-placeholder-val="{{ false }}"><input class="inp sm grp-rename" type="text" maxlength="60" aria-label="Group name" value="{{g.rdraft}}" onInput="{{g.onRInput}}" onKeyDown="{{g.onRKey}}" onBlur="{{g.onRBlur}}"></sc-if>
+<sc-if value="{{g.confirming}}" hint-placeholder-val="{{ false }}"><span class="pb-confirm">Delete {{g.name}}? Tracks move to the theme.</span><span class="grp-confirm-btns"><button class="btn btn-sm btn-danger" onClick="{{g.onConfirmDel}}">Delete</button><button class="btn btn-sm btn-secondary" onClick="{{g.onCancelDel}}">Cancel</button></span></sc-if>
+<sc-if value="{{g.showTiming}}" hint-placeholder-val="{{ true }}">
+<sc-if value="{{g.isGap}}" hint-placeholder-val="{{ true }}"><div class="{{g.gapCtlCls}}"><span class="gap-word">Gap</span><input class="num" type="number" min="0" step="0.5" aria-label="{{g.name}} minimum gap, minutes" value="{{g.gapMin}}" onInput="{{g.onGapMin}}"><span>–</span><input class="num" type="number" min="0" step="0.5" aria-label="{{g.name}} maximum gap, minutes" value="{{g.gapMax}}" onInput="{{g.onGapMax}}"><span>min</span></div></sc-if>
+<sc-if value="{{g.isEbb}}" hint-placeholder-val="{{ false }}"><button type="button" class="{{g.ptBtnCls}}" role="switch" aria-checked="{{g.ptOn}}" aria-label="{{g.name}} pause between plays" title="Every file pauses between plays, at staggered times, so one is always playing" onClick="{{g.onPt}}"><span class="gap-word">Pause between plays</span><span class="{{g.ptCls}}"></span></button></sc-if>
+<sc-if value="{{g.isMerry}}" hint-placeholder-val="{{ false }}"><div class="gap-ctl"><span class="gap-word">Crossfade</span><input class="num" type="number" min="1" max="60" step="1" placeholder="10" aria-label="{{g.name}} crossfade, seconds" value="{{g.xfade}}" onInput="{{g.onXfade}}"><span>s</span></div></sc-if>
+</sc-if>
+</div>
+<sc-if value="{{g.notConfirming}}" hint-placeholder-val="{{ true }}"><div class="c-mode gmode"><select class="track-mode-select" aria-label="{{g.name}} group mode" title="Intermittent plays one track at a time with a gap. Merry-go-round makes a continuous bed. Ebb &amp; Flow plays every file at once, each rising and falling. Intrusion: each track plays by its own mode." onChange="{{g.onMode}}"><sc-for list="{{g.modeOpts}}" as="o" hint-placeholder-count="3"><option value="{{o.v}}" selected="{{o.sel}}">{{o.label}}</option></sc-for></select></div></sc-if>
+<div class="master"><div class="{{g.volCls}}" data-kind="volume"><span class="c-lbl">Volume</span><div class="mx-ctl"><div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="100" value="{{g.vol.value}}" aria-label="{{g.name}} group volume" onInput="{{g.vol.onInput}}"></div><span class="track-slider-value">{{g.vol.label}}</span></div><span class="mx-hint"></span></div></div>
+<div class="master"><div class="{{g.presCls}}" data-kind="presence"><span class="c-lbl">{{g.presLabel}}</span><div class="mx-ctl"><div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="100" value="{{g.pres.value}}" aria-label="{{g.name}} group {{g.presLabel}}" onInput="{{g.pres.onInput}}"></div><span class="track-slider-value">{{g.pres.label}}</span></div><sc-if value="{{g.isEbb}}" hint-placeholder-val="{{ false }}"><span class="mx-hint dur-ends"><span>Shorter</span><span>Longer</span></span></sc-if></div></div>
+<button class="{{g.muteCls}}" title="{{g.muteTitle}}" aria-label="{{g.muteTitle}}: {{g.name}}" aria-pressed="{{g.muted}}" onClick="{{g.onMute}}">{{g.muteIcon}}</button>
+<button class="icon-btn sm" aria-label="More for group {{g.name}}" aria-haspopup="menu" onClick="{{g.onMenu}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg></button>
+</div>
+<sc-if value="{{g.open}}" hint-placeholder-val="{{ true }}">
+<div class="pg-master">
+<span class="mlabel">Group</span>
+<div class="c-mode"><span class="c-lbl">Mode</span><select class="track-mode-select" aria-label="{{g.name}} group mode" onChange="{{g.onMode}}"><sc-for list="{{g.modeOpts}}" as="o" hint-placeholder-count="3"><option value="{{o.v}}" selected="{{o.sel}}">{{o.label}}</option></sc-for></select></div>
+<div class="{{g.volCls}}" data-kind="volume"><span class="c-lbl">Volume</span><div class="mx-ctl"><div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="100" value="{{g.vol.value}}" aria-label="{{g.name}} group volume" onInput="{{g.vol.onInput}}"></div><span class="track-slider-value">{{g.vol.label}}</span></div><span class="mx-hint"></span></div>
+<div class="{{g.presCls}}" data-kind="presence"><span class="c-lbl">{{g.presLabel}}</span><div class="mx-ctl"><div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="100" value="{{g.pres.value}}" aria-label="{{g.name}} group {{g.presLabel}}" onInput="{{g.pres.onInput}}"></div><span class="track-slider-value">{{g.pres.label}}</span></div><sc-if value="{{g.isEbb}}" hint-placeholder-val="{{ false }}"><span class="mx-hint dur-ends"><span>Shorter</span><span>Longer</span></span></sc-if></div>
+<sc-if value="{{g.showTiming}}" hint-placeholder-val="{{ true }}">
+<sc-if value="{{g.isGap}}" hint-placeholder-val="{{ true }}"><div class="{{g.gapRowCls}}"><span class="c-lbl">Gap</span><input class="num" type="number" min="0" step="0.5" aria-label="{{g.name}} minimum gap, minutes" value="{{g.gapMin}}" onInput="{{g.onGapMin}}"><span>–</span><input class="num" type="number" min="0" step="0.5" aria-label="{{g.name}} maximum gap, minutes" value="{{g.gapMax}}" onInput="{{g.onGapMax}}"><span>min</span></div></sc-if>
+<sc-if value="{{g.isEbb}}" hint-placeholder-val="{{ false }}"><div class="gap-row"><span class="c-lbl"></span><button type="button" class="{{g.ptBtnCls}}" role="switch" aria-checked="{{g.ptOn}}" aria-label="{{g.name}} pause between plays" title="Every file pauses between plays, at staggered times, so one is always playing" onClick="{{g.onPt}}"><span class="gap-word">Pause between plays</span><span class="{{g.ptCls}}"></span></button></div></sc-if>
+<sc-if value="{{g.isMerry}}" hint-placeholder-val="{{ false }}"><div class="gap-row"><span class="c-lbl">Crossfade</span><input class="num" type="number" min="1" max="60" step="1" placeholder="10" aria-label="{{g.name}} crossfade, seconds" value="{{g.xfade}}" onInput="{{g.onXfade}}"><span>s</span></div></sc-if>
+</sc-if>
+</div>
+<sc-for list="{{g.rows}}" as="r" hint-placeholder-count="3"><div class="{{r.cls}}">
+<span></span>
+<button class="{{r.playCls}}" title="{{r.playTitle}}" aria-label="{{r.playTitle}}: {{r.name}}" disabled="{{r.missing}}" onClick="{{r.onPlay}}"><sc-if value="{{r.notPlaying}}" hint-placeholder-val="{{ true }}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg></sc-if><sc-if value="{{r.playing}}" hint-placeholder-val="{{ false }}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg></sc-if></button>
+<sc-if value="{{r.notLink}}" hint-placeholder-val="{{ true }}"><span class="trk-name" title="{{r.name}}"><span class="mq-in">{{r.name}}</span></span></sc-if>
+<sc-if value="{{r.isLink}}" hint-placeholder-val="{{ false }}"><div class="lk-cell"><span class="trk-name" title="{{r.name}}"><span class="mq-in">{{r.name}}</span></span><span class="lk-from" title="Linked from {{r.source}}"><sc-if value="{{r.missing}}" hint-placeholder-val="{{ false }}"><span class="badge badge-missing">Missing</span></sc-if><sc-if value="{{r.notMissing}}" hint-placeholder-val="{{ true }}"><span class="lk-ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></span></sc-if><span class="lk-src">from {{r.source}}</span></span></div></sc-if>
+<div class="{{r.modeCls}}"><span class="c-lbl">Mode</span><sc-if value="{{r.modeSelect}}" hint-placeholder-val="{{ true }}"><select class="track-mode-select" aria-label="Mode: {{r.name}}" disabled="{{r.missing}}" onChange="{{r.onMode}}"><sc-for list="{{r.modeOpts}}" as="o" hint-placeholder-count="4"><option value="{{o.v}}" selected="{{o.sel}}">{{o.label}}</option></sc-for></select></sc-if><sc-if value="{{r.modeFixed}}" hint-placeholder-val="{{ false }}"><span class="te-mode-fixed">{{r.modeLabel}}</span></sc-if></div>
+<div class="{{r.volCls}}" data-kind="volume"><span class="c-lbl">Volume</span><div class="mx-ctl"><div class="track-slider-wrapper"><sc-if value="{{r.notEbb}}" hint-placeholder-val="{{ true }}"><input type="range" class="track-slider" min="0" max="100" value="{{r.vol.value}}" disabled="{{r.missing}}" aria-label="Volume: {{r.name}}" onInput="{{r.vol.onInput}}"></sc-if><sc-if value="{{r.isEbb}}" hint-placeholder-val="{{ false }}"><div class="dual" title="Rises and falls between these two levels"><span class="dual-track"></span><span class="dual-fill" style="{{r.dualFill}}"></span><input type="range" min="0" max="100" value="{{r.lo}}" aria-label="Lowest volume: {{r.name}}" onInput="{{r.onLo}}"><input type="range" min="0" max="100" value="{{r.vol.value}}" aria-label="Highest volume: {{r.name}}" onInput="{{r.onHi}}"></div></sc-if></div><span class="track-slider-value">{{r.volLabel}}</span></div><span class="mx-hint">{{r.volHint}}</span></div>
+<div class="{{r.presCls}}" data-kind="presence"><span class="c-lbl">{{r.presLabel}}</span><div class="mx-ctl"><div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="100" value="{{r.pres.value}}" disabled="{{r.missing}}" aria-label="{{r.presLabel}}: {{r.name}}" onInput="{{r.pres.onInput}}"></div><span class="track-slider-value">{{r.pres.label}}</span></div><sc-if value="{{r.isDur}}" hint-placeholder-val="{{ false }}"><span class="mx-hint dur-ends"><span>Shorter</span><span>Longer</span></span></sc-if><sc-if value="{{r.notDur}}" hint-placeholder-val="{{ true }}"><span class="mx-hint">{{r.pres.hint}}</span></sc-if></div>
+<button class="{{r.muteCls}}" title="{{r.muteTitle}}" aria-label="{{r.muteTitle}}: {{r.name}}" aria-pressed="{{r.muted}}" disabled="{{r.missing}}" onClick="{{r.onMute}}">{{r.muteIcon}}</button>
+<button class="icon-btn sm more-btn" aria-label="More for {{r.name}}" aria-haspopup="menu" onClick="{{r.onMenu}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg><sc-if value="{{r.advOn}}" hint-placeholder-val="{{ false }}"><span class="adv-dot"></span></sc-if></button>
+</div></sc-for>
+<sc-if value="{{g.emptyLocal}}" hint-placeholder-val="{{ false }}"><div class="empty-row">Drag tracks here or use ⋯ › Move to group</div></sc-if>
+<sc-if value="{{g.emptyIntrusion}}" hint-placeholder-val="{{ false }}"><div class="empty-row"><button class="link-btn" onClick="{{g.onAddFrom}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Add from another theme</button></div></sc-if>
+</sc-if>
+</div>
+</sc-for>
+
+<div class="sec theme-sec">
+<div class="slabel"><span>{{theme.label}}</span><span class="badge badge-type">{{theme.countLabel}}</span></div>
+<sc-for list="{{theme.rows}}" as="r" hint-placeholder-count="2"><div class="{{r.cls}}">
+<span></span>
+<button class="{{r.playCls}}" title="{{r.playTitle}}" aria-label="{{r.playTitle}}: {{r.name}}" disabled="{{r.missing}}" onClick="{{r.onPlay}}"><sc-if value="{{r.notPlaying}}" hint-placeholder-val="{{ true }}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg></sc-if><sc-if value="{{r.playing}}" hint-placeholder-val="{{ false }}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg></sc-if></button>
+<sc-if value="{{r.notLink}}" hint-placeholder-val="{{ true }}"><span class="trk-name" title="{{r.name}}"><span class="mq-in">{{r.name}}</span></span></sc-if>
+<sc-if value="{{r.isLink}}" hint-placeholder-val="{{ false }}"><div class="lk-cell"><span class="trk-name" title="{{r.name}}"><span class="mq-in">{{r.name}}</span></span><span class="lk-from" title="Linked from {{r.source}}"><sc-if value="{{r.missing}}" hint-placeholder-val="{{ false }}"><span class="badge badge-missing">Missing</span></sc-if><sc-if value="{{r.notMissing}}" hint-placeholder-val="{{ true }}"><span class="lk-ic"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></span></sc-if><span class="lk-src">from {{r.source}}</span></span></div></sc-if>
+<div class="{{r.modeCls}}"><span class="c-lbl">Mode</span><sc-if value="{{r.modeSelect}}" hint-placeholder-val="{{ true }}"><select class="track-mode-select" aria-label="Mode: {{r.name}}" disabled="{{r.missing}}" onChange="{{r.onMode}}"><sc-for list="{{r.modeOpts}}" as="o" hint-placeholder-count="4"><option value="{{o.v}}" selected="{{o.sel}}">{{o.label}}</option></sc-for></select></sc-if><sc-if value="{{r.modeFixed}}" hint-placeholder-val="{{ false }}"><span class="te-mode-fixed">{{r.modeLabel}}</span></sc-if></div>
+<div class="{{r.volCls}}" data-kind="volume"><span class="c-lbl">Volume</span><div class="mx-ctl"><div class="track-slider-wrapper"><sc-if value="{{r.notEbb}}" hint-placeholder-val="{{ true }}"><input type="range" class="track-slider" min="0" max="100" value="{{r.vol.value}}" disabled="{{r.missing}}" aria-label="Volume: {{r.name}}" onInput="{{r.vol.onInput}}"></sc-if><sc-if value="{{r.isEbb}}" hint-placeholder-val="{{ false }}"><div class="dual" title="Rises and falls between these two levels"><span class="dual-track"></span><span class="dual-fill" style="{{r.dualFill}}"></span><input type="range" min="0" max="100" value="{{r.lo}}" aria-label="Lowest volume: {{r.name}}" onInput="{{r.onLo}}"><input type="range" min="0" max="100" value="{{r.vol.value}}" aria-label="Highest volume: {{r.name}}" onInput="{{r.onHi}}"></div></sc-if></div><span class="track-slider-value">{{r.volLabel}}</span></div><span class="mx-hint">{{r.volHint}}</span></div>
+<div class="{{r.presCls}}" data-kind="presence"><span class="c-lbl">{{r.presLabel}}</span><div class="mx-ctl"><div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="100" value="{{r.pres.value}}" disabled="{{r.missing}}" aria-label="{{r.presLabel}}: {{r.name}}" onInput="{{r.pres.onInput}}"></div><span class="track-slider-value">{{r.pres.label}}</span></div><sc-if value="{{r.isDur}}" hint-placeholder-val="{{ false }}"><span class="mx-hint dur-ends"><span>Shorter</span><span>Longer</span></span></sc-if><sc-if value="{{r.notDur}}" hint-placeholder-val="{{ true }}"><span class="mx-hint">{{r.pres.hint}}</span></sc-if></div>
+<button class="{{r.muteCls}}" title="{{r.muteTitle}}" aria-label="{{r.muteTitle}}: {{r.name}}" aria-pressed="{{r.muted}}" disabled="{{r.missing}}" onClick="{{r.onMute}}">{{r.muteIcon}}</button>
+<button class="icon-btn sm more-btn" aria-label="More for {{r.name}}" aria-haspopup="menu" onClick="{{r.onMenu}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg><sc-if value="{{r.advOn}}" hint-placeholder-val="{{ false }}"><span class="adv-dot"></span></sc-if></button>
+</div></sc-for>
+<sc-if value="{{theme.empty}}" hint-placeholder-val="{{ false }}"><div class="empty-row">All tracks are in groups</div></sc-if>
+</div>
+</section>
+</div>
+
+<div class="modal-footer foot">
+<span class="foot-status">{{ovrSummary}}</span>
+<span class="grow"></span>
+<div class="foot-btns"><button class="btn btn-primary save-btn">Save</button><button class="btn btn-secondary">Cancel</button></div>
+</div>
+</div>
+</div>
+
+<sc-if value="{{pkOpen}}" hint-placeholder-val="{{ false }}">
+<div class="modal-backdrop active pk-backdrop">
+<div class="modal pk tp" role="dialog" aria-modal="true" aria-labelledby="pk-title">
+<div class="modal-header">
+<h2 id="pk-title">Add from another theme <span class="sub">to {{pkTarget}}</span></h2>
+<button class="modal-close" aria-label="Close" onClick="{{pkCancel}}"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+</div>
+<sc-if value="{{pkStep1}}" hint-placeholder-val="{{ true }}">
+<div class="pk-bar"><div class="tp-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg><input class="inp" type="text" placeholder="Search themes" aria-label="Search themes" autocomplete="off" value="{{pkQ}}" onInput="{{pkOnQ}}"><sc-if value="{{pkHasQ}}" hint-placeholder-val="{{ false }}"><button class="clr" aria-label="Clear search" onClick="{{pkClearQ}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button></sc-if></div></div>
+<div class="pk-headwrap"><div class="pk-head pk-tg"><span>Name</span><span>Categories</span><span class="c">Tracks</span><span></span></div></div>
+<div class="pk-body"><div class="lbody">
+<sc-for list="{{pkThemes}}" as="t" hint-placeholder-count="6"><button type="button" class="pk-row pk-tg" onClick="{{t.pick}}"><span class="lname"><span class="ic" aria-hidden="true">{{t.icon}}</span><span class="pk-nm"><span class="trk-name">{{t.name}}</span><span class="pk-meta">{{t.meta}}</span></span></span><span class="tc-tags"><sc-for list="{{t.cats}}" as="c" hint-placeholder-count="1"><span class="badge badge-type">{{c.label}}</span></sc-for></span><span class="lnum c">{{t.count}}</span><span class="pk-chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg></span></button></sc-for>
+<sc-if value="{{pkNoThemes}}" hint-placeholder-val="{{ false }}"><div class="empty-row">No themes found</div></sc-if>
+</div></div>
+</sc-if>
+<sc-if value="{{pkStep2}}" hint-placeholder-val="{{ false }}">
+<div class="pk-bar"><button class="icon-btn sm pk-back" aria-label="Back to themes" onClick="{{pkBack}}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg></button><span class="pk-tic" aria-hidden="true">{{pkTheme.icon}}</span><strong class="pk-tname">{{pkTheme.name}}</strong><span class="badge badge-type">{{pkTheme.countLabel}}</span><span class="grow"></span><label class="pk-all"><span>All</span><input type="checkbox" checked="{{pkAll}}" onChange="{{pkToggleAll}}"></label></div>
+<div class="pk-headwrap"><div class="pk-head pk-fg"><span></span><span>Name</span><span>Group</span><span class="c">Length</span><span class="c"><input type="checkbox" aria-label="Select all" checked="{{pkAll}}" onChange="{{pkToggleAll}}"></span></div></div>
+<div class="pk-body"><div class="lbody">
+<sc-for list="{{pkFiles}}" as="f" hint-placeholder-count="8"><div class="{{f.cls}}">
+<button class="{{f.playCls}}" title="{{f.playTitle}}" aria-label="{{f.playTitle}}: {{f.name}}" onClick="{{f.onPlay}}"><sc-if value="{{f.notPlaying}}" hint-placeholder-val="{{ true }}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg></sc-if><sc-if value="{{f.playing}}" hint-placeholder-val="{{ false }}"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"></rect></svg></sc-if></button>
+<label class="pk-nm" for="{{f.cid}}"><span class="trk-name">{{f.name}}</span><span class="pk-meta">{{f.meta}}</span></label>
+<span class="pk-grp"><sc-if value="{{f.hasGroup}}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"></path></svg><span>{{f.group}}</span></sc-if><sc-if value="{{f.noGroup}}" hint-placeholder-val="{{ true }}"><span class="notag">—</span></sc-if></span>
+<span class="lnum c">{{f.dur}}</span>
+<span class="c"><input id="{{f.cid}}" type="checkbox" checked="{{f.checked}}" disabled="{{f.added}}" title="{{f.ckTitle}}" aria-label="{{f.ckTitle}}: {{f.name}}" onChange="{{f.onCheck}}"></span>
+</div></sc-for>
+</div></div>
+</sc-if>
+<div class="modal-footer pk-foot"><span class="pk-count">{{pkCountLabel}}</span><span class="grow"></span><button class="btn btn-primary" disabled="{{pkNone}}" onClick="{{pkAdd}}">Add</button><button class="btn btn-secondary" onClick="{{pkCancel}}">Cancel</button></div>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{anyMenu}}" hint-placeholder-val="{{ false }}"><div class="scrim" onClick="{{closeMenus}}"></div></sc-if>
+<sc-if value="{{popOpen}}" hint-placeholder-val="{{ false }}">
+<div class="{{popCls}}" role="menu" style="{{popStyle}}">
+<sc-if value="{{hasItems}}" hint-placeholder-val="{{ true }}"><sc-for list="{{popItems}}" as="it" hint-placeholder-count="4">
+<sc-if value="{{it.isNum}}" hint-placeholder-val="{{ false }}"><div class="mi-row"><label for="{{it.nid}}">{{it.label}}</label><input id="{{it.nid}}" class="num" type="number" min="0" max="30" step="0.5" placeholder="Off" value="{{it.val}}" disabled="{{it.disabled}}" title="{{it.title}}" onInput="{{it.onNum}}"><span>s</span></div></sc-if>
+<sc-if value="{{it.isRange}}" hint-placeholder-val="{{ false }}"><div class="mi-row dgrid"><label for="rest-low" title="{{it.title}}">{{it.label}}</label><input id="rest-low" class="num" type="number" min="0" step="1" value="{{it.low}}" aria-label="{{it.label}}, shortest, seconds" onInput="{{it.onLow}}"><span>–</span><input class="num" type="number" min="0" step="1" value="{{it.high}}" aria-label="{{it.label}}, longest, seconds" onInput="{{it.onHigh}}"><span>s</span></div></sc-if>
+<sc-if value="{{it.isSlider}}" hint-placeholder-val="{{ false }}"><div class="{{it.cls}}" title="{{it.title}}"><label for="{{it.sid}}">{{it.label}}</label><span class="msl-end">Gradual</span><input id="{{it.sid}}" type="range" class="track-slider" min="0" max="100" value="{{it.val}}" disabled="{{it.disabled}}" onInput="{{it.onSlide}}"><span class="msl-end">Sudden</span></div><sc-if value="{{it.hasNote}}" hint-placeholder-val="{{ false }}"><div class="msl-note">{{it.note}}</div></sc-if></sc-if>
+<sc-if value="{{it.isHead}}" hint-placeholder-val="{{ false }}"><div class="mhead">{{it.label}}<sc-if value="{{it.hasBadge}}" hint-placeholder-val="{{ false }}"><span class="badge badge-soon">{{it.badge}}</span></sc-if></div></sc-if>
+<sc-if value="{{it.isSep}}" hint-placeholder-val="{{ false }}"><div class="msep"></div></sc-if>
+<sc-if value="{{it.isMi}}" hint-placeholder-val="{{ true }}"><button type="button" class="{{it.cls}}" role="{{it.role}}" aria-checked="{{it.ariaChecked}}" disabled="{{it.disabled}}" title="{{it.title}}" onClick="{{it.go}}"><sc-if value="{{it.icCheck}}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg></sc-if><sc-if value="{{it.icBlank}}" hint-placeholder-val="{{ false }}"><span style="display:inline-block;width:14px"></span></sc-if><sc-if value="{{it.icFolder}}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"></path></svg></sc-if><sc-if value="{{it.icPlus}}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg></sc-if><sc-if value="{{it.icReset}}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg></sc-if><sc-if value="{{it.icLink}}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg></sc-if><sc-if value="{{it.icUnlink}}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18.84 12.25l1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71"></path><line x1="8" y1="2" x2="8" y2="5"></line><line x1="2" y1="8" x2="5" y2="8"></line><line x1="16" y1="19" x2="16" y2="22"></line><line x1="19" y1="16" x2="22" y2="16"></line></svg></sc-if><sc-if value="{{it.icDownload}}" hint-placeholder-val="{{ false }}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></sc-if><sc-if value="{{it.icStar}}" hint-placeholder-val="{{ false }}"><span class="def-star">★</span></sc-if>{{it.label}}<sc-if value="{{it.hasNote}}" hint-placeholder-val="{{ false }}"><span class="mi-note">{{it.note}}</span></sc-if><sc-if value="{{it.hasSw}}" hint-placeholder-val="{{ false }}"><span class="{{it.swCls}}"></span></sc-if></button></sc-if>
+</sc-for></sc-if>
+<sc-if value="{{isThemeMenu}}" hint-placeholder-val="{{ false }}"><div class="mi-row"><label for="te-short">Short file threshold</label><input id="te-short" class="num" type="number" min="0" step="1" value="10"><span>s</span></div><div class="msep"></div><button type="button" class="mi" onClick="{{exportTheme}}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>Export theme</button></sc-if>
+<sc-if value="{{isPresets}}" hint-placeholder-val="{{ false }}"><sc-for list="{{presetRows}}" as="p" hint-placeholder-count="4"><div class="prow"><button type="button" class="{{p.cls}}" role="option" onClick="{{p.choose}}">{{p.label}}</button><sc-if value="{{p.hasStar}}" hint-placeholder-val="{{ true }}"><button type="button" class="{{p.starCls}}" title="{{p.starTitle}}" aria-label="{{p.starTitle}}: {{p.label}}" onClick="{{p.star}}">★</button></sc-if><sc-if value="{{p.noStar}}" hint-placeholder-val="{{ false }}"><span class="star-gap"></span></sc-if><span class="int-col"><sc-if value="{{p.int}}" hint-placeholder-val="{{ false }}"><span class="int-ic" title="Turns on intrusion tracks"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="12" r="6"></circle><circle cx="15" cy="12" r="6"></circle></svg></span></sc-if></span></div></sc-for></sc-if>
+<sc-if value="{{isConfirm}}" hint-placeholder-val="{{ false }}"><span class="pop-title">{{confirmTitle}}</span><div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onClick="{{closeMenus}}">Cancel</button><button type="button" class="btn btn-sm btn-danger" onClick="{{onConfirm}}">{{confirmOk}}</button></div></sc-if>
+<sc-if value="{{isPNew}}" hint-placeholder-val="{{ false }}"><span class="pop-title">New preset</span><input class="inp sm" type="text" maxlength="80" autocomplete="off" placeholder="Preset name" aria-label="Preset name" value="{{pdraft}}" onInput="{{onPDraft}}" onKeyDown="{{onPKey}}"><div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onClick="{{closeMenus}}">Cancel</button><button type="button" class="btn btn-sm btn-primary" disabled="{{okDisabled}}" onClick="{{commitNew}}">OK</button></div></sc-if>
+</div>
+</sc-if>
+<sc-if value="{{hasMsg}}" hint-placeholder-val="{{ false }}"><div class="toast-container"><div class="toast success" role="status"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg><span>{{msg}}</span></div></div></sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = this.initial();
+    const to = this.state.cfg.scrollTo;
+    if (to) {
+      setTimeout(() => {
+        const el = document.querySelector('[aria-label="Volume: ' + to + '"]');
+        const list = el && el.closest('.tlist');
+        const rowEl = el && el.closest('.trow');
+        if (list && rowEl) list.scrollTop += rowEl.getBoundingClientRect().top - list.getBoundingClientRect().top - 8;
+      }, 400);
+    }
+    const open = this.state.cfg.openMenu;
+    if (open) {
+      setTimeout(() => {
+        const b = document.querySelector('[aria-label="' + open.label + '"]');
+        if (b && !this.state.menu) this.setState({ menu: open.id, popStyle: this.place(b, 'right', 'auto') });
+      }, 450);
+    }
+  }
+  initial() {
+    const cfg = {"picker":false,"openMenu":{"id":"trk:w1","label":"More for Wind_Howling_Nighttime_772"},"scrollTo":"Wind_Howling_Nighttime_772"};
+    /* The preset (OH S***) as the theme has it */
+    const preset = [
+      { id: 'r1', name: 'Light_rain_2_37', group: null, mode: 'presence', vol: 90, lo: 40, pres: 50, muted: false, rise: 0, playThrough: false, restLow: 30, restHigh: 300 },
+      { id: 'p1', name: 'Pre_thunderstorm_41', group: null, mode: 'sparse', vol: 100, pres: 71, muted: true },
+      { id: 'p2', name: 'Distant_rolling_thunder_39', group: null, mode: 'sparse', vol: 100, pres: 77, muted: false },
+      { id: 'c1', name: 'Cannon_shot_near_1279', group: 'Thunder', mode: 'sparse', vol: 100, pres: 31, muted: false },
+      { id: 'c2', name: 'Close_lightning_42', group: 'Thunder', mode: 'sparse', vol: 100, pres: 19, muted: false },
+      { id: 'c3', name: 'thunder-124463', group: 'Thunder', mode: 'sparse', vol: 100, pres: 61, muted: false },
+      { id: 'w1', name: 'Wind_Howling_Nighttime_772', group: 'Wind', mode: 'presence', vol: 100, lo: 20, pres: 60, muted: false, rise: 0, playThrough: false, restLow: 30, restHigh: 300 },
+      { id: 'w2', name: 'Wind_Massive_2883', group: 'Wind', mode: 'presence', vol: 100, lo: 20, pres: 55, muted: false, rise: 0, playThrough: false, restLow: 30, restHigh: 300 }
+    ];
+    const presetGroups = [
+      { name: 'Thunder', mode: 'intermittent', gapMin: 1, gapMax: 3, xfade: null, vol: 100, pres: 100, muted: false },
+      { name: 'Wind', mode: 'ebb_flow', gapMin: null, gapMax: null, xfade: null, vol: 100, pres: 100, muted: false, playThrough: false, riseAll: false, rise: null }
+    ];
+    /* What this step changes: hurricane-force gusts and thunder much closer together */
+    const step = { r1: { vol: 100 }, w1: { rise: 85, lo: 5, pres: 12 }, w2: { rise: 75, lo: 10, pres: 18 } };
+    const stepGroups = { Thunder: { gapMin: 0.5, gapMax: 1.5 } };
+    const tracks = preset.map(t => ({ ...t, ...(step[t.id] || {}) }));
+    const groups = presetGroups.map(g => ({ ...g, ...(stepGroups[g.name] || {}) }));
+    const base = this.snap(tracks, groups);
+    /* Rainy night (loaded): rain on, crickets and night birds muted. Calm night: no rain, wildlife on. */
+    const calm = this.snap(tracks.map(t => t.link ? { ...t, muted: true } : { ...t, muted: false }), groups);
+    const storm = this.snap(tracks.map(t => t.link ? { ...t, muted: false, vol: 100 } : (t.id === 't3' ? { ...t, muted: true } : t)), groups);
+    return {
+      cfg, name: 'A Rainy Day', tracks, groups, closed: {}, baseT: preset, baseG: presetGroups, savedT: tracks.map(t => ({ ...t })), savedG: groups.map(g => ({ ...g })),
+      presets: [
+        { name: 'Calm night', snap: calm },
+        { name: 'Rainy night', snap: base },
+        { name: 'Storm passes', snap: storm }
+      ],
+      defPreset: 'Rainy night', selPreset: 'Rainy night', loaded: base,
+      menu: null, popStyle: '', pdraft: '', msg: '', playing: 'l2', mix: false, help: false,
+      renaming: null, rdraft: '', confirmDel: null,
+      picker: cfg.picker ? { step: 2, themeId: 'rainy', q: '', checked: { 'Distant rolling thunder': true }, target: 'Rain' } : null,
+      pkPlaying: null
+    };
+  }
+
+  /* A value this step changes (differs from the preset) */
+  tOvr(t, ...keys) {
+    const b = this.state.baseT.find(x => x.id === t.id) || {};
+    return keys.some(k => (t[k] ?? null) !== (b[k] ?? null));
+  }
+  gOvr(g, ...keys) {
+    const b = this.state.baseG.find(x => x.name === g.name) || {};
+    return keys.some(k => (g[k] ?? null) !== (b[k] ?? null));
+  }
+  changes() {
+    const st = this.state;
+    const T = ['mode', 'vol', 'lo', 'pres', 'muted', 'rise', 'playThrough', 'restLow', 'restHigh'];
+    const G = ['vol', 'pres', 'muted', 'gapMin', 'gapMax', 'playThrough', 'riseAll', 'rise'];
+    let n = 0;
+    st.tracks.forEach(t => { if (this.tOvr(t, ...T)) n++; });
+    st.groups.forEach(g => { if (this.gOvr(g, ...G)) n++; });
+    return n;
+  }
+  snap(tracks, groups) {
+    return JSON.stringify({
+      t: tracks.map(t => [t.id, t.mode || '', t.vol, t.pres, t.muted]),
+      g: groups.map(g => [g.name, g.mode, g.vol, g.pres, g.muted, g.gapMin, g.gapMax, g.xfade])
+    });
+  }
+  /* A preset "turns on intrusion tracks" when a linked, present file is unmuted in an unmuted intrusion group */
+  hasIntrusion(snapStr) {
+    const st = this.state;
+    const d = JSON.parse(snapStr);
+    const gm = {}; d.g.forEach(r => { gm[r[0]] = r[4]; });
+    return d.t.some(r => {
+      const t = st.tracks.find(x => x.id === r[0]);
+      if (!t || !t.link || t.link.missing || r[4]) return false;
+      const g = st.groups.find(x => x.name === t.group);
+      return !!g && g.mode === 'intrusion' && !gm[g.name];
+    });
+  }
+  applySnap(s) {
+    const d = JSON.parse(s);
+    const st = this.state;
+    const tm = {}; d.t.forEach(r => { tm[r[0]] = r; });
+    const gm = {}; d.g.forEach(r => { gm[r[0]] = r; });
+    const tracks = st.tracks.map(t => {
+      const r = tm[t.id];
+      if (!r) return t;
+      return { ...t, mode: r[1] || t.mode, vol: r[2], pres: r[3], muted: r[4] };
+    });
+    const groups = st.groups.map(g => {
+      const r = gm[g.name];
+      return r ? { ...g, mode: r[1], vol: r[2], pres: r[3], muted: r[4], gapMin: r[5], gapMax: r[6], xfade: r[7] } : g;
+    });
+    return { tracks, groups };
+  }
+  flash(msg) {
+    this.setState({ msg });
+    clearTimeout(this._mt);
+    this._mt = setTimeout(() => this.setState({ msg: '' }), 2600);
+  }
+  /* One floating menu (like the app's .te-pop), placed next to the button that opened it */
+  place(btn, align, dir) {
+    const b = btn.closest('.board');
+    if (!b) return '';
+    const br = b.getBoundingClientRect();
+    const k = (br.width / b.offsetWidth) || 1;
+    const r = btn.getBoundingClientRect();
+    const L = (r.left - br.left) / k, R = (r.right - br.left) / k, T = (r.top - br.top) / k, B = (r.bottom - br.top) / k;
+    const W = b.offsetWidth, H = b.offsetHeight;
+    const below = H - B - 8, above = T - 8;
+    const up = dir === 'up' ? true : dir === 'down' ? false : (below < 320 && above > below);
+    let s = align === 'left' ? 'left:' + Math.round(Math.max(8, L)) + 'px;' : 'right:' + Math.round(Math.max(8, W - R)) + 'px;';
+    s += up ? 'bottom:' + Math.round(H - T + 4) + 'px;max-height:' + Math.round(above - 4) + 'px;'
+            : 'top:' + Math.round(B + 4) + 'px;max-height:' + Math.round(below - 4) + 'px;';
+    return s;
+  }
+  renderVals() {
+    const st = this.state;
+    const set = p => this.setState(p);
+    const pct = v => v + '%';
+    const m = st.menu;
+    const opener = (id, align, dir) => (e) => {
+      if (this.state.menu === id) { set({ menu: null }); return; }
+      const btn = (e && (e.currentTarget || e.target)) ? (e.currentTarget || e.target).closest('button') : null;
+      set({ menu: id, popStyle: btn ? this.place(btn, align || 'right', dir || 'auto') : '' });
+    };
+    const closeMenus = () => set({ menu: null });
+    const MODES = [['auto', 'Auto'], ['continuous', 'Background'], ['sparse', 'Intermittent'], ['presence', 'Ebb & Flow']];
+    const GMODES = [['intermittent', 'Intermittent'], ['merry_go_round', 'Merry-go-round'], ['ebb_flow', 'Ebb & Flow'], ['intrusion', 'Intrusion']];
+    const gmap = {};
+    st.groups.forEach(g => { gmap[g.name] = g; });
+    const setT = (id, patch) => set({ tracks: this.state.tracks.map(t => t.id === id ? { ...t, ...patch } : t) });
+    const setG = (name, patch) => set({ groups: this.state.groups.map(g => g.name === name ? { ...g, ...patch } : g) });
+
+    /* ---------- generic menu items ---------- */
+    const blank = { isSlider: false, sid: '', val: 0, onSlide: closeMenus, isMi: false, isRange: false, low: '', high: '', onLow: closeMenus, onHigh: closeMenus, isNum: false, nid: '', val: '', onNum: closeMenus, isHead: false, isSep: false, label: '', go: closeMenus, cls: 'mi', disabled: false, title: '', role: 'menuitem', ariaChecked: 'false',
+      icCheck: false, icBlank: false, icFolder: false, icPlus: false, icReset: false, icLink: false, icDownload: false, icStar: false, icUnlink: false,
+      hasNote: false, note: '', hasSw: false, swCls: 'sw', hasBadge: false, badge: '' };
+    const item = (label, go, o) => {
+      o = o || {};
+      return {
+        ...blank,
+        isMi: true, isHead: false, isSep: false, label, go: go || closeMenus,
+        cls: 'mi' + (o.cls ? ' ' + o.cls : ''), disabled: !!o.disabled, title: o.title || '',
+        role: o.role || 'menuitem', ariaChecked: o.checked ? 'true' : 'false',
+        icCheck: o.ic === 'check', icBlank: o.ic === 'blank', icFolder: o.ic === 'folder', icPlus: o.ic === 'plus',
+        icReset: o.ic === 'reset', icLink: o.ic === 'link', icDownload: o.ic === 'download', icStar: o.ic === 'star', icUnlink: o.ic === 'unlink',
+        hasNote: !!o.note, note: o.note || '',
+        hasSw: o.sw !== undefined, swCls: 'sw' + (o.sw ? ' on' : '')
+      };
+    };
+    const head = (label, badge) => ({ ...blank, isHead: true, label, hasBadge: !!badge, badge: badge || '' });
+    const sep = () => ({ ...blank, isSep: true });
+    const num = (label, nid, val, onNum, o) => ({ ...blank, isNum: true, label, nid, val: val ? String(val) : '', onNum,
+      disabled: !!(o && o.disabled), title: (o && o.title) || '' });
+    const ebb = (t, g) => {
+      // An Ebb & Flow track (its own mode, or in an Ebb & Flow group): Pause between plays and Pause
+      const groupPt = !!(g && g.mode === 'ebb_flow' && g.playThrough);
+      const on = groupPt || !!t.playThrough;
+      const byGroupRise = !!(g && g.mode === 'ebb_flow' && g.riseAll);
+      const rise = byGroupRise ? g.rise : (t.rise || 0);
+      popItems.push({ ...blank, isSlider: true, label: 'Rise', sid: 'rise-' + t.id, val: rise, disabled: byGroupRise,
+        cls: 'mi-row msl' + (this.tOvr(t, 'rise') ? ' ovr' : ''), hasNote: byGroupRise, note: 'set by group',
+        title: 'How fast it rises: gradual, as smoothly as it falls, or sudden, jumping up and easing back down',
+        onSlide: (e) => setT(t.id, { rise: +e.target.value }) });
+      popItems.push(sep());
+      popItems.push(item('Pause between plays', () => setT(t.id, { playThrough: !t.playThrough }), { sw: on, role: 'menuitemcheckbox', checked: on,
+        disabled: groupPt, note: groupPt ? 'set by group' : '', title: groupPt ? 'The group\'s Pause between plays is on' : 'Plays to the end of the file, then pauses' }));
+      const r = (k) => (e) => setT(t.id, { [k]: e.target.value });
+      popItems.push({ ...blank, isRange: true, label: 'Pause', title: 'Stays quiet this long, in seconds, picked at random each time', low: String(t.restLow), high: String(t.restHigh), onLow: r('restLow'), onHigh: r('restHigh') });
+      popItems.push(sep());
+    };
+    const fades = (t, missing) => {
+      const f = (k) => (e) => { const v = parseFloat(e.target.value); setT(t.id, { [k]: v > 0 ? Math.min(30, v) : '' }); };
+      popItems.push(num('Fade in', 'fade-in', t.fadeIn, f('fadeIn'), { disabled: missing, title: 'Seconds it fades in each time the file starts' }));
+      popItems.push(num('Fade out', 'fade-out', t.fadeOut, f('fadeOut'), { disabled: missing, title: 'Seconds it fades out each time the file ends' }));
+      popItems.push(sep());
+    };
+
+    /* ---------- groups: new / rename / delete ---------- */
+    const uniqueName = (base) => {
+      let n = base, i = 2;
+      while (this.state.groups.some(g => g.name === n)) n = base + ' ' + (i++);
+      return n;
+    };
+    const newGroup = (intrusion, moveId) => {
+      const s = this.state;
+      const n = uniqueName(intrusion ? 'Intrusion' : 'New group');
+      const g = { name: n, mode: intrusion ? 'intrusion' : 'intermittent', gapMin: 2, gapMax: 10, xfade: null, vol: 100, pres: 100, muted: false };
+      const tracks = moveId ? s.tracks.map(t => t.id === moveId ? { ...t, group: n } : t) : s.tracks;
+      set({ groups: [...s.groups, g], tracks, renaming: n, rdraft: n, menu: null });
+    };
+    const commitRename = () => {
+      const s = this.state;
+      const old = s.renaming;
+      if (!old) return;
+      const n = s.rdraft.trim();
+      if (!n || (n !== old && s.groups.some(g => g.name.toLowerCase() === n.toLowerCase()))) {
+        set({ renaming: null });
+        if (n && n !== old) this.flash('A group with that name exists');
+        return;
+      }
+      set({
+        groups: s.groups.map(g => g.name === old ? { ...g, name: n } : g),
+        tracks: s.tracks.map(t => t.group === old ? { ...t, group: n } : t),
+        picker: s.picker && s.picker.target === old ? { ...s.picker, target: n } : s.picker,
+        renaming: null
+      });
+    };
+    const moveTo = (id, gname) => {
+      const s = this.state;
+      const t = s.tracks.find(x => x.id === id);
+      if (!t || t.group === gname) { set({ menu: null }); return; }
+      const closed = { ...s.closed };
+      if (gname) delete closed[gname];
+      set({ tracks: s.tracks.map(x => x.id === id ? { ...x, group: gname } : x), menu: null, closed });
+      this.flash('Moved ' + t.name + ' to ' + (gname || 'theme'));
+    };
+    const openPicker = (target) => {
+      const closed = { ...this.state.closed };
+      delete closed[target];
+      set({ picker: { step: 1, themeId: null, q: '', checked: {}, target }, pkPlaying: null, menu: null, closed });
+    };
+    /* Group mode; leaving Intrusion drops the group's linked files (asked first) */
+    const setMode = (name, mode) => {
+      const s = this.state;
+      const g = s.groups.find(x => x.name === name);
+      if (!g) return;
+      const leaving = g.mode === 'intrusion' && mode !== 'intrusion';
+      set({
+        groups: s.groups.map(x => x.name === name ? { ...x, mode, xfade: mode === 'merry_go_round' ? (x.xfade || 10) : x.xfade } : x),
+        tracks: leaving ? s.tracks.filter(t => !(t.group === name && t.link)) : s.tracks,
+        menu: null
+      });
+    };
+
+    /* ---------- rows ---------- */
+    const row = (t) => {
+      const g = t.group ? gmap[t.group] : null;
+      const own = !g || g.mode === 'intrusion';   /* ungrouped and Intrusion-group tracks keep their own mode */
+      const link = !!t.link;
+      const missing = link && !!t.link.missing;
+      const mid = (link ? 'lnk:' : 'trk:') + t.id;
+      const play = st.playing === t.id;
+      const muted = t.muted || (g && g.muted);
+      const sl = (key) => {
+        const v = t[key];
+        const ms = g ? g[key] : 100;
+        return {
+          value: v, label: (key === 'pres' && g && g.mode === 'ebb_flow') ? '' : pct(v),
+          hint: (g && ms !== 100) ? 'plays at ' + Math.round(v * ms / 100) + '%' : '',
+          onInput: (e) => setT(t.id, { [key]: +e.target.value })
+        };
+      };
+      const gaplessOk = t.mode === 'continuous' || t.mode === 'auto';
+      // Ebb & Flow: two knobs, the lowest and highest volume (the group's volume scales both down)
+      const isEbb = (g && g.mode === 'ebb_flow') || (own && t.mode === 'presence');
+      const lo = Math.min(t.lo ?? 20, t.vol), gv = g ? g.vol : 100;
+      return {
+        id: t.id, name: t.name,
+        isEbb, notEbb: !isEbb, lo,
+        presLabel: isEbb ? 'Duration' : 'Interval', isDur: isEbb, notDur: !isEbb,
+        dualFill: 'left: ' + lo + '%; width: ' + Math.max(0, t.vol - lo) + '%',
+        onLo: (e) => setT(t.id, { lo: Math.min(+e.target.value, t.vol) }),
+        onHi: (e) => setT(t.id, { vol: Math.max(+e.target.value, lo) }),
+        volLabel: isEbb ? lo + '–' + t.vol + '%' : pct(t.vol),
+        volHint: (g && gv !== 100) ? 'plays at ' + (isEbb ? Math.round(lo * gv / 100) + '–' : '') + Math.round(t.vol * gv / 100) + '%' : '',
+        modeCls: 'c-mode' + (this.tOvr(t, 'mode') ? ' ovr' : ''),
+        volCls: 'mx' + (this.tOvr(t, 'vol', 'lo') ? ' ovr' : ''),
+        presCls: 'mx' + (this.tOvr(t, 'pres') ? ' ovr' : ''),
+        cls: 'trow tgrid' + (g ? ' in-grp' : '') + (muted ? ' muted' : '') + (link ? ' linked' : '') + (missing ? ' missing' : '') + (play ? ' previewing' : '') + (m === mid ? ' menu-open' : ''),
+        isLink: link, notLink: !link, missing, notMissing: !missing,
+        source: link ? t.link.theme : '',
+        playCls: 'track-preview-btn' + (play ? ' playing' : ''), playing: play, notPlaying: !play,
+        playTitle: missing ? 'File missing' : (play ? 'Stop preview' : 'Preview'),
+        onPlay: () => { if (!missing) set({ playing: play ? null : t.id }); },
+        modeSelect: own, modeFixed: !own,
+        modeLabel: g ? (g.mode === 'merry_go_round' ? 'Merry-go-round' : g.mode === 'ebb_flow' ? 'Ebb & Flow' : 'Intermittent') : '',
+        modeOpts: MODES.map(x => ({ v: x[0], label: x[1], sel: x[0] === t.mode })),
+        onMode: (e) => setT(t.id, { mode: e.target.value }),
+        vol: sl('vol'), pres: sl('pres'),
+        muted: !!t.muted,
+        muteCls: 'track-mute-btn' + (t.muted ? ' muted' : '') + (this.tOvr(t, 'muted') ? ' ovr' : ''), muteIcon: t.muted ? '🔇' : '🔊', muteTitle: t.muted ? 'Unmute' : 'Mute',
+        onMute: () => { if (!missing) setT(t.id, { muted: !t.muted }); },
+        advOn: this.tOvr(t, 'rise', 'playThrough', 'restLow', 'restHigh'),
+        onMenu: opener(mid, 'right', 'auto')
+      };
+    };
+
+    const groups = st.groups.map(g => {
+      const gt = st.tracks.filter(t => t.group === g.name);
+      const mid = 'grp:' + g.name;
+      const open = !st.closed[g.name];
+      const renaming = st.renaming === g.name;
+      const confirming = st.confirmDel === g.name;
+      const msl = (key) => ({ value: g[key], label: (key === 'pres' && g.mode === 'ebb_flow') ? '' : pct(g[key]), onInput: (e) => setG(g.name, { [key]: +e.target.value }) });
+      const links = gt.filter(t => t.link).length;
+      const isInt = g.mode === 'intrusion';
+      return {
+        name: g.name,
+        secCls: 'sec grp-sec' + (open ? ' open-sec' : '') + (g.muted ? ' gmuted' : '') + (isInt ? ' int-sec' : ''),
+        headCls: 'ghead tgrid' + (g.muted ? ' muted' : ''),
+        cellCls: 'gname-cell' + (confirming ? ' wide' : ''),
+        isIntrusion: isInt,
+        countLabel: gt.length + (gt.length === 1 ? ' track' : ' tracks'),
+        open, chevCls: 'chev-btn' + (open ? ' open' : ''), chevLabel: (open ? 'Collapse ' : 'Expand ') + g.name,
+        onToggle: () => set({ closed: { ...this.state.closed, [g.name]: open } }),
+        showName: !renaming && !confirming, renaming, confirming, notConfirming: !confirming,
+        showTiming: !confirming && !renaming && !isInt,
+        isMerry: g.mode === 'merry_go_round', isGap: g.mode === 'intermittent', isEbb: g.mode === 'ebb_flow',
+        presLabel: g.mode === 'ebb_flow' ? 'Duration' : 'Interval',
+        volCls: 'mx' + (this.gOvr(g, 'vol') ? ' ovr' : ''), presCls: 'mx' + (this.gOvr(g, 'pres') ? ' ovr' : ''),
+        gapCtlCls: 'gap-ctl' + (this.gOvr(g, 'gapMin', 'gapMax') ? ' ovr' : ''), gapRowCls: 'gap-row' + (this.gOvr(g, 'gapMin', 'gapMax') ? ' ovr' : ''),
+        ptBtnCls: 'gsw' + (this.gOvr(g, 'playThrough') ? ' ovr' : ''),
+        ptOn: g.playThrough ? 'true' : 'false', ptCls: 'sw' + (g.playThrough ? ' on' : ''),
+        onPt: () => setG(g.name, { playThrough: !g.playThrough }),
+        rdraft: st.rdraft,
+        onRInput: (e) => set({ rdraft: e.target.value }),
+        onRKey: (e) => { if (e.key === 'Enter') { e.preventDefault(); commitRename(); } else if (e.key === 'Escape') set({ renaming: null }); },
+        onRBlur: () => commitRename(),
+        startRename: () => set({ renaming: g.name, rdraft: g.name, menu: null }),
+        modeOpts: GMODES.map(x => ({ v: x[0], label: x[1], sel: x[0] === g.mode })),
+        onMode: (e) => {
+          const v = e.target.value;
+          if (isInt && v !== 'intrusion' && links) {
+            e.target.value = 'intrusion';
+            set({ menu: 'intoff:' + g.name + '|' + v, popStyle: this.place(e.target, 'right', 'auto') });
+          } else setMode(g.name, v);
+        },
+        gapMin: g.gapMin, gapMax: g.gapMax, xfade: g.xfade == null ? '' : g.xfade,
+        onGapMin: (e) => setG(g.name, { gapMin: Math.max(0, +e.target.value) }),
+        onGapMax: (e) => setG(g.name, { gapMax: Math.max(0, +e.target.value) }),
+        onXfade: (e) => setG(g.name, { xfade: Math.max(1, Math.min(60, +e.target.value)) }),
+        vol: msl('vol'), pres: msl('pres'),
+        muteCls: 'track-mute-btn' + (g.muted ? ' muted' : ''), muteIcon: g.muted ? '🔇' : '🔊', muteTitle: g.muted ? 'Unmute group' : 'Mute group',
+        muted: g.muted,
+        onMute: () => setG(g.name, { muted: !g.muted }),
+        onMenu: opener(mid, 'right', 'auto'),
+        onConfirmDel: () => {
+          const s = this.state;
+          set({
+            groups: s.groups.filter(x => x.name !== g.name),
+            tracks: s.tracks.filter(t => !(t.group === g.name && t.link)).map(t => t.group === g.name ? { ...t, group: null } : t),
+            confirmDel: null
+          });
+          this.flash('Deleted group ' + g.name);
+        },
+        onCancelDel: () => set({ confirmDel: null }),
+        onAddFrom: () => openPicker(g.name),
+        links,
+        rows: gt.map(row),
+        emptyLocal: gt.length === 0 && !isInt,
+        emptyIntrusion: gt.length === 0 && isInt
+      };
+    });
+    const themeTracks = st.tracks.filter(t => !t.group);
+    const theme = {
+      label: st.groups.length ? 'Theme (no group)' : 'Tracks',
+      countLabel: themeTracks.length + (themeTracks.length === 1 ? ' track' : ' tracks'),
+      rows: themeTracks.map(row), empty: themeTracks.length === 0
+    };
+
+    /* ---------- presets ---------- */
+    const curSnap = this.snap(st.tracks, st.groups);
+    const selP = st.presets.find(p => p.name === st.selPreset);
+    const dirty = !!selP && curSnap !== st.loaded;
+    const CUR = '— Current settings —';
+    const presetRows = [{ name: '', label: CUR }].concat(st.presets.map(p => ({ name: p.name, label: p.name, snap: p.snap }))).map(p => {
+      const isSel = p.name === (selP ? selP.name : '');
+      return {
+        label: p.label,
+        cls: 'mi' + (isSel ? ' cur' : '') + (p.name ? '' : ' cur-set'),
+        int: !!p.snap && this.hasIntrusion(p.snap),
+        hasStar: !!p.name, noStar: !p.name,
+        starCls: 'star-btn' + (p.name && p.name === st.defPreset ? ' on' : ''),
+        starTitle: p.name === st.defPreset ? 'Default preset' : 'Set as default',
+        choose: () => set({ selPreset: p.name, menu: null }),
+        star: () => { set({ defPreset: p.name }); this.flash('“' + p.name + '” is the default'); }
+      };
+    });
+    const loadP = () => {
+      if (!selP) return;
+      const r = this.applySnap(selP.snap);
+      set({ ...r, loaded: this.snap(r.tracks, r.groups), menu: null });
+      this.flash('Loaded “' + selP.name + '”');
+    };
+    const savePreset = () => {
+      if (!selP) return;
+      set({ presets: st.presets.map(p => p.name === selP.name ? { ...p, snap: curSnap } : p), loaded: curSnap, menu: null });
+      this.flash('Saved');
+    };
+    const commitNew = () => {
+      const s = this.state;
+      const n = s.pdraft.trim();
+      if (!n) return;
+      if (s.presets.some(p => p.name.toLowerCase() === n.toLowerCase())) { this.flash('A preset with that name exists'); return; }
+      const cur = this.snap(s.tracks, s.groups);
+      set({ presets: [...s.presets, { name: n, snap: cur }], selPreset: n, loaded: cur, menu: null, pdraft: '' });
+      this.flash('Saved');
+    };
+
+    /* ---------- the floating menu's contents ---------- */
+    let popItems = [], popCls = 'te-pop menu', popKind = '';
+    let confirm = null;
+    const [kind, ...restArr] = (m || '').split(':');
+    const arg = restArr.join(':');
+    if (kind === 'trk') {
+      const t = st.tracks.find(x => x.id === arg);
+      if (t) {
+        const g = t.group ? gmap[t.group] : null;
+        const own = !g || g.mode === 'intrusion';
+        if ((g && g.mode === 'ebb_flow') || (own && t.mode === 'presence')) ebb(t, g);
+        const b = st.baseT.find(x => x.id === t.id);
+        const sv = st.savedT.find(x => x.id === t.id);
+        popItems.push(item('Revert changes', () => { setT(t.id, { ...sv }); set({ menu: null }); this.flash('Reverted ' + t.name); },
+          { ic: 'reset', disabled: JSON.stringify(t) === JSON.stringify(sv) }));
+      }
+    } else if (kind === 'lnk') {
+      const t = st.tracks.find(x => x.id === arg);
+      if (t) {
+        const missing = !!t.link.missing;
+        const gaplessOk = t.mode === 'continuous' || t.mode === 'auto';
+        fades(t, missing);
+        popItems.push(item('Gapless', () => setT(t.id, { gapless: !t.gapless }), { disabled: missing || !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Background only', sw: !!t.gapless, role: 'menuitemcheckbox', checked: !!t.gapless }));
+        popItems.push(sep());
+        popItems.push(item('Reset track', () => { setT(t.id, { vol: 100, pres: 100, muted: false, gapless: false, fadeIn: '', fadeOut: '' }); set({ menu: null }); this.flash('Reset ' + t.name); }, { ic: 'reset', disabled: missing }));
+        popItems.push(sep());
+        popItems.push(item('Remove link…', (e) => set({ menu: 'lnkdel:' + t.id }), { ic: 'unlink', cls: 'danger' }));
+      }
+    } else if (kind === 'lnkdel') {
+      const t = st.tracks.find(x => x.id === arg);
+      if (t) {
+        popCls = 'te-pop pop confirm';
+        confirm = {
+          title: 'Remove link to ' + t.name + '?', ok: 'Remove',
+          go: () => { set({ tracks: this.state.tracks.filter(x => x.id !== t.id), menu: null, playing: this.state.playing === t.id ? null : this.state.playing }); this.flash('Removed ' + t.name); }
+        };
+      }
+    } else if (kind === 'grp') {
+      const g = gmap[arg];
+      if (g) {
+        if (g.mode === 'ebb_flow') {
+          popItems.push(item('Same Rise for every file', () => setG(g.name, { riseAll: !g.riseAll, rise: g.rise ?? 50 }),
+            { sw: !!g.riseAll, role: 'menuitemcheckbox', checked: !!g.riseAll, title: "Off: each file's own Rise" }));
+          if (g.riseAll) popItems.push({ ...blank, isSlider: true, label: 'Rise', sid: 'rise-g', val: g.rise ?? 50,
+            cls: 'mi-row msl' + (this.gOvr(g, 'rise', 'riseAll') ? ' ovr' : ''), title: 'How fast every file rises',
+            onSlide: (e) => setG(g.name, { rise: +e.target.value }) });
+          popItems.push(sep());
+        }
+        const b = st.baseG.find(x => x.name === g.name);
+        const sv = st.savedG.find(x => x.name === g.name);
+        popItems.push(item('Revert changes', () => { setG(g.name, { ...sv }); set({ menu: null }); this.flash('Reverted ' + g.name); },
+          { ic: 'reset', disabled: JSON.stringify(g) === JSON.stringify(sv) }));
+      }
+    } else if (kind === 'intoff') {
+      const [gn, to] = arg.split('|');
+      const g = gmap[gn];
+      if (g) {
+        const links = st.tracks.filter(t => t.group === g.name && t.link).length;
+        popCls = 'te-pop pop confirm';
+        confirm = {
+          title: 'Change ' + g.name + ' to ' + (to === 'merry_go_round' ? 'Merry-go-round' : 'Intermittent') + '? ' + links + (links === 1 ? ' linked file is' : ' linked files are') + ' removed.', ok: 'Change',
+          go: () => { setMode(g.name, to); this.flash(g.name + ' is ' + (to === 'merry_go_round' ? 'Merry-go-round' : 'Intermittent')); }
+        };
+      }
+    } else if (kind === 'reset') {
+      popCls = 'te-pop pop confirm';
+      confirm = {
+        title: 'Reset all tracks and groups to defaults?', ok: 'Reset',
+        go: () => {
+          const s = this.state;
+          set({ tracks: s.tracks.map(t => ({ ...t, vol: 100, pres: 100, muted: false, gapless: false })), groups: s.groups.map(g => ({ ...g, vol: 100, pres: 100, muted: false })), menu: null });
+          this.flash('Tracks and groups reset');
+        }
+      };
+    } else if (kind === 'upload') {
+      popItems.push(head('Upload to'));
+      popItems.push(item('Theme (no group)', () => { set({ menu: null }); this.flash('Choose files to upload'); }));
+      st.groups.forEach(g => popItems.push(item(g.name, () => { set({ menu: null }); this.flash('Choose files to upload'); }, { ic: 'folder' })));
+    } else if (kind === 'seq') {
+      popCls = 'te-pop menu seq-menu';
+      popItems.push(head('Theme sequences', 'Coming soon'));
+      popItems.push(item('+ New sequence', () => { set({ menu: null }); this.flash('Sequences: coming soon'); }, { cls: 'add' }));
+      popItems.push(sep());
+      popItems.push(head('My sequences'));
+      popItems.push(item('+ New sequence', () => { set({ menu: null }); this.flash('Sequences: coming soon'); }, { cls: 'add' }));
+    } else if (kind === 'theme') {
+      popKind = 'theme';
+    } else if (kind === 'presets') {
+      popCls = 'te-pop menu preset-list';
+      popKind = 'presets';
+    } else if (kind === 'pmore') {
+      popItems.push(item('Rename…', () => { set({ menu: null }); this.flash('Rename preset'); }, { disabled: !selP }));
+      popItems.push(item('Set as default', () => { if (selP) { set({ defPreset: selP.name, menu: null }); this.flash('“' + selP.name + '” is the default'); } }, { ic: 'star', disabled: !selP || st.defPreset === selP.name }));
+      popItems.push(sep());
+      popItems.push(item('Import…', () => { set({ menu: null }); this.flash('Choose a preset file'); }));
+      popItems.push(item('Export', () => { set({ menu: null }); this.flash('Exported “' + (selP ? selP.name : '') + '”'); }, { disabled: !selP }));
+      popItems.push(sep());
+      popItems.push(item('Delete…', () => { set({ menu: null }); }, { cls: 'danger', disabled: !selP }));
+    } else if (kind === 'pnew') {
+      popCls = 'te-pop pop';
+      popKind = 'pnew';
+    }
+
+    /* ---------- picker: another theme's files, read-only ---------- */
+    const THEMES = [
+      { id: 'rainy', icon: '⛈️', name: 'A Rainy Day', cats: ['Weather'], files: [
+        ['Distant rolling thunder', null, '0:38'], ['Light rain', null, '4:12'], ['Light thunder', null, '0:21'],
+        ['Pre-thunderstorm', null, '2:05'], ['Rain on roof', null, '6:40'],
+        ['Close lightning', 'Thunder', '0:09'], ['Thunder crack', 'Thunder', '0:06'], ['Long rumble', 'Thunder', '0:47']] },
+      { id: 'ocean', icon: '🌊', name: 'Ocean Waves', cats: ['Water', 'Relax'], files: [
+        ['Gentle surf', null, '5:30'], ['Rolling waves', null, '4:02'], ['Seagulls', 'Birds', '0:14'], ['Buoy bell', null, '0:08']] },
+      { id: 'forest', icon: '🌲', name: 'Forest Morning', cats: ['Nature'], files: [
+        ['Wind in pines', null, '3:48'], ['Woodpecker', 'Birds', '0:05'], ['Robin', 'Birds', '0:11'], ['Creek', null, '6:10']] },
+      { id: 'xmas', icon: '🎄', name: 'Christmas Eve', cats: ['Christmas'], files: [
+        ['Fireplace', null, '8:00'], ['Sleigh bells', null, '0:19'], ['Snow outside', null, '5:15']] },
+      { id: 'tavern', icon: '🍺', name: 'Busy Tavern', cats: ['Fantasy'], files: [
+        ['Crowd murmur', null, '6:30'], ['Mugs clink', 'Bar', '0:04'], ['Lute', 'Music', '2:41']] },
+      { id: 'castle', icon: '🏰', name: 'Castle Halls', cats: ['Fantasy'], files: [
+        ['Drafty hall', null, '4:20'], ['Distant door', null, '0:07'], ['Torch crackle', null, '3:05']] },
+      { id: 'cafe', icon: '☕', name: 'Corner Café', cats: ['City'], files: [
+        ['Espresso machine', null, '0:22'], ['Chatter', null, '7:10'], ['Rain on window', null, '5:00']] }
+    ];
+    const pk = st.picker;
+    const setPk = (patch) => set({ picker: { ...this.state.picker, ...patch } });
+    const pkVals = {
+      pkOpen: !!pk, pkStep1: !!pk && pk.step === 1, pkStep2: !!pk && pk.step === 2,
+      pkTarget: '', pkQ: '', pkHasQ: false, pkOnQ: closeMenus, pkClearQ: closeMenus, pkThemes: [], pkNoThemes: false,
+      pkTheme: { icon: '', name: '', countLabel: '' }, pkAll: false, pkToggleAll: closeMenus, pkFiles: [],
+      pkNone: true, pkCountLabel: '', pkBack: closeMenus, pkCancel: closeMenus, pkAdd: closeMenus
+    };
+    if (pk) {
+      const q = pk.q.trim().toLowerCase();
+      const list = THEMES.filter(t => !q || t.name.toLowerCase().includes(q) || t.cats.some(c => c.toLowerCase().includes(q)));
+      pkVals.pkTarget = pk.target;
+      pkVals.pkQ = pk.q;
+      pkVals.pkHasQ = !!pk.q;
+      pkVals.pkOnQ = (e) => setPk({ q: e.target.value });
+      pkVals.pkClearQ = () => setPk({ q: '' });
+      pkVals.pkThemes = list.map(t => ({
+        icon: t.icon, name: t.name,
+        cats: t.cats.map(c => ({ label: c })),
+        count: t.files.length,
+        meta: t.cats.join(', ') + ' · ' + t.files.length + ' tracks',
+        pick: () => set({ picker: { ...this.state.picker, step: 2, themeId: t.id, checked: {} }, pkPlaying: null })
+      }));
+      pkVals.pkNoThemes = list.length === 0;
+      const th = THEMES.find(t => t.id === pk.themeId) || THEMES[0];
+      const linked = (file) => st.tracks.some(t => t.link && t.group === pk.target && t.link.themeId === th.id && t.link.file === file);
+      const free = th.files.filter(f => !linked(f[0]));
+      const nChecked = free.filter(f => pk.checked[f[0]]).length;
+      pkVals.pkTheme = { icon: th.icon, name: th.name, countLabel: th.files.length + ' tracks' };
+      pkVals.pkAll = free.length > 0 && nChecked === free.length;
+      pkVals.pkToggleAll = () => {
+        const all = free.length > 0 && free.every(f => this.state.picker.checked[f[0]]);
+        const checked = {};
+        if (!all) free.forEach(f => { checked[f[0]] = true; });
+        setPk({ checked });
+      };
+      pkVals.pkFiles = th.files.map((f, i) => {
+        const added = linked(f[0]);
+        const playId = th.id + ':' + f[0];
+        const play = st.pkPlaying === playId;
+        return {
+          name: f[0], group: f[1] || '', hasGroup: !!f[1], noGroup: !f[1], dur: f[2],
+          meta: (f[1] ? f[1] + ' · ' : '') + f[2] + (added ? ' · Added' : ''),
+          cid: 'pk-f' + i,
+          cls: 'pk-row pk-fg' + (added ? ' added' : '') + (play ? ' pv' : ''),
+          checked: added || !!pk.checked[f[0]], added, ckTitle: added ? 'Already added' : 'Add',
+          onCheck: () => { if (added) return; const c = { ...this.state.picker.checked }; if (c[f[0]]) delete c[f[0]]; else c[f[0]] = true; setPk({ checked: c }); },
+          playCls: 'track-preview-btn' + (play ? ' playing' : ''), playing: play, notPlaying: !play,
+          playTitle: play ? 'Stop preview' : 'Preview',
+          onPlay: () => set({ pkPlaying: play ? null : playId })
+        };
+      });
+      const n = pk.step === 2 ? nChecked : 0;
+      pkVals.pkNone = n === 0;
+      pkVals.pkCountLabel = n ? n + ' selected' : '';
+      pkVals.pkBack = () => set({ picker: { ...this.state.picker, step: 1 }, pkPlaying: null });
+      pkVals.pkCancel = () => set({ picker: null, pkPlaying: null });
+      pkVals.pkAdd = () => {
+        const s = this.state;
+        const p = s.picker;
+        const picked = free.filter(f => p.checked[f[0]]);
+        if (!picked.length) return;
+        const stamp = Date.now();
+        const added = picked.map((f, i) => ({ id: 'n' + stamp + i, name: f[0], group: p.target, mode: 'auto', gapless: false, link: { theme: th.name, themeId: th.id, file: f[0] }, vol: 100, pres: 100, muted: true }));
+        const closed = { ...s.closed };
+        delete closed[p.target];
+        set({ tracks: [...s.tracks, ...added], picker: null, pkPlaying: null, closed });
+        this.flash('Added ' + picked.length + (picked.length === 1 ? ' linked file' : ' linked files'));
+      };
+    }
+
+    return {
+      name: st.name,
+      onName: (e) => set({ name: e.target.value }),
+      helpOpen: st.help, toggleHelp: () => set({ help: !this.state.help, menu: null }), closeHelp: () => set({ help: false }),
+      onThemeMenu: opener('theme', 'right', 'down'),
+      onSeqMenu: opener('seq', 'left', 'down'),
+      onUploadMenu: opener('upload', 'right', 'down'),
+      onAskReset: opener('reset', 'right', 'down'),
+      mixCls: 'btn btn-sm btn-secondary te-mix-btn' + (st.mix ? ' active' : ''), mixLabel: st.mix ? 'Stop mix' : 'Preview mix', mixPressed: st.mix ? 'true' : 'false',
+      toggleMix: () => set({ mix: !this.state.mix }),
+      newGroup: () => newGroup(false, null),
+      addIntrusion: () => newGroup(true, null),
+      trackCount: st.tracks.length,
+      groups, theme,
+
+      /* floating menu */
+      popOpen: !!m && (popItems.length > 0 || !!confirm || !!popKind), popCls, popStyle: st.popStyle,
+      popItems, hasItems: popItems.length > 0,
+      ovrCount: String(this.changes()), noOvr: this.changes() === 0,
+      ovrSummary: this.changes() ? this.changes() + (this.changes() === 1 ? ' change' : ' changes') + ' from the preset' : 'Follows the preset',
+      noUnsaved: JSON.stringify([st.tracks, st.groups]) === JSON.stringify([st.savedT, st.savedG]),
+      onBackAll: () => { set({ tracks: this.state.savedT.map(t => ({ ...t })), groups: this.state.savedG.map(g => ({ ...g })) }); this.flash('Reverted to the last save'); },
+      isConfirm: !!confirm, confirmTitle: confirm ? confirm.title : '', confirmOk: confirm ? confirm.ok : '', onConfirm: confirm ? confirm.go : closeMenus,
+      isThemeMenu: popKind === 'theme', isPresets: popKind === 'presets', isPNew: popKind === 'pnew',
+      presetRows,
+      pdraft: st.pdraft, onPDraft: (e) => set({ pdraft: e.target.value }),
+      onPKey: (e) => { if (e.key === 'Enter') { e.preventDefault(); commitNew(); } else if (e.key === 'Escape') set({ menu: null }); },
+      okDisabled: !st.pdraft.trim(), commitNew,
+      anyMenu: !!m, closeMenus,
+      exportTheme: () => { set({ menu: null }); this.flash('Exported theme (.zip)'); },
+
+      /* footer */
+      selName: selP ? selP.name : CUR, selIsDef: !!selP && st.defPreset === selP.name,
+      selInt: !!selP && this.hasIntrusion(selP.snap),
+      pddCls: 'pdd' + (selP ? '' : ' is-cur'),
+      onPresetMenu: opener('presets', 'left', 'up'),
+      onPMore: opener('pmore', 'left', 'up'),
+      onPNew: (e) => { set({ pdraft: '' }); opener('pnew', 'left', 'up')(e); },
+      noSel: !selP, loadP, savePreset, dirty,
+      saveTheme: () => this.flash('Saved'),
+
+      /* toast */
+      hasMsg: !!st.msg, msg: st.msg,
+      ...pkVals
+    };
+  }
+}
+
+</script>
+</body>
+</html>
