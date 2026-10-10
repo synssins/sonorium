@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.3 (2026-10-10)
+
+### Features
+
+- **ui**: Sequences and playlists
+  ([`b43ac16`](https://github.com/synssins/sonorium/commit/b43ac168ce405a8f318dae918a2a6e6f80fbf536))
+
+
 ## v1.6.1-dev.2 (2026-10-10)
 
 ### Features
