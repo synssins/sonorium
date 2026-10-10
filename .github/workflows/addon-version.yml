@@ -73,6 +73,12 @@ jobs:
           # On other branches, bump the -dev.N number when the last release was
           # already a pre-release, rather than skipping to the next patch version.
           force=()
+          # A merge can bring a branch's -dev tags along, so "next" may be a
+          # version that is already tagged: treat that like no bump at all
+          if [ -n "$next" ] && git rev-parse -q --verify "refs/tags/addon-v$next" >/dev/null; then
+            echo "addon-v$next already exists"
+            next=""
+          fi
           if [ -z "$next" ] || [ "$next" = "$last" ]; then
             if [ "$BRANCH" = "main" ]; then
               force=(--patch)
