@@ -3195,8 +3195,8 @@ function teMenuHtml(kind, arg) {
                     after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
             }
             if (track.exclusive) {
-                html += mi('Unique (legacy)', `teToggleExclusive(${k})`, {
-                    title: 'Only one Unique track plays at a time (older themes). Use a group instead.',
+                html += mi('One at a time (legacy)', `teToggleExclusive(${k})`, {
+                    title: 'Older themes: only one of these tracks plays at a time. Use a group instead.',
                     after: '<span class="sw on"></span>' });
             }
             if (te.groupsOk) {
