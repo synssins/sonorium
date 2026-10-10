@@ -19,6 +19,8 @@ let currentView = 'sessions';
 
 // Preset cache for session cards (theme_id -> presets array)
 let sessionPresetsCache = {};
+// theme_id -> true when the theme's own settings (no preset) turn intrusion tracks on
+let sessionDefaultIntrusion = {};
 
 async function init() {
     console.log('Sonorium init() starting...');
@@ -612,6 +614,7 @@ function toggleCollapsibleSection(sectionId) {
 // Sessions
 function renderSessions() {
     const container = document.getElementById('sessions-container');
+    pselOpenId = null;  // the cards are rebuilt: any open preset list goes with them
 
     if (sessions.length === 0) {
         container.innerHTML = `
@@ -665,19 +668,8 @@ function renderSessionCard(session) {
             </div>
 
             <div class="session-field session-preset-field" data-session-id="${session.id}" style="${session.theme_id ? '' : 'display:none;'}">
-                <label>Preset</label>
-                <select onchange="updateSessionPreset('${session.id}', this.value)" ${!hasPresets ? 'disabled' : ''}>
-                    ${hasPresets ? `
-                        <option value="">Default settings</option>
-                        ${sessionPresets.map(p => `
-                            <option value="${p.id}" ${session.preset_id === p.id ? 'selected' : ''}>
-                                ${escapeHtml(p.name)}${p.is_default ? ' ★' : ''}
-                            </option>
-                        `).join('')}
-                    ` : `
-                        <option value="">No presets available</option>
-                    `}
-                </select>
+                <label id="psel-lbl-${session.id}">Preset</label>
+                ${pselFieldHtml(session, hasPresets)}
             </div>
 
             <div class="session-field">
@@ -913,11 +905,168 @@ async function loadPresetsForTheme(themeId) {
     try {
         const result = await api('GET', `/themes/${themeId}/presets`);
         sessionPresetsCache[themeId] = result.presets || [];
+        sessionDefaultIntrusion[themeId] = !!result.default_has_intrusion;
     } catch (error) {
         console.error(`Failed to load presets for theme ${themeId}:`, error);
         sessionPresetsCache[themeId] = [];
     }
 }
+
+// A theme's presets changed (Theme Editor closed): reload them for the channel cards
+async function refreshSessionPresets(themeId) {
+    if (!themeId || !sessions.some(s => s.theme_id === themeId)) return;
+    delete sessionPresetsCache[themeId];
+    await loadPresetsForTheme(themeId);
+    renderSessions();
+}
+
+// ---------- Channel card preset field ----------
+// Looks like the other selects, but is a button with its own listbox so the
+// options can show the default star and the intrusion mark. Keyboard: arrows,
+// Home/End, Enter or Space picks, Esc closes.
+let pselOpenId = null;
+let pselActive = 0;
+
+function presetMarks(isDefault, hasIntrusion) {
+    return `${isDefault ? '<span class="def-star" title="Default">★</span>' : ''}${hasIntrusion ? intrusionMark() : ''}`;
+}
+
+function pselOptions(session) {
+    const presets = sessionPresetsCache[session.theme_id] || [];
+    return [
+        { id: '', name: 'Default settings', dflt: true, def: false, int: !!sessionDefaultIntrusion[session.theme_id] },
+        ...presets.map(p => ({ id: p.id, name: p.name, dflt: false, def: !!p.is_default, int: !!p.has_intrusion })),
+    ];
+}
+
+function pselFieldHtml(session, hasPresets) {
+    const id = session.id;
+    const options = hasPresets ? pselOptions(session) : [];
+    const sel = options.find(o => o.id === (session.preset_id || '')) || options[0];
+    return `
+                <div class="psel">
+                    <button type="button" class="psel-btn" id="psel-btn-${id}" aria-haspopup="listbox" aria-expanded="false"
+                            aria-labelledby="psel-lbl-${id} psel-btn-${id}" ${hasPresets ? '' : 'disabled'}
+                            onclick="pselToggle('${id}')" onkeydown="pselButtonKey(event, '${id}')">
+                        <span class="nm">${hasPresets ? escapeHtml(sel.name) : 'No presets available'}</span>${hasPresets ? presetMarks(sel.def, sel.int) : ''}
+                        <span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></span>
+                    </button>
+                    <div class="psel-list" id="psel-list-${id}" role="listbox" tabindex="-1" aria-labelledby="psel-lbl-${id}" hidden
+                         onkeydown="pselListKey(event, '${id}')"></div>
+                </div>`;
+}
+
+function pselRenderList(id) {
+    const session = sessions.find(s => s.id === id);
+    const list = document.getElementById(`psel-list-${id}`);
+    if (!session || !list) return;
+    const options = pselOptions(session);
+    const current = session.preset_id || '';
+    list.innerHTML = options.map((o, i) => {
+        const cur = o.id === current;
+        return `<div class="popt${cur ? ' cur' : ''}${o.dflt ? ' dflt' : ''}${i === pselActive ? ' hi' : ''}" role="option" id="psel-${id}-${i}"
+                     aria-selected="${cur}" onmousedown="event.preventDefault()" onclick="pselPick('${id}', ${i})" onmouseenter="pselHover('${id}', ${i})">
+                    <span class="ck">${cur ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>' : ''}</span>
+                    <span class="nm">${escapeHtml(o.name)}</span>${presetMarks(o.def, o.int)}
+                </div>`;
+    }).join('');
+    list.setAttribute('aria-activedescendant', `psel-${id}-${pselActive}`);
+    list.querySelector('.popt.hi')?.scrollIntoView({ block: 'nearest' });
+}
+
+function pselOpen(id) {
+    pselClose();
+    const session = sessions.find(s => s.id === id);
+    const button = document.getElementById(`psel-btn-${id}`);
+    const list = document.getElementById(`psel-list-${id}`);
+    if (!session || !button || !list || button.disabled) return;
+    pselOpenId = id;
+    pselActive = Math.max(0, pselOptions(session).findIndex(o => o.id === (session.preset_id || '')));
+    list.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    button.closest('.session-field')?.classList.add('open');
+    pselRenderList(id);
+    list.focus();
+}
+
+function pselClose(focusButton = false) {
+    const id = pselOpenId;
+    pselOpenId = null;
+    if (!id) return;
+    const button = document.getElementById(`psel-btn-${id}`);
+    const list = document.getElementById(`psel-list-${id}`);
+    if (list) { list.hidden = true; list.innerHTML = ''; }
+    if (button) {
+        button.setAttribute('aria-expanded', 'false');
+        button.closest('.session-field')?.classList.remove('open');
+        if (focusButton) button.focus();
+    }
+}
+
+function pselToggle(id) {
+    if (pselOpenId === id) pselClose(true);
+    else pselOpen(id);
+}
+
+function pselHover(id, index) {
+    if (pselOpenId !== id || pselActive === index) return;
+    pselActive = index;
+    pselRenderList(id);
+}
+
+async function pselPick(id, index) {
+    const session = sessions.find(s => s.id === id);
+    if (!session) return;
+    const option = pselOptions(session)[index];
+    pselClose();
+    if (!option || option.id === (session.preset_id || '')) {
+        document.getElementById(`psel-btn-${id}`)?.focus();
+        return;
+    }
+    await updateSessionPreset(id, option.id);  // applies it live, as the select did
+    renderSessions();
+    document.getElementById(`psel-btn-${id}`)?.focus();
+}
+
+function pselButtonKey(event, id) {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault();
+        pselOpen(id);
+    }
+}
+
+function pselListKey(event, id) {
+    const session = sessions.find(s => s.id === id);
+    if (!session) return;
+    const count = pselOptions(session).length;
+    const move = to => { event.preventDefault(); pselActive = Math.max(0, Math.min(count - 1, to)); pselRenderList(id); };
+    switch (event.key) {
+        case 'ArrowDown': move(pselActive + 1); break;
+        case 'ArrowUp': move(pselActive - 1); break;
+        case 'Home': move(0); break;
+        case 'End': move(count - 1); break;
+        case 'Enter':
+        case ' ':
+            event.preventDefault();
+            pselPick(id, pselActive);
+            break;
+        case 'Escape':
+            event.preventDefault();
+            event.stopPropagation();
+            pselClose(true);
+            break;
+        case 'Tab':
+            pselClose();
+            break;
+    }
+}
+
+document.addEventListener('mousedown', event => {
+    if (!pselOpenId) return;
+    const field = document.getElementById(`psel-btn-${pselOpenId}`)?.closest('.psel');
+    if (field && field.contains(event.target)) return;
+    pselClose();
+}, true);
 
 async function loadAllSessionPresets() {
     // Load presets for all themes used by sessions
@@ -2288,10 +2437,21 @@ const TE_ICON_CHEV_UP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="n
 const TE_ICON_FOLDER_LG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>';
 const TE_ICON_PLAY = '<svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 const TE_ICON_STOP = '<svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
+// Intrusion groups and linked files: a link marker
+const TE_ICON_LINK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
+const TE_ICON_LINK_SM = TE_ICON_LINK.replace('width="14" height="14"', 'width="12" height="12"');
+const TE_ICON_UNLINK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18.84 12.25l1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71"/><line x1="8" y1="2" x2="8" y2="5"/><line x1="2" y1="8" x2="5" y2="8"/><line x1="16" y1="19" x2="16" y2="22"/><line x1="19" y1="16" x2="22" y2="16"/></svg>';
+// A preset that turns intrusion tracks on: two overlapping circles
+const ICON_INTRUSION = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg>';
+
+function intrusionMark() {
+    return `<span class="int-ic" title="Turns on intrusion tracks" role="img" aria-label="Turns on intrusion tracks">${ICON_INTRUSION}</span>`;
+}
 
 const TE_MODES = [['auto', 'Auto'], ['continuous', 'Background'], ['sparse', 'Intermittent'], ['presence', 'Ebb & Flow']];
-// A group's mode: one track at a time with a gap, or a continuous bed crossfading file to file
-const TE_GROUP_MODES = [['intermittent', 'Intermittent'], ['merry_go_round', 'Merry-go-round']];
+// A group's mode: one track at a time with a gap, a continuous bed crossfading file to file,
+// or Intrusion (each track plays by its own mode; it can hold files linked from other themes)
+const TE_GROUP_MODES = [['intermittent', 'Intermittent'], ['merry_go_round', 'Merry-go-round'], ['intrusion', 'Intrusion']];
 const TE_GROUP_CROSSFADE = 10;  // seconds, when the group sets none
 // The server rebuilds its theme list about 2 s after files move, rename or upload
 const TE_REBUILD_WAIT_MS = 2600;
@@ -2318,6 +2478,8 @@ const te = {
     renaming: null,        // group being renamed inline
     confirmDel: null,      // group waiting for delete confirmation
     drag: null,            // track key being dragged
+    pk: null,              // "Add from another theme" picker state (null = closed)
+    pickAfter: null,       // a new intrusion group: open the picker once its name is set
     msgTimer: null,
     loadSeq: 0,
 };
@@ -2339,7 +2501,17 @@ function jsArg(text) {
 }
 
 function teGroupMode(group) {
-    return group?.settings?.mode === 'merry_go_round' ? 'merry_go_round' : 'intermittent';
+    const mode = group?.settings?.mode;
+    return mode === 'merry_go_round' || mode === 'intrusion' ? mode : 'intermittent';
+}
+
+function teIsIntrusion(group) {
+    return !!group && teGroupMode(group) === 'intrusion';
+}
+
+// The linked files of a group (tracks from other themes)
+function teGroupLinks(name) {
+    return te.tracks.filter(t => t.linked && trackGroupOf(t.name) === name);
 }
 
 function groupMaster(group, key) {
@@ -2394,7 +2566,7 @@ function openThemeEditModal(themeId) {
         cats: [...(theme.categories || [])], catText: '', catHi: 0, catFocus: false,
         threshold: theme.short_file_threshold ?? null,
         closed: {}, presets: [], selPreset: '', mixDirty: false, mixSnap: null,
-        upload: null, renaming: null, confirmDel: null, drag: null,
+        upload: null, renaming: null, confirmDel: null, drag: null, pk: null, pickAfter: null,
     });
     currentTrackMixerThemeId = themeId;
 
@@ -2475,12 +2647,15 @@ async function teSaveAndClose() {
 }
 
 function closeThemeEditModal() {
+    const themeId = te.themeId;
+    pkClose();
     teCloseMenu();
     teCloseHelp();
     stopTrackPreview();
     teStopMixPreview();
     document.getElementById('theme-edit-modal').style.display = 'none';
     te.themeId = null;
+    refreshSessionPresets(themeId);  // channel cards show the presets as they are now
 }
 
 // ---------- Details: name, icon, description, categories, threshold ----------
@@ -2779,40 +2954,54 @@ function teRenderRow(track, group) {
     const volMaster = group ? groupMaster(group, 'volume') : 1;
     const presMaster = group ? groupMaster(group, 'presence') : 1;
     const playing = currentPreviewTrack === key && trackPreviewAudio && !trackPreviewAudio.paused;
-    const advOn = (!group && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive;
+    // Ungrouped tracks and an Intrusion group's tracks keep their own mode and settings
+    const own = !group || teIsIntrusion(group);
+    const link = track.linked || null;  // a file linked from another theme
+    const missing = !!link?.missing;    // its source is gone: shown greyed, only ⋯ works
+    const off = missing ? ' disabled' : '';
+    const advOn = (own && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive;
     const muted = track.muted || (group && group.settings?.muted);
-    const cls = ['trow', 'tgrid', group ? 'in-grp' : '', muted ? 'muted' : ''].filter(Boolean).join(' ');
+    const cls = ['trow', 'tgrid', group ? 'in-grp' : '', muted ? 'muted' : '', link ? 'linked' : '', missing ? 'missing' : '',
+        playing ? 'previewing' : ''].filter(Boolean).join(' ');
     const label = escapeHtml(name);
+    let nameCell = `<span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>`;
+    if (link) {
+        const source = escapeHtml(link.theme_name || 'another theme');
+        nameCell = `<div class="lk-cell">${nameCell}
+            <span class="lk-from" title="Linked from ${source}">${missing
+                ? '<span class="badge badge-missing">Missing</span>'
+                : `<span class="lk-ic">${TE_ICON_LINK_SM}</span>`}<span class="lk-src">from ${source}</span></span></div>`;
+    }
     return `
     <div class="${cls}" data-track="${escapeHtml(key)}">
         ${te.groupsOk ? `<span class="drag-handle" draggable="true" title="Drag to another section" aria-label="Drag ${label}"
               ondragstart="teDragStart(event, ${k})" ondragend="teDragEnd()">${TE_ICON_GRIP}</span>` : '<span></span>'}
-        <button class="track-preview-btn${playing ? ' playing' : ''}" title="${playing ? 'Stop preview' : 'Preview'}"
-                aria-label="Preview: ${label}" onclick="toggleTrackPreview(${k})">
+        <button class="track-preview-btn${playing ? ' playing' : ''}" title="${missing ? 'File missing' : playing ? 'Stop preview' : 'Preview'}"
+                aria-label="Preview: ${label}" onclick="toggleTrackPreview(${k})"${off}>
             ${TE_ICON_PLAY.replace('<svg', `<svg style="display:${playing ? 'none' : 'block'}"`)}
             ${TE_ICON_STOP.replace('<svg', `<svg style="display:${playing ? 'block' : 'none'}"`)}
         </button>
-        <span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>
+        ${nameCell}
         <div class="c-mode">
             <span class="c-lbl">Mode</span>
-            ${group
+            ${!own
                 ? (teGroupMode(group) === 'merry_go_round'
                     ? `<span class="te-mode-fixed" title="The group crossfades from one file to the next">Merry-go-round</span>`
                     : `<span class="te-mode-fixed" title="In a group, each track plays once on its turn">Intermittent</span>`)
-                : `<select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"
+                : `<select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"${off}
                     title="Auto picks by file length. Background plays all the time. Intermittent plays now and then. Ebb &amp; Flow fades in, plays a while, fades out.">${teModeOptions(track, false)}</select>`}
         </div>
         ${teSliderCell('volume', 'Volume', vol,
-            `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"`,
+            `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"${off}`,
             playsAtHint(vol / 100, volMaster))}
         ${teSliderCell('presence', 'Interval', pres,
-            `aria-label="Interval: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'presence', this.value)"`,
+            `aria-label="Interval: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'presence', this.value)"${off}`,
             playsAtHint(pres / 100, presMaster))}
         <button class="track-mute-btn${track.muted ? ' muted' : ''}" title="${track.muted ? 'Unmute' : 'Mute'}"
                 aria-label="${track.muted ? 'Unmute' : 'Mute'}: ${label}" aria-pressed="${!!track.muted}"
-                onclick="teToggleTrackMute(${k})">${track.muted ? '🔇' : '🔊'}</button>
+                onclick="teToggleTrackMute(${k})"${off}>${track.muted ? '🔇' : '🔊'}</button>
         <button class="icon-btn sm more-btn" aria-label="More for ${label}" aria-haspopup="menu"
-                onclick="teMenu('track', this, ${k})">${TE_ICON_MORE}${advOn ? '<span class="adv-dot"></span>' : ''}</button>
+                onclick="teMenu('${link ? 'link' : 'track'}', this, ${k})">${TE_ICON_MORE}${advOn ? '<span class="adv-dot"></span>' : ''}</button>
     </div>`;
 }
 
@@ -2849,9 +3038,11 @@ function teRenderGroup(group) {
                    aria-label="${label} crossfade, seconds" onchange="teSetGroupCrossfade(${n}, this)">
             <span>s</span>
         </div>`;
-    const timing = mode === 'merry_go_round' ? crossfade : gap;
-    const modeSelect = `<select class="track-mode-select" aria-label="${label} group mode" onchange="teSetGroupMode(${n}, this.value)"
-            title="Intermittent plays one track at a time with a gap. Merry-go-round makes a continuous bed.">${
+    const isInt = mode === 'intrusion';
+    // An Intrusion group's tracks play by their own settings: no gap, no crossfade
+    const timing = isInt ? () => '' : mode === 'merry_go_round' ? crossfade : gap;
+    const modeSelect = `<select class="track-mode-select" aria-label="${label} group mode" onchange="teSetGroupMode(${n}, this.value, this)"
+            title="Intermittent plays one track at a time with a gap. Merry-go-round makes a continuous bed. Intrusion: each track plays by its own mode.">${
             TE_GROUP_MODES.map(([v, text]) => `<option value="${v}"${v === mode ? ' selected' : ''}>${text}</option>`).join('')}</select>`;
     let nameCell;
     if (renaming) {
@@ -2865,12 +3056,13 @@ function teRenderGroup(group) {
                     </span>`;
     } else {
         nameCell = `<button class="gname" title="Double-click to rename" ondblclick="teStartRename(${n})">${label}</button>
+                    ${isInt ? `<span class="int-ic" title="Intrusion group" role="img" aria-label="Intrusion group">${TE_ICON_LINK}</span>` : ''}
                     <span class="badge badge-type">${count}</span>`;
     }
     const masterSlider = (kind, text, value) => teSliderCell(kind, text, value,
         `aria-label="${label} group ${text.toLowerCase()}" oninput="teGroupSliderInput(this, ${n})" onchange="teSetGroupValue(${n}, '${kind}', this.value)"`, '');
     return `
-    <div class="sec grp-sec${open ? ' open-sec' : ''}${muted ? ' gmuted' : ''}" data-group="${label}"
+    <div class="sec grp-sec${open ? ' open-sec' : ''}${muted ? ' gmuted' : ''}${isInt ? ' int-sec' : ''}" data-group="${label}"
          ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, ${n})">
         <div class="ghead tgrid${muted ? ' muted' : ''}">
             <button class="chev-btn${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${label}"
@@ -2898,7 +3090,9 @@ function teRenderGroup(group) {
             ${timing('gap-row')}
         </div>
         ${tracks.map(t => teRenderRow(t, group)).join('')}
-        ${tracks.length ? '' : `<div class="empty-row">Drag tracks here or use ⋯ › Move to group</div>`}` : ''}
+        ${tracks.length ? '' : isInt
+            ? `<div class="empty-row"><button class="link-btn" onclick="pkOpen(${n})">${TE_ICON_LINK}Add from another theme</button></div>`
+            : `<div class="empty-row">Drag tracks here or use ⋯ › Move to group</div>`}` : ''}
     </div>`;
 }
 
@@ -2907,6 +3101,7 @@ function teRenderTracks() {
     if (!list || !te.themeId) return;
     document.getElementById('te-track-count').textContent = te.tracks.length;
     document.getElementById('te-newgroup-btn').hidden = !te.groupsOk;
+    document.getElementById('te-intrusion-btn').hidden = !te.groupsOk;
     const ungrouped = te.tracks.filter(t => !te.groupsOk || !trackGroupOf(t.name));
     const groupsHtml = te.groupsOk ? te.groups.map(teRenderGroup).join('') : '';
     let themeHtml;
@@ -3011,7 +3206,7 @@ async function teSetTrackFlag(key, field, value, render = true) {
 
 function teToggleTrackMute(key) {
     const track = teTrack(key);
-    if (track) teSetTrackFlag(key, 'muted', !track.muted);
+    if (track && !track.linked?.missing) teSetTrackFlag(key, 'muted', !track.muted);
 }
 
 function teSetMode(key, mode) {
@@ -3111,10 +3306,34 @@ async function teSetGroupGap(name, input) {
     teRenderTracks();
 }
 
-// Mode: Intermittent or Merry-go-round. Playing channels follow at once; the preview restarts
-async function teSetGroupMode(name, mode) {
+// Mode: Intermittent, Merry-go-round or Intrusion. Playing channels follow at once; the preview restarts.
+// Leaving Intrusion removes the group's linked files, so that asks first.
+async function teSetGroupMode(name, mode, select = null) {
+    const group = teGroup(name);
+    const wasInt = teIsIntrusion(group);
+    if (wasInt && mode !== 'intrusion' && teGroupLinks(name).length) {
+        if (select) select.value = 'intrusion';
+        teMenu('intoff', select || teMenuAnchor(), JSON.stringify([name, mode]));
+        return;
+    }
     setTimeout(teRestartMixPreview, 300);
     await teSetGroupValue(name, 'mode', mode);
+    if (wasInt !== (mode === 'intrusion')) teLoadPresets(false);  // which presets turn intrusion tracks on
+}
+
+// "Are you sure?" said yes: remove the group's linked files and change its mode
+async function teConfirmIntrusionOff(arg) {
+    const [name, mode] = JSON.parse(arg);
+    teCloseMenu();
+    try {
+        await api('PUT', teGroupUrl(name), { mode, remove_links: true });
+        teFlash(`${name} is ${TE_GROUP_MODES.find(([v]) => v === mode)?.[1] || mode}`);
+        teMarkMixChanged();
+    } catch (error) {
+        showToast(error.message || 'Failed to change the group', 'error');
+    }
+    await teLoadTracks(true, false);  // the server rebuilt the theme before answering
+    teLoadPresets(false);
 }
 
 async function teSetGroupCrossfade(name, input) {
@@ -3123,11 +3342,36 @@ async function teSetGroupCrossfade(name, input) {
     await teSetGroupValue(name, 'crossfade', value);
 }
 
-function teUniqueGroupName() {
-    let name = 'New group';
+function teUniqueGroupName(base = 'New group') {
+    let name = base;
     let i = 2;
-    while (te.groups.some(g => g.name.toLowerCase() === name.toLowerCase())) name = `New group ${i++}`;
+    while (te.groups.some(g => g.name.toLowerCase() === name.toLowerCase())) name = `${base} ${i++}`;
     return name;
+}
+
+// Add intrusion: a new group in Intrusion mode; name it, then pick files from another theme
+async function teAddIntrusion() {
+    teCloseMenu();
+    if (!te.groupsOk || !te.themeId) return;
+    const wanted = teUniqueGroupName('Intrusion');
+    try {
+        const result = await api('POST', `/themes/${te.themeId}/groups`, { name: wanted });
+        const name = result?.name || wanted;
+        const changed = await api('PUT', teGroupUrl(name), { mode: 'intrusion' });
+        delete te.closed[name];
+        let group = teGroup(name);
+        if (!group) {
+            group = { name, settings: {}, tracks: [], links: [] };
+            te.groups.push(group);
+            te.groups.sort((a, b) => a.name.localeCompare(b.name));
+        }
+        group.settings = changed?.settings || { ...(group.settings || {}), mode: 'intrusion' };
+        te.renaming = name;
+        te.pickAfter = name;
+        teRenderTracks();
+    } catch (error) {
+        showToast(error.message || 'Failed to create group', 'error');
+    }
 }
 
 async function teNewGroup(moveKey = null) {
@@ -3171,18 +3415,30 @@ function teRenameKey(event, name) {
         event.stopPropagation();
         te.renaming = null;
         teRenderTracks();
+        if (te.pickAfter === name) {  // a new intrusion group keeps its name; on to its files
+            te.pickAfter = null;
+            pkOpen(name);
+        }
     }
 }
 
 async function teCommitRename(name, value) {
     if (te.renaming !== name) return;
+    const pick = te.pickAfter === name;
+    te.pickAfter = null;
+    const finalName = await teRenameGroup(name, value);
+    if (pick && finalName && teGroup(finalName)) pkOpen(finalName);
+}
+
+// Rename a group; returns the name it has afterwards
+async function teRenameGroup(name, value) {
     te.renaming = null;
     const newName = (value || '').trim();
-    if (!newName || newName === name) { teRenderTracks(); return; }
+    if (!newName || newName === name) { teRenderTracks(); return name; }
     if (te.groups.some(g => g.name !== name && g.name.toLowerCase() === newName.toLowerCase())) {
         showToast('A group with that name exists', 'warning');
         teRenderTracks();
-        return;
+        return name;
     }
     try {
         const result = await api('POST', teGroupUrl(name, '/rename'), { name: newName });
@@ -3196,9 +3452,11 @@ async function teCommitRename(name, value) {
         teSetUpload(te.upload);
         teRenderTracks();
         await teLoadTracks(true, false);
+        return finalName;
     } catch (error) {
         showToast(error.message || 'Failed to rename group', 'error');
         teRenderTracks();
+        return name;
     }
 }
 
@@ -3227,9 +3485,17 @@ async function teDeleteGroup(name) {
     }
 }
 
-async function teMoveTrack(key, group) {
+async function teMoveTrack(key, group, anchor = null) {
+    if ((trackGroupOf(key) || null) === (group || null)) { teCloseMenu(); return; }
+    // A linked file moves between Intrusion groups; anywhere else it is copied in (asked first)
+    const linked = teTrack(key)?.linked;
+    if (linked && !teIsIntrusion(group ? teGroup(group) : null)) {
+        const button = anchor || te.menuBtn
+            || document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(key)}"] .more-btn`);
+        teMenu('copyin', button, JSON.stringify([key, group || null]));
+        return;
+    }
     teCloseMenu();
-    if ((trackGroupOf(key) || null) === (group || null)) return;
     // Move the row now; the server's answer (and any rename on a name clash) follows
     const track = te.tracks.find(t => t.name === key);
     if (track) {
@@ -3244,6 +3510,35 @@ async function teMoveTrack(key, group) {
         showToast(error.message || 'Failed to move track', 'error');
         await teLoadTracks(false, false);
     }
+}
+
+// A linked file copied into this theme (its group's folder or the theme folder): the link goes,
+// the track keeps its settings and preset values under its new name
+async function teCopyIn(arg) {
+    const [key, group] = JSON.parse(arg);
+    teCloseMenu();
+    if (currentPreviewTrack === key) stopTrackPreview();
+    try {
+        await api('POST', `/themes/${te.themeId}/links/${encodeURIComponent(key)}/copy-in`, { group });
+        teFlash(`Copied ${trackDisplayName(key)} to ${group || 'theme'}`);
+    } catch (error) {
+        showToast(error.message || 'Failed to copy the file', 'error');
+    }
+    await teLoadTracks(true, false);  // the server rebuilt the theme before answering
+    teLoadPresets(false);
+}
+
+async function teRemoveLink(key) {
+    teCloseMenu();
+    if (currentPreviewTrack === key) stopTrackPreview();
+    try {
+        await api('DELETE', `/themes/${te.themeId}/links/${encodeURIComponent(key)}`);
+        teFlash(`Removed ${trackDisplayName(key)}`);
+    } catch (error) {
+        showToast(error.message || 'Failed to remove the link', 'error');
+    }
+    await teLoadTracks(true, false);
+    teLoadPresets(false);
 }
 
 // Drag & drop (desktop): drag a track by its handle onto a group or the theme section
@@ -3270,6 +3565,8 @@ function teDragOver(event, section) {
     const from = trackGroupOf(te.drag);
     const to = section.dataset.group || null;
     if ((from || null) === (to || null)) return;
+    // A missing linked file can't be copied in: it only moves between Intrusion groups
+    if (teTrack(te.drag)?.linked?.missing && !teIsIntrusion(to ? teGroup(to) : null)) return;
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
     section.classList.add('drop');
@@ -3376,9 +3673,9 @@ function teRenderPresetField() {
     const preset = teSelectedPreset();
     btn.classList.toggle('is-cur', !preset);
     btn.setAttribute('aria-label', `Preset: ${preset ? preset.name : 'Current settings'}`);
-    btn.innerHTML = `${preset?.is_default ? '<span class="def-star" title="Default">★</span>' : ''}
-        <span class="pdd-name">${preset ? escapeHtml(preset.name) : '— Current settings —'}</span>
-        ${preset && te.mixDirty ? '<span class="dirty dot-only" title="Mix changed"><i></i></span>' : ''}${TE_ICON_CHEV_UP}`;
+    btn.innerHTML = `<span class="pdd-name">${preset ? escapeHtml(preset.name) : '— Current settings —'}</span>${
+        preset?.is_default ? '<span class="def-star" title="Default">★</span>' : ''}${preset?.has_intrusion ? intrusionMark() : ''}
+        ${preset && te.mixDirty ? '<span class="dirty dot-only" title="Mix changed"><i></i></span>' : ''}<span class="grow"></span>${TE_ICON_CHEV_UP}`;
     document.getElementById('te-load-btn').disabled = !preset;
     document.getElementById('te-savepreset-btn').disabled = !preset;
     document.getElementById('te-dirty').hidden = !(preset && te.mixDirty);
@@ -3435,6 +3732,7 @@ async function teSavePreset() {
         te.mixDirty = false;
         teRenderPresetField();
         teFlash('Saved');
+        teLoadPresets(false);  // its intrusion mark follows what it now turns on
     } catch (error) {
         showToast(error.message || 'Failed to save preset', 'error');
     }
@@ -3556,7 +3854,7 @@ function teMenuHtml(kind, arg) {
             const inGroup = trackGroupOf(arg);
             const gaplessOk = teGaplessAllowed(track);
             let html = '';
-            if (!inGroup) {
+            if (!inGroup || teIsIntrusion(teGroup(inGroup))) {
                 html += mi('Gapless', `teToggleGapless(${k})`, {
                     disabled: !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Background only',
                     after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
@@ -3579,11 +3877,60 @@ function teMenuHtml(kind, arg) {
             html += (html ? sep : '') + mi('Reset track', `teResetTrack(${k})`, { icon: TE_ICON_RESET });
             return { cls: 'menu', align: 'right', html };
         }
+        case 'link': {
+            // A file linked from another theme
+            const track = teTrack(arg);
+            if (!track?.linked) return null;
+            const k = jsArg(arg);
+            const inGroup = trackGroupOf(arg);
+            const missing = !!track.linked.missing;
+            const gaplessOk = teGaplessAllowed(track);
+            let html = mi('Gapless', `teToggleGapless(${k})`, {
+                disabled: missing || !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Background only',
+                after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
+            if (te.groupsOk) {
+                html += sep + '<div class="mhead">Move to group</div>';
+                html += [{ name: null, label: 'Theme (no group)' }, ...te.groups.map(g => ({ name: g.name, label: g.name }))].map(m => {
+                    const here = (m.name || null) === (inGroup || null);
+                    const copy = !teIsIntrusion(m.name ? teGroup(m.name) : null);  // copied in, asked first
+                    return mi(escapeHtml(m.label), `teMoveTrack(${k}, ${m.name === null ? 'null' : jsArg(m.name)})`, {
+                        cls: here ? 'cur' : '', disabled: here || (copy && missing), icon: TE_ICON_FOLDER,
+                        after: here ? '<span class="mi-note">here</span>' : '' });
+                }).join('');
+            }
+            html += sep + mi('Reset track', `teResetTrack(${k})`, { icon: TE_ICON_RESET, disabled: missing });
+            html += sep + mi('Remove link…', `teMenu('lnkdel', te.menuBtn, ${k})`, { icon: TE_ICON_UNLINK, cls: 'danger' });
+            return { cls: 'menu', align: 'right', html };
+        }
+        case 'lnkdel':
+            if (!teTrack(arg)) return null;
+            return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
+                <span class="pop-title">Remove link to ${escapeHtml(trackDisplayName(arg))}?</span>
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="teRemoveLink(${jsArg(arg)})">Remove</button></div>` };
+        case 'copyin': {
+            const [key] = JSON.parse(arg);
+            const source = teTrack(key)?.linked?.theme_name || 'another theme';
+            return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
+                <span class="pop-title">This will copy the file from ${escapeHtml(source)} to this theme. Are you sure?</span>
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" onclick="teCopyIn(${jsArg(arg)})">Copy</button></div>` };
+        }
+        case 'intoff': {
+            const [name, mode] = JSON.parse(arg);
+            const count = teGroupLinks(name).length;
+            const label = TE_GROUP_MODES.find(([v]) => v === mode)?.[1] || mode;
+            return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
+                <span class="pop-title">Change ${escapeHtml(name)} to ${escapeHtml(label)}? ${count} linked file${count === 1 ? ' is' : 's are'} removed.</span>
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="teConfirmIntrusionOff(${jsArg(arg)})">Change</button></div>` };
+        }
         case 'group': {
             const n = jsArg(arg);
             return { cls: 'menu', align: 'right', html: `
                 ${mi('Rename…', `teStartRename(${n})`)}
                 ${mi(`Upload into ${escapeHtml(arg)}`, `tePickUpload(${n})`)}
+                ${teIsIntrusion(teGroup(arg)) ? mi('Add from another theme…', `pkOpen(${n})`, { icon: TE_ICON_LINK }) : ''}
                 ${sep}${mi('Delete group…', `teAskDelete(${n})`, { cls: 'danger' })}` };
         }
         case 'presets': {
@@ -3594,6 +3941,7 @@ function teMenuHtml(kind, arg) {
                     ${p.id ? `<button type="button" class="star-btn${p.is_default ? ' on' : ''}" title="${p.is_default ? 'Default preset' : 'Set as default'}"
                             aria-label="${p.is_default ? 'Default preset' : 'Set as default'}: ${escapeHtml(p.name)}"
                             onclick="teStarPreset(${jsArg(p.id)})">★</button>` : '<span class="star-gap"></span>'}
+                    <span class="int-col">${p.has_intrusion ? intrusionMark() : ''}</span>
                 </div>`).join('');
             return { cls: 'menu preset-list', align: 'left', dir: 'up', role: 'listbox', html: rows };
         }
@@ -3695,7 +4043,9 @@ document.addEventListener('keydown', event => {
     // Another dialog (import/export preset) open on top: leave it alone
     const onTop = ['preset-import-modal', 'preset-export-modal'].some(id => document.getElementById(id)?.style.display === 'flex');
     if (onTop) return;
-    if (teHelpOpen()) {
+    if (te.pk) {
+        pkClose();
+    } else if (teHelpOpen()) {
         teCloseHelp();
         document.getElementById('te-help-btn')?.focus();
     } else if (te.menu) {
@@ -3710,6 +4060,227 @@ document.addEventListener('keydown', event => {
         closeThemeEditModal();
     }
 });
+
+// ============================================
+// Add from another theme: link files into an intrusion group (#te-pk)
+// Step 1: pick a theme. Step 2: that theme's tracks, read-only, to tick.
+// ============================================
+
+function pkFormatLength(seconds) {
+    if (seconds == null || !Number.isFinite(seconds)) return '—';
+    const s = Math.round(seconds);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function pkOpen(target) {
+    teCloseMenu();
+    if (!te.themeId || !teGroup(target)) return;
+    if (te.closed[target]) { delete te.closed[target]; teRenderTracks(); }
+    te.pk = { target, step: 1, q: '', sourceId: null, source: null, tracks: [], checked: {}, loading: false, error: '', busy: false, seq: 0 };
+    document.getElementById('pk-target').textContent = `to ${target}`;
+    document.getElementById('te-pk').style.display = 'flex';
+    pkRender(true);
+    document.getElementById('pk-q')?.focus();
+}
+
+function pkClose() {
+    if (!te.pk) return;
+    if (String(currentPreviewTrack || '').startsWith('pk:')) stopTrackPreview();
+    te.pk = null;
+    document.getElementById('te-pk').style.display = 'none';
+}
+
+function pkThemes() {
+    const q = tpNorm(te.pk.q.trim());
+    return themes
+        .filter(t => t.id !== te.themeId)
+        .filter(t => !q || tpNorm(t.name).includes(q) || (t.categories || []).some(c => tpNorm(c).includes(q)))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+}
+
+// Already linked into this group: shown ticked and disabled
+function pkAdded(track) {
+    const pk = te.pk;
+    return te.tracks.some(t => t.linked && trackGroupOf(t.name) === pk.target
+        && t.linked.theme_id === pk.source?.id && t.linked.track === track.id);
+}
+
+function pkFree() {
+    return te.pk.tracks.filter(t => !pkAdded(t));
+}
+
+function pkRender(full = false) {
+    const pk = te.pk;
+    if (!pk) return;
+    const bar = document.getElementById('pk-bar');
+    const head = document.getElementById('pk-head');
+    const body = document.getElementById('pk-body');
+    const chev = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
+    if (full) {
+        if (pk.step === 1) {
+            bar.innerHTML = `
+                <div class="tp-search"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                    <input class="inp" id="pk-q" type="text" placeholder="Search themes" aria-label="Search themes" autocomplete="off" value="${escapeHtml(pk.q)}" oninput="pkSearch(this.value)">
+                    <button class="clr" id="pk-clr" aria-label="Clear search" onclick="pkSearch(''); document.getElementById('pk-q').value = ''; document.getElementById('pk-q').focus()"${pk.q ? '' : ' hidden'}>${TE_ICON_X}</button></div>`;
+            head.className = 'pk-head pk-tg';
+            head.innerHTML = '<span>Name</span><span>Categories</span><span class="c">Tracks</span><span></span>';
+        } else {
+            const theme = themes.find(t => t.id === pk.sourceId);
+            const count = pk.loading ? '' : `<span class="badge badge-type">${pk.tracks.length} track${pk.tracks.length === 1 ? '' : 's'}</span>`;
+            bar.innerHTML = `
+                <button class="icon-btn sm pk-back" aria-label="Back to themes" onclick="pkBack()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="15 18 9 12 15 6"/></svg></button>
+                <span class="pk-tic" aria-hidden="true">${resolveThemeIcon(theme?.icon, pk.sourceId)}</span>
+                <strong class="pk-tname">${escapeHtml(pk.source?.name || theme?.name || '')}</strong>${count}
+                <span class="grow"></span>
+                <label class="pk-all"><span>All</span><input type="checkbox" class="pk-all-ck" onchange="pkToggleAll()"></label>`;
+            head.className = 'pk-head pk-fg';
+            head.innerHTML = '<span></span><span>Name</span><span>Group</span><span class="c">Length</span><span class="c"><input type="checkbox" class="pk-all-ck" aria-label="Select all" onchange="pkToggleAll()"></span>';
+        }
+    }
+    let html;
+    if (pk.step === 1) {
+        const list = pkThemes();
+        html = list.length ? `<div class="lbody">${list.map(t => {
+            const cats = t.categories || [];
+            const n = t.total_tracks || 0;
+            return `<button type="button" class="pk-row pk-tg" onclick="pkPick(${jsArg(t.id)})">
+                <span class="lname"><span class="ic" aria-hidden="true">${resolveThemeIcon(t.icon, t.id)}</span>
+                    <span class="pk-nm"><span class="trk-name">${escapeHtml(t.name)}</span>
+                        <span class="pk-meta">${escapeHtml([cats.join(', '), `${n} track${n === 1 ? '' : 's'}`].filter(Boolean).join(' · '))}</span></span></span>
+                <span class="tc-tags">${cats.length ? cats.map(c => `<span class="badge badge-type">${escapeHtml(c)}</span>`).join('') : '<span class="notag">—</span>'}</span>
+                <span class="lnum c">${n}</span>
+                <span class="pk-chev">${chev}</span>
+            </button>`;
+        }).join('')}</div>` : '<div class="empty-row">No themes found</div>';
+    } else if (pk.loading) {
+        html = '<div class="empty-row">Loading tracks…</div>';
+    } else if (pk.error) {
+        html = `<div class="empty-row">${escapeHtml(pk.error)}</div>`;
+    } else if (!pk.tracks.length) {
+        html = '<div class="empty-row">No tracks in this theme</div>';
+    } else {
+        html = `<div class="lbody">${pk.tracks.map((t, i) => {
+            const added = pkAdded(t);
+            const id = `pk:${pk.sourceId}:${t.id}`;
+            const playing = currentPreviewTrack === id && trackPreviewAudio && !trackPreviewAudio.paused;
+            const name = escapeHtml(t.display_name || trackDisplayName(t.id));
+            const length = pkFormatLength(t.duration_seconds);
+            const meta = [t.group, length, added ? 'Added' : ''].filter(Boolean).join(' · ');
+            return `<div class="pk-row pk-fg${added ? ' added' : ''}${playing ? ' pv' : ''}" data-pv="${escapeHtml(id)}">
+                <button class="track-preview-btn${playing ? ' playing' : ''}" title="${playing ? 'Stop preview' : 'Preview'}" aria-label="Preview: ${name}" onclick="pkPreview(${i})">
+                    ${TE_ICON_PLAY.replace('<svg', `<svg style="display:${playing ? 'none' : 'block'}"`)}
+                    ${TE_ICON_STOP.replace('<svg', `<svg style="display:${playing ? 'block' : 'none'}"`)}
+                </button>
+                <label class="pk-nm" for="pk-f${i}"><span class="trk-name">${name}</span><span class="pk-meta">${escapeHtml(meta)}</span></label>
+                <span class="pk-grp">${t.group ? `${TE_ICON_FOLDER}<span>${escapeHtml(t.group)}</span>` : '<span class="notag">—</span>'}</span>
+                <span class="lnum c">${length}</span>
+                <span class="c"><input id="pk-f${i}" type="checkbox"${added || pk.checked[t.id] ? ' checked' : ''}${added ? ' disabled' : ''}
+                    title="${added ? 'Already added' : 'Add'}" aria-label="${added ? 'Already added' : 'Add'}: ${name}" onchange="pkCheck(${i}, this.checked)"></span>
+            </div>`;
+        }).join('')}</div>`;
+    }
+    body.innerHTML = html;
+    pkRenderFoot();
+}
+
+function pkRenderFoot() {
+    const pk = te.pk;
+    if (!pk) return;
+    const free = pk.step === 2 ? pkFree() : [];
+    const n = free.filter(t => pk.checked[t.id]).length;
+    document.getElementById('pk-count').textContent = n ? `${n} selected` : '';
+    document.getElementById('pk-add').disabled = !n || pk.busy;
+    document.querySelectorAll('#te-pk .pk-all-ck').forEach(box => {
+        box.checked = free.length > 0 && n === free.length;
+        box.disabled = !free.length;
+    });
+}
+
+function pkSearch(value) {
+    if (!te.pk) return;
+    te.pk.q = value;
+    const clear = document.getElementById('pk-clr');
+    if (clear) clear.hidden = !value;
+    pkRender();
+}
+
+async function pkPick(sourceId) {
+    const pk = te.pk;
+    if (!pk) return;
+    const seq = ++pk.seq;
+    Object.assign(pk, { step: 2, sourceId, source: null, tracks: [], checked: {}, loading: true, error: '' });
+    pkRender(true);
+    document.querySelector('#te-pk .pk-back')?.focus();
+    try {
+        const result = await api('GET', `/themes/${te.themeId}/links/source/${encodeURIComponent(sourceId)}`);
+        if (te.pk !== pk || pk.seq !== seq) return;
+        pk.source = result.source || null;
+        pk.tracks = result.tracks || [];
+    } catch (error) {
+        if (te.pk !== pk || pk.seq !== seq) return;
+        pk.error = error.message || 'Failed to load tracks';
+    }
+    pk.loading = false;
+    pkRender(true);
+}
+
+function pkBack() {
+    const pk = te.pk;
+    if (!pk) return;
+    if (String(currentPreviewTrack || '').startsWith('pk:')) stopTrackPreview();
+    pk.seq++;
+    Object.assign(pk, { step: 1, sourceId: null, source: null, tracks: [], checked: {}, loading: false, error: '' });
+    pkRender(true);
+    document.getElementById('pk-q')?.focus();
+}
+
+function pkCheck(index, on) {
+    const track = te.pk?.tracks[index];
+    if (!track || pkAdded(track)) return;
+    if (on) te.pk.checked[track.id] = true;
+    else delete te.pk.checked[track.id];
+    pkRenderFoot();
+}
+
+function pkToggleAll() {
+    const pk = te.pk;
+    if (!pk || pk.step !== 2) return;
+    const free = pkFree();
+    const all = free.length > 0 && free.every(t => pk.checked[t.id]);
+    pk.checked = {};
+    if (!all) free.forEach(t => { pk.checked[t.id] = true; });
+    pkRender();
+}
+
+// Plays on this device only, from the other theme's own file
+function pkPreview(index) {
+    const pk = te.pk;
+    const track = pk?.tracks[index];
+    if (!track) return;
+    toggleTrackPreview(`pk:${pk.sourceId}:${track.id}`, `${BASE_PATH}${track.preview_url}`);
+}
+
+async function pkAdd() {
+    const pk = te.pk;
+    if (!pk || pk.step !== 2 || pk.busy) return;
+    const keys = pkFree().filter(t => pk.checked[t.id]).map(t => t.id);
+    if (!keys.length) return;
+    pk.busy = true;
+    pkRenderFoot();
+    try {
+        await api('POST', `/themes/${te.themeId}/links`, { theme: pk.source?.id || pk.sourceId, tracks: keys, group: pk.target });
+        const target = pk.target;
+        pkClose();
+        delete te.closed[target];
+        teFlash(`Added ${keys.length} linked file${keys.length === 1 ? '' : 's'}`);
+        await teLoadTracks(true, false);  // the server rebuilt the theme before answering
+        teLoadPresets(false);
+    } catch (error) {
+        pk.busy = false;
+        pkRenderFoot();
+        showToast(error.message || 'Failed to add the files', 'error');
+    }
+}
 
 // ============================================
 // Preset import / export dialogs (opened from the preset ⋯ menu)
@@ -3814,8 +4385,9 @@ async function copyPresetJson() {
 let trackPreviewAudio = null;
 let currentPreviewTrack = null;
 
-function toggleTrackPreview(trackName) {
-    if (!currentTrackMixerThemeId) return;
+// url: another file than this theme's track (the picker's rows); one preview at a time either way
+function toggleTrackPreview(trackName, url = null) {
+    if (!currentTrackMixerThemeId && !url) return;
     teStopMixPreview();  // one preview at a time
 
     // If same track is playing, stop it
@@ -3828,7 +4400,7 @@ function toggleTrackPreview(trackName) {
     stopTrackPreview();
 
     // Start new preview
-    const audioUrl = `${BASE_PATH}/api/themes/${encodeURIComponent(currentTrackMixerThemeId)}/tracks/${encodeURIComponent(trackName)}/audio`;
+    const audioUrl = url || `${BASE_PATH}/api/themes/${encodeURIComponent(currentTrackMixerThemeId)}/tracks/${encodeURIComponent(trackName)}/audio`;
 
     trackPreviewAudio = new Audio(audioUrl);
     // At the track's volume (and its group's), even when it's muted, so you hear the level it would play at
@@ -3890,8 +4462,10 @@ function stopTrackPreview() {
 }
 
 function updatePreviewButtonState(trackName, isPlaying) {
-    const trackItem = document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(trackName)}"]`);
+    const trackItem = document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(trackName)}"]`)
+        || document.querySelector(`#te-pk .pk-row[data-pv="${CSS.escape(trackName)}"]`);
     if (!trackItem) return;
+    trackItem.classList.toggle(trackItem.classList.contains('pk-row') ? 'pv' : 'previewing', !!isPlaying);
 
     const btn = trackItem.querySelector('.track-preview-btn');
     if (!btn) return;

@@ -136,6 +136,7 @@ Fine-tune how each audio file plays within a theme:
   - **Ebb & Flow** - Fades in, plays for a while, fades out, then stays quiet before coming back; "interval" sets how much of the time it's heard (distant traffic, a passing crowd)
 - **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in an Intermittent group (the default) plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
 - **Merry-go-round groups** - A group set to Merry-go-round makes a continuous bed instead: one file plays, then crossfades into another picked at random, never the same one twice in a row. Each group sets its own crossfade (seconds). A single file crossfades into itself.
+- **Intrusion groups** - A group set to Intrusion is a layer a preset turns on, like rain over a campsite: its tracks keep their own mode and settings, and it can hold files linked from other themes without copying them.
 
 #### Home Assistant Dashboard Integration
 - **MQTT Entities** - Full dashboard control via MQTT (session select, theme/preset dropdowns, play/stop, volume)
@@ -270,6 +271,7 @@ automations that use the entity first.
 
 **Themes and playback**
 - **Merry-go-round groups.** A group can now play as a continuous bed: one file plays, then crossfades into another picked at random, never the same one twice in a row. Pick the mode and the crossfade length in the group's row in the Theme Editor. A single file crossfades into itself.
+- **Intrusions.** A group in the new Intrusion mode is a layer a preset can turn on, like rain over a campsite. Its tracks keep their own mode, and it can hold files linked from other themes (⋯ › Add from another theme) without copying them. Presets that turn one on show ⚭ in the Theme Editor and on the channel cards.
 
 ### 1.5.0
 
@@ -348,6 +350,12 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 - **Group volume, interval, mute:** scale every track in the group.
 - **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
 - **Deleting a group:** keeps its files; they move back into the theme.
+
+**Intrusions**
+
+- **Intrusion group:** a group in Intrusion mode, marked 🔗. Its tracks keep their own mode and settings, and it can hold files linked from other themes.
+- **Linked file:** plays here but stays in its own theme. Add one with the group's ⋯ › Add from another theme. New links start muted. If the file is gone, it shows Missing.
+- **Presets:** turn intrusion tracks on and other tracks off, like rain that mutes the crickets. A preset that turns intrusion tracks on shows ⚭.
 
 **Saving**
 

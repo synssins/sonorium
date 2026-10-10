@@ -133,6 +133,53 @@ def remove_link(metadata, key: str) -> bool:
     return True
 
 
+def remove_link_keep_settings(metadata, key: str) -> bool:
+    """Drop only the link (its file was copied in): settings and preset entries stay for the new key."""
+    if key not in (metadata.links or {}):
+        return False
+    del metadata.links[key]
+    return True
+
+
+def group_link_keys(metadata, group: str) -> list[str]:
+    """The keys of a group's linked files."""
+    return [k for k in (metadata.links or {}) if k.split("/", 1)[0] == group]
+
+
+def remove_group_links(metadata, group: str) -> list[str]:
+    """Remove every link of a group (settings and preset entries too, never a file); returns their keys."""
+    keys = group_link_keys(metadata, group)
+    for key in keys:
+        remove_link(metadata, key)
+    return keys
+
+
+def rekey_track(metadata, old: str, new: str) -> None:
+    """Carry a track's settings and preset entries from key old to key new (metadata.presets too)."""
+    if old == new:
+        return
+    from sonorium.core.theme_groups import migrate_presets, remap_tracks
+    metadata.tracks = remap_tracks(dict(metadata.tracks or {}), {old: new})
+    metadata.presets = migrate_presets(metadata.presets or {}, {old: new})
+
+
+def move_link(metadata, folder: Path, key: str, group: str) -> str:
+    """
+    Move a linked file into another (intrusion) group: the link gets the key
+    "<group>/<name>" (" (2)" on a clash) and keeps its settings and preset
+    values. Returns the new key (the old one when it is already there).
+    """
+    if key not in (metadata.links or {}):
+        raise KeyError(key)
+    if key.split("/", 1)[0] == group:
+        return key
+    taken = (set(file_keys(folder)) | set(metadata.tracks or {}) | set(metadata.links or {})) - {key}
+    new = free_link_key(group, key.split("/", 1)[1], taken)
+    metadata.links = {(new if k == key else k): v for k, v in metadata.links.items()}
+    rekey_track(metadata, key, new)
+    return new
+
+
 def intrusion_track_keys(metadata, local_keys: Iterable[str], playable_links: Optional[set] = None) -> dict:
     """
     {intrusion group: [its track keys]}: its own files plus its links (only

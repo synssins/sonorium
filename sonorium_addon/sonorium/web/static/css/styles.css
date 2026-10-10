@@ -3595,3 +3595,128 @@ html { scrollbar-gutter: stable; }
 .te .ghead .gname-cell .gap-ctl { flex-basis: 100%; margin-left: 0; }
 .te #te-tracks .trow, .te #te-tracks .ghead { -webkit-user-select: none; user-select: none; }
 .te #te-tracks input { -webkit-user-select: text; user-select: text; }
+
+/* ==========================================================================
+   Intrusions: intrusion groups, files linked from other themes, the
+   "Add from another theme" picker (#te-pk) and the intrusion mark on presets
+   ========================================================================== */
+/* Marks: a link (intrusion group, linked file); two overlapping circles (a preset that turns intrusion tracks on) */
+.int-ic { display: inline-flex; align-items: center; flex: none; color: #c4b5fd; }
+.int-ic svg, .te .pdd .int-ic svg, .te-pop .mi .int-ic svg { color: #c4b5fd; }
+.te-help-body .int-ic { display: inline; vertical-align: -1px; }
+/* Preset field: name, then the default star and the intrusion mark */
+.te .pdd .pdd-name { flex: 0 1 auto; }
+.te .pdd .def-star { flex: none; }
+.te-pop .int-col { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 20px; }
+/* Intrusion group: faint purple edge; an empty one offers the picker */
+.te .int-sec { border-color: rgba(139, 92, 246, .45); }
+.te .empty-row .link-btn { display: inline-flex; align-items: center; gap: .375rem; }
+/* Linked rows: name, then "from <theme>" in muted text with a link mark */
+.te .lk-cell { display: flex; flex-direction: column; justify-content: center; gap: .125rem; min-width: 0; }
+.te .in-grp .lk-cell { padding-left: .75rem; border-left: 2px solid rgba(139, 92, 246, .5); }
+.te .in-grp .lk-cell .trk-name { padding-left: 0; border-left: 0; }
+.te .lk-from { display: flex; align-items: center; gap: .3rem; min-width: 0; font-size: .6875rem; line-height: 1.2; color: var(--text-muted); white-space: nowrap; }
+.te .lk-src { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.te .lk-ic { display: inline-flex; flex: none; color: #c4b5fd; }
+.te .badge-missing { height: 16px; padding: 0 .3rem; background: rgba(239, 68, 68, .15); color: var(--accent-danger); font-size: .625rem; }
+/* Missing source: greyed; only ⋯ (Remove link) stays live */
+.te .trow.missing .trk-name, .te .trow.missing .mx, .te .trow.missing .c-mode, .te .trow.missing .track-preview-btn, .te .trow.missing .track-mute-btn { opacity: .4; }
+.te .trow.missing .track-preview-btn, .te .trow.missing .track-mute-btn { cursor: default; transform: none; }
+.te .trow.missing .track-preview-btn:hover { background: var(--accent-primary); }
+/* Previewing a row: its Volume slider sets the preview level, so it stays at full strength even when muted */
+.te .trow.previewing { background: rgba(6, 214, 160, .06); }
+.te .trow.muted.previewing .mx[data-kind="volume"] { opacity: 1; }
+
+/* Picker: another theme's files, read-only */
+.pk-backdrop { z-index: 220; padding: 1.5rem 2rem; }
+.modal.pk { width: min(720px, 100%); height: min(680px, 100%); min-width: 0; max-width: none; max-height: none; display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--border-color); }
+.pk .modal-header { flex: none; padding: .625rem 1rem .625rem 1.5rem; }
+.pk .modal-header h2 { display: flex; align-items: baseline; gap: .625rem; min-width: 0; margin: 0; white-space: nowrap; }
+.pk .modal-header .sub { overflow: hidden; text-overflow: ellipsis; font-size: .875rem; font-weight: 400; color: var(--text-muted); }
+.pk .modal-close { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; }
+.pk-bar { flex: none; display: flex; align-items: center; gap: .625rem; min-height: 38px; padding: .75rem 1.5rem .5rem; }
+.pk .tp-search { flex: 0 1 360px; }
+.pk-tic { font-size: 1.25rem; line-height: 1; }
+.pk-tname { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: .9375rem; font-weight: 600; white-space: nowrap; }
+.pk-headwrap { flex: none; padding: 0 1.5rem; overflow: hidden; scrollbar-gutter: stable; scrollbar-width: thin; }
+.pk-head { padding: .375rem calc(.75rem + 1px); font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.pk-head .c, .pk-row .c { justify-self: center; text-align: center; display: inline-flex; justify-content: center; }
+.pk-body { flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; scrollbar-width: thin; padding: 0 1.5rem 1rem; }
+.pk-tg { display: grid; grid-template-columns: 240px minmax(0, 1fr) 60px 20px; column-gap: .75rem; align-items: center; }
+.pk-fg { display: grid; grid-template-columns: 28px 220px minmax(0, 1fr) 64px 32px; column-gap: .75rem; align-items: center; }
+.pk-row { box-sizing: border-box; width: 100%; min-height: 48px; padding: .375rem .75rem; border: 0; border-bottom: 1px solid rgba(51, 65, 85, .55); background: none; color: var(--text-primary); font: inherit; text-align: left; }
+.pk-row:last-child { border-bottom: 0; }
+button.pk-row { cursor: pointer; }
+.pk-row:hover { background: var(--bg-card-hover); }
+.pk-row.pv { background: rgba(6, 214, 160, .06); }
+.pk-row.added .trk-name { color: var(--text-secondary); }
+.pk .lname .pk-nm { flex: 1; min-width: 0; }
+.pk-nm { display: flex; flex-direction: column; min-width: 0; cursor: pointer; }
+.pk-meta { display: none; }
+.pk-grp { display: flex; align-items: center; gap: .375rem; min-width: 0; font-size: .8125rem; color: var(--text-secondary); }
+.pk-grp svg { flex: none; color: var(--accent-warning); }
+.pk-grp span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-chev { display: inline-flex; justify-self: end; color: var(--text-muted); }
+.pk input[type=checkbox] { width: 18px; height: 18px; margin: 0; accent-color: var(--accent-primary); cursor: pointer; }
+.pk input[type=checkbox][disabled] { opacity: .55; cursor: default; }
+.pk-all { display: none; }
+.pk .empty-row { padding: .75rem; font-size: .8125rem; color: var(--text-muted); text-align: center; }
+.pk .modal-footer.pk-foot { flex: none; align-items: center; gap: .5rem; padding: .75rem 1.5rem; }
+.pk-foot .btn[disabled] { opacity: .4; cursor: default; transform: none; }
+.pk-count { font-size: .8125rem; color: var(--text-secondary); white-space: nowrap; }
+
+/* Channel card preset field: looks like the selects, its list can show the marks */
+.psel { position: relative; }
+.psel-btn { display: flex; align-items: center; gap: .375rem; width: 100%; box-sizing: border-box; min-height: 36px; padding: .5rem .625rem .5rem .75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .375rem; color: var(--text-primary); font: inherit; font-size: .875rem; text-align: left; cursor: pointer; }
+.psel-btn:hover, .psel-btn:focus-visible, .psel-btn[aria-expanded="true"] { outline: none; border-color: var(--accent-primary); }
+.psel-btn .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.psel-btn .chev { display: inline-flex; margin-left: auto; color: var(--text-muted); }
+.psel-btn[disabled] { opacity: .5; cursor: default; }
+.psel-btn[disabled]:hover { border-color: var(--border-color); }
+.psel-list { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 45; max-height: 280px; overflow-y: auto; padding: .25rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .5rem; box-shadow: 0 10px 25px rgba(0, 0, 0, .5); }
+.psel-list:focus { outline: none; border-color: var(--accent-primary); }
+.psel-list[hidden] { display: none; }
+.popt { display: flex; align-items: center; gap: .375rem; width: 100%; box-sizing: border-box; min-height: 34px; padding: 0 .625rem; border-radius: .375rem; color: var(--text-primary); font-size: .8125rem; white-space: nowrap; cursor: pointer; }
+.popt .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.popt.hi { background: var(--bg-card-hover); }
+.popt.cur { color: var(--accent-primary); }
+.popt.dflt { font-style: italic; color: var(--text-secondary); }
+.popt.dflt.cur { color: var(--accent-primary); }
+.popt .ck { display: inline-flex; flex: none; width: 14px; color: var(--accent-primary); }
+.psel .def-star { flex: none; color: var(--accent-warning); }
+.session-field.open { position: relative; z-index: 40; }
+
+@media (max-width: 760px) {
+    /* Four toolbar actions: two per row */
+    .te .tbar { grid-template-columns: 1fr 1fr; }
+    /* Linked row card: the name cell holds name and source */
+    .te .trow .lk-cell { grid-area: name; }
+    .te .trow.in-grp .lk-cell { padding-left: 0; border-left: 0; }
+    .te .trow .lk-cell .trk-name { font-size: .9375rem; }
+    /* Picker: full screen; rows become cards with a meta line */
+    .pk-backdrop { padding: 0; }
+    .modal.pk { width: 100%; height: 100%; height: 100dvh; border-radius: 0; border: 0; }
+    .pk .modal-header { height: 52px; box-sizing: border-box; padding: 0 .5rem 0 1rem; }
+    .pk .modal-header h2 { font-size: 1.0625rem; }
+    .pk .modal-close { width: 44px; height: 44px; }
+    .pk-bar { padding: .625rem 1rem .5rem; }
+    .pk .tp-search { flex: 1; }
+    .pk .tp-search .inp { min-height: 44px; font-size: 1rem; }
+    .pk .icon-btn.sm { width: 40px; height: 40px; }
+    .pk-headwrap { display: none; }
+    .pk-body { padding: 0 1rem 1rem; scrollbar-gutter: auto; }
+    .pk-tg { grid-template-columns: minmax(0, 1fr) 20px; }
+    .pk-tg .tc-tags, .pk-tg .lnum { display: none; }
+    .pk-fg { grid-template-columns: 36px minmax(0, 1fr) 44px; }
+    .pk-fg .pk-grp, .pk-fg .lnum { display: none; }
+    .pk-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .75rem; color: var(--text-muted); }
+    .pk-row { min-height: 56px; }
+    .pk .lname .ic { font-size: 1.375rem; width: 28px; }
+    .pk .trk-name { font-size: .9375rem; }
+    .pk .track-preview-btn { width: 36px; height: 36px; }
+    .pk-all { display: inline-flex; align-items: center; gap: .5rem; min-height: 44px; margin-right: 24px; font-size: .875rem; color: var(--text-secondary); }
+    .pk input[type=checkbox] { width: 22px; height: 22px; }
+    .pk .modal-footer.pk-foot { padding: .625rem 1rem; }
+    .pk-foot .btn { min-height: 44px; min-width: 96px; justify-content: center; }
+    .popt { min-height: 44px; font-size: .9375rem; }
+}

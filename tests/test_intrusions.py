@@ -414,3 +414,131 @@ def test_h_api_round_trip(world):
     run(api.update_group("camping-id", "Storms", Body({"mode": "intermittent"})))
     run(api.update_group("camping-id", "Other", Body({"mode": "intrusion"})))
     assert (world.root / "Camping" / "Other").is_dir()
+
+
+# --- editor operations: leave Intrusion, move a link, copy a link in -------------
+
+def refused(coro, status):
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as error:
+        run(coro)
+    assert error.value.status_code == status
+
+
+def with_preset(world, tracks):
+    api = world.api
+    metadata = api._theme_metadata_manager.get_metadata("camping-id")
+    metadata.presets["p"] = {"name": "P", "tracks": tracks}
+    api._theme_metadata_manager.save_metadata("camping-id", metadata)
+
+
+def saved_presets(world):
+    return json.loads((world.root / "Camping" / "presets.json").read_text(encoding="utf-8"))["presets"]
+
+
+def test_leaving_intrusion_mode_with_remove_links(world):
+    api = world.api
+    link_rain(world)
+    run(api.set_track_volume("camping-id", "Weather/Rain", Body({"volume": 0.4})))
+    with_preset(world, {"Weather/Rain": {"muted": False}, "Crickets": {"muted": True}})
+
+    refused(api.update_group("camping-id", "Weather", Body({"mode": "intermittent"})), 409)
+    refused(api.update_group("camping-id", "Weather", Body({"mode": "intermittent", "remove_links": "yes"})), 400)
+    assert "Weather/Rain" in metadata_on_disk(world, "Camping")["links"]
+
+    result = run(api.update_group("camping-id", "Weather", Body({"mode": "intermittent", "remove_links": True})))
+    assert result["settings"] == {"mode": "intermittent"} and result["removed_links"] == ["Weather/Rain"]
+    saved = metadata_on_disk(world, "Camping")
+    assert "links" not in saved and "Weather/Rain" not in saved["tracks"]
+    assert saved["groups"]["Weather"] == {"mode": "intermittent"}
+    assert saved_presets(world)["p"]["tracks"] == {"Crickets": {"muted": True}}
+    assert (world.root / "Rain" / "Rain.mp3").exists()  # never a file
+    assert (world.root / "Camping" / "Weather").is_dir()  # still a group
+    assert all(i.name != "Weather/Rain" for i in theme(world, "Camping").instances)
+
+    # The flag is harmless without links, and when staying in Intrusion
+    run(api.update_group("camping-id", "Weather", Body({"mode": "intrusion", "remove_links": True})))
+    link_rain(world)
+    run(api.update_group("camping-id", "Weather", Body({"volume": 0.5, "remove_links": True})))
+    assert "Weather/Rain" in metadata_on_disk(world, "Camping")["links"]
+
+
+def test_moving_a_link_between_intrusion_groups(world):
+    api = world.api
+    (world.root / "Camping" / "Storms").mkdir()
+    (world.root / "Camping" / "Plain").mkdir()
+    run(api.update_group("camping-id", "Storms", Body({"mode": "intrusion"})))
+    link_rain(world)
+    run(api.set_track_volume("camping-id", "Weather/Rain", Body({"volume": 0.4})))
+    with_preset(world, {"Weather/Rain": {"muted": False, "volume": 0.9}})
+    stream = theme(world, "Camping").get_stream(m.recording.preset_track_overrides({"Weather/Rain": {"muted": False}}))
+    assert "Weather/Rain" in stream._views
+
+    # Only into another Intrusion group
+    refused(api.move_track_to_group("camping-id", "Weather/Rain", Body({"group": None})), 409)
+    refused(api.move_track_to_group("camping-id", "Weather/Rain", Body({"group": "Plain"})), 409)
+    refused(api.move_track_to_group("camping-id", "Weather/Rain", Body({"group": "Nope"})), 404)
+
+    assert run(api.move_track_to_group("camping-id", "Weather/Rain", Body({"group": "Storms"}))) == {"track": "Storms/Rain"}
+    saved = metadata_on_disk(world, "Camping")
+    assert saved["links"] == {"Storms/Rain": {"theme": "rain-id", "track": "Rain"}}
+    assert "Weather/Rain" not in saved["tracks"] and saved["tracks"]["Storms/Rain"]["volume"] == 0.4
+    assert saved_presets(world)["p"]["tracks"] == {"Storms/Rain": {"muted": False, "volume": 0.9}}
+    assert not (world.root / "Camping" / "Storms" / "Rain.mp3").exists()  # still a link, not a copy
+    tracks = {t["name"]: t for t in run(api.get_theme_tracks("camping-id"))["tracks"]}
+    assert tracks["Storms/Rain"]["linked"]["theme_id"] == "rain-id"
+    # A playing mix follows
+    assert "Storms/Rain" in stream._views and "Weather/Rain" not in stream._views
+
+    # Moving it where it is changes nothing; a clash gets " (2)"
+    assert run(api.move_track_to_group("camping-id", "Storms/Rain", Body({"group": "Storms"}))) == {"track": "Storms/Rain"}
+    link_rain(world)
+    assert run(api.move_track_to_group("camping-id", "Weather/Rain", Body({"group": "Storms"}))) == {"track": "Storms/Rain (2)"}
+
+
+def test_copying_a_link_into_the_theme(world):
+    api = world.api
+    (world.root / "Camping" / "Plain").mkdir()
+    link_rain(world)
+    run(api.set_track_volume("camping-id", "Weather/Rain", Body({"volume": 0.4})))
+    with_preset(world, {"Weather/Rain": {"muted": False, "volume": 0.9}, "Crickets": {"muted": True}})
+    stream = theme(world, "Camping").get_stream()
+    assert "Weather/Rain" in stream._views
+    source = world.root / "Rain" / "Rain.mp3"
+    source_bytes = source.read_bytes()
+
+    refused(api.copy_link_in("camping-id", "Crickets", Body({"group": None})), 404)  # not a link
+    refused(api.copy_link_in("camping-id", "Weather/Rain", Body({"group": "Nope"})), 404)
+    refused(api.copy_link_in("camping-id", "Weather/Rain", Body({})), 400)
+
+    # Into the theme (no group)
+    assert run(api.copy_link_in("camping-id", "Weather/Rain", Body({"group": None}))) == {"track": "Rain"}
+    copied = world.root / "Camping" / "Rain.mp3"
+    assert copied.read_bytes() == source_bytes and source.read_bytes() == source_bytes  # copied; source untouched
+    saved = metadata_on_disk(world, "Camping")
+    assert "links" not in saved and "Weather/Rain" not in saved["tracks"]
+    assert saved["tracks"]["Rain"]["volume"] == 0.4 and saved["tracks"]["Rain"]["muted"] is True
+    assert saved_presets(world)["p"]["tracks"] == {"Rain": {"muted": False, "volume": 0.9}, "Crickets": {"muted": True}}
+    camping = theme(world, "Camping")
+    rain = next(i for i in camping.instances if i.name == "Rain")
+    assert rain.meta.path == copied and not getattr(rain.meta, "link", None)
+    # A playing mix follows
+    assert "Rain" in stream._views and "Weather/Rain" not in stream._views
+    # The copy plays from this theme's folder
+    signal = mix(camping.get_stream(m.recording.preset_track_overrides({"Rain": {"muted": False}, "Crickets": {"muted": True}})), 3.0)
+    assert level(signal, RAIN_HZ) > 1000
+
+    # Again, into the root: the name is taken, so "Rain (2)"; into a plain group: its folder
+    link_rain(world)
+    assert run(api.copy_link_in("camping-id", "Weather/Rain", Body({"group": None}))) == {"track": "Rain (2)"}
+    assert (world.root / "Camping" / "Rain (2).mp3").exists()
+    link_rain(world)
+    assert run(api.copy_link_in("camping-id", "Weather/Rain", Body({"group": "Plain"}))) == {"track": "Plain/Rain"}
+    assert (world.root / "Camping" / "Plain" / "Rain.mp3").exists()
+
+    # A missing source can't be copied
+    link_rain(world)
+    source.unlink()
+    run(api.refresh_themes())
+    refused(api.copy_link_in("camping-id", "Weather/Rain", Body({"group": None})), 409)
+    assert "Weather/Rain" in metadata_on_disk(world, "Camping")["links"]

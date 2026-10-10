@@ -222,8 +222,11 @@ API (`api.py:151-152`):
   `muted`, `gap_min`, `gap_max` (clamped `>= 0`), `mode` (`"intermittent"`, `"merry_go_round"`
   or `"intrusion"`, anything else gives 400) and `crossfade` (a number, clamped 1-60);
   `null` removes a key; other keys give 400; a group that is not a folder group gives 404
-  (`api.py:1607-1647`). A group that holds linked files can't leave Intrusion mode (409);
-  entering it creates the group folder if it is missing and rebuilds the theme. Everything
+  (`api.py:1607-1647`). A group that holds linked files can't leave Intrusion mode (409)
+  unless the body also has `"remove_links": true`: then its links are removed first, with
+  their settings and preset entries (never a file), and the answer lists them in
+  `removed_links`. A `remove_links` that is not a boolean gives 400.
+  Entering Intrusion mode creates the group folder if it is missing and rebuilds the theme. Everything
   applies live to playing channels: volume, presence, mute and crossfade every chunk, the gap
   at the next gap, and a mode change rebuilds that group's streams
   (`ThemeStream._follow_group_modes`).
@@ -273,12 +276,21 @@ API (`api.py`):
   Intrusion mode or the theme itself as source; 404 for an unknown theme, group or track.
 - `DELETE /api/themes/{id}/links/{key}` removes a link with its settings and preset entries
   (never a file); 404 if it is not a link.
+- `POST /api/themes/{id}/tracks/{key}/move` with a linked key moves the link into another
+  Intrusion group: it is re-keyed `"<group>/<name>"` (`" (2)"` on a clash) and its settings and
+  preset values move with it (`core/intrusions.py` `move_link`). Into a group not in Intrusion
+  mode or to the top level (`null`) gives 409 (copy it in instead); an unknown group gives 404.
+- `POST /api/themes/{id}/links/{key}/copy-in` with `{"group": name or null}` copies the linked
+  file into this theme: the source file is copied (never moved) into the group's folder, or the
+  theme folder for `null`, renamed `"x (2)"` etc. on a clash. The link is removed and the track's
+  settings and preset values move to its new key: `{"track": new key}`. 400 without `group`,
+  404 if it is not a link or the group is unknown, 409 when the source file is missing.
 - `GET /api/themes/{id}/tracks` gives each track its `group` and `intrusion_group`; a linked
   track has `"linked": {theme_id, theme_name, track, missing}`, and missing linked tracks are
   listed too (not playing).
 - `GET /api/themes/{id}/tracks/{key}/audio` serves a linked track's source file (preview).
-- Adding or removing links and changing a group into or out of Intrusion mode rebuild the theme
-  at once; playing channels follow.
+- Adding, moving, copying in or removing links and changing a group into or out of Intrusion
+  mode rebuild the theme at once; playing channels follow.
 
 ---
 
