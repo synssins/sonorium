@@ -799,10 +799,12 @@ Example:
                     </div>
 
                     <div class="session-field" id="channel-preset-field" style="display: none;">
-                        <label for="channel-preset-select">Theme Preset</label>
-                        <select id="channel-preset-select" onchange="onChannelPresetChange()">
+                        <label id="channel-preset-lbl">Theme Preset</label>
+                        <!-- The value lives in this hidden select; the list below shows it with the preset marks -->
+                        <select id="channel-preset-select" hidden aria-hidden="true" tabindex="-1" onchange="onChannelPresetChange()">
                             <option value="">-- Default Settings --</option>
                         </select>
+                        <div class="psel" id="channel-preset-picker"></div>
                     </div>
 
                     <div class="session-field">

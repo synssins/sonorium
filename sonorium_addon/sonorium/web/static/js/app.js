@@ -1288,6 +1288,8 @@ function scrollSelectedThemeIntoView() {
 // Channel Preset Functions
 let channelPresets = [];
 let selectedChannelPreset = '';
+let channelDefaultIntrusion = false;
+let dpselActive = 0;
 
 async function loadChannelPresets(themeId) {
     const presetField = document.getElementById('channel-preset-field');
@@ -1303,6 +1305,7 @@ async function loadChannelPresets(themeId) {
     try {
         const result = await api('GET', `/themes/${themeId}/presets`);
         channelPresets = result.presets || [];
+        channelDefaultIntrusion = !!result.default_has_intrusion;
         updateChannelPresetDropdown();
         presetField.style.display = 'block';
     } catch (error) {
@@ -1326,7 +1329,7 @@ function updateChannelPresetDropdown() {
         channelPresets.forEach(preset => {
             const option = document.createElement('option');
             option.value = preset.id;
-            option.textContent = preset.name + (preset.is_default ? ' ★' : '');
+            option.textContent = preset.name;
             select.appendChild(option);
         });
 
@@ -1339,12 +1342,125 @@ function updateChannelPresetDropdown() {
             select.value = selectedChannelPreset;
         }
     }
+    dpselRender();
 }
 
 function onChannelPresetChange() {
     const select = document.getElementById('channel-preset-select');
     selectedChannelPreset = select.value;
+    dpselRender();
 }
+
+// The Edit dialog's preset field: the same list as the channel card, so the
+// default star and the intrusion mark show. Keyboard: arrows, Home/End,
+// Enter or Space picks, Esc closes.
+function dpselOptions() {
+    const select = document.getElementById('channel-preset-select');
+    return [...(select?.options || [])].map(o => {
+        const preset = channelPresets.find(p => p.id === o.value);
+        return { id: o.value, name: o.value ? o.textContent : 'Default settings', disabled: o.disabled,
+                 def: !!preset?.is_default, int: preset ? !!preset.has_intrusion : (!o.disabled && channelDefaultIntrusion) };
+    });
+}
+
+function dpselRender() {
+    const box = document.getElementById('channel-preset-picker');
+    const select = document.getElementById('channel-preset-select');
+    if (!box || !select) return;
+    const options = dpselOptions();
+    const empty = channelPresets.length === 0;
+    const sel = options.find(o => o.id === select.value) || options[0] || { name: '' };
+    const open = !box.querySelector('.psel-list')?.hidden;
+    box.innerHTML = `
+        <button type="button" class="psel-btn" id="channel-preset-btn" aria-haspopup="listbox" aria-expanded="false"
+                aria-labelledby="channel-preset-lbl channel-preset-btn" ${empty ? 'disabled' : ''}
+                onclick="dpselToggle()" onkeydown="dpselButtonKey(event)">
+            <span class="nm">${empty ? 'No presets yet' : escapeHtml(sel.name)}</span>${empty ? '' : presetMarks(sel.def, sel.int)}
+            <span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></span>
+        </button>
+        <div class="psel-list" id="channel-preset-list" role="listbox" tabindex="-1" aria-labelledby="channel-preset-lbl" hidden
+             onkeydown="dpselListKey(event)"></div>`;
+    if (open && box.dataset.open === '1') dpselOpen();
+}
+
+function dpselRenderList() {
+    const list = document.getElementById('channel-preset-list');
+    const select = document.getElementById('channel-preset-select');
+    if (!list || !select) return;
+    list.innerHTML = dpselOptions().map((o, i) => {
+        const cur = o.id === select.value;
+        return `<div class="popt${cur ? ' cur' : ''}${o.id ? '' : ' dflt'}${i === dpselActive ? ' hi' : ''}" role="option" id="dpsel-${i}"
+                     aria-selected="${cur}" onmousedown="event.preventDefault()" onclick="dpselPick(${i})" onmouseenter="dpselActive = ${i}; dpselRenderList()">
+                    <span class="ck">${cur ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>' : ''}</span>
+                    <span class="nm">${escapeHtml(o.name)}</span>${presetMarks(o.def, o.int)}
+                </div>`;
+    }).join('');
+    list.setAttribute('aria-activedescendant', `dpsel-${dpselActive}`);
+    list.querySelector('.popt.hi')?.scrollIntoView({ block: 'nearest' });
+}
+
+function dpselOpen() {
+    const box = document.getElementById('channel-preset-picker');
+    const button = document.getElementById('channel-preset-btn');
+    const list = document.getElementById('channel-preset-list');
+    const select = document.getElementById('channel-preset-select');
+    if (!box || !button || !list || button.disabled) return;
+    box.dataset.open = '1';
+    dpselActive = Math.max(0, dpselOptions().findIndex(o => o.id === select.value));
+    list.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    dpselRenderList();
+    list.focus();
+}
+
+function dpselClose(focusButton = false) {
+    const box = document.getElementById('channel-preset-picker');
+    const list = document.getElementById('channel-preset-list');
+    const button = document.getElementById('channel-preset-btn');
+    if (box) box.dataset.open = '';
+    if (list) { list.hidden = true; list.innerHTML = ''; }
+    if (button) {
+        button.setAttribute('aria-expanded', 'false');
+        if (focusButton) button.focus();
+    }
+}
+
+function dpselToggle() {
+    const list = document.getElementById('channel-preset-list');
+    if (list && !list.hidden) dpselClose(true); else dpselOpen();
+}
+
+function dpselPick(index) {
+    const option = dpselOptions()[index];
+    const select = document.getElementById('channel-preset-select');
+    if (!option || option.disabled || !select) return;
+    select.value = option.id;
+    dpselClose(true);
+    select.dispatchEvent(new Event('change'));
+}
+
+function dpselButtonKey(event) {
+    if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(event.key)) { event.preventDefault(); dpselOpen(); }
+}
+
+function dpselListKey(event) {
+    const count = dpselOptions().length;
+    if (event.key === 'ArrowDown') dpselActive = Math.min(count - 1, dpselActive + 1);
+    else if (event.key === 'ArrowUp') dpselActive = Math.max(0, dpselActive - 1);
+    else if (event.key === 'Home') dpselActive = 0;
+    else if (event.key === 'End') dpselActive = count - 1;
+    else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); dpselPick(dpselActive); return; }
+    else if (event.key === 'Escape' || event.key === 'Tab') { event.preventDefault(); event.stopPropagation(); dpselClose(true); return; }
+    else return;
+    event.preventDefault();
+    dpselRenderList();
+}
+
+// A click anywhere else closes the dialog's preset list
+document.addEventListener('pointerdown', event => {
+    const box = document.getElementById('channel-preset-picker');
+    if (box && box.dataset.open === '1' && !box.contains(event.target)) dpselClose();
+}, true);
 
 // Speaker Tree
 function isSpeakerEnabled(entityId) {
@@ -3937,11 +4053,10 @@ function teMenuHtml(kind, arg) {
             const rows = [{ id: '', name: '— Current settings —' }, ...te.presets].map(p => `
                 <div class="prow">
                     <button type="button" class="mi${p.id === te.selPreset ? ' cur' : ''}${p.id ? '' : ' cur-set'}" role="option"
-                            aria-selected="${p.id === te.selPreset}" onclick="teChoosePreset(${jsArg(p.id)})">${escapeHtml(p.name)}</button>
-                    ${p.id ? `<button type="button" class="star-btn${p.is_default ? ' on' : ''}" title="${p.is_default ? 'Default preset' : 'Set as default'}"
-                            aria-label="${p.is_default ? 'Default preset' : 'Set as default'}: ${escapeHtml(p.name)}"
-                            onclick="teStarPreset(${jsArg(p.id)})">★</button>` : '<span class="star-gap"></span>'}
-                    <span class="int-col">${p.has_intrusion ? intrusionMark() : ''}</span>
+                            aria-selected="${p.id === te.selPreset}" onclick="teChoosePreset(${jsArg(p.id)})"><span class="nm">${escapeHtml(p.name)}</span>${presetMarks(!!p.is_default, !!p.has_intrusion)}</button>
+                    ${p.id && !p.is_default ? `<button type="button" class="star-btn" title="Set as default"
+                            aria-label="Set as default: ${escapeHtml(p.name)}"
+                            onclick="teStarPreset(${jsArg(p.id)})">☆</button>` : '<span class="star-gap"></span>'}
                 </div>`).join('');
             return { cls: 'menu preset-list', align: 'left', dir: 'up', role: 'listbox', html: rows };
         }

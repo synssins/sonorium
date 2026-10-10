@@ -3720,3 +3720,10 @@ button.pk-row { cursor: pointer; }
     .pk-foot .btn { min-height: 44px; min-width: 96px; justify-content: center; }
     .popt { min-height: 44px; font-size: .9375rem; }
 }
+
+/* Channel Edit dialog: the preset list (same look as the channel card's) */
+#channel-preset-picker { position: relative; }
+#channel-preset-picker .psel-btn { width: 100%; }
+/* Theme Editor preset list: the marks sit right after the name */
+.te .preset-list .mi { display: inline-flex; align-items: center; gap: .35rem; }
+.te .preset-list .mi .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
