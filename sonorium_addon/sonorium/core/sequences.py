@@ -138,6 +138,26 @@ def save_sequences(folder: Path, sequences: dict) -> None:
     write_json_atomic(folder / PRESETS_FILE, doc)
 
 
+def migrate_track_keys(folder: Path, track_keys: dict, group_renames: Optional[dict] = None) -> bool:
+    """
+    Follow moved tracks and renamed or removed groups (core/theme_groups.py
+    Change) in every sequence's transitions and While playing layers. True
+    when presets.json changed. Raises OSError.
+    """
+    from sonorium.core.theme_groups import migrate_sequences
+    folder = Path(folder)
+    doc = _doc(folder)
+    saved = doc.get("sequences")
+    if not isinstance(saved, dict) or not (track_keys or group_renames):
+        return False
+    migrated = migrate_sequences(saved, track_keys, group_renames)
+    if migrated == saved:
+        return False
+    doc["sequences"] = migrated
+    write_json_atomic(folder / PRESETS_FILE, doc)
+    return True
+
+
 def resolve_timing(sequence: dict, defaults: dict) -> dict:
     """A sequence's hold_min, hold_max and ramp: its own where set, else the theme's defaults."""
     result = {}

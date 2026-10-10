@@ -20,7 +20,7 @@ import copy
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, Optional
 
 from sonorium.theme_files import AUDIO_EXTENSIONS
 
@@ -142,11 +142,13 @@ def find_track_file(theme_folder: Path, key: str) -> Path:
     return matches[0]
 
 
-def free_file_name(folder: Path, filename: str, ignore: Optional[Path] = None) -> str:
+def free_file_name(folder: Path, filename: str, ignore: Optional[Path] = None,
+                   reserved: Iterable[str] = ()) -> str:
     """
     filename, or "name (2).ext", "name (3).ext", ... if a file with that name,
     or an audio file with the same track name (stem), is already in folder.
-    Compared without case, so it's the same on Windows and Linux.
+    Compared without case, so it's the same on Windows and Linux. `reserved`:
+    track names taken there without a file (linked files, see intrusions.link_names).
     """
     folder = Path(folder)
     stem, ext = os.path.splitext(filename)
@@ -156,6 +158,7 @@ def free_file_name(folder: Path, filename: str, ignore: Optional[Path] = None) -
         entries = []
     names = {p.name.casefold() for p in entries}
     stems = {p.stem.casefold() for p in entries if p.is_file() and p.suffix.lower() in AUDIO_EXTENSIONS}
+    stems |= {name.casefold() for name in reserved}
 
     def taken(candidate_stem: str) -> bool:
         return (candidate_stem + ext).casefold() in names or candidate_stem.casefold() in stems
@@ -276,11 +279,13 @@ def _move_files(moves: list[tuple[Path, Path]]) -> None:
         done.append((source, target))
 
 
-def delete_group(theme_folder: Path, name: str) -> Change:
+def delete_group(theme_folder: Path, name: str, reserved: Iterable[str] = ()) -> Change:
     """
     Move a group's audio files up to the theme folder (renamed "x (2).wav" etc.
-    on a clash) and remove the folder if it's then empty. Other files stay in
-    the folder, and so does the folder. Audio files are never deleted.
+    on a clash, also with a `reserved` name) and remove the folder if it's then
+    empty. Other files stay in the folder, and so does the folder. Audio files
+    are never deleted. The group's linked files are the caller's (see
+    intrusions.regroup_link_keys).
     """
     theme_folder = Path(theme_folder)
     group = find_group(theme_folder, name)
@@ -289,7 +294,7 @@ def delete_group(theme_folder: Path, name: str) -> Change:
     keys: dict[str, str] = {}
     planned: list[str] = []
     for f in files:
-        new_name = _free_name_with(theme_folder, f.name, planned)
+        new_name = _free_name_with(theme_folder, f.name, planned, reserved)
         planned.append(new_name)
         target = theme_folder / new_name
         moves.append((f, target))
@@ -312,23 +317,24 @@ def delete_group(theme_folder: Path, name: str) -> Change:
     return change
 
 
-def _free_name_with(folder: Path, filename: str, planned: list[str]) -> str:
+def _free_name_with(folder: Path, filename: str, planned: list[str], reserved: Iterable[str] = ()) -> str:
     """free_file_name, also avoiding names already planned for this batch."""
     stem, ext = os.path.splitext(filename)
     planned_stems = {os.path.splitext(n)[0].casefold() for n in planned}
-    candidate = free_file_name(folder, filename)
+    reserved = list(reserved)
+    candidate = free_file_name(folder, filename, reserved=reserved)
     n = 2
     while os.path.splitext(candidate)[0].casefold() in planned_stems:
-        candidate = free_file_name(folder, f"{stem} ({n}){ext}")
+        candidate = free_file_name(folder, f"{stem} ({n}){ext}", reserved=reserved)
         n += 1
     return candidate
 
 
-def move_track(theme_folder: Path, key: str, group: Optional[str]) -> Change:
+def move_track(theme_folder: Path, key: str, group: Optional[str], reserved: Iterable[str] = ()) -> Change:
     """
     Move a track into group (created if missing) or, with group None, to the
-    top level. Renamed "x (2).wav" etc. on a clash. Returns the key change
-    (empty if it's already there).
+    top level. Renamed "x (2).wav" etc. on a clash (also with a `reserved`
+    name: a linked file's there). Returns the key change (empty if it's already there).
     """
     theme_folder = Path(theme_folder)
     source = find_track_file(theme_folder, key)
@@ -344,7 +350,7 @@ def move_track(theme_folder: Path, key: str, group: Optional[str]) -> Change:
             target_folder.mkdir()
         except OSError as e:
             raise GroupError(f"Couldn't create group folder: {e}") from e
-    target = target_folder / free_file_name(target_folder, source.name)
+    target = target_folder / free_file_name(target_folder, source.name, reserved=reserved)
     try:
         _move_files([(source, target)])
     except GroupError:
@@ -414,19 +420,49 @@ def migrate_presets(presets: dict, track_keys: dict, group_renames: Optional[dic
     return result
 
 
+def migrate_sequences(sequences: dict, track_keys: dict, group_renames: Optional[dict] = None) -> dict:
+    """
+    A copy of sequences ({id: sequence}, presets.json "sequences") with track
+    keys and group names changed where a sequence stores them: its advanced
+    transitions ("transitions"[preset]["in"/"out"]) and its steps' While
+    playing layers ("while"[preset]["tracks"/"groups"]).
+    """
+    group_renames = group_renames or {}
+    result = {}
+    for sequence_id, sequence in (sequences or {}).items():
+        sequence = copy.deepcopy(sequence)
+        if isinstance(sequence, dict):
+            for step in (sequence.get("transitions") or {}).values():
+                for side in ("in", "out"):
+                    if isinstance(step, dict) and isinstance(step.get(side), dict):
+                        step[side] = remap_tracks(step[side], track_keys, group_renames)
+            for layer in (sequence.get("while") or {}).values():
+                if isinstance(layer, dict):
+                    if isinstance(layer.get("tracks"), dict):
+                        layer["tracks"] = remap_tracks(layer["tracks"], track_keys, group_renames)
+                    if isinstance(layer.get("groups"), dict) and group_renames:
+                        layer["groups"] = remap_groups(layer["groups"], group_renames)
+        result[sequence_id] = sequence
+    return result
+
+
 def migrate_keys(metadata, presets: dict, change: Change) -> dict:
     """
     Apply a Change to metadata (its .tracks, .groups and .links, changed in
-    place) and return the migrated presets ({id: preset}). Linked files follow
-    a renamed group; a deleted group's links are dropped (never any file).
+    place) and return the migrated presets ({id: preset}). A linked file
+    follows its key in change.track_keys (moved, or out of a deleted group)
+    and a renamed group; a deleted group's links not re-keyed are dropped
+    (never any file). Sequences: migrate_sequences.
     """
     metadata.tracks = remap_tracks(dict(metadata.tracks or {}), change.track_keys, change.group_renames)
     metadata.groups = remap_groups(dict(metadata.groups or {}), change.group_renames)
-    if getattr(metadata, "links", None) and change.group_renames:
+    if getattr(metadata, "links", None) and (change.track_keys or change.group_renames):
         links = {}
         for key, link in metadata.links.items():
-            group, _, rest = key.partition("/")
-            if group in change.group_renames:
+            group, sep, rest = key.partition("/")
+            if key in change.track_keys:
+                key = change.track_keys[key]
+            elif sep and group in change.group_renames:
                 if change.group_renames[group] is None:
                     continue
                 key = f"{change.group_renames[group]}/{rest}"
