@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.5.2 (2026-10-10)
+
+### Continuous Integration
+
+- Release a patch when the computed version is already tagged
+  ([`afcc9ea`](https://github.com/synssins/sonorium/commit/afcc9ea49793a6f7f3ba303fcfea34f2a981372e))
+
+### Documentation
+
+- Where to find the version and install type
+  ([`e964bec`](https://github.com/synssins/sonorium/commit/e964bec844fae8ac598721ee053ed73a187f8e05))
+
+
 ## v1.5.1-dev.2 (2026-10-10)
 
 ### Documentation
