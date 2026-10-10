@@ -28,11 +28,25 @@ beginning of its file, its level rising from silence to its first level over 6 s
 ## Ebb & Flow
 
 An Ebb & Flow track rises and falls between the two knobs of its Volume slider
-(`volume_low` and `volume`). It glides (an S-curve) to a random level in that range, at
-least a quarter of the range away from where it is, holds, then moves again. Interval
-sets how lively: at 0 the glides take 15-40 s and the holds 20-60 s; at 100% the
-glides take 2-6 s and the holds 2-10 s (in between, in proportion). A group's Volume
-and Interval scale its tracks' values down (both knobs).
+(`volume_low` and `volume`). It drifts: each move is a step from where it is (12% to
+30-70% of the range, smaller at shorter durations) and usually keeps the direction of
+the last one (it turns back about a third of the time, and always at a knob), so it
+never just swings between the two knobs. After each move it holds, now and then (12%)
+two to four times longer than usual.
+
+**Duration** (the track's `presence`, labelled Duration for Ebb & Flow) sets how long
+each rise and fall takes: at 0 (shorter) the glides take 2-6 s and the holds 2-10 s;
+at 1 (longer) the glides take 15-40 s and the holds 20-60 s, in proportion between.
+Before 1.7 the same value was called Interval and meant the opposite (higher was
+quicker); each theme's stored values are flipped once when it loads (`ebb_duration`
+in metadata.json; the files as they were are kept as `*.pre-duration.bak`).
+
+**Rise** (`rise`, 0 gradual .. 1 sudden) sets how fast it rises compared with how it
+falls. Gradual: every glide is the same S-curve. Sudden: a rise takes up to 85% less
+time and starts fast (it eases into the new level), a fall takes up to 50% longer.
+An Ebb & Flow group can set one Rise for every file (its `rise`; unset = each file's own).
+
+A group's Volume and Duration scale its tracks' values down (both knobs).
 
 With **Pause between plays** each play starts at the file's beginning, rising from
 silence, runs once to the file's end (fading out over one glide time so it is silent
@@ -47,6 +61,21 @@ only fades out for its pause while another unmuted file of the group is playing 
 it plays another pass), and a paused file comes back at once if none is playing. So
 the group is never silent. With the group's switch off, each file follows its own
 Pause between plays and nothing keeps the group from falling silent.
+
+**Unassigned** (`playback_mode: "unassigned"`) tracks don't play and aren't decoded.
+
+## A sequence step's While playing layer
+
+A sequence can change tracks' and groups' settings for one of its steps (presets.json,
+`sequences[id]["while"][preset_id]`, `{"tracks": {key: {...}}, "groups": {name: {...}}}`).
+Every entry lists every field (tracks: volume, volume_low, presence, muted, rise,
+pause_between, pause_min, pause_max; groups: volume, presence, muted, gap_min, gap_max,
+pause_between, rise); `null` means "not changed here: the preset's". Wherever a
+channel's settings are worked out (a start, a step, a preset save, a theme change)
+the step's non-null values go over the preset's while that sequence plays that step;
+picking a preset by hand stops the sequence and with it the layer. Saving a step's
+layer (`PUT /api/v2/themes/{id}/sequences/{sid}/while/{preset}`) glides channels on
+that step to it.
 
 A track of the old Exclusive switch (in a group) still takes turns: it fades in on its
 turn, plays a while, fades out and hands the turn back.
