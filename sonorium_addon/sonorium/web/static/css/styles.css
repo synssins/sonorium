@@ -3082,3 +3082,9 @@ body.sidebar-open .sidebar-overlay {
     .te .pmsg:empty { display: none; }
     .te .pmsg { padding: .5rem .875rem; border: 1px solid var(--accent-primary); border-radius: 999px; background: var(--bg-sidebar); font-size: .8125rem; }
 }
+
+/* Theme Editor: Preview mix button, on while playing */
+.te-mix-btn.active {
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+}

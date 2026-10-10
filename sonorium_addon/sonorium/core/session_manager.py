@@ -69,9 +69,6 @@ class SessionManager:
 
         # Track which session is using which channel: session_id -> channel_id
         self._session_channels: dict[str, int] = {}
-        # Themes open in the Theme Editor: channels playing them follow the
-        # editor (their preset steps aside) until editing ends or times out
-        self._editing_themes: dict[str, object] = {}
     
     def set_media_controller(self, controller: HAMediaController):
         """Set the media controller (for deferred initialization)."""
@@ -148,49 +145,6 @@ class SessionManager:
             logger.warning(f"  Preset '{preset_id}' not found for theme '{theme_id}'")
             return {}
         return {**preset_track_overrides(preset.get("tracks", {})), **preset_group_overrides(preset.get("groups", {}))}
-
-    EDITING_TIMEOUT = 180.0  # seconds without a renewal before presets come back
-
-    def _channels_playing(self, theme_id: str):
-        for session in self.state.sessions.values():
-            if session.is_playing and session.theme_id == theme_id:
-                channel = self._channel_for(session)
-                if channel:
-                    yield session, channel
-
-    def _layer_for(self, session: Session) -> dict:
-        """The preset layer a channel should play with now (none while its theme is being edited)."""
-        if session.theme_id in self._editing_themes:
-            return {}
-        return self.preset_overrides(session.theme_id, session.preset_id)
-
-    def set_theme_editing(self, theme_id: str, editing: bool) -> int:
-        """
-        While a theme is open in the Theme Editor, channels playing it follow
-        the editor's settings live (their preset layer steps aside); when
-        editing ends, or no renewal arrives within EDITING_TIMEOUT, their
-        presets come back. Returns the number of channels affected.
-        """
-        import asyncio
-        handle = self._editing_themes.pop(theme_id, None)
-        if handle is not None:
-            handle.cancel()
-        if editing:
-            try:
-                loop = asyncio.get_running_loop()
-                self._editing_themes[theme_id] = loop.call_later(
-                    self.EDITING_TIMEOUT, lambda: self.set_theme_editing(theme_id, False))
-            except RuntimeError:
-                self._editing_themes[theme_id] = _NoHandle()
-        count = 0
-        for session, channel in self._channels_playing(theme_id):
-            channel.set_track_overrides(self._layer_for(session))
-            count += 1
-        if handle is None and editing and count:
-            logger.info(f"  Theme {theme_id} being edited: {count} channel(s) follow the editor")
-        elif not editing and handle is not None and count:
-            logger.info(f"  Theme {theme_id} editing ended: {count} channel(s) back on their presets")
-        return count
 
     def _channel_for(self, session: Session):
         channel_id = self._session_channels.get(session.id)
@@ -604,7 +558,7 @@ class SessionManager:
         elif session.is_playing and preset_changed and session.theme_id:
             channel = self._channel_for(session)
             if channel:
-                channel.set_track_overrides(self._layer_for(session))
+                channel.set_track_overrides(self.preset_overrides(session.theme_id, session.preset_id))
                 logger.info(f"  Applied preset change for playing session")
 
         # Calculate speaker changes for live management
@@ -704,7 +658,7 @@ class SessionManager:
             return
         
         logger.info(f"  Triggering crossfade to '{theme.name}' on channel {channel_id}")
-        channel.set_theme(theme, self._layer_for(session))
+        channel.set_theme(theme, self.preset_overrides(session.theme_id, session.preset_id))
     
     @logger.instrument("Deleting session {session_id}...")
     def delete(self, session_id: str) -> bool:
@@ -848,7 +802,7 @@ class SessionManager:
         if channel:
             theme = self.get_theme(session.theme_id)
             if theme:
-                channel.set_theme(theme, self._layer_for(session))
+                channel.set_theme(theme, self.preset_overrides(session.theme_id, session.preset_id))
                 logger.debug(f"  Channel {channel.id}: theme '{theme.name}'")
         
         # Build stream URL (channel-based if available)
@@ -1011,11 +965,3 @@ class SessionManager:
         if stopped:
             self.state.save()
         return stopped
-
-
-class _NoHandle:
-    """Stands in for a timer handle when there's no event loop (tests)."""
-
-    def cancel(self):
-        pass
-

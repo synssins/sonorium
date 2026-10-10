@@ -319,6 +319,10 @@
                             <button class="btn btn-sm btn-secondary seq-btn" aria-haspopup="menu" onclick="teMenu('seq', this)">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><polyline points="3 5 4 6 3 7"/><polyline points="3 11 4 12 3 13"/><polyline points="3 17 4 18 3 19"/></svg>Sequences<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
+                            <button class="btn btn-sm btn-secondary te-mix-btn" id="te-mix-btn" aria-pressed="false" onclick="teToggleMixPreview()"
+                                    title="Play the whole theme on this device, with your changes, without changing the speakers">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg><span id="te-mix-label">Preview mix</span>
+                            </button>
                             <span class="grow"></span>
                             <div class="tbar">
                                 <button class="btn btn-sm btn-secondary" aria-haspopup="menu" onclick="teMenu('upload', this)">

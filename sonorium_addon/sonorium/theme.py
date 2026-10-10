@@ -1,5 +1,6 @@
 import re
 import time
+import weakref
 from functools import cached_property
 
 import av
@@ -70,7 +71,11 @@ class ThemeDefinition:
         # Pass theme reference to instances so they can access threshold
         self.instances = IndexList(meta.get_instance(theme=self) for meta in theme_metas)
 
-        self.streams: list[ThemeStream] = []
+        # Mixes of this theme that are still in use. Weak references: a mix is
+        # freed (with its decoders and buffers) once its channel or listener
+        # drops it. A plain list kept every mix ever started, so memory grew
+        # with each play and theme change.
+        self.streams: weakref.WeakSet = weakref.WeakSet()
 
     @cached_property
     def url(self) -> str:
@@ -86,7 +91,7 @@ class ThemeDefinition:
     def get_stream(self, overrides: dict | None = None):
         """A new mix of this theme. `overrides`: the channel's preset values (see TrackView)."""
         theme = ThemeStream(self, overrides)
-        self.streams.append(theme)
+        self.streams.add(theme)
         logger.debug(f'ThemeDefinition {self.name}: Created new ThemeStream (total: {len(self.streams)} streams)')
         return theme
 

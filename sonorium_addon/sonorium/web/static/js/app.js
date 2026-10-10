@@ -2094,31 +2094,7 @@ function openThemeEditModal(themeId) {
     loadCategories().then(teRenderCatList);
     teLoadPresets(true);
     teLoadTracks();
-    teSetEditing(themeId, true);
 }
-
-// While the editor is open, channels playing this theme follow it live (their
-// preset steps aside); renewed every minute, ended when the window closes
-function teSetEditing(themeId, editing) {
-    if (editing && te.editingTheme && te.editingTheme !== themeId) teSetEditing(te.editingTheme, false);
-    clearInterval(te.editTimer);
-    te.editTimer = null;
-    if (!themeId) return;
-    const url = `${BASE_PATH}/api/themes/${encodeURIComponent(themeId)}/editing`;
-    const send = on => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-                                    body: JSON.stringify({ editing: on }), keepalive: true }).catch(() => {});
-    send(editing);
-    if (editing) {
-        te.editTimer = setInterval(() => send(true), 60000);
-        te.editingTheme = themeId;
-    } else {
-        te.editingTheme = null;
-    }
-}
-
-window.addEventListener('pagehide', () => {
-    if (te.editingTheme) teSetEditing(te.editingTheme, false);
-});
 
 // ---------- Save theme closes; Cancel puts back what wasn't saved ----------
 // Track and group controls save as they change, so Cancel restores the
@@ -2175,7 +2151,7 @@ async function teSaveAndClose() {
 function closeThemeEditModal() {
     teCloseMenu();
     stopTrackPreview();
-    if (te.editingTheme) teSetEditing(te.editingTheme, false);
+    teStopMixPreview();
     document.getElementById('theme-edit-modal').style.display = 'none';
     te.themeId = null;
 }
@@ -2426,6 +2402,7 @@ async function teLoadTracks(afterFileChange = false) {
         if (seq !== te.loadSeq || te.themeId !== themeId) return;
         Object.assign(te, data);
         if (!te.mixSnap) te.mixSnap = teMixSnapshot();  // what Cancel puts back
+        if (afterFileChange) teRestartMixPreview();  // tracks moved, uploaded or reset
         if (te.upload && !teGroup(te.upload)) te.upload = '';
         teRenderTracks();
     } catch (error) {
@@ -2688,10 +2665,12 @@ function teToggleTrackMute(key) {
 }
 
 function teSetMode(key, mode) {
+    setTimeout(teRestartMixPreview, 300);
     teSetTrackFlag(key, 'playback_mode', mode);
 }
 
 function teToggleGapless(key) {
+    setTimeout(teRestartMixPreview, 300);
     const track = teTrack(key);
     teCloseMenu();
     if (track) teSetTrackFlag(key, 'seamless_loop', !track.seamless_loop);
@@ -2739,6 +2718,7 @@ async function teResetAll() {
         showToast(error.message || 'Failed to reset tracks', 'error');
     }
     await teLoadTracks();
+    teRestartMixPreview();
 }
 
 // Groups
@@ -3053,6 +3033,7 @@ async function teLoadPreset() {
         teRenderPresetField();
         teFlash(`Loaded “${result?.name || preset.name}”`);
         await teLoadTracks();
+        teRestartMixPreview();
     } catch (error) {
         showToast(error.message || 'Failed to load preset', 'error');
     }
@@ -3465,6 +3446,7 @@ let currentPreviewTrack = null;
 
 function toggleTrackPreview(trackName) {
     if (!currentTrackMixerThemeId) return;
+    teStopMixPreview();  // one preview at a time
 
     // If same track is playing, stop it
     if (currentPreviewTrack === trackName && trackPreviewAudio && !trackPreviewAudio.paused) {
@@ -6063,3 +6045,61 @@ function escapeHtml(text) {
 
 // Start
 init();
+
+// ---------- Theme Editor: Preview mix ----------
+// Plays the whole theme on this device through the browser, with the editor's
+// current settings (the theme's own stream, /stream/<id>). Volume, how often,
+// mute and group settings are heard live (a few seconds behind); changes that
+// alter how tracks are built (mode, gapless, moving tracks, uploads, reset)
+// restart the preview. The speakers are not touched.
+
+let teMixAudio = null;
+
+function teMixUrl() {
+    return `${BASE_PATH}/stream/${encodeURIComponent(te.themeId)}?preview=${Date.now()}`;
+}
+
+function teRenderMixButton() {
+    const button = document.getElementById('te-mix-btn');
+    if (!button) return;
+    const on = !!teMixAudio;
+    button.setAttribute('aria-pressed', String(on));
+    button.classList.toggle('active', on);
+    document.getElementById('te-mix-label').textContent = on ? 'Stop preview' : 'Preview mix';
+}
+
+function teToggleMixPreview() {
+    if (teMixAudio) {
+        teStopMixPreview();
+        return;
+    }
+    if (!te.themeId) return;
+    stopTrackPreview();
+    teMixAudio = new Audio(teMixUrl());
+    teMixAudio.addEventListener('error', () => {
+        if (!teMixAudio) return;
+        showToast('Preview mix stopped', 'error');
+        teStopMixPreview();
+    });
+    teMixAudio.play().catch(() => {
+        showToast('Could not play the preview', 'error');
+        teStopMixPreview();
+    });
+    teRenderMixButton();
+}
+
+function teStopMixPreview() {
+    if (teMixAudio) {
+        teMixAudio.pause();
+        teMixAudio.removeAttribute('src');
+        teMixAudio.load();  // closes the stream
+    }
+    teMixAudio = null;
+    teRenderMixButton();
+}
+
+function teRestartMixPreview() {
+    if (!teMixAudio || !te.themeId) return;
+    teMixAudio.src = teMixUrl();
+    teMixAudio.play().catch(() => teStopMixPreview());
+}

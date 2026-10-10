@@ -1067,22 +1067,6 @@ def create_api_router(
         asyncio.get_running_loop().create_task(finish())
         return {"speaker_id": speaker_id, "playing": True, "seconds": TEST_SECONDS}
 
-    # --- Theme Editor live editing ---
-
-    @router.post("/themes/{theme_id}/editing")
-    async def theme_editing(theme_id: str, request: Request) -> dict:
-        """
-        {"editing": true} while the Theme Editor is open on a theme (renew it
-        every minute); channels playing the theme follow the editor live.
-        {"editing": false} when it closes: their presets come back.
-        """
-        try:
-            body = await request.json()
-        except Exception:
-            body = {}
-        editing = bool((body or {}).get("editing", True))
-        return {"editing": editing, "channels": session_manager.set_theme_editing(theme_id, editing)}
-
     # --- Floors & Areas: Home Assistant's, plus Sonorium's own where editing is on ---
 
     def _spaces_editable() -> bool:
