@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.5.1-dev.2 (2026-10-10)
+
+### Documentation
+
+- **changelog**: 1.5.0 major release notice and highlights [skip ci]
+  ([`f441940`](https://github.com/synssins/sonorium/commit/f441940219568f5c1a3f54587ec8c7a458f6dfa5))
+
+- **ui**: Help and READMEs explain Intermittent in groups and track weight
+  ([`6252a24`](https://github.com/synssins/sonorium/commit/6252a246ab730a30db8118ac8ff143207f3a562e))
+
+
 ## v1.5.1-dev.1 (2026-10-10)
 
 ### Testing
