@@ -2870,7 +2870,6 @@ async function teMoveTrack(key, group) {
     if ((trackGroupOf(key) || null) === (group || null)) return;
     try {
         await api('POST', teTrackUrl(key, 'move'), { group: group || null });
-        if (group) delete te.closed[group];
         teFlash(`Moved ${trackDisplayName(key)} to ${group || 'theme'}`);
         await teLoadTracks(true);
     } catch (error) {
