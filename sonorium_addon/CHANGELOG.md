@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.30 (2026-10-10)
+
+### Features
+
+- **ui**: A sequence step's While playing view
+  ([`132233f`](https://github.com/synssins/sonorium/commit/132233f6e7663340bbce9d3a1a19aad6c675e342))
+
+
 ## v1.6.1-dev.26 (2026-10-10)
 
 
