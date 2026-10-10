@@ -44,7 +44,9 @@ class TrackSettings:
     presence: float = 1.0           # 0.0-1.0, how often track plays
     muted: bool = False
     volume: float = 1.0             # 0.0-1.0, amplitude
-    playback_mode: str = "auto"     # auto/continuous/sparse/presence
+    # continuous/sparse/presence/unassigned; "auto" (chosen at play time by
+    # the file's length) is only a track's default now (_retire_auto)
+    playback_mode: str = "auto"
     seamless_loop: bool = False
     exclusive: bool = False
     fade_in: float = 0.0            # the file's own fades, seconds (0 = off)
@@ -120,14 +122,20 @@ class ThemeMetadata:
     # keep their own exclusive flag, so playback is unchanged.
     groups: dict[str, dict] = field(default_factory=dict)
 
-    # Linked files of intrusion groups: files in another theme's folder, not
-    # copied. Track key here -> {"theme": source theme id, "track": source track key}
+    # Linked files: files in another theme's folder, not copied (core/intrusions.py).
+    # Track key here ("Name" or "Group/Name") -> {"theme": source theme id, "track": source track key}
     links: dict[str, dict] = field(default_factory=dict)
 
     # Ebb & Flow's slider is Duration (higher is longer). False: the stored
     # values still mean the old Interval (higher was quicker) and are flipped
     # once when the theme loads (see _flip_ebb_duration).
     ebb_duration: bool = False
+
+    # One-time conversions done when the theme loads (see load_theme_folder):
+    # intrusion groups retired (their linked files ungrouped, the groups
+    # removed), and "auto" playback modes replaced by the mode they play as.
+    intrusions_retired: bool = False
+    auto_retired: bool = False
 
     # Problems found while loading (e.g. a broken file), for the UI. Not saved.
     problems: list[str] = field(default_factory=list, compare=False)
@@ -137,11 +145,11 @@ class ThemeMetadata:
         if not self.id:
             self.id = str(uuid.uuid4())
 
-        # Only well-formed links ({"theme": id, "track": key}) are kept
+        # Only well-formed links ({"theme": id, "track": key}; key "Name" or "Group/Name") are kept
         self.links = {
             key: {"theme": link["theme"], "track": link["track"]}
             for key, link in (self.links or {}).items()
-            if isinstance(key, str) and "/" in key and isinstance(link, dict)
+            if isinstance(key, str) and key and key.count("/") <= 1 and isinstance(link, dict)
             and isinstance(link.get("theme"), str) and isinstance(link.get("track"), str)
         } if isinstance(self.links, dict) else {}
 
@@ -174,8 +182,9 @@ class ThemeMetadata:
         }
         if self.links:
             data["links"] = self.links
-        if self.ebb_duration:
-            data["ebb_duration"] = True
+        for marker in ("ebb_duration", "intrusions_retired", "auto_retired"):
+            if getattr(self, marker):
+                data[marker] = True
         if self.attribution:
             data["attribution"] = self.attribution
         return data
@@ -190,7 +199,8 @@ class ThemeMetadata:
         kwargs = {}
         for key in ['id', 'name', 'description', 'icon', 'is_favorite',
                     'categories', 'short_file_threshold', 'presets', 'attribution',
-                    'spec_version', 'groups', 'links', 'ebb_duration']:
+                    'spec_version', 'groups', 'links', 'ebb_duration',
+                    'intrusions_retired', 'auto_retired']:
             if key in data:
                 kwargs[key] = data[key]
 
@@ -253,24 +263,194 @@ def _flip_ebb_duration(metadata: ThemeMetadata) -> bool:
         group = key.split("/", 1)[0] if "/" in key else None
         return mode == "presence" or group in ebb_groups
 
-    def flip(value):
-        try:
-            return round(1.0 - min(1.0, max(0.0, float(value))), 4)
-        except (TypeError, ValueError):
-            return value
-
     changed = False
     for key, settings in (metadata.tracks or {}).items():
         if isinstance(settings, TrackSettings) and is_ebb(key, settings.playback_mode):
-            settings.presence = flip(settings.presence)
+            settings.presence = _flip(settings.presence)
             changed = True
     for preset in (metadata.presets or {}).values():
         for key, settings in ((preset or {}).get("tracks") or {}).items():
             if isinstance(settings, dict) and "presence" in settings and is_ebb(key, settings.get("playback_mode")):
-                settings["presence"] = flip(settings["presence"])
+                settings["presence"] = _flip(settings["presence"])
                 changed = True
     metadata.ebb_duration = True
     return changed
+
+
+PRE_LINKS_SUFFIX = ".pre-links.bak"
+PRE_AUTO_SUFFIX = ".pre-auto.bak"
+
+
+def _backup_once(folder: Path, suffix: str) -> None:
+    """metadata.json and presets.json as they are, once, before a conversion writes. Raises OSError."""
+    for name in (METADATA_FILE, PRESETS_FILE):
+        original, backup = folder / name, folder / (name + suffix)
+        if original.exists() and not backup.exists():
+            shutil.copy2(original, backup)
+
+
+def _retire_intrusions(folder: Path, metadata: ThemeMetadata, doc: dict) -> bool:
+    """
+    Intrusion groups are retired: once per theme, each one's linked files
+    become ungrouped and the group is removed (its own files move up to the
+    theme folder), see intrusions.retire_intrusion_groups. The JSON files are
+    backed up (*.pre-links.bak) before any file moves; doc["sequences"]
+    follows the new keys. Returns True when it changed anything; the theme is
+    marked when every group was converted (else it is tried again next time).
+    """
+    if metadata.intrusions_retired:
+        return False
+    if not any(isinstance(s, dict) and s.get("mode") == "intrusion" for s in (metadata.groups or {}).values()):
+        metadata.intrusions_retired = True
+        return False
+    from sonorium.core import intrusions
+    try:
+        _backup_once(folder, PRE_LINKS_SUFFIX)
+    except OSError as e:
+        _warn_read_only(folder, e)
+        return False
+    sequences = doc.get("sequences") if isinstance(doc.get("sequences"), dict) else {}
+    converted, sequences, error = intrusions.retire_intrusion_groups(metadata, folder, sequences)
+    if "sequences" in doc:
+        doc["sequences"] = sequences
+    if error is not None:
+        # The groups converted before it are saved; the rest next time
+        logger.warning(f"Theme '{folder.name}': intrusion group not converted yet ({error})")
+        return bool(converted)
+    metadata.intrusions_retired = True
+    logger.info(f"Theme '{metadata.name or folder.name}': intrusion group(s) {', '.join(converted)} converted: "
+                f"their linked files are ungrouped (originals kept as *{PRE_LINKS_SUFFIX})")
+    return True
+
+
+def track_seconds(path: Path) -> Optional[float]:
+    """A file's length in seconds, as playback reads it (None when playback can't be loaded)."""
+    try:
+        from sonorium.recording import RecordingMetadata
+    except Exception:
+        return None
+    return RecordingMetadata(Path(path)).duration_seconds
+
+
+def _track_file(folder: Path, metadata: ThemeMetadata, key: str, folder_for_id) -> Optional[Path]:
+    """The audio file of a track key: the theme's own, or a linked file's source (None if gone)."""
+    from sonorium.core import intrusions, theme_groups
+    link = (metadata.links or {}).get(key)
+    if link is not None:
+        return intrusions.resolve_link(link, folder_for_id)
+    try:
+        return theme_groups.find_track_file(folder, key)
+    except theme_groups.GroupError:
+        return None
+
+
+def _flip(value):
+    """An Ebb & Flow Interval value as Duration (1 - value, kept within 0-1)."""
+    try:
+        return round(1.0 - min(1.0, max(0.0, float(value))), 4)
+    except (TypeError, ValueError):
+        return value
+
+
+def _retire_auto(folder: Path, metadata: ThemeMetadata) -> bool:
+    """
+    "auto" is retired as a playback mode: once per theme, every track whose
+    playback_mode is "auto" in metadata.json or in a preset gets the mode it
+    plays as (recording.RecordingThemeInstance._resolve_playback_mode): a
+    short file (under short_file_threshold) Intermittent ("sparse") when its
+    presence is under 1, a long one Ebb & Flow ("presence"), else Background
+    ("continuous"). Becoming Ebb & Flow, a track that plays its own mode (not
+    in a group) gets presence = 1 - presence (the slider is Duration now, see
+    _flip_ebb_duration); in a group the group's mode decides how it plays, so
+    its value is kept. A preset that sets presence for such a track gets the
+    mode its own value gives (and the flip), so every preset sounds as before.
+    Tracks without an entry keep "auto" (decided at play time), and so does a
+    track whose file can't be found. Needs the files' lengths: not done (and
+    not marked) when playback can't be loaded. Returns True when it changed anything.
+    """
+    if metadata.auto_retired:
+        return False
+    keys = _auto_keys(metadata)
+    if not keys:
+        metadata.auto_retired = True
+        return False
+    try:
+        from sonorium.core import intrusions
+    except ImportError:
+        return False  # loaded on its own (tests): next time
+
+    folder_for_id = intrusions.folder_for_id_in(folder.parent)
+    seconds: dict[str, Optional[float]] = {}
+    for key in keys:
+        path = _track_file(folder, metadata, key, folder_for_id)
+        if path is None:
+            seconds[key] = None  # missing: left as "auto"
+            continue
+        seconds[key] = track_seconds(path)
+        if seconds[key] is None:
+            return False  # lengths can't be read here: next time
+
+    def resolve(key, presence) -> Optional[str]:
+        if seconds.get(key) is None:
+            return None
+        try:
+            below = float(presence) < 1.0
+        except (TypeError, ValueError):
+            below = False
+        short = seconds[key] < float(metadata.short_file_threshold or 15.0)
+        return ("sparse" if short else "presence") if below else "continuous"
+
+    def own_mode(key) -> bool:
+        """The track plays its own mode: ungrouped (an intrusion group's tracks played so too)."""
+        group = intrusions.link_group(key)
+        return group is None or intrusions.is_intrusion_group((metadata.groups or {}).get(group))
+
+    before = {key: (t.playback_mode, t.presence) for key, t in (metadata.tracks or {}).items()
+              if isinstance(t, TrackSettings)}
+    changed = False
+    for key, settings in (metadata.tracks or {}).items():
+        if isinstance(settings, TrackSettings) and settings.playback_mode == "auto":
+            mode = resolve(key, settings.presence)
+            if mode is None:
+                continue
+            settings.playback_mode = mode
+            if mode == "presence" and own_mode(key):
+                settings.presence = _flip(settings.presence)
+            changed = True
+    for preset in (metadata.presets or {}).values():
+        tracks = preset.get("tracks") if isinstance(preset, dict) else None
+        for key, entry in (tracks.items() if isinstance(tracks, dict) else ()):
+            if not isinstance(entry, dict):
+                continue
+            theme_mode, theme_presence = before.get(key, ("auto", 1.0))
+            if entry.get("playback_mode", theme_mode) != "auto":
+                continue
+            presence = entry.get("presence", theme_presence)
+            mode = resolve(key, presence)
+            if mode is None:
+                continue
+            now = (metadata.tracks or {}).get(key)
+            if "playback_mode" in entry or mode != getattr(now, "playback_mode", "auto"):
+                entry["playback_mode"] = mode
+                changed = True
+            if mode == "presence" and own_mode(key):
+                flipped = _flip(presence)
+                if "presence" in entry or getattr(now, "presence", 1.0) != flipped:
+                    entry["presence"] = flipped
+                    changed = True
+    metadata.auto_retired = True
+    return changed
+
+
+def _auto_keys(metadata: ThemeMetadata) -> list[str]:
+    """The track keys with playback_mode "auto" in metadata.json or a preset."""
+    keys = [k for k, t in (metadata.tracks or {}).items() if getattr(t, "playback_mode", None) == "auto"]
+    for preset in (metadata.presets or {}).values():
+        tracks = preset.get("tracks") if isinstance(preset, dict) else None
+        for key, entry in (tracks.items() if isinstance(tracks, dict) else ()):
+            if isinstance(entry, dict) and entry.get("playback_mode") == "auto" and key not in keys:
+                keys.append(key)
+    return keys
 
 
 def _note_broken(folder: Path, error: BrokenJsonError, problems: list[str], rename: bool = True) -> None:
@@ -345,6 +525,10 @@ def load_theme_folder(folder: Path) -> ThemeMetadata:
         same id), presets.json is verified, metadata.json is backed up once to
         metadata.json.pre-presets.bak, then "presets" is removed from it
       - spec_version becomes 2; exclusive tracks are recorded in an "Exclusive" group
+    Once per theme, each with a backup of both files made before it writes:
+      - Ebb & Flow Interval values become Duration (_flip_ebb_duration, *.pre-duration.bak)
+      - intrusion groups are retired (_retire_intrusions, *.pre-links.bak)
+      - "auto" playback modes become the mode they play as (_retire_auto, *.pre-auto.bak)
     A broken metadata.json/presets.json is kept as <name>.broken-<time> and
     rebuilt with defaults; the problem is listed in metadata.problems.
     If the folder can't be written, the files are used as they are (presets
@@ -373,22 +557,32 @@ def load_theme_folder(folder: Path) -> ThemeMetadata:
     if legacy:
         _convert_fields(metadata)
     flipped = _flip_ebb_duration(metadata)
+    # Moves files, so it backs up (and checks the folder can be written) first
+    regrouped = _retire_intrusions(folder, metadata, doc)
+    presets = metadata.presets
+    resolved = _retire_auto(folder, metadata)
+    converted = flipped or regrouped or resolved
+    markers = ("ebb_duration", "intrusions_retired", "auto_retired")
 
-    write_meta = raw is None or legacy or has_legacy_key or "id" not in raw or flipped or "ebb_duration" not in raw
+    write_meta = (raw is None or legacy or has_legacy_key or "id" not in raw or converted
+                  or any(getattr(metadata, m) and not raw.get(m) for m in markers))
     if not metadata.name:
         metadata.name = folder.name
         write_meta = True
-    write_presets = has_legacy_key or presets_broken or not (folder / PRESETS_FILE).exists() or flipped
+    write_presets = has_legacy_key or presets_broken or not (folder / PRESETS_FILE).exists() or converted
 
     try:
+        # The files as they were, once, before the values are changed
         if flipped:
-            # The files as they were, once, before the values are flipped
-            for name in (METADATA_FILE, PRESETS_FILE):
-                original, backup = folder / name, folder / (name + PRE_DURATION_SUFFIX)
-                if original.exists() and not backup.exists():
-                    shutil.copy2(original, backup)
+            _backup_once(folder, PRE_DURATION_SUFFIX)
+        if resolved:
+            _backup_once(folder, PRE_AUTO_SUFFIX)
         if write_presets:
             _save_presets_verified(folder, presets)
+        if regrouped and isinstance(doc.get("sequences"), dict):
+            saved = theme_presets.load_presets_doc(folder)
+            if saved.get("sequences") != doc["sequences"]:
+                theme_presets.write_json_atomic(folder / PRESETS_FILE, {**saved, "sequences": doc["sequences"]})
         if has_legacy_key and meta_path.exists() and not (folder / PRE_PRESETS_BACKUP).exists():
             shutil.copy2(meta_path, folder / PRE_PRESETS_BACKUP)
         if write_meta:
@@ -401,7 +595,10 @@ def load_theme_folder(folder: Path) -> ThemeMetadata:
         if flipped:
             logger.info(f"Theme '{metadata.name}': Ebb & Flow Interval values converted to Duration "
                         f"(originals kept as *{PRE_DURATION_SUFFIX})")
-        elif is_new:
+        if resolved:
+            logger.info(f"Theme '{metadata.name}': Auto playback modes replaced by the mode each track plays as "
+                        f"(originals kept as *{PRE_AUTO_SUFFIX})")
+        if is_new and not converted:
             logger.debug(f"Created new metadata for theme '{folder.name}' with id={metadata.id[:8]}...")
 
     metadata.problems = problems
@@ -642,6 +839,39 @@ class ThemeMetadataManager:
         return True
 
 
+def add_unassigned_track(folder: Path, key: str, metadata: Optional[ThemeMetadata] = None,
+                         manager: Optional[ThemeMetadataManager] = None) -> bool:
+    """
+    A new (uploaded) file's track entry: Unassigned (playback_mode
+    "unassigned": not played until it is placed). Through the loaded metadata
+    when there is one, saved by its manager (so a later save keeps it), else
+    in metadata.json directly. A track that has an entry keeps it. Returns
+    True when it added one. Raises OSError when it can't be saved.
+    """
+    folder = Path(folder)
+    if metadata is not None:
+        if key in metadata.tracks:
+            return False
+        metadata.tracks[key] = TrackSettings(playback_mode="unassigned")
+        saved = manager.save_metadata(metadata.id, metadata) if manager is not None else save_theme_folder(folder, metadata)
+        if not saved:
+            raise OSError(f"{METADATA_FILE} couldn't be saved")
+        return True
+    path = folder / METADATA_FILE
+    try:
+        raw = theme_presets.read_json(path)
+    except BrokenJsonError as e:
+        raise OSError(str(e)) from e
+    if raw is None:
+        return False  # loaded later with defaults, as a folder without metadata.json is
+    tracks = raw.setdefault("tracks", {})
+    if not isinstance(tracks, dict) or key in tracks:
+        return False
+    tracks[key] = TrackSettings(playback_mode="unassigned").to_dict()
+    theme_presets.write_json_atomic(path, raw)
+    return True
+
+
 def sync_entries_with_files(folder: Path, metadata: ThemeMetadata) -> Optional[dict]:
     """
     Make metadata.json and the presets match the theme's files: a track that
@@ -669,7 +899,7 @@ def sync_entries_with_files(folder: Path, metadata: ThemeMetadata) -> Optional[d
         return None
     links = dict(getattr(metadata, "links", None) or {})
     present = set(keys) | set(links)
-    groups = set(group_folder_names(folder)) | {key.split("/", 1)[0] for key in links}
+    groups = set(group_folder_names(folder)) | {key.split("/", 1)[0] for key in links if "/" in key}
 
     def stale_group(name, settings):
         return name not in groups and not (settings or {}).get("legacy_exclusive") and name != LEGACY_EXCLUSIVE_GROUP
