@@ -1840,8 +1840,9 @@ label.p-row, .p-label { cursor: pointer; }
 
 /* Empty State */
 .empty-state {
-    text-align: center;
-    padding: 3rem;
+    grid-column: 1 / -1;
+    text-align: left;
+    padding: 1.5rem 0;
     color: var(--text-muted);
 }
 
@@ -2983,7 +2984,7 @@ body.preview-active .tp-scroll { padding-bottom: calc(1.5rem + 56px); }
 .tp .lnum { font-size: .8125rem; color: var(--text-secondary); }
 
 /* Empty state */
-.tp-empty { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 4rem 1rem; text-align: center; color: var(--text-muted); }
+.tp-empty { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; padding: 1.5rem 0; text-align: left; color: var(--text-muted); }
 .tp-empty strong { font-size: 1rem; font-weight: 600; color: var(--text-primary); }
 .tp-empty span { font-size: .8125rem; }
 .tp-empty .btn { margin-top: .5rem; }
@@ -3085,6 +3086,8 @@ body.preview-active .tp-scroll { padding-bottom: calc(1.5rem + 56px); }
 /* Settings column: left-aligned, never wider than two cards. Logs uses the full width. */
 [id^="view-settings-"] .settings-section { max-width: var(--sp-col); margin-left: 0; margin-right: 0; }
 #view-settings-logs .settings-section { max-width: none; }
+/* Logs and Floors & Areas: no inset box, so the content starts at the title's left edge */
+#view-settings-logs .settings-section, #view-settings-spaces .settings-section { padding: 0; background: none; border-radius: 0; }
 
 /* ==========================================================================
    Settings pages (body.sp-on: Connection, Audio, Speakers, Speaker Groups,
@@ -3104,9 +3107,6 @@ body.sp-on .view.sp.active { display: flex; flex-direction: column; flex: 1; min
 .sp-scroll.sp-scroll-flush { padding-top: 0; }
 body.preview-active .sp-scroll { padding-bottom: calc(1.5rem + 56px); }
 .sp-top { flex: none; padding: var(--page-top) var(--page-pad) 0; }
-.sp-foot { flex: none; padding: .75rem var(--page-pad) 1rem; }
-body.preview-active .sp-foot { padding-bottom: calc(1rem + 56px); }
-.sp-foot-in { display: flex; align-items: center; gap: .5rem; }
 .sp-foot-state { display: inline-flex; align-items: center; gap: .4rem; min-width: 0; font-size: .8125rem; color: var(--text-secondary); white-space: nowrap; }
 .sp-foot-state svg { flex: none; }
 .spa-note svg { color: var(--accent-warning); }
@@ -3123,7 +3123,7 @@ body.preview-active .sp-foot { padding-bottom: calc(1rem + 56px); }
 .sp-ui .c { justify-self: center; text-align: center; }
 .sp-muted { font-size: .8125rem; color: var(--text-muted); }
 .sp-cnt { font-size: .75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.sp-empty { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 4rem 1rem; text-align: center; color: var(--text-muted); }
+.sp-empty { display: flex; flex-direction: column; align-items: flex-start; gap: .5rem; padding: 1.5rem 0; text-align: left; color: var(--text-muted); }
 .sp-empty strong { font-size: 1rem; font-weight: 600; color: var(--text-primary); }
 .sp-empty .btn { margin-top: .5rem; }
 
@@ -3359,7 +3359,6 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .spst-theme { display: flex; align-items: center; min-width: 0; }
 .spst-theme .trk-name { flex: 1; }
 .spst-idle { font-size: .875rem; color: var(--text-muted); }
-.spst-empty { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .5rem; padding: 3rem 1rem; }
 
 /* Narrower windows: cards stack; speaker and plugin rows become cards */
 @media (max-width: 1000px) {
@@ -3411,9 +3410,6 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
     .header-actions .sp-hbtn .lbl { display: none; }
     .sp-scroll { scrollbar-gutter: auto; }
     .sp-wrap, .sp-wrap.sp-narrow { max-width: none; }
-    .sp-foot { padding: .625rem var(--page-pad) .75rem; }
-    .sp-foot-in { flex-wrap: wrap; row-gap: .5rem; }
-    .sp-foot .btn { min-height: 44px; }
     .sp-inp { min-height: 44px; font-size: 1rem; }
     .sp-inp.sm { min-height: 40px; }
     .sp-ui .icon-btn.sm { width: 40px; height: 40px; }
@@ -3552,3 +3548,34 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
     .spst-theme .trk-name { font-size: .8125rem; color: var(--text-secondary); }
     .spst-state { grid-area: st; }
 }
+
+/* ==========================================================================
+   Top bar: page actions (Primary · Secondary · Cancel) and the page help.
+   The ? is always the rightmost button. On a phone the page actions get a
+   row of their own under the title row.
+   ========================================================================== */
+.hdr-pacts { display: none; }
+.hdr-pacts.on:not([hidden]) { display: flex; align-items: center; gap: .5rem; flex: none; margin-left: 0; }
+.hdr-pacts [hidden] { display: none !important; }
+.hdr-pacts .btn[disabled] { opacity: .4; cursor: default; transform: none; }
+.hdr-help { flex: none; padding: 0; }
+.hdr-help[aria-expanded="true"] { color: var(--text-primary); border-color: var(--accent-secondary); }
+
+/* Page help: the Theme Editor's panel, hung under the ? (position set by pageToggleHelp) */
+.te-help.page-help { position: fixed; top: var(--help-top, 72px); right: var(--help-right, 12px); z-index: 160;
+    width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - var(--help-top, 72px) - 16px); max-height: calc(100dvh - var(--help-top, 72px) - 16px); }
+
+@media (max-width: 768px) {
+    .main-header { flex-wrap: wrap; row-gap: .5rem; }
+    .hdr-pacts.on:not([hidden]) { order: 10; flex: 1 0 100%; justify-content: flex-end; flex-wrap: wrap; }
+    .hdr-pacts .sp-foot-state { margin-right: auto; }
+    .hdr-pacts .btn { min-height: 44px; }
+    .hdr-help { order: 5; }
+    .main-header .hdr-help { width: 44px; height: 44px; }
+    /* Floors & Areas: Add floor / Add area don't fit beside the title; they get the second row */
+    .main-header[data-view="settings-spaces"] #view-actions { order: 10; flex: 1 0 100%; justify-content: flex-end; }
+}
+@media (max-width: 760px) {
+    .te-help.page-help { top: 0; right: 0; width: 100%; height: 100%; max-height: none; border-radius: 0; border: 0; z-index: 200; }
+}
+#view-actions:empty { display: none; }

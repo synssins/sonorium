@@ -551,6 +551,12 @@ function showView(viewName) {
     };
     document.getElementById('view-actions').innerHTML = actionsHtml[viewName] || '';
     if (viewName === 'settings-plugins') renderPluginUploadState();
+    // Page actions (Save / Cancel, Restart now) sit in the top bar of their own page
+    document.querySelectorAll('.main-header .hdr-pacts').forEach(el => {
+        el.classList.toggle('on', el.dataset.view === viewName);
+    });
+    document.querySelector('.main-header').dataset.view = viewName;
+    setPageHelp(viewName);
 
     // Load view-specific data
     if (viewName === 'speakers') renderSpeakersList();
@@ -1828,8 +1834,7 @@ function renderThemesBrowser() {
 
     if (shown.length === 0) {
         box.innerHTML = themes.length === 0
-            ? `<div class="tp-empty"><strong>No themes</strong>
-                <button type="button" class="btn btn-sm btn-primary" onclick="tpMenu('create', document.getElementById('tp-create-btn'))">Create theme</button></div>`
+            ? '<div class="tp-empty"><strong>No themes</strong></div>'
             : `<div class="tp-empty">${TP_ICON_SEARCH}<strong>No themes match</strong>
                 ${tp.q.trim() ? `<span>“${escapeHtml(tp.q.trim())}”</span>` : ''}
                 <button type="button" class="btn btn-sm btn-secondary" onclick="tpClearFilters()">Clear filters</button></div>`;
@@ -4260,7 +4265,7 @@ function renderSpaces() {
     const groups = spacesData.floors.map(f => ({ floor: f, areas: f.areas }));
     if (spacesData.unassigned_areas.length) groups.push({ floor: null, areas: spacesData.unassigned_areas });
     if (!groups.length) {
-        list.innerHTML = `<div class="empty-state" style="padding: 2rem;"><p style="color: var(--text-muted);">${editable ? 'No floors or areas yet.' : 'Home Assistant has no floors or areas.'}</p></div>`;
+        list.innerHTML = `<div class="empty-state"><p>${editable ? 'No floors or areas yet.' : 'Home Assistant has no floors or areas.'}</p></div>`;
         return;
     }
     list.innerHTML = groups.map(({ floor, areas }) => {
@@ -5117,8 +5122,7 @@ function renderSettingsSpeakerTree() {
     if (html) {
         container.innerHTML = html;
     } else if (all.length === 0) {
-        container.innerHTML = `<div class="sp-empty"><strong>No speakers found yet</strong>
-            <button type="button" class="btn btn-sm btn-secondary" onclick="rescanSpeakers()">${networkInfo ? 'Rescan network' : 'Refresh from HA'}</button></div>`;
+        container.innerHTML = '<div class="sp-empty"><strong>No speakers found yet</strong></div>';
     } else {
         container.innerHTML = `<div class="sp-empty">${SP_ICON_SEARCH_LG}<strong>No speakers match</strong>
             <button type="button" class="btn btn-sm btn-secondary" onclick="clearSpeakerFilters()">Clear filters</button></div>`;
@@ -5508,7 +5512,7 @@ async function renderStatus() {
     document.getElementById('status-lhead').hidden = channels.length === 0;
     const channelList = document.getElementById('channel-list');
     if (!channels.length) {
-        channelList.innerHTML = '<div class="sp-empty spst-empty"><strong>No channels</strong></div>';
+        channelList.innerHTML = '<div class="sp-empty"><strong>No channels</strong></div>';
         return;
     }
     channelList.innerHTML = `<div class="sp-lbody">${channels.map(ch => {
@@ -5626,8 +5630,7 @@ function renderSettingsGroupsList() {
     spSetTitle('settings-groups', 'Speaker Groups', speakerGroups.length);
     document.getElementById('grp-bar').hidden = speakerGroups.length === 0;
     if (!speakerGroups.length) {
-        container.innerHTML = `<div class="sp-empty"><strong>No speaker groups</strong>
-            <button type="button" class="btn btn-sm btn-primary" onclick="openGroupModal()">Add group</button></div>`;
+        container.innerHTML = '<div class="sp-empty"><strong>No speaker groups</strong></div>';
         return;
     }
     const idx = groupIndex();
@@ -6003,8 +6006,7 @@ function pluginHasForm(plugin) {
 
 function renderInstalledPlugins() {
     if (plugins.length === 0) {
-        return `<div class="sp-empty">${SP_ICON_PLUGINS}<strong>No plugins installed</strong>
-            <button type="button" class="btn btn-sm btn-secondary" onclick="switchPluginsTab('browse')">Browse catalog</button></div>`;
+        return `<div class="sp-empty">${SP_ICON_PLUGINS}<strong>No plugins installed</strong></div>`;
     }
     return `<div class="sp-lbody">${plugins.map(plugin => {
         const hasForm = pluginHasForm(plugin);
@@ -6524,56 +6526,288 @@ function teRestartMixPreview() {
     teMixAudio.play().catch(() => teStopMixPreview());
 }
 
-// ---------- Theme Editor: help panel ----------
-// A small panel under the ? button. Full screen (phone) it has a x to close;
-// otherwise it closes on a click outside, or 2 s after the pointer leaves it.
 
-let teHelpTimer = null;
+// ---------- Help panels: the Theme Editor and every page ----------
+// A small panel under its ? button. Full screen (phone) it has a x to close;
+// otherwise it closes on a click outside, or 2 s after the pointer leaves it
+// (cancelled if the pointer comes back). Esc closes it.
 
-function teHelpOpen() {
-    const help = document.getElementById('te-help');
-    return !!help && !help.hidden;
-}
-
-function teHelpFullScreen() {
+function helpFullScreen() {
     return window.matchMedia('(max-width: 760px)').matches;
 }
 
+function makeHelpPanel(panelId, buttonId) {
+    let timer = null;
+    const panel = () => document.getElementById(panelId);
+    const button = () => document.getElementById(buttonId);
+    const help = {
+        isOpen() {
+            const el = panel();
+            return !!el && !el.hidden;
+        },
+        open() {
+            const el = panel();
+            if (!el) return;
+            el.hidden = false;
+            el.querySelector('.te-help-body').scrollTop = 0;
+            button()?.setAttribute('aria-expanded', 'true');
+        },
+        close() {
+            clearTimeout(timer);
+            timer = null;
+            const el = panel();
+            if (!el || el.hidden) return;
+            el.hidden = true;
+            button()?.setAttribute('aria-expanded', 'false');
+        }
+    };
+    const el = panel();
+    const btn = button();
+    if (el && btn) {
+        const leave = () => {
+            if (!help.isOpen() || helpFullScreen()) return;
+            clearTimeout(timer);
+            timer = setTimeout(help.close, 2000);
+        };
+        const enter = () => { clearTimeout(timer); timer = null; };
+        for (const node of [el, btn]) {
+            node.addEventListener('mouseleave', leave);
+            node.addEventListener('mouseenter', enter);
+        }
+        document.addEventListener('pointerdown', event => {
+            if (!help.isOpen() || helpFullScreen()) return;
+            if (el.contains(event.target) || btn.contains(event.target)) return;
+            help.close();
+        }, true);
+    }
+    return help;
+}
+
+// Theme Editor
+const teHelp = makeHelpPanel('te-help', 'te-help-btn');
+
+function teHelpOpen() {
+    return teHelp.isOpen();
+}
+
 function teToggleHelp() {
-    if (teHelpOpen()) return teCloseHelp();
+    if (teHelp.isOpen()) return teHelp.close();
     teCloseMenu();
-    const help = document.getElementById('te-help');
-    help.hidden = false;
-    help.querySelector('.te-help-body').scrollTop = 0;
-    document.getElementById('te-help-btn').setAttribute('aria-expanded', 'true');
+    teHelp.open();
 }
 
 function teCloseHelp() {
-    clearTimeout(teHelpTimer);
-    teHelpTimer = null;
-    const help = document.getElementById('te-help');
-    if (!help || help.hidden) return;
-    help.hidden = true;
-    document.getElementById('te-help-btn')?.setAttribute('aria-expanded', 'false');
+    teHelp.close();
 }
 
-(function teHelpWire() {
-    const help = document.getElementById('te-help');
-    const button = document.getElementById('te-help-btn');
-    if (!help || !button) return;
-    const leave = () => {
-        if (!teHelpOpen() || teHelpFullScreen()) return;
-        clearTimeout(teHelpTimer);
-        teHelpTimer = setTimeout(teCloseHelp, 2000);
-    };
-    const enter = () => { clearTimeout(teHelpTimer); teHelpTimer = null; };
-    for (const el of [help, button]) {
-        el.addEventListener('mouseleave', leave);
-        el.addEventListener('mouseenter', enter);
-    }
-    document.addEventListener('pointerdown', event => {
-        if (!teHelpOpen() || teHelpFullScreen()) return;
-        if (help.contains(event.target) || button.contains(event.target)) return;
-        teCloseHelp();
-    }, true);
-})();
+// Pages: one panel; its title and text follow the page shown (PAGE_HELP)
+const pageHelp = makeHelpPanel('page-help', 'page-help-btn');
+
+function pageToggleHelp() {
+    if (pageHelp.isOpen()) return pageHelp.close();
+    fillPageHelp(currentView);
+    tpCloseMenu();
+    spClosePop();
+    // Hang it under the ? button, right edges level
+    const button = document.getElementById('page-help-btn').getBoundingClientRect();
+    const panel = document.getElementById('page-help');
+    panel.style.setProperty('--help-top', `${Math.round(button.bottom + 8)}px`);
+    panel.style.setProperty('--help-right', `${Math.max(12, Math.round(document.documentElement.clientWidth - button.right))}px`);
+    pageHelp.open();
+}
+
+function pageCloseHelp() {
+    pageHelp.close();
+}
+
+function setPageHelp(viewName) {
+    pageHelp.close();
+    fillPageHelp(viewName);
+}
+
+function fillPageHelp(viewName) {
+    const help = PAGE_HELP[viewName] || PAGE_HELP.settings;
+    document.getElementById('page-help-title').textContent = help.title;
+    document.getElementById('page-help-body').innerHTML = help.html;
+}
+
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !pageHelp.isOpen()) return;
+    pageHelp.close();
+    document.getElementById('page-help-btn')?.focus();
+});
+
+const helpTerm = (term, text) => `<p class="hi"><b>${term}:</b> ${text}</p>`;
+
+const PAGE_HELP = {
+    sessions: { title: 'Channels', html: `
+        <p>A channel plays one theme on a set of speakers. Each card is one channel.</p>
+        <h4>Each channel</h4>
+        ${helpTerm('Theme', 'the sound the channel plays. Picking another theme also picks that theme\'s default preset, if it has one.')}
+        ${helpTerm('Preset', 'a saved mix of the theme\'s tracks. Default settings plays the theme without a preset.')}
+        ${helpTerm('Speakers', 'where the channel plays. Use Edit to change them.')}
+        ${helpTerm('Volume', 'the channel\'s volume. It is saved when you let go of the slider.')}
+        ${helpTerm('Play / Pause', 'starts or stops the channel on its speakers.')}
+        ${helpTerm('Edit', 'changes the channel\'s name, theme, preset, volume and speakers.')}
+        ${helpTerm('Delete', 'removes the channel. You confirm first.')}
+        <h4>New channel</h4>
+        ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it after the theme and speakers.')}
+        ${helpTerm('Speakers', 'pick floors, areas or single speakers. Only speakers turned on under Settings › Speakers are listed.')}
+        ${helpTerm('Speaker group', 'picks a saved group instead of single speakers. Shown when you have speaker groups.')}
+        ${helpTerm('Playing count', 'the number next to Channels in the menu is how many channels are playing.')}` },
+
+    themes: { title: 'Themes', html: `
+        <p>A theme is a set of tracks (sound files) mixed together. Every theme is listed here.</p>
+        <h4>Finding themes</h4>
+        ${helpTerm('Search', 'looks in theme names and descriptions.')}
+        ${helpTerm('Categories', 'a chip shows only the themes in that category. Favorites shows the themes you starred. The number is how many themes match.')}
+        ${helpTerm('Sort', 'by name, or with the most tracks first.')}
+        ${helpTerm('Cards, List', 'two layouts of the same themes. A phone always shows cards.')}
+        <h4>Each theme</h4>
+        ${helpTerm('★', 'adds the theme to Favorites or removes it.')}
+        ${helpTerm('Preview', 'plays the theme on this device only. The speakers are not changed. Press it again to stop.')}
+        ${helpTerm('Edit', 'opens the theme editor: tracks, modes, presets and more.')}
+        ${helpTerm('Green badge', 'the channel playing this theme now.')}
+        ${helpTerm('⋯ › Export', 'downloads the theme as a .zip file.')}
+        ${helpTerm('⋯ › Delete', 'removes the theme. You confirm first.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Create theme', 'asks for a name, makes an empty theme and opens it in the editor. With a category selected, the new theme goes in that category.')}
+        ${helpTerm('⋯ › Import theme', 'adds a theme from a .zip file.')}
+        ${helpTerm('⋯ › Manage categories', 'adds or deletes categories.')}
+        ${helpTerm('⋯ › Refresh', 'scans the theme folders again for new or changed themes.')}` },
+
+    settings: { title: 'Settings', html: `
+        <p>Settings are split into pages. Pick one from the Settings menu.</p>
+        <h4>Pages</h4>
+        ${helpTerm('Connection', 'Home Assistant, MQTT and the stream address. Shown when Sonorium runs outside Home Assistant.')}
+        ${helpTerm('Audio Settings', 'crossfade, default volume and output gain.')}
+        ${helpTerm('Floors &amp; Areas', 'where your speakers are.')}
+        ${helpTerm('Speakers', 'every speaker, with its area, volume offset and on/off switch.')}
+        ${helpTerm('Speaker Groups', 'saved sets of speakers for channels.')}
+        ${helpTerm('Plugins', 'extras that add features.')}
+        ${helpTerm('Logs', 'recent messages from Sonorium.')}
+        ${helpTerm('Advanced', 'features that are off by default. Shown on installs that have them.')}` },
+
+    'settings-connection': { title: 'Connection', html: `
+        <p>How Sonorium connects to Home Assistant, your MQTT broker and your speakers. Changes are saved with a restart.</p>
+        <h4>Home Assistant</h4>
+        ${helpTerm('URL', 'the address of Home Assistant, for example http://homeassistant.local:8123. Optional.')}
+        ${helpTerm('Access token', 'a long-lived access token from your Home Assistant profile (Security tab). A saved token stays hidden. Leave the field blank to keep it.')}
+        ${helpTerm('Status', 'Connected, Not connected or Not configured.')}
+        ${helpTerm('Trash', 'removes Home Assistant right away, without a restart. Its floors, areas and speakers leave every list. You confirm first.')}
+        <h4>MQTT</h4>
+        ${helpTerm('Broker, Port', 'the host name or IP address of your MQTT broker, and its port (1883 if blank). Optional.')}
+        ${helpTerm('Username, Password', 'leave Username blank for anonymous. A blank password keeps the saved one.')}
+        ${helpTerm('Trash', 'removes MQTT. If Sonorium needs a restart to finish, a message says so. You confirm first.')}
+        <h4>Streaming</h4>
+        ${helpTerm('Stream URL', 'the address speakers use to reach Sonorium (port 8008).')}
+        <h4>Top bar</h4>
+        ${helpTerm('Save and restart', 'saves the changes and restarts Sonorium. Playing channels stop for a few seconds. You confirm first.')}
+        ${helpTerm('Cancel', 'puts back the saved values.')}
+        ${helpTerm('Red fields', 'fix these before saving. An address starts with http:// or https://, and a port is 1 to 65535.')}` },
+
+    'settings-audio': { title: 'Audio Settings', html: `
+        <p>Sound settings for all of Sonorium. Move a slider, then Save settings.</p>
+        <h4>Settings</h4>
+        ${helpTerm('Crossfade', 'how long the fade lasts, in seconds, when a channel changes theme.')}
+        ${helpTerm('Default volume', 'the starting volume of a new channel.')}
+        ${helpTerm('Master output gain', 'scales the volume of every stream.')}
+        ${helpTerm('Default', 'the value out of the box. A dot marks a change that is not saved yet.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Save settings', 'saves the changes.')}
+        ${helpTerm('Cancel', 'puts back the saved values.')}
+        ${helpTerm('⋯ › Reset to defaults', 'moves every slider back to its default. Save settings keeps it.')}` },
+
+    'settings-spaces': { title: 'Floors & Areas', html: `
+        <p>Floors and areas say where your speakers are. Speaker lists across Sonorium are grouped by them.</p>
+        <h4>The list</h4>
+        ${helpTerm('Floors', 'each floor lists its areas. No floor holds the areas without one.')}
+        ${helpTerm('Badges', 'Home Assistant or Sonorium shows where a floor or area comes from. A floor or area with the same name in both becomes one.')}
+        ${helpTerm('Speakers', 'how many speakers are in the area.')}
+        ${helpTerm('From Home Assistant', 'change these in Home Assistant. They are read-only here.')}
+        <h4>Your own floors and areas</h4>
+        <p>On installs that allow it, Add floor and Add area show in the top bar.</p>
+        ${helpTerm('Add floor, Add area', 'makes a new one. An area can go on a floor.')}
+        ${helpTerm('Area name', 'type a new name for an area you added.')}
+        ${helpTerm('Floor', 'moves the area to another floor, or to No floor.')}
+        ${helpTerm('Pencil', 'renames a floor you added.')}
+        ${helpTerm('Trash', 'deletes it. The areas of a deleted floor stay, without a floor. The speakers of a deleted area move to No area.')}` },
+
+    'settings-speakers': { title: 'Speakers', html: `
+        <p>Every speaker Sonorium has found, grouped by floor and area.</p>
+        <h4>Toolbar</h4>
+        ${helpTerm('Search', 'looks in speaker names and addresses.')}
+        ${helpTerm('All, Home Assistant, Discovered, Manual', 'shows the speakers from one source. Shown when speakers come from more than one place.')}
+        ${helpTerm('Hide offline', 'hides speakers that are not reachable. It changes this list only.')}
+        ${helpTerm('Rescan network', 'looks for speakers again. Without network speakers the button is Refresh from HA. The text next to it shows the last scan and how many speakers it found.')}
+        <h4>Each speaker</h4>
+        ${helpTerm('Dot', 'green when the speaker is online.')}
+        ${helpTerm('Name', 'click to rename. An empty name goes back to the speaker\'s own name.')}
+        ${helpTerm('Area', 'the area the speaker belongs to in Sonorium.')}
+        ${helpTerm('Offset', 'plays this speaker louder or quieter than the channel volume, from -20% to +20%.')}
+        ${helpTerm('Test', 'plays a short test sound on the speaker.')}
+        ${helpTerm('Use', 'turns the speaker on or off in Sonorium. Only speakers in use can be picked for a channel.')}
+        ${helpTerm('⋯', 'Rename, Reset name, Play via and Remove. A dot on ⋯ means the name or Play via was changed.')}
+        ${helpTerm('Play via', 'for a speaker Sonorium reaches in more than one way, picks Home Assistant or the direct connection.')}
+        ${helpTerm('Remove', 'removes a speaker added by its address. You confirm first.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Count', 'speakers in use / all speakers.')}
+        ${helpTerm('Add speaker', 'adds a speaker by its IP address or network name. Check connection tests it first. Shown when network speakers are on.')}` },
+
+    'settings-groups': { title: 'Speaker Groups', html: `
+        <p>A speaker group is a saved set of speakers. Pick it for a channel instead of picking speakers one by one.</p>
+        <h4>Each group</h4>
+        ${helpTerm('Includes', 'the floors, areas and speakers in the group. A crossed-out chip is left out.')}
+        ${helpTerm('Speakers', 'how many speakers the group plays on now.')}
+        ${helpTerm('Arrow', 'shows each speaker in the group and where it comes from.')}
+        ${helpTerm('Edit', 'changes the name and what the group includes.')}
+        ${helpTerm('⋯ › Delete', 'removes the group. You confirm first.')}
+        <h4>Adding a group</h4>
+        ${helpTerm('Add group', 'opens the editor. Give the group a name and tick floors, areas or speakers.')}
+        ${helpTerm('Floors and areas', 'a ticked floor or area includes every speaker in it, also speakers added there later.')}` },
+
+    'settings-plugins': { title: 'Plugins', html: `
+        <p>Plugins add features to Sonorium.</p>
+        <h4>Installed</h4>
+        ${helpTerm('On', 'turns a plugin on or off.')}
+        ${helpTerm('Arrow', 'shows the plugin\'s fields and buttons. Only for a plugin that is on and has options.')}
+        ${helpTerm('Built-in', 'comes with Sonorium and can\'t be uninstalled.')}
+        ${helpTerm('⋯ › Uninstall', 'removes the plugin files. You confirm first.')}
+        <h4>Catalog</h4>
+        ${helpTerm('Install', 'downloads the plugin from the catalog and installs it.')}
+        ${helpTerm('Update', 'installs the newer version of a plugin you have.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Upload plugin', 'installs a plugin from a .zip file.')}
+        ${helpTerm('⋯ › Plugin requirements', 'what a plugin .zip has to contain.')}` },
+
+    'settings-logs': { title: 'Logs', html: `
+        <p>Recent messages from Sonorium. New lines show up every few seconds.</p>
+        <h4>Finding lines</h4>
+        ${helpTerm('Search', 'shows the lines that contain the text.')}
+        ${helpTerm('All, Info, Warnings, Errors', 'the lowest level shown. Warnings shows warnings and errors. All adds debug lines.')}
+        ${helpTerm('Version line', 'the Sonorium version, install type and log level.')}
+        ${helpTerm('Scrolling', 'the list follows new lines until you scroll up.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Copy', 'copies the lines shown to the clipboard.')}
+        ${helpTerm('Download', 'saves recent log messages as a text file.')}` },
+
+    'settings-advanced': { title: 'Advanced', html: `
+        <p>Features this install has off by default.</p>
+        <h4>Features</h4>
+        ${helpTerm('On', 'turns the feature on or off. A change needs a restart.')}
+        ${helpTerm('Default', 'the setting out of the box.')}
+        ${helpTerm('Restart to apply', 'marks a feature changed since the last restart.')}
+        ${helpTerm('Network speakers', 'adds speakers by IP address, outside Home Assistant.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Badge', 'the install type.')}
+        ${helpTerm('Restart now', 'restarts Sonorium to apply the changes. Shown after a change. You confirm first.')}` },
+
+    status: { title: 'Status', html: `
+        <p>What Sonorium is doing now.</p>
+        <h4>Overview</h4>
+        ${helpTerm('Active Channels', 'channels playing now.')}
+        ${helpTerm('Total Speakers', 'speakers Sonorium can play to.')}
+        ${helpTerm('Channels', 'each channel with the theme it plays, and Playing or Idle.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Refresh', 'loads the status again.')}` }
+};

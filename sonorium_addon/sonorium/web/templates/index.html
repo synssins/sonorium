@@ -188,6 +188,25 @@
             <div class="main-header-title">
                 <h2 id="view-title">Channels</h2>
             </div>
+            <!-- Page actions (shown on their own page): Primary · Secondary · Cancel -->
+            <div class="header-actions hdr-pacts" data-view="settings-connection">
+                <span id="conn-state" class="sp-foot-state" hidden></span>
+                <button type="button" id="conn-save-btn" class="btn btn-primary" aria-haspopup="dialog" disabled onclick="askSaveConnection(this)">Save and restart</button>
+                <button type="button" id="conn-cancel-btn" class="btn btn-secondary" disabled onclick="cancelConnectionEdits()">Cancel</button>
+            </div>
+            <div class="header-actions hdr-pacts" data-view="settings-audio">
+                <span id="audio-state" class="sp-foot-state" hidden><span class="sp-mod-dot"></span>Unsaved changes</span>
+                <button type="button" id="audio-save-btn" class="btn btn-primary" disabled onclick="saveAudioSettings()">Save settings</button>
+                <button type="button" id="audio-cancel-btn" class="btn btn-secondary" disabled onclick="cancelAudioSettings()">Cancel</button>
+            </div>
+            <!-- Advanced: shown after a change, until the restart -->
+            <div class="header-actions hdr-pacts" data-view="settings-advanced" id="advanced-restart" hidden>
+                <span class="sp-foot-state spa-note" id="adv-restart-note"></span>
+                <button type="button" class="btn btn-primary" id="adv-restart-btn" aria-haspopup="dialog" onclick="askAdvancedRestart(this)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    Restart now
+                </button>
+            </div>
             <div class="header-actions" id="view-actions">
                 <button class="btn btn-primary" onclick="openNewSessionModal()">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -197,7 +216,23 @@
                     New Channel
                 </button>
             </div>
+            <!-- Help for the page shown: always the rightmost button -->
+            <button type="button" class="icon-btn sm hdr-help" id="page-help-btn" aria-label="Help" aria-expanded="false" aria-controls="page-help" onclick="pageToggleHelp()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            </button>
         </header>
+
+        <!-- Page help: the Theme Editor's help panel, under the ? button; full screen on a phone (with ×).
+             Title and text are set per page by app.js (PAGE_HELP). -->
+        <div id="page-help" class="te-help page-help" role="dialog" aria-labelledby="page-help-title" hidden>
+            <div class="te-help-hd">
+                <strong id="page-help-title"></strong>
+                <button class="modal-close te-help-x" aria-label="Close help" onclick="pageCloseHelp()">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+            </div>
+            <div class="te-help-body" id="page-help-body"></div>
+        </div>
 
         <main class="main-content">
             <!-- Channels View -->
@@ -506,7 +541,7 @@ Example:
                 </div>
             </div>
 
-            <!-- Connection (standalone/Docker only): identical cards, Save and restart / Cancel at the bottom -->
+            <!-- Connection (standalone/Docker only): identical cards, Save and restart / Cancel in the top bar -->
             <div id="view-settings-connection" class="view sp sp-ui">
                 <div class="sp-scroll">
                     <div class="sp-wrap sp-cards">
@@ -564,17 +599,9 @@ Example:
                         </section>
                     </div>
                 </div>
-                <footer class="sp-foot">
-                    <div class="sp-wrap sp-foot-in">
-                        <span id="conn-state" class="sp-foot-state" hidden></span>
-                        <span class="grow"></span>
-                        <button type="button" id="conn-save-btn" class="btn btn-primary btn-sm" aria-haspopup="dialog" disabled onclick="askSaveConnection(this)">Save and restart</button>
-                        <button type="button" id="conn-cancel-btn" class="btn btn-secondary btn-sm" disabled onclick="cancelConnectionEdits()">Cancel</button>
-                    </div>
-                </footer>
             </div>
 
-            <!-- Audio Settings: one card, aligned columns; Save settings / Cancel at the bottom -->
+            <!-- Audio Settings: one card, aligned columns; Save settings / Cancel in the top bar -->
             <div id="view-settings-audio" class="view sp sp-ui">
                 <div class="sp-scroll">
                     <div class="sp-wrap sp-narrow">
@@ -584,14 +611,6 @@ Example:
                         </section>
                     </div>
                 </div>
-                <footer class="sp-foot">
-                    <div class="sp-wrap sp-narrow sp-foot-in">
-                        <span id="audio-state" class="sp-foot-state" hidden><span class="sp-mod-dot"></span>Unsaved changes</span>
-                        <span class="grow"></span>
-                        <button type="button" id="audio-save-btn" class="btn btn-primary btn-sm" disabled onclick="saveAudioSettings()">Save settings</button>
-                        <button type="button" id="audio-cancel-btn" class="btn btn-secondary btn-sm" disabled onclick="cancelAudioSettings()">Cancel</button>
-                    </div>
-                </footer>
             </div>
 
             <!-- Floors & Areas Settings View -->
@@ -676,7 +695,7 @@ Example:
                 </div>
             </div>
 
-            <!-- Advanced: features this install has off by default; restart bar at the bottom after a change -->
+            <!-- Advanced: features this install has off by default; Restart now in the top bar after a change -->
             <div id="view-settings-advanced" class="view sp sp-ui">
                 <div class="sp-scroll">
                     <div class="sp-wrap">
@@ -684,16 +703,6 @@ Example:
                         <div class="sp-lbody" id="advanced-settings-form"></div>
                     </div>
                 </div>
-                <footer class="sp-foot" id="advanced-restart" hidden>
-                    <div class="sp-wrap sp-foot-in">
-                        <span class="sp-foot-state spa-note" id="adv-restart-note"></span>
-                        <span class="grow"></span>
-                        <button type="button" class="btn btn-primary btn-sm" id="adv-restart-btn" aria-haspopup="dialog" onclick="askAdvancedRestart(this)">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
-                            Restart now
-                        </button>
-                    </div>
-                </footer>
             </div>
 
             <!-- Status: tiles and list headers fixed, the channel list scrolls -->
