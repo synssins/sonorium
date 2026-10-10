@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.3-dev.1 (2026-10-10)
+
+### Features
+
+- Merry-go-round group mode, a continuous crossfading bed
+  ([`292250b`](https://github.com/synssins/sonorium/commit/292250b0c58d58135d9432be80d84d18786ac9d6))
+
+
 ## v1.5.2 (2026-10-10)
 
 ### Continuous Integration
