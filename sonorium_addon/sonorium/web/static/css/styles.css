@@ -2847,6 +2847,9 @@ body.sidebar-open .sidebar-overlay {
     .te .ghead.tgrid2 .gsw .gap-word { white-space: normal; text-align: left; min-width: 0; }
     .te .ghead.tgrid2 .gmode, .te .ghead.tgrid2 .no-pres { display: none; }
     .te .ghead.tgrid2 .master { display: block; flex: 1 0 100%; order: 10; }
+    /* Gap / Crossfade: a line of their own, above the sliders (too wide beside mute and ⋯) */
+    .te .ghead.tgrid2 .gname-cell .gap-ctl { display: none; }
+    .te .ghead.tgrid2 .gap-row { display: flex; flex: 1 0 100%; order: 9; margin-left: 0; }
 
     /* Footer: preset field + Load/New, then Save theme / Save preset / Cancel */
     .te .modal-footer.foot { flex-direction: column; align-items: stretch; gap: .5rem; padding: .625rem 1rem; }
@@ -3617,6 +3620,7 @@ html { scrollbar-gutter: stable; }
 /* Theme Editor: Gap / Crossfade on its own line under the group name, left-aligned with it;
  * no text selection while dragging rows */
 .te .ghead .gname-cell .gap-ctl { flex-basis: 100%; margin-left: 0; }
+.te .ghead .gap-row { display: none; }
 .te #te-tracks .trow, .te #te-tracks .ghead { -webkit-user-select: none; user-select: none; }
 .te #te-tracks input { -webkit-user-select: text; user-select: text; }
 

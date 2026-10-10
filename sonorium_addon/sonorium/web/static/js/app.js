@@ -3329,9 +3329,10 @@ function teRenderGroup(group) {
     const renaming = te.renaming === name;
     const confirming = te.confirmDel === name;
     const count = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
-    // Under the group's name: Gap (Intermittent), Crossfade (Merry-go-round) or the Pause between plays switch (Ebb & Flow)
-    const gap = `
-        <div class="gap-ctl">
+    // Under the group's name: Gap (Intermittent), Crossfade (Merry-go-round) or the Pause between plays switch
+    // (Ebb & Flow). On a phone, Gap and Crossfade get their own line in the header (.gap-row).
+    const gap = (cls) => `
+        <div class="${cls}">
             <span class="gap-word">Gap</span>
             <input class="num" type="number" min="0" step="0.5" placeholder="2" value="${teEsc(gapMin)}" aria-label="${label} minimum gap, minutes"
                    data-gap="min" onchange="teSetGroupGap(${n}, this)">
@@ -3340,8 +3341,8 @@ function teRenderGroup(group) {
                    data-gap="max" onchange="teSetGroupGap(${n}, this)">
             <span>min</span>
         </div>`;
-    const crossfade = `
-        <div class="gap-ctl">
+    const crossfade = (cls) => `
+        <div class="${cls}">
             <span class="gap-word">Crossfade</span>
             <input class="num" type="number" min="1" max="60" step="1" placeholder="${TE_GROUP_CROSSFADE}" value="${teEsc(s.crossfade ?? '')}"
                    aria-label="${label} crossfade, seconds" onchange="teSetGroupCrossfade(${n}, this)">
@@ -3351,7 +3352,7 @@ function teRenderGroup(group) {
         <button type="button" class="gsw" role="switch" aria-checked="${!!s.pause_between}" aria-label="${label} pause between plays"
                 title="Every file pauses between plays, at staggered times, so one is always playing"
                 onclick="teSetGroupValue(${n}, 'pause_between', ${!s.pause_between})"><span class="gap-word">Pause between plays</span><span class="sw${s.pause_between ? ' on' : ''}"></span></button>`;
-    const timing = mode === 'merry_go_round' ? crossfade : mode === 'ebb_flow' ? pauseSwitch : gap;
+    const timing = mode === 'merry_go_round' ? crossfade : mode === 'ebb_flow' ? null : gap;
     let nameCell;
     if (renaming) {
         nameCell = `<input class="inp sm grp-rename" type="text" maxlength="60" enterkeyhint="done" aria-label="Group name" value="${label}"
@@ -3379,8 +3380,9 @@ function teRenderGroup(group) {
             <div class="gname-cell${confirming ? ' wide' : ''}">
                 ${nameCell}
                 <span class="drop-note">Drop to add</span>
-                ${confirming ? '' : timing}
+                ${confirming ? '' : timing ? timing('gap-ctl') : pauseSwitch}
             </div>
+            ${confirming || !timing ? '' : timing('gap-ctl gap-row')}
             ${confirming ? '' : `<div class="c-mode gmode"><span class="te-mode-fixed" title="Set by the section">${escapeHtml(section.groupLabel)}</span></div>`}
             <div class="master">${masterSlider('volume', 'Volume', vol)}</div>
             ${section.pres ? `<div class="master">${masterSlider('presence', section.pres, pres, mode === 'ebb_flow')}</div>` : '<span class="no-pres"></span>'}
