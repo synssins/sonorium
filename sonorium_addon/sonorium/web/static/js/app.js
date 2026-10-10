@@ -4170,13 +4170,17 @@ function teMenuHtml(kind, arg) {
                        aria-label="Longest pause, seconds" onchange="teSetEbbPause(${k}, this)"${disabled ? ' disabled' : ''}>
                 <span>s</span></div>`;
     };
-    // Move to group: out of its group, or into another one
+    // Move to: Unassigned (out of its group, not played), or into a group
     const moveRows = (track, k, disabled) => {
         const here = teTrackGroup(track)?.name || null;
-        return '<div class="mhead">Move to group</div>'
-            + [{ name: null, label: 'Theme (no group)' }, ...teListedGroups().map(g => ({ name: g.name, label: g.name }))].map(m => {
-                const cur = m.name === here;
-                return mi(escapeHtml(m.label), `teMoveTrack(${k}, ${m.name === null ? 'null' : jsArg(m.name)})`, {
+        const unassigned = !here && teSectionOf(track) === 'unassigned';
+        return '<div class="mhead">Move to</div>'
+            + mi('Unassigned', `teMoveToSection(${k}, 'unassigned')`, {
+                cls: unassigned ? 'cur' : '', disabled: unassigned || disabled, icon: TE_ICON_FOLDER,
+                after: unassigned ? '<span class="mi-note">here</span>' : '' })
+            + teListedGroups().map(g => {
+                const cur = g.name === here;
+                return mi(escapeHtml(g.name), `teMoveTrack(${k}, ${jsArg(g.name)})`, {
                     cls: cur ? 'cur' : '', disabled: cur || disabled, icon: TE_ICON_FOLDER, after: cur ? '<span class="mi-note">here</span>' : '' });
             }).join('');
     };
@@ -4203,7 +4207,7 @@ function teMenuHtml(kind, arg) {
             return { cls: 'menu seq-menu', align: 'left', focusButton: true, html: teSeqMenuHtml() };
         case 'upload':
             return { cls: 'menu', align: 'right', html: `<div class="mhead">Upload to</div>
-                ${mi('Theme (no group)', "tePickUpload('')", { cls: te.upload === '' ? 'cur' : '' })}
+                ${mi('Unassigned', "tePickUpload('')", { cls: te.upload === '' ? 'cur' : '' })}
                 ${teListedGroups().map(g => mi(escapeHtml(g.name), `tePickUpload(${jsArg(g.name)})`, { cls: te.upload === g.name ? 'cur' : '', icon: TE_ICON_FOLDER })).join('')}` };
         case 'reset':
             return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `

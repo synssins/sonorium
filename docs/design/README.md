@@ -49,3 +49,24 @@ Server-side settings already exist (recording.py, core/theme_metadata.py):
 `merry_go_round`, `ebb_flow`, `intrusion` until intrusions are retired),
 `pause_between`, `rise` (`PUT /api/themes/{id}/groups/{name}`), and
 `playback_mode: "unassigned"`.
+
+## Channels page
+
+`Channels_Blocks.dc.html`, `Channels_Blocks_Phone.dc.html` (approved). Each channel is a block, all
+exactly the same size (fixed height), three per row on desktop, one on a phone:
+
+- Header: the theme's icon, the channel name, its speakers under it, a Playing / Stopped badge,
+  ✎ (opens the channel's Edit dialog) and ⋯ (Delete and the rest; the separate Edit and Delete
+  buttons go). The page title shows the channel count, like Themes.
+- Two shortened pickers (the same psel list as today, with the preset marks ★ ⚭ and the sequence
+  icon), and to their right two mode buttons stacked: a palette (play a theme: the pickers are
+  Theme and Preset) and the sidebar's playlist icon (play a playlist: Playlist and Playing). The
+  active one is highlighted.
+- A "Now" line, always there: "Step 2 of 2: <b>OH S***</b> · next in 3:12" with a Next button
+  for a sequence; "Entry 2 of 5 · next in 12:40" with Next for a playlist; otherwise
+  "No sequence or playlist" (muted).
+- Volume slider and percentage.
+- "Recent changes": the channel's last events with their times (started, stopped, theme,
+  preset, sequence step, playlist entry; not Ebb & Flow movement), in a fixed-height box.
+- A full-width Play button at the bottom, accent coloured; while playing it is Stop, highlighted
+  in red (btn-danger), not grey. A playing block has an accent border.
