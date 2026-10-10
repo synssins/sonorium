@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.22 (2026-10-10)
+
+### Documentation
+
+- **ui-style**: Phone top bar and menu, full-width cards
+  ([`bba8139`](https://github.com/synssins/sonorium/commit/bba81394114ac2c99f8fd0a92c5b8e00082b5b36))
+
+- **ui-style**: Settings column width and connection cards
+  ([`04e6f29`](https://github.com/synssins/sonorium/commit/04e6f291567bb81e1bd16a103f2c5b5f604f94e9))
+
+- **ui-style**: Settings pages left-justified, 420px cards, 864px column
+  ([`e63fed6`](https://github.com/synssins/sonorium/commit/e63fed669de50ac5e9c6ab2e886d71cbfa7e4f7b))
+
+### Features
+
+- **ui**: Settings pages in the new design; remove HA or MQTT without a restart
+  ([`7525c02`](https://github.com/synssins/sonorium/commit/7525c02d4e754b8b6b7f5b55a51cc465fe76ecfa))
+
+
 ## v1.4.2-dev.21 (2026-10-10)
 
 ### Documentation
