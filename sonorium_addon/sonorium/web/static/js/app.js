@@ -2954,6 +2954,11 @@ window.addEventListener('resize', () => {
 function teSliderInput(slider) {
     const cell = slider.closest('.mx');
     cell.querySelector('.track-slider-value').textContent = slider.value + '%';
+    // The file being previewed follows its Volume slider as it moves
+    const row = slider.closest('.trow');
+    if (row && cell.dataset.kind === 'volume' && trackPreviewAudio && row.dataset.track === currentPreviewTrack) {
+        trackPreviewAudio.volume = Math.max(0, Math.min(1, (slider.value / 100) * parseFloat(slider.dataset.master || '1')));
+    }
     const hint = cell.querySelector('.mx-hint');
     if (hint) hint.textContent = playsAtHint(slider.value / 100, parseFloat(slider.dataset.master || '1'));
 }
@@ -3826,7 +3831,11 @@ function toggleTrackPreview(trackName) {
     const audioUrl = `${BASE_PATH}/api/themes/${encodeURIComponent(currentTrackMixerThemeId)}/tracks/${encodeURIComponent(trackName)}/audio`;
 
     trackPreviewAudio = new Audio(audioUrl);
-    trackPreviewAudio.volume = 0.8;
+    // At the track's volume (and its group's), even when it's muted, so you hear the level it would play at
+    const row = document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(trackName)}"] .mx[data-kind="volume"] .track-slider`);
+    trackPreviewAudio.volume = row
+        ? Math.max(0, Math.min(1, (row.value / 100) * parseFloat(row.dataset.master || '1')))
+        : 0.8;
     currentPreviewTrack = trackName;
 
     // Update button state
