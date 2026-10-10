@@ -1233,17 +1233,45 @@ class SparsePlaybackStream:
         return next(self.gen)
 
 
+# Ebb & Flow outside a group: the level wanders, never silent. Each move picks
+# a new level between EBB_FLOOR and full (of the track's volume), at least
+# EBB_MIN_MOVE away, glides there over EBB_GLIDE seconds and holds for
+# EBB_HOLD seconds. Interval (presence) sets the average level:
+# EBB_FLOOR + (1 - EBB_FLOOR) x interval. At 100% it stays full.
+EBB_FLOOR = 0.2
+EBB_MIN_MOVE = 0.15
+EBB_GLIDE = (5.0, 20.0)
+EBB_HOLD = (5.0, 30.0)
+
+
+def ebb_level(presence: float, current, rng=random) -> float:
+    """
+    The next Ebb & Flow level (0..1 of the track's volume). Drawn as
+    floor + (1 - floor) x u^k with k = (1 - p) / p, whose mean is p: a high
+    interval mostly stays near full, a low one near the floor.
+    """
+    p = min(1.0, max(0.0, float(presence)))
+    if p >= 1.0:
+        return 1.0
+    k = (1.0 - p) / max(p, 0.01)
+    level = EBB_FLOOR
+    for _ in range(8):
+        level = EBB_FLOOR + (1.0 - EBB_FLOOR) * rng.random() ** k
+        if current is None or abs(level - current) >= EBB_MIN_MOVE:
+            break
+    return level
+
+
 class PresenceMixingStream:
     """
-    Wrapper stream that controls track presence in the mix.
+    Ebb & Flow.
 
-    Instead of controlling amplitude, the 'presence' value (0.0-1.0) controls
-    how often this track is audible in the mix:
-    - presence=1.0: Track plays continuously (always in mix)
-    - presence=0.5: Track plays ~50% of the time, fading in/out
-    - presence=0.0: Track never plays (always silent)
+    Outside a group (see _gen_wander) the track is always heard and its level
+    wanders: it glides to a random level between EBB_FLOOR and full, holds,
+    then glides somewhere else. Interval (presence) sets the average level.
 
-    Uses randomized timing so tracks don't all fade in/out together.
+    In a group of the old Exclusive switch (see _gen_turns) it takes turns:
+    fades in on its turn, plays a while, fades out, and hands the turn back.
     """
     CHUNK_SIZE = 1_024
 
@@ -1272,13 +1300,17 @@ class PresenceMixingStream:
         logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} Ebb & Flow '
                     f'fading {direction} over {TRACK_FADE_DURATION:g}s')
 
+    def _log_move(self, level: float, seconds: float):
+        logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} Ebb & Flow '
+                    f'to {round(level * 100)}% over {seconds:.0f}s')
+
     def restart(self):
         """
         The track was turned on again (a preset, a sequence step, unmute): from
         the next chunk it starts afresh instead of resuming where it paused,
-        from its file's beginning, with an active period beginning now and its
-        gain rising from silence (the mix's on fade on top). Ungrouped tracks
-        only: a grouped track keeps its turn rules.
+        from its file's beginning, its level rising from silence to a first
+        level over TRACK_FADE_DURATION (the mix's on fade on top). Ungrouped
+        tracks only: a grouped track keeps its turn rules.
         """
         if self.exclusion_coordinator is None:
             self._restart = True
@@ -1292,7 +1324,66 @@ class PresenceMixingStream:
         self.base_stream = type(old)(old.instance)
 
     def _gen(self):
-        """Generator that applies presence-based fading"""
+        if self.exclusion_coordinator is None:
+            yield from self._gen_wander()
+        else:
+            yield from self._gen_turns()
+
+    def _gen_wander(self):
+        """Always heard: the level glides from one random level to the next (see ebb_level)."""
+        rate = SAMPLE_RATE
+        presence = self.instance.presence
+        level = ebb_level(presence, None)  # joins the mix at a level, no fade
+        start = target = level
+        glide = done = 0  # samples: the glide's length, and how far it has got
+        hold = int(random.uniform(*EBB_HOLD) * rate)
+
+        def go(to: float, seconds: float):
+            nonlocal start, target, glide, done
+            start, target, glide, done = level, to, max(1, int(seconds * rate)), 0
+            self._log_move(to, seconds)
+
+        while True:
+            if self._restart:
+                # Turned on again: from the file's beginning, rising from silence
+                self._restart = False
+                self._restart_base()
+                level = 0.0
+                go(ebb_level(self.instance.presence, None), TRACK_FADE_DURATION)
+
+            try:
+                chunk = next(self.base_stream)
+            except StopIteration:
+                return
+            n = chunk.shape[-1]
+
+            new_presence = self.instance.presence
+            if new_presence != presence:
+                presence = new_presence
+                if presence >= 1.0 and target < 1.0:
+                    go(1.0, TRACK_FADE_DURATION)  # Interval at 100%: full, like Background
+
+            if glide:
+                done = min(glide, done + n)
+                x = done / glide
+                end = start + (target - start) * (0.5 - 0.5 * np.cos(np.pi * x))  # an S-curve glide
+                if done >= glide:
+                    glide = 0
+                    hold = int(random.uniform(*EBB_HOLD) * rate)
+            else:
+                end = level
+                hold -= n
+                if hold <= 0 and presence < 1.0:
+                    go(ebb_level(presence, level), random.uniform(*EBB_GLIDE))
+
+            if level != end or level < 1.0:
+                ramp = np.linspace(level, end, n, dtype=np.float32) if level != end else level
+                chunk = np.clip(chunk.astype(np.float32) * ramp, -32768, 32767).astype(np.int16)
+            level = end
+            yield chunk
+
+    def _gen_turns(self):
+        """In a group (the old Exclusive switch): fades in on its turn, plays a while, fades out, hands the turn back."""
         import random
 
         # State for presence fading

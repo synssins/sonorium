@@ -151,7 +151,7 @@ Fine-tune how each audio file plays within a theme:
   - **Auto** - Picks for you: sounds under 15 seconds play Intermittent and longer ones play Ebb & Flow; at 100% "interval", either plays as Background
   - **Background** - Plays all the time, looping with a smooth crossfade (rain, wind, a crackling fire)
   - **Intermittent** - Plays once, then goes quiet for a while before playing again; "interval" sets the wait (bird calls, thunder claps, a door creaking)
-  - **Ebb & Flow** - Fades in, plays for a while, fades out, then stays quiet before coming back; "interval" sets how much of the time it's heard (distant traffic, a passing crowd)
+  - **Ebb & Flow** - Always heard, but its level rises and falls at random between a fifth of its volume and full; "interval" sets how loud it is on average (wind, surf, a busy street)
 - **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in an Intermittent group (the default) plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
 - **Merry-go-round groups** - A group set to Merry-go-round makes a continuous bed instead: one file plays, then crossfades into another picked at random, never the same one twice in a row. Each group sets its own crossfade (seconds). A single file crossfades into itself.
 - **Intrusion groups** - A group set to Intrusion is a layer a preset turns on, like rain over a campsite: its tracks keep their own mode and settings, and it can hold files linked from other themes without copying them.
@@ -299,6 +299,7 @@ automations that use the entity first.
 - **Preset glides.** Picking a preset glides the mix to it over 3 seconds; a sequence glides over its ramp time.
 - **Advanced transitions.** In a sequence, a preset's ⋯ › Advanced… sets, track by track, how each track comes in and how it leaves: Gusts, Swell, Build, Distance or Start fresh (and Gusts dying down, Smooth fade, Thin out, Recede or Finish then stop), in any combination, with a pre-fade of up to 90 s before the step. ▶ previews a track's change on your device.
 - **File fades.** A track's ⋯ menu in the Theme Editor has **Fade in** and **Fade out** (seconds), for a file that starts or ends abruptly. They apply every time the file starts or ends, including each loop, and in sequences and transitions. Empty is off, so a thunder crack keeps its attack.
+- **Ebb & Flow rises and falls.** An Ebb & Flow track is always heard now: its level glides at random between a fifth of its volume and full, holding a while at each level. Interval sets how loud it is on average. For a sound that should come and go completely, use Intermittent with the file's Fade in and Fade out.
 - **Gaps in presets.** A group's Intermittent **Gap** is saved in presets, so one preset can bring the thunder more often than another, and a sequence step changes it. Presets saved before this keep the theme's gap.
 - **Smooth volume changes.** Moving a Volume slider, or a preset changing a track's volume, eases to the new level over a quarter second instead of jumping, on speakers and in the Theme Editor's previews.
 
@@ -401,7 +402,7 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 
 - **Background:** plays all the time, looping smoothly. Rain, wind, a fire.
 - **Intermittent:** plays once, then goes quiet before playing again. *Interval* sets the wait. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.
-- **Ebb & Flow:** fades in, plays a while, fades out, then stays quiet before coming back. *Interval* sets how much of the time it's heard. Distant traffic, a passing crowd.
+- **Ebb & Flow:** always heard, but its level rises and falls: it glides at random between a fifth of its volume and full, never the same way twice. *Interval* sets how loud it is on average. Wind, surf, a busy street.
 - **Auto:** picks for you. Under 15 seconds plays Intermittent, longer plays Ebb & Flow. At 100% *interval*, either plays as Background.
 - **Fade in / Fade out:** for a file that starts or ends abruptly. In the track's ⋯ menu, set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.
 

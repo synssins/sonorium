@@ -21,10 +21,20 @@ In the API a channel is a **session** (`/api/sessions/{id}`).
 
 A track that turns on (a preset, a sequence step, unmute) fades in from silence. An
 **Ebb & Flow** track (outside a group) also starts afresh when it turns on: from the
-beginning of its file, at the start of an active period, its level rising from silence
-(its own 6 s fade-in, with the on fade above on top), instead of resuming where it
-paused while it was off. Tracks that stay on are not touched, and grouped tracks
+beginning of its file, its level rising from silence to its first level over 6 s
+(with the on fade above on top), instead of resuming where it paused while it was off. Tracks that stay on are not touched, and grouped tracks
 (Intermittent, Merry-go-round) keep their own rules.
+
+## Ebb & Flow
+
+An Ebb & Flow track outside a group is always heard; its level wanders. It glides (an
+S-curve, 5 to 20 s) to a random level between 20% and 100% of the track's volume, at
+least 15 points away from where it is, holds there 5 to 30 s, then moves again.
+Interval sets the average level: 20% + 80% x interval, so at 50% it averages 60%.
+Levels are drawn as floor + (1 - floor) x u^k with k = (1 - interval) / interval, so a
+high interval mostly stays near full and a low one near the floor. At 100% it stays
+full, like Background. A track of the old Exclusive switch (in a group) still takes
+turns: it fades in on its turn, plays a while, fades out and hands the turn back.
 
 The channel's volume setting never changes during a fade: the fade is applied to the
 channel's audio. Settings > Audio Settings > Master output gain is the output gain of every mix.

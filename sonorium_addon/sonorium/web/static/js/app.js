@@ -3176,7 +3176,7 @@ function teRenderRow(track, group) {
                     ? `<span class="te-mode-fixed" title="The group crossfades from one file to the next">Merry-go-round</span>`
                     : `<span class="te-mode-fixed" title="In a group, each track plays once on its turn">Intermittent</span>`)
                 : `<select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"${off}
-                    title="Auto picks by file length. Background plays all the time. Intermittent plays now and then. Ebb &amp; Flow fades in, plays a while, fades out.">${teModeOptions(track, false)}</select>`}
+                    title="Auto picks by file length. Background plays all the time. Intermittent plays now and then. Ebb &amp; Flow is always heard, rising and falling.">${teModeOptions(track, false)}</select>`}
         </div>
         ${teSliderCell('volume', 'Volume', vol,
             `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"${off}`,
