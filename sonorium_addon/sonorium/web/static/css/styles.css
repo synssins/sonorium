@@ -3727,3 +3727,4 @@ button.pk-row { cursor: pointer; }
 /* Theme Editor preset list: the marks sit right after the name */
 .te .preset-list .mi { display: inline-flex; align-items: center; gap: .35rem; }
 .te .preset-list .mi .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.psel-list.up { top: auto; bottom: calc(100% + 4px); }

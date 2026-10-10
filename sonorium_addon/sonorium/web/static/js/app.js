@@ -1410,6 +1410,9 @@ function dpselOpen() {
     list.hidden = false;
     button.setAttribute('aria-expanded', 'true');
     dpselRenderList();
+    // Open upward when the dialog has no room below the field
+    const room = (button.closest('.modal-body, .modal')?.getBoundingClientRect().bottom ?? window.innerHeight) - button.getBoundingClientRect().bottom;
+    list.classList.toggle('up', room < Math.min(list.scrollHeight, 280) + 8);
     list.focus();
 }
 
