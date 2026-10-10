@@ -1297,6 +1297,7 @@ class ApiSonorium(api.Base):
                 logger.error(f"Theme refresh after change failed: {e}")
 
         self._theme_refresh_task = asyncio.get_running_loop().create_task(refresh_later())
+        return self._theme_refresh_task
 
     async def refresh_themes(self):
         """Rescan theme folders and reload themes."""

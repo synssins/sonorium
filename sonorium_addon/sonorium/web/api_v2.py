@@ -1543,20 +1543,29 @@ def create_api_router(
             theme_path.mkdir(parents=True, exist_ok=True)
             logger.info(f"Created theme folder: {theme_path}")
 
-            # Write metadata.json with description and icon
-            metadata = {}
+            # metadata.json from the start: it gives the theme its id and the
+            # name as typed, and an empty theme is loaded because it has one
+            import uuid
+            theme_id = str(uuid.uuid4())
+            metadata = {"spec_version": 2, "id": theme_id, "name": name}
             if description:
                 metadata["description"] = description
             if icon and icon != "🎵":  # Only store non-default icons
                 metadata["icon"] = icon
-            if metadata:
-                metadata["spec_version"] = 2
-                metadata_path = theme_path / "metadata.json"
-                metadata_path.write_text(json.dumps(metadata, indent=2))
+            (theme_path / "metadata.json").write_text(json.dumps(metadata, indent=2))
+
+            # Load it now, so the editor can open it straight away
+            if on_themes_changed:
+                task = on_themes_changed(0.0)
+                if task is not None:
+                    try:
+                        await task
+                    except Exception as e:
+                        logger.warning(f"Theme refresh after creating '{name}' failed: {e}")
 
             return {
                 "status": "ok",
-                "theme_id": folder_name,
+                "theme_id": theme_id,
                 "path": str(theme_path),
                 "message": f"Theme '{name}' created successfully"
             }
