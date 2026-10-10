@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.3-dev.2 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Moving tracks is immediate; editor messages are toasts
+  ([`af8f44b`](https://github.com/synssins/sonorium/commit/af8f44ba25631fe48dae9de830079fffb9ee8975))
+
+
 ## v1.5.3-dev.1 (2026-10-10)
 
 ### Features
