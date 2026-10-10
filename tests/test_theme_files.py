@@ -167,8 +167,52 @@ def test_a_track_holds_its_turn_only_while_playing():
     coordinator.register_track("A")
     coordinator.register_track("B")
     audio["seconds"] = coordinator.INITIAL_DELAY
-    assert coordinator.try_start_playing("A", 10.0)
+    assert not coordinator.try_start_playing("A", 10.0)  # the group gathers who's asking first
+    audio["seconds"] += coordinator.COLLECT_SECONDS
+    assert coordinator.try_start_playing("A", 10.0)  # A alone asked: A's turn
     assert coordinator.is_playing("A") and not coordinator.try_start_playing("B", 10.0)
     audio["seconds"] += 10.0
     assert not coordinator.is_playing("A")
+    assert not coordinator.try_start_playing("B", 10.0)
+    audio["seconds"] += coordinator.COLLECT_SECONDS
     assert coordinator.try_start_playing("B", 10.0)
+
+
+def _turns(shares, turns=3000, muted=()):
+    """Simulates a group: every track asks every 2 s; returns the order of plays."""
+    from test_crossfade_loop import recording
+    import random as _random
+    _random.seed(7)
+    audio = {"seconds": 0.0}
+    coordinator = recording.ExclusionGroupCoordinator((0.0, 0.0), clock=lambda: audio["seconds"])
+    for name in shares:
+        coordinator.register_track(name)
+    played = []
+    while len(played) < turns:
+        audio["seconds"] += 2.0
+        for name, share in shares.items():
+            if name in muted:
+                continue
+            if coordinator.try_start_playing(name, 3.0, share):
+                played.append(name)
+    return played
+
+
+def test_a_group_never_repeats_a_track_and_shares_turns_by_weight():
+    played = _turns({"A": 1.0, "B": 1.0, "C": 1.0, "D": 1.0, "E": 0.2})
+    assert all(a != b for a, b in zip(played, played[1:]))  # never twice in a row
+    counts = {t: played.count(t) for t in "ABCDE"}
+    assert all(abs(counts[t] / len(played) - 0.225) < 0.04 for t in "ABCD")
+    assert 0.05 < counts["E"] / len(played) < 0.15  # the 20% track: about 1 turn in 10
+
+
+def test_drag_makes_recent_tracks_wait():
+    played = _turns({t: 1.0 for t in "ABCDE"})
+    # the track before the last one is weighed down: an A-B-A pattern is rare
+    abab = sum(1 for a, b, c in zip(played, played[1:], played[2:]) if a == c)
+    assert abab / len(played) < 0.12
+
+
+def test_a_muted_track_never_holds_up_the_group():
+    played = _turns({"A": 1.0, "B": 1.0}, turns=200, muted={"B"})
+    assert set(played) == {"A"}  # A plays again when nothing else can

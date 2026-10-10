@@ -284,7 +284,8 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 - **Take turns:** a group is a folder of tracks where only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
 - **Gap:** after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.
 - **Intermittent only:** on its turn, a track plays its whole file once, then hands over. Background and Ebb & Flow are for the ambience outside groups.
-- **Volume, interval, mute:** the group's settings scale every track in it. A track's own *interval* sets how keen it is to take the next turn.
+- **Next track:** the group picks it. A track that just played is less likely to be picked for a while, and the same track never plays twice in a row.
+- **Volume, interval, mute:** the group's settings scale every track in it. A track's own *interval* sets how quickly it comes back after it plays: lower means it plays less often.
 - **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
 - **Deleting a group:** keeps its files; they move back into the theme.
 

@@ -368,21 +368,27 @@ folder, or `"Exclusive"` for a top-level track with `exclusive: true`
 (`recording.py:721-727`, `:795-824`) and presence wrappers (`:937-943`, `:1032-1050`) talk to
 the coordinator; continuous loops do not.
 
-Rules (`recording.py:13-170`):
+Rules (`ExclusionGroupCoordinator`, `recording.py`):
 
-| Rule | Value | Code |
-|---|---|---|
-| Nothing in the group plays during the first 60 s after the stream starts | `INITIAL_DELAY = 60.0` | `recording.py:34`, `:75-76`, `:122-123` |
-| Only one track of the group plays at a time | a claim lasts the time the track asked for (sparse: the file's header duration; presence: 3.5), or until it reports it finished | `:79-88`, `:100-101`, `:105-114` |
-| Gap after any track of the group finishes | `uniform(gap_min, gap_max)` s drawn each time if the group sets a gap (2.5), else `MIN_GAP_AFTER_EXCLUSIVE = 120.0` s | `:32`, `:36-39`, `:84`, `:113`, `:129` |
-| The track that played last cannot play next, if the group has more than one registered track | strict "not the same twice in a row" | `:95-97`, `:140-142` |
-| Sparse wait when blocked | `get_wait_time()` (time to the end of the initial delay, or remaining play time + `gap_min` (120 s without a gap), or remaining gap) plus `uniform(0.5, 3.0)` s; if that is 0, `uniform(1.0, 3.0)` s; converted to whole chunks | `:146-165`, `recording.py:815-824` |
-| Presence wait when refused | ask again every 2 s | `:1040-1041` |
+| Rule | Value |
+|---|---|
+| Nothing in the group plays during the first 60 s after the stream starts | `INITIAL_DELAY = 60.0` |
+| Only one track of the group plays at a time | a turn lasts the file's length (Ebb & Flow tracks of the old Exclusive switch: their play time plus both fades), or until the track reports it finished |
+| Gap after any track of the group finishes | `uniform(gap_min, gap_max)` s, drawn each time, if the group sets a gap (2.5); else `MIN_GAP_AFTER_EXCLUSIVE = 120.0` s |
+| Who asks | every unmuted track above 0% asks for the turn every few seconds while it waits; muted tracks and tracks at 0% don't ask |
+| Gathering | after the gap, the group collects the tracks asking for `COLLECT_SECONDS = 4.0` s, then picks one of them |
+| Picking | by weight: `sqrt(share) x (1 - drag)^2`, where share is the track's Interval (0-1, at least `MIN_SHARE = 0.05`) and drag is 1.0 right after the track played |
+| Drag wears off | each time another track plays: `drag x (0.6 + 0.35 x (1 - share))` (at 100% it halves roughly every 1.5 turns; at 20% it lasts about 4 times longer) |
+| No direct repeats | the track that played last is left out, unless no other track asked (the others are muted, at 0%, or it's alone) |
+| A pick nobody takes | if the picked track doesn't start within `PICK_TIMEOUT = 10.0` s (muted meanwhile), the group picks again |
 
-Each sparse group track also keeps its own sparse gap after it plays (3.4 step 7), so a
-track's effective `presence` still controls how often that track is picked.
+Grouped tracks play Intermittent (3.6): the whole file once, start to finish, with only a 20 ms edge
+(`GROUP_EDGE_FADE_SECONDS`) so it doesn't click, and no sparse gap of their own; the group's gap
+and pick decide when a track plays again. With four tracks at 100%, 100%, 100% and 20%, the 20%
+track plays about one turn in ten.
 
-The coordinator uses the wall clock (`time.time()`), not the sample count (`recording.py:51`, `:72`).
+The coordinator runs on the theme's audio clock (`ThemeStream.audio_seconds`), not the wall
+clock, so a stalled stream can't let two tracks of a group overlap.
 
 **Mixer bus.** A grouped track's settings are worked out by `TrackView`
 (`recording.py:410-477`) in this order:

@@ -99,7 +99,7 @@ def _first_chunks_rms(tmp_path, monkeypatch, group):
     meta = SimpleNamespace(path=str(path), duration_samples=n, duration_seconds=n / SAMPLE_RATE)
     track = SimpleNamespace(meta=meta, volume=1.0, presence=1.0, exclusive=bool(group), name="crack",
                             exclusion_group=group)
-    turn = SimpleNamespace(is_blocked=lambda name: False, try_start_playing=lambda name, s: True,
+    turn = SimpleNamespace(is_blocked=lambda *a: False, try_start_playing=lambda *a: True,
                            finish_playing=lambda name: None, get_wait_time=lambda: 0, register_track=lambda name: None)
     monkeypatch.setattr(recording.random, "uniform", lambda a, b: a)  # no initial delay
     stream = recording.SparsePlaybackStream(track, turn if group else None)
