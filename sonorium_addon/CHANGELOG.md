@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.6 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Picking a preset in the Theme Editor loads it
+  ([`3f314ba`](https://github.com/synssins/sonorium/commit/3f314badebdad0fd464f370f6afe5e62698b3544))
+
+
 ## v1.6.1-dev.5 (2026-10-10)
 
 ### Bug Fixes
