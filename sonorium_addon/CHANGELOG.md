@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.27 (2026-10-10)
+
+### Features
+
+- Playing channels pick up a theme's new and removed files at once
+  ([`6bd8472`](https://github.com/synssins/sonorium/commit/6bd847268a1264ae52519ba3ae4be71c809c400c))
+
+
 ## v1.4.2-dev.26 (2026-10-10)
 
 ### Features
