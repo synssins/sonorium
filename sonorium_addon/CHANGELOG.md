@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.21 (2026-10-10)
+
+### Documentation
+
+- Explain per-channel presets (before/after); release is 1.5.0
+  ([`590e803`](https://github.com/synssins/sonorium/commit/590e803de597232cda3c0a7291e37adcea36c8c8))
+
+- Major release notice, Themes 2.0 what's new and screenshots in the main README
+  ([`a6655c6`](https://github.com/synssins/sonorium/commit/a6655c6a51ac072200b873964b5c8aa66072982e))
+
+- READMEs in nine sections with links at the top
+  ([`bfc35a1`](https://github.com/synssins/sonorium/commit/bfc35a1081dacc3c4a64ea4707a8e2bcdd9d9f79))
+
+- **addon**: Drop the link row; HA doesn't follow in-page links
+  ([`e948ca1`](https://github.com/synssins/sonorium/commit/e948ca14ce9ec3583ace18ece06803afeb36811b))
+
+- **addon**: Major release notice, Themes 2.0 what's new, help definitions, new screenshots
+  ([`7a6015a`](https://github.com/synssins/sonorium/commit/7a6015a8a1e490557c84f783286d6fd16d1fac71))
+
+### Features
+
+- **ui**: "How often" is now "Interval"; README explains groups replace Exclusive
+  ([`88b2f62`](https://github.com/synssins/sonorium/commit/88b2f623565288f09b5d4b2e71a305d1e8cdabb7))
+
+
 ## v1.4.2-dev.20 (2026-10-10)
 
 ### Bug Fixes
