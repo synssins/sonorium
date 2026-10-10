@@ -276,12 +276,42 @@
                     <div class="modal-header">
                         <h2 id="te-title">Edit theme <span class="sub" id="te-title-name"></span></h2>
                         <div class="hd-acts">
+                            <button class="icon-btn sm hd-more" id="te-help-btn" aria-label="Help" aria-expanded="false" aria-controls="te-help" onclick="teToggleHelp()">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            </button>
                             <button class="icon-btn sm hd-more" aria-label="More theme options" aria-haspopup="menu" onclick="teMenu('theme', this)">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
                             </button>
                             <button class="modal-close" aria-label="Close" onclick="teCancel()">
                                 <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                             </button>
+                        </div>
+                    </div>
+
+                    <!-- Help: small panel under the ? button; full screen on a phone (with ×) -->
+                    <div id="te-help" class="te-help" role="dialog" aria-label="Theme editor help" hidden>
+                        <div class="te-help-hd">
+                            <strong>How a theme plays</strong>
+                            <button class="modal-close te-help-x" aria-label="Close help" onclick="teCloseHelp()">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <div class="te-help-body">
+                            <p>A theme is a set of tracks (sound files) mixed together. Each track has a <b>mode</b>, a <b>volume</b> and a <b>how often</b>.</p>
+                            <h4>Modes</h4>
+                            <dl>
+                                <dt>Background</dt><dd>Plays all the time, looping smoothly. Rain, wind, a fire.</dd>
+                                <dt>Intermittent</dt><dd>Plays once, then goes quiet before playing again. <i>How often</i> sets the wait. Bird calls, a thunder crack, a door.</dd>
+                                <dt>Ebb &amp; Flow</dt><dd>Fades in, plays a while, fades out, then stays quiet before coming back. <i>How often</i> sets how much of the time it's heard. Distant traffic, a passing crowd.</dd>
+                                <dt>Auto</dt><dd>Picks for you: under 15 seconds plays Intermittent, longer plays Ebb &amp; Flow. At 100% <i>how often</i>, either plays as Background.</dd>
+                            </dl>
+                            <h4>Groups</h4>
+                            <p>A group is a folder of tracks that <b>take turns</b>: only one plays at a time, never overlapping. When one finishes, the group waits a random time within its <b>Gap</b> (minutes) before the next one starts. Different groups don't wait for each other.</p>
+                            <p>Use a group for sounds that shouldn't pile up, like several thunder cracks or songs from one musician. This is what <b>Unique</b> means: one at a time. Tracks in a group play as Intermittent or Ebb &amp; Flow; Background isn't offered, since it would never hand over its turn.</p>
+                            <p>The group's <b>volume</b> and <b>how often</b> scale every track in it. A track's own <b>how often</b> sets how keen it is to take the next turn. Muting the group silences all of it.</p>
+                            <p>Drag a track onto a group, or use its <b>⋯</b> menu, to move it. Deleting a group keeps its files: they move back into the theme.</p>
+                            <h4>Saving</h4>
+                            <p>Changes are heard live on speakers playing this theme, and on this device with <b>Preview mix</b>. <b>Cancel</b> puts them back. <b>Save theme</b> keeps them and closes. <b>Save preset</b> stores the current mix in the selected preset (and saves the theme). <b>New</b> makes a preset from the current mix.</p>
                         </div>
                     </div>
 

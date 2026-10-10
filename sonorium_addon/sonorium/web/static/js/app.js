@@ -2150,6 +2150,7 @@ async function teSaveAndClose() {
 
 function closeThemeEditModal() {
     teCloseMenu();
+    teCloseHelp();
     stopTrackPreview();
     teStopMixPreview();
     document.getElementById('theme-edit-modal').style.display = 'none';
@@ -3327,7 +3328,10 @@ document.addEventListener('keydown', event => {
     // Another dialog (import/export preset) open on top: leave it alone
     const onTop = ['preset-import-modal', 'preset-export-modal'].some(id => document.getElementById(id)?.style.display === 'flex');
     if (onTop) return;
-    if (te.menu) {
+    if (teHelpOpen()) {
+        teCloseHelp();
+        document.getElementById('te-help-btn')?.focus();
+    } else if (te.menu) {
         const button = te.menuBtn;
         teCloseMenu();
         button?.focus();
@@ -6102,3 +6106,57 @@ function teRestartMixPreview() {
     teMixAudio.src = teMixUrl();
     teMixAudio.play().catch(() => teStopMixPreview());
 }
+
+// ---------- Theme Editor: help panel ----------
+// A small panel under the ? button. Full screen (phone) it has a x to close;
+// otherwise it closes on a click outside, or 2 s after the pointer leaves it.
+
+let teHelpTimer = null;
+
+function teHelpOpen() {
+    const help = document.getElementById('te-help');
+    return !!help && !help.hidden;
+}
+
+function teHelpFullScreen() {
+    return window.matchMedia('(max-width: 760px)').matches;
+}
+
+function teToggleHelp() {
+    if (teHelpOpen()) return teCloseHelp();
+    teCloseMenu();
+    const help = document.getElementById('te-help');
+    help.hidden = false;
+    help.querySelector('.te-help-body').scrollTop = 0;
+    document.getElementById('te-help-btn').setAttribute('aria-expanded', 'true');
+}
+
+function teCloseHelp() {
+    clearTimeout(teHelpTimer);
+    teHelpTimer = null;
+    const help = document.getElementById('te-help');
+    if (!help || help.hidden) return;
+    help.hidden = true;
+    document.getElementById('te-help-btn')?.setAttribute('aria-expanded', 'false');
+}
+
+(function teHelpWire() {
+    const help = document.getElementById('te-help');
+    const button = document.getElementById('te-help-btn');
+    if (!help || !button) return;
+    const leave = () => {
+        if (!teHelpOpen() || teHelpFullScreen()) return;
+        clearTimeout(teHelpTimer);
+        teHelpTimer = setTimeout(teCloseHelp, 2000);
+    };
+    const enter = () => { clearTimeout(teHelpTimer); teHelpTimer = null; };
+    for (const el of [help, button]) {
+        el.addEventListener('mouseleave', leave);
+        el.addEventListener('mouseenter', enter);
+    }
+    document.addEventListener('pointerdown', event => {
+        if (!teHelpOpen() || teHelpFullScreen()) return;
+        if (help.contains(event.target) || button.contains(event.target)) return;
+        teCloseHelp();
+    }, true);
+})();
