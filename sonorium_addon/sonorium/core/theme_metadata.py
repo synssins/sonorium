@@ -101,6 +101,10 @@ class ThemeMetadata:
     # keep their own exclusive flag, so playback is unchanged.
     groups: dict[str, dict] = field(default_factory=dict)
 
+    # Linked files of intrusion groups: files in another theme's folder, not
+    # copied. Track key here -> {"theme": source theme id, "track": source track key}
+    links: dict[str, dict] = field(default_factory=dict)
+
     # Problems found while loading (e.g. a broken file), for the UI. Not saved.
     problems: list[str] = field(default_factory=list, compare=False)
 
@@ -108,6 +112,14 @@ class ThemeMetadata:
         # Generate ID if not present
         if not self.id:
             self.id = str(uuid.uuid4())
+
+        # Only well-formed links ({"theme": id, "track": key}) are kept
+        self.links = {
+            key: {"theme": link["theme"], "track": link["track"]}
+            for key, link in (self.links or {}).items()
+            if isinstance(key, str) and "/" in key and isinstance(link, dict)
+            and isinstance(link.get("theme"), str) and isinstance(link.get("track"), str)
+        } if isinstance(self.links, dict) else {}
 
         # Convert track dicts to TrackSettings objects
         if self.tracks:
@@ -136,6 +148,8 @@ class ThemeMetadata:
                       for k, v in self.tracks.items()},
             "groups": self.groups,
         }
+        if self.links:
+            data["links"] = self.links
         if self.attribution:
             data["attribution"] = self.attribution
         return data
@@ -150,7 +164,7 @@ class ThemeMetadata:
         kwargs = {}
         for key in ['id', 'name', 'description', 'icon', 'is_favorite',
                     'categories', 'short_file_threshold', 'presets', 'attribution',
-                    'spec_version', 'groups']:
+                    'spec_version', 'groups', 'links']:
             if key in data:
                 kwargs[key] = data[key]
 
@@ -562,6 +576,11 @@ def sync_entries_with_files(folder: Path, metadata: ThemeMetadata) -> Optional[d
 
     Nothing is removed when the folder holds no audio at all (e.g. a share
     that is briefly unreachable), so a hiccup can't wipe a theme's settings.
+
+    Linked files (metadata.links) count as present while their link exists,
+    even when the source file is missing; links themselves are only removed
+    through the API. A linked key without an entry gets one, muted. A group
+    that holds links counts as present even without its folder.
     """
     from sonorium.core.theme_groups import group_folder_names
     from sonorium.theme_files import theme_audio_files, track_key
@@ -572,8 +591,9 @@ def sync_entries_with_files(folder: Path, metadata: ThemeMetadata) -> Optional[d
     keys = [track_key(folder, f) for f in theme_audio_files(folder)]
     if not keys:
         return None
-    present = set(keys)
-    groups = set(group_folder_names(folder))
+    links = dict(getattr(metadata, "links", None) or {})
+    present = set(keys) | set(links)
+    groups = set(group_folder_names(folder)) | {key.split("/", 1)[0] for key in links}
 
     def stale_group(name, settings):
         return name not in groups and not (settings or {}).get("legacy_exclusive") and name != LEGACY_EXCLUSIVE_GROUP
@@ -581,6 +601,10 @@ def sync_entries_with_files(folder: Path, metadata: ThemeMetadata) -> Optional[d
     added = [k for k in keys if k not in metadata.tracks]
     for key in added:
         metadata.tracks[key] = TrackSettings()
+    linked_added = [k for k in links if k not in metadata.tracks]
+    for key in linked_added:
+        metadata.tracks[key] = TrackSettings(muted=True)
+    added += linked_added
     removed = [k for k in metadata.tracks if k not in present]
     for key in removed:
         del metadata.tracks[key]

@@ -1794,6 +1794,15 @@ def create_api_router(
 
                 # Always the 2.0 layout: metadata.json without presets, plus presets.json
                 metadata_doc, presets_doc = theme_documents_for_export(theme_path)
+
+                # Self-contained: an intrusion group's linked files (they live in
+                # other themes' folders) go in as normal files of their group,
+                # the links are dropped and their settings kept under the same keys
+                from sonorium.core.intrusions import export_entries
+                for relative, source in export_entries(theme_path, metadata_doc):
+                    zip_file.write(source, f"{theme_name}/{relative}")
+                    logger.debug(f"Added linked file to zip: {relative} (from {source})")
+
                 zip_file.writestr(f"{theme_name}/{METADATA_FILE}",
                                   json.dumps(metadata_doc, indent=2, ensure_ascii=False))
                 zip_file.writestr(f"{theme_name}/{PRESETS_FILE}",

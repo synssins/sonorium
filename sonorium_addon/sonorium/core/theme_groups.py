@@ -416,9 +416,20 @@ def migrate_presets(presets: dict, track_keys: dict, group_renames: Optional[dic
 
 def migrate_keys(metadata, presets: dict, change: Change) -> dict:
     """
-    Apply a Change to metadata (its .tracks and .groups, changed in place) and
-    return the migrated presets ({id: preset}).
+    Apply a Change to metadata (its .tracks, .groups and .links, changed in
+    place) and return the migrated presets ({id: preset}). Linked files follow
+    a renamed group; a deleted group's links are dropped (never any file).
     """
     metadata.tracks = remap_tracks(dict(metadata.tracks or {}), change.track_keys, change.group_renames)
     metadata.groups = remap_groups(dict(metadata.groups or {}), change.group_renames)
+    if getattr(metadata, "links", None) and change.group_renames:
+        links = {}
+        for key, link in metadata.links.items():
+            group, _, rest = key.partition("/")
+            if group in change.group_renames:
+                if change.group_renames[group] is None:
+                    continue
+                key = f"{change.group_renames[group]}/{rest}"
+            links[key] = link
+        metadata.links = links
     return migrate_presets(presets, change.track_keys, change.group_renames)

@@ -286,12 +286,19 @@ class RecordingMetadata:
     Represents file, metadata, etc. The non-state stuff, on disk. One per file. Immutable
     """
 
-    def __init__(self, path, theme_folder=None):
+    def __init__(self, path, theme_folder=None, key=None, group=None, link=None):
         self.path = path
         self._duration_samples = None
+        # A linked file (an intrusion group's file that lives in another theme's
+        # folder): {"theme": source theme id, "track": source track key}
+        self.link = link
         # Track key and group (see sonorium/theme_files.py): "Fireplace", or
-        # "Lute/Lute song 1" with group "Lute" for a file in a group folder
-        if theme_folder is not None:
+        # "Lute/Lute song 1" with group "Lute" for a file in a group folder.
+        # A linked file gets its key and group from the theme that links it.
+        if key is not None:
+            self._key = key
+            self.group = group
+        elif theme_folder is not None:
             from sonorium.theme_files import track_group, track_key
             self._key = track_key(theme_folder, path)
             self.group = track_group(theme_folder, path)
@@ -444,10 +451,14 @@ def group_gap_range(group_settings: dict | None) -> tuple[float, float] | None:
 
 # A group's mode (metadata.json groups[name]["mode"]; a theme setting, not in presets):
 # Intermittent plays one track at a time with a gap between them;
-# Merry-go-round plays a continuous bed, each file crossfading into the next.
+# Merry-go-round plays a continuous bed, each file crossfading into the next;
+# Intrusion leaves each track to play as its own settings say, like an
+# ungrouped track (no turns, no bed), and can hold files linked from other
+# themes. Its volume, interval and mute masters still scale its tracks.
 GROUP_MODE_INTERMITTENT = "intermittent"
 GROUP_MODE_MERRY_GO_ROUND = "merry_go_round"
-GROUP_MODES = (GROUP_MODE_INTERMITTENT, GROUP_MODE_MERRY_GO_ROUND)
+GROUP_MODE_INTRUSION = "intrusion"
+GROUP_MODES = (GROUP_MODE_INTERMITTENT, GROUP_MODE_MERRY_GO_ROUND, GROUP_MODE_INTRUSION)
 # Merry-go-round crossfade (groups[name]["crossfade"], seconds)
 DEFAULT_GROUP_CROSSFADE = 10.0
 MIN_GROUP_CROSSFADE = 1.0
@@ -536,6 +547,11 @@ class TrackView:
             return self._in_group(group, name, value)
         return value
 
+    def _intrusion_group(self, group: str) -> bool:
+        """A group in Intrusion mode: its tracks play as their own settings say."""
+        theme_groups = getattr(getattr(self._instance, "theme", None), "groups", None) or {}
+        return group_mode(theme_groups.get(group)) == GROUP_MODE_INTRUSION
+
     def _track_value(self, name):
         """The track's own value: the channel's preset for it, else the theme's."""
         if name in PRESET_TRACK_FIELDS:
@@ -558,6 +574,8 @@ class TrackView:
 
     def _in_group(self, group: str, name: str, value):
         """A track in a group folder: the group's master controls act on the track's own value."""
+        if name in ("exclusive", "playback_mode") and self._intrusion_group(group):
+            return value  # an intrusion group doesn't take turns: the track's own mode
         if name == "exclusive":
             return True  # one track of a group at a time
         if name in ("volume", "presence"):
@@ -577,7 +595,7 @@ class TrackView:
     def exclusion_group(self) -> str | None:
         """The named group this track plays in, one at a time: its folder, or "Exclusive" for the old flag."""
         group = getattr(self._instance.meta, "group", None)
-        if group:
+        if group and not self._intrusion_group(group):
             return group
         return LEGACY_EXCLUSIVE_GROUP if self.exclusive else None
 
@@ -921,8 +939,9 @@ class SparsePlaybackStream:
             # Check for updated presence
             presence = self.instance.presence
 
-            # 0% means never: stay silent, checking again every second
-            if presence <= 0.0:
+            # 0% means never, and a muted track (pulled while it fades out)
+            # starts no new play: stay silent, checking again every second
+            if presence <= 0.0 or not getattr(self.instance, "is_enabled", True):
                 for _ in range(max(1, SAMPLE_RATE // self.CHUNK_SIZE)):
                     yield silence_chunk
                 continue
@@ -1129,7 +1148,9 @@ class PresenceMixingStream:
             # Check if it's time to change state
             samples_until_change -= self.CHUNK_SIZE
             if coordinator is not None and samples_until_change <= 0 and presence > 0.0:
-                if not is_active:
+                if not is_active and not getattr(self.instance, "is_enabled", True):
+                    samples_until_change = retry_samples  # muted (fading out): doesn't ask for a turn
+                elif not is_active:
                     # Ask for the group's turn; at 100% the track keeps it
                     active_samples = get_next_duration(presence, True)
                     # Held through the fade-out too, with room to spare: the turn is
