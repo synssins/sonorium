@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.26 (2026-10-10)
+
+### Features
+
+- A group picks its next track by weight
+  ([`992ca5f`](https://github.com/synssins/sonorium/commit/992ca5fea34f83a1a4e197c95aa05d3561735640))
+
+
 ## v1.4.2-dev.25 (2026-10-10)
 
 ### Bug Fixes
