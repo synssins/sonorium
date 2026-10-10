@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.7 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Theme Editor opens with no preset selected
+  ([`0640215`](https://github.com/synssins/sonorium/commit/0640215a62a3aa63987be181bf2c44c9fe5e18f9))
+
+### Documentation
+
+- Sonorium UI style, from the Theme Editor redesign
+  ([`bc4c588`](https://github.com/synssins/sonorium/commit/bc4c5887c0ccf429f97eddbaab521282e8b11da4))
+
+### Features
+
+- **ui**: Redesigned Theme Edit window
+  ([`e989014`](https://github.com/synssins/sonorium/commit/e989014db973b1b619ffdba7f7fc2c57dcae3d8b))
+
+
 ## v1.4.2-dev.6 (2026-10-09)
 
 ### Bug Fixes
