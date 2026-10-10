@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.22 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: A track's menu moves it to Unassigned (not "Theme (no group)"); design board for the
+  Channels page
+  ([`930bca6`](https://github.com/synssins/sonorium/commit/930bca68ea05f17d10f74291cb3a64187502f2ca))
+
+
 ## v1.6.1-dev.21 (2026-10-10)
 
 ### Bug Fixes
