@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.28 (2026-10-10)
+
+### Features
+
+- Metadata.json and presets follow the theme's files
+  ([`6d67001`](https://github.com/synssins/sonorium/commit/6d67001b92bf0a776962a5741233aed8fdf4f560))
+
+### Testing
+
+- Keep the add-on package import to the live-track tests
+  ([`a1f41b6`](https://github.com/synssins/sonorium/commit/a1f41b69a95b2dd482b3435e1558f2a82a044bef))
+
+
 ## v1.4.2-dev.27 (2026-10-10)
 
 ### Features
