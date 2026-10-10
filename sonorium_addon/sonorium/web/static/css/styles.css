@@ -2814,7 +2814,7 @@ body.sidebar-open .sidebar-overlay {
     .te .drag-handle { display: none; }
     .te .track-mute-btn { width: 40px; height: 40px; flex: none; }
     .te .icon-btn.sm { width: 40px; height: 40px; }
-    /* Card: ▶ name mute ⋯ / Mode / Volume / How often */
+    /* Card: ▶ name mute ⋯ / Mode / Volume / Interval */
     .te .trow.tgrid { grid-template-columns: 36px minmax(0, 1fr) 40px 40px; grid-template-areas: "play name mute more" "mode mode mode mode" "vol vol vol vol" "pres pres pres pres"; row-gap: .375rem; column-gap: .5rem; min-height: 0; padding: .5rem .625rem .625rem; border: 1px solid var(--border-color); border-radius: .5rem; background: var(--bg-card); }
     .te .sec > .trow:last-child { border-bottom: 1px solid var(--border-color); }
     .te .trow.in-grp { border-left: 3px solid rgba(139, 92, 246, .6); }

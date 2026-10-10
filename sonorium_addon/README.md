@@ -104,13 +104,13 @@ Recent messages with filters, search, copy and download.
 #### Track Mixer
 Fine-tune how each audio file plays within a theme:
 
-- **How often** - Set how often each track is heard in the mix (0-100%)
+- **Interval** - Set how often each track is heard in the mix (0-100%)
 - **Per-Track Volume** - Adjust the amplitude of individual tracks independent of presence.
 - **Playback Modes** - Choose how each track behaves:
-  - **Auto** - Picks for you: sounds under 15 seconds play Intermittent and longer ones play Ebb & Flow; at 100% "how often", either plays as Background
+  - **Auto** - Picks for you: sounds under 15 seconds play Intermittent and longer ones play Ebb & Flow; at 100% "interval", either plays as Background
   - **Background** - Plays all the time, looping with a smooth crossfade (rain, wind, a crackling fire)
-  - **Intermittent** - Plays once, then goes quiet for a while before playing again; "how often" sets the wait (bird calls, thunder claps, a door creaking)
-  - **Ebb & Flow** - Fades in, plays for a while, fades out, then stays quiet before coming back; "how often" sets how much of the time it's heard (distant traffic, a passing crowd)
+  - **Intermittent** - Plays once, then goes quiet for a while before playing again; "interval" sets the wait (bird calls, thunder claps, a door creaking)
+  - **Ebb & Flow** - Fades in, plays for a while, fades out, then stays quiet before coming back; "interval" sets how much of the time it's heard (distant traffic, a passing crowd)
 - **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in a group plays Intermittent: its whole file once, on its turn. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
 
 #### Home Assistant Dashboard Integration
@@ -241,9 +241,9 @@ automations that use the entity first.
 
 ### Themes 2.0
 
-- **Groups.** A folder inside a theme is a group: its tracks take turns, one at a time, never overlapping, with a random gap between them.
+- **Groups.** A folder inside a theme is a group: its tracks take turns, one at a time, never overlapping, with a random gap between them. This replaces the need to check "Exclusive" on every track that needed to play independently of other exclusive tracks in a theme.
 - **A preset per channel.** Two channels can play the same theme with different presets. Before, they shared one: changing the preset on one changed it on both.
-- **New Theme Editor.** Name, categories and description at the top; every track in one aligned table with its mode, volume, how often and mute; groups as sections you can collapse; upload, drag tracks between groups, and presets at the bottom. Changes are heard live, **Preview mix** plays the theme on the device you're editing from, and the **?** button explains it all.
+- **New Theme Editor.** Name, categories and description at the top; every track in one aligned table with its mode, volume, interval and mute; groups as sections you can collapse; upload, drag tracks between groups, and presets at the bottom. Changes are heard live, **Preview mix** plays the theme on the device you're editing from, and the **?** button explains it all.
 - **New Themes page.** Search, category chips, sort, and cards or a list. Each theme appears once, with its categories, a preview and a badge for the channel playing it.
 - **New mode names.** Continuous is now **Background**, Sparse is **Intermittent**, Presence is **Ebb & Flow**. Your saved settings keep working.
 - **Steadier sound.** The mix keeps an even level as tracks come and go, without clipping.
@@ -253,21 +253,21 @@ automations that use the entity first.
 
 These are the same words as the **?** help in the Theme Editor.
 
-A theme is a set of tracks (sound files) mixed together. Each track has a **mode**, a **volume** and a **how often**.
+A theme is a set of tracks (sound files) mixed together. Each track has a **mode**, a **volume** and an **interval**.
 
 **Modes**
 
 - **Background:** plays all the time, looping smoothly. Rain, wind, a fire.
-- **Intermittent:** plays once, then goes quiet before playing again. *How often* sets the wait. Bird calls, a thunder crack, a door.
-- **Ebb & Flow:** fades in, plays a while, fades out, then stays quiet before coming back. *How often* sets how much of the time it's heard. Distant traffic, a passing crowd.
-- **Auto:** picks for you. Under 15 seconds plays Intermittent, longer plays Ebb & Flow. At 100% *how often*, either plays as Background.
+- **Intermittent:** plays once, then goes quiet before playing again. *Interval* sets the wait. Bird calls, a thunder crack, a door.
+- **Ebb & Flow:** fades in, plays a while, fades out, then stays quiet before coming back. *Interval* sets how much of the time it's heard. Distant traffic, a passing crowd.
+- **Auto:** picks for you. Under 15 seconds plays Intermittent, longer plays Ebb & Flow. At 100% *interval*, either plays as Background.
 
 **Groups**
 
 - **Take turns:** a group is a folder of tracks where only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
 - **Gap:** after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.
 - **Intermittent only:** on its turn, a track plays its whole file once, then hands over. Background and Ebb & Flow are for the ambience outside groups.
-- **Volume, how often, mute:** the group's settings scale every track in it. A track's own *how often* sets how keen it is to take the next turn.
+- **Volume, interval, mute:** the group's settings scale every track in it. A track's own *interval* sets how keen it is to take the next turn.
 - **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
 - **Deleting a group:** keeps its files; they move back into the theme.
 

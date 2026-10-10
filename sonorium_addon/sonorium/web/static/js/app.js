@@ -2795,8 +2795,8 @@ function teRenderRow(track, group) {
         ${teSliderCell('volume', 'Volume', vol,
             `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"`,
             playsAtHint(vol / 100, volMaster))}
-        ${teSliderCell('presence', 'How often', pres,
-            `aria-label="How often: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'presence', this.value)"`,
+        ${teSliderCell('presence', 'Interval', pres,
+            `aria-label="Interval: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'presence', this.value)"`,
             playsAtHint(pres / 100, presMaster))}
         <button class="track-mute-btn${track.muted ? ' muted' : ''}" title="${track.muted ? 'Unmute' : 'Mute'}"
                 aria-label="${track.muted ? 'Unmute' : 'Mute'}: ${label}" aria-pressed="${!!track.muted}"
@@ -2860,7 +2860,7 @@ function teRenderGroup(group) {
                 ${confirming ? '' : gap('gap-ctl')}
             </div>
             <div class="master">${masterSlider('volume', 'Volume', vol)}</div>
-            <div class="master">${masterSlider('presence', 'How often', pres)}</div>
+            <div class="master">${masterSlider('presence', 'Interval', pres)}</div>
             <button class="track-mute-btn${muted ? ' muted' : ''}" title="${muted ? 'Unmute group' : 'Mute group'}"
                     aria-label="${muted ? 'Unmute group' : 'Mute group'}: ${label}" aria-pressed="${muted}"
                     onclick="teSetGroupValue(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
@@ -2870,7 +2870,7 @@ function teRenderGroup(group) {
         <div class="pg-master">
             <span class="mlabel">Group</span>
             ${masterSlider('volume', 'Volume', vol)}
-            ${masterSlider('presence', 'How often', pres)}
+            ${masterSlider('presence', 'Interval', pres)}
             ${gap('gap-row')}
         </div>
         ${tracks.map(t => teRenderRow(t, group)).join('')}
@@ -2963,7 +2963,7 @@ async function teSetTrackValue(key, kind, percent) {
         if (track) track[kind] = value;
         teMarkMixChanged();
     } catch (error) {
-        showToast(error.message || `Failed to set ${kind === 'presence' ? 'how often' : 'volume'}`, 'error');
+        showToast(error.message || `Failed to set ${kind === 'presence' ? 'interval' : 'volume'}`, 'error');
         teRenderTracks();
     }
 }
@@ -6153,7 +6153,7 @@ init();
 
 // ---------- Theme Editor: Preview mix ----------
 // Plays the whole theme on this device through the browser, with the editor's
-// current settings (the theme's own stream, /stream/<id>). Volume, how often,
+// current settings (the theme's own stream, /stream/<id>). Volume, interval,
 // mute and group settings are heard live (a few seconds behind); changes that
 // alter how tracks are built (mode, gapless, moving tracks, uploads, reset)
 // restart the preview. The speakers are not touched.

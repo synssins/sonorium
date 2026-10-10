@@ -235,7 +235,7 @@ Generators should deliver 44.1 kHz mono files so no resampling or down-mix happe
 ### 3.2 playback_mode and how "auto" resolves (built)
 
 UI labels (the stored values don't change): `auto` = **Auto**, `continuous` = **Background**,
-`sparse` = **Intermittent**, `presence` = **Ebb & Flow**. `exclusive` has no label of its own: groups are how tracks take turns.
+`sparse` = **Intermittent**, `presence` = **Ebb & Flow**. The `presence` value is labelled **Interval**. `exclusive` has no label of its own: groups are how tracks take turns.
 
 Resolved once, when the track's stream is created (`recording.py:295-304`, `:306-324`), with
 the values the channel hears (preset and group applied, 4.2 and 3.6):

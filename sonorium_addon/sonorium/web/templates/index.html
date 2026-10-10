@@ -296,17 +296,17 @@
                             </button>
                         </div>
                         <div class="te-help-body">
-                            <p>A theme is a set of tracks (sound files) mixed together. Each track has a <b>mode</b>, a <b>volume</b> and a <b>how often</b>.</p>
+                            <p>A theme is a set of tracks (sound files) mixed together. Each track has a <b>mode</b>, a <b>volume</b> and an <b>interval</b>.</p>
                             <h4>Modes</h4>
                             <p class="hi"><b>Background:</b> plays all the time, looping smoothly. Rain, wind, a fire.</p>
-                            <p class="hi"><b>Intermittent:</b> plays once, then goes quiet before playing again. <i>How often</i> sets the wait. Bird calls, a thunder crack, a door.</p>
-                            <p class="hi"><b>Ebb &amp; Flow:</b> fades in, plays a while, fades out, then stays quiet before coming back. <i>How often</i> sets how much of the time it's heard. Distant traffic, a passing crowd.</p>
-                            <p class="hi"><b>Auto:</b> picks for you. Under 15 seconds plays Intermittent, longer plays Ebb &amp; Flow. At 100% <i>how often</i>, either plays as Background.</p>
+                            <p class="hi"><b>Intermittent:</b> plays once, then goes quiet before playing again. <i>Interval</i> sets the wait. Bird calls, a thunder crack, a door.</p>
+                            <p class="hi"><b>Ebb &amp; Flow:</b> fades in, plays a while, fades out, then stays quiet before coming back. <i>Interval</i> sets how much of the time it's heard. Distant traffic, a passing crowd.</p>
+                            <p class="hi"><b>Auto:</b> picks for you. Under 15 seconds plays Intermittent, longer plays Ebb &amp; Flow. At 100% <i>interval</i>, either plays as Background.</p>
                             <h4>Groups</h4>
                             <p class="hi"><b>Take turns:</b> a group is a folder of tracks where only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.</p>
                             <p class="hi"><b>Gap:</b> after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.</p>
                             <p class="hi"><b>Intermittent only:</b> on its turn, a track plays its whole file once, then hands over. Background and Ebb &amp; Flow are for the ambience outside groups.</p>
-                            <p class="hi"><b>Volume, how often, mute:</b> the group's settings scale every track in it. A track's own <i>how often</i> sets how keen it is to take the next turn.</p>
+                            <p class="hi"><b>Volume, interval, mute:</b> the group's settings scale every track in it. A track's own <i>interval</i> sets how keen it is to take the next turn.</p>
                             <p class="hi"><b>Moving tracks:</b> drag a track onto a group, or use its ⋯ menu.</p>
                             <p class="hi"><b>Deleting a group:</b> keeps its files; they move back into the theme.</p>
                             <h4>Saving</h4>
@@ -382,7 +382,7 @@
                         </div>
                         <input type="file" id="te-upload-input" multiple accept=".mp3,.wav,.flac,.ogg,audio/*" hidden
                                onchange="teUploadFiles(this.files); this.value = ''">
-                        <div class="thead-wrap"><div class="thead tgrid"><span></span><span></span><span>Name</span><span>Mode</span><span>Volume</span><span>How often</span><span class="c">Mute</span><span></span></div></div>
+                        <div class="thead-wrap"><div class="thead tgrid"><span></span><span></span><span>Name</span><span>Mode</span><span>Volume</span><span>Interval</span><span class="c">Mute</span><span></span></div></div>
                     </div>
 
                     <!-- Scrolls: the track list only -->
