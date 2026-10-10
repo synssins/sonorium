@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.12 (2026-10-10)
+
+### Features
+
+- Ebb & Flow groups, Pause between plays, two-knob volume; Interval sets how lively
+  ([`863d3f6`](https://github.com/synssins/sonorium/commit/863d3f644699418ad19c67d499ae7d37978d5b81))
+
+
 ## v1.6.1-dev.11 (2026-10-10)
 
 ### Features
