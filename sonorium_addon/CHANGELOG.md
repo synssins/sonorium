@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.10 (2026-10-10)
+
+### Features
+
+- **ui**: Preview mix in the Theme Editor; fix a memory leak in theme streams
+  ([`5e50991`](https://github.com/synssins/sonorium/commit/5e50991c578f8ee382d0a44b93f169b7be669fe9))
+
+
 ## v1.4.2-dev.9 (2026-10-10)
 
 ### Features
