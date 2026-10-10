@@ -2928,7 +2928,9 @@ async function teLoadPresets(selectDefault = false) {
         console.error('Failed to load presets:', error);
         te.presets = [];
     }
-    if (selectDefault) te.selPreset = te.presets.find(p => p.is_default)?.id || '';
+    // Opens with no preset selected: a preset only changes when it's picked
+    // on purpose and Save preset is pressed
+    if (selectDefault) te.selPreset = '';
     if (te.selPreset && !te.presets.some(p => p.id === te.selPreset)) te.selPreset = '';
     teRenderPresetField();
 }
