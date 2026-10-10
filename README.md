@@ -143,13 +143,14 @@ Full history: [sonorium_addon/CHANGELOG.md](sonorium_addon/CHANGELOG.md).
 ### Track Mixer
 Fine-tune how each audio file plays within a theme:
 
-- **Presence Control** - Set how often each track appears in the mix (0-100%)
+- **How often** - Set how often each track is heard in the mix (0-100%)
 - **Per-Track Volume** - Adjust amplitude independent of presence
 - **Playback Modes**:
-  - **Auto** - Automatically selects best mode based on file length
-  - **Continuous** - Loop with seamless crossfade
-  - **Sparse** - Play once, wait before repeating (for short sounds)
-  - **Presence** - Fade in/out based on presence setting
+  - **Auto** - Picks for you: sounds under 15 seconds play Intermittent and longer ones play Ebb & Flow; at 100% "how often", either plays as Background
+  - **Background** - Plays all the time, looping with a smooth crossfade (rain, wind, a crackling fire)
+  - **Intermittent** - Plays once, then goes quiet for a while before playing again; "how often" sets the wait (bird calls, thunder claps, a door creaking)
+  - **Ebb & Flow** - Fades in, plays for a while, fades out, then stays quiet before coming back; "how often" sets how much of the time it's heard (distant traffic, a passing crowd)
+  - **Unique** - Only one Unique sound plays at a time. Put such sounds in a group (a folder inside the theme); each group takes turns on its own
 
 ### Presets
 - **Save/Load Presets** - Store track settings as named presets

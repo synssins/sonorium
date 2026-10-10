@@ -1964,8 +1964,8 @@ const TE_ICON_FOLDER_LG = '<svg width="18" height="18" viewBox="0 0 24 24" fill=
 const TE_ICON_PLAY = '<svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 const TE_ICON_STOP = '<svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
 
-const TE_MODES = [['auto', 'Auto'], ['continuous', 'Continuous'], ['sparse', 'Sparse'], ['presence', 'Presence']];
-const TE_GROUP_MODES = [['auto', 'Auto'], ['sparse', 'Sparse'], ['presence', 'Presence']];
+const TE_MODES = [['auto', 'Auto'], ['continuous', 'Background'], ['sparse', 'Intermittent'], ['presence', 'Ebb & Flow']];
+const TE_GROUP_MODES = [['auto', 'Auto'], ['sparse', 'Intermittent'], ['presence', 'Ebb & Flow']];
 // The server rebuilds its theme list about 2 s after files move, rename or upload
 const TE_REBUILD_WAIT_MS = 2600;
 
@@ -2469,7 +2469,7 @@ function teRenderRow(track, group) {
         <div class="c-mode">
             <span class="c-lbl">Mode</span>
             <select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"
-                    title="Auto picks by file length. Continuous loops. Sparse plays once, then waits. Presence fades in and out.">${teModeOptions(track, !!group)}</select>
+                    title="Auto picks by file length. Background plays all the time. Intermittent plays now and then. Ebb &amp; Flow fades in, plays a while, fades out.">${teModeOptions(track, !!group)}</select>
         </div>
         ${teSliderCell('volume', 'Volume', vol,
             `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"`,
@@ -3190,12 +3190,12 @@ function teMenuHtml(kind, arg) {
             let html = '';
             if (!inGroup) {
                 html += mi('Gapless', `teToggleGapless(${k})`, {
-                    disabled: !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Continuous only',
+                    disabled: !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Background only',
                     after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
             }
             if (track.exclusive) {
-                html += mi('Exclusive (legacy)', `teToggleExclusive(${k})`, {
-                    title: 'Only one exclusive track plays at a time (older themes). Use a group instead.',
+                html += mi('Unique (legacy)', `teToggleExclusive(${k})`, {
+                    title: 'Only one Unique track plays at a time (older themes). Use a group instead.',
                     after: '<span class="sw on"></span>' });
             }
             if (te.groupsOk) {
