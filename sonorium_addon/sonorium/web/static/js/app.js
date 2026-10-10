@@ -3870,9 +3870,12 @@ function teRenderPresetField() {
     btn.innerHTML = `<span class="pdd-name">${preset ? escapeHtml(preset.name) : seq ? escapeHtml(seq.name) : '— Current settings —'}</span>${
         preset?.is_default ? '<span class="def-star" title="Default">★</span>' : ''}${(preset || seq)?.has_intrusion ? intrusionMark() : ''}${seq ? seqMark() : ''}
         ${preset && te.mixDirty ? '<span class="dirty dot-only" title="Mix changed"><i></i></span>' : ''}<span class="grow"></span>${TE_ICON_CHEV_UP}`;
+    // Picking a preset loads it, so the button is only there to open a sequence
+    // (Edit) or to put a preset back after changing the mix (Reload)
     const load = document.getElementById('te-load-btn');
-    load.disabled = !preset && !seq;
-    load.textContent = seq ? 'Edit' : 'Load';
+    load.hidden = !(seq || (preset && te.mixDirty));
+    load.disabled = false;
+    load.textContent = seq ? 'Edit' : 'Reload';
     document.getElementById('te-savepreset-btn').disabled = !preset;
     document.getElementById('te-dirty').hidden = !(preset && te.mixDirty);
 }
@@ -3881,6 +3884,7 @@ function teChoosePreset(id) {
     te.selPreset = id;
     teCloseMenu();
     teRenderPresetField();
+    if (teSelectedPreset()) teLoadPreset();  // picking a preset loads it; a sequence just selects it (Edit opens it)
 }
 
 async function teLoadPreset() {
