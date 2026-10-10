@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.16 (2026-10-10)
+
+### Features
+
+- Tracks in a group always play Intermittent
+  ([`717a235`](https://github.com/synssins/sonorium/commit/717a23579d788de817214832448c9e5232ae19e4))
+
+
 ## v1.4.2-dev.15 (2026-10-10)
 
 ### Bug Fixes
