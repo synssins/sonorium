@@ -150,7 +150,7 @@ Fine-tune how each audio file plays within a theme:
   - **Background** - Plays all the time, looping with a smooth crossfade (rain, wind, a crackling fire)
   - **Intermittent** - Plays once, then goes quiet for a while before playing again; "how often" sets the wait (bird calls, thunder claps, a door creaking)
   - **Ebb & Flow** - Fades in, plays for a while, fades out, then stays quiet before coming back; "how often" sets how much of the time it's heard (distant traffic, a passing crowd)
-  - **Unique** - Only one Unique sound plays at a time. Put such sounds in a group (a folder inside the theme); each group takes turns on its own
+- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. On its turn, an Intermittent track plays once and an Ebb & Flow track fades in, plays a while and fades out. Deleting a group keeps its files.
 
 ### Presets
 - **Save/Load Presets** - Store track settings as named presets
