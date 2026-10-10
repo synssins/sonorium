@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
 from sonorium.core.state import (
@@ -35,6 +36,9 @@ PRESET_GLIDE_SECONDS = 3.0
 
 # Settings > Audio Settings > Crossfade when the setting can't be read
 DEFAULT_CROSSFADE_SECONDS = 3.0
+
+# A channel's card lists this many of its latest changes (Session.recent)
+RECENT_EVENTS = 20
 
 if TYPE_CHECKING:
     from sonorium.ha.registry import HARegistry
@@ -180,6 +184,23 @@ class SessionManager:
             if (data or {}).get("is_default"):
                 return preset_id
         return None
+
+    def preset_name(self, theme_id: Optional[str], preset_id: Optional[str]) -> str:
+        """A preset's name for the channel's recent changes ("Default settings" for none)."""
+        if not preset_id:
+            return "Default settings"
+        return (self._theme_presets(theme_id).get(preset_id) or {}).get("name", preset_id) if theme_id else preset_id
+
+    def note(self, session: Session, text: str) -> None:
+        """
+        Add a change to the channel's recent changes (saved with the next state
+        save). The same text twice in a row is kept once.
+        """
+        recent = session.recent
+        if recent and recent[-1]["text"] == text:
+            return
+        recent.append({"at": datetime.now(timezone.utc).isoformat(), "text": text})
+        del recent[:-RECENT_EVENTS]
 
     def preset_overrides(self, theme_id: str, preset_id: Optional[str], step: Optional[dict] = None) -> dict:
         """
@@ -631,9 +652,13 @@ class SessionManager:
             session.theme_id = theme_id
             session.preset_id = self.preset_for_theme(theme_id, preset_id)
             preset_changed = False
+            theme = self.get_theme(theme_id)
+            self.note(session, f"Theme: {theme.name if theme else theme_id}")
         elif preset_id is not None:
             if (preset_id or None) != session.preset_id:
                 self.runner.stop_sequence(session)
+                if sequence_id is None:
+                    self.note(session, f"Preset: {self.preset_name(session.theme_id, preset_id)}")
             session.preset_id = preset_id or None
 
         if speaker_group_id is not None:
@@ -1059,6 +1084,7 @@ class SessionManager:
         # Mark as playing immediately (optimistic update)
         session.is_playing = True
         session.mark_played()
+        self.note(session, "Started")
         self.state.save()
 
         # Sequence and playlist timers start now
@@ -1124,6 +1150,7 @@ class SessionManager:
             return False
 
         session.is_playing = False
+        self.note(session, "Stopped")
         self.state.save()
         self.runner.on_stop(session_id)
 
@@ -1155,6 +1182,7 @@ class SessionManager:
             return False
 
         session.is_playing = False
+        self.note(session, "Stopped")
         self.state.save()
         self.runner.on_stop(session_id)
 
@@ -1239,6 +1267,7 @@ class SessionManager:
             session = self.state.sessions.get(session_id)
             if session:
                 session.is_playing = False
+                self.note(session, "Stopped")
                 stopped.append(session)
         if stopped:
             self.state.save()

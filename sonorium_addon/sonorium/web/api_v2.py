@@ -83,6 +83,7 @@ class SessionResponse(BaseModel):
     playlist_id: Optional[str] = None  # The playlist it plays
     sequence: Optional[dict] = None  # Sequence status: name, step, current preset, next change
     playlist: Optional[dict] = None  # Playlist status: name, entry, theme, next change
+    recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
     created_at: str
     last_played_at: Optional[str]
 
@@ -274,6 +275,7 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         playlist_id=getattr(session, 'playlist_id', None),
         sequence=playback.get("sequence"),
         playlist=playback.get("playlist"),
+        recent=list(reversed(session.recent)),
         created_at=session.created_at,
         last_played_at=session.last_played_at,
     )

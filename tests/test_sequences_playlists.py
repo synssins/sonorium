@@ -7,6 +7,7 @@ cycling into playlists.
 import asyncio
 import json
 import random
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -356,6 +357,54 @@ def test_next_skips_to_the_next_entry_or_sequence_step(tmp_path):
     assert t.channel.glides()[-1] == 3.0 and t.channel.fades[-1] == 3.0  # Next by hand: the quick 3 s
     t.manager.stop_sequence(t.session.id)
     assert run(t.manager.skip(t.session.id)) is None
+
+
+# --- Recent changes (the channel card's list) ---
+
+def recent_texts(t):
+    return [e["text"] for e in t.session.recent]
+
+
+def test_recent_changes_follow_play_presets_and_sequences(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.update(t.session.id, preset_id="b")
+    t.manager.update(t.session.id, preset_id="seq:once")
+    for when in (13, 28, 43):
+        at(t, when)
+    t.manager.update(t.session.id, theme_id="tavern")
+    run(t.manager.stop(t.session.id))
+    assert recent_texts(t) == ["Started", "Preset: Rain", "Started: Once", "Step 1 of 3: Drizzle",
+                               "Step 2 of 3: Rain", "Step 3 of 3: Downpour", "Stopped: Once",
+                               "Theme: Tavern", "Stopped"]
+    assert all(datetime.fromisoformat(e["at"]).tzinfo is not None for e in t.session.recent)
+
+
+def test_recent_changes_follow_playlists(tmp_path):
+    t = build(tmp_path)
+    add_playlist(t, ENTRIES)
+    run(t.manager.play(t.session.id))
+    t.manager.set_playlist(t.session.id, "p1")
+    run(t.manager.skip(t.session.id))
+    at(t, 50)  # the forest entry's sequence pass: its second preset
+    t.manager.clear_playlist(t.session.id)
+    t.manager.update(t.session.id, preset_id="dawn")  # by hand: stops the entry's sequence
+    assert recent_texts(t) == ["Started", "Started: Evening", "Entry 1 of 3: Tavern", "Entry 2 of 3: Forest",
+                               "Step 2 of 2: Dusk", "Stopped: Evening", "Stopped: Day", "Preset: Dawn"]
+
+
+def test_recent_changes_keep_the_latest_and_are_saved(tmp_path):
+    t = build(tmp_path)
+    for i in range(25):
+        t.manager.note(t.session, f"Preset: {i}")
+    t.manager.note(t.session, "Preset: 24")  # the same again: kept once
+    assert len(t.session.recent) == 20 and recent_texts(t)[0] == "Preset: 5" and recent_texts(t)[-1] == "Preset: 24"
+    t.store.save()
+    loaded = m.state.StateStore(tmp_path / "state.json").load()
+    assert loaded.sessions[t.session.id].recent == t.session.recent
+    bad = m.state.Session.from_dict({"id": "x", "name": "X", "recent": [{"at": "2026-01-01T00:00:00+00:00"}, "junk",
+                                                                      {"at": "2026-01-01T00:00:00+00:00", "text": "Started"}]})
+    assert bad.recent == [{"at": "2026-01-01T00:00:00+00:00", "text": "Started"}]
 
 
 def test_playlist_position_is_saved_and_resumed(tmp_path):
