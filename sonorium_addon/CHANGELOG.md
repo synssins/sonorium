@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.3-dev.8 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Preset marks in the channel Edit dialog and the editor's preset list
+  ([`3e33253`](https://github.com/synssins/sonorium/commit/3e33253442b90501dc69e684e6fd76d038e0a829))
+
+
 ## v1.5.3-dev.7 (2026-10-10)
 
 ### Bug Fixes
