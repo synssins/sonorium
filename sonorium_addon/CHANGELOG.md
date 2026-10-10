@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.23 (2026-10-10)
+
+### Documentation
+
+- Design notes for a sequence step's While playing view
+  ([`07bdc2b`](https://github.com/synssins/sonorium/commit/07bdc2b3ea665cf6ef26bf368f983c607a40de4e))
+
+### Features
+
+- **api**: GET one preset's settings (tracks and groups)
+  ([`1d4f8cb`](https://github.com/synssins/sonorium/commit/1d4f8cb6897931cb78071947851e238beb6a3bfb))
+
+
 ## v1.6.1-dev.22 (2026-10-10)
 
 ### Bug Fixes
