@@ -4177,7 +4177,7 @@ function teMenuHtml(kind, arg) {
                 <span>–</span>
                 <input class="num" type="number" min="0" step="1" inputmode="numeric" data-pause="max" value="${teEsc(high)}"
                        aria-label="Longest pause, seconds" onchange="teSetEbbPause(${k}, this)"${disabled ? ' disabled' : ''}>
-                <span class="u">s</span></div>`;
+                <span>s</span></div>`;
     };
     // A file's own fades, at the top of a track's menu
     const fadeRows = (track, k, disabled) => [['fade_in', 'Fade in', 'Seconds it fades in each time the file starts'],

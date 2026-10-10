@@ -308,6 +308,7 @@ automations that use the entity first.
 - **Smooth volume changes.** Moving a Volume slider, or a preset changing a track's volume, eases to the new level over a quarter second instead of jumping, on speakers and in the Theme Editor's previews.
 
 **Fixes**
+- Saving a preset now changes channels that are playing it. They used to keep playing the preset as it was when they picked it.
 - **Crossfade** and **Master output gain** on **Settings → Audio Settings** now change the sound in the Home Assistant app. Crossfade also sets how long a channel fades in and out.
 - After a confirmation on a settings page, an empty box could stay on the screen.
 

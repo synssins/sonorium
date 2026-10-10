@@ -224,3 +224,20 @@ def test_pause_fades_out_before_pausing_speakers(tmp_path, tones):
         assert channel.output_level == 1.0
         channel.stop()
     asyncio.run(run())
+
+
+def test_saving_a_preset_updates_channels_playing_it(tmp_path, tones):
+    """A channel keeps its copy of a preset from when it was picked; saving the preset changes it."""
+    manager, session, channel, events = make_session_manager(tmp_path, tones, crossfade=0.6)
+    presets = {"heavy": {"tracks": {"A": {"muted": False}}}}
+    manager._theme_presets = lambda theme_id: presets
+    session.preset_id, session.is_playing = "heavy", True
+    calls = []
+    fake = SimpleNamespace(set_track_overrides=lambda overrides, glide_seconds=0.0: calls.append((overrides, glide_seconds)))
+    manager._channel_for = lambda s: fake
+    presets["heavy"] = {"tracks": {"A": {"muted": True}}}  # muted in the editor and saved
+    assert manager.preset_saved({"a"}, "heavy") == 1
+    assert calls[0][0]["A"]["is_enabled"] is False and calls[0][1] == m.session_manager.PRESET_GLIDE_SECONDS
+    # Another preset, or another theme, leaves the channel alone
+    assert manager.preset_saved({"a"}, "calm") == 0
+    assert manager.preset_saved({"b"}, "heavy") == 0

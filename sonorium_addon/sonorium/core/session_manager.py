@@ -192,6 +192,27 @@ class SessionManager:
             return {}
         return {**preset_track_overrides(preset.get("tracks", {})), **preset_group_overrides(preset.get("groups", {}))}
 
+    def preset_saved(self, theme_ids, preset_id: str) -> int:
+        """
+        A preset was saved: channels playing it (by hand or as a sequence's
+        step) glide to its new values. A channel keeps its own copy of the
+        preset from when it was picked, so without this it went on playing
+        the old one. Returns how many channels followed.
+        """
+        theme_ids = {t for t in theme_ids if t}
+        count = 0
+        for session in list(self.state.sessions.values()):
+            if not (session.is_playing and session.theme_id in theme_ids and session.preset_id == preset_id):
+                continue
+            channel = self._channel_for(session)
+            if channel:
+                channel.set_track_overrides(self.preset_overrides(session.theme_id, preset_id),
+                                            glide_seconds=PRESET_GLIDE_SECONDS)
+                count += 1
+        if count:
+            logger.info(f"  Preset '{preset_id}' saved: {count} playing channel(s) follow it")
+        return count
+
     def _channel_for(self, session: Session):
         channel_id = self._session_channels.get(session.id)
         if not channel_id or not self.channel_manager:

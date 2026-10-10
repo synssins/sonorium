@@ -2751,6 +2751,7 @@ class ApiSonorium(api.Base):
                 # Save via metadata manager (updates cache and file)
                 if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
                     raise HTTPException(status_code=500, detail="Failed to update preset")
+                self._preset_saved(theme_id, theme, preset_id)
 
                 return {
                     "status": "ok",
@@ -2773,6 +2774,7 @@ class ApiSonorium(api.Base):
 
         if not self._write_theme_metadata(theme_id, metadata):
             raise HTTPException(status_code=500, detail="Failed to update preset")
+        self._preset_saved(theme_id, theme, preset_id)
 
         return {
             "status": "ok",
@@ -2780,6 +2782,15 @@ class ApiSonorium(api.Base):
             "name": presets[preset_id].get("name", preset_id),
             "tracks_updated": len(tracks),
         }
+
+    def _preset_saved(self, theme_id: str, theme, preset_id: str) -> None:
+        """Channels playing the saved preset follow its new values."""
+        if self._session_manager is None:
+            return
+        try:
+            self._session_manager.preset_saved({theme_id, getattr(theme, "id", None)}, preset_id)
+        except Exception as e:
+            logger.warning(f"Preset '{preset_id}' saved, but playing channels could not follow it: {e}")
 
     async def delete_preset(self, theme_id: str, preset_id: str):
         """Delete a preset."""
