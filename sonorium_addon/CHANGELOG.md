@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.4 (2026-10-10)
+
+### Bug Fixes
+
+- Shuffled playlists never repeat a theme back to back, nor A-B-A
+  ([`810e6f6`](https://github.com/synssins/sonorium/commit/810e6f644a8cfde72373f09b5c2367050eb6e106))
+
+
 ## v1.6.1-dev.3 (2026-10-10)
 
 ### Features
