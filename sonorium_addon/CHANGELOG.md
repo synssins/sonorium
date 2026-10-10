@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.27 (2026-10-10)
+
+### Features
+
+- **channels**: Listen here on the server: a channel's mix for browsers, apart from its speakers
+  ([`a731f18`](https://github.com/synssins/sonorium/commit/a731f18cc935c4d3d28f65872dbbb47eb8346be8))
+
+
 ## v1.6.1-dev.25 (2026-10-10)
 
 
