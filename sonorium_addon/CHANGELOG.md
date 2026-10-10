@@ -4,6 +4,27 @@
 
 ## v1.5.0 (2026-10-10)
 
+> ## ⭐ Major Release: 1.5.0, Themes 2.0
+>
+> This is a major update. Themes can now hold **groups**, channels playing the same theme can each use their **own preset**, the **Theme Editor**, the **Themes** page and every **Settings** page are rebuilt, and the playback modes have **new names**.
+>
+> Before, two channels playing the same theme shared one preset: change it on one, and it changed on both. Now each channel is isolated.
+>
+> Your themes are converted automatically the first time this version starts. Each theme's old settings file is kept next to it as `metadata.json.pre-presets.bak`.
+
+### Highlights
+
+- **Groups:** tracks in a theme folder take turns, never overlap and play start to finish. The group picks the next track, and the same track never plays twice in a row.
+- **A preset per channel:** two channels can play the same theme with different presets.
+- **Live file changes:** a file added to a playing theme joins the mix at once; a removed one leaves.
+- **New names:** Continuous is now Background, Sparse is Intermittent, Presence is Ebb & Flow, and "How often" is Interval.
+- **New look:** a new Theme Editor and Themes page, redesigned Settings pages, one top bar on every page with a **?** help button, and a menu that opens from the top bar on phones.
+- **Docker:** remove the Home Assistant or MQTT connection without a restart.
+- **Fixes:** a memory leak while playing, group tracks overlapping after a stall, presets changing settings they hadn't saved, and more.
+- **Known issue:** Crossfade and Master output gain (Settings → Audio Settings) are saved but don't change the sound yet.
+
+The full list is in the README under What's new. The 1.4.2 development builds below list every change.
+
 ### Documentation
 
 - 1.5.0 what's new, help definitions and new screenshots
