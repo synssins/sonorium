@@ -2,9 +2,11 @@
 
 ![Sonorium](https://raw.githubusercontent.com/synssins/sonorium/main/logo.png)
 
-> ## ⭐ Major Release: Themes 2.0
+> ## ⭐ Major Release: 1.5.0, Themes 2.0
 >
-> This is a major update. Themes can now hold **groups**, every channel can play its **own preset**, the **Theme Editor** and **Themes** page are rebuilt, and the playback modes have **new names**.
+> This is a major update. Themes can now hold **groups**, channels playing the same theme can each use their **own preset**, the **Theme Editor** and **Themes** page are rebuilt, and the playback modes have **new names**.
+>
+> Before, two channels playing the same theme shared one preset: change it on one, and it changed on both. Now each channel keeps its own.
 >
 > Your themes are converted automatically the first time this version starts. Each theme's old settings file is kept next to it as `metadata.json.pre-presets.bak`.
 
@@ -17,7 +19,7 @@ Sonorium lets you create immersive ambient audio environments throughout your ho
 ## What's New: Themes 2.0
 
 - **Groups.** A folder inside a theme is a group: its tracks take turns, one at a time, never overlapping, with a random gap between them.
-- **A preset per channel.** Two channels can play the same theme with different presets.
+- **A preset per channel.** Two channels can play the same theme with different presets. Before, they shared one: changing the preset on one changed it on both.
 - **New Theme Editor.** Name, categories and description at the top; every track in one aligned table with its mode, volume, how often and mute; groups as sections you can collapse; upload, drag tracks between groups, and presets at the bottom. Changes are heard live, **Preview mix** plays the theme on the device you're editing from, and the **?** button explains it all.
 - **New Themes page.** Search, category chips, sort, and cards or a list. Each theme appears once, with its categories, a preview and a badge for the channel playing it.
 - **New mode names.** Continuous is now **Background**, Sparse is **Intermittent**, Presence is **Ebb & Flow**. Your saved settings keep working.
