@@ -377,7 +377,7 @@ Rules (`ExclusionGroupCoordinator`, `recording.py`):
 | Gap after any track of the group finishes | `uniform(gap_min, gap_max)` s, drawn each time, if the group sets a gap (2.5); else `MIN_GAP_AFTER_EXCLUSIVE = 120.0` s |
 | Who asks | every unmuted track above 0% asks for the turn every few seconds while it waits; muted tracks and tracks at 0% don't ask |
 | Gathering | after the gap, the group collects the tracks asking for `COLLECT_SECONDS = 4.0` s, then picks one of them |
-| Picking | by weight: `sqrt(share) x (1 - drag)^2`, where share is the track's Interval (0-1, at least `MIN_SHARE = 0.05`) and drag is 1.0 right after the track played |
+| Picking | by chance `sqrt(share) x (1 - drag)^2`, where share is the track's Interval (0-1, at least `MIN_SHARE = 0.05`) and drag is the track's "weight" in the UI: 1.0 right after it played |
 | Drag wears off | each time another track plays: `drag x (0.6 + 0.35 x (1 - share))` (at 100% it halves roughly every 1.5 turns; at 20% it lasts about 4 times longer) |
 | No direct repeats | the track that played last is left out, unless no other track asked (the others are muted, at 0%, or it's alone) |
 | A pick nobody takes | if the picked track doesn't start within `PICK_TIMEOUT = 10.0` s (muted meanwhile), the group picks again |

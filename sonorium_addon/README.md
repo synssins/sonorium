@@ -134,7 +134,7 @@ Fine-tune how each audio file plays within a theme:
   - **Background** - Plays all the time, looping with a smooth crossfade (rain, wind, a crackling fire)
   - **Intermittent** - Plays once, then goes quiet for a while before playing again; "interval" sets the wait (bird calls, thunder claps, a door creaking)
   - **Ebb & Flow** - Fades in, plays for a while, fades out, then stays quiet before coming back; "interval" sets how much of the time it's heard (distant traffic, a passing crowd)
-- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in a group plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track: a track that just played is less likely to be picked for a while, the same track never plays twice in a row, and each track's interval sets how quickly it comes back. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
+- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in a group plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
 
 #### Home Assistant Dashboard Integration
 - **MQTT Entities** - Full dashboard control via MQTT (session select, theme/preset dropdowns, play/stop, volume)
@@ -267,7 +267,7 @@ automations that use the entity first.
 
 **Themes and playback**
 - **Groups.** A folder inside a theme is a group: its tracks take turns, one at a time, never overlapping, with a random gap between them. This replaces the need to check "Exclusive" on every track that needed to play independently of other exclusive tracks in a theme.
-- **The group picks the next track.** A track that just played is less likely to be picked for a while, and the same track never plays twice in a row. Each track's Interval sets how quickly it comes back.
+- **The group picks the next track by weight.** Each time a track plays it gets heavier and less likely to be picked; the weight wears off as other tracks play. A track's Interval sets how fast. The same track never plays twice in a row.
 - **Grouped tracks just play.** On its turn a track plays its whole file once, start to finish, with no fade in or out. A thunder crack keeps its crack, a song its first notes.
 - **A preset per channel.** Two channels can play the same theme with different presets. Before, they shared one: changing the preset on one changed it on both.
 - **New files join right away.** A file added to a theme that is playing joins the mix at once, with its saved settings. A removed file leaves the mix. Nothing restarts.
@@ -324,7 +324,7 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 **Modes**
 
 - **Background:** plays all the time, looping smoothly. Rain, wind, a fire.
-- **Intermittent:** plays once, then goes quiet before playing again. *Interval* sets the wait. Bird calls, a thunder crack, a door.
+- **Intermittent:** plays once, then goes quiet before playing again. *Interval* sets the wait. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.
 - **Ebb & Flow:** fades in, plays a while, fades out, then stays quiet before coming back. *Interval* sets how much of the time it's heard. Distant traffic, a passing crowd.
 - **Auto:** picks for you. Under 15 seconds plays Intermittent, longer plays Ebb & Flow. At 100% *interval*, either plays as Background.
 
@@ -332,9 +332,10 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 
 - **Take turns:** a group is a folder of tracks where only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
 - **Gap:** after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.
-- **Intermittent only:** on its turn, a track plays its whole file once, then hands over. Background and Ebb & Flow are for the ambience outside groups.
-- **Next track:** the group picks it. A track that just played is less likely to be picked for a while, and the same track never plays twice in a row.
-- **Volume, interval, mute:** the group's settings scale every track in it. A track's own *interval* sets how quickly it comes back after it plays: lower means it plays less often.
+- **Intermittent only:** on its turn, a track plays its whole file once, start to finish, then hands over. Background and Ebb & Flow are for the ambience outside groups.
+- **Weight:** each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.
+- **Interval:** how fast a track's weight wears off. Higher comes back sooner; lower plays less often.
+- **Group volume, interval, mute:** scale every track in the group.
 - **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
 - **Deleting a group:** keeps its files; they move back into the theme.
 
