@@ -8,7 +8,7 @@
 
 > ## ⭐ Major Release: 1.5.0, Themes 2.0
 >
-> This is a major update. Themes can now hold **groups**, channels playing the same theme can each use their **own preset**, the **Theme Editor** and **Themes** page are rebuilt, and the playback modes have **new names**.
+> This is a major update. Themes can now hold **groups**, channels playing the same theme can each use their **own preset**, the **Theme Editor**, the **Themes** page and every **Settings** page are rebuilt, and the playback modes have **new names**.
 >
 > Before, two channels playing the same theme shared one preset: change it on one, and it changed on both. Now each channel is isolated.
 >
@@ -59,25 +59,40 @@ The **?** button explains modes, groups and saving.
 
 ![Theme Editor help](screenshots/Theme_Editor_Help.png)
 
+#### Settings → Connection
+Home Assistant, MQTT and Streaming, each with its status (Docker).
+
+![Settings → Connection](screenshots/Settings_Connection.png)
+
+#### Settings → Audio Settings
+Sound settings in one card, with Save and Cancel in the top bar.
+
+![Settings → Audio Settings](screenshots/Settings_Audio.png)
+
 #### Settings → Speakers
-Switch speakers on or off, set their room and volume offset, and play a test sound.
+Speakers grouped by floor and area: rename, area, offset, test sound, on or off.
 
-![Speakers](screenshots/Settings_Speakers.png)
+![Settings → Speakers](screenshots/Settings_Speakers.png)
 
-#### Add Speaker (Docker)
-Add a speaker the network scan didn't find, by its address.
+#### Add Speaker
+Add a speaker the network scan didn't find, by its address (Docker).
 
 ![Add Speaker](screenshots/Add_Speaker.png)
-
-#### Settings → Connection (Docker)
-Connect Home Assistant and MQTT, both optional.
-
-![Connection](screenshots/Settings_Connection.png)
 
 #### Settings → Logs
 Recent messages with filters, search, copy and download.
 
-![Logs](screenshots/Settings_Logs.png)
+![Settings → Logs](screenshots/Settings_Logs.png)
+
+#### Help on every page
+The **?** in the top bar explains the page you're on.
+
+![Help on every page](screenshots/Page_Help.png)
+
+#### On a phone
+The menu opens from the top bar.
+
+<img src="screenshots/Phone_Themes.png" width="260" alt="Themes on a phone"> <img src="screenshots/Phone_Menu.png" width="260" alt="Menu on a phone">
 
 ## Features
 
@@ -106,13 +121,13 @@ Recent messages with filters, search, copy and download.
 Fine-tune how each audio file plays within a theme:
 
 - **Interval** - Set how often each track is heard in the mix (0-100%)
-- **Per-Track Volume** - Adjust amplitude independent of presence
+- **Per-Track Volume** - Adjust amplitude independent of interval
 - **Playback Modes**:
   - **Auto** - Picks for you: sounds under 15 seconds play Intermittent and longer ones play Ebb & Flow; at 100% "interval", either plays as Background
   - **Background** - Plays all the time, looping with a smooth crossfade (rain, wind, a crackling fire)
   - **Intermittent** - Plays once, then goes quiet for a while before playing again; "interval" sets the wait (bird calls, thunder claps, a door creaking)
   - **Ebb & Flow** - Fades in, plays for a while, fades out, then stays quiet before coming back; "interval" sets how much of the time it's heard (distant traffic, a passing crowd)
-- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in a group plays Intermittent: its whole file once, on its turn. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
+- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in a group plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track: a track that just played is less likely to be picked for a while, the same track never plays twice in a row, and each track's interval sets how quickly it comes back. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
 
 #### Presets
 - **Save/Load Presets** - Store track settings as named presets
@@ -127,7 +142,8 @@ Fine-tune how each audio file plays within a theme:
 - **Automation Support** - Use HA automations to trigger soundscapes (morning alarms, schedules, etc.)
 
 #### Modern Web Interface
-- **Responsive Design**: Works on desktop and mobile
+- **Responsive Design**: Works on desktop and mobile; on a phone the menu opens from a top bar that's always there
+- **Help on Every Page**: The **?** in the top bar explains the page you're on
 - **Dark Theme**: Easy on the eyes
 - **Real-Time Status**: See what's playing across all channels
 - **Drag & Drop**: Upload audio files directly through the UI
@@ -256,21 +272,63 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 
 ## What's new
 
-#### Themes 2.0
+#### 1.5.0
 
+**Themes and playback**
 - **Groups.** A folder inside a theme is a group: its tracks take turns, one at a time, never overlapping, with a random gap between them. This replaces the need to check "Exclusive" on every track that needed to play independently of other exclusive tracks in a theme.
+- **The group picks the next track.** A track that just played is less likely to be picked for a while, and the same track never plays twice in a row. Each track's Interval sets how quickly it comes back.
+- **Grouped tracks just play.** On its turn a track plays its whole file once, start to finish, with no fade in or out. A thunder crack keeps its crack, a song its first notes.
 - **A preset per channel.** Two channels can play the same theme with different presets. Before, they shared one: changing the preset on one changed it on both.
-- **New Theme Editor.** Name, categories and description at the top; every track in one aligned table with its mode, volume, interval and mute; groups as sections you can collapse; upload, drag tracks between groups, and presets at the bottom. Changes are heard live, **Preview mix** plays the theme on the device you're editing from, and the **?** button explains it all.
-- **New Themes page.** Search, category chips, sort, and cards or a list. Each theme appears once, with its categories, a preview and a badge for the channel playing it.
-- **New mode names.** Continuous is now **Background**, Sparse is **Intermittent**, Presence is **Ebb & Flow**. Your saved settings keep working.
-- **Steadier sound.** The mix keeps an even level as tracks come and go, without clipping.
-- **Fixes.** A memory leak while playing is fixed, and tracks in a group can no longer overlap after a stall.
+- **New files join right away.** A file added to a theme that is playing joins the mix at once, with its saved settings. A removed file leaves the mix. Nothing restarts.
+- **Theme files stay tidy.** `metadata.json` and the presets follow the theme's files: a new file gets an entry with the default settings, and entries for removed files and group folders are deleted. The first time 1.5.0 starts it also clears out old leftover entries.
+- **New mode names.** Continuous is now **Background**, Sparse is **Intermittent**, Presence is **Ebb & Flow**. The "How often" slider is now **Interval**. Your saved settings keep working.
+- **Steadier sound.** The mix keeps an even level as tracks come and go, without clipping. Themes with many occasional sounds no longer play quietly.
+
+**Theme Editor**
+- **Redesigned.** Name, categories and description at the top; every track in one aligned table with its mode, volume, interval and mute; groups as sections you can collapse; upload, drag tracks between groups, and presets at the bottom.
+- **Live changes.** What you change is heard on speakers playing the theme while you edit. **Cancel** reverts unsaved changes; **Save Theme** keeps them and closes.
+- **Preview mix** plays the whole theme on the device you're editing from, without touching the speakers.
+- **Help.** The **?** button explains modes, groups and saving.
+
+**Themes page**
+- Search, category chips, sort, and cards or a list. Each theme appears once, with its categories, a preview button and a badge for the channel playing it.
+- **Create theme** asks for a name and opens the new theme in the editor.
+
+**Every page**
+- **New look.** Every page has the same top bar, lined up with the logo. Page buttons, including **Save** and **Cancel**, sit on the right of the top bar instead of at the bottom.
+- **Help on every page.** The **?** at the far right of the top bar explains that page in plain words.
+- **Settings pages** are compact and left-aligned:
+  - **Connection** shows Home Assistant, MQTT and Streaming as cards, each with a status.
+  - **Audio Settings** is a single card.
+  - **Speakers** groups speakers by floor and area.
+  - **Speaker Groups**, **Plugins**, **Advanced** and **Status** use the same layout.
+- **"Add" everywhere.** Buttons that make something new read "Add": **Add speaker**, **Add group**, **Add floor**, **Add area**. Empty pages no longer repeat the top-bar button.
+- **Confirmations** use a small prompt on the page instead of a browser pop-up.
+- **Phones.** A top bar with the menu button is always there. The menu opens downward, closes when you pick a page or tap the button again, and Settings expands in place. Cards fill the screen width and nothing scrolls sideways.
+
+**Docker and standalone**
+- **Remove a connection without a restart.** The trash button on **Settings → Connection** removes Home Assistant, and its floors, areas and speakers disappear from every list at once. Removing MQTT also removes Sonorium's entities from Home Assistant.
+- **Floors & Areas** can be added and edited outside the Home Assistant app.
+- **Settings show what applies to your install.** One install check decides which settings each install shows.
+
+**Fixes**
+- A memory leak while playing.
+- Tracks in a group could overlap after a stall.
+- Presets changed settings they hadn't saved.
+- The Settings menu cut off its last items.
+- Adding floors and areas failed with an error.
+- Deleting a speaker group in use said "session(s)" instead of "channel(s)".
+- The Theme Editor opened with a preset already selected, which made it easy to overwrite.
+
+**Known issue**
+- In the Home Assistant app, **Crossfade** and **Master output gain** on **Settings → Audio Settings** are saved but don't change the sound yet.
 
 ##### How a theme plays
 
 These are the same words as the **?** help in the Theme Editor.
 
 A theme is a set of tracks (sound files) mixed together. Each track has a **mode**, a **volume** and an **interval**.
+
 
 **Modes**
 
