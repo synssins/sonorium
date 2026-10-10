@@ -26,6 +26,19 @@
     </script>
 </head>
 <body>
+    <!-- Phone: top bar with the menu button; the menu opens below it -->
+    <div class="mobile-topbar">
+        <button type="button" class="icon-btn mobile-nav-btn" id="mobile-nav-btn" aria-label="Menu" aria-expanded="false" aria-controls="sidebar" onclick="toggleSidebar()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <line x1="3" y1="12" x2="21" y2="12"/>
+                <line x1="3" y1="6" x2="21" y2="6"/>
+                <line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+        </button>
+        <img id="mobile-topbar-logo" class="mobile-topbar-logo" src="" alt="Sonorium">
+        <script>document.getElementById('mobile-topbar-logo').src = (window.SONORIUM_BASE || '') + '/logo.png';</script>
+    </div>
+
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
         <div class="sidebar-header">
@@ -172,14 +185,7 @@
     <!-- Main Content -->
     <div class="main-wrapper">
         <header class="main-header">
-            <div style="display: flex; align-items: center; gap: 0.75rem;">
-                <button class="btn btn-icon mobile-menu-btn" onclick="toggleSidebar()">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <line x1="3" y1="12" x2="21" y2="12"/>
-                        <line x1="3" y1="6" x2="21" y2="6"/>
-                        <line x1="3" y1="18" x2="21" y2="18"/>
-                    </svg>
-                </button>
+            <div class="main-header-title">
                 <h2 id="view-title">Channels</h2>
             </div>
             <div class="header-actions" id="view-actions">
@@ -500,158 +506,92 @@ Example:
                 </div>
             </div>
 
-            <!-- Audio Settings View -->
-            <!-- Connection Settings View (standalone/Docker only) -->
-            <div id="view-settings-connection" class="view">
-                <div class="settings-section">
-                    <h3>Home Assistant</h3>
-                    <p>Optional. Connect to use Home Assistant's speakers alongside the ones Sonorium finds on your network.</p>
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
-                        <div id="conn-ha-dot" class="channel-status"></div>
-                        <span id="conn-ha-status" class="settings-hint">Not configured</span>
-                    </div>
-                    <div class="settings-form">
-                        <div class="settings-row settings-row-input">
-                            <div class="settings-label">
-                                <label for="conn-ha-url">Home Assistant URL</label>
-                                <span class="settings-hint">For example http://homeassistant.local:8123</span>
+            <!-- Connection (standalone/Docker only): identical cards, Save and restart / Cancel at the bottom -->
+            <div id="view-settings-connection" class="view sp sp-ui">
+                <div class="sp-scroll">
+                    <div class="sp-wrap sp-cards">
+                        <section class="sp-card" aria-labelledby="conn-ha-h">
+                            <div class="sp-head">
+                                <h3 id="conn-ha-h">Home Assistant</h3>
+                                <span id="conn-ha-status" class="badge sp-st sp-st-off"><i></i><span>Not configured</span></span>
+                                <span id="conn-ha-note" class="sp-note" hidden></span>
+                                <span class="grow"></span>
+                                <button type="button" class="icon-btn sm" id="conn-ha-remove" aria-label="Remove Home Assistant" title="Remove" aria-haspopup="dialog" onclick="askRemoveConnection('ha', this)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                                </button>
                             </div>
-                            <div class="settings-control">
-                                <input type="url" id="conn-ha-url" placeholder="http://homeassistant.local:8123">
+                            <div class="sp-fstack">
+                                <label class="sp-fld"><span class="sp-flab">URL<span class="sp-tip" title="Optional · e.g. http://homeassistant.local:8123" aria-label="Optional · e.g. http://homeassistant.local:8123"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span></span>
+                                    <input class="sp-inp" type="url" id="conn-ha-url" data-conn="ha_url" placeholder="http://homeassistant.local:8123" aria-label="URL" oninput="onConnectionInput(this)">
+                                    <span class="sp-ferr" data-err="ha_url" hidden></span></label>
+                                <label class="sp-fld"><span class="sp-flab">Access token<span class="sp-tip" title="Profile › Security › Long-lived access tokens" aria-label="Profile › Security › Long-lived access tokens"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span><span class="sp-saved" data-saved="ha_token" hidden>· saved</span></span>
+                                    <input class="sp-inp" type="password" id="conn-ha-token" data-conn="ha_token" autocomplete="off" aria-label="Access token" oninput="onConnectionInput(this)"></label>
                             </div>
-                        </div>
-                        <div class="settings-row settings-row-input">
-                            <div class="settings-label">
-                                <label for="conn-ha-token">Access token</label>
-                                <span class="settings-hint">In Home Assistant: your profile, Security, Long-lived access tokens. Leave blank to keep the saved token.</span>
+                        </section>
+                        <section class="sp-card" aria-labelledby="conn-mqtt-h">
+                            <div class="sp-head">
+                                <h3 id="conn-mqtt-h">MQTT</h3>
+                                <span id="conn-mqtt-status" class="badge sp-st sp-st-off"><i></i><span>Not configured</span></span>
+                                <span id="conn-mqtt-note" class="sp-note" hidden></span>
+                                <span class="grow"></span>
+                                <button type="button" class="icon-btn sm" id="conn-mqtt-remove" aria-label="Remove MQTT" title="Remove" aria-haspopup="dialog" onclick="askRemoveConnection('mqtt', this)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                                </button>
                             </div>
-                            <div class="settings-control">
-                                <input type="password" id="conn-ha-token" autocomplete="off" placeholder="Paste a long-lived access token">
+                            <div class="sp-fstack">
+                                <div class="sp-frow">
+                                    <label class="sp-fld sp-fill"><span class="sp-flab">Broker<span class="sp-tip" title="Optional · host name or IP of your broker" aria-label="Optional · host name or IP of your broker"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span></span>
+                                        <input class="sp-inp" type="text" id="conn-mqtt-host" data-conn="mqtt_host" placeholder="192.168.1.10" aria-label="Broker" oninput="onConnectionInput(this)"></label>
+                                    <label class="sp-fld sp-port"><span class="sp-flab">Port</span>
+                                        <input class="sp-inp" type="number" id="conn-mqtt-port" data-conn="mqtt_port" min="1" max="65535" placeholder="1883" aria-label="Port" oninput="onConnectionInput(this)">
+                                        <span class="sp-ferr" data-err="mqtt_port" hidden></span></label>
+                                </div>
+                                <div class="sp-frow">
+                                    <label class="sp-fld sp-fill"><span class="sp-flab">Username<span class="sp-tip" title="Blank for anonymous" aria-label="Blank for anonymous"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span></span>
+                                        <input class="sp-inp" type="text" id="conn-mqtt-user" data-conn="mqtt_username" autocomplete="off" placeholder="Anonymous" aria-label="Username" oninput="onConnectionInput(this)"></label>
+                                    <label class="sp-fld sp-fill"><span class="sp-flab">Password<span class="sp-tip" title="Blank keeps the saved password" aria-label="Blank keeps the saved password"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span><span class="sp-saved" data-saved="mqtt_password" hidden>· saved</span></span>
+                                        <input class="sp-inp" type="password" id="conn-mqtt-pass" data-conn="mqtt_password" autocomplete="off" aria-label="Password" oninput="onConnectionInput(this)"></label>
+                                </div>
                             </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="settings-section">
-                    <h3>MQTT</h3>
-                    <p>Optional. Lets Home Assistant control Sonorium with dashboard entities and automations.</p>
-                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem;">
-                        <div id="conn-mqtt-dot" class="channel-status"></div>
-                        <span id="conn-mqtt-status" class="settings-hint">Not configured</span>
-                    </div>
-                    <div class="settings-form">
-                        <div class="settings-row settings-row-input">
-                            <div class="settings-label">
-                                <label for="conn-mqtt-host">Broker</label>
-                                <span class="settings-hint">Host name or IP of your MQTT broker</span>
+                        </section>
+                        <section class="sp-card" aria-labelledby="conn-st-h">
+                            <div class="sp-head"><h3 id="conn-st-h">Streaming</h3></div>
+                            <div class="sp-fstack">
+                                <label class="sp-fld"><span class="sp-flab">Stream URL<span class="sp-tip" title="The address speakers use to reach Sonorium (port 8008)" aria-label="The address speakers use to reach Sonorium (port 8008)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span></span>
+                                    <input class="sp-inp" type="url" id="conn-stream-url" data-conn="stream_url" placeholder="http://192.168.1.20:8008" aria-label="Stream URL" oninput="onConnectionInput(this)">
+                                    <span class="sp-ferr" data-err="stream_url" hidden></span></label>
                             </div>
-                            <div class="settings-control">
-                                <input type="text" id="conn-mqtt-host" placeholder="192.168.1.10">
-                            </div>
-                        </div>
-                        <div class="settings-row">
-                            <div class="settings-label">
-                                <label for="conn-mqtt-port">Port</label>
-                                <span class="settings-hint">Usually 1883</span>
-                            </div>
-                            <div class="settings-control">
-                                <input type="number" id="conn-mqtt-port" value="1883" min="1" max="65535">
-                            </div>
-                        </div>
-                        <div class="settings-row settings-row-input">
-                            <div class="settings-label">
-                                <label for="conn-mqtt-user">Username</label>
-                                <span class="settings-hint">Leave blank if your broker allows anonymous connections</span>
-                            </div>
-                            <div class="settings-control">
-                                <input type="text" id="conn-mqtt-user" autocomplete="off">
-                            </div>
-                        </div>
-                        <div class="settings-row settings-row-input">
-                            <div class="settings-label">
-                                <label for="conn-mqtt-pass">Password</label>
-                                <span class="settings-hint">Leave blank to keep the saved password</span>
-                            </div>
-                            <div class="settings-control">
-                                <input type="password" id="conn-mqtt-pass" autocomplete="off">
-                            </div>
-                        </div>
+                        </section>
                     </div>
                 </div>
-
-                <div class="settings-section">
-                    <h3>Streaming</h3>
-                    <p>The address your speakers use to reach Sonorium.</p>
-                    <div class="settings-form">
-                        <div class="settings-row settings-row-input">
-                            <div class="settings-label">
-                                <label for="conn-stream-url">Stream URL</label>
-                                <span class="settings-hint">This machine's IP address and port 8008, for example http://192.168.1.20:8008</span>
-                            </div>
-                            <div class="settings-control">
-                                <input type="url" id="conn-stream-url" placeholder="http://192.168.1.20:8008">
-                            </div>
-                        </div>
+                <footer class="sp-foot">
+                    <div class="sp-wrap sp-foot-in">
+                        <span id="conn-state" class="sp-foot-state" hidden></span>
+                        <span class="grow"></span>
+                        <button type="button" id="conn-save-btn" class="btn btn-primary btn-sm" aria-haspopup="dialog" disabled onclick="askSaveConnection(this)">Save and restart</button>
+                        <button type="button" id="conn-cancel-btn" class="btn btn-secondary btn-sm" disabled onclick="cancelConnectionEdits()">Cancel</button>
                     </div>
-                </div>
-
-                <div class="settings-section">
-                    <p>Saving restarts Sonorium so the changes take effect. Playing channels stop for a few seconds.</p>
-                    <div class="settings-actions">
-                        <button id="conn-save-btn" class="btn btn-primary btn-sm" onclick="saveConnectionSettings()">Save and Restart</button>
-                    </div>
-                    <span id="conn-saved" class="settings-hint" style="display: none;">Saved. Sonorium is restarting...</span>
-                </div>
+                </footer>
             </div>
 
-            <div id="view-settings-audio" class="view">
-                <div class="settings-section">
-                    <h3>Audio Settings</h3>
-                    <p>Configure playback and mixing parameters.</p>
-
-                    <div class="settings-form">
-                        <div class="settings-row">
-                            <div class="settings-label">
-                                <label for="settings-crossfade">Crossfade Duration</label>
-                                <span class="settings-hint">Smooth transition when changing themes</span>
-                            </div>
-                            <div class="settings-control">
-                                <input type="range" id="settings-crossfade" min="0" max="10" step="0.5" value="3"
-                                       oninput="updateCrossfadeDisplay(this.value)">
-                                <span id="settings-crossfade-value" class="settings-value">3.0s</span>
-                            </div>
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="settings-label">
-                                <label for="settings-default-volume">Default Volume</label>
-                                <span class="settings-hint">Initial volume for new channels</span>
-                            </div>
-                            <div class="settings-control">
-                                <input type="range" id="settings-default-volume" min="0" max="100" step="5" value="60"
-                                       oninput="updateDefaultVolumeDisplay(this.value)">
-                                <span id="settings-default-volume-value" class="settings-value">60%</span>
-                            </div>
-                        </div>
-
-                        <div class="settings-row">
-                            <div class="settings-label">
-                                <label for="settings-master-gain">Master Output Gain</label>
-                                <span class="settings-hint">Global volume multiplier for all streams</span>
-                            </div>
-                            <div class="settings-control">
-                                <input type="range" id="settings-master-gain" min="0" max="100" step="5" value="60"
-                                       oninput="updateMasterGainDisplay(this.value)">
-                                <span id="settings-master-gain-value" class="settings-value">60%</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="settings-actions" style="margin-top: 1rem;">
-                        <button class="btn btn-primary btn-sm" onclick="saveAudioSettings()">Save Settings</button>
-                        <button class="btn btn-secondary btn-sm" onclick="resetAudioSettings()">Reset to Defaults</button>
+            <!-- Audio Settings: one card, aligned columns; Save settings / Cancel at the bottom -->
+            <div id="view-settings-audio" class="view sp sp-ui">
+                <div class="sp-scroll">
+                    <div class="sp-wrap sp-narrow">
+                        <section class="sp-card sp-audio" aria-label="Audio">
+                            <div class="sp-srow sp-shead"><span>Setting</span><span class="sp-shead-val">Value</span><span>Default</span><span></span></div>
+                            <div id="audio-rows"></div>
+                        </section>
                     </div>
                 </div>
+                <footer class="sp-foot">
+                    <div class="sp-wrap sp-narrow sp-foot-in">
+                        <span id="audio-state" class="sp-foot-state" hidden><span class="sp-mod-dot"></span>Unsaved changes</span>
+                        <span class="grow"></span>
+                        <button type="button" id="audio-save-btn" class="btn btn-primary btn-sm" disabled onclick="saveAudioSettings()">Save settings</button>
+                        <button type="button" id="audio-cancel-btn" class="btn btn-secondary btn-sm" disabled onclick="cancelAudioSettings()">Cancel</button>
+                    </div>
+                </footer>
             </div>
 
             <!-- Floors & Areas Settings View -->
@@ -663,31 +603,36 @@ Example:
                 </div>
             </div>
 
-            <!-- Speakers Settings View -->
-            <div id="view-settings-speakers" class="view">
-                <div class="settings-section">
-                    <h3>Speakers</h3>
-                    <p>Choose which speakers Sonorium can use, where they are, and how they sound. Disabled speakers don't appear when creating channels.</p>
-                    <div class="spk-toolbar">
-                        <input type="search" id="spk-search" class="spk-search" placeholder="Search speakers" aria-label="Search speakers" oninput="renderSettingsSpeakerTree()">
-                        <div id="spk-filter" class="seg" role="group" aria-label="Show speakers from"></div>
-                        <label class="spk-hide-offline">
-                            <span class="toggle-switch">
-                                <input type="checkbox" id="spk-hide-offline" onchange="setHideOfflineSpeakers(this.checked)">
-                                <span class="toggle-slider"></span>
-                            </span>
-                            <span>Hide offline</span>
-                        </label>
-                        <button class="btn btn-secondary btn-sm" id="spk-rescan" onclick="rescanSpeakers()">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M23 4v6h-6"/>
-                                <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                            </svg>
-                            <span id="spk-rescan-label">Rescan network</span>
-                        </button>
-                        <span id="spk-scan-meta" class="scan-meta"></span>
+            <!-- Speakers: toolbar and column headers fixed, speakers by area scroll -->
+            <div id="view-settings-speakers" class="view sp sp-ui">
+                <div class="sp-bar">
+                    <div class="sp-wrap">
+                        <div class="sps-tb">
+                            <div class="sp-search">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                                <input type="text" id="spk-search" class="sp-inp" placeholder="Search speakers" aria-label="Search speakers" oninput="renderSettingsSpeakerTree()">
+                                <button type="button" class="clr" id="spk-search-clr" aria-label="Clear search" hidden onclick="clearSpeakerSearch()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                            </div>
+                            <div class="sp-segscroll" id="spk-filter-wrap"><div id="spk-filter" class="seg" role="group" aria-label="Show speakers from"></div></div>
+                            <label class="sp-swlab">
+                                <span class="toggle-switch">
+                                    <input type="checkbox" id="spk-hide-offline" onchange="setHideOfflineSpeakers(this.checked)">
+                                    <span class="toggle-slider"></span>
+                                </span>
+                                <span>Hide offline</span>
+                            </label>
+                            <span class="grow sps-tb-grow"></span>
+                            <span id="spk-scan-meta" class="sp-cnt" hidden></span>
+                            <button type="button" class="btn btn-sm btn-secondary sps-rescan" id="spk-rescan" onclick="rescanSpeakers()">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                                <span class="lbl" id="spk-rescan-label">Rescan network</span>
+                            </button>
+                        </div>
+                        <div id="spk-lhead" class="sp-lhead sps-grid" hidden><span></span><span>Name</span><span>Source</span><span>Address</span><span>Area</span><span>Offset</span><span class="c">Test</span><span class="c">Use</span><span></span></div>
                     </div>
-                    <div id="settings-speaker-tree" class="spk-list">
+                </div>
+                <div class="sp-scroll">
+                    <div class="sp-wrap" id="settings-speaker-tree">
                         <div class="loading">
                             <div class="spinner"></div>
                             Loading speakers...
@@ -696,43 +641,31 @@ Example:
                 </div>
             </div>
 
-            <!-- Speaker Groups Settings View -->
-            <div id="view-settings-groups" class="view">
-                <div class="settings-section">
-                    <h3>Speaker Groups</h3>
-                    <p>Create reusable speaker configurations for quick channel setup.</p>
-                    <div class="settings-actions">
-                        <button class="btn btn-primary btn-sm" onclick="openGroupModal()">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <line x1="12" y1="5" x2="12" y2="19"/>
-                                <line x1="5" y1="12" x2="19" y2="12"/>
-                            </svg>
-                            New Group
-                        </button>
-                    </div>
-                    <div id="settings-groups-list" class="settings-groups-list">
-                        <!-- Groups loaded dynamically -->
-                    </div>
+            <!-- Speaker Groups: column headers fixed, the group list scrolls -->
+            <div id="view-settings-groups" class="view sp sp-ui">
+                <div class="sp-bar sp-bar-head" id="grp-bar" hidden>
+                    <div class="sp-wrap"><div class="sp-lhead spg-grid"><span></span><span>Name</span><span>Includes</span><span class="c">Speakers</span><span></span><span></span></div></div>
+                </div>
+                <div class="sp-scroll">
+                    <div class="sp-wrap" id="settings-groups-list"></div>
                 </div>
             </div>
 
-            <!-- Plugins Settings View -->
-            <div id="view-settings-plugins" class="view">
-                <div class="settings-section">
-                    <h3>Plugins</h3>
-                    <p>Extend Sonorium's functionality with plugins.</p>
-                    <div id="plugins-list" class="plugins-list">
-                        <div class="empty-state" style="padding: 2rem;">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 48px; height: 48px; margin-bottom: 1rem; opacity: 0.5;">
-                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                                <path d="M2 17l10 5 10-5"/>
-                                <path d="M2 12l10 5 10-5"/>
-                            </svg>
-                            <h3>Coming Soon</h3>
-                            <p style="color: var(--text-muted);">The plugin system is under development. Check back in a future update!</p>
+            <!-- Plugins: Installed / Catalog and column headers fixed, the list scrolls -->
+            <div id="view-settings-plugins" class="view sp sp-ui">
+                <div class="sp-bar">
+                    <div class="sp-wrap">
+                        <div class="seg spp-tabs" role="tablist" aria-label="Plugins">
+                            <button type="button" role="tab" id="plg-tab-installed" onclick="switchPluginsTab('installed')">Installed<span class="n" id="plg-count">0</span></button>
+                            <button type="button" role="tab" id="plg-tab-browse" onclick="switchPluginsTab('browse')">Catalog</button>
                         </div>
+                        <div id="plg-lhead"></div>
                     </div>
                 </div>
+                <div class="sp-scroll">
+                    <div class="sp-wrap" id="plugins-list"></div>
+                </div>
+                <input type="file" id="plugin-file-input" accept=".zip" hidden onchange="handlePluginFileSelect(event)">
             </div>
 
             <!-- Logs Settings View (filled by logs.js) -->
@@ -743,36 +676,46 @@ Example:
                 </div>
             </div>
 
-            <!-- Advanced Settings View (features this install has off by default) -->
-            <div id="view-settings-advanced" class="view">
-                <div class="settings-section">
-                    <h3>Advanced</h3>
-                    <p class="settings-warning">These change how Sonorium runs as a Home Assistant app. Leave them off unless you need them.</p>
-                    <div id="advanced-settings-form" class="settings-form"></div>
-                    <div id="advanced-restart" class="restart-bar" hidden>
-                        <span>Restart Sonorium to apply.</span>
-                        <button class="btn btn-primary btn-sm" onclick="restartForAdvancedSettings()">Restart now</button>
+            <!-- Advanced: features this install has off by default; restart bar at the bottom after a change -->
+            <div id="view-settings-advanced" class="view sp sp-ui">
+                <div class="sp-scroll">
+                    <div class="sp-wrap">
+                        <div class="sp-lhead spa-grid"><span>Feature</span><span>Description</span><span class="c">Default</span><span></span><span class="c">On</span></div>
+                        <div class="sp-lbody" id="advanced-settings-form"></div>
                     </div>
                 </div>
+                <footer class="sp-foot" id="advanced-restart" hidden>
+                    <div class="sp-wrap sp-foot-in">
+                        <span class="sp-foot-state spa-note" id="adv-restart-note"></span>
+                        <span class="grow"></span>
+                        <button type="button" class="btn btn-primary btn-sm" id="adv-restart-btn" aria-haspopup="dialog" onclick="askAdvancedRestart(this)">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                            Restart now
+                        </button>
+                    </div>
+                </footer>
             </div>
 
-            <!-- Status View -->
-            <div id="view-status" class="view">
-                <div class="status-grid">
-                    <div class="status-card">
-                        <h4>Active Channels</h4>
-                        <div id="status-active-channels" class="status-value">0</div>
-                    </div>
-                    <div class="status-card">
-                        <h4>Total Speakers</h4>
-                        <div id="status-total-speakers" class="status-value">0</div>
+            <!-- Status: tiles and list headers fixed, the channel list scrolls -->
+            <div id="view-status" class="view sp sp-ui">
+                <div class="sp-top">
+                    <div class="sp-wrap">
+                        <div class="spst-tiles">
+                            <div class="status-card spst-tile" title="Channels playing now">
+                                <h4>Active Channels</h4>
+                                <div id="status-active-channels" class="status-value">0</div>
+                            </div>
+                            <div class="status-card spst-tile" title="Speakers Sonorium can play to">
+                                <h4>Total Speakers</h4>
+                                <div id="status-total-speakers" class="status-value">0</div>
+                            </div>
+                        </div>
+                        <h3 class="spst-title">Channels <span class="badge badge-type" id="status-ch-count">0</span></h3>
+                        <div class="sp-lhead spst-grid" id="status-lhead"><span>Channel</span><span>Theme</span><span>State</span></div>
                     </div>
                 </div>
-                <div class="settings-section" style="margin-top: 1.5rem;">
-                    <h3>Channels</h3>
-                    <div id="channel-list" class="channel-list">
-                        <!-- Channels loaded dynamically -->
-                    </div>
+                <div class="sp-scroll sp-scroll-flush">
+                    <div class="sp-wrap" id="channel-list"></div>
                 </div>
             </div>
         </main>
@@ -897,8 +840,9 @@ Example:
         </div>
     </div>
 
+    <!-- Add speaker (standalone only): one card wide; related fields share a row -->
     <div id="add-speaker-modal" class="modal-backdrop" onclick="if(event.target===this) closeAddSpeakerModal()">
-        <div class="modal add-speaker" role="dialog" aria-labelledby="as-title">
+        <div class="modal sp-as sp-ui" role="dialog" aria-labelledby="as-title">
             <div class="modal-header">
                 <h2 id="as-title">Add speaker</h2>
                 <button class="modal-close" aria-label="Close" onclick="closeAddSpeakerModal()">
@@ -908,54 +852,68 @@ Example:
                     </svg>
                 </button>
             </div>
-            <div class="modal-body">
-                <div class="session-field">
-                    <label for="as-addr">Address</label>
-                    <input type="text" id="as-addr" placeholder="192.168.1.50 or speaker.local" autocomplete="off" spellcheck="false">
-                    <span class="field-hint">IP address or network name of the speaker</span>
+            <div class="modal-body sp-as-body">
+                <div class="sp-frow">
+                    <div class="sp-fld sp-fill"><label class="sp-fld-label" for="as-addr">Address</label><input type="text" id="as-addr" class="sp-inp" placeholder="192.168.1.50 or speaker.local" title="IP address or network name of the speaker" autocomplete="off" spellcheck="false" onkeydown="if(event.key==='Enter'){event.preventDefault();addManualSpeaker();}"></div>
+                    <div class="sp-fld sp-port"><label class="sp-fld-label" for="as-port">Port</label><input type="text" id="as-port" class="sp-inp" inputmode="numeric" placeholder="Auto" title="Default for the type"></div>
                 </div>
-                <div class="session-field">
-                    <label for="as-type">Type</label>
-                    <select id="as-type">
-                        <option value="auto">Detect automatically</option>
-                        <option value="cast">Google Cast</option>
-                        <option value="sonos">Sonos</option>
-                        <option value="dlna">DLNA / UPnP</option>
-                        <option value="airplay">AirPlay</option>
-                        <option value="linkplay">LinkPlay / Arylic</option>
-                        <option value="heos">HEOS (Denon / Marantz)</option>
-                    </select>
-                </div>
-                <div class="session-field">
-                    <label for="as-name">Name</label>
-                    <input type="text" id="as-name" placeholder="Leave empty to use the speaker's own name">
-                </div>
-                <div class="session-field">
-                    <label for="as-room">Area</label>
-                    <select id="as-room"><option value="">No area</option></select>
-                </div>
-                <details class="adv">
-                    <summary>Advanced</summary>
-                    <div class="session-field">
-                        <label for="as-port">Port</label>
-                        <input type="text" id="as-port" inputmode="numeric" placeholder="Default for the type">
+                <div class="sp-frow">
+                    <div class="sp-fld sp-fill"><label class="sp-fld-label" for="as-type">Type</label>
+                        <select id="as-type" class="sp-inp">
+                            <option value="auto">Detect automatically</option>
+                            <option value="cast">Google Cast</option>
+                            <option value="sonos">Sonos</option>
+                            <option value="dlna">DLNA / UPnP</option>
+                            <option value="airplay">AirPlay</option>
+                            <option value="linkplay">LinkPlay / Arylic</option>
+                            <option value="heos">HEOS (Denon / Marantz)</option>
+                        </select>
                     </div>
-                </details>
+                    <div class="sp-fld sp-fill"><label class="sp-fld-label" for="as-room">Area</label><select id="as-room" class="sp-inp"><option value="">No area</option></select></div>
+                </div>
+                <div class="sp-fld"><label class="sp-fld-label" for="as-name">Name</label><input type="text" id="as-name" class="sp-inp" maxlength="100" placeholder="Speaker's own name"></div>
                 <div id="as-result" class="check-result" style="display: none;" role="status"></div>
             </div>
             <div class="modal-footer">
-                <button class="btn btn-secondary" id="as-check-btn" onclick="checkManualSpeaker()">Check connection</button>
                 <button class="btn btn-primary" id="as-add-btn" onclick="addManualSpeaker()">Add speaker</button>
+                <button class="btn btn-secondary" id="as-check-btn" onclick="checkManualSpeaker()">Check connection</button>
+                <button class="btn btn-secondary" onclick="closeAddSpeakerModal()">Cancel</button>
             </div>
         </div>
     </div>
 
-    <!-- Speaker Group Modal -->
-    <div id="group-modal" class="modal-backdrop" onclick="if(event.target===this) closeGroupModal()">
-        <div class="modal">
+    <!-- New / Edit speaker group: name and column headers fixed, the speaker tree scrolls -->
+    <div id="group-modal" class="modal-backdrop sp-ed-back" onclick="if(event.target===this) closeGroupModal()">
+        <div class="modal sp-ed sp-ui" role="dialog" aria-labelledby="group-modal-title">
             <div class="modal-header">
-                <h2 id="group-modal-title">New Speaker Group</h2>
-                <button class="modal-close" onclick="closeGroupModal()">
+                <h2 id="group-modal-title">Add group</h2>
+                <button class="modal-close" aria-label="Close" onclick="closeGroupModal()">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"/>
+                        <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="sp-ed-top">
+                <div class="sp-fld sp-ed-name"><label class="sp-fld-label" for="group-name">Name</label><input type="text" id="group-name" class="sp-inp" maxlength="60" placeholder="Downstairs" oninput="this.classList.remove('bad')" onkeydown="onGroupNameKey(event)"></div>
+            </div>
+            <div class="sp-ed-fix"><div class="sp-ed-thead spe-grid"><span></span><span>Speakers</span><span>Type</span><span class="spe-stxt-h">Status</span></div></div>
+            <div class="sp-ed-scroll" id="group-speaker-tree"></div>
+            <div class="modal-footer sp-ed-foot">
+                <div class="sp-ed-sum" id="group-ed-sum"></div>
+                <span class="grow"></span>
+                <button class="btn btn-primary" onclick="saveGroup()"><span id="group-save-btn-text">Add group</span></button>
+                <button class="btn btn-secondary" onclick="closeGroupModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Plugin requirements (Plugins page ⋯ menu) -->
+    <div id="plugin-req-modal" class="modal-backdrop" onclick="if(event.target===this) closePluginRequirements()">
+        <div class="modal sp-rq" role="dialog" aria-labelledby="plugin-req-title">
+            <div class="modal-header">
+                <h2 id="plugin-req-title">Plugin requirements</h2>
+                <button class="modal-close" aria-label="Close" onclick="closePluginRequirements()">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="18" y1="6" x2="6" y2="18"/>
                         <line x1="6" y1="6" x2="18" y2="18"/>
@@ -963,38 +921,20 @@ Example:
                 </button>
             </div>
             <div class="modal-body">
-                <input type="hidden" id="edit-group-id" value="">
-
-                <div class="session-field">
-                    <label>Group Name</label>
-                    <input type="text" id="group-name" placeholder="e.g., Downstairs, Party Mode">
-                </div>
-
-                <div class="session-field">
-                    <label>Select Speakers</label>
-                    <div class="speaker-dropdown" id="group-speaker-dropdown">
-                        <div class="speaker-dropdown-header" onclick="toggleGroupSpeakerDropdown(event)">
-                            <span id="group-speaker-dropdown-text">Click to select speakers...</span>
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                <polyline points="6 9 12 15 18 9"/>
-                            </svg>
-                        </div>
-                        <div class="speaker-dropdown-content" id="group-speaker-dropdown-content">
-                            <div id="group-speaker-tree" class="speaker-tree">
-                                <!-- Speaker tree loaded dynamically -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <pre>class MyPlugin(BasePlugin):
+    id = "my_plugin"           # Unique identifier
+    name = "My Plugin"         # Display name
+    version = "1.0.0"          # MAJOR.MINOR.PATCH
+    description = "..."        # Brief description
+    author = "Your Name"       # Plugin author</pre>
+                <p class="sp-rq-note">A .zip with <code>plugin.py</code>; <code>manifest.json</code> optional.</p>
             </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeGroupModal()">Cancel</button>
-                <button class="btn btn-primary" onclick="saveGroup()">
-                    <span id="group-save-btn-text">Create Group</span>
-                </button>
-            </div>
+            <div class="modal-footer"><button class="btn btn-primary" onclick="closePluginRequirements()">Done</button></div>
         </div>
     </div>
+
+    <!-- Settings pages: one floating menu / "Are you sure?" popover -->
+    <div class="te-pop" id="sp-menu" hidden></div>
 
     <!-- Toast Container -->
     <div id="toast-container" class="toast-container"></div>

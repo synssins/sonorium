@@ -877,7 +877,7 @@ def create_api_router(
         if session_ids:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Group is used by {len(session_ids)} session(s). Delete or update those sessions first."
+                detail=f"Group is used by {len(session_ids)} channel(s). Delete or update those channels first."
             )
         if not group_manager.delete(group_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")

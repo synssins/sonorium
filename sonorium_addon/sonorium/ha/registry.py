@@ -223,6 +223,12 @@ class HARegistry:
         # Sonorium floor/area ID -> Home Assistant ID it merged into (same name)
         self._space_alias: dict[str, str] = {}
 
+        # Set by remove_home_assistant(): HA is never queried again (until a
+        # restart), and a removed HA speaker's ID in a saved selection stands
+        # for the network speaker that was merged into it
+        self._ha_removed = False
+        self._removed_ha_targets: dict[str, str] = {}
+
     def set_extra_speaker_source(self, source: Optional[Callable[[], list[dict]]]):
         """
         Add speakers that don't come from Home Assistant. `source` returns
@@ -301,6 +307,35 @@ class HARegistry:
     def merge_extra_speakers(self) -> SpeakerHierarchy:
         """Re-read the extra speakers into the hierarchy (no Home Assistant calls)."""
         return self._rebuild()
+
+    def remove_home_assistant(self) -> dict[str, str]:
+        """
+        Home Assistant's connection was removed (standalone): drop its floors,
+        areas and speakers and never fetch them again. Sonorium's own floors
+        and areas stay, and network speakers that were merged into an HA
+        speaker are listed on their own again.
+
+        Returns {removed HA speaker ID: network speaker ID now standing in for
+        it} for the merged ones (the play_via choice, else the first merged).
+        """
+        targets: dict[str, str] = {}
+        for ha_id in self._ha_speakers:
+            speaker = self._speakers.get(ha_id)
+            if speaker is None or not speaker.merged:
+                continue
+            ids = [m["id"] for m in speaker.merged]
+            targets[ha_id] = speaker.play_via if speaker.play_via in ids else ids[0]
+
+        self._ha_removed = True
+        self._removed_ha_targets.update(targets)
+        self._ha_floors, self._ha_areas, self._ha_speakers = {}, {}, {}
+        self._rebuild()
+        logger.info("Home Assistant removed: its floors, areas and speakers are no longer listed")
+        return targets
+
+    @property
+    def ha_removed(self) -> bool:
+        return self._ha_removed
 
     def apply_speaker_settings(self) -> SpeakerHierarchy:
         """Rebuild the hierarchy after per-speaker settings changed (no Home Assistant calls)."""
@@ -909,7 +944,7 @@ class HARegistry:
         falls back to REST API for states.
         """
         from sonorium.runtime import ha_configured
-        if not ha_configured():
+        if self._ha_removed or not ha_configured():
             # Standalone without Home Assistant: no HA speakers to load
             self._ha_floors, self._ha_areas, self._ha_speakers = {}, {}, {}
             return self._rebuild()
@@ -1095,8 +1130,25 @@ class HARegistry:
             speakers -= set(self.get_speakers_in_area(self.resolve_space_id(area_id)))
         
         speakers -= set(exclude_speakers or [])
-        
+
+        if self._ha_removed:
+            speakers = self._without_removed_ha(speakers)
+            speakers -= self._without_removed_ha(set(exclude_speakers or []))
+
         return sorted(list(speakers))
+
+    def _without_removed_ha(self, speaker_ids: set[str]) -> set[str]:
+        """
+        After remove_home_assistant(): saved selections may still name HA
+        speakers. One that had a network speaker merged into it plays there;
+        other HA entity IDs are left out (no Home Assistant to send them to).
+        """
+        result = set()
+        for speaker_id in speaker_ids:
+            speaker_id = self._removed_ha_targets.get(speaker_id, speaker_id)
+            if speaker_id in self._speakers or not speaker_id.startswith("media_player."):
+                result.add(speaker_id)
+        return result
 
 
 # Factory function to create registry from supervisor

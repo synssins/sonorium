@@ -376,6 +376,9 @@ function showView(viewName) {
     // Themes page: fixed top bar and filter bar, only the collection scrolls
     document.body.classList.toggle('tp-on', viewName === 'themes');
     if (viewName !== 'themes') tpCloseMenu();
+    // Settings pages: fixed title bar, only the list scrolls, actions at the bottom of the column
+    document.body.classList.toggle('sp-on', SP_VIEWS.includes(viewName));
+    spClosePop();
     // Persist view selection across page refreshes
     localStorage.setItem('sonorium_currentView', viewName);
 
@@ -495,7 +498,9 @@ function showView(viewName) {
         `,
         settings: '',
         'settings-connection': '',
-        'settings-audio': '',
+        'settings-audio': `
+            <button class="icon-btn" aria-label="More" aria-haspopup="menu" onclick="openAudioMenu(this)">${SP_ICON_MORE}</button>
+        `,
         'settings-spaces': spacesEditable() ? `
             <button class="btn btn-secondary" onclick="openSpaceModal('floor')">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -513,16 +518,16 @@ function showView(viewName) {
             </button>
         ` : '',
         'settings-speakers': networkInfo ? `
-            <button class="btn btn-primary" onclick="openAddSpeakerModal()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="12" y1="5" x2="12" y2="19"/>
-                    <line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                Add speaker
-            </button>
+            <button class="btn btn-primary sp-hbtn" aria-label="Add speaker" title="Add speaker" aria-haspopup="dialog" onclick="openAddSpeakerModal()">${SP_ICON_PLUS}<span class="lbl">Add speaker</span></button>
         ` : '',
-        'settings-groups': '',
-        'settings-plugins': '',
+        'settings-groups': `
+            <button class="btn btn-primary sp-hbtn" aria-label="Add group" title="Add group" aria-haspopup="dialog" onclick="openGroupModal()">${SP_ICON_PLUS}<span class="lbl">Add group</span></button>
+        `,
+        'settings-plugins': `
+            <span class="sp-up-status" id="plg-up-status" hidden>Uploading…</span>
+            <button class="btn btn-primary sp-hbtn" id="plg-upload-btn" aria-label="Upload plugin" title="Plugin .zip" onclick="choosePluginFile()">${SP_ICON_UPLOAD}<span class="lbl">Upload plugin</span></button>
+            <button class="icon-btn" aria-label="More" aria-haspopup="menu" onclick="openPluginsPageMenu(this)">${SP_ICON_MORE}</button>
+        `,
         'settings-logs': `
             <button class="btn btn-secondary" onclick="SonoriumLogs.copy(this)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -541,17 +546,11 @@ function showView(viewName) {
             </a>
         `,
         status: `
-            <button class="btn btn-secondary" onclick="refreshStatus()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M23 4v6h-6"/>
-                    <path d="M1 20v-6h6"/>
-                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                </svg>
-                Refresh
-            </button>
+            <button class="btn btn-secondary sp-hbtn" aria-label="Refresh" title="Refresh" onclick="refreshStatus(this)">${SP_ICON_REFRESH}<span class="lbl">Refresh</span></button>
         `
     };
     document.getElementById('view-actions').innerHTML = actionsHtml[viewName] || '';
+    if (viewName === 'settings-plugins') renderPluginUploadState();
 
     // Load view-specific data
     if (viewName === 'speakers') renderSpeakersList();
@@ -586,13 +585,15 @@ function toggleNavSection(sectionId) {
 }
 
 function toggleSidebar() {
-    document.getElementById('sidebar').classList.toggle('open');
-    document.body.classList.toggle('sidebar-open');
+    const open = document.getElementById('sidebar').classList.toggle('open');
+    document.body.classList.toggle('sidebar-open', open);
+    document.getElementById('mobile-nav-btn')?.setAttribute('aria-expanded', String(open));
 }
 
 function closeSidebar() {
     document.getElementById('sidebar').classList.remove('open');
     document.body.classList.remove('sidebar-open');
+    document.getElementById('mobile-nav-btn')?.setAttribute('aria-expanded', 'false');
 }
 
 function toggleCollapsibleSection(sectionId) {
@@ -4081,103 +4082,109 @@ function importThemeZip() {
 }
 
 // Audio Settings
-let audioSettings = {
-    crossfade_duration: 3.0,
-    default_volume: 60,
-    master_gain: 60
-};
-
-function updateCrossfadeDisplay(value) {
-    document.getElementById('settings-crossfade-value').textContent = `${parseFloat(value).toFixed(1)}s`;
-}
-
-function updateDefaultVolumeDisplay(value) {
-    document.getElementById('settings-default-volume-value').textContent = `${value}%`;
-}
-
-function updateMasterGainDisplay(value) {
-    document.getElementById('settings-master-gain-value').textContent = `${value}%`;
-}
-
-// Apply settings in real-time as sliders move (debounced)
-let settingsTimeout = {};
-
-async function applySettingLive(key, value) {
-    // Debounce to avoid flooding the API
-    if (settingsTimeout[key]) clearTimeout(settingsTimeout[key]);
-    settingsTimeout[key] = setTimeout(async () => {
-        try {
-            const payload = {};
-            payload[key] = value;
-            await api('PUT', '/settings', payload);
-        } catch (e) {
-            console.error(`Failed to apply ${key}:`, e);
-        }
-    }, 100);
-}
-
-function applyMasterGainLive(value) {
-    applySettingLive('master_gain', parseInt(value));
-}
-
-function applyCrossfadeLive(value) {
-    applySettingLive('crossfade_duration', parseFloat(value));
-}
-
-function applyDefaultVolumeLive(value) {
-    applySettingLive('default_volume', parseInt(value));
-}
+// --- Settings > Audio: sliders change a draft; Save settings / Cancel ---
+const AUDIO_DEFAULTS = { crossfade_duration: 3.0, default_volume: 60, master_gain: 60 };
+const AUDIO_FIELDS = [
+    { key: 'crossfade_duration', id: 'settings-crossfade', label: 'Crossfade', short: 'Crossfade', tip: 'Fade when changing themes', tipShort: 'Fade between themes',
+      min: 0, max: 10, step: 0.5, fmt: v => `${Number(v).toFixed(1)} s`, num: v => parseFloat(v) },
+    { key: 'default_volume', id: 'settings-default-volume', label: 'Default volume', short: 'Volume', tip: 'Starting volume for new channels', tipShort: 'New channels',
+      min: 0, max: 100, step: 5, fmt: v => `${v}%`, num: v => parseInt(v, 10) },
+    { key: 'master_gain', id: 'settings-master-gain', label: 'Master output gain', short: 'Gain', tip: 'Multiplier for every stream', tipShort: 'All streams',
+      min: 0, max: 100, step: 5, fmt: v => `${v}%`, num: v => parseInt(v, 10) }
+];
+let audioSettings = { ...AUDIO_DEFAULTS };   // saved
+let audioDraft = { ...AUDIO_DEFAULTS };      // on screen
 
 async function loadAudioSettings() {
     try {
         const result = await api('GET', '/settings');
         if (result && !result.error) {
             audioSettings = {
-                crossfade_duration: result.crossfade_duration ?? 3.0,
-                default_volume: result.default_volume ?? 60,
-                master_gain: result.master_gain ?? 60
+                crossfade_duration: result.crossfade_duration ?? AUDIO_DEFAULTS.crossfade_duration,
+                default_volume: result.default_volume ?? AUDIO_DEFAULTS.default_volume,
+                master_gain: result.master_gain ?? AUDIO_DEFAULTS.master_gain
             };
-            applyAudioSettingsToUI();
+            audioDraft = { ...audioSettings };
         }
     } catch (error) {
         console.log('Could not load audio settings, using defaults');
     }
 }
 
-function applyAudioSettingsToUI() {
-    document.getElementById('settings-crossfade').value = audioSettings.crossfade_duration;
-    updateCrossfadeDisplay(audioSettings.crossfade_duration);
-
-    document.getElementById('settings-default-volume').value = audioSettings.default_volume;
-    updateDefaultVolumeDisplay(audioSettings.default_volume);
-
-    document.getElementById('settings-master-gain').value = audioSettings.master_gain;
-    updateMasterGainDisplay(audioSettings.master_gain);
+function audioDirty() {
+    return AUDIO_FIELDS.some(f => audioDraft[f.key] !== audioSettings[f.key]);
 }
 
-// Render functions for settings sub-views
 function renderAudioSettings() {
-    applyAudioSettingsToUI();
+    const rows = document.getElementById('audio-rows');
+    if (!rows) return;
+    rows.innerHTML = AUDIO_FIELDS.map(f => `
+        <div class="sp-srow" data-key="${f.key}">
+            <span class="sp-slab"><label for="${f.id}">${f.label}</label><span class="sp-tip" title="${f.tip}" aria-label="${f.tip}">${SP_ICON_INFO}</span><span class="sp-mod-dot sp-ph" title="Changed" hidden></span></span>
+            <div class="track-slider-wrapper sp-sl"><input type="range" class="track-slider" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${audioDraft[f.key]}" oninput="onAudioInput('${f.key}', this.value)"></div>
+            <span class="sp-sval"></span>
+            <span class="sp-sdef"><span class="sp-ph">${f.tipShort} · default </span>${f.fmt(AUDIO_DEFAULTS[f.key])}</span>
+            <span class="sp-schg"><span class="sp-mod-dot" title="Changed, not saved" hidden></span></span>
+        </div>`).join('');
+    updateAudioState();
 }
 
-function renderPluginsSettings() {
-    // Placeholder - plugins list is static HTML for now
+function onAudioInput(key, value) {
+    const field = AUDIO_FIELDS.find(f => f.key === key);
+    audioDraft[key] = field.num(value);
+    updateAudioState();
+}
+
+function updateAudioState() {
+    for (const f of AUDIO_FIELDS) {
+        const row = document.querySelector(`#audio-rows .sp-srow[data-key="${f.key}"]`);
+        if (!row) continue;
+        row.querySelector('.sp-sval').textContent = f.fmt(audioDraft[f.key]);
+        const changed = audioDraft[f.key] !== audioSettings[f.key];
+        row.querySelectorAll('.sp-mod-dot').forEach(dot => { dot.hidden = !changed; });
+    }
+    const dirty = audioDirty();
+    const state = document.getElementById('audio-state');
+    if (state) state.hidden = !dirty;
+    ['audio-save-btn', 'audio-cancel-btn'].forEach(id => {
+        const button = document.getElementById(id);
+        if (button) button.disabled = !dirty;
+    });
 }
 
 async function saveAudioSettings() {
-    const settings = {
-        crossfade_duration: parseFloat(document.getElementById('settings-crossfade').value),
-        default_volume: parseInt(document.getElementById('settings-default-volume').value),
-        master_gain: parseInt(document.getElementById('settings-master-gain').value)
-    };
-
+    const settings = { ...audioDraft };
     try {
         await api('PUT', '/settings', settings);
         audioSettings = settings;
+        updateAudioState();
         showToast('Audio settings saved', 'success');
     } catch (error) {
         showToast(error.message || 'Failed to save settings', 'error');
     }
+}
+
+function cancelAudioSettings() {
+    audioDraft = { ...audioSettings };
+    renderAudioSettings();
+}
+
+function openAudioMenu(button) {
+    const atDefaults = AUDIO_FIELDS.every(f => audioDraft[f.key] === AUDIO_DEFAULTS[f.key]);
+    spMenu('audio', button, `<button type="button" class="mi" role="menuitem" ${atDefaults ? 'disabled' : ''} onclick="askResetAudio()">${SP_ICON_RESET}Reset to defaults…</button>`);
+}
+
+function askResetAudio() {
+    spConfirm('audio-reset', spMenuAnchor(), {
+        title: 'Reset to defaults?',
+        sub: AUDIO_FIELDS.map(f => `${f.short} ${f.fmt(AUDIO_DEFAULTS[f.key])}`).join(' · '),
+        ok: 'Reset',
+        danger: true
+    }, () => {
+        audioDraft = { ...AUDIO_DEFAULTS };
+        renderAudioSettings();
+        showToast('Defaults restored · not saved yet', 'success');
+    });
 }
 
 // Settings - Connection (standalone/Docker only; the HA add-on returns 404)
@@ -4348,7 +4355,7 @@ let installInfo = null;
 const ADVANCED_FEATURES = {
     network_speakers: {
         label: 'Network speakers',
-        hint: "Add speakers by IP address, outside Home Assistant. Speakers on the network can't be found automatically from inside a Home Assistant app."
+        hint: 'Add speakers by IP address, outside Home Assistant'
     }
 };
 
@@ -4371,43 +4378,68 @@ function hasAdvancedSettings() {
     return !!installInfo && Object.keys(ADVANCED_FEATURES).some(name => installInfo.features[name]?.overridable);
 }
 
+// --- Settings > Advanced: one row per feature; a change shows the restart bar ---
+let advancedRunning = null;   // what is running now (until the next restart)
+let advancedBusy = false;
+
 function renderAdvancedSettings() {
-    const form = document.getElementById('advanced-settings-form');
-    if (!form || !installInfo) return;
-    form.innerHTML = Object.entries(ADVANCED_FEATURES)
-        .filter(([name]) => installInfo.features[name]?.overridable)
-        .map(([name, f]) => `
-            <div class="settings-row">
-                <div class="settings-label">
-                    <label for="adv-${name}">${f.label}</label>
-                    <span class="settings-hint">${f.hint}</span>
-                </div>
-                <label class="toggle-switch">
-                    <input type="checkbox" id="adv-${name}" ${installInfo.features[name].enabled ? 'checked' : ''}
+    const body = document.getElementById('advanced-settings-form');
+    if (!body || !installInfo) return;
+    spSetTitle('settings-advanced', 'Advanced', installInfo.label, 'Install type');
+    const names = Object.keys(ADVANCED_FEATURES).filter(name => installInfo.features[name]?.overridable);
+    if (!advancedRunning) advancedRunning = Object.fromEntries(names.map(name => [name, !!installInfo.features[name].enabled]));
+    let pending = false;
+    body.innerHTML = names.map(name => {
+        const f = ADVANCED_FEATURES[name];
+        const on = !!installInfo.features[name].enabled;
+        const changed = on !== advancedRunning[name];
+        pending = pending || changed;
+        return `
+            <div class="sp-lrow spa-grid">
+                <label class="spa-name" for="adv-${name}">${escapeHtml(f.label)}</label>
+                <span class="spa-desc" title="${escapeHtml(f.hint)}">${escapeHtml(f.hint)}</span>
+                <span class="c spa-def"><span class="badge badge-type">Off</span></span>
+                <span class="spa-pend">${changed ? '<span class="badge sp-badge-warn" title="Takes effect after a restart"><i></i>Restart to apply</span>' : ''}</span>
+                <label class="toggle-switch c spa-tog" title="${on ? 'On' : 'Off'}">
+                    <input type="checkbox" id="adv-${name}" aria-label="${escapeHtml(f.label)}" ${on ? 'checked' : ''} ${advancedBusy ? 'disabled' : ''}
                            onchange="setAdvancedFeature('${name}', this.checked)">
                     <span class="toggle-slider"></span>
                 </label>
-            </div>`).join('');
+            </div>`;
+    }).join('');
+    document.getElementById('advanced-restart').hidden = !(pending || advancedBusy);
+    document.getElementById('adv-restart-note').innerHTML = advancedBusy
+        ? `${SP_ICON_SPIN}Restarting…`
+        : `${SP_ICON_WARN}Restart Sonorium to apply.`;
+    document.getElementById('adv-restart-btn').disabled = advancedBusy;
 }
 
 async function setAdvancedFeature(name, on) {
     try {
         await api('PUT', '/install/features', { [name]: on });
-        document.getElementById('advanced-restart').hidden = false;
+        installInfo.features[name].enabled = on;
     } catch (error) {
         showToast(error.message, 'error');
-        renderAdvancedSettings();
     }
+    renderAdvancedSettings();
+}
+
+function askAdvancedRestart(button) {
+    spConfirm('adv-restart', button, { title: 'Restart Sonorium?', ok: 'Restart' }, restartForAdvancedSettings);
 }
 
 async function restartForAdvancedSettings() {
+    advancedBusy = true;
+    renderAdvancedSettings();
     try {
         await api('PUT', '/install/features', { restart: true });
         showToast('Restarting Sonorium...', 'success');
-        setTimeout(() => window.location.reload(), 8000);
+        await spWaitForRestart();
     } catch (error) {
         showToast(error.message, 'error');
     }
+    advancedBusy = false;
+    renderAdvancedSettings();
 }
 
 async function loadConnectionSettings() {
@@ -4420,76 +4452,202 @@ async function loadConnectionSettings() {
     if (nav) nav.style.display = connectionSettings ? '' : 'none';
 }
 
-function setConnectionStatus(dotId, textId, configured, connected, problem) {
-    document.getElementById(dotId).className = connected ? 'channel-status active' : 'channel-status';
-    document.getElementById(textId).textContent =
-        !configured ? 'Not configured' : (connected ? 'Connected' : `Not connected: ${problem}`);
+// --- Settings > Connection: edits are a draft until Save and restart; Cancel drops them ---
+const CONN_FIELDS = ['ha_url', 'ha_token', 'mqtt_host', 'mqtt_port', 'mqtt_username', 'mqtt_password', 'stream_url'];
+const CONN_SECRET_SAVED = { ha_token: 'ha_token_set', mqtt_password: 'mqtt_password_set' };
+const CONN_GROUPS = {
+    ha: ['ha_url', 'ha_token'],
+    mqtt: ['mqtt_host', 'mqtt_port', 'mqtt_username', 'mqtt_password']
+};
+let connDraft = null;
+let connTried = false;   // after a Save attempt, mark the fields that need fixing
+let connBusy = false;    // restarting
+
+function connFromSaved(c) {
+    return {
+        ha_url: c.ha_url || '', ha_token: '',
+        mqtt_host: c.mqtt_host || '', mqtt_port: String(c.mqtt_port || 1883),
+        mqtt_username: c.mqtt_username || '', mqtt_password: '',
+        stream_url: c.stream_url || ''
+    };
+}
+
+// The same checks the server makes on PUT /api/connection
+function connErrors(d) {
+    const urlErr = v => (v.trim() && !/^https?:\/\//i.test(v.trim())) ? 'Must start with http:// or https://' : '';
+    const portErr = v => {
+        const t = String(v).trim();
+        if (!t) return '';
+        const n = Number(t);
+        return (Number.isInteger(n) && n >= 1 && n <= 65535) ? '' : 'Port must be 1–65535';
+    };
+    return { ha_url: urlErr(d.ha_url), stream_url: urlErr(d.stream_url), mqtt_port: portErr(d.mqtt_port) };
+}
+
+function connDirty() {
+    if (!connectionSettings || !connDraft) return false;
+    const saved = connFromSaved(connectionSettings);
+    return CONN_FIELDS.some(k => connDraft[k] !== saved[k]);
+}
+
+function connConfigured(kind) {
+    const c = connectionSettings || {};
+    return kind === 'ha' ? !!(c.ha_url || c.ha_token_set) : !!c.mqtt_host;
+}
+
+function setConnectionStatus(kind, configured, connected, problem) {
+    const badge = document.getElementById(`conn-${kind}-status`);
+    const note = document.getElementById(`conn-${kind}-note`);
+    if (!badge) return;
+    const state = !configured ? ['sp-st-off', 'Not configured', 'Optional']
+        : connected ? ['sp-st-ok', 'Connected', 'Connected']
+        : ['sp-st-bad', 'Not connected', problem];
+    badge.className = `badge sp-st ${state[0]}`;
+    badge.title = state[2];
+    badge.lastElementChild.textContent = state[1];
+    note.textContent = configured && !connected ? problem : '';
+    note.hidden = !(configured && !connected);
 }
 
 function renderConnectionSettings() {
     const c = connectionSettings;
     if (!c) return;
-    document.getElementById('conn-ha-url').value = c.ha_url || '';
-    document.getElementById('conn-ha-token').value = '';
+    if (!connDraft) connDraft = connFromSaved(c);
+    document.querySelectorAll('#view-settings-connection [data-conn]').forEach(input => {
+        input.value = connDraft[input.dataset.conn] ?? '';
+    });
     document.getElementById('conn-ha-token').placeholder = c.ha_token_set ? 'Saved (hidden)' : 'Paste a long-lived access token';
-    document.getElementById('conn-mqtt-host').value = c.mqtt_host || '';
-    document.getElementById('conn-mqtt-port').value = c.mqtt_port || 1883;
-    document.getElementById('conn-mqtt-user').value = c.mqtt_username || '';
-    document.getElementById('conn-mqtt-pass').value = '';
     document.getElementById('conn-mqtt-pass').placeholder = c.mqtt_password_set ? 'Saved (hidden)' : '';
-    document.getElementById('conn-stream-url').value = c.stream_url || '';
-    setConnectionStatus('conn-ha-dot', 'conn-ha-status', !!c.ha_url, c.ha_connected, 'check the address and token');
-    setConnectionStatus('conn-mqtt-dot', 'conn-mqtt-status', !!c.mqtt_host, c.mqtt_connected, 'check the broker address and login');
-    document.getElementById('conn-saved').style.display = 'none';
-    document.getElementById('conn-save-btn').disabled = false;
+    setConnectionStatus('ha', !!c.ha_url, c.ha_connected, 'Check the address and token');
+    setConnectionStatus('mqtt', !!c.mqtt_host, c.mqtt_connected, 'Check the broker address and login');
+    updateConnectionState();
+}
+
+function updateConnectionState() {
+    const c = connectionSettings;
+    if (!c || !connDraft) return;
+    const errors = connErrors(connDraft);
+    const view = document.getElementById('view-settings-connection');
+    view.querySelectorAll('[data-conn]').forEach(input => {
+        const key = input.dataset.conn;
+        const err = connTried ? (errors[key] || '') : '';
+        input.classList.toggle('bad', !!err);
+        input.disabled = connBusy;
+        const errEl = view.querySelector(`[data-err="${key}"]`);
+        if (errEl) {
+            errEl.textContent = err;
+            errEl.hidden = !err;
+        }
+    });
+    view.querySelectorAll('[data-saved]').forEach(chip => {
+        const key = chip.dataset.saved;
+        chip.hidden = !(c[CONN_SECRET_SAVED[key]] && !connDraft[key]);
+    });
+    const dirty = connDirty();
+    const state = document.getElementById('conn-state');
+    if (connBusy) {
+        state.innerHTML = `${SP_ICON_SPIN}Restarting…`;
+        state.hidden = false;
+    } else if (dirty) {
+        state.innerHTML = '<span class="sp-mod-dot"></span>Unsaved changes';
+        state.hidden = false;
+    } else {
+        state.hidden = true;
+    }
+    document.getElementById('conn-save-btn').disabled = connBusy || !dirty;
+    document.getElementById('conn-cancel-btn').disabled = connBusy || !dirty;
+    document.getElementById('conn-ha-remove').disabled = connBusy || !connConfigured('ha');
+    document.getElementById('conn-mqtt-remove').disabled = connBusy || !connConfigured('mqtt');
+}
+
+function onConnectionInput(input) {
+    connDraft[input.dataset.conn] = input.value;
+    updateConnectionState();
+}
+
+function askSaveConnection(button) {
+    connTried = true;
+    if (Object.values(connErrors(connDraft)).some(Boolean)) {
+        updateConnectionState();
+        showToast('Fix the marked fields', 'error');
+        return;
+    }
+    updateConnectionState();
+    spConfirm('conn-save', button, { title: 'Restart Sonorium?', sub: 'Playing channels stop for a few seconds.', ok: 'Restart' }, saveConnectionSettings);
 }
 
 async function saveConnectionSettings() {
-    const value = id => document.getElementById(id).value.trim();
+    const d = connDraft;
     const settings = {
-        ha_url: value('conn-ha-url'),
-        mqtt_host: value('conn-mqtt-host'),
-        mqtt_port: value('conn-mqtt-port') || 1883,
-        mqtt_username: value('conn-mqtt-user'),
-        stream_url: value('conn-stream-url')
+        ha_url: d.ha_url.trim(),
+        mqtt_host: d.mqtt_host.trim(),
+        mqtt_port: String(d.mqtt_port).trim() || 1883,
+        mqtt_username: d.mqtt_username.trim(),
+        stream_url: d.stream_url.trim()
     };
     // Secrets are only sent when typed; blank keeps the saved value
-    if (value('conn-ha-token')) settings.ha_token = value('conn-ha-token');
-    if (value('conn-mqtt-pass')) settings.mqtt_password = value('conn-mqtt-pass');
+    if (d.ha_token.trim()) settings.ha_token = d.ha_token.trim();
+    if (d.mqtt_password) settings.mqtt_password = d.mqtt_password;
 
-    const button = document.getElementById('conn-save-btn');
+    connBusy = true;
+    updateConnectionState();
     try {
-        button.disabled = true;
         await api('PUT', '/connection', settings);
-        document.getElementById('conn-ha-token').value = '';
-        document.getElementById('conn-mqtt-pass').value = '';
-        document.getElementById('conn-saved').style.display = '';
-        // Wait for the restart to finish, then reload so everything reflects the new settings
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        for (let i = 0; i < 30; i++) {
-            try {
-                await api('GET', '/connection');
-                window.location.reload();
-                return;
-            } catch (error) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
-        showToast('Sonorium is taking a while to restart. Refresh the page in a moment.', 'error');
+        await spWaitForRestart();
     } catch (error) {
-        button.disabled = false;
         showToast(error.message || 'Failed to save connection settings', 'error');
+    }
+    connBusy = false;
+    updateConnectionState();
+}
+
+function cancelConnectionEdits() {
+    if (!connectionSettings) return;
+    connDraft = connFromSaved(connectionSettings);
+    connTried = false;
+    renderConnectionSettings();
+}
+
+function askRemoveConnection(kind, button) {
+    spConfirm(`conn-rm-${kind}`, button, {
+        title: kind === 'ha' ? 'Remove Home Assistant?' : 'Remove MQTT?',
+        ok: 'Remove',
+        danger: true
+    }, () => removeConnection(kind));
+}
+
+// Removing a connection takes effect at once (no restart). Removing Home
+// Assistant drops its floors, areas and speakers from every list.
+async function removeConnection(kind) {
+    try {
+        const result = await api('DELETE', `/connection/${kind}`);
+        connectionSettings = result.connection || await api('GET', '/connection');
+        const fresh = connFromSaved(connectionSettings);
+        CONN_GROUPS[kind].forEach(key => { connDraft[key] = fresh[key]; });
+        if (kind === 'ha') await afterHomeAssistantRemoved();
+        renderConnectionSettings();
+        if (result.restart_required) {
+            showToast('MQTT removed. Restart Sonorium to finish.', 'success');
+        } else {
+            showToast(kind === 'ha' ? 'Home Assistant removed' : 'MQTT removed', 'success');
+        }
+    } catch (error) {
+        showToast(error.message || 'Could not remove the connection', 'error');
     }
 }
 
-function resetAudioSettings() {
-    audioSettings = {
-        crossfade_duration: 3.0,
-        default_volume: 60,
-        master_gain: 60
-    };
-    applyAudioSettingsToUI();
-    showToast('Settings reset to defaults (not saved yet)', 'info');
+async function afterHomeAssistantRemoved() {
+    spacesData = null;
+    await Promise.all([
+        loadSpeakerHierarchy(),
+        loadEnabledSpeakers(),
+        loadSpeakerGroups(),
+        loadSessions(),
+        loadChannels(),
+        loadNetworkInfo()
+    ]);
+    renderSessions();
+    updatePlayingBadge();
 }
 
 // Settings - Local Audio Devices
@@ -4788,11 +4946,12 @@ function timeAgo(isoTime) {
 function renderSpeakerScanMeta() {
     const meta = document.getElementById('spk-scan-meta');
     if (!meta) return;
-    meta.style.display = networkInfo ? '' : 'none';
+    meta.hidden = !networkInfo;
     if (!networkInfo) return;
     if (speakerScanRunning) meta.textContent = 'Scanning...';
     else if (!networkInfo.last_scan) meta.textContent = 'Not scanned yet';
     else meta.textContent = `Last scan ${timeAgo(networkInfo.last_scan)} · ${networkInfo.found} found`;
+    meta.title = meta.textContent;
 }
 
 // Keep "Last scan N minutes ago" current while the page is open
@@ -4812,15 +4971,23 @@ function renderSpeakerToolbar() {
     const seg = document.getElementById('spk-filter');
     if (seg) {
         // Only worth showing when speakers can come from more than one place
-        seg.style.display = filters.length > 2 ? '' : 'none';
+        document.getElementById('spk-filter-wrap').hidden = filters.length <= 2;
         seg.innerHTML = filters.map(([key, label]) =>
             `<button type="button" aria-pressed="${key === speakerSourceFilter}" onclick="setSpeakerSourceFilter('${key}')">${label}</button>`
         ).join('');
     }
+    const label = networkInfo ? (speakerScanRunning ? 'Scanning…' : 'Rescan network') : 'Refresh from HA';
     const rescanLabel = document.getElementById('spk-rescan-label');
-    if (rescanLabel) rescanLabel.textContent = networkInfo ? 'Rescan network' : 'Refresh from HA';
+    if (rescanLabel) rescanLabel.textContent = label;
     const rescan = document.getElementById('spk-rescan');
-    if (rescan) rescan.disabled = speakerScanRunning;
+    if (rescan) {
+        rescan.disabled = speakerScanRunning;
+        rescan.title = label;
+        rescan.setAttribute('aria-label', label);
+    }
+    const search = document.getElementById('spk-search');
+    const clear = document.getElementById('spk-search-clr');
+    if (search && clear) clear.hidden = !search.value;
     renderSpeakerScanMeta();
 }
 
@@ -4829,7 +4996,20 @@ function setSpeakerSourceFilter(key) {
     renderSettingsSpeakerTree();
 }
 
-// Rooms a speaker can be put in: every Home Assistant area
+function clearSpeakerSearch() {
+    const search = document.getElementById('spk-search');
+    search.value = '';
+    renderSettingsSpeakerTree();
+    search.focus();
+}
+
+function clearSpeakerFilters() {
+    document.getElementById('spk-search').value = '';
+    speakerSourceFilter = 'all';
+    setHideOfflineSpeakers(false);
+}
+
+// Areas a speaker can be put in: every floor's areas, then areas without a floor
 function allSpeakerRooms() {
     const floorAreas = (speakerHierarchy?.floors || []).flatMap(f => f.areas || []);
     return floorAreas.concat(speakerHierarchy?.unassigned_areas || []).map(a => ({ id: a.area_id, name: a.name }));
@@ -4839,14 +5019,14 @@ function settingsSpeakerGroups() {
     const groups = [];
     for (const floor of speakerHierarchy?.floors || []) {
         for (const area of floor.areas || []) {
-            if ((area.speakers || []).length) groups.push({ title: `${floor.name} · ${area.name}`, speakers: area.speakers });
+            if ((area.speakers || []).length) groups.push({ key: area.area_id, title: `${floor.name} · ${area.name}`, speakers: area.speakers });
         }
     }
     for (const area of speakerHierarchy?.unassigned_areas || []) {
-        if ((area.speakers || []).length) groups.push({ title: area.name, speakers: area.speakers });
+        if ((area.speakers || []).length) groups.push({ key: area.area_id, title: area.name, speakers: area.speakers });
     }
     if ((speakerHierarchy?.unassigned_speakers || []).length) {
-        groups.push({ title: 'No area', speakers: speakerHierarchy.unassigned_speakers });
+        groups.push({ key: '__none__', title: 'No area', speakers: speakerHierarchy.unassigned_speakers });
     }
     return groups;
 }
@@ -4859,6 +5039,20 @@ try { hideOfflineSpeakers = localStorage.getItem('sonorium_spkHideOffline') === 
 function setHideOfflineSpeakers(hide) {
     hideOfflineSpeakers = hide;
     try { localStorage.setItem('sonorium_spkHideOffline', hide ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+    renderSettingsSpeakerTree();
+}
+
+// Collapsed area sections, remembered in this browser
+let spkClosed = (() => {
+    try { return JSON.parse(localStorage.getItem('sonorium_spkClosed') || '{}') || {}; } catch (e) { return {}; }
+})();
+let spkEditId = null;   // speaker being renamed
+const spkTesting = {};  // speakers playing a test sound
+
+function toggleSpeakerSection(key) {
+    spkClosed[key] = !spkClosed[key];
+    if (!spkClosed[key]) delete spkClosed[key];
+    try { localStorage.setItem('sonorium_spkClosed', JSON.stringify(spkClosed)); } catch (e) { /* storage unavailable */ }
     renderSettingsSpeakerTree();
 }
 
@@ -4877,51 +5071,76 @@ function renderSettingsSpeakerTree() {
     if (hideOfflineBox) hideOfflineBox.checked = hideOfflineSpeakers;
     renderSpeakerToolbar();
 
+    const all = allHierarchySpeakers();
+    const onCount = all.filter(s => isSpeakerEnabled(s.entity_id)).length;
+    spSetTitle('settings-speakers', 'Speakers', speakerHierarchy ? `${onCount} / ${all.length}` : '', `${onCount} in use of ${all.length}`);
+    const lhead = document.getElementById('spk-lhead');
+
     if (!speakerHierarchy) {
+        lhead.hidden = true;
         container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading speakers...</div>';
         return;
     }
 
-    // Keep focus on the same control across re-renders (e.g. tabbing from the name to the room)
+    // Keep focus on the same control across re-renders
     const active = document.activeElement;
-    const activeRow = container.contains(active) ? active.closest('.spk-row')?.dataset.id : null;
+    const activeRow = container.contains(active) ? active.closest('.sps-row')?.dataset.id : null;
     const activeSelector = !activeRow ? null
-        : active.matches('.spk-name input') ? '.spk-name input'
-        : active.matches('select.room') ? 'select.room'
-        : active.matches('select.offset') ? 'select.offset'
-        : active.matches('.merge-note select') ? '.merge-note select'
+        : active.matches('.sps-area') ? '.sps-area'
+        : active.matches('.sps-off') ? '.sps-off'
+        : active.matches('.sps-use input') ? '.sps-use input'
         : null;
 
     const query = (document.getElementById('spk-search')?.value || '').trim().toLowerCase();
-    const isAllEnabled = false;  // the enabled list is exact
     const rooms = allSpeakerRooms();
     const html = settingsSpeakerGroups().map(group => {
         const rows = group.speakers.filter(s => speakerMatchesSettingsFilter(s, query));
         if (!rows.length) return '';
+        const open = !spkClosed[group.key];
+        const on = rows.filter(s => isSpeakerEnabled(s.entity_id)).length;
+        const title = escapeHtml(group.title);
         return `
-            <div class="spk-group">
-                <h4>${escapeHtml(group.title)}</h4>
-                ${rows.map(s => renderSettingsSpeakerRow(s, isAllEnabled, rooms)).join('')}
+            <div class="sps-sec${open ? ' open' : ''}">
+                <div class="sps-fhead sps-grid">
+                    <button type="button" class="chev-btn${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${title}" onclick="toggleSpeakerSection(${spArg(group.key)})">${SP_ICON_CHEV}</button>
+                    <span class="trk-name sps-gtitle" title="${title}"><span class="mq-in">${title}</span></span>
+                    <span class="sp-muted sps-fh-count">${spPlural(rows.length, 'speaker')}</span>
+                    <span class="sps-fh-gap"></span><span class="sps-fh-gap"></span>
+                    <span class="sp-muted c sps-fh-on">${on} of ${rows.length} on</span>
+                    <span class="sps-fh-gap"></span>
+                </div>
+                ${open ? rows.map(s => renderSettingsSpeakerRow(s, rooms)).join('') : ''}
             </div>`;
     }).join('');
 
+    lhead.hidden = !html;
     if (html) {
         container.innerHTML = html;
-    } else if (allHierarchySpeakers().length === 0) {
-        container.innerHTML = `<p class="text-muted">No speakers found yet. ${networkInfo ? 'Rescan the network or add one by address.' : 'Click "Refresh from HA" to load them.'}</p>`;
+    } else if (all.length === 0) {
+        container.innerHTML = `<div class="sp-empty"><strong>No speakers found yet</strong>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="rescanSpeakers()">${networkInfo ? 'Rescan network' : 'Refresh from HA'}</button></div>`;
     } else {
-        container.innerHTML = '<p class="text-muted">No speakers match.</p>';
+        container.innerHTML = `<div class="sp-empty">${SP_ICON_SEARCH_LG}<strong>No speakers match</strong>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="clearSpeakerFilters()">Clear filters</button></div>`;
     }
 
     if (activeSelector) {
-        const row = container.querySelector(`.spk-row[data-id="${CSS.escape(activeRow)}"]`);
-        const target = row?.querySelector(activeSelector);
-        if (target) target.focus();
+        const row = container.querySelector(`.sps-row[data-id="${CSS.escape(activeRow)}"]`);
+        row?.querySelector(activeSelector)?.focus();
     }
+    if (spkEditId) {
+        const input = container.querySelector(`.sps-row[data-id="${CSS.escape(spkEditId)}"] .sps-nm-inp`);
+        if (input) {
+            input.focus();
+            input.select();
+        } else {
+            spkEditId = null;
+        }
+    }
+    spUpdateMarquees(container);
 }
 
-const TEST_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
-const MORE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+const TEST_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
 const PLAY_VIA_LABELS = {
     cast: 'Google Cast (direct)', sonos: 'Sonos (direct)', dlna: 'DLNA (direct)', airplay: 'AirPlay (direct)',
     linkplay: 'LinkPlay (direct)', heos: 'HEOS (direct)'
@@ -4931,11 +5150,22 @@ function formatOffset(value) {
     return value > 0 ? `+${value}%` : `${value}%`;
 }
 
-function renderSettingsSpeakerRow(speaker, isAllEnabled, rooms) {
+function speakerRenamed(speaker) {
+    return !!speaker.original_name && speaker.name !== speaker.original_name;
+}
+
+function speakerPlayViaOptions(speaker) {
+    if (!(speaker.merged || []).length) return [];
+    return [['ha', 'Home Assistant']].concat(speaker.merged.map(m => [m.id, PLAY_VIA_LABELS[m.type] || `${m.type} (direct)`]));
+}
+
+function renderSettingsSpeakerRow(speaker, rooms) {
     const id = speaker.entity_id;
-    const name = speaker.name;
-    const enabled = isAllEnabled || (enabledSpeakers || []).includes(id);
+    const name = escapeHtml(speaker.name);
+    const enabled = isSpeakerEnabled(id);
     const online = speaker.online !== false;
+    const renamed = speakerRenamed(speaker);
+    const advanced = renamed || ((speaker.merged || []).length && (speaker.play_via || 'ha') !== 'ha');
     const room = speaker.area_id || '';
     const roomOptions = rooms.map(r => `<option value="${escapeHtml(r.id)}" ${r.id === room ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')
         + `<option value="" ${room ? '' : 'selected'}>No area</option>`;
@@ -4946,58 +5176,51 @@ function renderSettingsSpeakerRow(speaker, isAllEnabled, rooms) {
         offsets.sort((a, b) => a - b);
     }
     const offsetOptions = offsets.map(v => `<option value="${v}" ${v === offset ? 'selected' : ''}>${formatOffset(v)}</option>`).join('');
-
-    let mergeNote = '';
-    if ((speaker.merged || []).length) {
-        const options = [['ha', 'Home Assistant']].concat(speaker.merged.map(m => [m.id, PLAY_VIA_LABELS[m.type] || `${m.type} (direct)`]));
-        const manual = speaker.merged.some(m => m.source === 'manual');
-        mergeNote = `
-            <div class="merge-note">
-                <span>Same device ${manual ? 'in Home Assistant and added by address' : 'found in Home Assistant and on the network'}. Play via</span>
-                <select aria-label="Play via" onchange="saveSpeakerPlayVia(this)">
-                    ${options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === (speaker.play_via || 'ha') ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
-                </select>
-            </div>`;
-    }
+    const testing = !!spkTesting[id];
+    const address = escapeHtml(speaker.address || id);
+    const nameCell = spkEditId === id
+        ? `<input class="sp-inp sm sps-nm-inp" type="text" maxlength="100" enterkeyhint="done" aria-label="Name"
+                  placeholder="${escapeHtml(speaker.original_name || speaker.name)}" value="${name}"
+                  onkeydown="onSpeakerNameKey(event)" onblur="saveSpeakerName(this)">`
+        : `<button type="button" class="trk-name sps-name" title="${renamed ? `${name} (${escapeHtml(speaker.original_name)})` : name}"
+                   aria-label="Rename ${name}" onclick="startSpeakerRename(${spArg(id)})"><span class="mq-in">${name}</span></button>`;
 
     return `
-        <div class="spk-row${enabled ? '' : ' off'}" data-id="${escapeHtml(id)}">
-            <label class="toggle-switch" aria-label="Use ${escapeHtml(name)}">
-                <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleSpeakerEnabled(speakerRowId(this), this.checked)">
+        <div class="sps-row sps-grid${enabled ? '' : ' off'}${online ? '' : ' offline'}" data-id="${escapeHtml(id)}">
+            <span class="channel-status${online ? ' active' : ''} sps-dot" title="${online ? 'Online' : 'Offline'}" role="img" aria-label="${online ? 'Online' : 'Offline'}"></span>
+            <div class="sps-namecell">${nameCell}</div>
+            <div class="badges sps-src">${speakerBadges(speaker)}</div>
+            <span class="sps-addr${speaker.address ? '' : ' eid'}" title="${address}">${address}</span>
+            <select class="sp-inp sm sps-area" aria-label="Area for ${name}" onchange="saveSpeakerRoom(this)">${roomOptions}</select>
+            <select class="sp-inp sm sps-off" aria-label="Volume offset for ${name}" title="Volume offset" onchange="saveSpeakerOffset(this)">${offsetOptions}</select>
+            <button type="button" class="icon-btn sm sps-test${testing ? ' busy' : ''}" title="${testing ? 'Playing…' : 'Play a short test sound'}"
+                    aria-label="Test ${name}" ${testing ? 'disabled' : ''} onclick="testSpeaker(this)">${TEST_ICON}</button>
+            <label class="toggle-switch sps-use" title="Use ${name}">
+                <input type="checkbox" aria-label="Use ${name}" ${enabled ? 'checked' : ''} onchange="toggleSpeakerEnabled(speakerRowId(this), this.checked)">
                 <span class="toggle-slider"></span>
             </label>
-            <div class="spk-name">
-                <input type="text" value="${escapeHtml(name)}" aria-label="Name" maxlength="100"
-                       placeholder="${escapeHtml(speaker.original_name || name)}"
-                       onkeydown="onSpeakerNameKey(event)" onblur="saveSpeakerName(this)">
-                <div class="spk-meta">
-                    ${onlineDot(speaker)}<span>${online ? 'Online' : 'Offline'}</span>
-                    ${speakerBadges(speaker, true)}
-                    <span>${escapeHtml(speaker.address || id)}</span>
-                </div>
-            </div>
-            <span></span>
-            <select class="room" aria-label="Area" onchange="saveSpeakerRoom(this)">${roomOptions}</select>
-            <select class="offset" aria-label="Volume offset" onchange="saveSpeakerOffset(this)">${offsetOptions}</select>
-            <div class="spk-actions">
-                <button type="button" class="icon-btn test" aria-label="Test ${escapeHtml(name)}" title="Play a short test sound" onclick="testSpeaker(this)">${TEST_ICON}</button>
-                <button type="button" class="icon-btn more" aria-label="More options for ${escapeHtml(name)}" aria-haspopup="menu" aria-expanded="false" onclick="toggleSpeakerMenu(this, event)">${MORE_ICON}</button>
-            </div>
-            ${mergeNote}
+            <button type="button" class="icon-btn sm sps-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openSpeakerMenu(this)">${SP_ICON_MORE}${advanced ? '<i class="sp-adv-dot"></i>' : ''}</button>
         </div>`;
 }
 
 function speakerRowId(element) {
-    return element.closest('.spk-row')?.dataset.id;
+    return element.closest('.sps-row')?.dataset.id;
 }
 
-async function saveSpeakerSettings(entityId, changes) {
+async function saveSpeakerSettings(entityId, changes, doneMessage = '') {
     try {
         await api('PUT', `/speakers/${encodeURIComponent(entityId)}/settings`, changes);
         await loadSpeakerHierarchy();
+        if (doneMessage) showToast(doneMessage, 'success');
     } catch (error) {
         showToast(error.message || 'Failed to save speaker', 'error');
     }
+    renderSettingsSpeakerTree();
+}
+
+function startSpeakerRename(id) {
+    spClosePop();
+    spkEditId = id;
     renderSettingsSpeakerTree();
 }
 
@@ -5007,21 +5230,26 @@ function onSpeakerNameKey(event) {
         event.preventDefault();
         input.blur();
     } else if (event.key === 'Escape') {
-        const speaker = findHierarchySpeaker(speakerRowId(input));
-        if (speaker) input.value = speaker.name;
-        input.blur();
+        event.stopPropagation();
+        spkEditId = null;
+        renderSettingsSpeakerTree();
     }
 }
 
 function saveSpeakerName(input) {
     const id = speakerRowId(input);
+    if (!id || spkEditId !== id) return;
+    spkEditId = null;
     const speaker = findHierarchySpeaker(id);
-    if (!speaker) return;
     const name = input.value.trim();
-    if (name === speaker.name) return;
+    if (!speaker || name === speaker.name) {
+        renderSettingsSpeakerTree();
+        return;
+    }
     // Empty (or the original name) = back to the speaker's own name
     const original = speaker.original_name || speaker.name;
-    saveSpeakerSettings(id, { name: !name || name === original ? null : name });
+    const reset = !name || name === original;
+    saveSpeakerSettings(id, { name: reset ? null : name }, reset ? `Name reset to “${original}”` : `Renamed to “${name}”`);
 }
 
 function saveSpeakerRoom(select) {
@@ -5030,81 +5258,90 @@ function saveSpeakerRoom(select) {
     if (!speaker) return;
     // The speaker's own Home Assistant area is the default (stored as no override)
     const value = select.value;
-    saveSpeakerSettings(id, { room: value === (speaker.default_area_id || '') ? null : value });
+    const label = select.options[select.selectedIndex]?.text || 'No area';
+    saveSpeakerSettings(id, { room: value === (speaker.default_area_id || '') ? null : value }, `“${speaker.name}” moved to ${label}`);
 }
 
 function saveSpeakerOffset(select) {
     saveSpeakerSettings(speakerRowId(select), { volume_offset: parseInt(select.value, 10) || 0 });
 }
 
-function saveSpeakerPlayVia(select) {
-    saveSpeakerSettings(speakerRowId(select), { play_via: select.value });
+function setSpeakerPlayVia(id, value) {
+    spClosePop();
+    const speaker = findHierarchySpeaker(id);
+    const option = speaker ? speakerPlayViaOptions(speaker).find(([v]) => v === value) : null;
+    saveSpeakerSettings(id, { play_via: value }, option ? `Plays via ${option[1]}` : '');
 }
 
 async function testSpeaker(button) {
     const id = speakerRowId(button);
     const speaker = findHierarchySpeaker(id);
+    spkTesting[id] = true;
     button.disabled = true;
+    button.classList.add('busy');
+    button.title = 'Playing…';
+    const done = () => {
+        delete spkTesting[id];
+        const row = document.querySelector(`.sps-row[data-id="${CSS.escape(id)}"] .sps-test`);
+        if (row) {
+            row.disabled = false;
+            row.classList.remove('busy');
+            row.title = 'Play a short test sound';
+        }
+    };
     try {
         const result = await api('POST', `/speakers/${encodeURIComponent(id)}/test`);
         showToast(`Playing a test sound on ${speaker ? speaker.name : id}`, 'success');
-        setTimeout(() => { button.disabled = false; }, ((result && result.seconds) || 4) * 1000);
+        setTimeout(done, ((result && result.seconds) || 4) * 1000);
     } catch (error) {
         showToast(error.message || 'Test sound failed', 'error');
-        button.disabled = false;
+        done();
     }
 }
 
-function closeSpeakerMenus() {
-    document.querySelectorAll('.spk-menu').forEach(menu => {
-        menu.parentElement?.querySelector('.icon-btn.more')?.setAttribute('aria-expanded', 'false');
-        menu.remove();
-    });
-}
-
-function toggleSpeakerMenu(button, event) {
-    event.stopPropagation();
-    const wasOpen = !!button.parentElement.querySelector('.spk-menu');
-    closeSpeakerMenus();
-    if (wasOpen) return;
-
-    const speaker = findHierarchySpeaker(speakerRowId(button));
+function openSpeakerMenu(button) {
+    const id = speakerRowId(button);
+    const speaker = findHierarchySpeaker(id);
     if (!speaker) return;
-    const renamed = speaker.original_name && speaker.name !== speaker.original_name;
+    const renamed = speakerRenamed(speaker);
     const isManual = speaker.entity_id.startsWith('net:') && (speaker.source || []).includes('manual');
     const manualIds = isManual ? [speaker.entity_id] : (speaker.merged || []).filter(m => m.source === 'manual').map(m => m.id);
+    const via = speaker.play_via || 'ha';
+    const viaOptions = speakerPlayViaOptions(speaker);
 
-    let items = `<button type="button" role="menuitem" ${renamed ? '' : 'disabled'} onclick="resetSpeakerName(this)">Reset name</button>`;
-    for (const manualId of manualIds) {
-        items += `<button type="button" role="menuitem" class="danger" data-manual-id="${escapeHtml(manualId)}" onclick="removeManualSpeaker(this)">${isManual ? 'Remove' : 'Remove the address added manually'}</button>`;
+    let html = `<button type="button" class="mi" role="menuitem" onclick="startSpeakerRename(${spArg(id)})">${SP_ICON_PENCIL}Rename</button>
+        <button type="button" class="mi" role="menuitem" ${renamed ? '' : 'disabled'} onclick="resetSpeakerName(${spArg(id)})">${SP_ICON_RESET}Reset name${renamed ? `<span class="mi-note">${escapeHtml(speaker.original_name)}</span>` : ''}</button>`;
+    if (viaOptions.length) {
+        html += '<div class="msep"></div><div class="mhead">Play via</div>' + viaOptions.map(([value, label]) =>
+            `<button type="button" class="mi${value === via ? ' cur' : ''}" role="menuitemradio" aria-checked="${value === via}" onclick="setSpeakerPlayVia(${spArg(id)}, ${spArg(value)})"><span class="rad">${value === via ? '●' : ''}</span>${escapeHtml(label)}</button>`
+        ).join('');
     }
-    button.parentElement.insertAdjacentHTML('beforeend', `<div class="spk-menu" role="menu">${items}</div>`);
-    button.setAttribute('aria-expanded', 'true');
-    // Open upwards when there's no room below (the list scrolls)
-    const menu = button.parentElement.querySelector('.spk-menu');
-    const list = button.closest('.spk-list');
-    if (list && menu.getBoundingClientRect().bottom > list.getBoundingClientRect().bottom) menu.classList.add('up');
-    menu.querySelector('button:not([disabled])')?.focus();
+    if (manualIds.length) {
+        html += '<div class="msep"></div>' + manualIds.map(manualId =>
+            `<button type="button" class="mi danger" role="menuitem" onclick="askRemoveManualSpeaker(${spArg(id)}, ${spArg(manualId)})">${SP_ICON_TRASH}${isManual ? 'Remove…' : 'Remove the address added manually…'}</button>`
+        ).join('');
+    }
+    spMenu(`spk:${id}`, button, html);
 }
 
-document.addEventListener('click', event => {
-    if (!event.target.closest('.spk-menu')) closeSpeakerMenus();
-});
-document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') closeSpeakerMenus();
-});
-
-function resetSpeakerName(item) {
-    const id = speakerRowId(item);
-    closeSpeakerMenus();
-    saveSpeakerSettings(id, { name: null });
+function resetSpeakerName(id) {
+    spClosePop();
+    const speaker = findHierarchySpeaker(id);
+    saveSpeakerSettings(id, { name: null }, speaker ? `Name reset to “${speaker.original_name || speaker.name}”` : '');
 }
 
-async function removeManualSpeaker(item) {
-    const manualId = item.dataset.manualId;
-    const speaker = findHierarchySpeaker(speakerRowId(item));
-    closeSpeakerMenus();
-    if (!confirm(`Remove ${speaker ? speaker.name : 'this speaker'}?`)) return;
+function askRemoveManualSpeaker(id, manualId) {
+    const speaker = findHierarchySpeaker(id);
+    const name = speaker ? speaker.name : id;
+    const isManual = id === manualId;
+    spConfirm(`spk-rm:${id}`, spMenuAnchor(), {
+        title: isManual ? `Remove “${name}”?` : `Remove the manual address for “${name}”?`,
+        ok: 'Remove',
+        danger: true
+    }, () => removeManualSpeaker(manualId));
+}
+
+async function removeManualSpeaker(manualId) {
     try {
         await api('DELETE', `/speakers/manual/${encodeURIComponent(manualId)}`);
         await Promise.all([loadSpeakerHierarchy(), loadEnabledSpeakers()]);
@@ -5261,29 +5498,52 @@ async function disableAllSpeakers() {
 // Status View
 async function renderStatus() {
     const activePlayingSessions = sessions.filter(s => s.is_playing).length;
-    document.getElementById('status-active-channels').textContent = activePlayingSessions;
-
-    const allSpeakers = getAllSpeakersFlat();
-    document.getElementById('status-total-speakers').textContent = allSpeakers.length;
+    const active = document.getElementById('status-active-channels');
+    active.textContent = activePlayingSessions;
+    active.classList.toggle('spst-on', activePlayingSessions > 0);
+    document.getElementById('status-total-speakers').textContent = getAllSpeakersFlat().length;
 
     await loadChannels();
+    document.getElementById('status-ch-count').textContent = channels.length;
+    document.getElementById('status-lhead').hidden = channels.length === 0;
     const channelList = document.getElementById('channel-list');
-    channelList.innerHTML = channels.map(ch => `
-        <div class="channel-item">
-            <div class="channel-status ${ch.state === 'playing' ? 'active' : ''}"></div>
-            <div class="channel-info">
-                <div class="channel-name">${escapeHtml(ch.name)}</div>
-                <div class="channel-theme">${ch.current_theme_name || 'Idle'}</div>
-            </div>
-        </div>
-    `).join('');
+    if (!channels.length) {
+        channelList.innerHTML = '<div class="sp-empty spst-empty"><strong>No channels</strong></div>';
+        return;
+    }
+    channelList.innerHTML = `<div class="sp-lbody">${channels.map(ch => {
+        const on = ch.state === 'playing';
+        const name = escapeHtml(ch.name);
+        const theme = escapeHtml(ch.current_theme_name || '');
+        return `
+            <div class="sp-lrow spst-grid${on ? ' on' : ''}">
+                <span class="trk-name spst-name" title="${name}"><span class="mq-in">${name}</span></span>
+                <div class="spst-theme">${on && theme
+                    ? `<span class="trk-name" title="${theme}"><span class="mq-in">${theme}</span></span>`
+                    : '<span class="spst-idle">—</span>'}</div>
+                <span class="spst-state"><span class="badge ${on ? 'sp-badge-air' : 'sp-badge-idle'}"><i></i>${on ? 'Playing' : 'Idle'}</span></span>
+            </div>`;
+    }).join('')}</div>`;
+    spUpdateMarquees(channelList);
 }
 
-async function refreshStatus() {
-    await loadSessions();
-    await loadChannels();
-    renderStatus();
-    showToast('Status refreshed', 'success');
+async function refreshStatus(button) {
+    if (button) {
+        button.disabled = true;
+        button.classList.add('sp-spinning');
+    }
+    try {
+        await loadSessions();
+        await renderStatus();
+        showToast('Status refreshed', 'success');
+    } catch (error) {
+        showToast(error.message || 'Refresh failed', 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.classList.remove('sp-spinning');
+        }
+    }
 }
 
 // Volume Slider
@@ -5313,108 +5573,128 @@ function showToast(message, type = 'success') {
 // Speaker Groups Management
 // ============================================
 
-let selectedGroupSpeakers = {
-    floors: [],
-    areas: [],
-    speakers: []
-};
+// --- Settings > Speaker Groups: collapsible rows with their members; editor dialog ---
+const grpOpen = {};      // groups showing their speakers
+let grpEd = null;        // editor: { id, floors, areas, speakers, xa, xs }
+let grpEdShut = {};      // collapsed floors / areas / sections in the editor
+
+// Every speaker with where it lives, plus floor and area lookups
+function groupIndex() {
+    const all = [];
+    const floorById = {};
+    const areaById = {};
+    for (const floor of speakerHierarchy?.floors || []) {
+        floorById[floor.floor_id] = floor;
+        for (const area of floor.areas || []) {
+            areaById[area.area_id] = area;
+            for (const s of area.speakers || []) all.push({ s, areaId: area.area_id, floorId: floor.floor_id, loc: `${floor.name} · ${area.name}` });
+        }
+    }
+    for (const area of speakerHierarchy?.unassigned_areas || []) {
+        areaById[area.area_id] = area;
+        for (const s of area.speakers || []) all.push({ s, areaId: area.area_id, floorId: null, loc: area.name });
+    }
+    for (const s of speakerHierarchy?.unassigned_speakers || []) all.push({ s, areaId: null, floorId: null, loc: 'No area' });
+    const speakerById = {};
+    all.forEach(x => { speakerById[x.s.entity_id] = x.s; });
+    return { all, floorById, areaById, speakerById };
+}
+
+// Union of floors, areas and speakers, minus excluded areas and speakers (as the server does)
+function resolveGroupMembers(g, idx) {
+    const out = [];
+    for (const x of idx.all) {
+        const id = x.s.entity_id;
+        let via = '';
+        if ((g.include_speakers || []).includes(id)) via = 'speaker';
+        else if (x.areaId && (g.include_areas || []).includes(x.areaId)) via = 'area';
+        else if (x.floorId && (g.include_floors || []).includes(x.floorId)) via = 'floor';
+        if (!via) continue;
+        const excluded = (g.exclude_speakers || []).includes(id) || (!!x.areaId && (g.exclude_areas || []).includes(x.areaId));
+        out.push({ ...x, via, excluded });
+    }
+    return out;
+}
+
+function groupChip(cls, icon, label, title) {
+    return `<span class="spg-chip ${cls}" title="${title}">${icon}<span>${escapeHtml(label)}</span></span>`;
+}
 
 function renderSettingsGroupsList() {
     const container = document.getElementById('settings-groups-list');
     if (!container) return;
-
-    if (speakerGroups.length === 0) {
-        container.innerHTML = '<div class="settings-groups-empty">No speaker groups created yet. Click "New Group" to create one.</div>';
+    spSetTitle('settings-groups', 'Speaker Groups', speakerGroups.length);
+    document.getElementById('grp-bar').hidden = speakerGroups.length === 0;
+    if (!speakerGroups.length) {
+        container.innerHTML = `<div class="sp-empty"><strong>No speaker groups</strong>
+            <button type="button" class="btn btn-sm btn-primary" onclick="openGroupModal()">Add group</button></div>`;
         return;
     }
-
-    let html = '';
-    for (const group of speakerGroups) {
-        const speakerCount = (group.include_floors?.length || 0) +
-                            (group.include_areas?.length || 0) +
-                            (group.include_speakers?.length || 0);
-        const speakerText = speakerCount === 1 ? '1 selection' : `${speakerCount} selections`;
-
-        html += `
-            <div class="settings-group-item">
-                <div class="settings-group-icon">🔊</div>
-                <div class="settings-group-info">
-                    <div class="settings-group-name">${escapeHtml(group.name)}</div>
-                    <div class="settings-group-meta">${speakerText}</div>
+    const idx = groupIndex();
+    const chipMax = SP_PHONE.matches ? 3 : 5;
+    container.innerHTML = `<div class="sp-lbody">${speakerGroups.map(g => {
+        const open = !!grpOpen[g.id];
+        const members = resolveGroupMembers(g, idx);
+        const count = members.filter(m => !m.excluded).length;
+        const name = escapeHtml(g.name);
+        const chips = []
+            .concat((g.include_floors || []).filter(id => idx.floorById[id]).map(id => groupChip('fl', SP_ICON_FLOOR, idx.floorById[id].name, 'Floor')))
+            .concat((g.include_areas || []).filter(id => idx.areaById[id]).map(id => groupChip('ar', SP_ICON_AREA, idx.areaById[id].name, 'Area')))
+            .concat((g.include_speakers || []).filter(id => idx.speakerById[id]).map(id => groupChip('sp', SP_ICON_SPK, idx.speakerById[id].name, 'Speaker')))
+            .concat((g.exclude_areas || []).filter(id => idx.areaById[id]).map(id => groupChip('ex', SP_ICON_EX, idx.areaById[id].name, 'Excluded area')))
+            .concat((g.exclude_speakers || []).filter(id => idx.speakerById[id]).map(id => groupChip('ex', SP_ICON_EX, idx.speakerById[id].name, 'Excluded speaker')));
+        const parts = [];
+        if ((g.include_floors || []).length) parts.push(spPlural(g.include_floors.length, 'floor'));
+        if ((g.include_areas || []).length) parts.push(spPlural(g.include_areas.length, 'area'));
+        if ((g.include_speakers || []).length) parts.push(spPlural(g.include_speakers.length, 'speaker'));
+        const rest = chips.length - chipMax;
+        const memberRows = members.map(m => {
+            const online = m.s.online !== false;
+            const type = SPEAKER_TYPE_LABELS[m.s.type];
+            const sname = escapeHtml(m.s.name);
+            return `
+                <div class="spg-srow spg-grid${online ? '' : ' off'}${m.excluded ? ' exd' : ''}">
+                    <span class="spg-gap"></span>
+                    <div class="spg-sname"><span class="channel-status${online ? ' active' : ''}" title="${online ? 'Online' : 'Offline'}"></span><span class="trk-name" title="${sname}"><span class="mq-in">${sname}</span></span></div>
+                    <span class="spg-loc">${escapeHtml(m.loc)} <span class="spg-via">· ${m.via === 'speaker' ? 'added' : `via ${m.via}`}</span></span>
+                    <span class="c spg-type">${type ? `<span class="badge badge-type">${type}</span>` : ''}</span>
+                    <span class="c spg-exc">${m.excluded ? '<span class="badge sp-badge-ex">Excluded</span>' : ''}</span>
+                    <span class="spg-gap"></span>
+                </div>`;
+        }).join('');
+        return `
+            <div class="spg-grp" data-id="${escapeHtml(g.id)}">
+                <div class="sp-lrow spg-grid spg-row">
+                    <button type="button" class="chev-btn spg-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Hide' : 'Show'} speakers in ${name}" onclick="toggleGroupOpen(${spArg(g.id)})">${SP_ICON_CHEV}</button>
+                    <div class="spg-name"><span class="spg-ic" aria-hidden="true">🔊</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span></div>
+                    <div class="spg-chips" title="${escapeHtml(parts.join(', '))}">${chips.slice(0, chipMax).join('')}${rest > 0 ? `<span class="spg-more-n">+${rest}</span>` : ''}</div>
+                    <span class="spg-num c" title="${spPlural(count, 'speaker')}">${count}</span>
+                    <button type="button" class="btn btn-sm btn-secondary spg-edit" onclick="openGroupModal(${spArg(g.id)})">Edit</button>
+                    <button type="button" class="icon-btn sm spg-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openGroupMenu(this, ${spArg(g.id)})">${SP_ICON_MORE}</button>
                 </div>
-                <div class="settings-group-actions">
-                    <button onclick="editGroup('${group.id}')" title="Edit">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                    </button>
-                    <button class="delete" onclick="deleteGroup('${group.id}')" title="Delete">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="3 6 5 6 21 6"/>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-        `;
-    }
-    container.innerHTML = html;
+                ${open ? `<div class="spg-subs">${memberRows || '<div class="sp-muted spg-none">No speakers</div>'}</div>` : ''}
+            </div>`;
+    }).join('')}</div>`;
+    spUpdateMarquees(container);
 }
 
-function openGroupModal(groupId = null) {
-    const modal = document.getElementById('group-modal');
-    const title = document.getElementById('group-modal-title');
-    const saveBtn = document.getElementById('group-save-btn-text');
-    const editIdField = document.getElementById('edit-group-id');
-    const nameInput = document.getElementById('group-name');
-
-    // Reset selection
-    selectedGroupSpeakers = { floors: [], areas: [], speakers: [] };
-
-    if (groupId) {
-        // Editing existing group
-        const group = speakerGroups.find(g => g.id === groupId);
-        if (!group) {
-            showToast('Group not found', 'error');
-            return;
-        }
-        title.textContent = 'Edit Speaker Group';
-        saveBtn.textContent = 'Save Changes';
-        editIdField.value = groupId;
-        nameInput.value = group.name;
-
-        // Restore selections
-        selectedGroupSpeakers.floors = [...(group.include_floors || [])];
-        selectedGroupSpeakers.areas = [...(group.include_areas || [])];
-        selectedGroupSpeakers.speakers = [...(group.include_speakers || [])];
-    } else {
-        // Creating new group
-        title.textContent = 'New Speaker Group';
-        saveBtn.textContent = 'Create Group';
-        editIdField.value = '';
-        nameInput.value = '';
-    }
-
-    renderGroupSpeakerTree();
-    updateGroupSpeakerDropdownText();
-    modal.style.display = 'flex';
+function toggleGroupOpen(groupId) {
+    grpOpen[groupId] = !grpOpen[groupId];
+    renderSettingsGroupsList();
 }
 
-function closeGroupModal() {
-    document.getElementById('group-modal').style.display = 'none';
+function openGroupMenu(button, groupId) {
+    spMenu(`grp:${groupId}`, button, `<button type="button" class="mi danger" role="menuitem" onclick="askDeleteGroup(${spArg(groupId)})">${SP_ICON_TRASH}Delete…</button>`);
 }
 
-function editGroup(groupId) {
-    openGroupModal(groupId);
+function askDeleteGroup(groupId) {
+    const group = speakerGroups.find(g => g.id === groupId);
+    spConfirm(`grp-del:${groupId}`, spMenuAnchor(), { title: `Delete “${group?.name || groupId}”?`, ok: 'Delete', danger: true }, () => deleteGroup(groupId));
 }
 
 async function deleteGroup(groupId) {
-    const group = speakerGroups.find(g => g.id === groupId);
-    if (!confirm(`Delete speaker group "${group?.name || groupId}"?`)) return;
-
     try {
-        await api('DELETE', `/groups/${groupId}`);
+        await api('DELETE', `/groups/${encodeURIComponent(groupId)}`);
         await loadSpeakerGroups();
         renderSettingsGroupsList();
         showToast('Group deleted', 'success');
@@ -5423,35 +5703,168 @@ async function deleteGroup(groupId) {
     }
 }
 
-async function saveGroup() {
-    const editId = document.getElementById('edit-group-id').value;
-    const name = document.getElementById('group-name').value.trim();
-
-    if (!name) {
-        showToast('Please enter a group name', 'error');
+// ---------- Editor ----------
+function openGroupModal(groupId = null) {
+    spClosePop();
+    const group = groupId ? speakerGroups.find(g => g.id === groupId) : null;
+    if (groupId && !group) {
+        showToast('Group not found', 'error');
         return;
     }
+    grpEd = group
+        ? { id: group.id, floors: [...(group.include_floors || [])], areas: [...(group.include_areas || [])], speakers: [...(group.include_speakers || [])],
+            xa: group.exclude_areas || [], xs: group.exclude_speakers || [] }
+        : { id: null, floors: [], areas: [], speakers: [], xa: [], xs: [] };
+    grpEdShut = {};
+    document.getElementById('group-modal-title').textContent = group ? 'Edit group' : 'Add group';
+    document.getElementById('group-save-btn-text').textContent = group ? 'Save' : 'Add group';
+    const nameInput = document.getElementById('group-name');
+    nameInput.value = group ? group.name : '';
+    nameInput.classList.remove('bad');
+    document.getElementById('group-speaker-tree').scrollTop = 0;
+    renderGroupSpeakerTree();
+    document.getElementById('group-modal').classList.add('active');
+    setTimeout(() => nameInput.focus(), 50);
+}
 
-    if (selectedGroupSpeakers.floors.length === 0 &&
-        selectedGroupSpeakers.areas.length === 0 &&
-        selectedGroupSpeakers.speakers.length === 0) {
-        showToast('Please select at least one speaker', 'error');
-        return;
+function closeGroupModal() {
+    document.getElementById('group-modal').classList.remove('active');
+    grpEd = null;
+}
+
+function editGroup(groupId) {
+    openGroupModal(groupId);
+}
+
+function onGroupNameKey(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        saveGroup();
     }
+}
 
-    const payload = {
-        name,
-        include_floors: selectedGroupSpeakers.floors,
-        include_areas: selectedGroupSpeakers.areas,
-        include_speakers: selectedGroupSpeakers.speakers
+function toggleGroupItem(key, id) {
+    if (!grpEd) return;
+    const list = grpEd[key];
+    grpEd[key] = list.includes(id) ? list.filter(x => x !== id) : [...list, id];
+    renderGroupSpeakerTree();
+}
+
+function toggleGroupEdSection(key) {
+    grpEdShut[key] = !grpEdShut[key];
+    renderGroupSpeakerTree();
+}
+
+function renderGroupSpeakerTree() {
+    const container = document.getElementById('group-speaker-tree');
+    if (!container || !grpEd) return;
+    const ed = grpEd;
+    const shut = grpEdShut;
+    const chev = (key, label) => `<button type="button" class="chev-btn spe-chev${shut[key] ? '' : ' open'}" aria-label="${shut[key] ? 'Expand' : 'Collapse'} ${escapeHtml(label)}" onclick="toggleGroupEdSection(${spArg(key)})">${SP_ICON_CHEV}</button>`;
+    const box = (key, id, label, checked, implied) =>
+        `<input type="checkbox" ${checked ? 'checked' : ''} ${implied ? 'disabled' : ''} aria-label="${escapeHtml(label)}" onchange="toggleGroupItem('${key}', ${spArg(id)})">`;
+
+    const speakerRow = (s, indent, impliedBy) => {
+        const explicit = ed.speakers.includes(s.entity_id);
+        const implied = !explicit && !!impliedBy;
+        const online = s.online !== false;
+        const type = SPEAKER_TYPE_LABELS[s.type];
+        return `
+            <div class="spe-row spe-grid k-spk ${indent}"${implied ? ` title="Included with ${escapeHtml(impliedBy)}"` : ''}>
+                <span>${box('speakers', s.entity_id, s.name, explicit || implied, implied)}</span>
+                <div class="spe-name"><span class="lbl">${escapeHtml(s.name)}</span>${ed.xs.includes(s.entity_id) ? '<span class="badge sp-badge-ex">Excluded</span>' : ''}</div>
+                <span>${type ? `<span class="badge badge-type">${type}</span>` : ''}</span>
+                <span class="spe-stat"><span class="channel-status${online ? ' active' : ''}" title="${online ? 'Online' : 'Offline'}"></span><span class="spe-stxt">${online ? 'Online' : 'Offline'}</span></span>
+            </div>`;
+    };
+    const areaRows = (area, indent, floorName) => {
+        const explicit = ed.areas.includes(area.area_id);
+        const implied = !explicit && !!floorName;
+        const key = `a:${area.area_id}`;
+        let html = `
+            <div class="spe-row spe-grid k-area ${indent}"${implied ? ` title="Included with ${escapeHtml(floorName)}"` : ''}>
+                <span>${box('areas', area.area_id, area.name, explicit || implied, implied)}</span>
+                <div class="spe-name">${chev(key, area.name)}<span class="spe-ico ar">${SP_ICON_AREA}</span><span class="lbl">${escapeHtml(area.name)}</span><span class="spe-count">${(area.speakers || []).length}</span>${ed.xa.includes(area.area_id) ? '<span class="badge sp-badge-ex">Excluded</span>' : ''}</div>
+                <span></span><span></span>
+            </div>`;
+        if (!shut[key]) {
+            const by = floorName || (explicit ? area.name : '');
+            html += (area.speakers || []).map(s => speakerRow(s, indent === 'ind1' ? 'ind2' : 'ind1', by)).join('');
+        }
+        return html;
     };
 
+    const sections = [];
+    for (const floor of speakerHierarchy?.floors || []) {
+        const on = ed.floors.includes(floor.floor_id);
+        const key = `f:${floor.floor_id}`;
+        const n = (floor.areas || []).reduce((sum, a) => sum + (a.speakers || []).length, 0);
+        let html = `
+            <div class="spe-row spe-grid k-floor">
+                <span>${box('floors', floor.floor_id, floor.name, on, false)}</span>
+                <div class="spe-name">${chev(key, floor.name)}<span class="spe-ico fl">${SP_ICON_FLOOR}</span><span class="lbl">${escapeHtml(floor.name)}</span><span class="spe-count">${spPlural(n, 'speaker')}</span></div>
+                <span></span><span></span>
+            </div>`;
+        if (!shut[key]) html += (floor.areas || []).map(a => areaRows(a, 'ind1', on ? floor.name : '')).join('');
+        sections.push(html);
+    }
+    const otherAreas = (speakerHierarchy?.unassigned_areas || []).filter(a => (a.speakers || []).length);
+    if (otherAreas.length) {
+        let html = `<div class="spe-row spe-grid k-sect"><span></span><div class="spe-name">${chev('s:other', 'Other areas')}<span class="lbl">Other areas</span></div><span></span><span></span></div>`;
+        if (!shut['s:other']) html += otherAreas.map(a => areaRows(a, 'ind1', '')).join('');
+        sections.push(html);
+    }
+    const unassigned = speakerHierarchy?.unassigned_speakers || [];
+    if (unassigned.length) {
+        let html = `<div class="spe-row spe-grid k-sect"><span></span><div class="spe-name">${chev('s:none', 'Unassigned')}<span class="lbl">Unassigned</span></div><span></span><span></span></div>`;
+        if (!shut['s:none']) html += unassigned.map(s => speakerRow(s, 'ind1', '')).join('');
+        sections.push(html);
+    }
+    const scroll = container.scrollTop;
+    container.innerHTML = sections.length
+        ? sections.map(html => `<div class="spe-sec">${html}</div>`).join('')
+        : '<div class="sp-empty"><strong>No speakers available</strong></div>';
+    container.scrollTop = scroll;
+
+    const parts = [];
+    if (ed.floors.length) parts.push(spPlural(ed.floors.length, 'floor'));
+    if (ed.areas.length) parts.push(spPlural(ed.areas.length, 'area'));
+    if (ed.speakers.length) parts.push(spPlural(ed.speakers.length, 'speaker'));
+    const count = parts.length ? resolveGroupMembers({
+        include_floors: ed.floors, include_areas: ed.areas, include_speakers: ed.speakers, exclude_areas: ed.xa, exclude_speakers: ed.xs
+    }, groupIndex()).filter(m => !m.excluded).length : 0;
+    document.getElementById('group-ed-sum').innerHTML = parts.length
+        ? `<span>${parts.join(' · ')}</span><span class="badge badge-type">= ${spPlural(count, 'speaker')}</span>`
+        : '<span>Nothing selected</span>';
+}
+
+async function saveGroup() {
+    if (!grpEd) return;
+    const nameInput = document.getElementById('group-name');
+    const name = nameInput.value.trim();
+    if (!name) {
+        nameInput.classList.add('bad');
+        nameInput.focus();
+        showToast('Enter a group name', 'error');
+        return;
+    }
+    if (!grpEd.floors.length && !grpEd.areas.length && !grpEd.speakers.length) {
+        showToast('Select at least one speaker', 'error');
+        return;
+    }
+    const payload = {
+        name,
+        include_floors: grpEd.floors,
+        include_areas: grpEd.areas,
+        include_speakers: grpEd.speakers
+    };
     try {
-        if (editId) {
-            await api('PUT', `/groups/${editId}`, payload);
+        if (grpEd.id) {
+            await api('PUT', `/groups/${encodeURIComponent(grpEd.id)}`, payload);
             showToast('Group updated', 'success');
         } else {
-            await api('POST', '/groups', payload);
+            const created = await api('POST', '/groups', payload);
+            if (created?.id) grpOpen[created.id] = true;
             showToast('Group created', 'success');
         }
         closeGroupModal();
@@ -5461,206 +5874,6 @@ async function saveGroup() {
         showToast(error.message, 'error');
     }
 }
-
-function toggleGroupSpeakerDropdown(event) {
-    event.stopPropagation();
-    const dropdown = document.getElementById('group-speaker-dropdown');
-    dropdown.classList.toggle('open');
-}
-
-function updateGroupSpeakerDropdownText() {
-    const text = document.getElementById('group-speaker-dropdown-text');
-    if (!text) return;
-
-    const floorCount = selectedGroupSpeakers.floors.length;
-    const areaCount = selectedGroupSpeakers.areas.length;
-    const speakerCount = selectedGroupSpeakers.speakers.length;
-
-    if (floorCount === 0 && areaCount === 0 && speakerCount === 0) {
-        text.textContent = 'Click to select speakers...';
-        text.style.color = 'var(--text-muted)';
-    } else {
-        const parts = [];
-        if (floorCount > 0) parts.push(`${floorCount} floor${floorCount > 1 ? 's' : ''}`);
-        if (areaCount > 0) parts.push(`${areaCount} area${areaCount > 1 ? 's' : ''}`);
-        if (speakerCount > 0) parts.push(`${speakerCount} speaker${speakerCount > 1 ? 's' : ''}`);
-        text.textContent = parts.join(', ');
-        text.style.color = 'var(--text-primary)';
-    }
-}
-
-function renderGroupSpeakerTree() {
-    const container = document.getElementById('group-speaker-tree');
-    if (!speakerHierarchy || !container) return;
-
-    let html = '';
-
-    // Render floors with areas
-    for (const floor of speakerHierarchy.floors || []) {
-        const floorChecked = selectedGroupSpeakers.floors.includes(floor.floor_id);
-        html += `
-            <div class="tree-floor">
-                <div class="tree-floor-header">
-                    <input type="checkbox" ${floorChecked ? 'checked' : ''}
-                           onchange="toggleGroupFloor('${floor.floor_id}', this.checked)">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                    </svg>
-                    <span class="tree-floor-name">${escapeHtml(floor.name)}</span>
-                </div>
-                <div class="tree-areas">
-        `;
-
-        for (const area of floor.areas || []) {
-            const areaChecked = selectedGroupSpeakers.areas.includes(area.area_id);
-            html += `
-                <div class="tree-area">
-                    <div class="tree-area-header">
-                        <input type="checkbox" ${areaChecked ? 'checked' : ''}
-                               onchange="toggleGroupArea('${area.area_id}', this.checked)">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                        </svg>
-                        <span>${escapeHtml(area.name)}</span>
-                    </div>
-                    <div class="tree-speakers">
-            `;
-
-            for (const speaker of area.speakers || []) {
-                const speakerChecked = selectedGroupSpeakers.speakers.includes(speaker.entity_id);
-                html += `
-                    <div class="tree-speaker">
-                        <input type="checkbox" ${speakerChecked ? 'checked' : ''}
-                               onchange="toggleGroupSpeaker('${speaker.entity_id}', this.checked)">
-                        <span>${escapeHtml(speaker.name)}</span>
-                    </div>
-                `;
-            }
-
-            html += `</div></div>`;
-        }
-
-        html += `</div></div>`;
-    }
-
-    // Unassigned areas
-    if ((speakerHierarchy.unassigned_areas || []).length > 0) {
-        html += `
-            <div class="tree-floor">
-                <div class="tree-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                    </svg>
-                    <span class="tree-floor-name">Other Areas</span>
-                </div>
-                <div class="tree-areas">
-        `;
-
-        for (const area of speakerHierarchy.unassigned_areas) {
-            if ((area.speakers || []).length === 0) continue;
-            const areaChecked = selectedGroupSpeakers.areas.includes(area.area_id);
-            html += `
-                <div class="tree-area">
-                    <div class="tree-area-header">
-                        <input type="checkbox" ${areaChecked ? 'checked' : ''}
-                               onchange="toggleGroupArea('${area.area_id}', this.checked)">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                        </svg>
-                        <span>${escapeHtml(area.name)}</span>
-                    </div>
-                    <div class="tree-speakers">
-            `;
-
-            for (const speaker of area.speakers || []) {
-                const speakerChecked = selectedGroupSpeakers.speakers.includes(speaker.entity_id);
-                html += `
-                    <div class="tree-speaker">
-                        <input type="checkbox" ${speakerChecked ? 'checked' : ''}
-                               onchange="toggleGroupSpeaker('${speaker.entity_id}', this.checked)">
-                        <span>${escapeHtml(speaker.name)}</span>
-                    </div>
-                `;
-            }
-
-            html += `</div></div>`;
-        }
-
-        html += `</div></div>`;
-    }
-
-    // Unassigned speakers
-    if ((speakerHierarchy.unassigned_speakers || []).length > 0) {
-        html += `
-            <div class="tree-floor">
-                <div class="tree-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <line x1="12" y1="8" x2="12" y2="12"/>
-                        <line x1="12" y1="16" x2="12.01" y2="16"/>
-                    </svg>
-                    <span class="tree-floor-name">Unassigned</span>
-                </div>
-                <div class="tree-speakers" style="margin-left: 1.5rem;">
-        `;
-
-        for (const speaker of speakerHierarchy.unassigned_speakers) {
-            const speakerChecked = selectedGroupSpeakers.speakers.includes(speaker.entity_id);
-            html += `
-                <div class="tree-speaker">
-                    <input type="checkbox" ${speakerChecked ? 'checked' : ''}
-                           onchange="toggleGroupSpeaker('${speaker.entity_id}', this.checked)">
-                    <span>${escapeHtml(speaker.name)}</span>
-                </div>
-            `;
-        }
-
-        html += `</div></div>`;
-    }
-
-    container.innerHTML = html || '<p style="color: var(--text-muted); padding: 0.5rem;">No speakers available</p>';
-}
-
-function toggleGroupFloor(floorId, checked) {
-    if (checked) {
-        if (!selectedGroupSpeakers.floors.includes(floorId)) {
-            selectedGroupSpeakers.floors.push(floorId);
-        }
-    } else {
-        selectedGroupSpeakers.floors = selectedGroupSpeakers.floors.filter(f => f !== floorId);
-    }
-    updateGroupSpeakerDropdownText();
-}
-
-function toggleGroupArea(areaId, checked) {
-    if (checked) {
-        if (!selectedGroupSpeakers.areas.includes(areaId)) {
-            selectedGroupSpeakers.areas.push(areaId);
-        }
-    } else {
-        selectedGroupSpeakers.areas = selectedGroupSpeakers.areas.filter(a => a !== areaId);
-    }
-    updateGroupSpeakerDropdownText();
-}
-
-function toggleGroupSpeaker(entityId, checked) {
-    if (checked) {
-        if (!selectedGroupSpeakers.speakers.includes(entityId)) {
-            selectedGroupSpeakers.speakers.push(entityId);
-        }
-    } else {
-        selectedGroupSpeakers.speakers = selectedGroupSpeakers.speakers.filter(s => s !== entityId);
-    }
-    updateGroupSpeakerDropdownText();
-}
-
-// Close group dropdown when clicking outside
-document.addEventListener('click', function(event) {
-    const dropdown = document.getElementById('group-speaker-dropdown');
-    if (dropdown && !dropdown.contains(event.target)) {
-        dropdown.classList.remove('open');
-    }
-});
 
 // ============================================
 // End Speaker Groups Management
@@ -5684,37 +5897,37 @@ async function loadPlugins() {
 // Track active plugins tab
 let activePluginsTab = 'installed';
 let pluginCatalog = null;
+let pluginCatalogState = 'idle';   // idle | loading | error | ready
+let pluginInstalling = null;       // catalog plugin being installed
+let pluginUploading = false;
+const pluginVals = {};             // typed form values: { pluginId: { field: value } }
+const pluginOpen = {};             // form shown (default: shown when the plugin has one)
 
 function renderPluginsView() {
     const container = document.getElementById('plugins-list');
     if (!container) return;
+    spSetTitle('settings-plugins', 'Plugins', plugins.length);
+    const browse = activePluginsTab === 'browse';
+    document.getElementById('plg-tab-installed').setAttribute('aria-pressed', String(!browse));
+    document.getElementById('plg-tab-browse').setAttribute('aria-pressed', String(browse));
+    document.getElementById('plg-count').textContent = plugins.length;
 
-    // Tabs for Installed vs Browse
-    let html = `
-        <div class="plugins-tabs">
-            <button class="plugins-tab ${activePluginsTab === 'installed' ? 'active' : ''}"
-                    onclick="switchPluginsTab('installed')">
-                Installed (${plugins.length})
-            </button>
-            <button class="plugins-tab ${activePluginsTab === 'browse' ? 'active' : ''}"
-                    onclick="switchPluginsTab('browse')">
-                Browse Catalog
-            </button>
-        </div>
-    `;
-
-    if (activePluginsTab === 'browse') {
-        html += renderPluginsCatalog();
+    const catalogPlugins = pluginCatalog?.plugins || [];
+    const head = document.getElementById('plg-lhead');
+    if (!browse && plugins.length) {
+        head.innerHTML = '<div class="sp-lhead spp-igrid"><span></span><span>Name</span><span>Version</span><span>Description</span><span>Author</span><span class="c">On</span><span></span></div>';
+    } else if (browse && pluginCatalogState === 'ready' && catalogPlugins.length) {
+        head.innerHTML = '<div class="sp-lhead spp-cgrid"><span>Name</span><span>Version</span><span>Category</span><span>Description</span><span>Author</span><span></span></div>';
     } else {
-        html += renderInstalledPlugins();
+        head.innerHTML = '';
     }
 
-    container.innerHTML = html;
-
-    // Load catalog if on browse tab and not loaded
-    if (activePluginsTab === 'browse' && !pluginCatalog) {
+    if (browse && !pluginCatalog && pluginCatalogState === 'idle') {
         loadPluginCatalog();
+        return;
     }
+    container.innerHTML = browse ? renderPluginsCatalog() : renderInstalledPlugins();
+    spUpdateMarquees(container);
 }
 
 function switchPluginsTab(tab) {
@@ -5723,318 +5936,204 @@ function switchPluginsTab(tab) {
 }
 
 async function loadPluginCatalog() {
-    const catalogContainer = document.getElementById('plugin-catalog-content');
-    if (!catalogContainer) return;
-
-    catalogContainer.innerHTML = '<div class="loading-spinner">Loading catalog...</div>';
-
+    pluginCatalogState = 'loading';
+    renderPluginsView();
     try {
-        const response = await api('GET', '/plugins/catalog');
-        pluginCatalog = response;
-        renderPluginsView();
+        pluginCatalog = await api('GET', '/plugins/catalog');
+        pluginCatalogState = 'ready';
     } catch (error) {
-        catalogContainer.innerHTML = `
-            <div class="error-state" style="padding: 2rem; text-align: center;">
-                <p style="color: var(--error);">Failed to load catalog: ${escapeHtml(error.message)}</p>
-                <button class="btn btn-secondary" onclick="loadPluginCatalog()" style="margin-top: 1rem;">
-                    Retry
-                </button>
-            </div>
-        `;
+        pluginCatalogState = 'error';
     }
+    renderPluginsView();
 }
 
 function renderPluginsCatalog() {
-    if (!pluginCatalog) {
-        return `
-            <div id="plugin-catalog-content">
-                <div class="loading-spinner">Loading catalog...</div>
-            </div>
-        `;
+    if (pluginCatalogState === 'loading' || (!pluginCatalog && pluginCatalogState !== 'error')) {
+        return '<div class="spp-cat-state"><span class="spp-spin"></span>Loading catalog…</div>';
     }
-
+    if (pluginCatalogState === 'error') {
+        return `<div class="spp-cat-state"><span>Couldn’t load the catalog</span>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="loadPluginCatalog()">Retry</button></div>`;
+    }
     const catalogPlugins = pluginCatalog.plugins || [];
-    if (catalogPlugins.length === 0) {
+    if (!catalogPlugins.length) return '<div class="sp-empty"><strong>No plugins available</strong></div>';
+    return `<div class="sp-lbody">${catalogPlugins.map(plugin => {
+        const installed = !!plugin.installed;
+        const update = installed && !!plugin.update_available;
+        const busy = pluginInstalling === plugin.id;
+        const name = escapeHtml(plugin.name);
+        const description = escapeHtml(plugin.description || '');
+        const author = escapeHtml(plugin.author || '');
+        const label = busy ? 'Installing…' : update ? 'Update' : installed ? 'Installed' : 'Install';
         return `
-            <div class="empty-state" style="padding: 2rem;">
-                <h3>No Plugins Available</h3>
-                <p style="color: var(--text-muted);">The plugin catalog is empty.</p>
-            </div>
-        `;
-    }
-
-    let html = `
-        <div id="plugin-catalog-content">
-            <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
-                Available plugins from the Sonorium catalog. Click Install to add a plugin.
-            </p>
-    `;
-
-    for (const plugin of catalogPlugins) {
-        const isInstalled = plugin.installed;
-        const hasUpdate = plugin.update_available;
-
-        html += `
-            <div class="plugin-card catalog-plugin ${isInstalled ? 'installed' : ''}">
-                <div class="plugin-header">
-                    <div class="plugin-info">
-                        <h4>${escapeHtml(plugin.name)}</h4>
-                        <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
-                        ${plugin.category ? `<span class="plugin-category">${escapeHtml(plugin.category)}</span>` : ''}
-                        ${isInstalled ? `<span class="plugin-status enabled">Installed${hasUpdate ? ' (Update Available)' : ''}</span>` : ''}
-                    </div>
-                    <div class="plugin-actions">
-                        ${isInstalled && hasUpdate ? `
-                            <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
-                                Update
-                            </button>
-                        ` : isInstalled ? `
-                            <button class="btn btn-sm btn-secondary" disabled>
-                                Installed
-                            </button>
-                        ` : `
-                            <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
-                                Install
-                            </button>
-                        `}
-                    </div>
+            <div class="spp-row">
+                <div class="sp-lrow spp-cgrid">
+                    <div class="spp-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span></div>
+                    <span class="spp-ver">v${escapeHtml(plugin.version)}${update ? `<span class="badge sp-badge-upd"${plugin.installed_version ? ` title="Installed: v${escapeHtml(plugin.installed_version)}"` : ''}>Update</span>` : ''}</span>
+                    <span class="spp-cat">${plugin.category ? `<span class="badge badge-type">${escapeHtml(plugin.category)}</span>` : ''}</span>
+                    <span class="spp-desc" title="${description}">${description}</span>
+                    <span class="spp-auth" title="${author}">${author}</span>
+                    <button type="button" class="btn btn-sm spp-act ${installed && !update ? 'btn-secondary' : 'btn-primary'}" ${busy || (installed && !update) ? 'disabled' : ''}
+                            onclick="installFromCatalog(${spArg(plugin.id)})">${label}</button>
                 </div>
-                ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
-                ${plugin.author ? `<p class="plugin-author">by ${escapeHtml(plugin.author)}</p>` : ''}
-            </div>
-        `;
-    }
-
-    html += '</div>';
-    return html;
+            </div>`;
+    }).join('')}</div>`;
 }
 
 async function installFromCatalog(pluginId) {
-    const btn = event.target;
-    const originalText = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Installing...';
-
+    pluginInstalling = pluginId;
+    renderPluginsView();
     try {
         const result = await api('POST', '/plugins/install-from-catalog', { plugin_id: pluginId });
         showToast(`${result.name || pluginId} installed successfully`, 'success');
-
-        // Refresh plugins list and catalog
         await loadPlugins();
-        pluginCatalog = null;  // Force refresh
+        pluginInstalling = null;
+        pluginCatalog = null;
         await loadPluginCatalog();
     } catch (error) {
         showToast(`Failed to install: ${error.message}`, 'error');
-        btn.disabled = false;
-        btn.textContent = originalText;
+        pluginInstalling = null;
+        renderPluginsView();
     }
+}
+
+function pluginHasForm(plugin) {
+    return !!(plugin.ui_schema && plugin.ui_schema.fields && plugin.ui_schema.fields.length);
 }
 
 function renderInstalledPlugins() {
-    // Upload section
-    let html = `
-        <div class="plugin-upload-section">
-            <h4>Install Plugin</h4>
-            <p style="color: var(--text-muted); margin-bottom: 0.5rem; font-size: 0.9rem;">
-                Upload a plugin ZIP file containing <code>plugin.py</code> with required class attributes.
-            </p>
-            <details style="margin-bottom: 1rem; font-size: 0.85rem; color: var(--text-muted);">
-                <summary style="cursor: pointer; color: var(--accent-primary);">Plugin Requirements</summary>
-                <div style="margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px;">
-                    <p style="margin: 0 0 0.5rem 0;"><strong>Required in plugin.py:</strong></p>
-                    <pre style="margin: 0; font-size: 0.8rem; overflow-x: auto;">class MyPlugin(BasePlugin):
-    id = "my_plugin"           # Unique identifier
-    name = "My Plugin"         # Display name
-    version = "1.0.0"          # Semantic version (MAJOR.MINOR.PATCH)
-    description = "..."        # Brief description
-    author = "Your Name"       # Plugin author</pre>
-                    <p style="margin: 0.75rem 0 0 0; font-size: 0.8rem;">
-                        Optional: Include <code>manifest.json</code> for additional metadata.
-                    </p>
-                </div>
-            </details>
-            <div class="upload-controls">
-                <input type="file" id="plugin-file-input" accept=".zip" style="display: none;"
-                       onchange="handlePluginFileSelect(event)">
-                <button class="btn btn-primary" onclick="document.getElementById('plugin-file-input').click()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; margin-right: 0.5rem;">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="17 8 12 3 7 8"/>
-                        <line x1="12" y1="3" x2="12" y2="15"/>
-                    </svg>
-                    Upload Plugin
-                </button>
-                <span id="plugin-upload-status" style="margin-left: 1rem; color: var(--text-muted);"></span>
-            </div>
-        </div>
-    `;
-
     if (plugins.length === 0) {
-        html += `
-            <div class="empty-state" style="padding: 2rem;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 48px; height: 48px; margin-bottom: 1rem; opacity: 0.5;">
-                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                    <path d="M2 17l10 5 10-5"/>
-                    <path d="M2 12l10 5 10-5"/>
-                </svg>
-                <h3>No Plugins Installed</h3>
-                <p style="color: var(--text-muted);">Upload a plugin or check the Browse Catalog tab</p>
-            </div>
-        `;
-        return html;
+        return `<div class="sp-empty">${SP_ICON_PLUGINS}<strong>No plugins installed</strong>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="switchPluginsTab('browse')">Browse catalog</button></div>`;
     }
-
-    html += '<h4 style="margin-top: 1.5rem; margin-bottom: 1rem;">Installed Plugins</h4>';
-
-    for (const plugin of plugins) {
-        const statusClass = plugin.enabled ? 'enabled' : 'disabled';
-        const statusText = plugin.enabled ? 'Enabled' : 'Disabled';
-        const toggleText = plugin.enabled ? 'Disable' : 'Enable';
-        const isBuiltin = plugin.builtin || false;
-
-        html += `
-            <div class="plugin-card ${statusClass}">
-                <div class="plugin-header">
-                    <div class="plugin-info">
-                        <h4>${escapeHtml(plugin.name)}</h4>
-                        <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
-                        <span class="plugin-status ${statusClass}">${statusText}</span>
-                        ${isBuiltin ? '<span class="plugin-builtin">Built-in</span>' : ''}
-                    </div>
-                    <div class="plugin-actions">
-                        <button class="btn btn-sm ${plugin.enabled ? 'btn-secondary' : 'btn-primary'}"
-                                onclick="togglePlugin('${plugin.id}', ${!plugin.enabled})">
-                            ${toggleText}
-                        </button>
-                        ${!isBuiltin ? `
-                        <button class="btn btn-sm btn-danger"
-                                onclick="uninstallPlugin('${plugin.id}', '${escapeHtml(plugin.name)}')"
-                                title="Uninstall plugin">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
-                                <polyline points="3 6 5 6 21 6"/>
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            </svg>
-                        </button>
-                        ` : ''}
-                    </div>
+    return `<div class="sp-lbody">${plugins.map(plugin => {
+        const hasForm = pluginHasForm(plugin);
+        const canOpen = hasForm && plugin.enabled;
+        const open = canOpen && pluginOpen[plugin.id] !== false;
+        const name = escapeHtml(plugin.name);
+        const description = escapeHtml(plugin.description || '');
+        const author = escapeHtml(plugin.author || '');
+        const chevTitle = !hasForm ? 'No options' : !plugin.enabled ? 'Enable to use' : '';
+        return `
+            <div class="spp-row${plugin.enabled ? '' : ' off'}">
+                <div class="sp-lrow spp-igrid">
+                    <button type="button" class="chev-btn spp-chev${open ? ' open' : ''}" ${canOpen ? '' : 'disabled'} aria-expanded="${open}"
+                            aria-label="${open ? 'Hide' : 'Show'} ${name}"${chevTitle ? ` title="${chevTitle}"` : ''} onclick="togglePluginForm(${spArg(plugin.id)})">${SP_ICON_CHEV}</button>
+                    <div class="spp-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span></div>
+                    <span class="spp-ver">v${escapeHtml(plugin.version)}${plugin.builtin ? '<span class="badge sp-badge-bi">Built-in</span>' : ''}</span>
+                    <span class="spp-desc" title="${description}">${description}</span>
+                    <span class="spp-auth" title="${author}">${author}</span>
+                    <label class="toggle-switch c spp-tog" title="${plugin.enabled ? 'Enabled' : 'Disabled'}">
+                        <input type="checkbox" aria-label="Enabled: ${name}" ${plugin.enabled ? 'checked' : ''} onchange="togglePlugin(${spArg(plugin.id)}, this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <button type="button" class="icon-btn sm spp-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openPluginMenu(this, ${spArg(plugin.id)})">${SP_ICON_MORE}</button>
                 </div>
-                ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
-                ${plugin.author ? `<p class="plugin-author">by ${escapeHtml(plugin.author)}</p>` : ''}
-                ${plugin.enabled && plugin.ui_schema && plugin.ui_schema.fields ? renderPluginUI(plugin) : ''}
-            </div>
-        `;
-    }
+                ${open ? renderPluginUI(plugin) : ''}
+            </div>`;
+    }).join('')}</div>`;
+}
 
-    return html;
+function togglePluginForm(pluginId) {
+    const plugin = plugins.find(p => p.id === pluginId);
+    if (!plugin) return;
+    const open = pluginOpen[pluginId] !== false;
+    pluginOpen[pluginId] = !open;
+    renderPluginsView();
+}
+
+// A field's value: what was typed, else its default (first option of a select)
+function pluginFieldValue(pluginId, field) {
+    const typed = (pluginVals[pluginId] || {})[field.name];
+    if (typed !== undefined) return typed;
+    if (field.type === 'select') return (field.options || [])[0]?.value ?? '';
+    if (field.type === 'boolean') return false;
+    return field.default ?? '';
+}
+
+function pluginFieldShown(plugin, field) {
+    const cond = field.condition;
+    if (!cond || !cond.field) return true;
+    const source = plugin.ui_schema.fields.find(f => f.name === cond.field);
+    const value = source ? pluginFieldValue(plugin.id, source) : '';
+    return String(value ?? '') === String(cond.value ?? '');
 }
 
 function renderPluginUI(plugin) {
-    if (!plugin.ui_schema || !plugin.ui_schema.fields) return '';
-
-    let fieldsHtml = '';
-    for (const field of plugin.ui_schema.fields) {
-        fieldsHtml += renderPluginField(plugin.id, field);
-    }
-
-    let actionsHtml = '';
-    if (plugin.ui_schema.actions) {
-        for (const action of plugin.ui_schema.actions) {
-            const btnClass = action.primary ? 'btn-primary' : 'btn-secondary';
-            actionsHtml += `
-                <button class="btn btn-sm ${btnClass}"
-                        onclick="executePluginAction('${plugin.id}', '${action.id}')">
-                    ${escapeHtml(action.label)}
-                </button>
-            `;
-        }
-    }
-
+    if (!pluginHasForm(plugin)) return '';
+    const fields = plugin.ui_schema.fields.map(field => renderPluginField(plugin, field)).join('');
+    const actions = (plugin.ui_schema.actions || []).slice()
+        .sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0))
+        .map(action => `<button type="button" class="btn btn-sm ${action.primary ? 'btn-primary' : 'btn-secondary'}"
+                onclick="executePluginAction(${spArg(plugin.id)}, ${spArg(action.id)})">${escapeHtml(action.label)}</button>`).join('');
     return `
-        <div class="plugin-ui">
-            <div class="plugin-fields">${fieldsHtml}</div>
-            ${actionsHtml ? `<div class="plugin-actions-row">${actionsHtml}</div>` : ''}
-        </div>
-    `;
+        <div class="spp-form">
+            <div class="spp-fields">${fields}</div>
+            ${actions ? `<div class="spp-acts">${actions}</div>` : ''}
+        </div>`;
 }
 
-function renderPluginField(pluginId, field) {
+function renderPluginField(plugin, field) {
+    const pluginId = plugin.id;
     const id = `plugin-${pluginId}-${field.name}`;
     const required = field.required ? 'required' : '';
-    const placeholder = field.placeholder || '';
-
+    const help = field.help ? ` title="${escapeHtml(field.help)}"` : '';
+    const value = pluginFieldValue(pluginId, field);
+    const data = `data-plugin="${escapeHtml(pluginId)}" data-field="${escapeHtml(field.name)}" oninput="onPluginField(this)" onchange="onPluginField(this)"`;
+    const cond = field.condition && field.condition.field
+        ? ` data-cond-plugin="${escapeHtml(pluginId)}" data-cond-field="${escapeHtml(field.condition.field)}" data-cond-value="${escapeHtml(String(field.condition.value ?? ''))}"`
+        : '';
+    const hidden = pluginFieldShown(plugin, field) ? '' : ' hidden';
+    const label = `<label class="sp-fld-label" for="${id}"${help}>${escapeHtml(field.label)}</label>`;
     switch (field.type) {
         case 'url':
         case 'string':
-            return `
-                <div class="plugin-field">
-                    <label for="${id}">${escapeHtml(field.label)}</label>
-                    <input type="${field.type === 'url' ? 'url' : 'text'}"
-                           id="${id}"
-                           data-plugin="${pluginId}"
-                           data-field="${field.name}"
-                           placeholder="${escapeHtml(placeholder)}"
-                           ${required}>
-                </div>
-            `;
         case 'number':
-            return `
-                <div class="plugin-field">
-                    <label for="${id}">${escapeHtml(field.label)}</label>
-                    <input type="number"
-                           id="${id}"
-                           data-plugin="${pluginId}"
-                           data-field="${field.name}"
-                           placeholder="${escapeHtml(placeholder)}"
-                           ${required}>
-                </div>
-            `;
+            return `<div class="sp-fld spp-f-${field.type === 'url' ? 'url' : field.type === 'number' ? 'num' : 'str'}"${cond}${hidden}>${label}
+                <input class="sp-inp" type="${field.type === 'url' ? 'url' : field.type === 'number' ? 'number' : 'text'}" id="${id}" ${data}
+                       placeholder="${escapeHtml(field.placeholder || '')}" value="${escapeHtml(String(value ?? ''))}"${help} ${required}></div>`;
         case 'boolean':
-            return `
-                <div class="plugin-field checkbox">
-                    <label>
-                        <input type="checkbox"
-                               id="${id}"
-                               data-plugin="${pluginId}"
-                               data-field="${field.name}">
-                        ${escapeHtml(field.label)}
-                    </label>
-                </div>
-            `;
+            return `<label class="spp-f-bool"${help}${cond}${hidden}><input type="checkbox" id="${id}" ${data} ${value ? 'checked' : ''}>${escapeHtml(field.label)}</label>`;
         case 'select':
-            let options = '';
-            for (const opt of (field.options || [])) {
-                options += `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`;
-            }
-            return `
-                <div class="plugin-field">
-                    <label for="${id}">${escapeHtml(field.label)}</label>
-                    <select id="${id}" data-plugin="${pluginId}" data-field="${field.name}" ${required}>
-                        ${options}
-                    </select>
-                </div>
-            `;
+            return `<div class="sp-fld spp-f-sel"${cond}${hidden}>${label}
+                <select class="sp-inp" id="${id}" ${data}${help} ${required}>
+                    ${(field.options || []).map(opt => `<option value="${escapeHtml(String(opt.value))}" ${String(opt.value) === String(value) ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}
+                </select></div>`;
         default:
             return '';
     }
+}
+
+// Remember what was typed; show or hide the fields that depend on this one
+function onPluginField(el) {
+    const pluginId = el.dataset.plugin;
+    const name = el.dataset.field;
+    const value = el.type === 'checkbox' ? el.checked : el.value;
+    pluginVals[pluginId] = { ...(pluginVals[pluginId] || {}), [name]: value };
+    document.querySelectorAll('#plugins-list [data-cond-plugin]').forEach(wrap => {
+        if (wrap.dataset.condPlugin !== pluginId || wrap.dataset.condField !== name) return;
+        wrap.hidden = String(value) !== wrap.dataset.condValue;
+    });
 }
 
 async function togglePlugin(pluginId, enable) {
     try {
         const endpoint = enable ? `/plugins/${pluginId}/enable` : `/plugins/${pluginId}/disable`;
         await api('PUT', endpoint);
+        if (enable) pluginOpen[pluginId] = true;
         showToast(`Plugin ${enable ? 'enabled' : 'disabled'}`, 'success');
         await loadPlugins();
-        renderPluginsView();
     } catch (error) {
         showToast(error.message || 'Failed to toggle plugin', 'error');
     }
+    renderPluginsView();
 }
 
 async function executePluginAction(pluginId, actionId) {
     try {
         // Gather form data for this plugin
         const data = {};
-        const fields = document.querySelectorAll(`[data-plugin="${pluginId}"]`);
+        const fields = document.querySelectorAll(`#plugins-list [data-plugin="${CSS.escape(pluginId)}"]`);
         for (const field of fields) {
             const fieldName = field.dataset.field;
             if (field.type === 'checkbox') {
@@ -6061,9 +6160,49 @@ async function executePluginAction(pluginId, actionId) {
             themes = result.themes;
             renderThemesBrowser();
         }
+        // Refresh the plugin's options (e.g. a theme list) and keep what was typed
+        await loadPlugins();
+        if (currentView === 'settings-plugins') renderPluginsView();
     } catch (error) {
         showToast(error.message || 'Failed to execute action', 'error');
     }
+}
+
+function openPluginMenu(button, pluginId) {
+    const plugin = plugins.find(p => p.id === pluginId);
+    if (!plugin) return;
+    spMenu(`plg:${pluginId}`, button, `<button type="button" class="mi danger" role="menuitem" ${plugin.builtin ? 'disabled' : ''} onclick="askUninstallPlugin(${spArg(pluginId)})">${SP_ICON_TRASH}Uninstall…${plugin.builtin ? '<span class="mi-note">Built-in</span>' : ''}</button>`);
+}
+
+function askUninstallPlugin(pluginId) {
+    const plugin = plugins.find(p => p.id === pluginId);
+    const name = plugin ? plugin.name : pluginId;
+    spConfirm(`plg-del:${pluginId}`, spMenuAnchor(), { title: `Uninstall “${name}”?`, sub: 'Removes the plugin files.', ok: 'Uninstall', danger: true },
+        () => uninstallPlugin(pluginId, name));
+}
+
+function openPluginsPageMenu(button) {
+    spMenu('plg-page', button, `<button type="button" class="mi" role="menuitem" onclick="openPluginRequirements()">${SP_ICON_DOC}Plugin requirements…</button>`);
+}
+
+function openPluginRequirements() {
+    spClosePop();
+    document.getElementById('plugin-req-modal').classList.add('active');
+}
+
+function closePluginRequirements() {
+    document.getElementById('plugin-req-modal').classList.remove('active');
+}
+
+function choosePluginFile() {
+    document.getElementById('plugin-file-input').click();
+}
+
+function renderPluginUploadState() {
+    const status = document.getElementById('plg-up-status');
+    const button = document.getElementById('plg-upload-btn');
+    if (status) status.hidden = !pluginUploading;
+    if (button) button.disabled = pluginUploading;
 }
 
 function handlePluginFileSelect(event) {
@@ -6080,8 +6219,8 @@ function handlePluginFileSelect(event) {
 }
 
 async function uploadPlugin(file) {
-    const statusEl = document.getElementById('plugin-upload-status');
-    if (statusEl) statusEl.textContent = 'Uploading...';
+    pluginUploading = true;
+    renderPluginUploadState();
 
     try {
         const formData = new FormData();
@@ -6100,16 +6239,17 @@ async function uploadPlugin(file) {
 
         const pluginName = result.plugin?.name || 'Unknown';
         showToast(`Plugin "${pluginName}" installed successfully!`, 'success');
-        if (statusEl) statusEl.textContent = '';
 
-        // Reload plugins list
         await loadPlugins();
-        renderPluginsView();
-
+        pluginCatalog = null;
+        pluginCatalogState = 'idle';
+        activePluginsTab = 'installed';
     } catch (error) {
         showToast(error.message || 'Failed to upload plugin', 'error');
-        if (statusEl) statusEl.textContent = 'Upload failed';
     }
+    pluginUploading = false;
+    renderPluginUploadState();
+    renderPluginsView();
 
     // Clear the file input
     const fileInput = document.getElementById('plugin-file-input');
@@ -6117,19 +6257,15 @@ async function uploadPlugin(file) {
 }
 
 async function uninstallPlugin(pluginId, pluginName) {
-    if (!confirm(`Are you sure you want to uninstall "${pluginName}"?\n\nThis will remove the plugin files permanently.`)) {
-        return;
-    }
-
     try {
         await api('DELETE', `/plugins/${pluginId}`);
         showToast(`Plugin "${pluginName}" uninstalled successfully`, 'success');
 
         // Reload plugins list and clear catalog cache so it refreshes
         await loadPlugins();
-        pluginCatalog = null;  // Force catalog to re-fetch and update installed status
+        pluginCatalog = null;
+        pluginCatalogState = 'idle';
         renderPluginsView();
-
     } catch (error) {
         showToast(error.message || 'Failed to uninstall plugin', 'error');
     }
@@ -6138,6 +6274,185 @@ async function uninstallPlugin(pluginId, pluginName) {
 // ============================================
 // End Plugin Management
 // ============================================
+
+// ============================================
+// Settings pages: shared bits (Connection, Audio, Speakers, Speaker Groups,
+// Plugins, Advanced, Status). One floating menu / "Are you sure?" popover
+// (#sp-menu, the Theme Editor's .te-pop look), title badges, marquees.
+// ============================================
+
+// Pages with the fixed title bar, scrolling list and bottom action row
+const SP_VIEWS = ['settings-connection', 'settings-audio', 'settings-speakers', 'settings-groups', 'settings-plugins', 'settings-advanced', 'status'];
+// Pages whose title row lines up with the settings column (Logs keeps the full width)
+const SP_COL_VIEWS = SP_VIEWS.concat(['settings-spaces']);
+const SP_PHONE = window.matchMedia('(max-width: 760px)');
+
+const SP_ICON_MORE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+const SP_ICON_TRASH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+const SP_ICON_INFO = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+const SP_ICON_CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
+const SP_ICON_PLUS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+const SP_ICON_RESET = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
+const SP_ICON_REFRESH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+const SP_ICON_PENCIL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+const SP_ICON_UPLOAD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+const SP_ICON_DOC = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+const SP_ICON_SPIN = '<svg class="sp-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>';
+const SP_ICON_WARN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+const SP_ICON_FLOOR = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+const SP_ICON_AREA = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>';
+const SP_ICON_SPK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="2"/><circle cx="12" cy="14" r="4"/></svg>';
+const SP_ICON_EX = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+const SP_ICON_PLUGINS = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>';
+const SP_ICON_SEARCH_LG = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+
+// A value for an inline onclick="f(...)" argument (HTML-escaped JS string)
+function spArg(value) {
+    return escapeHtml(JSON.stringify(String(value)));
+}
+
+function spPlural(n, word) {
+    return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+// Title with an optional count/label badge (only while that page is shown)
+function spSetTitle(viewName, title, badge, badgeTitle) {
+    if (currentView !== viewName) return;
+    const hasBadge = badge !== undefined && badge !== null && badge !== '';
+    document.getElementById('view-title').innerHTML = `<span class="ttl">${escapeHtml(title)}</span>`
+        + (hasBadge ? `<span class="badge badge-type"${badgeTitle ? ` title="${escapeHtml(badgeTitle)}"` : ''}>${escapeHtml(String(badge))}</span>` : '');
+}
+
+// Names that don't fit scroll slowly (same as the Theme Editor and Themes page)
+function spUpdateMarquees(root) {
+    if (!root) return;
+    requestAnimationFrame(() => {
+        root.querySelectorAll('.trk-name').forEach(el => {
+            const inner = el.firstElementChild;
+            el.classList.toggle('mq', !!inner && inner.scrollWidth > el.clientWidth + 1);
+        });
+    });
+}
+
+// ---------- Floating menu / confirm ----------
+const spm = { id: null, btn: null, onOk: null };
+
+function spPlacePop(pop, button) {
+    const r = button.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    pop.style.left = '0px';
+    pop.style.top = '0px';
+    pop.style.maxHeight = '';
+    const w = pop.offsetWidth;
+    let h = pop.offsetHeight;
+    const left = Math.max(8, Math.min(r.right - w, vw - w - 8));
+    const below = vh - r.bottom - 8;
+    const above = r.top - 8;
+    const up = h > below && above > below;
+    const room = (up ? above : below) - 4;
+    if (h > room) { pop.style.maxHeight = room + 'px'; h = room; }
+    pop.style.left = left + 'px';
+    pop.style.top = Math.max(8, up ? r.top - 4 - h : r.bottom + 4) + 'px';
+}
+
+function spOpenPop(id, button, cls, html, role) {
+    if (spm.id === id) { spClosePop(); return null; }
+    spClosePop();
+    if (!button || !button.isConnected) return null;
+    const pop = document.getElementById('sp-menu');
+    pop.className = `te-pop ${cls}`;
+    pop.setAttribute('role', role);
+    pop.innerHTML = html;
+    pop.hidden = false;
+    spm.id = id;
+    spm.btn = button;
+    button.setAttribute('aria-expanded', 'true');
+    spPlacePop(pop, button);
+    return pop;
+}
+
+function spClosePop() {
+    const pop = document.getElementById('sp-menu');
+    if (pop && !pop.hidden) {
+        pop.hidden = true;
+        pop.innerHTML = '';
+    }
+    if (spm.btn) spm.btn.removeAttribute('aria-expanded');
+    spm.id = null;
+    spm.btn = null;
+    spm.onOk = null;
+}
+
+function spMenu(id, button, html) {
+    const pop = spOpenPop(id, button, 'menu sp-menu', html, 'menu');
+    pop?.querySelector('button:not([disabled])')?.focus();
+}
+
+// Small "Are you sure?" popover next to the button that asked
+function spConfirm(id, button, { title, sub = '', ok, danger = false }, onOk) {
+    const pop = spOpenPop(id, button, 'sp-confirm', `
+        <span class="pop-title">${escapeHtml(title)}</span>
+        ${sub ? `<span class="pop-sub">${escapeHtml(sub)}</span>` : ''}
+        <div class="pop-acts">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="spClosePop()">Cancel</button>
+            <button type="button" class="btn btn-sm ${danger ? 'btn-danger' : 'btn-primary'}" onclick="spConfirmOk()">${escapeHtml(ok)}</button>
+        </div>`, 'alertdialog');
+    if (!pop) return;
+    spm.onOk = onOk;
+    pop.querySelector('.pop-acts .btn:last-child').focus();
+}
+
+function spConfirmOk() {
+    const onOk = spm.onOk;
+    spClosePop();
+    if (onOk) onOk();
+}
+
+// The button a menu was opened from (a confirm asked from the menu sits there too)
+function spMenuAnchor() {
+    return spm.btn;
+}
+
+document.addEventListener('mousedown', event => {
+    if (!spm.id) return;
+    const pop = document.getElementById('sp-menu');
+    if (pop.contains(event.target) || spm.btn?.contains(event.target)) return;
+    spClosePop();
+}, true);
+
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    if (spm.id) {
+        const button = spm.btn;
+        spClosePop();
+        button?.focus();
+    } else if (document.getElementById('group-modal')?.classList.contains('active')) {
+        closeGroupModal();
+    } else if (document.getElementById('plugin-req-modal')?.classList.contains('active')) {
+        closePluginRequirements();
+    }
+});
+
+window.addEventListener('resize', () => spClosePop());
+document.addEventListener('scroll', event => {
+    if (spm.id && !document.getElementById('sp-menu').contains(event.target)) spClosePop();
+}, true);
+
+// After a restart: wait until Sonorium answers again, then reload the page
+async function spWaitForRestart() {
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    for (let i = 0; i < 30; i++) {
+        try {
+            await api('GET', '/install');
+            window.location.reload();
+            return;
+        } catch (error) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+    }
+    showToast('Sonorium is taking a while to restart. Refresh the page in a moment.', 'error');
+}
 
 // Utility
 function escapeHtml(text) {

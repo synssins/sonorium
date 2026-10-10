@@ -111,6 +111,8 @@ class ApiSonorium(api.Base):
             # Standalone connection settings (404 in the HA add-on)
             api.Endpoint(method_http=self.app.get, path='/api/connection', method=self.get_connection),
             api.Endpoint(method_http=self.app.put, path='/api/connection', method=self.put_connection),
+            api.Endpoint(method_http=self.app.delete, path='/api/connection/ha', method=self.delete_connection_ha),
+            api.Endpoint(method_http=self.app.delete, path='/api/connection/mqtt', method=self.delete_connection_mqtt),
             api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
             api.Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
             api.Endpoint(method_http=self.app.get, path='/display.png', method=self.serve_display_image),
@@ -581,6 +583,86 @@ class ApiSonorium(api.Base):
         logger.info("Connection settings saved; restarting Sonorium to apply them")
         self._restart_soon()
         return {"status": "ok", "restarting": True}
+
+    async def delete_connection_ha(self):
+        """
+        Remove the Home Assistant connection without a restart. Its floors,
+        areas and speakers leave every list at once; Sonorium's own floors and
+        areas and the network speakers stay (one merged into an HA speaker is
+        listed on its own again). Channels keep playing on their remaining
+        speakers. Speaker settings and groups are kept as they are.
+        """
+        if not runtime.features()["connection_settings"]["available"]:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
+        runtime.clear_connection(runtime.HA_FIELDS)
+        runtime.clear_ha_env()
+
+        targets = {}
+        if self._ha_registry is not None:
+            targets = self._ha_registry.remove_home_assistant()
+        self._carry_over_enabled(targets)
+
+        # No Home Assistant to send commands to: HA entity IDs fail quietly
+        # in the router, and saved selections no longer resolve to them
+        controller = getattr(self._media_controller, "controller", None)
+        if controller is not None and hasattr(controller, "ha_controller"):
+            controller.ha_controller = None
+        device = getattr(self.client, "device", None)
+        if device is not None and hasattr(device, "media_player_states"):
+            from sonorium.utils import IndexList
+            device.media_player_states = IndexList()
+
+        logger.info("Home Assistant connection removed")
+        return {"status": "ok", "connection": await self.get_connection()}
+
+    def _carry_over_enabled(self, targets: dict):
+        """A network speaker that was merged into a switched-on HA speaker is switched on too."""
+        if not targets or self._state_store is None:
+            return
+        settings = self._state_store.settings
+        if not settings.enabled_speakers_exact:
+            return
+        changed = False
+        for ha_id, network_id in targets.items():
+            if ha_id in settings.enabled_speakers and network_id not in settings.enabled_speakers:
+                settings.enabled_speakers.append(network_id)
+                changed = True
+        if changed:
+            self._state_store.save()
+
+    async def delete_connection_mqtt(self):
+        """
+        Remove the MQTT connection without a restart: Sonorium's Home
+        Assistant entities are removed first (empty retained discovery
+        configs) while the broker is still connected, then MQTT disconnects.
+        """
+        if not runtime.features()["connection_settings"]["available"]:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
+        runtime.clear_connection(runtime.MQTT_FIELDS)
+        runtime.clear_mqtt_env()
+
+        mqtt_client = self.client.mqtt_client
+        if self._mqtt_manager is not None:
+            try:
+                if mqtt_client.is_connected:
+                    await self._mqtt_manager.remove_all_entities()
+            except Exception as e:
+                logger.warning(f"Could not remove Sonorium's MQTT entities: {e}")
+            self._mqtt_manager.stop_publishing()
+
+        restart_required = False
+        try:
+            await mqtt_client.close()
+        except Exception as e:
+            logger.warning(f"Could not disconnect MQTT cleanly; a restart finishes removing it: {e}")
+            restart_required = True
+
+        logger.info("MQTT connection removed")
+        return {
+            "status": "ok",
+            "connection": await self.get_connection(),
+            "restart_required": restart_required,
+        }
 
     def _restart_soon(self):
         """Restart Sonorium in place a moment after the current response is sent."""
