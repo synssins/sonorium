@@ -3333,13 +3333,28 @@ window.addEventListener('resize', () => {
     }, 150);
 });
 
+// A preview's volume moves to a new value over a quarter second instead of jumping
+// (a slider drag keeps restarting the ramp from wherever it has got to)
+function previewRampVolume(audio, target, ms = 250) {
+    if (!audio) return;
+    target = Math.max(0, Math.min(1, target));
+    cancelAnimationFrame(audio._volRamp || 0);
+    const from = audio.volume, t0 = performance.now();
+    const tick = now => {
+        const k = Math.min(1, (now - t0) / ms);
+        audio.volume = from + (target - from) * k;
+        if (k < 1) audio._volRamp = requestAnimationFrame(tick);
+    };
+    audio._volRamp = requestAnimationFrame(tick);
+}
+
 function teSliderInput(slider) {
     const cell = slider.closest('.mx');
     cell.querySelector('.track-slider-value').textContent = slider.value + '%';
     // The file being previewed follows its Volume slider as it moves
     const row = slider.closest('.trow');
     if (row && cell.dataset.kind === 'volume' && trackPreviewAudio && row.dataset.track === currentPreviewTrack) {
-        trackPreviewAudio.volume = Math.max(0, Math.min(1, (slider.value / 100) * parseFloat(slider.dataset.master || '1')));
+        previewRampVolume(trackPreviewAudio, (slider.value / 100) * parseFloat(slider.dataset.master || '1'));
     }
     const hint = cell.querySelector('.mx-hint');
     if (hint) hint.textContent = playsAtHint(slider.value / 100, parseFloat(slider.dataset.master || '1'));
@@ -4812,7 +4827,7 @@ function closeThemePreview() {
 
 function setThemePreviewVolume(value) {
     if (themePreviewAudio) {
-        themePreviewAudio.volume = value / 100;
+        previewRampVolume(themePreviewAudio, value / 100);
     }
     const volumeLabel = document.getElementById('preview-volume-value');
     if (volumeLabel) {

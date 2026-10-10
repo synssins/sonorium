@@ -2381,12 +2381,12 @@ class ApiSonorium(api.Base):
     # ==================== Preset API ====================
 
     def _get_current_group_settings(self, theme_id: str) -> dict:
-        """The theme's group master settings as a preset saves them ({group: {volume, presence, muted}})."""
-        from sonorium.recording import GROUP_TRACK_SETTINGS
+        """The theme's group settings as a preset saves them ({group: {volume, presence, muted, gap_min, gap_max}})."""
+        from sonorium.recording import GROUP_PRESET_SETTINGS
         theme, _ = self._get_theme_by_id(theme_id)
         groups = getattr(theme, "groups", None) or {} if theme else {}
         return {
-            name: {k: v for k, v in (settings or {}).items() if k in GROUP_TRACK_SETTINGS}
+            name: {k: v for k, v in (settings or {}).items() if k in GROUP_PRESET_SETTINGS}
             for name, settings in groups.items()
             if not (settings or {}).get("legacy_exclusive")
         }
@@ -2436,11 +2436,11 @@ class ApiSonorium(api.Base):
 
         # Group master settings from the preset
         if preset_groups:
-            from sonorium.recording import GROUP_TRACK_SETTINGS
+            from sonorium.recording import GROUP_PRESET_SETTINGS
             merged = dict(getattr(theme, "groups", None) or {})
             for name, values in preset_groups.items():
                 merged[name] = {**(merged.get(name) or {}),
-                                **{k: v for k, v in (values or {}).items() if k in GROUP_TRACK_SETTINGS}}
+                                **{k: v for k, v in (values or {}).items() if k in GROUP_PRESET_SETTINGS}}
             theme.groups = merged
 
         # Persist to metadata.json

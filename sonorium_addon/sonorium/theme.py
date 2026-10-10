@@ -194,13 +194,14 @@ class ThemeStream:
         self._context["label"] = value
 
     def _new_stream(self, track):
-        from sonorium.recording import group_gap_range
+        from sonorium.recording import preset_gap_range
 
         group = track.exclusion_group
         if group and group not in self.exclusion_coordinators:
-            # Read the group's gap each time (from the theme this stream plays
-            # now), so a change in the editor applies at once
-            gap = lambda g=group: group_gap_range((getattr(self.theme_def, "groups", None) or {}).get(g))
+            # Read the group's gap each time (the channel's preset, else the
+            # theme this stream plays now), so a preset, a sequence step or a
+            # change in the editor applies from the next wait
+            gap = lambda g=group: preset_gap_range(g, self.overrides, getattr(self.theme_def, "groups", None))
             self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap, clock=lambda: self.audio_seconds)
         coordinator = self.exclusion_coordinators.get(group) if group else None
         return track.get_stream(exclusion_coordinator=coordinator)

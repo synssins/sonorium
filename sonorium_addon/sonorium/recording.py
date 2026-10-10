@@ -281,6 +281,43 @@ def decode_mono(path):
     return decode()
 
 
+# A track's volume moves to a new value (a slider, a preset) at most this
+# fast: from silence to full in this long. Slower changes (a glide over a
+# sequence's ramp) pass through as they are, just without per-chunk steps.
+VOLUME_EASE_SECONDS = 0.25
+
+
+def eased_volume(current, target: float, samples: int) -> float:
+    """Where a volume gets to after `samples` moving toward `target` (None: it starts there)."""
+    target = float(target)
+    if current is None:
+        return target
+    step = samples / (VOLUME_EASE_SECONDS * SAMPLE_RATE)
+    if abs(target - current) <= step:
+        return target
+    return current + step if target > current else current - step
+
+
+def eases_from(track, current):
+    """
+    Where a stream's volume eases from: `current`, or None (no easing) while
+    an advanced transition sets the volume, since the transition scales its
+    level against that volume in the same chunk.
+    """
+    pinned = getattr(track, "is_pinned", None)
+    return None if pinned is not None and pinned("volume") else current
+
+
+def apply_volume(data, current, target: float):
+    """`data` (samples on its last axis) at a volume easing from `current` toward `target`; returns (scaled, volume reached)."""
+    n = data.shape[-1]
+    reached = eased_volume(current, target, n)
+    start = reached if current is None else current
+    if start == reached:
+        return data * reached, reached
+    return data * np.linspace(start, reached, n, dtype=np.float32), reached
+
+
 # A file's own Fade in / Fade out (Theme Editor, the track's ⋯ menu): for a
 # file that starts or ends abruptly. Off (0) unless set. Applied wherever the
 # file is decoded, so every play, loop, step and transition has them.
@@ -505,6 +542,9 @@ LEGACY_EXCLUSIVE_GROUP = "Exclusive"
 # value (track 50% x group 50% = 25%); muted mutes every track in the group.
 # The gap between plays (gap_min/gap_max, seconds) is a real interval, never scaled.
 GROUP_TRACK_SETTINGS = {"volume": "volume", "presence": "presence", "muted": "is_enabled"}
+GROUP_GAP_SETTINGS = ("gap_min", "gap_max")
+# What a preset saves for a group: the master controls and the gap
+GROUP_PRESET_SETTINGS = (*GROUP_TRACK_SETTINGS, *GROUP_GAP_SETTINGS)
 GROUP_KEY_PREFIX = "@group:"  # a channel's preset values for a group, in its overrides dict
 
 
@@ -600,14 +640,29 @@ def preset_track_overrides(preset_tracks: dict) -> dict:
 
 
 def preset_group_overrides(preset_groups: dict) -> dict:
-    """A preset's group master controls ({"Lute": {"presence": .4, "muted": false}}) as channel overrides."""
+    """
+    A preset's group settings ({"Lute": {"presence": .4, "muted": false,
+    "gap_min": 60}}) as channel overrides: the master controls as the track
+    attributes they act on, the gap as saved (see preset_gap_range).
+    """
     overrides = {}
     for group, settings in (preset_groups or {}).items():
-        overrides[GROUP_KEY_PREFIX + group] = {
+        values = {
             GROUP_TRACK_SETTINGS[key]: group_setting_value(key, value)
             for key, value in (settings or {}).items() if key in GROUP_TRACK_SETTINGS
         }
+        values.update({key: value for key, value in (settings or {}).items() if key in GROUP_GAP_SETTINGS})
+        overrides[GROUP_KEY_PREFIX + group] = values
     return overrides
+
+
+def preset_gap_range(group: str, overrides: dict | None, theme_groups: dict | None) -> tuple[float, float] | None:
+    """A group's gap as a channel plays it: its preset's gap when the preset saves one, else the theme's."""
+    saved = dict((theme_groups or {}).get(group) or {})
+    preset = (overrides or {}).get(GROUP_KEY_PREFIX + group) or {}
+    if any(key in preset for key in GROUP_GAP_SETTINGS):
+        saved.update({key: preset.get(key) for key in GROUP_GAP_SETTINGS})
+    return group_gap_range(saved)
 
 
 class TrackView:
@@ -635,6 +690,11 @@ class TrackView:
     def log_label(self) -> str:
         """Who is playing, for log lines: the mix's label (channel and theme)."""
         return self._context.get("label") or getattr(getattr(self._instance, "theme", None), "name", "") or ""
+
+    def is_pinned(self, name) -> bool:
+        """An advanced transition sets this value now."""
+        pinned = self._pins.get(self._instance.name)
+        return pinned is not None and name in pinned
 
     def unpinned(self, name):
         """A value as the presets set it, ignoring a transition's pins."""
@@ -720,6 +780,7 @@ class RecordingThemeStream:
     def __init__(self, instance: RecordingThemeInstance):
         self.instance = instance
         self.resampler = av.AudioResampler(format='s16', layout='mono', rate=SAMPLE_RATE)
+        self._volume = None  # the volume reached, easing toward the track's (see apply_volume)
         self.gen = self._gen()
 
     def _gen(self):
@@ -734,8 +795,9 @@ class RecordingThemeStream:
                     data = buffer[:self.CHUNK_SIZE].reshape(1, -1)
                     buffer = buffer[self.CHUNK_SIZE:]
 
-                    # The volume is read as each chunk goes out (no lag behind a glide or a transition)
-                    yield np.clip(data * self.instance.volume, -32768, 32767).astype(np.int16)
+                    # The volume is read as each chunk goes out (no lag behind a glide or a transition), and eases
+                    data, self._volume = apply_volume(data, eases_from(self.instance, self._volume), self.instance.volume)
+                    yield np.clip(data, -32768, 32767).astype(np.int16)
 
                     if i % LOG_THRESHOLD == 0:
                         vol_mean = round(abs(data).mean())
@@ -763,6 +825,7 @@ class CrossfadeRecordingStream:
         # Where the current pass through the file is (samples), and the file's length
         self.position = 0
         self.length = 0
+        self._volume = None  # the volume reached, easing toward the track's (see apply_volume)
         self.gen = self._gen()
 
     def _create_decoder(self):
@@ -891,8 +954,9 @@ class CrossfadeRecordingStream:
                     in_crossfade = False
                     crossfade_position = 0
             
-            # The track's volume, read as each chunk goes out; int16 for output
-            output_chunk = np.clip(output_chunk * self.instance.volume, -32768, 32767).astype(np.int16)
+            # The track's volume, read as each chunk goes out and eased; int16 for output
+            output_chunk, self._volume = apply_volume(output_chunk, eases_from(self.instance, self._volume), self.instance.volume)
+            output_chunk = np.clip(output_chunk, -32768, 32767).astype(np.int16)
             output_data = output_chunk.reshape(1, -1)
             
             samples_played += self.CHUNK_SIZE
@@ -1051,6 +1115,7 @@ class SparsePlaybackStream:
         chunk_count = 0
         silence_chunk = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
         first_play = True
+        volume = None  # the volume reached, easing toward the track's (see apply_volume)
 
         while True:
             # Check for updated presence
@@ -1123,8 +1188,9 @@ class SparsePlaybackStream:
                     if len(chunk) < self.CHUNK_SIZE:
                         chunk = np.concatenate([chunk, np.zeros(self.CHUNK_SIZE - len(chunk), dtype=np.float32)])
 
-                    # The volume, read for each chunk; int16 for output
-                    output = np.clip(chunk * self.instance.volume, -32768, 32767).astype(np.int16).reshape(1, -1)
+                    # The volume, read for each chunk and eased; int16 for output
+                    chunk, volume = apply_volume(chunk, eases_from(self.instance, volume), self.instance.volume)
+                    output = np.clip(chunk, -32768, 32767).astype(np.int16).reshape(1, -1)
 
                     chunk_count += 1
                     if chunk_count % LOG_THRESHOLD == 0:
@@ -1490,6 +1556,7 @@ class _BedFile:
 
     def render(self, count: int, offset: int, level: float):
         """`count` samples of the mix: silence for `offset`, then this file with its fades and level."""
+        level = eased_volume(self.level, level, count)  # a level change eases (see VOLUME_EASE_SECONDS)
         out = np.zeros(count, np.float32)
         n = count - offset
         if self.end is not None:

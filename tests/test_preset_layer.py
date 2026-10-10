@@ -88,3 +88,19 @@ def test_finished_mixes_are_not_kept(monkeypatch):
     del mix
     gc.collect()
     assert len(theme.streams) == 0  # a finished mix is freed, not kept forever
+
+
+def test_a_preset_saves_and_plays_its_groups_gap():
+    """Mild storm: thunder every 4-8 min; Heavy storm's preset: every 1-2 min. The theme keeps its own."""
+    theme_groups = {"Thunder": {"gap_min": 240, "gap_max": 480, "volume": 1.0}}
+    heavy = recording.preset_group_overrides({"Thunder": {"volume": 0.9, "gap_min": 60, "gap_max": 120}})
+    assert heavy["@group:Thunder"]["gap_min"] == 60 and heavy["@group:Thunder"]["volume"] == 0.9
+    assert recording.preset_gap_range("Thunder", heavy, theme_groups) == (60.0, 120.0)
+    # A preset saved before gaps were in presets (or a channel with no preset): the theme's gap
+    old = recording.preset_group_overrides({"Thunder": {"volume": 0.5}})
+    assert recording.preset_gap_range("Thunder", old, theme_groups) == (240.0, 480.0)
+    assert recording.preset_gap_range("Thunder", {}, theme_groups) == (240.0, 480.0)
+    # The gap fields don't reach a track's own settings
+    track = theme_track()
+    track.meta.group = None
+    assert recording.TrackView(track, heavy).volume == 1.0

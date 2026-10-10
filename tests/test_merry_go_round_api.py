@@ -124,4 +124,5 @@ def test_mode_and_crossfade_stay_out_of_presets(m):
     api = object.__new__(m.api.ApiSonorium)
     theme = SimpleNamespace(groups={"Bed": {"volume": 0.5, "mode": "merry_go_round", "crossfade": 8.0, "gap_min": 30}})
     api._get_theme_by_id = lambda theme_id: (theme, None)
-    assert api._get_current_group_settings("t1") == {"Bed": {"volume": 0.5}}
+    # The gap is saved in presets; mode and crossfade stay theme settings
+    assert api._get_current_group_settings("t1") == {"Bed": {"volume": 0.5, "gap_min": 30}}
