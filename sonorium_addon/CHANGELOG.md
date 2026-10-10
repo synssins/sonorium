@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.0 (2026-10-10)
+
+### Documentation
+
+- 1.5.0 what's new, help definitions and new screenshots
+  ([`c7dfe0b`](https://github.com/synssins/sonorium/commit/c7dfe0bc53a3f0db17129aca2c76142b2d674451))
+
+
 ## v1.4.2-dev.28 (2026-10-10)
 
 ### Features
