@@ -33,12 +33,18 @@ class ExclusionGroupCoordinator:
     # Initial delay before any exclusive track can play on stream start
     INITIAL_DELAY = 60.0
 
+    def _range(self) -> tuple[float, float] | None:
+        """The gap range now: a fixed range, or a function giving the group's current one."""
+        gap = self._gap_range() if callable(self._gap_range) else self._gap_range
+        return gap or None
+
     def _next_gap(self) -> float:
-        if self._gap_range:
-            return random.uniform(*self._gap_range)
+        gap = self._range()
+        if gap:
+            return random.uniform(*gap)
         return self.MIN_GAP_AFTER_EXCLUSIVE
 
-    def __init__(self, gap_range: tuple[float, float] | None = None):
+    def __init__(self, gap_range=None):
         # The group's gap between plays (seconds, random in the range each time);
         # MIN_GAP_AFTER_EXCLUSIVE when the group doesn't set one
         self._gap_range = gap_range
@@ -156,7 +162,7 @@ class ExclusionGroupCoordinator:
             if self._playing_track is not None:
                 remaining = self._play_end_time - now
                 if remaining > 0:
-                    return remaining + (self._gap_range[0] if self._gap_range else self.MIN_GAP_AFTER_EXCLUSIVE)
+                    return remaining + ((self._range() or (self.MIN_GAP_AFTER_EXCLUSIVE,))[0])
 
             # In cooldown
             if now < self._cooldown_until:

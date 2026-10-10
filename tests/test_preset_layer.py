@@ -59,3 +59,25 @@ def test_preset_only_sets_what_it_saved():
     track.presence = 0.3
     view = recording.TrackView(track, recording.preset_track_overrides({"Rain": {"muted": True}}))
     assert (view.is_enabled, view.volume, view.presence) == (False, 0.6, 0.3)  # the rest follows the theme
+
+
+def test_theme_editing_sets_presets_aside_and_brings_them_back():
+    from types import SimpleNamespace
+    from test_enabled_speakers import load_session_manager
+    module, state = load_session_manager()
+    manager = module.SessionManager.__new__(module.SessionManager)
+    session = SimpleNamespace(id="s1", is_playing=True, theme_id="rain", preset_id="calm")
+    other = SimpleNamespace(id="s2", is_playing=True, theme_id="forest", preset_id="calm")
+    manager.state = SimpleNamespace(sessions={"s1": session, "s2": other})
+    manager._editing_themes = {}
+    layers = {"s1": None, "s2": None}
+    channels = {"s1": SimpleNamespace(set_track_overrides=lambda o: layers.__setitem__("s1", o)),
+                "s2": SimpleNamespace(set_track_overrides=lambda o: layers.__setitem__("s2", o))}
+    manager._channel_for = lambda s: channels[s.id]
+    manager.preset_overrides = lambda theme_id, preset_id: {"Rain": {"volume": 0.2}}
+
+    assert manager.set_theme_editing("rain", True) == 1
+    assert layers == {"s1": {}, "s2": None}  # only the edited theme's channel follows the editor
+    assert manager._layer_for(session) == {}  # a preset change meanwhile keeps following the editor
+    assert manager.set_theme_editing("rain", False) == 1
+    assert layers["s1"] == {"Rain": {"volume": 0.2}} and "rain" not in manager._editing_themes

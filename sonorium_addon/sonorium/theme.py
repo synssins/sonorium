@@ -127,7 +127,8 @@ class ThemeStream:
             track = TrackView(instance, self.overrides)
             group = track.exclusion_group
             if group and group not in self.exclusion_coordinators:
-                gap = group_gap_range((getattr(theme_def, "groups", None) or {}).get(group))
+                # Read the group's gap each time, so a change in the editor applies at once
+                gap = lambda g=group: group_gap_range((getattr(theme_def, "groups", None) or {}).get(g))
                 self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap)
             coordinator = self.exclusion_coordinators.get(group) if group else None
             self.recording_streams.append(track.get_stream(exclusion_coordinator=coordinator))

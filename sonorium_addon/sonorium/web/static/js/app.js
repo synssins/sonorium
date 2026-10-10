@@ -2094,7 +2094,31 @@ function openThemeEditModal(themeId) {
     loadCategories().then(teRenderCatList);
     teLoadPresets(true);
     teLoadTracks();
+    teSetEditing(themeId, true);
 }
+
+// While the editor is open, channels playing this theme follow it live (their
+// preset steps aside); renewed every minute, ended when the window closes
+function teSetEditing(themeId, editing) {
+    if (editing && te.editingTheme && te.editingTheme !== themeId) teSetEditing(te.editingTheme, false);
+    clearInterval(te.editTimer);
+    te.editTimer = null;
+    if (!themeId) return;
+    const url = `${BASE_PATH}/api/themes/${encodeURIComponent(themeId)}/editing`;
+    const send = on => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ editing: on }), keepalive: true }).catch(() => {});
+    send(editing);
+    if (editing) {
+        te.editTimer = setInterval(() => send(true), 60000);
+        te.editingTheme = themeId;
+    } else {
+        te.editingTheme = null;
+    }
+}
+
+window.addEventListener('pagehide', () => {
+    if (te.editingTheme) teSetEditing(te.editingTheme, false);
+});
 
 // ---------- Save theme closes; Cancel puts back what wasn't saved ----------
 // Track and group controls save as they change, so Cancel restores the
@@ -2151,6 +2175,7 @@ async function teSaveAndClose() {
 function closeThemeEditModal() {
     teCloseMenu();
     stopTrackPreview();
+    if (te.editingTheme) teSetEditing(te.editingTheme, false);
     document.getElementById('theme-edit-modal').style.display = 'none';
     te.themeId = null;
 }
