@@ -125,3 +125,49 @@ def test_presence_tracks_in_a_group_take_turns(monkeypatch):
         overlap += both
     # The group's gap separates them: never both audible at once
     assert overlap == 0
+
+
+def test_group_turns_follow_the_audio_not_the_wall_clock(monkeypatch):
+    """A stalled stream (wall clock races ahead) and no gap still never overlap."""
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("av")
+    from test_crossfade_loop import recording
+
+    wall = {"now": 1000.0}
+    monkeypatch.setattr(recording.time, "time", lambda: wall["now"])
+    audio = {"seconds": 0.0}
+    coordinator = recording.ExclusionGroupCoordinator((0.0, 0.0), clock=lambda: audio["seconds"])
+
+    def loud():
+        while True:
+            yield np.full((1, 1024), 10000, np.int16)
+
+    def track(name):
+        return SimpleNamespace(name=name, presence=0.5)
+
+    streams = [recording.PresenceMixingStream(loud(), track(n), coordinator) for n in "ABC"]
+    overlap = played = 0
+    for i in range(int(900 * 44100 / 1024)):  # ~15 min of audio
+        if i % 500 == 0:
+            wall["now"] += 600  # a 10-minute stall
+        audible = sum(np.abs(next(s)).max() > 0 for s in streams)
+        audio["seconds"] += 1024 / 44100
+        overlap += audible > 1
+        played += audible == 1
+    assert played > 0
+    assert overlap == 0
+
+
+def test_a_track_holds_its_turn_only_while_playing():
+    from test_crossfade_loop import recording
+
+    audio = {"seconds": 0.0}
+    coordinator = recording.ExclusionGroupCoordinator((0.0, 0.0), clock=lambda: audio["seconds"])
+    coordinator.register_track("A")
+    coordinator.register_track("B")
+    audio["seconds"] = coordinator.INITIAL_DELAY
+    assert coordinator.try_start_playing("A", 10.0)
+    assert coordinator.is_playing("A") and not coordinator.try_start_playing("B", 10.0)
+    audio["seconds"] += 10.0
+    assert not coordinator.is_playing("A")
+    assert coordinator.try_start_playing("B", 10.0)

@@ -121,6 +121,9 @@ class ThemeStream:
         # One coordinator per named group: only one track of a group plays at a
         # time, and groups don't wait for each other (Lute and Bar chatter can overlap)
         self.exclusion_coordinators: dict[str, ExclusionGroupCoordinator] = {}
+        # Seconds of audio mixed so far: groups time their turns by this, not
+        # the wall clock, so a stall can't let two tracks of a group overlap
+        self.audio_seconds = 0.0
 
         # Create streams, passing the exclusion coordinator
         from sonorium.mixing import MixLevel
@@ -134,7 +137,7 @@ class ThemeStream:
             if group and group not in self.exclusion_coordinators:
                 # Read the group's gap each time, so a change in the editor applies at once
                 gap = lambda g=group: group_gap_range((getattr(theme_def, "groups", None) or {}).get(g))
-                self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap)
+                self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap, clock=lambda: self.audio_seconds)
             coordinator = self.exclusion_coordinators.get(group) if group else None
             self.recording_streams.append(track.get_stream(exclusion_coordinator=coordinator))
 
@@ -144,10 +147,22 @@ class ThemeStream:
         data = np.zeros((1, RecordingThemeStream.CHUNK_SIZE), np.int16)
         return data
 
+    @staticmethod
+    def _holds_turn(stream) -> bool:
+        coordinator = getattr(stream, "exclusion_coordinator", None)
+        return coordinator is not None and coordinator.is_playing(stream.instance.name)
+
     def iter_chunks(self):
+        from sonorium.recording import RecordingThemeStream
 
         while True:
-            data_recs = [next(streams) for streams in self.recording_streams if streams.instance.is_enabled]
+            data_recs = []
+            for stream in self.recording_streams:
+                if stream.instance.is_enabled:
+                    data_recs.append(next(stream))
+                elif self._holds_turn(stream):
+                    next(stream)  # muted mid-play: runs on silently, so it ends on time
+            self.audio_seconds += RecordingThemeStream.CHUNK_SIZE / SAMPLE_RATE
             if not data_recs:
                 # logger.debug(f'Theme "{self.theme_def.name}" has no enabled recordings. Streaming silence...')
                 data_recs.append(self.chunk_silence)

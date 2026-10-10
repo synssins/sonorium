@@ -44,17 +44,21 @@ class ExclusionGroupCoordinator:
             return random.uniform(*gap)
         return self.MIN_GAP_AFTER_EXCLUSIVE
 
-    def __init__(self, gap_range=None):
+    def __init__(self, gap_range=None, clock=None):
         # The group's gap between plays (seconds, random in the range each time);
         # MIN_GAP_AFTER_EXCLUSIVE when the group doesn't set one
         self._gap_range = gap_range
+        # Seconds of audio the theme has played (ThemeStream.audio_seconds), so a
+        # stalled stream delays every track alike and turns can't overlap;
+        # the wall clock when no audio clock is given
+        self._clock = clock or time.time
         self._lock = threading.Lock()
         self._playing_track: str | None = None  # Name of currently playing exclusive track
         self._play_end_time: float = 0  # When current track will finish
         self._last_played_track: str | None = None  # Track that played most recently
         self._cooldown_until: float = 0  # No exclusive track can play until this time
         self._registered_tracks: set[str] = set()  # All registered exclusive tracks
-        self._start_time: float = time.time()  # When the coordinator was created
+        self._start_time: float = self._clock()  # When the coordinator was created
 
     def register_track(self, track_name: str):
         """Register an exclusive track with the coordinator."""
@@ -75,7 +79,7 @@ class ExclusionGroupCoordinator:
         4. This is not the same track that just played (unless it's the only track)
         """
         with self._lock:
-            now = time.time()
+            now = self._clock()
 
             # Check initial delay on stream start
             if now < self._start_time + self.INITIAL_DELAY:
@@ -108,11 +112,16 @@ class ExclusionGroupCoordinator:
             logger.debug(f'ExclusionGroup: "{track_name}" starting playback (duration: {duration_seconds:.1f}s)')
             return True
 
+    def is_playing(self, track_name: str) -> bool:
+        """Whether this track holds the group's turn now."""
+        with self._lock:
+            return self._playing_track == track_name and self._clock() < self._play_end_time
+
     def finish_playing(self, track_name: str):
         """Mark that an exclusive track has finished playing."""
         with self._lock:
             if self._playing_track == track_name:
-                now = time.time()
+                now = self._clock()
                 self._last_played_track = track_name
                 self._playing_track = None
                 self._play_end_time = 0
@@ -122,7 +131,7 @@ class ExclusionGroupCoordinator:
     def is_blocked(self, track_name: str) -> bool:
         """Check if a track is blocked from playing."""
         with self._lock:
-            now = time.time()
+            now = self._clock()
 
             # Initial delay check
             if now < self._start_time + self.INITIAL_DELAY:
@@ -152,7 +161,7 @@ class ExclusionGroupCoordinator:
     def get_wait_time(self) -> float:
         """Get seconds until this coordinator might allow a play."""
         with self._lock:
-            now = time.time()
+            now = self._clock()
 
             # Initial delay
             if now < self._start_time + self.INITIAL_DELAY:
@@ -1045,7 +1054,9 @@ class PresenceMixingStream:
                 if not is_active:
                     # Ask for the group's turn; at 100% the track keeps it
                     active_samples = get_next_duration(presence, True)
-                    seconds = 1e9 if active_samples == float('inf') else active_samples / SAMPLE_RATE + TRACK_FADE_SAMPLES / SAMPLE_RATE
+                    # Held through the fade-out too, with room to spare: the turn is
+                    # handed back by finish_playing once the fade has finished
+                    seconds = 1e9 if active_samples == float('inf') else (active_samples + 2 * TRACK_FADE_SAMPLES) / SAMPLE_RATE + 1.0
                     if coordinator.try_start_playing(self.instance.name, seconds):
                         is_active, target_gain, fade_position = True, 1.0, 0
                         samples_until_change = active_samples
