@@ -377,7 +377,7 @@ def _retire_auto(folder: Path, metadata: ThemeMetadata) -> bool:
     try:
         from sonorium.core import intrusions
     except ImportError:
-        return False  # loaded on its own (tests): next time
+        return False  # loaded without the sonorium.core package (tests): next time
 
     folder_for_id = intrusions.folder_for_id_in(folder.parent)
     seconds: dict[str, Optional[float]] = {}
@@ -390,6 +390,11 @@ def _retire_auto(folder: Path, metadata: ThemeMetadata) -> bool:
         if seconds[key] is None:
             return False  # lengths can't be read here: next time
 
+    try:
+        threshold = float(metadata.short_file_threshold)
+    except (TypeError, ValueError):
+        threshold = 15.0  # recording.SHORT_FILE_THRESHOLD_SECONDS
+
     def resolve(key, presence) -> Optional[str]:
         if seconds.get(key) is None:
             return None
@@ -397,7 +402,7 @@ def _retire_auto(folder: Path, metadata: ThemeMetadata) -> bool:
             below = float(presence) < 1.0
         except (TypeError, ValueError):
             below = False
-        short = seconds[key] < float(metadata.short_file_threshold or 15.0)
+        short = seconds[key] < threshold
         return ("sparse" if short else "presence") if below else "continuous"
 
     def own_mode(key) -> bool:
