@@ -1965,7 +1965,6 @@ const TE_ICON_PLAY = '<svg class="play-icon" viewBox="0 0 24 24" fill="currentCo
 const TE_ICON_STOP = '<svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
 
 const TE_MODES = [['auto', 'Auto'], ['continuous', 'Background'], ['sparse', 'Intermittent'], ['presence', 'Ebb & Flow']];
-const TE_GROUP_MODES = [['auto', 'Auto'], ['sparse', 'Intermittent'], ['presence', 'Ebb & Flow']];
 // The server rebuilds its theme list about 2 s after files move, rename or upload
 const TE_REBUILD_WAIT_MS = 2600;
 
@@ -2421,7 +2420,7 @@ function refreshTrackMixer(afterFileChange = false) {
 }
 
 function teModeOptions(track, inGroup) {
-    const modes = inGroup ? TE_GROUP_MODES : TE_MODES;
+    const modes = TE_MODES;
     let current = track.playback_mode || 'auto';
     if (!modes.some(([v]) => v === current)) current = 'auto';
     return modes.map(([v, label]) => `<option value="${v}"${v === current ? ' selected' : ''}>${label}</option>`).join('');
@@ -2469,8 +2468,10 @@ function teRenderRow(track, group) {
         <span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>
         <div class="c-mode">
             <span class="c-lbl">Mode</span>
-            <select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"
-                    title="Auto picks by file length. Background plays all the time. Intermittent plays now and then. Ebb &amp; Flow fades in, plays a while, fades out.">${teModeOptions(track, !!group)}</select>
+            ${group
+                ? `<span class="te-mode-fixed" title="In a group, each track plays once on its turn">Intermittent</span>`
+                : `<select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"
+                    title="Auto picks by file length. Background plays all the time. Intermittent plays now and then. Ebb &amp; Flow fades in, plays a while, fades out.">${teModeOptions(track, false)}</select>`}
         </div>
         ${teSliderCell('volume', 'Volume', vol,
             `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"`,

@@ -263,8 +263,7 @@ Then (`recording.py:310-324`):
 | Setting | What the track gets |
 |---|---|
 | `exclusive` | always `true` |
-| `playback_mode` `auto` or `continuous` | `sparse` if the file is shorter than `short_file_threshold`, else `presence`. Never a continuous loop. |
-| `playback_mode` `sparse` or `presence` | as set |
+| `playback_mode` (any) | `sparse`: the whole file once, on the group's turn. Never a loop, never fading in and out. |
 | `volume`, `presence` | track value x group master (3.6) |
 | `muted` | muted if the track or the group is muted |
 

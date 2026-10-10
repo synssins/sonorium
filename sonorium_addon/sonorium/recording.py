@@ -472,11 +472,11 @@ class TrackView:
         if name == "is_enabled":
             master = self._group_master(group, name)
             return value and (master if master is not None else True)
-        if name == "playback_mode" and value in (PlaybackMode.AUTO, PlaybackMode.CONTINUOUS):
-            # Groups play events: never a continuous loop. Short files play
-            # once at a time (sparse), long ones fade in and out (presence).
-            short = self._instance.meta.is_short_file(self._instance.short_file_threshold)
-            return PlaybackMode.SPARSE if short else PlaybackMode.PRESENCE
+        if name == "playback_mode":
+            # A group plays events, one at a time: each track plays its whole
+            # file once on its turn (Intermittent), whatever its own mode says.
+            # Background and Ebb & Flow are for the ambience outside groups.
+            return PlaybackMode.SPARSE
         return value
 
     @property

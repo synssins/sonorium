@@ -81,9 +81,10 @@ def test_group_is_a_mixer_bus(tmp_path, monkeypatch):
 
     view = recording.TrackView(song, {})
     assert (view.volume, view.presence) == (0.4, 0.25)  # track x group: 50% x 50% = 25%
-    assert view.playback_mode == recording.PlaybackMode.PRESENCE  # long file, never continuous in a group
-    song.playback_mode = recording.PlaybackMode.SPARSE
-    assert view.playback_mode == recording.PlaybackMode.SPARSE  # the track's own choice
+    # In a group every track plays Intermittent: its whole file once, on its turn
+    for mode in (recording.PlaybackMode.AUTO, recording.PlaybackMode.CONTINUOUS, recording.PlaybackMode.PRESENCE):
+        song.playback_mode = mode
+        assert view.playback_mode == recording.PlaybackMode.SPARSE
 
     preset = {**recording.preset_group_overrides({"Lute": {"presence": 1.0, "muted": True}}),
               **recording.preset_track_overrides({"Lute/Lute song 1": {"presence": 0.2}})}

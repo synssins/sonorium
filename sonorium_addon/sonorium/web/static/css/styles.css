@@ -3113,3 +3113,6 @@ body.sidebar-open .sidebar-overlay {
     .te-help { top: 0; right: 0; width: 100%; max-height: none; height: 100%; border-radius: 0; border: 0; }
     .te-help-x { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; }
 }
+
+/* Theme Editor: grouped tracks always play Intermittent (no mode choice) */
+.te-mode-fixed { display: inline-flex; align-items: center; min-height: 36px; padding: 0 .75rem; color: var(--text-secondary); font-size: .875rem; }
