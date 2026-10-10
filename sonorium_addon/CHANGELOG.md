@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.11 (2026-10-10)
+
+### Features
+
+- Ebb & Flow rises and falls instead of coming and going
+  ([`3acee12`](https://github.com/synssins/sonorium/commit/3acee12e9a726d30046dc597461b1731ad7d513f))
+
+
 ## v1.6.1-dev.10 (2026-10-10)
 
 ### Features
