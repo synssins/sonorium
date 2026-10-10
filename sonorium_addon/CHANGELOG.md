@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.14 (2026-10-10)
+
+### Features
+
+- **ui**: Help panel in the Theme Editor explaining modes, groups and saving
+  ([`89f76fc`](https://github.com/synssins/sonorium/commit/89f76fcd605e263781d866c272d2188e4b22a2b7))
+
+
 ## v1.4.2-dev.13 (2026-10-10)
 
 ### Bug Fixes
