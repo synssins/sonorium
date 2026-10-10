@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.11 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Moving a track into a collapsed group keeps it collapsed
+  ([`76e3cc8`](https://github.com/synssins/sonorium/commit/76e3cc85d16ae77aff13665d96003094b3f1388b))
+
+
 ## v1.4.2-dev.10 (2026-10-10)
 
 ### Features
