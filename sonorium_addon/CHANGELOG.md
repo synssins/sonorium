@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.19 (2026-10-10)
+
+### Bug Fixes
+
+- **theme load**: Auto conversion uses a 0 s short-file threshold as set
+  ([`9a2d69b`](https://github.com/synssins/sonorium/commit/9a2d69bdd5038ec9615adf0842758bb69cedfceb))
+
+### Documentation
+
+- **theme format**: Linked files anywhere, intrusion groups and Auto retired, Unassigned
+  ([`325b7eb`](https://github.com/synssins/sonorium/commit/325b7eb00f4d7a514a5f0e3f8bbc8f60c71a6b30))
+
+### Testing
+
+- Intrusion groups and Auto converted once with backups
+  ([`a0547ee`](https://github.com/synssins/sonorium/commit/a0547eef1c2e158be3925f8aed96e02697a5a7a7))
+
+
 ## v1.6.1-dev.18 (2026-10-10)
 
 ### Documentation
