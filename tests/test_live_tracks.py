@@ -10,10 +10,27 @@ import pytest
 np = pytest.importorskip("numpy")
 av = pytest.importorskip("av")
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "sonorium_addon"))
-pytest.importorskip("sonorium.theme")
-from sonorium import recording  # noqa: E402
-from sonorium.theme import ThemeStream  # noqa: E402
+ADDON = str(Path(__file__).resolve().parents[1] / "sonorium_addon")
+recording = ThemeStream = None
+
+
+@pytest.fixture(autouse=True, scope="module")
+def addon_package():
+    """Imports the add-on's sonorium package for these tests only (other tests use another one)."""
+    global recording, ThemeStream
+    saved = {k: v for k, v in sys.modules.items() if k == "sonorium" or k.startswith("sonorium.")}
+    for k in saved:
+        del sys.modules[k]
+    sys.path.insert(0, ADDON)
+    try:
+        theme = pytest.importorskip("sonorium.theme")
+        recording, ThemeStream = sys.modules["sonorium.recording"], theme.ThemeStream
+        yield
+    finally:
+        sys.path.remove(ADDON)
+        for k in [k for k in sys.modules if k == "sonorium" or k.startswith("sonorium.")]:
+            del sys.modules[k]
+        sys.modules.update(saved)
 
 
 def silent_mp3(path: Path, seconds: float):
