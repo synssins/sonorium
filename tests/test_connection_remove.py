@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
+pytest.importorskip("fastapi")  # api.py needs it; the CI runner installs only the audio stack
+
 PACKAGE = Path(__file__).resolve().parents[1] / "sonorium_addon" / "sonorium"
 
 
