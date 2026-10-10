@@ -212,6 +212,8 @@ class PlaybackRunner:
             run = self._sequences[session.id] = SequenceRun(
                 sequence_id, session.theme_id, next_at=self.clock() + glide + self._hold(sequence))
             self._plan_transitions(session, run, glide)
+        self.manager.note(session, f"Started: {sequence['name']}")
+        self._note_step(session, 1, len(sequence["presets"]), sequence["presets"][0])
         self.manager.state.save()
         logger.info(f"  Channel '{session.name}': sequence '{sequence['name']}' started "
                     f"({len(sequence['presets'])} presets, then {sequence['at_end']})")
@@ -220,12 +222,19 @@ class PlaybackRunner:
     def stop_sequence(self, session: Session) -> bool:
         """Stop the channel's sequence; it stays on the preset it is on. True if it had one."""
         had = session.sequence_id is not None
+        if had:
+            sequence = self.sequence(session.theme_id, session.sequence_id)
+            self.manager.note(session, f"Stopped: {sequence['name'] if sequence else session.sequence_id}")
         if self._sequences.pop(session.id, None) is not None:
             self._cancel_transitions(session)
         session.sequence_id = None
         if had:
             logger.info(f"  Channel '{session.name}': sequence stopped")
         return had
+
+    def _note_step(self, session: Session, step: int, steps: int, preset_id: Optional[str]) -> None:
+        """A sequence step in the channel's recent changes."""
+        self.manager.note(session, f"Step {step} of {steps}: {self.manager.preset_name(session.theme_id, preset_id)}")
 
     # --- Advanced transitions ---
 
@@ -308,6 +317,7 @@ class PlaybackRunner:
         self._check_planned(session, run, run.presets[nxt], glide)
         run.index = nxt
         run.next_at = self.clock() + ramp + run.holds[nxt]
+        self._note_step(session, nxt + 1, len(run.presets), run.presets[nxt])
         if run.presets[nxt] != session.preset_id:
             self.manager._apply_preset(session, run.presets[nxt], ramp, fade=ramp)
             logger.info(f"Playback: Channel '{session.name}': sequence '{run.sequence_id}' step {nxt + 1}/{len(run.presets)} "
@@ -336,6 +346,7 @@ class PlaybackRunner:
                 nxt = 0
             elif sequence["at_end"] == "stop":
                 logger.info(f"  Channel '{session.name}': sequence '{sequence['name']}' finished on its last preset")
+                self.manager.note(session, f"Stopped: {sequence['name']}")
                 self._sequences.pop(session.id, None)
                 session.sequence_id = None
                 return
@@ -345,6 +356,7 @@ class PlaybackRunner:
         self._check_planned(session, run, presets[nxt], glide)
         run.index = nxt
         run.next_at = self.clock() + ramp + self._hold(sequence)
+        self._note_step(session, nxt + 1, count, presets[nxt])
         if presets[nxt] != session.preset_id:
             self.manager._apply_preset(session, presets[nxt], ramp, fade=ramp)
             logger.info(f"Playback: Channel '{session.name}': sequence '{sequence['name']}' step {nxt + 1}/{count} "
@@ -370,6 +382,8 @@ class PlaybackRunner:
             self.clear_playlist(session)
             self.manager.state.save()
             raise ValueError(f"Playlist '{playlist.get('name', playlist_id)}' has no playable entry")
+        self.manager.note(session, f"Started: {playlist.get('name', playlist_id)}")
+        self._note_entry(session, playlist)
         self.manager.state.save()
         logger.info(f"  Channel '{session.name}': playlist '{playlist.get('name', playlist_id)}' started")
         return playlist
@@ -393,6 +407,8 @@ class PlaybackRunner:
         True if it had one.
         """
         had = session.playlist_id is not None
+        if had:
+            self.manager.note(session, f"Stopped: {(self.playlist(session.playlist_id) or {}).get('name', session.playlist_id)}")
         self._playlists.pop(session.id, None)
         run = self._sequences.get(session.id)
         if run is not None and run.single_pass:
@@ -410,6 +426,12 @@ class PlaybackRunner:
 
     def _entry(self, session: Session, playlist: dict) -> dict:
         return playlist["entries"][session.playlist_order[session.playlist_position]]
+
+    def _note_entry(self, session: Session, playlist: dict) -> None:
+        """The playlist entry the channel is on, in its recent changes."""
+        theme = self.manager.get_theme(session.theme_id)
+        self.manager.note(session, f"Entry {session.playlist_position + 1} of {len(playlist['entries'])}: "
+                                   f"{theme.name if theme else session.theme_id}")
 
     def _enter_entry(self, session: Session, playlist: dict, tries: int = 1) -> bool:
         """
@@ -510,6 +532,7 @@ class PlaybackRunner:
             return "end"
         if not self._enter_entry(session, playlist, tries=len(playlist["entries"])):
             return "end"
+        self._note_entry(session, playlist)
         entry = self._entry(session, playlist)
         logger.info(f"  Channel '{session.name}': playlist '{playlist.get('name')}' entry "
                     f"{session.playlist_order[session.playlist_position] + 1}/{len(playlist['entries'])} "
@@ -581,6 +604,7 @@ class PlaybackRunner:
             if sequence is not None and sequence["presets"]:
                 run = self._sequences[session.id] = SequenceRun(session.sequence_id, session.theme_id,
                                                                 next_at=now + self._hold(sequence))
+                self._note_step(session, 1, len(sequence["presets"]), sequence["presets"][0])
                 self._plan_transitions(session, run, self._entry_glide())
 
     def on_stop(self, session_id: str) -> None:

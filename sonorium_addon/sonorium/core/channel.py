@@ -103,6 +103,11 @@ class Channel:
     # its connection open without reading.
     _last_listener_time: float = field(default_factory=time.monotonic)
 
+    # Browsers listening here ("Listen here" on the channel's card, /stream/channel{n}?local=1),
+    # and when that last changed or was asked for
+    _local_count: int = 0
+    _local_time: float = field(default_factory=time.monotonic)
+
     # Lock for thread-safe operations
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
@@ -207,6 +212,14 @@ class Channel:
     def mark_listener_active(self) -> None:
         """Record that a listener just pulled audio."""
         self._last_listener_time = time.monotonic()
+
+    def local_idle_seconds(self) -> float:
+        """Seconds without a browser listening here (0 while one does)."""
+        return 0.0 if self._local_count > 0 else time.monotonic() - self._local_time
+
+    def expect_local_listener(self) -> None:
+        """A browser is about to connect: count its wait from now."""
+        self._local_time = time.monotonic()
 
     @property
     def stream_path(self) -> str:
@@ -578,16 +591,22 @@ class Channel:
             with self._data_available:
                 self._data_available.notify_all()
 
-    def client_connected(self) -> None:
-        """Track a new client connection."""
+    def client_connected(self, local: bool = False) -> None:
+        """Track a new client connection (local: a browser listening here)."""
         self._client_count += 1
         self._last_listener_time = time.monotonic()
+        if local:
+            self._local_count += 1
+            self._local_time = self._last_listener_time
         logger.info(f"Channel {self.id}: Client connected ({self._client_count} total)")
 
-    def client_disconnected(self) -> None:
+    def client_disconnected(self, local: bool = False) -> None:
         """Track a client disconnection."""
         self._client_count = max(0, self._client_count - 1)
         self._last_listener_time = time.monotonic()
+        if local:
+            self._local_count = max(0, self._local_count - 1)
+            self._local_time = self._last_listener_time
         logger.info(f"Channel {self.id}: Client disconnected ({self._client_count} remaining)")
 
     def get_current_sequence(self) -> int:
@@ -603,14 +622,14 @@ class Channel:
         with self._data_available:
             return self._data_available.wait(timeout)
 
-    def get_stream(self):
+    def get_stream(self, local: bool = False):
         """
-        Get an MP3 stream iterator for this channel.
+        Get an MP3 stream iterator for this channel (local: for a browser listening here).
 
         All clients share the same audio source - they just
         encode from the broadcast buffer independently.
         """
-        return ChannelStream(self)
+        return ChannelStream(self, local)
 
     def to_dict(self) -> dict:
         """Serialize channel state for API."""
@@ -633,9 +652,10 @@ class ChannelStream:
     All clients hear the same audio at (approximately) the same time.
     """
 
-    def __init__(self, channel: Channel):
+    def __init__(self, channel: Channel, local: bool = False):
         self.channel = channel
-        self.channel.client_connected()
+        self.local = local
+        self.channel.client_connected(local)
 
         # Start from current position
         self._last_sequence = channel.get_current_sequence()
@@ -667,7 +687,7 @@ class ChannelStream:
 
         finally:
             logger.debug(f'Channel {self.channel.id}: Client stream closed')
-            self.channel.client_disconnected()
+            self.channel.client_disconnected(self.local)
             output.close()
 
 

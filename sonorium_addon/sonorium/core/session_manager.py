@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 
 from sonorium.core.state import (
@@ -35,6 +36,13 @@ PRESET_GLIDE_SECONDS = 3.0
 
 # Settings > Audio Settings > Crossfade when the setting can't be read
 DEFAULT_CROSSFADE_SECONDS = 3.0
+
+# A channel's card lists this many of its latest changes (Session.recent)
+RECENT_EVENTS = 20
+
+# Listen here: a channel's mix kept running for browsers alone is released
+# once no browser has listened for this long
+LISTEN_RELEASE_SECONDS = 15
 
 if TYPE_CHECKING:
     from sonorium.ha.registry import HARegistry
@@ -77,6 +85,10 @@ class SessionManager:
         # Sessions fading out before they stop or pause: session_id -> token,
         # so playing again during the fade cancels the stop
         self._fading: dict[str, object] = {}
+
+        # Sessions a browser listens to (Listen here): their mix runs whether
+        # or not their speakers play, until no browser listens
+        self._listening: set[str] = set()
 
         # Sequence and playlist timers
         from sonorium.core.playback_runner import PlaybackRunner
@@ -181,6 +193,23 @@ class SessionManager:
                 return preset_id
         return None
 
+    def preset_name(self, theme_id: Optional[str], preset_id: Optional[str]) -> str:
+        """A preset's name for the channel's recent changes ("Default settings" for none)."""
+        if not preset_id:
+            return "Default settings"
+        return (self._theme_presets(theme_id).get(preset_id) or {}).get("name", preset_id) if theme_id else preset_id
+
+    def note(self, session: Session, text: str) -> None:
+        """
+        Add a change to the channel's recent changes (saved with the next state
+        save). The same text twice in a row is kept once.
+        """
+        recent = session.recent
+        if recent and recent[-1]["text"] == text:
+            return
+        recent.append({"at": datetime.now(timezone.utc).isoformat(), "text": text})
+        del recent[:-RECENT_EVENTS]
+
     def preset_overrides(self, theme_id: str, preset_id: Optional[str], step: Optional[dict] = None) -> dict:
         """
         A channel's preset layer for a theme ({} for no preset, or one that
@@ -216,7 +245,7 @@ class SessionManager:
         theme_ids = {t for t in theme_ids if t}
         count = 0
         for session in list(self.state.sessions.values()):
-            if (session.is_playing and session.theme_id in theme_ids and session.sequence_id == sequence_id
+            if (self._live(session) and session.theme_id in theme_ids and session.sequence_id == sequence_id
                     and session.preset_id == preset_id):
                 channel = self._channel_for(session)
                 if channel:
@@ -234,7 +263,7 @@ class SessionManager:
         theme_ids = {t for t in theme_ids if t}
         count = 0
         for session in list(self.state.sessions.values()):
-            if not (session.is_playing and session.theme_id in theme_ids and session.preset_id == preset_id):
+            if not (self._live(session) and session.theme_id in theme_ids and session.preset_id == preset_id):
                 continue
             channel = self._channel_for(session)
             if channel:
@@ -244,6 +273,10 @@ class SessionManager:
         if count:
             logger.info(f"  Preset '{preset_id}' saved: {count} playing channel(s) follow it")
         return count
+
+    def _live(self, session: Session) -> bool:
+        """The channel's mix runs: its speakers play, or a browser listens."""
+        return session.is_playing or session.id in self._listening
 
     def _channel_for(self, session: Session):
         channel_id = self._session_channels.get(session.id)
@@ -631,9 +664,13 @@ class SessionManager:
             session.theme_id = theme_id
             session.preset_id = self.preset_for_theme(theme_id, preset_id)
             preset_changed = False
+            theme = self.get_theme(theme_id)
+            self.note(session, f"Theme: {theme.name if theme else theme_id}")
         elif preset_id is not None:
             if (preset_id or None) != session.preset_id:
                 self.runner.stop_sequence(session)
+                if sequence_id is None:
+                    self.note(session, f"Preset: {self.preset_name(session.theme_id, preset_id)}")
             session.preset_id = preset_id or None
 
         if speaker_group_id is not None:
@@ -668,12 +705,12 @@ class SessionManager:
 
         # If session is playing and theme changed, trigger crossfade (with the
         # channel's preset for the new theme; the shared theme is never changed)
-        if session.is_playing and theme_changed and session.theme_id:
+        if self._live(session) and theme_changed and session.theme_id:
             self._trigger_theme_crossfade(session)
 
         # If session is playing and preset changed (same theme), change only its
         # channel, gliding to the new values
-        elif session.is_playing and preset_changed and session.theme_id:
+        elif self._live(session) and preset_changed and session.theme_id:
             channel = self._channel_for(session)
             if channel:
                 channel.set_track_overrides(self.session_overrides(session),
@@ -733,7 +770,7 @@ class SessionManager:
         sequence step's ramp), else the usual theme.TRACK_TOGGLE_FADE_SECONDS.
         """
         session.preset_id = preset_id or None
-        if session.is_playing and session.theme_id:
+        if self._live(session) and session.theme_id:
             channel = self._channel_for(session)
             if channel:
                 channel.set_track_overrides(self.session_overrides(session),
@@ -787,7 +824,7 @@ class SessionManager:
             return
         session.theme_id = theme_id
         session.preset_id = self.preset_for_theme(theme_id, preset_id)
-        if session.is_playing:
+        if self._live(session):
             self._trigger_theme_crossfade(session)
 
     # --- Sequences and playlists (by hand) ---
@@ -905,6 +942,7 @@ class SessionManager:
         self._release_channel(session_id)
         self.runner.forget(session_id)
         self._fading.pop(session_id, None)
+        self._listening.discard(session_id)
 
         session = self.state.sessions.pop(session_id)
         self.state.save()
@@ -1059,6 +1097,7 @@ class SessionManager:
         # Mark as playing immediately (optimistic update)
         session.is_playing = True
         session.mark_played()
+        self.note(session, "Started")
         self.state.save()
 
         # Sequence and playlist timers start now
@@ -1124,10 +1163,12 @@ class SessionManager:
             return False
 
         session.is_playing = False
+        self.note(session, "Stopped")
         self.state.save()
         self.runner.on_stop(session_id)
 
-        if not await self._fade_out(session):
+        # A browser listening keeps the mix: only the speakers pause
+        if session_id not in self._listening and not await self._fade_out(session) and session.is_playing:
             return True
 
         speakers = self.get_resolved_speakers(session)
@@ -1155,10 +1196,12 @@ class SessionManager:
             return False
 
         session.is_playing = False
+        self.note(session, "Stopped")
         self.state.save()
         self.runner.on_stop(session_id)
 
-        if not await self._fade_out(session):
+        # A browser listening keeps the mix (and the channel): only the speakers stop
+        if session_id not in self._listening and not await self._fade_out(session) and session.is_playing:
             return True
 
         speakers = self.get_resolved_speakers(session)
@@ -1166,8 +1209,9 @@ class SessionManager:
         if self.media_controller and speakers:
             await self.media_controller.stop_multi(speakers)
 
-        # Release channel
-        self._release_channel(session_id)
+        # Release channel (a browser may have started listening during the fade)
+        if session_id not in self._listening:
+            self._release_channel(session_id)
 
         logger.info(f"  Stopped session '{session.name}'")
         return True
@@ -1202,6 +1246,44 @@ class SessionManager:
         logger.info(f"  Set volume to {session.volume}%")
         return True
     
+    # --- Listen here (a browser plays the channel's stream) ---
+
+    def listen(self, session_id: str) -> Optional[Channel]:
+        """
+        A browser listens to the channel: its mix runs (started without the
+        speakers if they don't play) until no browser listens. Returns the
+        channel, None if none is free. KeyError: no such session;
+        ValueError: no theme, or it isn't found.
+        """
+        session = self.state.sessions.get(session_id)
+        if not session:
+            raise KeyError(session_id)
+        theme = self.get_theme(session.theme_id) if session.theme_id else None
+        if theme is None:
+            raise ValueError("No theme selected" if not session.theme_id else "Theme not found")
+        channel = self._assign_channel(session)
+        if channel is None:
+            return None
+        if not session.is_playing:
+            # Speakers off: (re)start the mix, or cancel its fade-out after a stop or pause
+            self._fading.pop(session_id, None)
+            fade = self.crossfade_seconds()
+            channel.set_theme(theme, self.session_overrides(session), crossfade=fade, fade_in=fade)
+            channel.fade_in(fade)
+        channel.expect_local_listener()
+        self._listening.add(session_id)
+        logger.info(f"  '{session.name}': a browser listens on channel {channel.id}")
+        return channel
+
+    async def unlisten(self, session_id: str) -> None:
+        """The browser stopped listening: the mix stops too unless the speakers play."""
+        self._listening.discard(session_id)
+        session = self.state.sessions.get(session_id)
+        if session and not session.is_playing and session_id in self._session_channels:
+            if await self._fade_out(session) and session_id not in self._listening:
+                self._release_channel(session_id)
+                logger.info(f"  '{session.name}': no browser listens, channel released")
+
     async def stop_all(self) -> int:
         """
         Stop all playing sessions.
@@ -1228,10 +1310,21 @@ class SessionManager:
         if not self.channel_manager:
             return []
 
+        # Listen here: no browser for a while (closed without unlistening)
+        for session_id in list(self._listening):
+            channel = self.channel_manager.get_channel(self._session_channels.get(session_id) or 0)
+            if channel and channel.local_idle_seconds() < LISTEN_RELEASE_SECONDS:
+                continue
+            self._listening.discard(session_id)
+            session = self.state.sessions.get(session_id)
+            if session and not session.is_playing:
+                logger.info(f"  '{session.name}': no browser listens any more, channel released")
+                self._release_channel(session_id)
+
         stopped = []
         for session_id, channel_id in list(self._session_channels.items()):
             channel = self.channel_manager.get_channel(channel_id)
-            if not channel or channel.idle_seconds() < idle_after:
+            if not channel or channel.idle_seconds() < idle_after or session_id in self._listening:
                 continue
             logger.info(f"  Channel {channel_id}: no listener has pulled audio for {int(channel.idle_seconds())}s, stopping its session")
             self._release_channel(session_id)
@@ -1239,6 +1332,7 @@ class SessionManager:
             session = self.state.sessions.get(session_id)
             if session:
                 session.is_playing = False
+                self.note(session, "Stopped")
                 stopped.append(session)
         if stopped:
             self.state.save()

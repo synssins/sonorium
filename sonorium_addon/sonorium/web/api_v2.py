@@ -83,6 +83,7 @@ class SessionResponse(BaseModel):
     playlist_id: Optional[str] = None  # The playlist it plays
     sequence: Optional[dict] = None  # Sequence status: name, step, current preset, next change
     playlist: Optional[dict] = None  # Playlist status: name, entry, theme, next change
+    recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
     created_at: str
     last_played_at: Optional[str]
 
@@ -274,6 +275,7 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         playlist_id=getattr(session, 'playlist_id', None),
         sequence=playback.get("sequence"),
         playlist=playback.get("playlist"),
+        recent=list(reversed(session.recent)),
         created_at=session.created_at,
         last_played_at=session.last_played_at,
     )
@@ -570,6 +572,30 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         return {"volume": request.volume}
     
+    @router.post("/sessions/{session_id}/listen")
+    async def listen_session(session_id: str) -> dict:
+        """
+        Listen here: this browser plays the channel's stream (GET stream_path
+        with ?local=1). The mix starts without the speakers if they don't play,
+        and runs until no browser listens. Play and Stop stay the speakers'.
+        """
+        try:
+            channel = session_manager.listen(session_id)
+        except KeyError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        if channel is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No free channel")
+        return {"channel_id": channel.id, "stream_path": channel.stream_path}
+
+    @router.delete("/sessions/{session_id}/listen")
+    async def unlisten_session(session_id: str) -> dict:
+        """This browser stopped listening (the mix stops too unless the speakers play; returns at once)."""
+        session = _session_or_404(session_id)
+        _in_background(session_manager.unlisten(session_id), f"releasing '{session.name}' after listening")
+        return {"status": "ok"}
+
     @router.post("/sessions/stop-all")
     async def stop_all_sessions() -> dict:
         """Stop all playing sessions."""

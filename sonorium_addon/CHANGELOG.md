@@ -2,6 +2,33 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.28 (2026-10-10)
+
+### Features
+
+- **ui**: Channels page: Listen here button on each channel block
+  ([`5e85480`](https://github.com/synssins/sonorium/commit/5e854801b6d1ec4451d4a7019458e4c7e8a7e5f0))
+
+
+## v1.6.1-dev.27 (2026-10-10)
+
+### Features
+
+- **channels**: Listen here on the server: a channel's mix for browsers, apart from its speakers
+  ([`a731f18`](https://github.com/synssins/sonorium/commit/a731f18cc935c4d3d28f65872dbbb47eb8346be8))
+
+
+## v1.6.1-dev.25 (2026-10-10)
+
+
+## v1.6.1-dev.24 (2026-10-10)
+
+### Features
+
+- **channels**: Keep each channel's recent changes and return them on the sessions API
+  ([`555b348`](https://github.com/synssins/sonorium/commit/555b348299ab2b7cba64cd9cd2a27a6a4511f835))
+
+
 ## v1.6.1-dev.22 (2026-10-10)
 
 ### Bug Fixes

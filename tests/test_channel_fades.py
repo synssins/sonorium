@@ -241,3 +241,17 @@ def test_saving_a_preset_updates_channels_playing_it(tmp_path, tones):
     # Another preset, or another theme, leaves the channel alone
     assert manager.preset_saved({"a"}, "calm") == 0
     assert manager.preset_saved({"b"}, "heavy") == 0
+
+
+def test_browsers_listening_here_are_counted_apart_from_speakers():
+    channel = m.channel.Channel(id=1)
+    channel._local_time -= 30  # long ago
+    channel.client_connected()  # a speaker
+    assert channel.local_idle_seconds() >= 30
+    channel.client_connected(local=True)  # a browser (Listen here)
+    assert channel.local_idle_seconds() == 0.0
+    channel.client_disconnected(local=True)
+    assert 0.0 <= channel.local_idle_seconds() < 5 and channel._client_count == 1
+    channel._local_time -= 30
+    channel.expect_local_listener()  # asked to listen: the wait for the browser counts from now
+    assert channel.local_idle_seconds() < 5

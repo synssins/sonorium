@@ -573,6 +573,7 @@ function showView(viewName) {
     setPageHelp(viewName);
 
     // Load view-specific data
+    if (viewName === 'sessions') renderSessions();
     if (viewName === 'speakers') renderSpeakersList();
     if (viewName === 'playlists') renderPlaylistsPage();
     if (viewName === 'themes') renderThemesBrowser();
@@ -628,6 +629,7 @@ function toggleCollapsibleSection(sectionId) {
 function renderSessions() {
     const container = document.getElementById('sessions-container');
     pselOpenId = null;  // the cards are rebuilt: any open preset list goes with them
+    spSetTitle('sessions', 'Channels', sessions.length);
 
     if (sessions.length === 0) {
         container.innerHTML = `
@@ -648,80 +650,213 @@ function renderSessions() {
     updatePlayingBadge();
 }
 
-function renderSessionCard(session) {
-    const icon = getThemeIcon(session.theme_id);
-    const isPlaying = session.is_playing;
+// ---------- Channel cards (docs/design/Channels_Blocks.dc.html): every block the same size ----------
+const CH_ICON_EDIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>';
+const CH_ICON_THEME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a10 10 0 0 0 0 20c1.1 0 1.8-.9 1.8-1.9 0-.5-.2-.9-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a5 5 0 0 0 5-5C22 6 17.5 2 12 2z"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="6.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="7" r="1.2" fill="currentColor"/></svg>';
+const CH_ICON_VOLUME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+const CH_ICON_PLAY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const CH_ICON_STOP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
+const CH_ICON_LISTEN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>';
 
-    // Get presets for this session's theme (cached or empty)
-    const sessionPresets = sessionPresetsCache[session.theme_id] || [];
-    const hasPresets = sessionPresets.length > 0;
+// Channels switched to playlist mode on their card, until a playlist is picked
+const chPlaylistMode = new Set();
+
+function renderSessionCard(session) {
+    const id = session.id;
+    const isPlaying = session.is_playing;
+    const playlistMode = !!session.playlist_id || chPlaylistMode.has(id);
+    const name = escapeHtml(session.name);
+    const speakers = session.speaker_summary || (session.speakers?.length === 0 ? 'No speakers selected' : `${session.speakers?.length || 0} speaker${(session.speakers?.length || 0) !== 1 ? 's' : ''}`);
 
     return `
-        <div class="session-card ${isPlaying ? 'playing' : ''}" data-session-id="${session.id}">
-            <div class="session-header">
-                <div class="session-title">
-                    <span class="session-icon">${icon}</span>
-                    <span class="session-name">${escapeHtml(session.name)}</span>
-                </div>
-                <span class="session-status ${isPlaying ? 'playing' : ''}">
-                    ${isPlaying ? '● Playing' : 'Stopped'}
-                </span>
+        <div class="ch-card${isPlaying ? ' on' : ''}" data-session-id="${escapeHtml(id)}">
+            <div class="ch-head">
+                <span class="ch-icon" aria-hidden="true">${themeIconOf(session.theme_id)}</span>
+                <div class="ch-title"><span class="ch-name">${name}</span><span class="ch-sub" title="Speakers">${escapeHtml(speakers)}</span></div>
+                <span class="ch-state${isPlaying ? ' on' : ''}">${isPlaying ? 'Playing' : 'Stopped'}</span>
+                <button type="button" class="icon-btn sm ch-listen${chListen.id === id ? ' on' : ''}" aria-pressed="${chListen.id === id}" aria-label="Listen on this device" title="Listen on this device" onclick="chToggleListen(${spArg(id)})">${CH_ICON_LISTEN}</button>
+                <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
+                <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
             </div>
-
-            ${session.playlist_id ? plCardHtml(session) : `
-            <div class="session-field">
-                <label>Theme</label>
-                <select onchange="updateSessionTheme('${session.id}', this.value)">
-                    <option value="">Select theme...</option>
-                    ${themes.map(t => `
-                        <option value="${t.id}" ${session.theme_id === t.id ? 'selected' : ''}>
-                            ${escapeHtml(t.name)}
-                        </option>
-                    `).join('')}
-                </select>
-            </div>
-
-            <div class="session-field session-preset-field" data-session-id="${session.id}" style="${session.theme_id ? '' : 'display:none;'}">
-                <label id="psel-lbl-${session.id}">Preset</label>
-                ${pselFieldHtml(session, hasPresets)}
-                ${seqNowHtml(session)}
-            </div>
-            `}
-
-            <div class="session-field">
-                <label>Speakers</label>
-                <div class="speaker-summary">
-                    ${session.speaker_summary || (session.speakers?.length === 0 ? 'No speakers selected' : `${session.speakers?.length || 0} speaker${(session.speakers?.length || 0) !== 1 ? 's' : ''}`)}
+            <div class="ch-src">
+                ${playlistMode ? chPlaylistPickers(session) : chThemePickers(session)}
+                <div class="ch-modes" role="group" aria-label="What ${name} plays">
+                    <button type="button" class="ch-mode${playlistMode ? '' : ' on'}" aria-pressed="${!playlistMode}" title="Play a theme" aria-label="Play a theme" onclick="chSetCardMode(${spArg(id)}, 'theme')">${CH_ICON_THEME}</button>
+                    <button type="button" class="ch-mode${playlistMode ? ' on' : ''}" aria-pressed="${playlistMode}" title="Play a playlist" aria-label="Play a playlist" onclick="chSetCardMode(${spArg(id)}, 'playlist')">${ICON_PLAYLIST}</button>
                 </div>
             </div>
-
-            <div class="volume-control">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-                </svg>
-                <input type="range" class="volume-slider" min="0" max="100"
-                       value="${session.volume}"
-                       oninput="updateSessionVolumeDisplay('${session.id}', this.value)"
-                       onchange="updateSessionVolume('${session.id}', this.value)">
-                <span class="volume-value">${session.volume}%</span>
+            ${chNowHtml(session)}
+            <div class="ch-vol">
+                <span class="ch-vol-ic">${CH_ICON_VOLUME}</span>
+                <input type="range" class="track-slider" min="0" max="100" value="${session.volume}" aria-label="Volume: ${name}"
+                       oninput="updateSessionVolumeDisplay(${spArg(id)}, this.value)"
+                       onchange="updateSessionVolume(${spArg(id)}, this.value)">
+                <span class="ch-vol-val">${session.volume}%</span>
             </div>
-
-            <button class="btn btn-play ${isPlaying ? 'playing' : ''}"
-                    onclick="togglePlayback('${session.id}')">
-                ${isPlaying ? '⏸ Pause' : '▶ Play'}
-            </button>
-
-            <div class="session-actions">
-                <button class="btn btn-secondary" onclick="editSession('${session.id}')">
-                    Edit
-                </button>
-                <button class="btn btn-secondary" onclick="deleteSession('${session.id}')">
-                    Delete
-                </button>
+            ${chRecentHtml(session)}
+            <div class="ch-foot">
+                <button type="button" class="btn ${isPlaying ? 'btn-danger' : 'btn-primary'} ch-play" onclick="togglePlayback(${spArg(id)})">${isPlaying ? `${CH_ICON_STOP}Stop` : `${CH_ICON_PLAY}Play`}</button>
             </div>
         </div>
     `;
+}
+
+// Theme mode: the Theme and Preset fields
+function chThemePickers(session) {
+    const id = session.id;
+    const key = `cth:${id}`;
+    XSEL[key] = {
+        options: () => themes.map(t => ({ id: t.id, html: `<span class="nm">${escapeHtml(t.name)}</span>` })),
+        current: () => sessions.find(s => s.id === id)?.theme_id || '',
+        pick: themeId => updateSessionTheme(id, themeId),
+    };
+    const theme = themeById(session.theme_id);
+    const hasPresets = (sessionPresetsCache[session.theme_id] || []).length > 0;
+    return `
+                <span class="ch-lbl" id="xsel-lbl-${escapeHtml(key)}">Theme</span>
+                ${xselHtml(key, `xsel-lbl-${escapeHtml(key)}`, theme ? `<span class="nm">${escapeHtml(theme.name)}</span>` : '<span class="nm none">Choose a theme</span>', themes.length === 0, 'ch-pick')}
+                <span class="ch-lbl" id="psel-lbl-${escapeHtml(id)}">Preset</span>
+                ${pselFieldHtml(session, hasPresets)}`;
+}
+
+// Playlist mode: the Playlist field and the entry playing (Next moves on; it can't be picked)
+function chPlaylistPickers(session) {
+    const id = session.id;
+    const key = `cpl:${id}`;
+    XSEL[key] = {
+        options: () => playlistOptions(false),
+        current: () => sessions.find(s => s.id === id)?.playlist_id || '',
+        pick: playlistId => plCardPick(id, playlistId),
+    };
+    const playlist = playlistById(session.playlist_id);
+    const status = session.playlist || {};
+    const name = status.name || playlist?.name;
+    const inner = name
+        ? `<span class="nm">${escapeHtml(name)}</span>`
+        : `<span class="nm none">${playlists.length ? 'Choose a playlist' : 'No playlists yet'}</span>`;
+    const entry = playlist && status.entry_index !== null && status.entry_index !== undefined ? playlist.entries[status.entry_index] : null;
+    const themeId = status.theme_id || session.theme_id;
+    const theme = themeById(themeId);
+    const what = entry ? plWhatHtml(themeId, entry.preset_id, entry.sequence_id) : plWhatHtml(themeId, session.preset_id, session.sequence_id);
+    return `
+                <span class="ch-lbl" id="xsel-lbl-${escapeHtml(key)}">Playlist</span>
+                ${xselHtml(key, `xsel-lbl-${escapeHtml(key)}`, inner, playlists.length === 0, 'ch-pick')}
+                <span class="ch-lbl">Playing</span>
+                <div class="psel-btn ch-pick ro"><span class="nm">${escapeHtml(theme ? theme.name : (themeId || ''))}</span><span class="ch-sep">·</span>${what}</div>`;
+}
+
+// The "Now" line: the sequence step or playlist entry, when it changes, and Next
+function chNowHtml(session) {
+    const playlist = session.playlist_id ? session.playlist : null;
+    const sequence = session.playlist_id ? null : session.sequence;
+    let text = '';
+    if (playlist) {
+        text = `Entry ${(playlist.position ?? 0) + 1} of ${playlist.entries ?? 0}${playlist.running ? chNextIn(playlist) : ''}`;
+    } else if (sequence) {
+        text = `Step ${sequence.step ?? 1} of ${sequence.steps}: <b>${escapeHtml(sequence.current_preset_name || 'Default settings')}</b>${sequence.running ? chNextIn(sequence) : ''}`;
+    }
+    if (!text) return '<div class="ch-now"><span class="ch-now-txt"><span class="ch-none">No sequence or playlist</span></span></div>';
+    const title = session.is_playing ? (playlist ? 'Next entry' : 'Next step') : 'Play the channel first';
+    return `<div class="ch-now"><span class="ch-now-txt">${text}</span><button type="button" class="btn btn-sm btn-secondary ch-next" title="${title}"
+                    ${session.is_playing ? '' : 'disabled'} onclick="chNext(${spArg(session.id)})">${ICON_NEXT}Next</button></div>`;
+}
+
+// " · next in m:ss" (counted down by chTick), or nothing
+function chNextIn(status) {
+    const at = Date.parse(status.next_change_at || '');
+    if (Number.isNaN(at)) return '';
+    return ` · next in <span class="ch-cd" data-at="${at}">${chClock((at - Date.now()) / 1000)}</span>`;
+}
+
+// Seconds as m:ss (h:mm:ss from an hour)
+function chClock(seconds) {
+    const s = Math.max(0, Math.round(seconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+function chRecentHtml(session) {
+    const items = (session.recent || []).map(e =>
+        `<li><time datetime="${escapeHtml(e.at)}">${chWhen(e.at)}</time><span title="${escapeHtml(e.text)}">${escapeHtml(e.text)}</span></li>`).join('');
+    return `<div class="ch-recent"><div class="ch-recent-hd">Recent changes</div><ul>${items}</ul></div>`;
+}
+
+// An event's time: HH:MM today, "Yesterday HH:MM", else a short date
+function chWhen(iso) {
+    const at = new Date(iso);
+    if (Number.isNaN(at.getTime())) return '';
+    const hm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    const day = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const days = Math.round((day(new Date()) - day(at)) / 86400000);
+    if (days <= 0) return hm;
+    if (days === 1) return `Yesterday ${hm}`;
+    return at.toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+
+function chMenu(button, sessionId) {
+    xMenu(`ch:${sessionId}`, button,
+        xMenuItem('Delete…', `spClosePop(); deleteSession(${spArg(sessionId)})`, { icon: SP_ICON_TRASH, cls: 'danger' }),
+        { cls: 'menu sp-menu x-menu' });
+}
+
+// Listen here: this browser plays the channel's own stream (one channel at a time). The server
+// runs the mix for it even while the speakers are stopped; Play and Stop stay the speakers'.
+const chListen = { id: null, audio: null };
+
+async function chToggleListen(sessionId) {
+    const again = chListen.id === sessionId;
+    await chStopListening();
+    if (again) return;
+    try {
+        const result = await api('POST', `/sessions/${sessionId}/listen`);
+        const audio = new Audio(`${BASE_PATH}${result.stream_path}?local=1`);
+        chListen.id = sessionId;
+        chListen.audio = audio;
+        // The stream ends when the channel goes (deleted, or released on the server)
+        const ended = () => { if (chListen.audio === audio) { chListen.id = null; chListen.audio = null; renderSessions(); } };
+        audio.addEventListener('ended', ended);
+        audio.addEventListener('error', ended);
+        renderSessions();
+        await audio.play();
+    } catch (error) {
+        await chStopListening();
+        showToast(error.message, 'error');
+    }
+}
+
+async function chStopListening() {
+    const { id, audio } = chListen;
+    if (!id) return;
+    chListen.id = null;
+    chListen.audio = null;
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();  // closes the stream
+    renderSessions();
+    try {
+        await api('DELETE', `/sessions/${id}/listen`);
+    } catch (error) { /* the server releases it once no browser listens */ }
+}
+
+// The mode buttons: back to a theme stops the playlist (the channel keeps its theme);
+// playlist mode waits for a playlist to be picked
+function chSetCardMode(sessionId, mode) {
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    if (mode === 'theme') {
+        chPlaylistMode.delete(sessionId);
+        if (session.playlist_id) {
+            plCardPick(sessionId, '');
+            return;
+        }
+        renderSessions();
+    } else if (!session.playlist_id && !chPlaylistMode.has(sessionId)) {
+        chPlaylistMode.add(sessionId);
+        renderSessions();
+        xselOpen(`cpl:${sessionId}`);
+    }
 }
 
 function updatePlayingBadge() {
@@ -974,7 +1109,7 @@ function pselFieldHtml(session, hasPresets) {
     const sel = options.find(o => o.id === sessionChoice(session)) || options[0];
     return `
                 <div class="psel">
-                    <button type="button" class="psel-btn" id="psel-btn-${id}" aria-haspopup="listbox" aria-expanded="false"
+                    <button type="button" class="psel-btn ch-pick" id="psel-btn-${id}" aria-haspopup="listbox" aria-expanded="false"
                             aria-labelledby="psel-lbl-${id} psel-btn-${id}" ${hasPresets ? '' : 'disabled'}
                             onclick="pselToggle('${id}')" onkeydown="pselButtonKey(event, '${id}')">
                         <span class="nm">${hasPresets ? escapeHtml(sel.name) : 'No presets available'}</span>${hasPresets ? optionMarks(sel) : ''}
@@ -1013,7 +1148,6 @@ function pselOpen(id) {
     pselActive = Math.max(0, pselOptions(session).findIndex(o => o.id === sessionChoice(session)));
     list.hidden = false;
     button.setAttribute('aria-expanded', 'true');
-    button.closest('.session-field')?.classList.add('open');
     pselRenderList(id);
     list.focus();
 }
@@ -1027,7 +1161,6 @@ function pselClose(focusButton = false) {
     if (list) { list.hidden = true; list.innerHTML = ''; }
     if (button) {
         button.setAttribute('aria-expanded', 'false');
-        button.closest('.session-field')?.classList.remove('open');
         if (focusButton) button.focus();
     }
 }
@@ -1118,9 +1251,9 @@ function updateSessionVolumeDisplay(sessionId, value) {
     // Update the volume display span in real-time while dragging
     // Use CSS.escape for safe attribute selector with any session ID format
     const escapedId = CSS.escape(sessionId);
-    const card = document.querySelector(`.session-card[data-session-id="${escapedId}"]`);
+    const card = document.querySelector(`.ch-card[data-session-id="${escapedId}"]`);
     if (card) {
-        const valueSpan = card.querySelector('.volume-value');
+        const valueSpan = card.querySelector('.ch-vol-val');
         if (valueSpan) {
             valueSpan.textContent = `${value}%`;
         }
@@ -7447,7 +7580,7 @@ const ICON_ARROW = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" 
 const ICON_UP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
 const ICON_DOWN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>';
 const ICON_COPY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
-const ICON_NEXT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>';
+const ICON_NEXT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>';
 const ICON_REPEAT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>';
 const ICON_IN_ORDER = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><polyline points="3 5 4 6 3 7"/><polyline points="3 11 4 12 3 13"/><polyline points="3 17 4 18 3 19"/></svg>';
 const ICON_SHUFFLE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>';
@@ -7474,15 +7607,6 @@ function seqMinutes(seconds) {
     if (seconds === null || seconds === undefined || seconds === '') return '';
     const m = Number(seconds) / 60;
     return Number.isInteger(m) ? String(m) : String(+m.toFixed(1));
-}
-
-// Minutes until a status's next change (at least 1), or null
-function minutesUntil(status) {
-    if (!status) return null;
-    const at = Date.parse(status.next_change_at || '');
-    let seconds = Number.isNaN(at) ? status.seconds_until_change : (at - Date.now()) / 1000;
-    if (seconds === null || seconds === undefined) return null;
-    return Math.max(1, Math.round(seconds / 60));
 }
 
 // A length in minutes: "45 min", "1 h 30 min", "2 h"
@@ -7539,11 +7663,11 @@ async function plLoadThemePresets(list = playlists) {
 const XSEL = {};
 const xs = { key: null, active: 0 };
 
-function xselHtml(key, labelId, innerHtml, disabled = false) {
+function xselHtml(key, labelId, innerHtml, disabled = false, cls = '') {
     const k = escapeHtml(key);
     return `
                 <div class="psel xsel">
-                    <button type="button" class="psel-btn" id="xsel-btn-${k}" aria-haspopup="listbox" aria-expanded="false"
+                    <button type="button" class="psel-btn${cls ? ' ' + cls : ''}" id="xsel-btn-${k}" aria-haspopup="listbox" aria-expanded="false"
                             aria-labelledby="${labelId} xsel-btn-${k}" ${disabled ? 'disabled' : ''}
                             onclick="xselToggle(${spArg(key)})" onkeydown="xselButtonKey(event, ${spArg(key)})">
                         ${innerHtml}<span class="chev">${ICON_CHEV_DOWN}</span>
@@ -7658,59 +7782,7 @@ function playlistOptions(withNone) {
     })));
 }
 
-// ---------- Channel cards: a running sequence, a playlist ----------
-
-// Under the preset field: what a running sequence plays now and when it changes
-function seqNowHtml(session) {
-    const status = session.sequence;
-    if (!status || session.playlist_id) return '';
-    let text = '';
-    if (status.running) {
-        const n = minutesUntil(status);
-        text = `Now ${status.current_preset_name || 'Default settings'}${n ? ` · next change in ${n} min` : ''}`;
-    } else {
-        const seq = (sessionSequencesCache[session.theme_id] || []).find(q => q.id === status.id);
-        const first = seq && (sessionPresetsCache[session.theme_id] || []).find(p => p.id === seq.presets[0]);
-        if (first) text = `Starts on ${first.name}`;
-    }
-    return text ? `<div class="seq-now">${escapeHtml(text)}</div>` : '';
-}
-
-// A channel playing a playlist: the playlist (pick another, or (None)), the entry playing, Next
-function plCardHtml(session) {
-    const id = session.id;
-    const status = session.playlist || {};
-    const playlist = playlistById(session.playlist_id);
-    const key = `cpl:${id}`;
-    XSEL[key] = {
-        options: () => playlistOptions(true),
-        current: () => sessions.find(s => s.id === id)?.playlist_id || '',
-        pick: playlistId => plCardPick(id, playlistId),
-    };
-    const name = status.name || playlist?.name || 'Playlist';
-    const entry = playlist && status.entry_index !== null && status.entry_index !== undefined ? playlist.entries[status.entry_index] : null;
-    const themeId = status.theme_id || entry?.theme_id || session.theme_id;
-    const theme = themeById(themeId);
-    const sequenceId = entry ? entry.sequence_id : null;
-    const what = plWhatHtml(themeId, entry ? entry.preset_id : session.preset_id, sequenceId);
-    const total = status.entries ?? playlist?.entries.length ?? 0;
-    const n = status.running ? minutesUntil(status) : null;
-    const meta = `Entry ${(status.position ?? 0) + 1} of ${total}${n ? ` · next in ${n} min` : ''}`;
-    return `
-            <div class="session-field pl-field">
-                <label id="xsel-lbl-${escapeHtml(key)}">Playlist</label>
-                ${xselHtml(key, `xsel-lbl-${escapeHtml(key)}`, `<span class="pl-ic">${ICON_PLAYLIST}</span><span class="nm">${escapeHtml(name)}</span>`)}
-                <div class="pl-now">
-                    <span class="pl-ti" aria-hidden="true">${themeIconOf(themeId)}</span>
-                    <div class="pl-txt">
-                        <span class="pl-e"><span class="pl-th">${escapeHtml(theme ? theme.name : (themeId || ''))}</span><span class="pl-sep">·</span>${what}</span>
-                        <span class="pl-meta">${escapeHtml(meta)}</span>
-                    </div>
-                    <button type="button" class="btn btn-sm btn-secondary pl-next" title="${session.is_playing ? 'Play the next entry now' : 'Play the channel first'}"
-                            ${session.is_playing ? '' : 'disabled'} onclick="plNext(${spArg(id)})">${ICON_NEXT}Next</button>
-                </div>
-            </div>`;
-}
+// ---------- Channel cards: a playlist, Next ----------
 
 async function plCardPick(sessionId, playlistId) {
     const session = sessions.find(s => s.id === sessionId);
@@ -7718,6 +7790,7 @@ async function plCardPick(sessionId, playlistId) {
     try {
         if (playlistId) {
             await api('PUT', `/sessions/${sessionId}/playlist`, { playlist_id: playlistId });
+            chPlaylistMode.delete(sessionId);
             showToast(`Playing “${playlistById(playlistId)?.name || 'playlist'}”`, 'success');
         } else {
             await api('DELETE', `/sessions/${sessionId}/playlist`);
@@ -7730,29 +7803,48 @@ async function plCardPick(sessionId, playlistId) {
     }
 }
 
-async function plNext(sessionId) {
+// Next: the playlist's next entry, or the sequence's next step
+async function chNext(sessionId) {
     try {
-        await api('POST', `/sessions/${sessionId}/next`);
+        const result = await api('POST', `/sessions/${sessionId}/next`);
         await loadSessions();
         renderSessions();
-        showToast('Next entry', 'success');
+        showToast(result?.skipped === 'sequence' ? 'Next step' : 'Next entry', 'success');
     } catch (error) {
         showToast(error.message, 'error');
     }
 }
 
-// The Channels page follows sequences and playlists: reload the channels every 15 s while it's shown
+// The Channels page follows sequences and playlists: reload the channels every 15 s while it's shown,
+// and count "next in" down every second
 let playbackPoll = null;
+let chDueAt = 0;
 
 function startPlaybackPolling() {
     if (playbackPoll) return;
     playbackPoll = setInterval(refreshPlayback, 15000);
+    setInterval(chTick, 1000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshPlayback(); });
 }
 
+function chTick() {
+    if (currentView !== 'sessions' || document.hidden) return;
+    let due = false;
+    document.querySelectorAll('#sessions-container .ch-cd').forEach(el => {
+        const left = (Number(el.dataset.at) - Date.now()) / 1000;
+        el.textContent = chClock(left);
+        if (left <= 0) due = true;
+    });
+    // A change is due: reload (at most every 5 s until the server has moved on)
+    if (due && Date.now() - chDueAt > 5000) {
+        chDueAt = Date.now();
+        refreshPlayback();
+    }
+}
+
 function playbackBusy() {
-    // A list open, or a slider or select in use on a card: don't rebuild the cards under it
-    return !!pselOpenId || !!xs.key || !!document.activeElement?.closest?.('#sessions-container input, #sessions-container select');
+    // A list or menu open, or a slider in use on a card: don't rebuild the cards under it
+    return !!pselOpenId || !!xs.key || !!spm.id || !!document.activeElement?.closest?.('#sessions-container input');
 }
 
 async function refreshPlayback() {
@@ -9379,12 +9471,15 @@ const PAGE_HELP = {
         ${helpTerm('Preset', 'a saved mix of the theme\'s tracks. Default settings plays the theme without a preset.')}
         ${helpTerm('Sequences', 'listed in the Preset menu after the presets, marked with the sequence icon. Picking one plays its presets in turn; the line under the field shows the preset playing now and when it changes. Picking a preset stops it.')}
         ${helpTerm('Playlist', 'a channel can play a playlist instead of one theme: in Edit, choose Playlist. The card then shows the playlist and the entry playing now.')}
+        ${helpTerm('Theme or playlist', 'the two buttons right of the fields. The palette plays a theme (Theme and Preset); the playlist icon plays a playlist (Playlist and Playing).')}
         ${helpTerm('Next', 'plays the playlist\'s next entry now.')}
         ${helpTerm('Speakers', 'where the channel plays. Use Edit to change them.')}
         ${helpTerm('Volume', 'the channel\'s volume. It is saved when you let go of the slider.')}
         ${helpTerm('Play / Pause', 'starts or stops the channel on its speakers.')}
         ${helpTerm('Edit', 'changes the channel\'s name, theme or playlist, preset, volume and speakers.')}
         ${helpTerm('Delete', 'removes the channel. You confirm first.')}
+        ${helpTerm('Listen here', 'the headphones button plays the channel on this device too, even while its speakers are stopped. Press it again to stop. Play and Stop are for the speakers.')}
+        ${helpTerm('Recent changes', 'the channel\'s latest changes with their times: started, stopped, theme, preset, sequence step, playlist entry.')}
         <h4>New channel</h4>
         ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it after the theme and speakers.')}
         ${helpTerm('Speakers', 'pick floors, areas or single speakers. Only speakers turned on under Settings › Speakers are listed.')}

@@ -172,6 +172,29 @@ def test_playlist_name_conflict(api):
 
 # --- On a channel ---
 
+def test_channels_list_their_recent_changes_newest_first(api):
+    c = api.client
+    sid = api.session.id
+    assert c.get(f"/api/sessions/{sid}").json()["recent"] == []
+    runner_tests.run(api.manager.play(sid))
+    assert c.put(f"/api/sessions/{sid}", json={"preset_id": "c"}).status_code == 200
+    recent = c.get("/api/sessions").json()[0]["recent"]
+    assert [e["text"] for e in recent] == ["Preset: Downpour", "Started"]
+    assert all(e["at"] for e in recent)
+
+
+def test_listen_here_starts_and_ends_a_browser_listener(api):
+    c = api.client
+    sid = api.session.id
+    r = c.post(f"/api/sessions/{sid}/listen")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"channel_id": 1, "stream_path": "/stream/channel1"}
+    assert c.get(f"/api/sessions/{sid}").json()["is_playing"] is False  # the speakers stay off
+    assert c.delete(f"/api/sessions/{sid}/listen").status_code == 200
+    assert c.post("/api/sessions/nope/listen").status_code == 404
+    assert c.delete("/api/sessions/nope/listen").status_code == 404
+
+
 def test_channel_sequence_playlist_and_next(api):
     c = api.client
     sid = api.session.id

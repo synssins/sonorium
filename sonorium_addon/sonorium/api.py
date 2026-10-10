@@ -1008,8 +1008,8 @@ class ApiSonorium(api.Base):
         response = StreamingResponse(stream, media_type="audio/mpeg")
         return response
 
-    async def stream_channel(self, channel_id: int):
-        """Stream audio from a channel (new endpoint)."""
+    async def stream_channel(self, channel_id: int, local: bool = False):
+        """Stream audio from a channel (new endpoint). ?local=1: a browser listening here (Listen here)."""
         if not self._channel_manager:
             return HTMLResponse(content="Channel system not initialized", status_code=503)
 
@@ -1017,7 +1017,7 @@ class ApiSonorium(api.Base):
         if not channel:
             return HTMLResponse(content=f"Channel {channel_id} not found", status_code=404)
 
-        stream = channel.get_stream()
+        stream = channel.get_stream(local)
         response = StreamingResponse(stream, media_type="audio/mpeg")
         return response
 

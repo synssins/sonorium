@@ -323,6 +323,10 @@ class Session:
     playlist_position: int = 0
     playlist_order: list[int] = field(default_factory=list)
 
+    # Recent changes shown on the channel's card, oldest first: [{"at": ISO
+    # time (UTC), "text": ...}] (SessionManager.note keeps the last RECENT_EVENTS)
+    recent: list[dict] = field(default_factory=list)
+
     # Metadata
     created_at: str = ""  # ISO format
     last_played_at: Optional[str] = None  # ISO format
@@ -343,6 +347,10 @@ class Session:
         # Convert cycle_config from dict if needed
         if isinstance(self.cycle_config, dict):
             self.cycle_config = CycleConfig.from_dict(self.cycle_config)
+
+        # Only well-formed events (from a hand-edited state file, say)
+        self.recent = [{"at": e["at"], "text": e["text"]} for e in (self.recent or [])
+                       if isinstance(e, dict) and isinstance(e.get("at"), str) and isinstance(e.get("text"), str)]
 
         self.entity_slug = self.get_entity_slug()
     
