@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.5.3-dev.6 (2026-10-10)
+
+### Documentation
+
+- Intrusion mockup screenshots (desktop and phone)
+  ([`f502223`](https://github.com/synssins/sonorium/commit/f502223ccc9b76505c85d3955b79f48de7013be5))
+
+### Features
+
+- **ui**: Intrusions in the Theme Editor and preset icons
+  ([`0c190d1`](https://github.com/synssins/sonorium/commit/0c190d1400611d173cbb5346bff6cee198af7740))
+
+
 ## v1.5.3-dev.5 (2026-10-10)
 
 ### Bug Fixes
