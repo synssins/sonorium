@@ -17,7 +17,7 @@ code and this document disagree, the code wins and this document has a bug.
 |---|---|
 | Track | One audio file in a theme. |
 | Version | One of several tracks that are variations of the same sound (for example three lute songs). |
-| Group | A named exclusive group: a subfolder of a theme. Only one of its tracks plays at a time, and the group works like a mixer bus over its tracks (3.6). |
+| Group | A named group: a subfolder of a theme. In Intermittent mode (the default) only one of its tracks plays at a time; in Merry-go-round mode its files make one continuous bed, each crossfading into the next (3.6). Either way the group works like a mixer bus over its tracks. |
 | Preset | A saved set of track (and optionally group) settings for one theme. |
 | Sequence | Presets played in order inside one theme (planned). |
 | Playlist | Themes played in order. |
@@ -193,6 +193,7 @@ means "no change" (100 %, not muted, default gap).
 ```json
 "groups": {
   "Lute":      { "volume": 0.8, "presence": 0.5, "muted": false, "gap_min": 60, "gap_max": 240 },
+  "Wind":      { "mode": "merry_go_round", "crossfade": 12 },
   "Exclusive": { "legacy_exclusive": true }
 }
 ```
@@ -203,17 +204,22 @@ means "no change" (100 %, not muted, default gap).
 | `presence` | number 0.0-1.0 | Group master presence. **Multiplies** each grouped track's own presence. | same |
 | `muted` | bool | `true` mutes every track in the group. | `:338`, `:457-459` |
 | `gap_min`, `gap_max` | number, seconds | The group's random rest after any of its tracks finishes: uniform in `[gap_min, gap_max]` each time. Never scaled by presence. If only one is set, it is used for both; if reversed, they are swapped. Without either, the rest is 120 s (3.6). | `:354-363`, `:36-39` |
+| `mode` | string | `"intermittent"` (default; also when missing or unknown): one track at a time with the gap. `"merry_go_round"`: a continuous bed, each file crossfading into the next (3.6). A theme setting: presets never save it. | `recording.py` `group_mode`, `theme.py` `_bed_groups` |
+| `crossfade` | number, seconds | Merry-go-round only: the overlap between one file and the next. Default 10; kept within 1-60. Ignored in Intermittent mode. Not saved in presets. | `recording.py` `group_crossfade` |
 | `legacy_exclusive` | bool | Written by the conversion for version 1 themes with `exclusive` tracks (1.4). Read by nothing. | `core/theme_metadata.py:185-193` |
 
 API (`api.py:151-152`):
 
 - `GET /api/themes/{id}/groups` lists the theme's **folder** groups, sorted by name, each with
-  `name`, `settings` (only the five keys above) and `tracks` (track keys) (`api.py:1581-1605`).
+  `name`, `settings` (only the seven keys above, as saved: no `mode` means Intermittent) and
+  `tracks` (track keys) (`api.py:1581-1605`).
 - `PUT /api/themes/{id}/groups/{group}` changes any of `presence`, `volume` (clamped 0-1),
-  `muted`, `gap_min`, `gap_max` (clamped `>= 0`); `null` removes a key; other keys give 400; a
-  group that is not a folder group gives 404 (`api.py:1607-1647`). Volume, presence and mute
-  apply live to playing channels; the gap applies the next time the theme stream starts
-  (`api.py:1645`, `theme.py:130-131`).
+  `muted`, `gap_min`, `gap_max` (clamped `>= 0`), `mode` (`"intermittent"` or
+  `"merry_go_round"`, anything else gives 400) and `crossfade` (a number, clamped 1-60);
+  `null` removes a key; other keys give 400; a group that is not a folder group gives 404
+  (`api.py:1607-1647`). Everything applies live to playing channels: volume, presence, mute and
+  crossfade every chunk, the gap at the next gap, and a mode change rebuilds that group's
+  streams (`ThemeStream._follow_group_modes`).
 
 ---
 
@@ -382,6 +388,9 @@ Rules (`ExclusionGroupCoordinator`, `recording.py`):
 | No direct repeats | the track that played last is left out, unless no other track asked (the others are muted, at 0%, or it's alone) |
 | A pick nobody takes | if the picked track doesn't start within `PICK_TIMEOUT = 10.0` s (muted meanwhile), the group picks again |
 
+These rules are for groups in Intermittent mode (the default). A group in Merry-go-round mode has no
+coordinator; see "Merry-go-round" below.
+
 Grouped tracks play Intermittent (3.6): the whole file once, start to finish, with only a 20 ms edge
 (`GROUP_EDGE_FADE_SECONDS`) so it doesn't click, and no sparse gap of their own; the group's gap
 and pick decide when a track plays again. With four tracks at 100%, 100%, 100% and 20%, the 20%
@@ -389,6 +398,30 @@ track plays about one turn in ten.
 
 The coordinator runs on the theme's audio clock (`ThemeStream.audio_seconds`), not the wall
 clock, so a stalled stream can't let two tracks of a group overlap.
+
+**Merry-go-round** (`MerryGoRoundStream`, `recording.py`). A group with `"mode": "merry_go_round"`
+plays as **one stream** in the theme's mix (its bed) instead of one stream per track
+(`ThemeStream._build`, `theme.py`). It counts time in its own samples, never the wall clock.
+
+| Rule | Value |
+|---|---|
+| Start | at once, with the 20 ms edge (`GROUP_EDGE_FADE_SECONDS`); no `INITIAL_DELAY`, no gap |
+| Playable files | the group's tracks that are unmuted (track and group) and have Interval (track x group) above 0 |
+| Picking | as the coordinator: weight `sqrt(share) x (1 - drag)^2`, drag 1.0 on start, worn off by `drag x (0.6 + 0.35 x (1 - share))` each time another file starts. The file playing now is left out unless it is the only playable file. Each pick is logged at debug level with the weights |
+| When | the next file is picked about three crossfades before the current one ends (from the header duration) and decoded a little each chunk; the exact end is known once decoding reaches it, at least one crossfade ahead |
+| Crossfade | equal power: outgoing `sin(pi/2 x r/X)` where `r` is the samples it has left, incoming `sin(pi/2 x p/X)` where `p` is the samples it has played. `X = min(crossfade, outgoing length / 2, incoming length / 2)`, so a short file gets a shorter crossfade and never overlaps itself beyond half its length. Sample accurate, also inside a chunk |
+| Starts and stops | the next file starts `X` before the current one ends, so no two files start or stop at the same sample; two files at most sound at once (three only when a file is muted during a crossfade) |
+| One file | it crossfades into itself, like a Background loop with the group's crossfade |
+| Level | each file's `volume` x group volume, read every chunk; a change ramps across one chunk |
+| Muted or 0 % while playing | the file hands over at once: the next file is picked and the crossfade starts now (`X` also at most the time the file has played, at least 20 ms). If nothing else is playable it runs on, silent if muted |
+| Everything muted | the bed runs silent; it starts again (fading in over the crossfade) once a file is playable |
+| Memory | each sounding file is decoded as it plays, at most about two crossfades ahead; no file is kept whole |
+
+Files added to the group while it plays join the pool at once (no drag, so they are a likely
+early pick); a removed file finishes if it is playing and is never picked again
+(`ThemeStream.adopt`). Changing the group's mode on a playing stream replaces its streams within
+one chunk: a bed stops at once, Intermittent tracks start with a new coordinator (and its 60 s
+delay).
 
 **Mixer bus.** A grouped track's settings are worked out by `TrackView`
 (`recording.py:410-477`) in this order:
@@ -403,7 +436,7 @@ clock, so a stalled stream can't let two tracks of a group overlap.
 | Group 50 % | 50 % | 25 % |
 
 The gap (`gap_min`, `gap_max`) is the group's own rest in seconds and is never multiplied.
-Presets can set group `volume`, `presence` and `muted`, not the gap
+Presets can set group `volume`, `presence` and `muted`, not the gap, `mode` or `crossfade`
 (`recording.py:399-407`). Group masters apply only to tracks in a group **folder**; the legacy
 `"Exclusive"` group shares turns but has no master controls (quirk Q22).
 
@@ -422,7 +455,9 @@ theme only swaps the override values in place (`core/channel.py:164-171`,
 | `playback_mode`, `short_file_threshold` | Fixed at creation (mode resolution). |
 | `seamless_loop` | Fixed at creation (stream class choice). |
 | `exclusive`, group membership | Fixed at creation (`theme.py:126-133`, `recording.py:725-727`, `:940-943`). |
-| Group `gap_min`, `gap_max` | Fixed at creation (`theme.py:130-131`). |
+| Group `gap_min`, `gap_max` | Read at each gap (`theme.py`, `_new_stream`). |
+| Group `mode` | Live: the theme stream checks every chunk and rebuilds the group's streams when it changes (`ThemeStream._follow_group_modes`). |
+| Group `crossfade` | Live: read every chunk; applies to the next transition. |
 | Output gain (master volume) | Live, every chunk (`theme.py:150`). |
 
 ### 3.8 The mix (built)
@@ -469,6 +504,7 @@ top of `recording.py:2` and inside the generators, `recording.py:732`, `:948`):
 | 6 | Presence active time jitter | `random.uniform(0.7, 1.3)` | uniform, `recording.py:973` |
 | 7 | Presence silent time jitter | `random.uniform(0.7, 1.3)` | uniform, `recording.py:978` |
 | 8 | Group gap | `random.uniform(gap_min, gap_max)`, only if the group sets a gap | uniform, `recording.py:38` |
+| 9 | Group pick (both modes) | `weighted_choice`: `random.uniform(0, total weight)`, or `random.choice` when every weight is 0 | uniform, `recording.py` |
 
 Other non-deterministic inputs: the group coordinator's wall clock (3.6), and new theme
 IDs from `uuid.uuid4()` (`core/theme_metadata.py:110`, not audio).
@@ -564,7 +600,8 @@ Short list of agreed direction. Nothing here is in the code yet; field names may
 
 ### 6.2 Beds and events
 
-- **Beds** (rain, fire, room tone): one long seamless loop, 2-5 minutes, top level, `playback_mode: "continuous"`, `seamless_loop: false` (a 1.5 s crossfade hides a slightly imperfect loop point; set `true` only for a file cut to loop perfectly). Never put a bed in a group folder: grouped tracks are never continuous (3.2).
+- **Beds** (rain, fire, room tone): one long seamless loop, 2-5 minutes, top level, `playback_mode: "continuous"`, `seamless_loop: false` (a 1.5 s crossfade hides a slightly imperfect loop point; set `true` only for a file cut to loop perfectly). Do not put a bed in an Intermittent group folder: its tracks are never continuous (3.2).
+- **Varied beds**: 3 or more files of the same scene (for example `Wind/Wind 1.ogg` ... `Wind/Wind 4.ogg`, each 1-5 minutes) in one group folder with `"mode": "merry_go_round"` and a `crossfade` of 5-20 s. The bed crossfades from file to file at random and never repeats the same way. Each file should be at least twice the crossfade long.
 - **Events** (door, thunder, a lute song): several distinct versions as separate files in one group folder, for example `Thunder/Thunder 1.wav` ... `Thunder/Thunder 5.wav`. Grouped tracks play one at a time, never the same version twice in a row (3.6); short files play sparse, long ones fade in and out. Set each version's `presence` to control how often it comes up, the group's `presence` and `volume` to scale the whole group, and `gap_min`/`gap_max` for the rest between plays. Keep grouped long tracks below 100 % effective presence (quirk Q19).
 - Single top-level events: `playback_mode: "sparse"`, set `presence`.
 

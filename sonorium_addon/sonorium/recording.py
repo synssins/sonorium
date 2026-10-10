@@ -1,3 +1,4 @@
+from collections import deque
 from enum import Enum
 import random
 import threading
@@ -93,20 +94,10 @@ class ExclusionGroupCoordinator:
             logger.debug(f'ExclusionGroup: "{self._last_played_track}" finished, gap until +{self._cooldown_until - now:.0f}s')
 
     def _weight(self, track: str) -> float:
-        share = max(self.MIN_SHARE, min(1.0, self._shares.get(track, 1.0)))
-        return (share ** 0.5) * (1.0 - self._drag.get(track, 0.0)) ** 2
+        return turn_weight(self._shares.get(track, 1.0), self._drag.get(track, 0.0))
 
     def _pick(self, candidates: list[str]) -> str:
-        weights = [self._weight(t) for t in candidates]
-        total = sum(weights)
-        if total <= 0:
-            return random.choice(candidates)
-        point = random.uniform(0, total)
-        for track, weight in zip(candidates, weights):
-            point -= weight
-            if point <= 0:
-                return track
-        return candidates[-1]
+        return weighted_choice(candidates, [self._weight(t) for t in candidates])
 
     def _may_start(self, track: str, share: float | None, now: float) -> bool:
         """Records the ask; True when it's this track's turn now."""
@@ -137,8 +128,7 @@ class ExclusionGroupCoordinator:
     def _start(self, track: str, duration_seconds: float, now: float):
         for other in self._registered_tracks | set(self._asked):
             if other != track and self._drag.get(other):
-                share = max(self.MIN_SHARE, min(1.0, self._shares.get(other, 1.0)))
-                self._drag[other] *= 0.6 + 0.35 * (1.0 - share)  # wears off faster at a high share
+                self._drag[other] = worn_drag(self._drag[other], self._shares.get(other, 1.0))
         self._drag[track] = 1.0
         self._playing_track = track
         self._play_end_time = now + duration_seconds
@@ -199,6 +189,35 @@ class ExclusionGroupCoordinator:
             return len(self._registered_tracks)
 
 
+# How a group picks its next track (both group modes use these)
+
+def _clamp_share(share) -> float:
+    return max(ExclusionGroupCoordinator.MIN_SHARE, min(1.0, 1.0 if share is None else float(share)))
+
+
+def turn_weight(share, drag: float) -> float:
+    """A track's chance to be picked: sqrt(share) x (1 - drag)^2 (share: its Interval, 0-1)."""
+    return (_clamp_share(share) ** 0.5) * (1.0 - drag) ** 2
+
+
+def worn_drag(drag: float, share) -> float:
+    """A track's drag after another track played: it wears off faster at a high share."""
+    return drag * (0.6 + 0.35 * (1.0 - _clamp_share(share)))
+
+
+def weighted_choice(candidates: list, weights: list[float]):
+    """One of the candidates, each as likely as its weight (all alike when every weight is 0)."""
+    total = sum(weights)
+    if total <= 0:
+        return random.choice(candidates)
+    point = random.uniform(0, total)
+    for candidate, weight in zip(candidates, weights):
+        point -= weight
+        if point <= 0:
+            return candidate
+    return candidates[-1]
+
+
 class PlaybackMode(str, Enum):
     """Playback mode for tracks.
 
@@ -230,6 +249,36 @@ SAMPLE_RATE = 44100
 # Calculated sample counts
 CROSSFADE_SAMPLES = int(LOOP_CROSSFADE_DURATION * SAMPLE_RATE)
 TRACK_FADE_SAMPLES = int(TRACK_FADE_DURATION * SAMPLE_RATE)
+
+
+def decode_mono(path):
+    """
+    A file's audio as float32 mono blocks at SAMPLE_RATE, whatever its rate,
+    channels or format. The resampler is flushed at the end of the file.
+    """
+    resampler = av.AudioResampler(format='s16', layout='mono', rate=SAMPLE_RATE)
+    container = av.open(path)
+    if len(container.streams.audio) == 0:
+        container.close()
+        raise ValueError('No audio stream')
+    stream = next(iter(container.streams.audio))
+
+    def convert(frame_resamp):
+        data = frame_resamp.to_ndarray()
+        return data.mean(axis=0).astype(np.float32)  # downmix to mono
+
+    def decode():
+        try:
+            for frame_orig in container.decode(stream):
+                for frame_resamp in resampler.resample(frame_orig):
+                    yield convert(frame_resamp)
+            # Flush samples still held by the resampler at end of file
+            for frame_resamp in resampler.resample(None):
+                yield convert(frame_resamp)
+        finally:
+            container.close()
+
+    return decode()
 
 
 class RecordingMetadata:
@@ -391,6 +440,36 @@ def group_gap_range(group_settings: dict | None) -> tuple[float, float] | None:
     low = float(low if low is not None else high)
     high = float(high if high is not None else low)
     return (min(low, high), max(low, high))
+
+
+# A group's mode (metadata.json groups[name]["mode"]; a theme setting, not in presets):
+# Intermittent plays one track at a time with a gap between them;
+# Merry-go-round plays a continuous bed, each file crossfading into the next.
+GROUP_MODE_INTERMITTENT = "intermittent"
+GROUP_MODE_MERRY_GO_ROUND = "merry_go_round"
+GROUP_MODES = (GROUP_MODE_INTERMITTENT, GROUP_MODE_MERRY_GO_ROUND)
+# Merry-go-round crossfade (groups[name]["crossfade"], seconds)
+DEFAULT_GROUP_CROSSFADE = 10.0
+MIN_GROUP_CROSSFADE = 1.0
+MAX_GROUP_CROSSFADE = 60.0
+
+
+def group_mode(group_settings: dict | None) -> str:
+    """A group's mode; Intermittent when it sets none (or an unknown one)."""
+    mode = (group_settings or {}).get("mode")
+    return mode if mode in GROUP_MODES else GROUP_MODE_INTERMITTENT
+
+
+def group_crossfade(group_settings: dict | None) -> float:
+    """A merry-go-round group's crossfade in seconds (default 10, kept within 1-60)."""
+    value = (group_settings or {}).get("crossfade")
+    try:
+        value = DEFAULT_GROUP_CROSSFADE if value is None else float(value)
+    except (TypeError, ValueError):
+        value = DEFAULT_GROUP_CROSSFADE
+    if value != value:  # NaN
+        value = DEFAULT_GROUP_CROSSFADE
+    return max(MIN_GROUP_CROSSFADE, min(MAX_GROUP_CROSSFADE, value))
 
 # Track settings a preset can set, as RecordingThemeInstance attribute names
 PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive")
@@ -571,33 +650,8 @@ class CrossfadeRecordingStream:
         self.gen = self._gen()
 
     def _create_decoder(self):
-        """Create a new decoder generator for the audio file"""
-        resampler = av.AudioResampler(format='s16', layout='mono', rate=SAMPLE_RATE)
-        container = av.open(self.instance.meta.path)
-        
-        if len(container.streams.audio) == 0:
-            raise ValueError('No audio stream')
-        stream = next(iter(container.streams.audio))
-        
-        def convert(frame_resamp):
-            data = frame_resamp.to_ndarray()
-            # Downmix to mono
-            data = data.mean(axis=0).astype(np.float32)
-            # Apply instance volume
-            return data * self.instance.volume
-
-        def decode():
-            try:
-                for frame_orig in container.decode(stream):
-                    for frame_resamp in resampler.resample(frame_orig):
-                        yield convert(frame_resamp)
-                # Flush samples still held by the resampler at end of file
-                for frame_resamp in resampler.resample(None):
-                    yield convert(frame_resamp)
-            finally:
-                container.close()
-        
-        return decode()
+        """Create a new decoder generator for the audio file (the track's volume read per block)"""
+        return (block * self.instance.volume for block in decode_mono(self.instance.meta.path))
 
     def _gen(self):
         """Main generator with crossfade logic"""
@@ -1136,6 +1190,299 @@ class PresenceMixingStream:
 
             chunk_count += 1
             yield chunk
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self.gen)
+
+
+class _SampleQueue:
+    """Decoded samples waiting to play, kept as the decoder's blocks (no copying on every push)."""
+
+    def __init__(self):
+        self._blocks = deque()
+        self._head = 0  # samples of the first block already taken
+        self.size = 0
+
+    def push(self, block):
+        if len(block):
+            self._blocks.append(block)
+            self.size += len(block)
+
+    def take(self, count: int):
+        out = np.empty(count, np.float32)
+        filled = 0
+        while filled < count and self._blocks:
+            block = self._blocks[0]
+            n = min(len(block) - self._head, count - filled)
+            out[filled:filled + n] = block[self._head:self._head + n]
+            filled += n
+            self._head += n
+            if self._head >= len(block):
+                self._blocks.popleft()
+                self._head = 0
+        self.size -= filled
+        return out[:filled]
+
+
+class _BedFile:
+    """
+    One file of a merry-go-round while it sounds: decoded a little ahead of
+    where it plays, never all at once.
+    """
+
+    def __init__(self, view):
+        self.view = view  # the file's TrackView: live volume and mute
+        self.name = view.name
+        self.pos = 0  # samples played
+        self.end = None  # sample where it stops: known once decoded to its end, or set to leave early
+        self.fade_in = 0  # samples, from its start
+        self.fade_out = 0  # samples, up to self.end
+        self.level = None  # gain of the last chunk, to ramp from
+        self.done = False  # decoded to the end
+        self._queue = _SampleQueue()
+        try:
+            self.estimate = int(view.meta.duration_samples)
+        except Exception:
+            self.estimate = 0
+        try:
+            self._decoder = decode_mono(view.meta.path)
+        except Exception as e:
+            logger.warning(f'MerryGoRound: cannot play "{self.name}": {e}')
+            self._decoder = iter(())
+
+    def fill(self, ahead: int, budget: int | None = None):
+        """Decode until `ahead` samples wait to play (or the file ends); at most `budget` samples now."""
+        decoded = 0
+        while self.end is None and self._queue.size < ahead and (budget is None or decoded < budget):
+            try:
+                block = next(self._decoder)
+            except StopIteration:
+                self.done = True
+            except Exception as e:
+                logger.warning(f'MerryGoRound: "{self.name}" stopped decoding: {e}')
+                self.done = True
+            else:
+                block = np.asarray(block, np.float32).reshape(-1)
+                self._queue.push(block)
+                decoded += len(block)
+            if self.done:
+                self.end = self.pos + self._queue.size
+                break
+
+    @property
+    def length(self) -> int:
+        """Its length if known, else at least this long."""
+        return self.end if self.end is not None else self.pos + self._queue.size
+
+    def remaining_estimate(self) -> int:
+        if self.end is not None:
+            return self.end - self.pos
+        return max(self.estimate, self.length) - self.pos
+
+    @property
+    def finished(self) -> bool:
+        return self.end is not None and self.pos >= self.end
+
+    def render(self, count: int, offset: int, level: float):
+        """`count` samples of the mix: silence for `offset`, then this file with its fades and level."""
+        out = np.zeros(count, np.float32)
+        n = count - offset
+        if self.end is not None:
+            n = min(n, self.end - self.pos)
+        samples = self._queue.take(max(0, n))
+        n = len(samples)
+        if n:
+            positions = self.pos + np.arange(n, dtype=np.float64)
+            env = np.ones(n, np.float64)
+            if self.fade_in > 0:
+                env *= np.sin(np.pi / 2 * np.clip(positions / self.fade_in, 0.0, 1.0))
+            if self.fade_out > 0 and self.end is not None:
+                env *= np.sin(np.pi / 2 * np.clip((self.end - positions) / self.fade_out, 0.0, 1.0))
+            start = level if self.level is None else self.level
+            if start != level:
+                env *= np.linspace(start, level, n)  # a level change ramps over the chunk: no click
+            else:
+                env *= level
+            out[offset:offset + n] = samples * env
+            self.pos += n
+        self.level = level
+        return out
+
+
+class _BedHandle:
+    """What the mix asks a stream (`instance.name`, `instance.is_enabled`): a bed always runs."""
+
+    def __init__(self, name: str):
+        self.name = name
+        self.is_enabled = True
+
+
+class MerryGoRoundStream:
+    """
+    A group in Merry-go-round mode: a continuous bed made from the group's files.
+
+    One file plays; before it ends the group picks the next and crossfades
+    into it (equal power) over the group's crossfade, so two files never start
+    or stop at the same moment. The pick is by weight among the playable files
+    (unmuted, Interval above 0), the same way an Intermittent group picks: a
+    file that played recently carries drag, and each file's Interval is its
+    share. The file that just played is left out unless it is the only one; a
+    single file crossfades into itself. A transition never overlaps a file
+    beyond half its length. The bed never stops while a file is playable.
+
+    Each file's volume and mute (with the group's masters, through its
+    TrackView) are read every chunk. A file that is muted or set to 0% while
+    it plays hands over at once with a crossfade. Files are decoded as they
+    play, a few seconds ahead; nothing keeps a whole file in memory.
+
+    `members()` gives the group's TrackViews now (files join and leave as the
+    theme is rescanned; a file that left finishes first), `settings()` the
+    group's settings now (crossfade).
+    """
+    CHUNK_SIZE = 1_024
+    # Start getting the next file ready this many crossfades before the current one ends
+    PREPARE_CROSSFADES = 3
+    # How much of the next file to decode per chunk while it waits
+    PREPARE_BUDGET = 8 * CHUNK_SIZE
+
+    def __init__(self, group: str, members, settings):
+        self.group = group
+        self.instance = _BedHandle(GROUP_KEY_PREFIX + group)
+        self._members = members
+        self._settings = settings
+        self._voices: list[_BedFile] = []  # files sounding now, oldest first
+        self._current: _BedFile | None = None  # the newest of them
+        self._next: _BedFile | None = None  # picked, decoding, waiting for its crossfade
+        self._last: str | None = None  # file that started most recently
+        self._drag: dict[str, float] = {}
+        self._samples = 0  # samples this bed has produced
+        self._started = False
+        # (sample, "start" | "stop", file) for the most recent starts and stops
+        self.events = deque(maxlen=512)
+        logger.debug(f'MerryGoRound "{group}": created')
+        self.gen = self._gen()
+
+    # --- picking ---
+
+    @staticmethod
+    def _playable(view) -> bool:
+        return bool(view.is_enabled) and view.presence > 0
+
+    def _member(self, view) -> bool:
+        return any(v is view for v in self._members())
+
+    def _pick(self, exclude: str | None):
+        candidates = [v for v in self._members() if self._playable(v)]
+        if not candidates:
+            return None
+        others = [v for v in candidates if v.name != exclude] or candidates
+        weights = [turn_weight(v.presence, self._drag.get(v.name, 0.0)) for v in others]
+        view = weighted_choice(others, weights)
+        logger.debug('MerryGoRound "%s": picked "%s" from %s', self.group, view.name,
+                     ", ".join(f"{v.name} {w:.2f}" for v, w in zip(others, weights)))
+        return view
+
+    def _begin(self, voice: _BedFile, offset: int, fade_in: int):
+        """The file starts sounding `offset` samples into this chunk."""
+        shares = {v.name: v.presence for v in self._members()}
+        for name in list(self._drag):
+            if name not in shares:
+                del self._drag[name]  # left the group
+            elif name != voice.name and self._drag[name]:
+                self._drag[name] = worn_drag(self._drag[name], shares[name])
+        self._drag[voice.name] = 1.0
+        self._last = voice.name
+        voice.fade_in = max(1, int(fade_in))
+        self._voices.append(voice)
+        self._current = voice
+        self.events.append((self._samples + offset, "start", voice.name))
+        logger.debug(f'MerryGoRound "{self.group}": "{voice.name}" starts at {(self._samples + offset) / SAMPLE_RATE:.1f}s, '
+                     f'fade in {voice.fade_in / SAMPLE_RATE:.1f}s')
+
+    # --- the bed ---
+
+    def _chunk(self):
+        n = self.CHUNK_SIZE
+        cf = int(group_crossfade(self._settings()) * SAMPLE_RATE)
+        edge = max(1, int(GROUP_EDGE_FADE_SECONDS * SAMPLE_RATE))
+        starts: dict[int, int] = {}  # id(file) -> where in this chunk it starts
+
+        if self._next is not None and not (self._playable(self._next.view) and self._member(self._next.view)):
+            self._next = None  # muted or removed while it waited: pick again
+
+        cur = self._current
+        if cur is None:
+            # Nothing sounding: start at once (at the very start with no fade, as a bed)
+            voice = self._next
+            self._next = None
+            if voice is None:
+                view = self._pick(self._last)
+                voice = _BedFile(view) if view is not None else None
+            if voice is not None:
+                voice.fill(2 * cf + 2 * n)
+                fade = edge if not self._started else min(cf, max(edge, voice.length // 2))
+                self._started = True
+                self._begin(voice, 0, fade)
+                starts[id(voice)] = 0
+        else:
+            cur.fill(cf + 2 * n)  # its end is known at least a crossfade ahead
+            playable = self._playable(cur.view)
+            if self._next is None and (not playable or cur.end is not None
+                                       or cur.remaining_estimate() <= self.PREPARE_CROSSFADES * cf + n):
+                view = self._pick(cur.name)
+                if view is not None:
+                    self._next = _BedFile(view)
+            nxt = self._next
+            if nxt is not None:
+                nxt.fill(2 * cf + 2 * n, budget=self.PREPARE_BUDGET)
+                cur_offset = starts.get(id(cur), 0)
+                if not playable and cur.fade_out == 0:
+                    # Muted or set to 0% while it plays: hand over now
+                    nxt.fill(2 * cf + 2 * n)
+                    xf = max(edge, min(cf, nxt.length // 2, cur.pos))
+                    if cur.end is not None:
+                        xf = max(1, min(xf, cur.end - cur.pos))
+                    cur.end = cur.pos + xf
+                    cur.fade_out = xf
+                    self._next = None
+                    self._begin(nxt, cur_offset, xf)
+                    starts[id(nxt)] = cur_offset
+                elif cur.end is not None and cur.end - min(cf, cur.end // 2) < cur.pos + n - cur_offset:
+                    # The crossfade may start in this chunk: never longer than half of either file
+                    nxt.fill(2 * cf + 2 * n)
+                    xf = max(1, min(cf, cur.end // 2, nxt.length // 2))
+                    xf = min(xf, cur.end - cur.pos)
+                    start_at = cur.end - xf
+                    if start_at < cur.pos + n - cur_offset:
+                        offset = cur_offset + (start_at - cur.pos)
+                        cur.fade_out = xf
+                        self._next = None
+                        self._begin(nxt, offset, xf)
+                        starts[id(nxt)] = offset
+
+        out = np.zeros(n, np.float32)
+        for voice in list(self._voices):
+            view = voice.view
+            level = float(view.volume) if view.is_enabled else 0.0
+            offset = starts.get(id(voice), 0)
+            before = voice.pos
+            out += voice.render(n, offset, level)
+            if voice.finished:
+                stop = self._samples + offset + (voice.pos - before)
+                self.events.append((stop, "stop", voice.name))
+                logger.debug(f'MerryGoRound "{self.group}": "{voice.name}" stops at {stop / SAMPLE_RATE:.1f}s')
+                self._voices.remove(voice)
+                if voice is self._current:
+                    self._current = None
+        self._samples += n
+        return np.clip(out, -32768, 32767).astype(np.int16).reshape(1, -1)
+
+    def _gen(self):
+        while True:
+            yield self._chunk()
 
     def __iter__(self):
         return self

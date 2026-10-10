@@ -1687,8 +1687,10 @@ class ApiSonorium(api.Base):
     # --- Groups ---
 
     # Master controls: volume and presence multiply each track's own value; the
-    # gap between plays (seconds) is a real interval, never scaled
-    GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max")
+    # gap between plays (seconds) is a real interval, never scaled. mode:
+    # "intermittent" (default) or "merry_go_round"; crossfade: a merry-go-round's
+    # overlap in seconds. Mode and crossfade are theme settings, not in presets.
+    GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max", "mode", "crossfade")
 
     def _theme_group_folder(self, theme_id: str):
         """(theme, folder, metadata) for a theme, or raise 404."""
@@ -1837,8 +1839,11 @@ class ApiSonorium(api.Base):
         """
         Change a group's master settings. Body: any of presence, volume (0-1,
         multiplying each track's own value), muted, gap_min, gap_max (seconds
-        between plays). null removes a setting (back to 100% / no mute / default gap).
+        between plays), mode ("intermittent" or "merry_go_round") and crossfade
+        (seconds, 1-60, for a merry-go-round). null removes a setting (back to
+        100% / no mute / default gap / Intermittent / 10 s crossfade).
         """
+        from sonorium.recording import GROUP_MODES, MAX_GROUP_CROSSFADE, MIN_GROUP_CROSSFADE
         theme, metadata, members = self._theme_groups(theme_id)
         if group not in members:
             raise HTTPException(status_code=404, detail="Group not found")
@@ -1863,6 +1868,16 @@ class ApiSonorium(api.Base):
                     value = max(0.0, float(value))
                 elif key == "muted":
                     value = bool(value)
+                elif key == "mode":
+                    if value not in GROUP_MODES:
+                        raise ValueError(value)
+                elif key == "crossfade":
+                    if isinstance(value, bool):
+                        raise ValueError(value)
+                    value = float(value)
+                    if value != value:  # NaN
+                        raise ValueError(value)
+                    value = max(MIN_GROUP_CROSSFADE, min(MAX_GROUP_CROSSFADE, value))
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"Invalid value for '{key}'")
             settings[key] = value
@@ -1871,7 +1886,7 @@ class ApiSonorium(api.Base):
 
         metadata.groups = {**(metadata.groups or {}), group: settings}
         self._theme_metadata_manager.save_metadata(metadata.id, metadata)
-        theme.groups = dict(metadata.groups)  # live: playing channels follow (gap: next time the theme starts)
+        theme.groups = dict(metadata.groups)  # live: playing channels follow (a mode change rebuilds the group's streams)
         logger.info(f"Theme '{theme.name}': group '{group}' settings changed")
         return {"name": group, "settings": settings}
 

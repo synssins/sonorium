@@ -2290,6 +2290,9 @@ const TE_ICON_PLAY = '<svg class="play-icon" viewBox="0 0 24 24" fill="currentCo
 const TE_ICON_STOP = '<svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
 
 const TE_MODES = [['auto', 'Auto'], ['continuous', 'Background'], ['sparse', 'Intermittent'], ['presence', 'Ebb & Flow']];
+// A group's mode: one track at a time with a gap, or a continuous bed crossfading file to file
+const TE_GROUP_MODES = [['intermittent', 'Intermittent'], ['merry_go_round', 'Merry-go-round']];
+const TE_GROUP_CROSSFADE = 10;  // seconds, when the group sets none
 // The server rebuilds its theme list about 2 s after files move, rename or upload
 const TE_REBUILD_WAIT_MS = 2600;
 
@@ -2333,6 +2336,10 @@ function trackGroupOf(key) {
 function jsArg(text) {
     // A value for an inline onclick/onchange handler argument
     return escapeHtml(JSON.stringify(String(text)));
+}
+
+function teGroupMode(group) {
+    return group?.settings?.mode === 'merry_go_round' ? 'merry_go_round' : 'intermittent';
 }
 
 function groupMaster(group, key) {
@@ -2426,7 +2433,7 @@ function openThemeEditModal(themeId) {
 // tracks between groups, creating/deleting groups and saved presets stay.
 
 const TE_TRACK_FIELDS = ['volume', 'presence', 'muted', 'playback_mode', 'seamless_loop', 'exclusive'];
-const TE_GROUP_FIELDS = ['volume', 'presence', 'muted', 'gap_min', 'gap_max'];
+const TE_GROUP_FIELDS = ['volume', 'presence', 'muted', 'gap_min', 'gap_max', 'mode', 'crossfade'];
 
 function teMixSnapshot() {
     const tracks = {};
@@ -2794,7 +2801,9 @@ function teRenderRow(track, group) {
         <div class="c-mode">
             <span class="c-lbl">Mode</span>
             ${group
-                ? `<span class="te-mode-fixed" title="In a group, each track plays once on its turn">Intermittent</span>`
+                ? (teGroupMode(group) === 'merry_go_round'
+                    ? `<span class="te-mode-fixed" title="The group crossfades from one file to the next">Merry-go-round</span>`
+                    : `<span class="te-mode-fixed" title="In a group, each track plays once on its turn">Intermittent</span>`)
                 : `<select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"
                     title="Auto picks by file length. Background plays all the time. Intermittent plays now and then. Ebb &amp; Flow fades in, plays a while, fades out.">${teModeOptions(track, false)}</select>`}
         </div>
@@ -2824,6 +2833,7 @@ function teRenderGroup(group) {
     const pres = Math.round(groupMaster(group, 'presence') * 100);
     const gapMin = s.gap_min != null ? Math.round(s.gap_min / 6) / 10 : '';
     const gapMax = s.gap_max != null ? Math.round(s.gap_max / 6) / 10 : '';
+    const mode = teGroupMode(group);
     const renaming = te.renaming === name;
     const confirming = te.confirmDel === name;
     const count = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
@@ -2837,6 +2847,17 @@ function teRenderGroup(group) {
                    data-gap="max" onchange="teSetGroupGap(${n}, this)">
             <span>min</span>
         </div>`;
+    const crossfade = (cls) => `
+        <div class="${cls}">
+            <span class="${cls === 'gap-row' ? 'c-lbl' : 'gap-word'}">Crossfade</span>
+            <input class="num" type="number" min="1" max="60" step="1" placeholder="${TE_GROUP_CROSSFADE}" value="${teEsc(s.crossfade ?? '')}"
+                   aria-label="${label} crossfade, seconds" onchange="teSetGroupCrossfade(${n}, this)">
+            <span>s</span>
+        </div>`;
+    const timing = mode === 'merry_go_round' ? crossfade : gap;
+    const modeSelect = `<select class="track-mode-select" aria-label="${label} group mode" onchange="teSetGroupMode(${n}, this.value)"
+            title="Intermittent plays one track at a time with a gap. Merry-go-round makes a continuous bed.">${
+            TE_GROUP_MODES.map(([v, text]) => `<option value="${v}"${v === mode ? ' selected' : ''}>${text}</option>`).join('')}</select>`;
     let nameCell;
     if (renaming) {
         nameCell = `<input class="inp sm grp-rename" type="text" maxlength="60" enterkeyhint="done" aria-label="Group name" value="${label}"
@@ -2860,11 +2881,12 @@ function teRenderGroup(group) {
             <button class="chev-btn${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${label}"
                     onclick="teToggleGroup(${n})">${TE_ICON_CHEV}</button>
             <span class="folder">${TE_ICON_FOLDER_LG}</span>
-            <div class="gname-cell">
+            <div class="gname-cell${confirming ? ' wide' : ''}">
                 ${nameCell}
                 <span class="drop-note">Drop to add</span>
-                ${confirming ? '' : gap('gap-ctl')}
+                ${confirming ? '' : timing('gap-ctl')}
             </div>
+            ${confirming ? '' : `<div class="c-mode gmode">${modeSelect}</div>`}
             <div class="master">${masterSlider('volume', 'Volume', vol)}</div>
             <div class="master">${masterSlider('presence', 'Interval', pres)}</div>
             <button class="track-mute-btn${muted ? ' muted' : ''}" title="${muted ? 'Unmute group' : 'Mute group'}"
@@ -2875,9 +2897,10 @@ function teRenderGroup(group) {
         ${open ? `
         <div class="pg-master">
             <span class="mlabel">Group</span>
+            <div class="c-mode"><span class="c-lbl">Mode</span>${modeSelect}</div>
             ${masterSlider('volume', 'Volume', vol)}
             ${masterSlider('presence', 'Interval', pres)}
-            ${gap('gap-row')}
+            ${timing('gap-row')}
         </div>
         ${tracks.map(t => teRenderRow(t, group)).join('')}
         ${tracks.length ? '' : `<div class="empty-row">Drag tracks here or use ⋯ › Move to group</div>`}` : ''}
@@ -3086,6 +3109,18 @@ async function teSetGroupGap(name, input) {
         showToast(error.message || 'Failed to save gap', 'error');
     }
     teRenderTracks();
+}
+
+// Mode: Intermittent or Merry-go-round. Playing channels follow at once; the preview restarts
+async function teSetGroupMode(name, mode) {
+    setTimeout(teRestartMixPreview, 300);
+    await teSetGroupValue(name, 'mode', mode);
+}
+
+async function teSetGroupCrossfade(name, input) {
+    const seconds = parseFloat(input.value);
+    const value = input.value === '' || !Number.isFinite(seconds) ? null : Math.min(60, Math.max(1, seconds));
+    await teSetGroupValue(name, 'crossfade', value);
 }
 
 function teUniqueGroupName() {

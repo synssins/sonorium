@@ -127,7 +127,8 @@ Fine-tune how each audio file plays within a theme:
   - **Background** - Plays all the time, looping with a smooth crossfade (rain, wind, a crackling fire)
   - **Intermittent** - Plays once, then goes quiet for a while before playing again; "interval" sets the wait (bird calls, thunder claps, a door creaking)
   - **Ebb & Flow** - Fades in, plays for a while, fades out, then stays quiet before coming back; "interval" sets how much of the time it's heard (distant traffic, a passing crowd)
-- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in a group plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
+- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in an Intermittent group (the default) plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
+- **Merry-go-round groups** - A group set to Merry-go-round makes a continuous bed instead: one file plays, then crossfades into another picked at random, never the same one twice in a row. Each group sets its own crossfade (seconds). A single file crossfades into itself.
 
 #### Presets
 - **Save/Load Presets** - Store track settings as named presets
@@ -274,6 +275,11 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 
 ## What's new
 
+#### Next release
+
+**Themes and playback**
+- **Merry-go-round groups.** A group can now play as a continuous bed: one file plays, then crossfades into another picked at random, never the same one twice in a row. Pick the mode and the crossfade length in the group's row in the Theme Editor. A single file crossfades into itself.
+
 #### 1.5.0
 
 **Themes and playback**
@@ -341,9 +347,11 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 
 **Groups**
 
-- **Take turns:** a group is a folder of tracks where only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
+- **Take turns:** a group is a folder of tracks. In an Intermittent group only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
+- **Group mode:** Intermittent plays one track at a time with a gap; Merry-go-round makes a continuous bed.
 - **Gap:** after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.
-- **Intermittent only:** on its turn, a track plays its whole file once, start to finish, then hands over. Background and Ebb & Flow are for the ambience outside groups.
+- **Intermittent group:** on its turn, a track plays its whole file once, start to finish, then hands over. Background and Ebb & Flow are for the ambience outside groups.
+- **Merry-go-round:** one file plays, then crossfades into another picked at random, never the same one twice in a row. Crossfade sets the overlap. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.
 - **Weight:** each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.
 - **Interval:** how fast a track's weight wears off. Higher comes back sooner; lower plays less often.
 - **Group volume, interval, mute:** scale every track in the group.
