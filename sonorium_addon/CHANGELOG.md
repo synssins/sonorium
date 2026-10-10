@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.3-dev.7 (2026-10-10)
+
+### Bug Fixes
+
+- A new theme can be edited at once and keeps the name you typed
+  ([`ec81d2c`](https://github.com/synssins/sonorium/commit/ec81d2c5c45de4445b921441a85ce7ceabceff10))
+
+
 ## v1.5.3-dev.6 (2026-10-10)
 
 ### Documentation
