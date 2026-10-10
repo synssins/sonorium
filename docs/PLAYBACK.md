@@ -37,7 +37,7 @@ two to four times longer than usual.
 **Duration** (the track's `presence`, labelled Duration for Ebb & Flow) sets how long
 each rise and fall takes: at 0 (shorter) the glides take 2-6 s and the holds 2-10 s;
 at 1 (longer) the glides take 15-40 s and the holds 20-60 s, in proportion between.
-Before 1.7 the same value was called Interval and meant the opposite (higher was
+Earlier versions called the same value Interval, and it meant the opposite (higher was
 quicker); each theme's stored values are flipped once when it loads (`ebb_duration`
 in metadata.json; the files as they were are kept as `*.pre-duration.bak`).
 
