@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.3-dev.9 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: The Edit dialog's preset list opens upward when there's no room below
+  ([`6bc898f`](https://github.com/synssins/sonorium/commit/6bc898fa5eb58650b9ac3016b3c45ae1e514dc2c))
+
+
 ## v1.5.3-dev.8 (2026-10-10)
 
 ### Bug Fixes
