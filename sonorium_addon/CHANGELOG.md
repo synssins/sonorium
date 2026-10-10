@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.25 (2026-10-10)
+
+### Bug Fixes
+
+- Tracks in a group play start to finish without fading in or out
+  ([`4f6ee19`](https://github.com/synssins/sonorium/commit/4f6ee198873f00149eb86c8d050b6c892897c3cb))
+
+
 ## v1.4.2-dev.24 (2026-10-10)
 
 ### Bug Fixes
