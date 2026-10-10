@@ -210,6 +210,7 @@ SPARSE_INTERVAL_VARIANCE = 0.30
 LOOP_CROSSFADE_DURATION = 1.5
 # Fade duration for tracks fading in/out of the mix
 TRACK_FADE_DURATION = 6.0
+GROUP_EDGE_FADE_SECONDS = 0.02  # grouped tracks: no audible fade, just no click
 # Sample rate
 SAMPLE_RATE = 44100
 # Calculated sample counts
@@ -756,6 +757,10 @@ class SparsePlaybackStream:
         # Pre-generate fade curves for the short file
         # Use shorter fade for very short files
         fade_duration = min(TRACK_FADE_DURATION, file_duration_seconds / 3)
+        if getattr(self.instance, "exclusion_group", None):
+            # A group's tracks just play, start to finish (a thunder crack keeps
+            # its attack, a song its first notes): only a click-free edge
+            fade_duration = min(GROUP_EDGE_FADE_SECONDS, file_duration_seconds / 3)
         fade_samples = int(fade_duration * SAMPLE_RATE)
         fade_in_curve = np.sin(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
         fade_out_curve = np.cos(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
