@@ -101,12 +101,25 @@ def save_connection(updates: dict) -> dict:
         else:
             current[key] = value
 
+    _write_connection(current)
+    return current
+
+
+def clear_connection(keys) -> dict:
+    """Remove saved settings (secrets included) and write back the rest."""
+    current = load_connection()
+    for key in keys:
+        current.pop(key, None)
+    _write_connection(current)
+    return current
+
+
+def _write_connection(current: dict) -> None:
     CONNECTION_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = CONNECTION_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(current, indent=2))
     os.chmod(tmp, 0o600)
     tmp.replace(CONNECTION_FILE)
-    return current
 
 
 def ha_api_url(ha_url: str) -> str:
@@ -156,3 +169,25 @@ def load_connection_into_env() -> None:
     for key, value in env.items():
         if value:
             os.environ[key] = value
+
+
+# Saved fields removed together in Settings > Connection
+HA_FIELDS = ("ha_url", "ha_token")
+MQTT_FIELDS = ("mqtt_host", "mqtt_port", "mqtt_username", "mqtt_password")
+
+
+def clear_ha_env() -> None:
+    """
+    Home Assistant removed: ha_configured() is False from now on. Popped (not
+    just ignored) because a restart re-executes with this environment.
+    """
+    for key in ("SONORIUM__HA_CORE_API", "SUPERVISOR_TOKEN"):
+        os.environ.pop(key, None)
+
+
+def clear_mqtt_env() -> None:
+    """MQTT removed: the variables load_connection_into_env sets when there's no broker."""
+    os.environ["SONORIUM__MQTT_HOST"] = "none"
+    os.environ["SONORIUM__MQTT_PORT"] = "1883"
+    for key in ("SONORIUM__MQTT_USERNAME", "SONORIUM__MQTT_PASSWORD"):
+        os.environ.pop(key, None)

@@ -111,6 +111,8 @@ class ApiSonorium(api.Base):
             # Standalone connection settings (404 in the HA add-on)
             api.Endpoint(method_http=self.app.get, path='/api/connection', method=self.get_connection),
             api.Endpoint(method_http=self.app.put, path='/api/connection', method=self.put_connection),
+            api.Endpoint(method_http=self.app.delete, path='/api/connection/ha', method=self.delete_connection_ha),
+            api.Endpoint(method_http=self.app.delete, path='/api/connection/mqtt', method=self.delete_connection_mqtt),
             api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
             api.Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
             api.Endpoint(method_http=self.app.get, path='/display.png', method=self.serve_display_image),
@@ -139,13 +141,21 @@ class ApiSonorium(api.Base):
 
             # Track Mixer API
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks', method=self.get_theme_tracks),
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks/{track_name}/audio', method=self.get_track_audio),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/presence', method=self.set_track_presence),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/muted', method=self.set_track_muted),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/volume', method=self.set_track_volume),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/playback_mode', method=self.set_track_playback_mode),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/seamless_loop', method=self.set_track_seamless_loop),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name}/exclusive', method=self.set_track_exclusive),
+            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks/{track_name:path}/audio', method=self.get_track_audio),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/presence', method=self.set_track_presence),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/muted', method=self.set_track_muted),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/volume', method=self.set_track_volume),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/playback_mode', method=self.set_track_playback_mode),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/seamless_loop', method=self.set_track_seamless_loop),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/exclusive', method=self.set_track_exclusive),
+
+            # Groups (subfolders of a theme, Themes 2.0)
+            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/groups', method=self.list_groups),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/groups/{group}', method=self.update_group),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/groups', method=self.create_group_folder),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/groups/{group}/rename', method=self.rename_group_folder),
+            api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/groups/{group}', method=self.delete_group_folder),
+            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/{track_name:path}/move', method=self.move_track_to_group),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
 
             # Theme rename
@@ -477,6 +487,8 @@ class ApiSonorium(api.Base):
 
             # Apply short_file_threshold from metadata
             theme.short_file_threshold = metadata.short_file_threshold
+            # Group settings (Themes 2.0), read by the theme's grouped tracks
+            theme.groups = dict(getattr(metadata, "groups", None) or {})
 
             for inst in theme.instances:
                 track_settings = metadata.tracks.get(inst.name)
@@ -571,6 +583,86 @@ class ApiSonorium(api.Base):
         logger.info("Connection settings saved; restarting Sonorium to apply them")
         self._restart_soon()
         return {"status": "ok", "restarting": True}
+
+    async def delete_connection_ha(self):
+        """
+        Remove the Home Assistant connection without a restart. Its floors,
+        areas and speakers leave every list at once; Sonorium's own floors and
+        areas and the network speakers stay (one merged into an HA speaker is
+        listed on its own again). Channels keep playing on their remaining
+        speakers. Speaker settings and groups are kept as they are.
+        """
+        if not runtime.features()["connection_settings"]["available"]:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
+        runtime.clear_connection(runtime.HA_FIELDS)
+        runtime.clear_ha_env()
+
+        targets = {}
+        if self._ha_registry is not None:
+            targets = self._ha_registry.remove_home_assistant()
+        self._carry_over_enabled(targets)
+
+        # No Home Assistant to send commands to: HA entity IDs fail quietly
+        # in the router, and saved selections no longer resolve to them
+        controller = getattr(self._media_controller, "controller", None)
+        if controller is not None and hasattr(controller, "ha_controller"):
+            controller.ha_controller = None
+        device = getattr(self.client, "device", None)
+        if device is not None and hasattr(device, "media_player_states"):
+            from sonorium.utils import IndexList
+            device.media_player_states = IndexList()
+
+        logger.info("Home Assistant connection removed")
+        return {"status": "ok", "connection": await self.get_connection()}
+
+    def _carry_over_enabled(self, targets: dict):
+        """A network speaker that was merged into a switched-on HA speaker is switched on too."""
+        if not targets or self._state_store is None:
+            return
+        settings = self._state_store.settings
+        if not settings.enabled_speakers_exact:
+            return
+        changed = False
+        for ha_id, network_id in targets.items():
+            if ha_id in settings.enabled_speakers and network_id not in settings.enabled_speakers:
+                settings.enabled_speakers.append(network_id)
+                changed = True
+        if changed:
+            self._state_store.save()
+
+    async def delete_connection_mqtt(self):
+        """
+        Remove the MQTT connection without a restart: Sonorium's Home
+        Assistant entities are removed first (empty retained discovery
+        configs) while the broker is still connected, then MQTT disconnects.
+        """
+        if not runtime.features()["connection_settings"]["available"]:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
+        runtime.clear_connection(runtime.MQTT_FIELDS)
+        runtime.clear_mqtt_env()
+
+        mqtt_client = self.client.mqtt_client
+        if self._mqtt_manager is not None:
+            try:
+                if mqtt_client.is_connected:
+                    await self._mqtt_manager.remove_all_entities()
+            except Exception as e:
+                logger.warning(f"Could not remove Sonorium's MQTT entities: {e}")
+            self._mqtt_manager.stop_publishing()
+
+        restart_required = False
+        try:
+            await mqtt_client.close()
+        except Exception as e:
+            logger.warning(f"Could not disconnect MQTT cleanly; a restart finishes removing it: {e}")
+            restart_required = True
+
+        logger.info("MQTT connection removed")
+        return {
+            "status": "ok",
+            "connection": await self.get_connection(),
+            "restart_required": restart_required,
+        }
 
     def _restart_soon(self):
         """Restart Sonorium in place a moment after the current response is sent."""
@@ -940,29 +1032,35 @@ class ApiSonorium(api.Base):
         return None
 
     def _read_theme_metadata(self, theme_id: str) -> dict:
-        """Read metadata.json from theme folder."""
-        import json
+        """Read metadata.json from theme folder, with its presets (from presets.json) under "presets"."""
+        from sonorium.core import theme_presets
         folder = self._find_theme_folder(theme_id)
         if folder:
-            meta_path = folder / "metadata.json"
-            if meta_path.exists():
-                try:
-                    return json.loads(meta_path.read_text())
-                except Exception:
-                    pass
+            try:
+                metadata = theme_presets.read_json(folder / theme_presets.METADATA_FILE)
+            except theme_presets.BrokenJsonError:
+                metadata = None
+            if metadata is not None:
+                metadata["presets"] = theme_presets.load_presets(folder)
+                return metadata
         return {}
 
     def _write_theme_metadata(self, theme_id: str, metadata: dict) -> bool:
-        """Write metadata.json to theme folder. Returns True on success."""
-        import json
+        """Write metadata.json (and presets.json if "presets" is given) to theme folder. Returns True on success."""
+        from sonorium.core import theme_presets
         folder = self._find_theme_folder(theme_id)
         if not folder:
             logger.error(f"Cannot write metadata: theme folder not found for '{theme_id}'")
             return False
 
-        meta_path = folder / "metadata.json"
+        meta_path = folder / theme_presets.METADATA_FILE
+        metadata = dict(metadata)
+        presets = metadata.pop("presets", None)
         try:
-            meta_path.write_text(json.dumps(metadata, indent=2))
+            # Presets first, so a failed write never loses them
+            if presets is not None:
+                theme_presets.save_presets(folder, presets)
+            theme_presets.write_json_atomic(meta_path, metadata)
             logger.info(f"Wrote metadata to {meta_path}")
             return True
         except Exception as e:
@@ -1050,6 +1148,7 @@ class ApiSonorium(api.Base):
                     "has_audio": True,
                     "categories": metadata_dict.get("categories", []),
                     "short_file_threshold": metadata_dict.get("short_file_threshold", theme.short_file_threshold),
+                    "problems": [],
                 })
                 continue
 
@@ -1069,6 +1168,7 @@ class ApiSonorium(api.Base):
                 "has_audio": True,
                 "categories": metadata.categories,
                 "short_file_threshold": metadata.short_file_threshold,
+                "problems": list(metadata.problems),
             })
 
         # Then scan for empty theme folders (using device.path_audio, not hardcoded)
@@ -1077,8 +1177,9 @@ class ApiSonorium(api.Base):
                 if not folder.is_dir() or folder.name in seen_folders:
                     continue
 
-                # Count audio files in this folder
-                audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in audio_extensions]
+                # Count audio files in this folder (top level and group folders)
+                from sonorium.theme_files import theme_audio_files
+                audio_files = theme_audio_files(folder)
 
                 # Skip if it has audio (already added above)
                 if audio_files:
@@ -1102,6 +1203,7 @@ class ApiSonorium(api.Base):
                         "is_favorite": metadata.is_favorite,
                         "has_audio": False,
                         "categories": metadata.categories,
+                        "problems": list(metadata.problems),
                     })
 
         return themes
@@ -1149,12 +1251,15 @@ class ApiSonorium(api.Base):
         new_theme_metas = {}
         theme_names_with_audio = []
 
+        from sonorium.theme_files import theme_audio_files
+
         for folder in theme_folders:
-            audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in audio_extensions]
+            # Top-level files and group folders (sonorium/theme_files.py)
+            audio_files = theme_audio_files(folder)
 
             if audio_files:
                 theme_name = folder.name
-                new_theme_metas[theme_name] = IndexList(RecordingMetadata(path) for path in audio_files)
+                new_theme_metas[theme_name] = IndexList(RecordingMetadata(path, folder) for path in audio_files)
                 theme_names_with_audio.append(theme_name)
                 logger.debug(f'Found theme "{theme_name}" with {len(audio_files)} audio files')
 
@@ -1186,6 +1291,7 @@ class ApiSonorium(api.Base):
             logger.debug(f'Created ThemeDefinition "{theme_name}" with {len(theme_def.instances)} instances')
 
         # Step 4: Update device.themes
+        previous = {t.id: t for t in (device.themes or [])}
         device.themes = new_themes
 
         # Set current theme if we have themes
@@ -1204,8 +1310,20 @@ class ApiSonorium(api.Base):
                     metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
 
                 if metadata:
-                    # Apply short_file_threshold from metadata
+                    # metadata.json and the presets follow the files: new tracks
+                    # get an entry, removed tracks and groups lose theirs
+                    from sonorium.core.theme_metadata import sync_entries_with_files
+                    changes = sync_entries_with_files(theme_folder, metadata)
+                    if changes:
+                        self._theme_metadata_manager.save_metadata(theme.id, metadata)
+                        logger.info(
+                            f'Theme "{theme.name}": {len(changes["added"])} track(s) added to metadata.json, '
+                            f'{len(changes["removed"])} removed, {len(changes["groups_removed"])} group(s) removed, '
+                            f'{changes["preset_entries_removed"]} preset entr(y/ies) removed')
+
+                    # Apply short_file_threshold and group settings from metadata
                     theme.short_file_threshold = metadata.short_file_threshold
+                    theme.groups = dict(getattr(metadata, "groups", None) or {})
 
                 for inst in theme.instances:
                     if metadata:
@@ -1231,6 +1349,19 @@ class ApiSonorium(api.Base):
                     inst.exclusive = False
 
         logger.info(f'Theme refresh complete: {len(device.themes)} themes loaded')
+
+        # Channels and previews playing a theme follow its new files at once:
+        # added tracks join the mix, removed ones leave, nothing restarts
+        for theme in device.themes:
+            old = previous.get(theme.id)
+            if old is None or old is theme:
+                continue
+            for stream in list(getattr(old, "streams", ())):
+                try:
+                    stream.adopt(theme)
+                    theme.streams.add(stream)
+                except Exception as e:
+                    logger.warning(f'Could not update a playing stream of "{theme.name}": {e}')
 
         # Update session manager's theme reference
         if self._session_manager:
@@ -1553,6 +1684,197 @@ class ApiSonorium(api.Base):
 
         return {"status": "ok", "track": track_name, "seamless_loop": seamless}
 
+    # --- Groups ---
+
+    # Master controls: volume and presence multiply each track's own value; the
+    # gap between plays (seconds) is a real interval, never scaled
+    GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max")
+
+    def _theme_group_folder(self, theme_id: str):
+        """(theme, folder, metadata) for a theme, or raise 404."""
+        theme, folder = self._get_theme_by_id(theme_id)
+        metadata = self._theme_metadata_manager.get_metadata_by_folder(folder) if (folder and self._theme_metadata_manager) else None
+        if not theme or not metadata:
+            raise HTTPException(status_code=404, detail="Theme not found")
+        return theme, folder, metadata
+
+    def _theme_groups(self, theme_id: str):
+        """
+        (theme, metadata, {group: [track keys]}) for a theme, or raise 404.
+        Read from the folder, so empty groups and just-moved tracks show
+        before the theme refresh has run.
+        """
+        from sonorium.core import theme_groups
+        theme, folder, metadata = self._theme_group_folder(theme_id)
+        members = {name: theme_groups.group_track_keys(folder, name)
+                   for name in theme_groups.group_folder_names(folder)}
+        return theme, metadata, members
+
+    @staticmethod
+    async def _json_object(request: Request) -> dict:
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Expected a JSON object")
+        return body
+
+    def _save_group_change(self, folder, metadata, change) -> None:
+        """
+        After the files moved: carry the track keys along in metadata.json and
+        presets.json, save both, and rebuild the live themes.
+        """
+        from sonorium.core import theme_groups, theme_presets
+        presets = theme_presets.load_presets(folder)
+        migrated = theme_groups.migrate_keys(metadata, presets, change)
+        # TODO: per-user preset files (planned, docs/THEME_FORMAT.md 1.5) store
+        # track keys too; migrate them here with theme_groups.migrate_presets
+        # once they exist.
+        try:
+            if migrated != presets:
+                theme_presets.save_presets(folder, migrated)
+        except OSError as e:
+            logger.error(f"Theme '{metadata.name}': files moved but presets.json couldn't be saved ({e})")
+            self.schedule_theme_refresh()
+            raise HTTPException(status_code=500, detail="Files were moved, but presets.json couldn't be saved")
+        metadata.presets = migrated
+        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
+            self.schedule_theme_refresh()
+            raise HTTPException(status_code=500, detail="Files were moved, but metadata.json couldn't be saved")
+        self.schedule_theme_refresh()
+
+    @staticmethod
+    def _group_http_error(error):
+        return HTTPException(status_code=getattr(error, "status", 400), detail=str(error))
+
+    async def create_group_folder(self, theme_id: str, request: Request):
+        """Create an empty group (a subfolder). Body: {"name": "Lute"}. 201 {"name": ...}."""
+        from fastapi.responses import JSONResponse
+        from sonorium.core import theme_groups
+        theme, folder, metadata = self._theme_group_folder(theme_id)
+        body = await self._json_object(request)
+        try:
+            name = theme_groups.create_group(folder, body.get("name"))
+        except theme_groups.GroupError as e:
+            raise self._group_http_error(e)
+        logger.info(f"Theme '{metadata.name}': group '{name}' created")
+        return JSONResponse(status_code=201, content={"name": name})
+
+    async def rename_group_folder(self, theme_id: str, group: str, request: Request):
+        """Rename a group. Body: {"name": "New"}. Track keys follow in metadata and presets."""
+        from sonorium.core import theme_groups
+        theme, folder, metadata = self._theme_group_folder(theme_id)
+        body = await self._json_object(request)
+        try:
+            change = theme_groups.rename_group(folder, group, body.get("name"))
+        except theme_groups.GroupError as e:
+            raise self._group_http_error(e)
+        new = change.group_renames.get(group, group)
+        if change.group_renames:
+            self._save_group_change(folder, metadata, change)
+            logger.info(f"Theme '{metadata.name}': group '{group}' renamed to '{new}'")
+        return {"name": new, "tracks": change.track_keys}
+
+    async def delete_group_folder(self, theme_id: str, group: str):
+        """
+        Delete a group: its audio files move up to the theme folder (renamed
+        "x (2)" on a clash) and keep their settings. Audio files are never deleted.
+        """
+        from sonorium.core import theme_groups
+        theme, folder, metadata = self._theme_group_folder(theme_id)
+        try:
+            change = theme_groups.delete_group(folder, group)
+        except theme_groups.GroupError as e:
+            raise self._group_http_error(e)
+        self._save_group_change(folder, metadata, change)
+        result = {"name": group, "tracks": change.track_keys, "folder_removed": change.folder_removed}
+        if change.folder_removed:
+            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(change.track_keys)} tracks moved to the top level")
+        else:
+            result["left_behind"] = change.left_behind
+            result["message"] = (f"The tracks moved to the top level; the folder '{group}' was kept "
+                                 f"because it still holds other files")
+            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(change.track_keys)} tracks moved "
+                        f"to the top level; folder kept for {len(change.left_behind)} other files")
+        return result
+
+    async def move_track_to_group(self, theme_id: str, track_name: str, request: Request):
+        """Move a track into a group (created if missing) or, with {"group": null}, to the top level."""
+        from sonorium.core import theme_groups
+        from sonorium.theme_files import track_display_name
+        theme, folder, metadata = self._theme_group_folder(theme_id)
+        body = await self._json_object(request)
+        if "group" not in body:
+            raise HTTPException(status_code=400, detail="'group' is required (a group name, or null for the top level)")
+        group = body["group"]
+        try:
+            change = theme_groups.move_track(folder, track_name, group)
+        except theme_groups.GroupError as e:
+            raise self._group_http_error(e)
+        new_key = change.track_keys.get(track_name, track_name)
+        if change.track_keys:
+            self._save_group_change(folder, metadata, change)
+            where = f"into group '{new_key.rsplit('/', 1)[0]}'" if "/" in new_key else "to the top level"
+            renamed = f" as '{track_display_name(new_key)}'" if track_display_name(new_key) != track_display_name(track_name) else ""
+            logger.info(f"Theme '{metadata.name}': track '{track_display_name(track_name)}' moved {where}{renamed}")
+        return {"track": new_key}
+
+    async def list_groups(self, theme_id: str):
+        """A theme's groups: their master settings and their tracks."""
+        theme, metadata, members = self._theme_groups(theme_id)
+        groups = []
+        for name, keys in sorted(members.items()):
+            settings = dict((metadata.groups or {}).get(name) or {})
+            groups.append({
+                "name": name,
+                "settings": {k: v for k, v in settings.items() if k in self.GROUP_SETTING_KEYS},
+                "tracks": keys,
+            })
+        return {"groups": groups}
+
+    async def update_group(self, theme_id: str, group: str, request: Request):
+        """
+        Change a group's master settings. Body: any of presence, volume (0-1,
+        multiplying each track's own value), muted, gap_min, gap_max (seconds
+        between plays). null removes a setting (back to 100% / no mute / default gap).
+        """
+        theme, metadata, members = self._theme_groups(theme_id)
+        if group not in members:
+            raise HTTPException(status_code=404, detail="Group not found")
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=400, detail="Expected a JSON object")
+
+        settings = dict((metadata.groups or {}).get(group) or {})
+        for key, value in body.items():
+            if key not in self.GROUP_SETTING_KEYS:
+                raise HTTPException(status_code=400, detail=f"Unknown group setting '{key}'")
+            if value is None:
+                settings.pop(key, None)
+                continue
+            try:
+                if key in ("presence", "volume"):
+                    value = max(0.0, min(1.0, float(value)))
+                elif key in ("gap_min", "gap_max"):
+                    value = max(0.0, float(value))
+                elif key == "muted":
+                    value = bool(value)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail=f"Invalid value for '{key}'")
+            settings[key] = value
+        if "gap_min" in settings and "gap_max" in settings and settings["gap_min"] > settings["gap_max"]:
+            settings["gap_min"], settings["gap_max"] = settings["gap_max"], settings["gap_min"]
+
+        metadata.groups = {**(metadata.groups or {}), group: settings}
+        self._theme_metadata_manager.save_metadata(metadata.id, metadata)
+        theme.groups = dict(metadata.groups)  # live: playing channels follow (gap: next time the theme starts)
+        logger.info(f"Theme '{theme.name}': group '{group}' settings changed")
+        return {"name": group, "settings": settings}
+
     async def set_track_exclusive(self, theme_id: str, track_name: str, request: Request):
         """Set exclusive playback for a specific track in a theme.
 
@@ -1625,6 +1947,17 @@ class ApiSonorium(api.Base):
 
     # ==================== Preset API ====================
 
+    def _get_current_group_settings(self, theme_id: str) -> dict:
+        """The theme's group master settings as a preset saves them ({group: {volume, presence, muted}})."""
+        from sonorium.recording import GROUP_TRACK_SETTINGS
+        theme, _ = self._get_theme_by_id(theme_id)
+        groups = getattr(theme, "groups", None) or {} if theme else {}
+        return {
+            name: {k: v for k, v in (settings or {}).items() if k in GROUP_TRACK_SETTINGS}
+            for name, settings in groups.items()
+            if not (settings or {}).get("legacy_exclusive")
+        }
+
     def _get_current_track_settings(self, theme_id: str) -> dict:
         """Get current track settings for a theme as a preset-compatible dict."""
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
@@ -1644,8 +1977,8 @@ class ApiSonorium(api.Base):
             }
         return tracks
 
-    def _apply_preset_to_theme(self, theme_id: str, preset_tracks: dict) -> bool:
-        """Apply preset track settings to a theme. Returns True on success."""
+    def _apply_preset_to_theme(self, theme_id: str, preset_tracks: dict, preset_groups: dict | None = None) -> bool:
+        """Apply preset track settings (and group master settings) to a theme. Returns True on success."""
         from sonorium.recording import PlaybackMode
 
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
@@ -1668,10 +2001,21 @@ class ApiSonorium(api.Base):
                 inst.exclusive = settings.get("exclusive", False)
                 inst.is_enabled = not settings.get("muted", False)
 
+        # Group master settings from the preset
+        if preset_groups:
+            from sonorium.recording import GROUP_TRACK_SETTINGS
+            merged = dict(getattr(theme, "groups", None) or {})
+            for name, values in preset_groups.items():
+                merged[name] = {**(merged.get(name) or {}),
+                                **{k: v for k, v in (values or {}).items() if k in GROUP_TRACK_SETTINGS}}
+            theme.groups = merged
+
         # Persist to metadata.json
         if self._theme_metadata_manager and theme_folder:
             metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
             if metadata:
+                if preset_groups:
+                    metadata.groups = dict(theme.groups)
                 # Update track settings in metadata
                 for track_name, settings in preset_tracks.items():
                     track_settings = metadata.get_track_settings(track_name)
@@ -1763,6 +2107,7 @@ class ApiSonorium(api.Base):
                     "name": name,
                     "is_default": is_default,
                     "tracks": tracks,
+                    "groups": self._get_current_group_settings(theme_id),
                 }
 
                 # Save via metadata manager (updates cache and file)
@@ -1823,7 +2168,7 @@ class ApiSonorium(api.Base):
                 preset = metadata_obj.presets[preset_id]
                 tracks = preset.get("tracks", {})
 
-                if not self._apply_preset_to_theme(theme_id, tracks):
+                if not self._apply_preset_to_theme(theme_id, tracks, preset.get("groups")):
                     raise HTTPException(status_code=500, detail="Failed to apply preset")
 
                 return {
@@ -1843,7 +2188,7 @@ class ApiSonorium(api.Base):
         preset = presets[preset_id]
         tracks = preset.get("tracks", {})
 
-        if not self._apply_preset_to_theme(theme_id, tracks):
+        if not self._apply_preset_to_theme(theme_id, tracks, preset.get("groups")):
             raise HTTPException(status_code=500, detail="Failed to apply preset")
 
         return {
@@ -1870,8 +2215,9 @@ class ApiSonorium(api.Base):
                 # Capture current settings from live theme instances
                 tracks = self._get_current_track_settings(theme_id)
 
-                # Update the preset's tracks while preserving name and is_default
+                # Update the preset's tracks and groups while preserving name and is_default
                 metadata_obj.presets[preset_id]["tracks"] = tracks
+                metadata_obj.presets[preset_id]["groups"] = self._get_current_group_settings(theme_id)
 
                 # Save via metadata manager (updates cache and file)
                 if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
@@ -1893,6 +2239,7 @@ class ApiSonorium(api.Base):
 
         tracks = self._get_current_track_settings(theme_id)
         presets[preset_id]["tracks"] = tracks
+        presets[preset_id]["groups"] = self._get_current_group_settings(theme_id)
         metadata["presets"] = presets
 
         if not self._write_theme_metadata(theme_id, metadata):

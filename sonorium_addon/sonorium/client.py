@@ -121,6 +121,27 @@ class MQTTClient:
         self._client.loop_stop()
         self._client.disconnect()
 
+    async def close(self):
+        """
+        Drop the broker for good (MQTT removed in Settings > Connection):
+        disconnect cleanly, stop paho's network loop so it doesn't reconnect,
+        and forget the broker and credentials.
+        """
+        self._message_handler = None
+        self._topics.clear()
+        try:
+            if self.hostname:
+                self._client.disconnect()
+        except Exception as e:
+            logger.debug(f"  MQTT disconnect: {e}")
+        # loop_stop joins paho's thread: run it off the event loop
+        await asyncio.get_running_loop().run_in_executor(None, self._client.loop_stop)
+        self._connected.clear()
+        self.hostname = None
+        self.username = None
+        self.password = None
+        logger.info("  MQTT disconnected (removed in Settings -> Connection)")
+
     def publish(self, topic: str, payload: str, retain: bool = False, qos: int = 1):
         """
         Publish a message (sync, for compatibility with existing code).

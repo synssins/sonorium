@@ -383,6 +383,50 @@ class SonoriumMQTTManager:
         # Themes cache
         self._themes: list[dict] = []
 
+        # Set by remove_all_entities(): publishes nothing more after that
+        self._removed = False
+
+    # Global entities' discovery (component, object_id), see _publish_global_entities
+    GLOBAL_ENTITIES = (
+        ("select", "session"),
+        ("select", "global_theme"),
+        ("switch", "global_play"),
+        ("select", "preset"),
+        ("number", "volume"),
+        ("sensor", "status"),
+        ("sensor", "speakers"),
+        ("switch", "stop_all"),
+        ("sensor", "global_active_sessions"),
+    )
+
+    async def remove_all_entities(self):
+        """
+        Remove every entity Sonorium published (empty retained discovery
+        configs), then stop publishing: used when MQTT is being disconnected.
+        """
+        if self._removed:
+            return
+        sessions = dict(self._session_entities)
+        for session in self.state.sessions.values():
+            if session.id not in sessions:
+                sessions[session.id] = SessionMQTTEntities(
+                    session=session,
+                    entity_prefix=self.prefix,
+                    mqtt_publish=self._mqtt_publish,
+                    device_info=self.device_info,
+                )
+        for entities in sessions.values():
+            await entities.remove_discovery()
+        for component, suffix in self.GLOBAL_ENTITIES:
+            await self._mqtt_publish(f"homeassistant/{component}/{self.prefix}_{suffix}/config", "", retain=True)
+        self._session_entities.clear()
+        self.stop_publishing()
+        logger.info(f"Removed Sonorium's MQTT entities ({len(sessions)} channel(s) and the global controls)")
+
+    def stop_publishing(self):
+        """Publish and subscribe to nothing more (the broker is going away)."""
+        self._removed = True
+
     def set_themes(self, themes: list[dict]):
         """Update the available themes list."""
         self._themes = themes
@@ -414,6 +458,8 @@ class SonoriumMQTTManager:
     async def _mqtt_publish(self, topic: str, payload: str, retain: bool = False):
         """Publish an MQTT message with logging."""
         import asyncio
+        if self._removed:
+            return
         try:
             if hasattr(self.mqtt_client, 'publish'):
                 # paho-style client - runs in executor to avoid blocking
@@ -1038,6 +1084,8 @@ class SonoriumMQTTManager:
 
     async def _subscribe_commands(self):
         """Subscribe to command topics."""
+        if self._removed:
+            return
         # Build list of topics to subscribe
         topics = [
             # Global control topics
@@ -1076,6 +1124,8 @@ class SonoriumMQTTManager:
         
         Called by the MQTT client's message callback.
         """
+        if self._removed:
+            return
         logger.info(f"MQTT command: {topic} = {payload}")
         
         # === GLOBAL COMMANDS ===

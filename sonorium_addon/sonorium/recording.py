@@ -1,4 +1,5 @@
 from enum import Enum
+import random
 import threading
 import time
 import numpy as np
@@ -11,152 +12,189 @@ LOG_THRESHOLD = 500
 
 class ExclusionGroupCoordinator:
     """
-    Coordinates exclusive playback for tracks in a mutual exclusion group.
+    Takes turns for the tracks of one group (a folder in the theme, or the old
+    "Exclusive" switch): only one plays at a time, never overlapping.
 
-    When multiple tracks are marked as 'exclusive', only one can play at a time.
-    Other exclusive tracks must wait until the playing track finishes AND a
-    cooldown period has passed before they can play.
+    - Nothing plays for INITIAL_DELAY after the stream starts.
+    - After a track finishes, the group waits its gap (random in the group's
+      range) before the next one.
+    - Then the group picks the next track itself, by weight: a track that
+      just played carries "drag" that lowers its chance; the drag wears off
+      each time another track plays, faster for a higher Interval slider
+      (the track's share). The same track never plays twice in a row unless
+      no other track is available (muted, at 0%, or alone in the group).
 
-    Key behaviors:
-    - On stream start, no exclusive track plays immediately (initial delay)
-    - Only one exclusive track can play at a time
-    - After a track finishes, there's a mandatory gap before any exclusive track plays
-    - Avoids playing the same track twice in a row (unless it's the only exclusive track)
+    Tracks ask for the turn by calling is_blocked / try_start_playing with
+    their share; for COLLECT_SECONDS after the gap the group gathers who is
+    asking, then picks one of them.
 
-    This is shared across all streams in a ThemeStream.
+    One coordinator per group per ThemeStream.
     """
 
-    # Minimum gap after an exclusive track finishes before another can start (seconds)
-    # Increased from 30s to 120s to prevent exclusive tracks playing back-to-back
+    # Gap after a track finishes when the group doesn't set one (seconds)
     MIN_GAP_AFTER_EXCLUSIVE = 120.0
-    # Initial delay before any exclusive track can play on stream start
+    # Nothing in a group plays this long after the stream starts
     INITIAL_DELAY = 60.0
+    # After the gap, how long the group gathers the tracks asking for the turn
+    COLLECT_SECONDS = 4.0
+    # A picked track that doesn't take its turn this soon (muted meanwhile) loses it
+    PICK_TIMEOUT = 10.0
+    # A track's lowest share, so a track at 1% can still come up now and then
+    MIN_SHARE = 0.05
 
-    def __init__(self):
+    def _range(self) -> tuple[float, float] | None:
+        """The gap range now: a fixed range, or a function giving the group's current one."""
+        gap = self._gap_range() if callable(self._gap_range) else self._gap_range
+        return gap or None
+
+    def _next_gap(self) -> float:
+        gap = self._range()
+        if gap:
+            return random.uniform(*gap)
+        return self.MIN_GAP_AFTER_EXCLUSIVE
+
+    def __init__(self, gap_range=None, clock=None):
+        # The group's gap between plays (seconds, random in the range each time);
+        # MIN_GAP_AFTER_EXCLUSIVE when the group doesn't set one
+        self._gap_range = gap_range
+        # Seconds of audio the theme has played (ThemeStream.audio_seconds), so a
+        # stalled stream delays every track alike and turns can't overlap;
+        # the wall clock when no audio clock is given
+        self._clock = clock or time.time
         self._lock = threading.Lock()
-        self._playing_track: str | None = None  # Name of currently playing exclusive track
-        self._play_end_time: float = 0  # When current track will finish
+        self._playing_track: str | None = None  # The track holding the turn
+        self._play_end_time: float = 0  # When its turn ends at the latest
         self._last_played_track: str | None = None  # Track that played most recently
-        self._cooldown_until: float = 0  # No exclusive track can play until this time
-        self._registered_tracks: set[str] = set()  # All registered exclusive tracks
-        self._start_time: float = time.time()  # When the coordinator was created
+        self._cooldown_until: float = 0  # The group's gap: nothing starts before this
+        self._registered_tracks: set[str] = set()
+        self._start_time: float = self._clock()
+        self._asked: dict[str, float] = {}  # track -> when it last asked for the turn
+        self._shares: dict[str, float] = {}  # track -> its Interval slider (0-1) when it asked
+        self._drag: dict[str, float] = {}  # track -> 1.0 just played, wearing off towards 0
+        self._collect_from: float | None = None  # gathering askers since
+        self._picked: str | None = None  # the track whose turn is next
+        self._picked_at: float = 0
 
     def register_track(self, track_name: str):
-        """Register an exclusive track with the coordinator."""
+        """Register a track of the group."""
         with self._lock:
             self._registered_tracks.add(track_name)
             logger.debug(f'ExclusionGroup: Registered track "{track_name}" ({len(self._registered_tracks)} total)')
 
-    def try_start_playing(self, track_name: str, duration_seconds: float) -> bool:
-        """
-        Attempt to start playing an exclusive track.
+    # --- turn-taking ---
 
-        Returns True if allowed to play, False otherwise.
+    def _expire(self, now: float):
+        """A turn that ran past its end is over: the gap starts."""
+        if self._playing_track is not None and now >= self._play_end_time:
+            self._last_played_track = self._playing_track
+            self._playing_track = None
+            self._cooldown_until = now + self._next_gap()
+            self._collect_from = None
+            logger.debug(f'ExclusionGroup: "{self._last_played_track}" finished, gap until +{self._cooldown_until - now:.0f}s')
 
-        Conditions to play:
-        1. Initial delay has passed since stream start
-        2. No exclusive track is currently playing
-        3. Cooldown period has passed since last track finished
-        4. This is not the same track that just played (unless it's the only track)
-        """
+    def _weight(self, track: str) -> float:
+        share = max(self.MIN_SHARE, min(1.0, self._shares.get(track, 1.0)))
+        return (share ** 0.5) * (1.0 - self._drag.get(track, 0.0)) ** 2
+
+    def _pick(self, candidates: list[str]) -> str:
+        weights = [self._weight(t) for t in candidates]
+        total = sum(weights)
+        if total <= 0:
+            return random.choice(candidates)
+        point = random.uniform(0, total)
+        for track, weight in zip(candidates, weights):
+            point -= weight
+            if point <= 0:
+                return track
+        return candidates[-1]
+
+    def _may_start(self, track: str, share: float | None, now: float) -> bool:
+        """Records the ask; True when it's this track's turn now."""
+        self._asked[track] = now
+        if share is not None:
+            self._shares[track] = share
+        if now < self._start_time + self.INITIAL_DELAY:
+            return False
+        self._expire(now)
+        if self._playing_track is not None or now < self._cooldown_until:
+            return False
+        if self._picked is not None and now - self._picked_at > self.PICK_TIMEOUT:
+            self._picked = None  # it didn't come for its turn: pick again
+            self._collect_from = None
+        if self._picked is None:
+            if self._collect_from is None:
+                self._collect_from = now
+            if now - self._collect_from < self.COLLECT_SECONDS:
+                return False
+            asking = sorted(t for t, at in self._asked.items() if at >= self._collect_from)
+            others = [t for t in asking if t != self._last_played_track]
+            self._picked = self._pick(others or asking)
+            self._picked_at = now
+            logger.debug('ExclusionGroup: picked "%s" from %s', self._picked,
+                         ", ".join(f"{t} {self._weight(t):.2f}" for t in (others or asking)))
+        return self._picked == track
+
+    def _start(self, track: str, duration_seconds: float, now: float):
+        for other in self._registered_tracks | set(self._asked):
+            if other != track and self._drag.get(other):
+                share = max(self.MIN_SHARE, min(1.0, self._shares.get(other, 1.0)))
+                self._drag[other] *= 0.6 + 0.35 * (1.0 - share)  # wears off faster at a high share
+        self._drag[track] = 1.0
+        self._playing_track = track
+        self._play_end_time = now + duration_seconds
+        self._picked = None
+        self._collect_from = None
+        logger.debug(f'ExclusionGroup: "{track}" starting playback (duration: {duration_seconds:.1f}s)')
+
+    def try_start_playing(self, track_name: str, duration_seconds: float, share: float | None = None) -> bool:
+        """Take the group's turn if it's this track's; True when it may play now."""
         with self._lock:
-            now = time.time()
-
-            # Check initial delay on stream start
-            if now < self._start_time + self.INITIAL_DELAY:
+            now = self._clock()
+            if not self._may_start(track_name, share, now):
                 return False
-
-            # Check if current playing track has finished
-            if self._playing_track is not None:
-                if now >= self._play_end_time:
-                    # Track finished - start cooldown
-                    self._last_played_track = self._playing_track
-                    self._playing_track = None
-                    self._cooldown_until = now + self.MIN_GAP_AFTER_EXCLUSIVE
-                    logger.debug(f'ExclusionGroup: "{self._last_played_track}" finished, cooldown until +{self.MIN_GAP_AFTER_EXCLUSIVE}s')
-                else:
-                    # Track still playing
-                    return False
-
-            # Check cooldown period
-            if now < self._cooldown_until:
-                return False
-
-            # Don't play same track twice in a row (unless only one exclusive track)
-            if (self._last_played_track == track_name and
-                len(self._registered_tracks) > 1):
-                return False
-
-            # All checks passed - start playing
-            self._playing_track = track_name
-            self._play_end_time = now + duration_seconds
-            logger.debug(f'ExclusionGroup: "{track_name}" starting playback (duration: {duration_seconds:.1f}s)')
+            self._start(track_name, duration_seconds, now)
             return True
 
+    def is_blocked(self, track_name: str, share: float | None = None) -> bool:
+        """Whether this track must wait (it also counts as asking for the turn)."""
+        with self._lock:
+            return not self._may_start(track_name, share, self._clock())
+
+    def is_playing(self, track_name: str) -> bool:
+        """Whether this track holds the group's turn now."""
+        with self._lock:
+            return self._playing_track == track_name and self._clock() < self._play_end_time
+
     def finish_playing(self, track_name: str):
-        """Mark that an exclusive track has finished playing."""
+        """The track finished: the group's gap starts."""
         with self._lock:
             if self._playing_track == track_name:
-                now = time.time()
+                now = self._clock()
                 self._last_played_track = track_name
                 self._playing_track = None
                 self._play_end_time = 0
-                self._cooldown_until = now + self.MIN_GAP_AFTER_EXCLUSIVE
-                logger.debug(f'ExclusionGroup: "{track_name}" finished, cooldown until +{self.MIN_GAP_AFTER_EXCLUSIVE}s')
-
-    def is_blocked(self, track_name: str) -> bool:
-        """Check if a track is blocked from playing."""
-        with self._lock:
-            now = time.time()
-
-            # Initial delay check
-            if now < self._start_time + self.INITIAL_DELAY:
-                return True
-
-            # Check if current track has finished
-            if self._playing_track is not None and now >= self._play_end_time:
-                self._last_played_track = self._playing_track
-                self._playing_track = None
-                self._cooldown_until = now + self.MIN_GAP_AFTER_EXCLUSIVE
-
-            # Blocked if another track is playing
-            if self._playing_track is not None and self._playing_track != track_name:
-                return True
-
-            # Blocked during cooldown
-            if now < self._cooldown_until:
-                return True
-
-            # Blocked if same track just played (and there are other options)
-            if (self._last_played_track == track_name and
-                len(self._registered_tracks) > 1):
-                return True
-
-            return False
+                self._cooldown_until = now + self._next_gap()
+                self._collect_from = None
+                logger.debug(f'ExclusionGroup: "{track_name}" finished, gap until +{self._cooldown_until - now:.0f}s')
 
     def get_wait_time(self) -> float:
-        """Get seconds until this coordinator might allow a play."""
+        """Seconds until the group might start a track."""
         with self._lock:
-            now = time.time()
-
-            # Initial delay
+            now = self._clock()
             if now < self._start_time + self.INITIAL_DELAY:
                 return (self._start_time + self.INITIAL_DELAY) - now
-
-            # Currently playing
             if self._playing_track is not None:
                 remaining = self._play_end_time - now
                 if remaining > 0:
-                    return remaining + self.MIN_GAP_AFTER_EXCLUSIVE
-
-            # In cooldown
+                    return remaining + ((self._range() or (self.MIN_GAP_AFTER_EXCLUSIVE,))[0])
             if now < self._cooldown_until:
                 return self._cooldown_until - now
-
+            if self._picked is None and self._collect_from is not None:
+                return max(0.0, self._collect_from + self.COLLECT_SECONDS - now)
             return 0
 
     def get_track_count(self) -> int:
-        """Get number of registered exclusive tracks."""
+        """Get number of registered tracks."""
         with self._lock:
             return len(self._registered_tracks)
 
@@ -186,6 +224,7 @@ SPARSE_INTERVAL_VARIANCE = 0.30
 LOOP_CROSSFADE_DURATION = 1.5
 # Fade duration for tracks fading in/out of the mix
 TRACK_FADE_DURATION = 6.0
+GROUP_EDGE_FADE_SECONDS = 0.02  # grouped tracks: no audible fade, just no click
 # Sample rate
 SAMPLE_RATE = 44100
 # Calculated sample counts
@@ -198,16 +237,25 @@ class RecordingMetadata:
     Represents file, metadata, etc. The non-state stuff, on disk. One per file. Immutable
     """
 
-    def __init__(self, path):
+    def __init__(self, path, theme_folder=None):
         self.path = path
         self._duration_samples = None
+        # Track key and group (see sonorium/theme_files.py): "Fireplace", or
+        # "Lute/Lute song 1" with group "Lute" for a file in a group folder
+        if theme_folder is not None:
+            from sonorium.theme_files import track_group, track_key
+            self._key = track_key(theme_folder, path)
+            self.group = track_group(theme_folder, path)
+        else:
+            self._key = path.stem
+            self.group = None
 
     def get_instance(self, theme=None):
         return RecordingThemeInstance(self, theme=theme)
 
     @property
     def name(self):
-        return self.path.stem
+        return self._key
     
     @property
     def duration_samples(self):
@@ -298,15 +346,165 @@ class RecordingThemeInstance:
         else:
             base_stream = RecordingThemeStream(self)
 
-        # PRESENCE: Wrap with fade in/out based on presence value
-        if mode == PlaybackMode.PRESENCE and self.presence < 1.0:
-            return PresenceMixingStream(base_stream, self)
+        # PRESENCE: Wrap with fade in/out based on presence value. In a group the
+        # wrapper is always used, so the track waits its turn even at 100%.
+        if mode == PlaybackMode.PRESENCE and (self.presence < 1.0 or (self.exclusive and exclusion_coordinator)):
+            return PresenceMixingStream(base_stream, self, exclusion_coordinator if self.exclusive else None)
 
         return base_stream
 
     @property
     def name(self):
         return self.meta.name
+
+
+# Group for tracks marked exclusive in themes from before group folders
+LEGACY_EXCLUSIVE_GROUP = "Exclusive"
+
+# A group's master controls, as saved (metadata.json "groups", presets) -> the
+# track attribute each one acts on. Volume and presence multiply the track's own
+# value (track 50% x group 50% = 25%); muted mutes every track in the group.
+# The gap between plays (gap_min/gap_max, seconds) is a real interval, never scaled.
+GROUP_TRACK_SETTINGS = {"volume": "volume", "presence": "presence", "muted": "is_enabled"}
+GROUP_KEY_PREFIX = "@group:"  # a channel's preset values for a group, in its overrides dict
+
+
+def group_setting_value(setting: str, value):
+    """A saved group/track setting as the track attribute value."""
+    if setting == "muted":
+        return not value
+    if setting == "playback_mode":
+        try:
+            return PlaybackMode(value)
+        except ValueError:
+            return PlaybackMode.AUTO
+    return value
+
+
+def group_gap_range(group_settings: dict | None) -> tuple[float, float] | None:
+    """A group's gap between plays in seconds (gap_min, gap_max), if it sets one."""
+    if not group_settings:
+        return None
+    low, high = group_settings.get("gap_min"), group_settings.get("gap_max")
+    if low is None and high is None:
+        return None
+    low = float(low if low is not None else high)
+    high = float(high if high is not None else low)
+    return (min(low, high), max(low, high))
+
+# Track settings a preset can set, as RecordingThemeInstance attribute names
+PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive")
+
+
+def preset_track_overrides(preset_tracks: dict) -> dict:
+    """
+    A preset's saved track settings ({"Rain": {"volume": .8, "muted": false, ...}})
+    as the attribute values a TrackView applies ({"Rain": {"volume": .8, "is_enabled": True, ...}}).
+
+    Only settings the preset actually saved are set; anything it leaves out
+    follows the theme's own value for that track.
+    """
+    overrides = {}
+    for track_name, settings in (preset_tracks or {}).items():
+        track = {}
+        if "volume" in settings:
+            track["volume"] = settings["volume"]
+        if "presence" in settings:
+            track["presence"] = settings["presence"]
+        if "muted" in settings:
+            track["is_enabled"] = not settings["muted"]
+        if "seamless_loop" in settings:
+            track["crossfade_enabled"] = not settings["seamless_loop"]
+        if "playback_mode" in settings:
+            try:
+                track["playback_mode"] = PlaybackMode(settings["playback_mode"])
+            except ValueError:
+                track["playback_mode"] = PlaybackMode.AUTO
+        if "exclusive" in settings:
+            track["exclusive"] = settings["exclusive"]
+        overrides[track_name] = track
+    return overrides
+
+
+def preset_group_overrides(preset_groups: dict) -> dict:
+    """A preset's group master controls ({"Lute": {"presence": .4, "muted": false}}) as channel overrides."""
+    overrides = {}
+    for group, settings in (preset_groups or {}).items():
+        overrides[GROUP_KEY_PREFIX + group] = {
+            GROUP_TRACK_SETTINGS[key]: group_setting_value(key, value)
+            for key, value in (settings or {}).items() if key in GROUP_TRACK_SETTINGS
+        }
+    return overrides
+
+
+class TrackView:
+    """
+    A theme's track as one channel hears it: the channel's preset values where
+    its preset sets them, otherwise the theme's own (live) settings.
+
+    `overrides` is the channel's dict ({track name: {field: value}}), shared by
+    reference, so changing it in place changes what the channel plays.
+    """
+
+    def __init__(self, instance: RecordingThemeInstance, overrides: dict):
+        self._instance = instance
+        self._overrides = overrides
+
+    def __getattr__(self, name):
+        value = self._track_value(name)
+        group = getattr(self._instance.meta, "group", None)
+        if group:
+            return self._in_group(group, name, value)
+        return value
+
+    def _track_value(self, name):
+        """The track's own value: the channel's preset for it, else the theme's."""
+        if name in PRESET_TRACK_FIELDS:
+            track = self._overrides.get(self._instance.name)
+            if track is not None and name in track:
+                return track[name]
+        return getattr(self._instance, name)
+
+    def _group_master(self, group: str, name: str):
+        """A group's master control: the channel's preset for the group, else the group's saved setting."""
+        preset_group = self._overrides.get(GROUP_KEY_PREFIX + group)
+        if preset_group is not None and name in preset_group:
+            return preset_group[name]
+        setting = next((s for s, attr in GROUP_TRACK_SETTINGS.items() if attr == name), None)
+        theme_groups = getattr(getattr(self._instance, "theme", None), "groups", None) or {}
+        saved = theme_groups.get(group) or {}
+        if setting in saved:
+            return group_setting_value(setting, saved[setting])
+        return None
+
+    def _in_group(self, group: str, name: str, value):
+        """A track in a group folder: the group's master controls act on the track's own value."""
+        if name == "exclusive":
+            return True  # one track of a group at a time
+        if name in ("volume", "presence"):
+            master = self._group_master(group, name)
+            return value * master if master is not None else value
+        if name == "is_enabled":
+            master = self._group_master(group, name)
+            return value and (master if master is not None else True)
+        if name == "playback_mode":
+            # A group plays events, one at a time: each track plays its whole
+            # file once on its turn (Intermittent), whatever its own mode says.
+            # Background and Ebb & Flow are for the ambience outside groups.
+            return PlaybackMode.SPARSE
+        return value
+
+    @property
+    def exclusion_group(self) -> str | None:
+        """The named group this track plays in, one at a time: its folder, or "Exclusive" for the old flag."""
+        group = getattr(self._instance.meta, "group", None)
+        if group:
+            return group
+        return LEGACY_EXCLUSIVE_GROUP if self.exclusive else None
+
+    # Same decisions as the theme's own track, made with the channel's values
+    _resolve_playback_mode = RecordingThemeInstance._resolve_playback_mode
+    get_stream = RecordingThemeInstance.get_stream
 
 
 class RecordingThemeStream:
@@ -573,6 +771,11 @@ class SparsePlaybackStream:
         # Pre-generate fade curves for the short file
         # Use shorter fade for very short files
         fade_duration = min(TRACK_FADE_DURATION, file_duration_seconds / 3)
+        grouped = bool(getattr(self.instance, "exclusion_group", None)) and self.exclusion_coordinator is not None
+        if grouped:
+            # A group's tracks just play, start to finish (a thunder crack keeps
+            # its attack, a song its first notes): only a click-free edge
+            fade_duration = min(GROUP_EDGE_FADE_SECONDS, file_duration_seconds / 3)
         fade_samples = int(fade_duration * SAMPLE_RATE)
         fade_in_curve = np.sin(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
         fade_out_curve = np.cos(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
@@ -628,7 +831,7 @@ class SparsePlaybackStream:
             """Check if this exclusive track is blocked (without claiming playback)."""
             if not self.instance.exclusive or self.exclusion_coordinator is None:
                 return False
-            return self.exclusion_coordinator.is_blocked(self.instance.name)
+            return self.exclusion_coordinator.is_blocked(self.instance.name, self.instance.presence)
 
         def try_start_exclusive():
             """Try to claim exclusive playback slot. Returns True if allowed."""
@@ -636,7 +839,8 @@ class SparsePlaybackStream:
                 return True
             return self.exclusion_coordinator.try_start_playing(
                 self.instance.name,
-                file_duration_seconds
+                file_duration_seconds,
+                self.instance.presence,
             )
 
         def finish_exclusive():
@@ -663,8 +867,16 @@ class SparsePlaybackStream:
             # Check for updated presence
             presence = self.instance.presence
 
+            # 0% means never: stay silent, checking again every second
+            if presence <= 0.0:
+                for _ in range(max(1, SAMPLE_RATE // self.CHUNK_SIZE)):
+                    yield silence_chunk
+                continue
+
             # On first play, delay with a random portion of the interval
             # This prevents all sparse tracks from playing at stream start
+            if first_play and grouped:
+                first_play = False  # the group decides when its tracks play
             if first_play:
                 first_play = False
                 # Random initial delay: 0% to 100% of the normal interval
@@ -732,8 +944,9 @@ class SparsePlaybackStream:
             # Mark exclusive track as finished playing
             finish_exclusive()
 
-            # Now output silence for the interval
-            silent_samples = get_silent_interval()
+            # Now output silence for the interval (in a group, the group's
+            # gap and pick decide when this track plays again)
+            silent_samples = 0 if grouped else get_silent_interval()
             silent_chunks = silent_samples // self.CHUNK_SIZE
 
             logger.debug(f'SparsePlaybackStream: {self.instance.name} entering silence for {silent_samples/SAMPLE_RATE:.1f}s ({silent_chunks} chunks)')
@@ -763,9 +976,16 @@ class PresenceMixingStream:
     """
     CHUNK_SIZE = 1_024
 
-    def __init__(self, base_stream, instance: RecordingThemeInstance):
+    # In a group: how soon to ask again when another track has the turn
+    RETRY_SECONDS = 2.0
+
+    def __init__(self, base_stream, instance: RecordingThemeInstance, exclusion_coordinator: ExclusionGroupCoordinator = None):
         self.base_stream = base_stream
         self.instance = instance
+        # In a group, the track only fades in when it gets the group's turn
+        self.exclusion_coordinator = exclusion_coordinator
+        if exclusion_coordinator is not None:
+            exclusion_coordinator.register_track(instance.name)
         self.gen = self._gen()
 
     def _gen(self):
@@ -819,7 +1039,15 @@ class PresenceMixingStream:
             current_gain = 1.0 if is_active else 0.0
             target_gain = current_gain
 
-        samples_until_change = get_next_duration(presence, is_active)
+        coordinator = self.exclusion_coordinator
+        retry_samples = int(self.RETRY_SECONDS * SAMPLE_RATE)
+        releasing = False  # faded out and still holding the group's turn
+        if coordinator is not None:
+            # In a group: start silent and wait for the group's turn
+            is_active, current_gain, target_gain = False, 0.0, 0.0
+            samples_until_change = retry_samples
+        else:
+            samples_until_change = get_next_duration(presence, is_active)
 
         chunk_count = 0
 
@@ -834,8 +1062,10 @@ class PresenceMixingStream:
             new_presence = self.instance.presence
             if new_presence != presence:
                 presence = new_presence
-                # Recalculate state for new presence
-                if presence >= 1.0 and target_gain < 1.0:
+                # Recalculate state for new presence (in a group the turn logic does this)
+                if coordinator is not None:
+                    pass
+                elif presence >= 1.0 and target_gain < 1.0:
                     target_gain = 1.0
                     fade_position = 0
                 elif presence <= 0.0 and target_gain > 0.0:
@@ -844,7 +1074,28 @@ class PresenceMixingStream:
 
             # Check if it's time to change state
             samples_until_change -= self.CHUNK_SIZE
-            if samples_until_change <= 0 and 0 < presence < 1.0:
+            if coordinator is not None and samples_until_change <= 0 and presence > 0.0:
+                if not is_active:
+                    # Ask for the group's turn; at 100% the track keeps it
+                    active_samples = get_next_duration(presence, True)
+                    # Held through the fade-out too, with room to spare: the turn is
+                    # handed back by finish_playing once the fade has finished
+                    seconds = 1e9 if active_samples == float('inf') else (active_samples + 2 * TRACK_FADE_SAMPLES) / SAMPLE_RATE + 1.0
+                    if coordinator.try_start_playing(self.instance.name, seconds, presence):
+                        is_active, target_gain, fade_position = True, 1.0, 0
+                        samples_until_change = active_samples
+                    else:
+                        samples_until_change = retry_samples
+                else:
+                    # Fade out; the turn is handed back (and the group's gap
+                    # starts) once the fade has finished
+                    is_active, target_gain, fade_position = False, 0.0, 0
+                    releasing = True
+                    samples_until_change = retry_samples
+            elif coordinator is not None and presence <= 0.0 and is_active:
+                is_active, target_gain, fade_position = False, 0.0, 0
+                releasing = True
+            elif coordinator is None and samples_until_change <= 0 and 0 < presence < 1.0:
                 is_active = not is_active
                 target_gain = 1.0 if is_active else 0.0
                 fade_position = 0
@@ -871,6 +1122,9 @@ class PresenceMixingStream:
                 if fade_progress >= 1.0:
                     current_gain = target_gain
                     applied_gain = target_gain
+                    if releasing and target_gain == 0.0:
+                        releasing = False
+                        coordinator.finish_playing(self.instance.name)  # silent now: the group's gap starts
             else:
                 applied_gain = current_gain
 

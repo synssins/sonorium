@@ -91,3 +91,25 @@ def test_overstated_duration_recovers(tmp_path, monkeypatch):
     # After the first loop the real length is known, so later loops are clean.
     first_loop = int((TRACK_SECONDS * SAMPLE_RATE) / 1024) + 5
     assert rms[first_loop:].min() > 0.6 * np.median(rms)
+
+
+def _first_chunks_rms(tmp_path, monkeypatch, group):
+    path = tmp_path / "crack.wav"
+    n = _write_noise_wav(path, 3)
+    meta = SimpleNamespace(path=str(path), duration_samples=n, duration_seconds=n / SAMPLE_RATE)
+    track = SimpleNamespace(meta=meta, volume=1.0, presence=1.0, exclusive=bool(group), name="crack",
+                            exclusion_group=group)
+    turn = SimpleNamespace(is_blocked=lambda *a: False, try_start_playing=lambda *a: True,
+                           finish_playing=lambda name: None, get_wait_time=lambda: 0, register_track=lambda name: None)
+    monkeypatch.setattr(recording.random, "uniform", lambda a, b: a)  # no initial delay
+    stream = recording.SparsePlaybackStream(track, turn if group else None)
+    return [np.sqrt(np.mean(next(stream).astype(np.float64) ** 2)) for _ in range(4)]
+
+
+def test_a_grouped_track_just_plays_without_a_fade_in(tmp_path, monkeypatch):
+    """A thunder crack in a group keeps its attack; outside a group it still fades in."""
+    grouped = _first_chunks_rms(tmp_path, monkeypatch, "Thunder")
+    full = 8000 / np.sqrt(3)  # RMS of the uniform noise
+    assert grouped[1] > 0.9 * full  # full level from the second chunk (23 ms in)
+    ungrouped = _first_chunks_rms(tmp_path, monkeypatch, None)
+    assert ungrouped[1] < 0.2 * full  # the old fade-in (1 s for a 3 s file)

@@ -2,6 +2,306 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.28 (2026-10-10)
+
+### Features
+
+- Metadata.json and presets follow the theme's files
+  ([`6d67001`](https://github.com/synssins/sonorium/commit/6d67001b92bf0a776962a5741233aed8fdf4f560))
+
+### Testing
+
+- Keep the add-on package import to the live-track tests
+  ([`a1f41b6`](https://github.com/synssins/sonorium/commit/a1f41b69a95b2dd482b3435e1558f2a82a044bef))
+
+
+## v1.4.2-dev.27 (2026-10-10)
+
+### Features
+
+- Playing channels pick up a theme's new and removed files at once
+  ([`6bd8472`](https://github.com/synssins/sonorium/commit/6bd847268a1264ae52519ba3ae4be71c809c400c))
+
+
+## v1.4.2-dev.26 (2026-10-10)
+
+### Features
+
+- A group picks its next track by weight
+  ([`992ca5f`](https://github.com/synssins/sonorium/commit/992ca5fea34f83a1a4e197c95aa05d3561735640))
+
+
+## v1.4.2-dev.25 (2026-10-10)
+
+### Bug Fixes
+
+- Tracks in a group play start to finish without fading in or out
+  ([`4f6ee19`](https://github.com/synssins/sonorium/commit/4f6ee198873f00149eb86c8d050b6c892897c3cb))
+
+
+## v1.4.2-dev.24 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Top-bar buttons one height, square icon buttons, steady right edge
+  ([`e0a0e68`](https://github.com/synssins/sonorium/commit/e0a0e682c5467b0ba08bea4b8db31b479ec1fccc))
+
+
+## v1.4.2-dev.23 (2026-10-10)
+
+### Features
+
+- **ui**: Page actions in the top bar, a help button on every page
+  ([`e73b58b`](https://github.com/synssins/sonorium/commit/e73b58bebf3cb9efc185e2f1d6d2b4eac82e4c07))
+
+
+## v1.4.2-dev.22 (2026-10-10)
+
+### Documentation
+
+- **ui-style**: Phone top bar and menu, full-width cards
+  ([`bba8139`](https://github.com/synssins/sonorium/commit/bba81394114ac2c99f8fd0a92c5b8e00082b5b36))
+
+- **ui-style**: Settings column width and connection cards
+  ([`04e6f29`](https://github.com/synssins/sonorium/commit/04e6f291567bb81e1bd16a103f2c5b5f604f94e9))
+
+- **ui-style**: Settings pages left-justified, 420px cards, 864px column
+  ([`e63fed6`](https://github.com/synssins/sonorium/commit/e63fed669de50ac5e9c6ab2e886d71cbfa7e4f7b))
+
+### Features
+
+- **ui**: Settings pages in the new design; remove HA or MQTT without a restart
+  ([`7525c02`](https://github.com/synssins/sonorium/commit/7525c02d4e754b8b6b7f5b55a51cc465fe76ecfa))
+
+
+## v1.4.2-dev.21 (2026-10-10)
+
+### Documentation
+
+- Explain per-channel presets (before/after); release is 1.5.0
+  ([`590e803`](https://github.com/synssins/sonorium/commit/590e803de597232cda3c0a7291e37adcea36c8c8))
+
+- Major release notice, Themes 2.0 what's new and screenshots in the main README
+  ([`a6655c6`](https://github.com/synssins/sonorium/commit/a6655c6a51ac072200b873964b5c8aa66072982e))
+
+- READMEs in nine sections with links at the top
+  ([`bfc35a1`](https://github.com/synssins/sonorium/commit/bfc35a1081dacc3c4a64ea4707a8e2bcdd9d9f79))
+
+- **addon**: Drop the link row; HA doesn't follow in-page links
+  ([`e948ca1`](https://github.com/synssins/sonorium/commit/e948ca14ce9ec3583ace18ece06803afeb36811b))
+
+- **addon**: Major release notice, Themes 2.0 what's new, help definitions, new screenshots
+  ([`7a6015a`](https://github.com/synssins/sonorium/commit/7a6015a8a1e490557c84f783286d6fd16d1fac71))
+
+### Features
+
+- **ui**: "How often" is now "Interval"; README explains groups replace Exclusive
+  ([`88b2f62`](https://github.com/synssins/sonorium/commit/88b2f623565288f09b5d4b2e71a305d1e8cdabb7))
+
+
+## v1.4.2-dev.20 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Help uses the owner's exact wording for Cancel, Save Preset, Save Theme
+  ([`a9f7376`](https://github.com/synssins/sonorium/commit/a9f7376c71b7b9e1af4ce01e983fcba191bdfd96))
+
+
+## v1.4.2-dev.19 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Pages never grow wider than a phone screen
+  ([`2075117`](https://github.com/synssins/sonorium/commit/207511778bbc4c397f8fd81fe07f7576831a5116))
+
+
+## v1.4.2-dev.18 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Help wording for Cancel, Save preset and Save theme
+  ([`8dd93c2`](https://github.com/synssins/sonorium/commit/8dd93c2b6008a468aec0f5d403ed2f37aa008362))
+
+
+## v1.4.2-dev.17 (2026-10-10)
+
+### Features
+
+- **ui**: New Themes page: search, category chips, cards or list
+  ([`4670c00`](https://github.com/synssins/sonorium/commit/4670c00a2317f31d94f3f7dbe59b352fd384afa1))
+
+
+## v1.4.2-dev.16 (2026-10-10)
+
+### Features
+
+- Tracks in a group always play Intermittent
+  ([`717a235`](https://github.com/synssins/sonorium/commit/717a23579d788de817214832448c9e5232ae19e4))
+
+
+## v1.4.2-dev.15 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Help explains what modes do in a group; drop the word Unique
+  ([`1154691`](https://github.com/synssins/sonorium/commit/11546914a6a1a8f9daa87b78e4c2f50f0c0ed994))
+
+- **ui**: Help lists each item as an indented 'Term: text' line
+  ([`4b5e5d1`](https://github.com/synssins/sonorium/commit/4b5e5d186b47a385a3aae9a56426ac0a89a5d37d))
+
+### Documentation
+
+- Explain groups instead of a Unique mode
+  ([`40dc96e`](https://github.com/synssins/sonorium/commit/40dc96e345c446992f03d737f0a1b50f7b7291d4))
+
+
+## v1.4.2-dev.14 (2026-10-10)
+
+### Features
+
+- **ui**: Help panel in the Theme Editor explaining modes, groups and saving
+  ([`89f76fc`](https://github.com/synssins/sonorium/commit/89f76fcd605e263781d866c272d2188e4b22a2b7))
+
+
+## v1.4.2-dev.13 (2026-10-10)
+
+### Bug Fixes
+
+- Tracks in a group can never overlap
+  ([`b7d5c4a`](https://github.com/synssins/sonorium/commit/b7d5c4a37dab5c14cdaf2e8b314201de0afab210))
+
+
+## v1.4.2-dev.12 (2026-10-10)
+
+### Features
+
+- **ui**: Clearer playback mode names: Background, Intermittent, Ebb & Flow, Unique
+  ([`dbcd2f4`](https://github.com/synssins/sonorium/commit/dbcd2f44c66405b8bb6aa5fc97233c756c8821bf))
+
+
+## v1.4.2-dev.11 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Moving a track into a collapsed group keeps it collapsed
+  ([`76e3cc8`](https://github.com/synssins/sonorium/commit/76e3cc85d16ae77aff13665d96003094b3f1388b))
+
+
+## v1.4.2-dev.10 (2026-10-10)
+
+### Features
+
+- **ui**: Preview mix in the Theme Editor; fix a memory leak in theme streams
+  ([`5e50991`](https://github.com/synssins/sonorium/commit/5e50991c578f8ee382d0a44b93f169b7be669fe9))
+
+
+## v1.4.2-dev.9 (2026-10-10)
+
+### Features
+
+- Hear Theme Editor changes live on playing channels
+  ([`01ed309`](https://github.com/synssins/sonorium/commit/01ed309eeee5a184724a706cca33a646a45bb899))
+
+
+## v1.4.2-dev.8 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Save theme closes the editor; Cancel puts back unsaved changes
+  ([`745b72b`](https://github.com/synssins/sonorium/commit/745b72b5b3a11c3cd22c3cf97c17f7a9ffab2c43))
+
+
+## v1.4.2-dev.7 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Theme Editor opens with no preset selected
+  ([`0640215`](https://github.com/synssins/sonorium/commit/0640215a62a3aa63987be181bf2c44c9fe5e18f9))
+
+### Documentation
+
+- Sonorium UI style, from the Theme Editor redesign
+  ([`bc4c588`](https://github.com/synssins/sonorium/commit/bc4c5887c0ccf429f97eddbaab521282e8b11da4))
+
+### Features
+
+- **ui**: Redesigned Theme Edit window
+  ([`e989014`](https://github.com/synssins/sonorium/commit/e989014db973b1b619ffdba7f7fc2c57dcae3d8b))
+
+
+## v1.4.2-dev.6 (2026-10-09)
+
+### Bug Fixes
+
+- **ui**: Wait for the theme rebuild after group changes
+  ([`d77f4d8`](https://github.com/synssins/sonorium/commit/d77f4d8ae09a61da19f0c5988b178ef37e6f6a77))
+
+### Features
+
+- Create, rename and delete groups, move tracks between groups
+  ([`714208d`](https://github.com/synssins/sonorium/commit/714208d024986b0276517d439c8810818e5afafc))
+
+- **ui**: Groups in the theme editor's track mixer
+  ([`2c81f85`](https://github.com/synssins/sonorium/commit/2c81f854ab9eb4a749389c618cee1f225e86dbbe))
+
+
+## v1.4.2-dev.5 (2026-10-09)
+
+### Bug Fixes
+
+- Groups survive a theme refresh, presets save groups, safe metadata edits
+  ([`c72e428`](https://github.com/synssins/sonorium/commit/c72e428e2cc69eaa9e6b30beb173b87ed395033e))
+
+
+## v1.4.2-dev.4 (2026-10-09)
+
+### Bug Fixes
+
+- Leave headroom for MP3 encoding in the soft limiter
+  ([`ad8e643`](https://github.com/synssins/sonorium/commit/ad8e6437c34db404810237e49111a244e3ce298a))
+
+
+## v1.4.2-dev.3 (2026-10-09)
+
+### Features
+
+- Groups work like a mixer bus
+  ([`e84b7a3`](https://github.com/synssins/sonorium/commit/e84b7a3f649f568dbf7e6078bfdbd25fc7207b94))
+
+
+## v1.4.2-dev.2 (2026-10-09)
+
+### Features
+
+- Group settings with per-track overrides; restore presets from the conversion backup
+  ([`1398f19`](https://github.com/synssins/sonorium/commit/1398f193816ca75d448137871a06753cc96f3896))
+
+
+## v1.4.2-dev.1 (2026-10-09)
+
+### Bug Fixes
+
+- Presets only change the settings they saved; same track order on every system
+  ([`8af848a`](https://github.com/synssins/sonorium/commit/8af848a71b33264144a93888578da18505582d59))
+
+- Rebuilt themes use track keys and group folders; theme format spec v2
+  ([`affd782`](https://github.com/synssins/sonorium/commit/affd78285ece401e74f7e7b9bfb0a047445a273c))
+
+- Themes with many occasional sounds no longer play quietly
+  ([`5fe61c2`](https://github.com/synssins/sonorium/commit/5fe61c2dbdf3fa0268bfc1cea9b307fb74f5711c))
+
+- Two channels on one theme each keep their own preset
+  ([`f671a49`](https://github.com/synssins/sonorium/commit/f671a4950c315498bda20942627b9296dfa8b0ef))
+
+### Features
+
+- Theme group folders, one shared theme scanner
+  ([`29cb7a1`](https://github.com/synssins/sonorium/commit/29cb7a1a51a86a05b0c051dc647c22d02e3a8111))
+
+- Themes 2.0 — presets.json, conversion and broken-file recovery
+  ([`5fb8ae1`](https://github.com/synssins/sonorium/commit/5fb8ae10a8565102e79b7eaafbd1481a8ee05d64))
+
+
 ## v1.4.1 (2026-10-09)
 
 

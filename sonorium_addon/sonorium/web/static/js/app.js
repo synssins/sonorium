@@ -373,6 +373,12 @@ async function loadChannels() {
 // View Navigation
 function showView(viewName) {
     currentView = viewName;
+    // Themes page: fixed top bar and filter bar, only the collection scrolls
+    document.body.classList.toggle('tp-on', viewName === 'themes');
+    if (viewName !== 'themes') tpCloseMenu();
+    // Settings pages: fixed title bar, only the list scrolls, actions at the bottom of the column
+    document.body.classList.toggle('sp-on', SP_VIEWS.includes(viewName));
+    spClosePop();
     // Persist view selection across page refreshes
     localStorage.setItem('sonorium_currentView', viewName);
 
@@ -480,10 +486,21 @@ function showView(viewName) {
                 Refresh
             </button>
         `,
-        themes: '',
+        themes: `
+            <button class="btn btn-primary tp-create" id="tp-create-btn" aria-label="Create theme" aria-haspopup="dialog" onclick="tpMenu('create', this)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <line x1="12" y1="5" x2="12" y2="19"/>
+                    <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+                <span class="lbl">Create theme</span>
+            </button>
+            <button class="icon-btn" aria-label="More" aria-haspopup="menu" onclick="tpMenu('page', this)">${TE_ICON_MORE}</button>
+        `,
         settings: '',
         'settings-connection': '',
-        'settings-audio': '',
+        'settings-audio': `
+            <button class="icon-btn" aria-label="More" aria-haspopup="menu" onclick="openAudioMenu(this)">${SP_ICON_MORE}</button>
+        `,
         'settings-spaces': spacesEditable() ? `
             <button class="btn btn-secondary" onclick="openSpaceModal('floor')">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -501,16 +518,16 @@ function showView(viewName) {
             </button>
         ` : '',
         'settings-speakers': networkInfo ? `
-            <button class="btn btn-primary" onclick="openAddSpeakerModal()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <line x1="12" y1="5" x2="12" y2="19"/>
-                    <line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                Add speaker
-            </button>
+            <button class="btn btn-primary sp-hbtn" aria-label="Add speaker" title="Add speaker" aria-haspopup="dialog" onclick="openAddSpeakerModal()">${SP_ICON_PLUS}<span class="lbl">Add speaker</span></button>
         ` : '',
-        'settings-groups': '',
-        'settings-plugins': '',
+        'settings-groups': `
+            <button class="btn btn-primary sp-hbtn" aria-label="Add group" title="Add group" aria-haspopup="dialog" onclick="openGroupModal()">${SP_ICON_PLUS}<span class="lbl">Add group</span></button>
+        `,
+        'settings-plugins': `
+            <span class="sp-up-status" id="plg-up-status" hidden>Uploading…</span>
+            <button class="btn btn-primary sp-hbtn" id="plg-upload-btn" aria-label="Upload plugin" title="Plugin .zip" onclick="choosePluginFile()">${SP_ICON_UPLOAD}<span class="lbl">Upload plugin</span></button>
+            <button class="icon-btn" aria-label="More" aria-haspopup="menu" onclick="openPluginsPageMenu(this)">${SP_ICON_MORE}</button>
+        `,
         'settings-logs': `
             <button class="btn btn-secondary" onclick="SonoriumLogs.copy(this)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -529,17 +546,17 @@ function showView(viewName) {
             </a>
         `,
         status: `
-            <button class="btn btn-secondary" onclick="refreshStatus()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M23 4v6h-6"/>
-                    <path d="M1 20v-6h6"/>
-                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                </svg>
-                Refresh
-            </button>
+            <button class="btn btn-secondary sp-hbtn" aria-label="Refresh" title="Refresh" onclick="refreshStatus(this)">${SP_ICON_REFRESH}<span class="lbl">Refresh</span></button>
         `
     };
     document.getElementById('view-actions').innerHTML = actionsHtml[viewName] || '';
+    if (viewName === 'settings-plugins') renderPluginUploadState();
+    // Page actions (Save / Cancel, Restart now) sit in the top bar of their own page
+    document.querySelectorAll('.main-header .hdr-pacts').forEach(el => {
+        el.classList.toggle('on', el.dataset.view === viewName);
+    });
+    document.querySelector('.main-header').dataset.view = viewName;
+    setPageHelp(viewName);
 
     // Load view-specific data
     if (viewName === 'speakers') renderSpeakersList();
@@ -574,13 +591,15 @@ function toggleNavSection(sectionId) {
 }
 
 function toggleSidebar() {
-    document.getElementById('sidebar').classList.toggle('open');
-    document.body.classList.toggle('sidebar-open');
+    const open = document.getElementById('sidebar').classList.toggle('open');
+    document.body.classList.toggle('sidebar-open', open);
+    document.getElementById('mobile-nav-btn')?.setAttribute('aria-expanded', String(open));
 }
 
 function closeSidebar() {
     document.getElementById('sidebar').classList.remove('open');
     document.body.classList.remove('sidebar-open');
+    document.getElementById('mobile-nav-btn')?.setAttribute('aria-expanded', 'false');
 }
 
 function toggleCollapsibleSection(sectionId) {
@@ -841,63 +860,6 @@ const availableIcons = [
     // Misc
     '✨', '🌈', '💎', '🕯️', '🔔'
 ];
-
-// Icon Picker Functions
-function initIconPicker() {
-    const grid = document.getElementById('icon-picker-grid');
-    if (!grid) return;
-
-    grid.innerHTML = availableIcons.map(icon => `
-        <button type="button" class="icon-picker-item" onclick="selectIcon('${icon}')" title="${icon}">
-            ${icon}
-        </button>
-    `).join('');
-}
-
-function toggleIconPicker() {
-    const dropdown = document.getElementById('icon-picker-dropdown');
-    if (!dropdown) return;
-
-    const isVisible = dropdown.style.display !== 'none';
-    dropdown.style.display = isVisible ? 'none' : 'block';
-
-    if (!isVisible) {
-        initIconPicker();
-        updateIconPickerSelection();
-    }
-}
-
-function selectIcon(icon) {
-    document.getElementById('theme-edit-icon').value = icon;
-    document.getElementById('theme-edit-icon-preview').textContent = icon;
-    document.getElementById('icon-picker-dropdown').style.display = 'none';
-    updateIconPickerSelection();
-}
-
-function clearThemeIcon() {
-    const themeId = document.getElementById('theme-edit-id').value;
-    const autoIcon = getThemeIcon(themeId);
-    document.getElementById('theme-edit-icon').value = '';  // Empty = auto-detect
-    document.getElementById('theme-edit-icon-preview').textContent = autoIcon;
-    updateIconPickerSelection();
-}
-
-function updateIconPickerSelection() {
-    const currentIcon = document.getElementById('theme-edit-icon').value;
-    const items = document.querySelectorAll('.icon-picker-item');
-    items.forEach(item => {
-        item.classList.toggle('selected', item.textContent.trim() === currentIcon);
-    });
-}
-
-// Close icon picker when clicking outside
-document.addEventListener('click', function(e) {
-    const picker = document.querySelector('.icon-picker');
-    const dropdown = document.getElementById('icon-picker-dropdown');
-    if (picker && dropdown && !picker.contains(e.target)) {
-        dropdown.style.display = 'none';
-    }
-});
 
 async function togglePlayback(sessionId) {
     const session = sessions.find(s => s.id === sessionId);
@@ -1749,218 +1711,523 @@ async function loadCategories() {
     }
 }
 
-function renderThemeCard(theme) {
-    const hasAudio = theme.has_audio !== false && theme.total_tracks > 0;
-    const trackCount = theme.total_tracks || 0;
-    const trackText = trackCount === 0 ? 'No audio files' : `${trackCount} audio file${trackCount !== 1 ? 's' : ''}`;
+// ============================================
+// Themes page
+// Fixed top (title bar, search + filter bar, list column headers); only the
+// theme collection (#themes-browser) scrolls. Each theme shows once with its
+// categories as badges; the chips filter by one category. Menus and
+// popovers share one floating element (#tp-menu) placed next to the button
+// that opened it. Category management lives in a small dialog.
+// ============================================
 
-    return `
-    <div class="theme-browser-card ${!hasAudio ? 'no-audio' : ''}">
-        <div class="theme-browser-card-header">
-            <div class="theme-browser-icon">${resolveThemeIcon(theme.icon, theme.id)}</div>
-            <div class="theme-browser-content">
-                <div class="theme-browser-header">
-                    <span class="theme-browser-name">${escapeHtml(theme.name)}</span>
-                    <span class="theme-browser-favorite ${theme.is_favorite ? 'active' : ''}"
-                          onclick="toggleThemeFavorite('${theme.id}')"
-                          title="${theme.is_favorite ? 'Remove from favorites' : 'Add to favorites'}">
-                        ${theme.is_favorite ? '★' : '☆'}
-                    </span>
-                </div>
-                <div class="theme-browser-meta">
-                    <span>${trackText}</span>
-                    ${!hasAudio ? '<span style="color: var(--accent-warning);">Upload files to enable</span>' : ''}
-                </div>
-            </div>
-        </div>
-        ${theme.description
-            ? `<div class="theme-browser-description">${escapeHtml(theme.description)}</div>`
-            : `<div class="theme-browser-description-empty">No description</div>`
-        }
-        <div class="theme-browser-actions">
-            ${hasAudio ? `
-            <button class="theme-browser-preview-btn" onclick="startThemePreview('${theme.id}', '${escapeHtml(theme.name).replace(/'/g, "\\\'")}')" title="Preview in browser">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 5v14l11-7z"/>
-                </svg>
-            </button>
-            ` : ''}
-            <button class="theme-browser-edit-btn" onclick="openThemeEditModal('${theme.id}')" title="Edit theme">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-            </button>
-            <button class="theme-browser-delete-btn" onclick="confirmDeleteTheme('${theme.id}', '${escapeHtml(theme.name)}')" title="Delete theme">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    <line x1="10" y1="11" x2="10" y2="17"/>
-                    <line x1="14" y1="11" x2="14" y2="17"/>
-                </svg>
-            </button>
-        </div>
-    </div>`;
+const TP_VIEW_KEY = 'sonorium_themesView';
+const TP_SORTS = [['name', 'Name'], ['tracks', 'Most tracks']];
+const TP_PHONE = window.matchMedia('(max-width: 760px)');
+const TP_ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const TP_ICON_STOP = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
+const TP_ICON_EDIT = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+const TP_ICON_UPLOAD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+const TP_ICON_TAG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>';
+const TP_ICON_REFRESH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>';
+const TP_ICON_TRASH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+const TP_ICON_SEARCH = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+
+const tp = {
+    q: '',
+    cat: 'all',        // 'all', 'fav' or a category name
+    sort: 'name',
+    view: (() => {
+        try { return localStorage.getItem(TP_VIEW_KEY) === 'list' ? 'list' : 'cards'; } catch (e) { return 'cards'; }
+    })(),
+    menu: null,
+    menuBtn: null,
+    catConfirm: null,  // category waiting for "Delete?" in the dialog
+};
+
+function tpNorm(text) {
+    return String(text || '').toLowerCase().replace(/_+/g, ' ');
 }
 
-function renderCategorySection(categoryName, categoryThemes, isDeletable = true) {
-    const isFavorites = categoryName === '★ Favorites';
-    return `
-    <div class="theme-category-section">
-        <div class="theme-category-header">
-            <span class="theme-category-name">${escapeHtml(categoryName)}</span>
-            ${isDeletable && !isFavorites ? `
-            <div class="theme-category-actions">
-                <button class="btn btn-sm btn-danger" onclick="confirmDeleteCategory('${escapeHtml(categoryName)}')" title="Delete category">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"/>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                    </svg>
-                </button>
-            </div>` : ''}
-        </div>
-        <div class="theme-category-grid">
-            ${categoryThemes.map(theme => renderThemeCard(theme)).join('')}
-        </div>
-    </div>`;
+function tpPlural(n, word) {
+    return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
+
+function tpTheme(themeId) {
+    return themes.find(t => t.id === themeId) || null;
+}
+
+// Known categories plus any a theme carries that the list doesn't have yet
+function tpCategories() {
+    const list = [...themeCategories];
+    themes.forEach(t => (t.categories || []).forEach(c => { if (!list.includes(c)) list.push(c); }));
+    return list;
+}
+
+function tpIsCategory(key) {
+    return key !== 'all' && key !== 'fav';
+}
+
+function tpMatchesQuery(theme, query) {
+    if (!query) return true;
+    const name = String(theme.name || '');
+    return tpNorm(name).includes(query) || name.toLowerCase().includes(query)
+        || String(theme.description || '').toLowerCase().includes(query);
+}
+
+function tpInCat(theme, key) {
+    if (key === 'all') return true;
+    if (key === 'fav') return !!theme.is_favorite;
+    return (theme.categories || []).includes(key);
+}
+
+// Names of the channels currently playing this theme
+function tpPlayingOn(themeId) {
+    return sessions.filter(s => s.is_playing && s.theme_id === themeId).map(s => s.name || 'Channel');
+}
+
+function tpIsList() {
+    return tp.view === 'list' && !TP_PHONE.matches;
+}
+
+// ---------- Render ----------
 
 function renderThemesBrowser() {
-    const container = document.getElementById('themes-browser');
-    if (!themes || themes.length === 0) {
-        container.innerHTML = '<p style="color: var(--text-muted); padding: 1rem;">No themes found. Click "Create Theme" or add theme folders to /media/sonorium.</p>';
+    const box = document.getElementById('themes-browser');
+    if (!box) return;
+    // Menus hang from buttons that are about to be replaced
+    if (tp.menu && tp.menu !== 'create' && tp.menu !== 'page' && tp.menu !== 'sort') tpCloseMenu();
+
+    const cats = tpCategories();
+    if (tpIsCategory(tp.cat) && !cats.includes(tp.cat)) tp.cat = 'all';
+
+    if (currentView === 'themes') {
+        document.getElementById('view-title').innerHTML = `<span class="tp-title">Themes</span><span class="badge badge-type">${themes.length}</span>`;
+    }
+
+    const query = tp.q.trim().toLowerCase();
+    const hits = themes.filter(t => tpMatchesQuery(t, query));
+    const byName = (a, b) => tpNorm(a.name).localeCompare(tpNorm(b.name));
+    const cmp = tp.sort === 'tracks' ? (a, b) => ((b.total_tracks || 0) - (a.total_tracks || 0)) || byName(a, b) : byName;
+    const shown = hits.filter(t => tpInCat(t, tp.cat)).sort(cmp);
+
+    // Category chips: counts follow the search
+    const chipDefs = [{ k: 'all', label: 'All' }, { k: 'fav', label: 'Favorites', star: true }]
+        .concat(cats.map(c => ({ k: c, label: c })));
+    const chips = document.getElementById('tp-chips');
+    const chipScroll = chips.scrollLeft;
+    chips.innerHTML = chipDefs.map(c => {
+        const n = hits.filter(t => tpInCat(t, c.k)).length;
+        const on = tp.cat === c.k;
+        return `<button type="button" class="fchip${on ? ' on' : ''}${n === 0 && !on ? ' zero' : ''}" aria-pressed="${on}"
+            onclick="tpSetCat(${jsArg(c.k)})">${c.star ? '<span class="st">★</span>' : ''}${escapeHtml(c.label)}<span class="n">${n}</span></button>`;
+    }).join('');
+    chips.scrollLeft = chipScroll;
+
+    document.getElementById('tp-sort-lbl').textContent = (TP_SORTS.find(s => s[0] === tp.sort) || TP_SORTS[0])[1];
+    document.getElementById('tp-cnt').textContent = tpPlural(shown.length, 'theme');
+    document.getElementById('tp-cards-btn').setAttribute('aria-pressed', String(tp.view === 'cards'));
+    document.getElementById('tp-list-btn').setAttribute('aria-pressed', String(tp.view === 'list'));
+    document.getElementById('tp-clr').hidden = !tp.q;
+
+    const list = tpIsList();
+    document.getElementById('tp-lhead').hidden = !list || shown.length === 0;
+
+    if (shown.length === 0) {
+        box.innerHTML = themes.length === 0
+            ? '<div class="tp-empty"><strong>No themes</strong></div>'
+            : `<div class="tp-empty">${TP_ICON_SEARCH}<strong>No themes match</strong>
+                ${tp.q.trim() ? `<span>“${escapeHtml(tp.q.trim())}”</span>` : ''}
+                <button type="button" class="btn btn-sm btn-secondary" onclick="tpClearFilters()">Clear filters</button></div>`;
         return;
     }
 
-    let html = '';
+    box.innerHTML = list
+        ? `<div class="lwrap"><div class="lbody">${shown.map(tpRowHtml).join('')}</div></div>`
+        : `<div class="tp-grid">${shown.map(tpCardHtml).join('')}</div>`;
+    tpUpdateMarquees();
+}
 
-    // 1. Favorites section (always at top if any exist)
-    const favoriteThemes = themes.filter(t => t.is_favorite).sort((a, b) => a.name.localeCompare(b.name));
-    if (favoriteThemes.length > 0) {
-        html += renderCategorySection('★ Favorites', favoriteThemes, false);
-    }
+// Parts shared by cards and list rows
+function tpParts(theme) {
+    const id = jsArg(theme.id);
+    const name = escapeHtml(theme.name);
+    const tracks = theme.total_tracks || 0;
+    const playable = theme.has_audio !== false && tracks > 0;
+    const pv = currentPreviewThemeId === theme.id;
+    const fav = !!theme.is_favorite;
+    const on = tpPlayingOn(theme.id);
+    const starTitle = fav ? 'Remove from favorites' : 'Add to favorites';
+    const pvTitle = !playable ? 'No tracks' : pv ? 'Stop preview' : 'Preview here';
+    return {
+        id, name, tracks, playable, pv,
+        icon: escapeHtml(resolveThemeIcon(theme.icon, theme.id)),
+        desc: escapeHtml(theme.description || ''),
+        meta: tracks ? tpPlural(tracks, 'track') : 'No tracks',
+        cats: (theme.categories || []).map(c => `<span class="badge badge-type">${escapeHtml(c)}</span>`).join(''),
+        air: on.length ? `<span class="badge badge-air" title="Playing on ${escapeHtml(on.join(', '))}"><i></i>${escapeHtml(on[0])}${on.length > 1 ? ` +${on.length - 1}` : ''}</span>` : '',
+        onAir: on.length > 0,
+        star: `<button type="button" class="star-btn${fav ? ' on' : ''}" title="${starTitle}" aria-label="${starTitle}: ${name}"
+            aria-pressed="${fav}" onclick="toggleThemeFavorite(${id})">${fav ? '★' : '☆'}</button>`,
+        pvRound: `<button type="button" class="track-preview-btn${pv ? ' playing' : ''}" title="${pvTitle}" aria-label="${pvTitle}: ${name}"
+            ${playable ? '' : 'disabled'} onclick="tpPreview(${id})">${pv ? TP_ICON_STOP : TP_ICON_PLAY}</button>`,
+        pvLabeled: `<button type="button" class="btn btn-sm btn-secondary pv-btn${pv ? ' on' : ''}" title="${pvTitle}"
+            ${playable ? '' : 'disabled'} onclick="tpPreview(${id})">${pv ? TP_ICON_STOP : TP_ICON_PLAY}${pv ? 'Stop' : 'Preview'}</button>`,
+        more: `<button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu"
+            onclick="tpMenu('theme', this, ${id})">${TE_ICON_MORE}</button>`,
+        nameEl: (cls) => `<span class="trk-name${cls ? ' ' + cls : ''}" title="${name}"><span class="mq-in">${name}</span></span>`,
+    };
+}
 
-    // 2. Category sections (only show categories that have themes)
-    const usedCategories = new Set();
-    themes.forEach(t => (t.categories || []).forEach(c => usedCategories.add(c)));
+function tpCardHtml(theme) {
+    const p = tpParts(theme);
+    const phone = TP_PHONE.matches;
+    const edit = `<button type="button" class="btn btn-sm btn-secondary" onclick="tpEdit(${p.id})">${phone ? '' : TP_ICON_EDIT}Edit</button>`;
+    const tags = `<div class="tc-tags">${p.air}${p.cats}</div>`;
+    return `
+    <div class="tcard${p.onAir ? ' on-air' : ''}${p.pv ? ' pv' : ''}">
+        <div class="tc-top">
+            <span class="tc-icon" aria-hidden="true">${p.icon}</span>
+            <div class="tc-title">${p.nameEl('th-name')}<span class="tc-meta">${p.meta}</span></div>
+            ${p.star}
+        </div>
+        <div class="tc-desc" title="${p.desc}">${p.desc}</div>
+        ${phone
+            ? `<div class="tc-foot">${tags}${p.pvRound}${edit}${p.more}</div>`
+            : `${tags}<div class="tc-foot">${p.pvLabeled}<span class="grow"></span>${edit}${p.more}</div>`}
+    </div>`;
+}
 
-    for (const category of themeCategories) {
-        if (!usedCategories.has(category)) continue;
-        const categoryThemes = themes
-            .filter(t => (t.categories || []).includes(category))
-            .sort((a, b) => a.name.localeCompare(b.name));
-        if (categoryThemes.length > 0) {
-            html += renderCategorySection(category, categoryThemes, true);
-        }
-    }
+function tpRowHtml(theme) {
+    const p = tpParts(theme);
+    return `
+    <div class="lrow lgrid${p.pv ? ' pv' : ''}">
+        ${p.pvRound}
+        <div class="lname"><span class="ic" aria-hidden="true">${p.icon}</span>${p.nameEl('')}${p.air}</div>
+        <div class="tc-tags">${p.cats || '<span class="notag">—</span>'}</div>
+        <span class="lnum c" title="${p.meta}">${p.tracks}</span>
+        ${p.star}
+        <button type="button" class="btn btn-sm btn-secondary" onclick="tpEdit(${p.id})">Edit</button>
+        ${p.more}
+    </div>`;
+}
 
-    // 3. Uncategorized section (themes not in any category, excluding favorites-only)
-    const uncategorizedThemes = themes
-        .filter(t => (!t.categories || t.categories.length === 0))
-        .sort((a, b) => {
-            // Sort: themes with audio first, then alphabetically
-            if (a.has_audio && !b.has_audio) return -1;
-            if (!a.has_audio && b.has_audio) return 1;
-            return a.name.localeCompare(b.name);
+// Names that don't fit scroll slowly (same as the Theme Editor)
+function tpUpdateMarquees() {
+    requestAnimationFrame(() => {
+        document.querySelectorAll('#themes-browser .trk-name').forEach(el => {
+            const inner = el.firstElementChild;
+            el.classList.toggle('mq', !!inner && inner.scrollWidth > el.clientWidth + 1);
         });
-
-    if (uncategorizedThemes.length > 0) {
-        // If there are categories, show "Uncategorized" header; otherwise no header
-        if (html) {
-            html += renderCategorySection('Uncategorized', uncategorizedThemes, false);
-        } else {
-            // No categories exist, just show grid without header
-            html += `<div class="theme-category-grid">${uncategorizedThemes.map(theme => renderThemeCard(theme)).join('')}</div>`;
-        }
-    }
-
-    container.innerHTML = html || '<p style="color: var(--text-muted); padding: 1rem;">No themes found.</p>';
+    });
 }
 
-async function confirmDeleteCategory(categoryName) {
-    if (confirm(`Delete category "${categoryName}"?\n\nThemes in this category will not be deleted, only the category grouping.`)) {
-        try {
-            await api('DELETE', `/categories/${encodeURIComponent(categoryName)}`);
-            await loadCategories();
-            await loadThemes();
-            renderThemesBrowser();
-            showToast(`Category "${categoryName}" deleted`, 'success');
-        } catch (error) {
-            showToast(error.message || 'Failed to delete category', 'error');
-        }
-    }
+// ---------- Search, filter, sort, view ----------
+
+function tpSearch(input) {
+    tp.q = input.value;
+    renderThemesBrowser();
 }
 
-// Category Create Modal
-function openCategoryCreateModal() {
-    document.getElementById('category-create-name').value = '';
-
-    // Render theme checkboxes
-    const container = document.getElementById('category-theme-list');
-    if (themes && themes.length > 0) {
-        container.innerHTML = themes
-            .filter(t => t.has_audio)
-            .sort((a, b) => a.name.localeCompare(b.name))
-            .map(theme => `
-                <label class="category-theme-item">
-                    <input type="checkbox" value="${theme.id}">
-                    <span class="category-theme-item-name">${escapeHtml(theme.name)}</span>
-                    <span class="category-theme-item-meta">${theme.total_tracks} files</span>
-                </label>
-            `).join('');
-    } else {
-        container.innerHTML = '<p style="color: var(--text-muted); padding: 1rem;">No themes available</p>';
-    }
-
-    document.getElementById('category-create-modal').style.display = 'flex';
+function tpClearSearch() {
+    const input = document.getElementById('tp-q');
+    input.value = '';
+    tp.q = '';
+    renderThemesBrowser();
+    input.focus();
 }
 
-function closeCategoryCreateModal() {
-    document.getElementById('category-create-modal').style.display = 'none';
+function tpClearFilters() {
+    document.getElementById('tp-q').value = '';
+    tp.q = '';
+    tp.cat = 'all';
+    renderThemesBrowser();
 }
 
-async function createCategory() {
-    const name = document.getElementById('category-create-name').value.trim();
+function tpSetCat(key) {
+    tp.cat = key;
+    renderThemesBrowser();
+}
 
-    if (!name) {
-        showToast('Please enter a category name', 'error');
+function tpSetSort(key) {
+    tp.sort = key;
+    tpCloseMenu();
+    renderThemesBrowser();
+}
+
+function tpSetView(view) {
+    tp.view = view === 'list' ? 'list' : 'cards';
+    try { localStorage.setItem(TP_VIEW_KEY, tp.view); } catch (e) { /* not stored; fine */ }
+    renderThemesBrowser();
+}
+
+if (TP_PHONE.addEventListener) {
+    TP_PHONE.addEventListener('change', () => { if (currentView === 'themes') renderThemesBrowser(); });
+}
+
+// ---------- Theme actions ----------
+
+function tpPreview(themeId) {
+    if (currentPreviewThemeId === themeId) {
+        closeThemePreview();
         return;
     }
+    const theme = tpTheme(themeId);
+    if (theme) startThemePreview(theme.id, theme.name);
+}
 
+function tpEdit(themeId) {
+    tpCloseMenu();
+    openThemeEditModal(themeId);
+}
+
+function tpExport(themeId) {
+    tpCloseMenu();
+    exportThemeZip(themeId);
+}
+
+function tpImport() {
+    tpCloseMenu();
+    importThemeZip();
+}
+
+async function tpRefresh() {
+    tpCloseMenu();
+    await loadCategories();
+    await refreshThemes();
+}
+
+async function tpCreateTheme() {
+    const input = document.getElementById('tp-new-name');
+    const okBtn = document.getElementById('tp-new-ok');
+    const name = input ? input.value.trim() : '';
+    if (!name) return;
+    if (okBtn) okBtn.disabled = true;
+    const before = new Set(themes.map(t => t.id));
+    const category = tpIsCategory(tp.cat) ? tp.cat : null;
     try {
-        // Create the category
-        await api('POST', '/categories', { name });
-
-        // Get selected themes
-        const selectedThemes = Array.from(
-            document.querySelectorAll('#category-theme-list input[type="checkbox"]:checked')
-        ).map(cb => cb.value);
-
-        // Assign selected themes to this category
-        for (const themeId of selectedThemes) {
-            const theme = themes.find(t => t.id === themeId);
-            const existingCats = theme?.categories || [];
-            await api('POST', `/themes/${themeId}/categories`, {
-                categories: [...existingCats, name]
-            });
-            // Update local theme state
-            if (theme) {
-                theme.categories = [...existingCats, name];
-            }
+        const result = await api('POST', '/themes/create', { name, description: '', icon: '' });
+        // Created while a category is selected: put it in that category
+        if (category && result.theme_id) {
+            await api('POST', `/themes/${encodeURIComponent(result.theme_id)}/categories`, { categories: [category] });
         }
+        await loadThemes();
+        tpCloseMenu();
+        renderThemesBrowser();
+        renderThemeSelector();
+        showToast(`Created "${name}"`, 'success');
+        // Open it to add tracks, icon and description
+        const added = themes.filter(t => !before.has(t.id));
+        if (added.length === 1) openThemeEditModal(added[0].id);
+    } catch (error) {
+        showToast(error.message || 'Failed to create theme', 'error');
+        if (okBtn) okBtn.disabled = false;
+    }
+}
 
-        // Add to local categories list if themes were assigned
-        if (selectedThemes.length > 0 && !themeCategories.includes(name)) {
-            themeCategories.push(name);
+// ---------- Menus and popovers (one floating element) ----------
+
+function tpMenuSpec(kind, arg) {
+    const mi = (label, action, opts = {}) => `<button type="button" class="mi${opts.cls ? ' ' + opts.cls : ''}"
+        role="${opts.role || 'menuitem'}"${opts.checked !== undefined ? ` aria-checked="${opts.checked}"` : ''}
+        onclick="${action}">${opts.icon || ''}${label}</button>`;
+    const sep = '<div class="msep"></div>';
+    switch (kind) {
+        case 'page':
+            return { cls: 'menu', align: 'right', html: `
+                ${mi('Import theme…', 'tpImport()', { icon: TP_ICON_UPLOAD })}
+                ${mi('Manage categories…', 'tpOpenCats()', { icon: TP_ICON_TAG })}
+                ${sep}${mi('Refresh', 'tpRefresh()', { icon: TP_ICON_REFRESH })}` };
+        case 'sort':
+            return { cls: 'menu tp-sort-menu', align: 'right', html: TP_SORTS.map(([key, label]) =>
+                mi(label, `tpSetSort('${key}')`, { cls: tp.sort === key ? 'cur' : '', role: 'menuitemradio', checked: tp.sort === key })).join('') };
+        case 'theme': {
+            const theme = tpTheme(arg);
+            if (!theme) return null;
+            const id = jsArg(arg);
+            return { cls: 'menu', align: 'right', html: `
+                ${mi('Export', `tpExport(${id})`, { icon: TE_ICON_DOWNLOAD })}
+                ${sep}${mi('Delete…', `tpMenu('del', tp.menuBtn, ${id})`, { cls: 'danger', icon: TP_ICON_TRASH })}` };
         }
+        case 'del': {
+            const theme = tpTheme(arg);
+            if (!theme) return null;
+            return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
+                <span class="pop-title">Delete “${escapeHtml(theme.name)}”?</span>
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="tpCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="tpDeleteTheme(${jsArg(arg)})">Delete</button></div>` };
+        }
+        case 'create':
+            return { cls: 'pop', align: 'right', role: 'dialog', html: `
+                <span class="pop-title">New theme</span>
+                <input id="tp-new-name" class="inp sm" type="text" maxlength="80" enterkeyhint="done" autocomplete="off"
+                       placeholder="Theme name" aria-label="Theme name"
+                       oninput="document.getElementById('tp-new-ok').disabled = !this.value.trim()"
+                       onkeydown="if (event.key === 'Enter') { event.preventDefault(); tpCreateTheme(); }">
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="tpCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="tp-new-ok" disabled onclick="tpCreateTheme()">OK</button></div>` };
+    }
+    return null;
+}
 
+function tpMenu(kind, button, arg = null) {
+    const id = arg === null ? kind : `${kind}:${arg}`;
+    if (tp.menu === id) { tpCloseMenu(); return; }
+    const spec = tpMenuSpec(kind, arg);
+    if (!spec || !button || !button.isConnected) { tpCloseMenu(); return; }
+    const pop = document.getElementById('tp-menu');
+    pop.className = `te-pop ${spec.cls}`;
+    pop.setAttribute('role', spec.role || 'menu');
+    pop.innerHTML = spec.html;
+    pop.hidden = false;
+    if (tp.menuBtn && tp.menuBtn !== button) tp.menuBtn.removeAttribute('aria-expanded');
+    tp.menu = id;
+    tp.menuBtn = button;
+    button.setAttribute('aria-expanded', 'true');
+    tePlaceMenu(pop, button, spec.align || 'right', 'down');
+    const focus = pop.querySelector('input') || pop.querySelector('button:not([disabled])');
+    if (focus) focus.focus();
+}
+
+function tpCloseMenu() {
+    const pop = document.getElementById('tp-menu');
+    if (pop && !pop.hidden) {
+        pop.hidden = true;
+        pop.innerHTML = '';
+    }
+    if (tp.menuBtn) tp.menuBtn.removeAttribute('aria-expanded');
+    tp.menu = null;
+    tp.menuBtn = null;
+}
+
+document.addEventListener('mousedown', event => {
+    if (!tp.menu) return;
+    const pop = document.getElementById('tp-menu');
+    if (pop.contains(event.target) || tp.menuBtn?.contains(event.target)) return;
+    tpCloseMenu();
+}, true);
+
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || currentView !== 'themes') return;
+    if (tp.menu) {
+        const button = tp.menuBtn;
+        tpCloseMenu();
+        button?.focus();
+    } else if (tpCatsOpen()) {
+        if (tp.catConfirm) {
+            tp.catConfirm = null;
+            tpRenderCats();
+        } else {
+            tpCloseCats();
+        }
+    }
+});
+
+// Width changes move the buttons; height-only changes (phone keyboard) don't
+let tpLastWidth = window.innerWidth;
+window.addEventListener('resize', () => {
+    if (window.innerWidth === tpLastWidth) return;
+    tpLastWidth = window.innerWidth;
+    if (tp.menu) tpCloseMenu();
+    if (currentView === 'themes') tpUpdateMarquees();
+});
+
+// The collection scrolled away from the card a menu hangs from
+function tpOnScroll() {
+    if (tp.menu && (tp.menu.startsWith('theme:') || tp.menu.startsWith('del:'))) tpCloseMenu();
+}
+
+// ---------- Manage categories dialog ----------
+
+function tpCatsOpen() {
+    return document.getElementById('tp-cat-modal')?.classList.contains('active');
+}
+
+function tpOpenCats() {
+    tpCloseMenu();
+    tp.catConfirm = null;
+    const input = document.getElementById('tp-cm-new');
+    input.value = '';
+    tpCatNewInput();
+    tpRenderCats();
+    document.getElementById('tp-cat-modal').classList.add('active');
+    loadCategories().then(tpRenderCats);
+}
+
+function tpCloseCats() {
+    tp.catConfirm = null;
+    document.getElementById('tp-cat-modal').classList.remove('active');
+}
+
+function tpRenderCats() {
+    const box = document.getElementById('tp-cm-list');
+    if (!box) return;
+    const cats = tpCategories();
+    box.innerHTML = cats.length ? cats.map(cat => {
+        const n = themes.filter(t => (t.categories || []).includes(cat)).length;
+        const count = tpPlural(n, 'theme');
+        const arg = jsArg(cat);
+        if (tp.catConfirm === cat) {
+            return `<div class="cm-row">
+                <span class="cm-q">Delete “${escapeHtml(cat)}”? (${count})</span>
+                <button type="button" class="btn btn-sm btn-secondary" onclick="tpCancelDeleteCat()">Cancel</button>
+                <button type="button" class="btn btn-sm btn-danger" onclick="tpDeleteCat(${arg})">Delete</button>
+            </div>`;
+        }
+        return `<div class="cm-row">
+            <span class="cm-name" title="${escapeHtml(cat)}">${escapeHtml(cat)}</span>
+            <span class="badge badge-type">${count}</span>
+            <button type="button" class="icon-btn sm" title="Delete" aria-label="Delete ${escapeHtml(cat)}" onclick="tpAskDeleteCat(${arg})">${TP_ICON_TRASH}</button>
+        </div>`;
+    }).join('') : '<div class="cm-none">—</div>';
+}
+
+function tpCatNewInput() {
+    const name = document.getElementById('tp-cm-new').value.trim();
+    const taken = tpCategories().some(c => c.toLowerCase() === name.toLowerCase());
+    document.getElementById('tp-cm-add').disabled = !name || taken;
+}
+
+async function tpAddCategory() {
+    const input = document.getElementById('tp-cm-new');
+    const name = input.value.trim().replace(/\s+/g, ' ');
+    if (!name || tpCategories().some(c => c.toLowerCase() === name.toLowerCase())) return;
+    try {
+        const result = await api('POST', '/categories', { name });
+        if (result && result.error) throw new Error(result.error);
+        await loadCategories();
+        input.value = '';
+        tpCatNewInput();
+        tpRenderCats();
+        renderThemesBrowser();
+        input.focus();
+    } catch (error) {
+        showToast(error.message || 'Failed to add category', 'error');
+    }
+}
+
+function tpAskDeleteCat(cat) {
+    tp.catConfirm = cat;
+    tpRenderCats();
+}
+
+function tpCancelDeleteCat() {
+    tp.catConfirm = null;
+    tpRenderCats();
+}
+
+async function tpDeleteCat(cat) {
+    try {
+        const result = await api('DELETE', `/categories/${encodeURIComponent(cat)}`);
+        if (result && result.error) throw new Error(result.error);
+        tp.catConfirm = null;
+        if (tp.cat === cat) tp.cat = 'all';
         await loadCategories();
         await loadThemes();
+        tpRenderCats();
         renderThemesBrowser();
-        closeCategoryCreateModal();
-        showToast(`Category "${name}" created${selectedThemes.length > 0 ? ` and assigned to ${selectedThemes.length} theme(s)` : ''}`, 'success');
+        showToast(`Category "${cat}" deleted`, 'success');
     } catch (error) {
-        showToast(error.message || 'Failed to create category', 'error');
+        showToast(error.message || 'Failed to delete category', 'error');
     }
 }
 
@@ -1980,16 +2247,17 @@ async function toggleThemeFavorite(themeId) {
     }
 }
 
-// Theme Delete
-function confirmDeleteTheme(themeId, themeName) {
-    if (confirm(`Delete theme "${themeName}"?\n\nThis will permanently delete the theme folder and all audio files. This action cannot be undone.`)) {
-        deleteTheme(themeId, themeName);
-    }
+// Theme Delete (asked first in the theme's ⋯ menu)
+async function tpDeleteTheme(themeId) {
+    const theme = tpTheme(themeId);
+    tpCloseMenu();
+    if (theme) await deleteTheme(themeId, theme.name);
 }
 
 async function deleteTheme(themeId, themeName) {
     try {
         await api('DELETE', `/themes/${themeId}`);
+        if (currentPreviewThemeId === themeId) closeThemePreview();
         // Remove from local state
         themes = themes.filter(t => t.id !== themeId);
         renderThemesBrowser();
@@ -2000,485 +2268,1411 @@ async function deleteTheme(themeId, themeName) {
     }
 }
 
-// Theme Edit Modal
+// ============================================
+// Theme Edit window
+// Fixed top (details, tracks toolbar) and footer (presets, save); only the
+// track list scrolls. Groups are collapsible sections whose header row holds
+// the group master controls. All menus and popovers share one floating
+// element (#te-menu) placed next to the button that opened it.
+// ============================================
+
+const TE_ICON_MORE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+const TE_ICON_FOLDER = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>';
+const TE_ICON_PLUS = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+const TE_ICON_RESET = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
+const TE_ICON_DOWNLOAD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+const TE_ICON_X = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+const TE_ICON_GRIP = '<svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="3" cy="8" r="1.5"/><circle cx="9" cy="8" r="1.5"/><circle cx="3" cy="13" r="1.5"/><circle cx="9" cy="13" r="1.5"/></svg>';
+const TE_ICON_CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
+const TE_ICON_CHEV_UP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>';
+const TE_ICON_FOLDER_LG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>';
+const TE_ICON_PLAY = '<svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const TE_ICON_STOP = '<svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
+
+const TE_MODES = [['auto', 'Auto'], ['continuous', 'Background'], ['sparse', 'Intermittent'], ['presence', 'Ebb & Flow']];
+// The server rebuilds its theme list about 2 s after files move, rename or upload
+const TE_REBUILD_WAIT_MS = 2600;
+
+const te = {
+    themeId: null,
+    tracks: [],
+    groups: [],
+    groupsOk: true,        // false on an older server without /groups
+    icon: '',              // stored icon ('' = automatic)
+    cats: [],
+    catText: '',
+    catHi: 0,
+    catFocus: false,
+    threshold: null,
+    saved: '',             // snapshot of the details as last saved
+    closed: {},            // collapsed groups
+    presets: [],
+    selPreset: '',         // '' = current settings
+    mixDirty: false,
+    upload: null,          // null = upload zone hidden; '' = theme; otherwise a group name
+    menu: null,
+    menuBtn: null,
+    renaming: null,        // group being renamed inline
+    confirmDel: null,      // group waiting for delete confirmation
+    drag: null,            // track key being dragged
+    msgTimer: null,
+    loadSeq: 0,
+};
+
+// Kept for other callers (import preset, preview): the open theme's id
+let currentTrackMixerThemeId = null;
+
+function trackDisplayName(key) {
+    return key.includes('/') ? key.slice(key.indexOf('/') + 1) : key;
+}
+
+function trackGroupOf(key) {
+    return key.includes('/') ? key.slice(0, key.indexOf('/')) : null;
+}
+
+function jsArg(text) {
+    // A value for an inline onclick/onchange handler argument
+    return escapeHtml(JSON.stringify(String(text)));
+}
+
+function groupMaster(group, key) {
+    const value = group?.settings?.[key];
+    return value === undefined || value === null ? 1 : value;
+}
+
+function playsAtHint(trackValue, master) {
+    if (master >= 0.999) return '';
+    return `plays at ${Math.round(trackValue * master * 100)}%`;
+}
+
+function teEsc(value) {
+    return value === 0 ? '0' : escapeHtml(value == null ? '' : String(value));
+}
+
+function teGroup(name) {
+    return te.groups.find(g => g.name === name) || null;
+}
+
+function teTrack(key) {
+    return te.tracks.find(t => t.name === key) || null;
+}
+
+function teTrackUrl(key, suffix) {
+    return `/themes/${te.themeId}/tracks/${encodeURIComponent(key)}/${suffix}`;
+}
+
+function teGroupUrl(name, suffix = '') {
+    return `/themes/${te.themeId}/groups/${encodeURIComponent(name)}${suffix}`;
+}
+
+function teWait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function teFlash(text) {
+    const el = document.getElementById('te-msg');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.add('show');
+    clearTimeout(te.msgTimer);
+    te.msgTimer = setTimeout(() => { el.textContent = ''; el.classList.remove('show'); }, 2600);
+}
+
+// ---------- Open / close ----------
+
 function openThemeEditModal(themeId) {
     const theme = themes.find(t => t.id === themeId);
     if (!theme) return;
 
+    teCloseMenu();
+    stopTrackPreview();
+    Object.assign(te, {
+        themeId, tracks: [], groups: [], groupsOk: true,
+        icon: theme.icon ? resolveThemeIcon(theme.icon, themeId) : '',
+        cats: [...(theme.categories || [])], catText: '', catHi: 0, catFocus: false,
+        threshold: theme.short_file_threshold ?? null,
+        closed: {}, presets: [], selPreset: '', mixDirty: false, mixSnap: null,
+        upload: null, renaming: null, confirmDel: null, drag: null,
+    });
+    currentTrackMixerThemeId = themeId;
+
     document.getElementById('theme-edit-id').value = themeId;
-    document.getElementById('theme-edit-title').textContent = `Edit: ${theme.name}`;
-    document.getElementById('theme-edit-name').value = theme.name || '';
-    document.getElementById('theme-edit-description').value = theme.description || '';
+    document.getElementById('te-title-name').textContent = theme.name || '';
+    document.getElementById('te-name').value = theme.name || '';
+    const desc = document.getElementById('te-desc');
+    desc.value = theme.description || '';
+    document.getElementById('te-cat').value = '';
+    document.getElementById('te-msg').textContent = '';
+    teRenderIcon();
+    teRenderChips();
+    teRenderCatList();
+    teSetUpload(null);
+    te.saved = teDetailsSnap();
+    teDetailsChanged();
+    teRenderPresetField();
 
-    // Set icon - use stored icon or show auto-detected
-    const storedIcon = theme.icon || '';
-    const displayIcon = storedIcon ? resolveThemeIcon(storedIcon, themeId) : getThemeIcon(themeId);
-    document.getElementById('theme-edit-icon').value = storedIcon ? displayIcon : '';
-    document.getElementById('theme-edit-icon-preview').textContent = displayIcon;
-    document.getElementById('icon-picker-dropdown').style.display = 'none';
-
-    // Render category checkboxes
-    const categoriesContainer = document.getElementById('theme-edit-categories');
-    const themeCats = theme.categories || [];
-
-    if (themeCategories && themeCategories.length > 0) {
-        categoriesContainer.innerHTML = themeCategories.map(cat => `
-            <label class="category-checkbox">
-                <input type="checkbox" value="${escapeHtml(cat)}" ${themeCats.includes(cat) ? 'checked' : ''}>
-                ${escapeHtml(cat)}
-            </label>
-        `).join('');
-    } else {
-        categoriesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.875rem;">No categories created yet</span>';
-    }
-
-    document.getElementById('theme-edit-new-category').value = '';
+    document.getElementById('te-tracks').innerHTML = '<div class="empty-row">Loading tracks…</div>';
     document.getElementById('theme-edit-modal').style.display = 'flex';
+    teAutoGrow(desc);
 
-    // Load track mixer data
-    loadTrackMixer(themeId);
+    loadCategories().then(teRenderCatList);
+    teLoadPresets(true);
+    teLoadTracks();
+}
+
+// ---------- Save theme closes; Cancel puts back what wasn't saved ----------
+// Track and group controls save as they change, so Cancel restores the
+// values from when the window opened (or from the last save). Uploads, moving
+// tracks between groups, creating/deleting groups and saved presets stay.
+
+const TE_TRACK_FIELDS = ['volume', 'presence', 'muted', 'playback_mode', 'seamless_loop', 'exclusive'];
+const TE_GROUP_FIELDS = ['volume', 'presence', 'muted', 'gap_min', 'gap_max'];
+
+function teMixSnapshot() {
+    const tracks = {};
+    for (const t of te.tracks) tracks[t.name] = Object.fromEntries(TE_TRACK_FIELDS.map(f => [f, t[f]]));
+    const groups = {};
+    for (const g of te.groups) groups[g.name] = Object.fromEntries(TE_GROUP_FIELDS.map(f => [f, g.settings?.[f] ?? null]));
+    return { tracks, groups };
+}
+
+async function teRestoreMix() {
+    const snap = te.mixSnap;
+    if (!snap || !te.themeId) return;
+    const calls = [];
+    for (const t of te.tracks) {
+        const before = snap.tracks[t.name];
+        if (!before) continue;  // moved or uploaded since: nothing to put back
+        for (const f of TE_TRACK_FIELDS) {
+            if (before[f] !== undefined && before[f] !== t[f]) {
+                calls.push(api('PUT', teTrackUrl(t.name, f), { [f]: before[f] }));
+            }
+        }
+    }
+    for (const g of te.groups) {
+        const before = snap.groups[g.name];
+        if (!before) continue;
+        const changed = TE_GROUP_FIELDS.filter(f => before[f] !== (g.settings?.[f] ?? null));
+        if (changed.length) calls.push(api('PUT', teGroupUrl(g.name), Object.fromEntries(changed.map(f => [f, before[f]]))));
+    }
+    const results = await Promise.allSettled(calls);
+    if (results.some(r => r.status === 'rejected')) showToast('Some settings could not be put back', 'error');
+}
+
+async function teCancel() {
+    if (!te.themeId) return closeThemeEditModal();
+    await teRestoreMix();
+    closeThemeEditModal();
+}
+
+async function teSaveAndClose() {
+    if (await teSaveTheme(true)) {
+        te.mixSnap = null;
+        closeThemeEditModal();
+    }
 }
 
 function closeThemeEditModal() {
+    teCloseMenu();
+    teCloseHelp();
+    stopTrackPreview();
+    teStopMixPreview();
     document.getElementById('theme-edit-modal').style.display = 'none';
+    te.themeId = null;
 }
 
-// Track Mixer Functions
-let currentTrackMixerThemeId = null;
+// ---------- Details: name, icon, description, categories, threshold ----------
 
-async function loadTrackMixer(themeId, preservePresetSelection = false) {
-    currentTrackMixerThemeId = themeId;
-    const container = document.getElementById('track-mixer-list');
-    container.innerHTML = '<div class="track-mixer-empty">Loading tracks...</div>';
+function teDetailsSnap() {
+    return JSON.stringify([
+        document.getElementById('te-name').value.trim(),
+        te.icon,
+        document.getElementById('te-desc').value.trim(),
+        te.cats,
+        te.threshold,
+    ]);
+}
 
-    // Save current preset selection if preserving
-    const presetSelect = document.getElementById('preset-select');
-    const currentPresetId = preservePresetSelection && presetSelect ? presetSelect.value : '';
+function teDetailsChanged() {
+    const dot = document.getElementById('te-sdot');
+    if (dot) dot.hidden = teDetailsSnap() === te.saved;
+}
 
-    // Load presets for this theme
-    await loadPresets(themeId);
+function teAutoGrow(textarea) {
+    // One line, grows to two, then scrolls (field-sizing isn't everywhere yet)
+    textarea.style.height = 'auto';
+    const style = getComputedStyle(textarea);
+    const max = parseFloat(style.maxHeight) || 9999;
+    const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    textarea.style.height = Math.min(textarea.scrollHeight + border, max) + 'px';
+}
 
-    // Restore or reset preset dropdown selection
-    if (presetSelect) {
-        presetSelect.value = currentPresetId;
-        // Update button visibility without triggering load
-        const defaultBtn = document.getElementById('preset-default-btn');
-        const renameBtn = document.getElementById('preset-rename-btn');
-        const deleteBtn = document.getElementById('preset-delete-btn');
-        const exportBtn = document.getElementById('preset-export-btn');
-        if (currentPresetId) {
-            defaultBtn.style.display = '';
-            renameBtn.style.display = '';
-            deleteBtn.style.display = '';
-            exportBtn.style.display = '';
-        } else {
-            defaultBtn.style.display = 'none';
-            renameBtn.style.display = 'none';
-            deleteBtn.style.display = 'none';
-            exportBtn.style.display = 'none';
+function teRenderIcon() {
+    document.getElementById('te-icon').textContent = te.icon || resolveThemeIcon('', te.themeId);
+}
+
+function tePickIcon(icon) {
+    te.icon = icon;
+    teRenderIcon();
+    teCloseMenu();
+    teDetailsChanged();
+}
+
+function teSetThreshold(input) {
+    const value = input.value === '' ? null : Math.max(0, parseFloat(input.value));
+    te.threshold = Number.isFinite(value) ? value : null;
+    teDetailsChanged();
+}
+
+// Categories: one chip field with autocomplete
+function teHasCat(list, name) {
+    return list.some(c => c.toLowerCase() === name.toLowerCase());
+}
+
+function teCatOptions() {
+    const q = te.catText.trim().replace(/\s+/g, ' ');
+    const ql = q.toLowerCase();
+    const options = (themeCategories || [])
+        .filter(c => !teHasCat(te.cats, c) && c.toLowerCase().includes(ql))
+        .sort((a, b) => (b.toLowerCase().startsWith(ql) ? 1 : 0) - (a.toLowerCase().startsWith(ql) ? 1 : 0))
+        .map(c => ({ label: c, create: false }));
+    if (q && !teHasCat(themeCategories || [], q) && !teHasCat(te.cats, q)) options.push({ label: q, create: true });
+    return options;
+}
+
+function teRenderChips() {
+    document.getElementById('te-chips').innerHTML = te.cats.map((c, i) => `
+        <span class="chip">${escapeHtml(c)}<button type="button" aria-label="Remove ${escapeHtml(c)}"
+            onmousedown="event.preventDefault()" onclick="event.preventDefault(); teRemoveCat(${i})">${TE_ICON_X}</button></span>`).join('');
+    const input = document.getElementById('te-cat');
+    input.placeholder = te.cats.length ? '' : 'Add a category…';
+    const field = document.getElementById('te-chipfield');
+    field.scrollLeft = field.scrollWidth;
+}
+
+function teRenderCatList() {
+    const list = document.getElementById('te-cat-list');
+    const input = document.getElementById('te-cat');
+    if (!list || !input) return;
+    const options = te.catFocus ? teCatOptions() : [];
+    te.catHi = Math.max(0, Math.min(te.catHi, options.length - 1));
+    list.hidden = !options.length;
+    input.setAttribute('aria-expanded', options.length ? 'true' : 'false');
+    list.innerHTML = options.map((o, i) => `
+        <button type="button" class="ac-opt${i === te.catHi ? ' hi' : ''}${o.create ? ' create' : ''}" role="option"
+                id="te-cat-opt-${i}" aria-selected="${i === te.catHi}"
+                onmousedown="event.preventDefault(); teAddCat(${jsArg(o.label)})" onmouseenter="teCatHover(${i})">
+            ${o.create ? `<span class="plus">+</span><span>Create “${escapeHtml(o.label)}”</span>` : `<span>${escapeHtml(o.label)}</span>`}
+            ${i === te.catHi ? '<span class="key">Enter</span>' : ''}
+        </button>`).join('');
+    if (options.length) input.setAttribute('aria-activedescendant', `te-cat-opt-${te.catHi}`);
+    else input.removeAttribute('aria-activedescendant');
+}
+
+function teCatHover(i) {
+    if (te.catHi === i) return;
+    te.catHi = i;
+    teRenderCatList();
+}
+
+function teCatInput(input) {
+    te.catText = input.value;
+    te.catHi = 0;
+    te.catFocus = true;
+    teRenderCatList();
+}
+
+function teCatFocus(on) {
+    te.catFocus = on;
+    document.getElementById('te-chipfield').classList.toggle('focus', on);
+    teRenderCatList();
+}
+
+function teAddCat(label) {
+    const text = String(label).trim().replace(/\s+/g, ' ');
+    if (!text) return;
+    const known = (themeCategories || []).find(c => c.toLowerCase() === text.toLowerCase());
+    const name = known || text;
+    if (!teHasCat(te.cats, name)) te.cats.push(name);
+    te.catText = '';
+    te.catHi = 0;
+    document.getElementById('te-cat').value = '';
+    teRenderChips();
+    teRenderCatList();
+    teDetailsChanged();
+}
+
+function teRemoveCat(index) {
+    te.cats.splice(index, 1);
+    teRenderChips();
+    teRenderCatList();
+    teDetailsChanged();
+    document.getElementById('te-cat').focus();
+}
+
+function teCatKey(event) {
+    const options = teCatOptions();
+    const key = event.key;
+    const q = te.catText.trim();
+    if (key === 'ArrowDown' && options.length) {
+        event.preventDefault();
+        te.catHi = (te.catHi + 1) % options.length;
+        teRenderCatList();
+    } else if (key === 'ArrowUp' && options.length) {
+        event.preventDefault();
+        te.catHi = (te.catHi - 1 + options.length) % options.length;
+        teRenderCatList();
+    } else if (key === 'Enter' || key === 'Tab') {
+        if (q) {
+            event.preventDefault();
+            teAddCat(options.length ? options[Math.min(te.catHi, options.length - 1)].label : q);
+        } else if (key === 'Enter') {
+            event.preventDefault();
+        }
+    } else if (key === 'Backspace' && event.target.value === '' && te.cats.length) {
+        te.cats.pop();
+        teRenderChips();
+        teRenderCatList();
+        teDetailsChanged();
+    } else if (key === 'Escape') {
+        if (!document.getElementById('te-cat-list').hidden) {
+            event.stopPropagation();
+            te.catFocus = false;
+            teRenderCatList();
         }
     }
+}
 
+// Save theme: name, icon, description, categories and the short file threshold
+async function teSaveTheme(quiet = false) {
+    const themeId = te.themeId;
+    if (!themeId) return false;
+    const pending = te.catText.trim();
+    if (pending) teAddCat(pending);
+    const name = document.getElementById('te-name').value.trim();
+    const description = document.getElementById('te-desc').value.trim();
+    if (!name) {
+        showToast('Please enter a theme name', 'warning');
+        document.getElementById('te-name').focus();
+        return false;
+    }
+    const theme = themes.find(t => t.id === themeId);
     try {
-        const result = await api('GET', `/themes/${themeId}/tracks`);
-        if (result.error) {
-            container.innerHTML = `<div class="track-mixer-empty">${result.error}</div>`;
-            return;
+        if (theme && theme.name !== name) {
+            await api('PUT', `/themes/${themeId}/rename`, { name });
         }
-
-        const tracks = (result.tracks || []).sort((a, b) => a.name.localeCompare(b.name));
-        if (tracks.length === 0) {
-            container.innerHTML = '<div class="track-mixer-empty">No audio files in this theme</div>';
-            return;
+        const body = { description, icon: te.icon || '' };
+        if (te.threshold !== null && te.threshold !== (theme?.short_file_threshold ?? null)) {
+            body.short_file_threshold = te.threshold;
         }
-
-        container.innerHTML = tracks.map(track => {
-            const presencePercent = Math.round(track.presence * 100);
-            const volumePercent = Math.round((track.volume || 1.0) * 100);
-            const playbackMode = track.playback_mode || 'auto';
-            const seamlessLoop = track.seamless_loop || false;
-            const exclusive = track.exclusive || false;
-            return `
-            <div class="track-item ${track.muted ? 'muted' : ''}" data-track="${escapeHtml(track.name)}">
-                <div class="track-preview-cell">
-                    <button class="track-preview-btn"
-                            onclick="toggleTrackPreview('${escapeHtml(track.name)}')"
-                            title="Preview track">
-                        <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-                            <path d="M8 5v14l11-7z"/>
-                        </svg>
-                        <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="display:none;">
-                            <rect x="6" y="6" width="12" height="12"/>
-                        </svg>
-                    </button>
-                </div>
-                <div class="track-name-cell">
-                    <span class="track-name">${escapeHtml(track.name)}</span>
-                </div>
-                <div class="track-mode-cell">
-                    <select class="track-mode-select"
-                            onchange="setTrackPlaybackMode('${escapeHtml(track.name)}', this.value)"
-                            title="How this sound plays: Auto = picks best mode based on file length. Continuous = loops forever. Sparse = plays once then waits minutes before playing again. Presence = fades in and out randomly.">
-                        <option value="auto" ${playbackMode === 'auto' ? 'selected' : ''}>Auto</option>
-                        <option value="continuous" ${playbackMode === 'continuous' ? 'selected' : ''}>Continuous</option>
-                        <option value="sparse" ${playbackMode === 'sparse' ? 'selected' : ''}>Sparse</option>
-                        <option value="presence" ${playbackMode === 'presence' ? 'selected' : ''}>Presence</option>
-                    </select>
-                    <label class="track-seamless-label" title="Skip the crossfade when looping. Use this for audio files that already loop smoothly on their own.">
-                        <input type="checkbox" ${seamlessLoop ? 'checked' : ''}
-                               onchange="setTrackSeamlessLoop('${escapeHtml(track.name)}', this.checked)">
-                        Gapless
-                    </label>
-                    <label class="track-exclusive-label" title="When checked, only one exclusive sound plays at a time. Great for things like random bird calls or thunder that shouldn't overlap.">
-                        <input type="checkbox" ${exclusive ? 'checked' : ''}
-                               onchange="setTrackExclusive('${escapeHtml(track.name)}', this.checked)">
-                        Exclusive
-                    </label>
-                </div>
-                <div class="track-sliders-cell">
-                    <div class="track-slider-row" title="How loud this sound is in the mix. 100% = full volume, 0% = silent.">
-                        <span class="track-slider-label">Vol</span>
-                        <div class="track-slider-wrapper">
-                            <input type="range" class="track-slider track-volume-slider"
-                                   min="0" max="100" value="${volumePercent}"
-                                   onchange="setTrackVolume('${escapeHtml(track.name)}', this.value)"
-                                   oninput="updateSliderDisplay(this)">
-                        </div>
-                        <span class="track-slider-value track-volume-value">${volumePercent}%</span>
-                    </div>
-                    <div class="track-slider-row" title="How often this sound plays. For sparse sounds: 100% = every ~3 min, 10% = every ~27 min (with random variation). For presence mode: higher = more often audible.">
-                        <span class="track-slider-label">Pres</span>
-                        <div class="track-slider-wrapper">
-                            <input type="range" class="track-slider track-presence-slider"
-                                   min="0" max="100" value="${presencePercent}"
-                                   onchange="setTrackPresence('${escapeHtml(track.name)}', this.value)"
-                                   oninput="updateSliderDisplay(this)">
-                        </div>
-                        <span class="track-slider-value track-presence-value">${presencePercent}%</span>
-                    </div>
-                </div>
-                <div class="track-mute-cell">
-                    <button class="track-mute-btn ${track.muted ? 'muted' : ''}"
-                            onclick="toggleTrackMute('${escapeHtml(track.name)}')"
-                            title="${track.muted ? 'Unmute' : 'Mute'}">
-                        ${track.muted ? '🔇' : '🔊'}
-                    </button>
-                </div>
-            </div>`;
-        }).join('');
+        await api('PUT', `/themes/${themeId}/metadata`, body);
+        await api('POST', `/themes/${themeId}/categories`, { categories: [...te.cats] });
+        if (theme) {
+            theme.name = name;
+            theme.description = description;
+            theme.icon = te.icon || null;
+            theme.categories = [...te.cats];
+            if (body.short_file_threshold !== undefined) theme.short_file_threshold = te.threshold;
+        }
+        document.getElementById('te-title-name').textContent = name;
+        te.saved = teDetailsSnap();
+        te.mixSnap = teMixSnapshot();  // saved: Cancel no longer puts these back
+        teDetailsChanged();
+        await loadCategories();
+        renderThemesBrowser();
+        renderThemeSelector();
+        if (!quiet) teFlash('Saved');
+        return true;
     } catch (error) {
+        console.error('Save theme error:', error);
+        showToast(error?.message || 'Failed to save theme', 'error');
+        return false;
+    }
+}
+
+// ---------- Tracks and groups ----------
+
+async function teLoadData(themeId) {
+    const result = await api('GET', `/themes/${themeId}/tracks`);
+    const tracks = (result.tracks || []).sort((a, b) => a.name.localeCompare(b.name));
+    let groups = [];
+    let groupsOk = true;
+    try {
+        groups = (await api('GET', `/themes/${themeId}/groups`)).groups || [];
+    } catch (error) {
+        groupsOk = false;  // older server without groups: tracks only
+    }
+    if (groupsOk) {
+        // Groups that exist only as a folder prefix in track keys (defensive)
+        for (const t of tracks) {
+            const g = trackGroupOf(t.name);
+            if (g && !groups.some(x => x.name === g)) groups.push({ name: g, settings: {}, tracks: [] });
+        }
+        groups.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return { tracks, groups, groupsOk };
+}
+
+async function teLoadTracks(afterFileChange = false) {
+    const themeId = te.themeId;
+    if (!themeId) return;
+    const seq = ++te.loadSeq;
+    const list = document.getElementById('te-tracks');
+    if (afterFileChange) {
+        list.classList.add('busy');
+        await teWait(TE_REBUILD_WAIT_MS);
+    }
+    try {
+        const data = await teLoadData(themeId);
+        if (seq !== te.loadSeq || te.themeId !== themeId) return;
+        Object.assign(te, data);
+        if (!te.mixSnap) te.mixSnap = teMixSnapshot();  // what Cancel puts back
+        if (afterFileChange) teRestartMixPreview();  // tracks moved, uploaded or reset
+        if (te.upload && !teGroup(te.upload)) te.upload = '';
+        teRenderTracks();
+    } catch (error) {
+        if (seq !== te.loadSeq || te.themeId !== themeId) return;
         console.error('Failed to load tracks:', error);
-        container.innerHTML = '<div class="track-mixer-empty">Failed to load tracks</div>';
+        list.innerHTML = `<div class="empty-row">${escapeHtml(error.message || 'Failed to load tracks')}</div>`;
+    } finally {
+        if (seq === te.loadSeq) list.classList.remove('busy');
     }
 }
 
-function updateSliderDisplay(slider) {
-    const row = slider.closest('.track-slider-row');
-    const valueSpan = row.querySelector('.track-slider-value');
-    valueSpan.textContent = slider.value + '%';
+// Kept for older callers: reload the track list (after a file change, wait for the rebuild)
+function refreshTrackMixer(afterFileChange = false) {
+    return teLoadTracks(afterFileChange);
 }
 
-// Legacy function for backwards compatibility
-function updateTrackPresenceDisplay(slider) {
-    updateSliderDisplay(slider, 'presence');
+function teModeOptions(track, inGroup) {
+    const modes = TE_MODES;
+    let current = track.playback_mode || 'auto';
+    if (!modes.some(([v]) => v === current)) current = 'auto';
+    return modes.map(([v, label]) => `<option value="${v}"${v === current ? ' selected' : ''}>${label}</option>`).join('');
 }
 
-async function setTrackPresence(trackName, presencePercent) {
-    if (!currentTrackMixerThemeId) return;
+function teGaplessAllowed(track) {
+    const mode = track.playback_mode || 'auto';
+    return mode === 'continuous' || (mode === 'auto' && !track.is_short_file);
+}
 
-    const presence = parseFloat(presencePercent) / 100;
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/presence`, { presence });
-    } catch (error) {
-        console.error('Failed to set track presence:', error);
-        showToast('Failed to set track presence', 'error');
+function teSliderCell(kind, label, percent, attrs, hint) {
+    return `
+        <div class="mx" data-kind="${kind}">
+            <span class="c-lbl">${label}</span>
+            <div class="mx-ctl">
+                <div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="100" value="${percent}" ${attrs}></div>
+                <span class="track-slider-value">${percent}%</span>
+            </div>
+            <span class="mx-hint">${hint || ''}</span>
+        </div>`;
+}
+
+function teRenderRow(track, group) {
+    const key = track.name;
+    const k = jsArg(key);
+    const name = trackDisplayName(key);
+    const vol = Math.round((track.volume ?? 1) * 100);
+    const pres = Math.round((track.presence ?? 1) * 100);
+    const volMaster = group ? groupMaster(group, 'volume') : 1;
+    const presMaster = group ? groupMaster(group, 'presence') : 1;
+    const playing = currentPreviewTrack === key && trackPreviewAudio && !trackPreviewAudio.paused;
+    const advOn = (!group && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive;
+    const muted = track.muted || (group && group.settings?.muted);
+    const cls = ['trow', 'tgrid', group ? 'in-grp' : '', muted ? 'muted' : ''].filter(Boolean).join(' ');
+    const label = escapeHtml(name);
+    return `
+    <div class="${cls}" data-track="${escapeHtml(key)}">
+        ${te.groupsOk ? `<span class="drag-handle" draggable="true" title="Drag to another section" aria-label="Drag ${label}"
+              ondragstart="teDragStart(event, ${k})" ondragend="teDragEnd()">${TE_ICON_GRIP}</span>` : '<span></span>'}
+        <button class="track-preview-btn${playing ? ' playing' : ''}" title="${playing ? 'Stop preview' : 'Preview'}"
+                aria-label="Preview: ${label}" onclick="toggleTrackPreview(${k})">
+            ${TE_ICON_PLAY.replace('<svg', `<svg style="display:${playing ? 'none' : 'block'}"`)}
+            ${TE_ICON_STOP.replace('<svg', `<svg style="display:${playing ? 'block' : 'none'}"`)}
+        </button>
+        <span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>
+        <div class="c-mode">
+            <span class="c-lbl">Mode</span>
+            ${group
+                ? `<span class="te-mode-fixed" title="In a group, each track plays once on its turn">Intermittent</span>`
+                : `<select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"
+                    title="Auto picks by file length. Background plays all the time. Intermittent plays now and then. Ebb &amp; Flow fades in, plays a while, fades out.">${teModeOptions(track, false)}</select>`}
+        </div>
+        ${teSliderCell('volume', 'Volume', vol,
+            `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"`,
+            playsAtHint(vol / 100, volMaster))}
+        ${teSliderCell('presence', 'Interval', pres,
+            `aria-label="Interval: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'presence', this.value)"`,
+            playsAtHint(pres / 100, presMaster))}
+        <button class="track-mute-btn${track.muted ? ' muted' : ''}" title="${track.muted ? 'Unmute' : 'Mute'}"
+                aria-label="${track.muted ? 'Unmute' : 'Mute'}: ${label}" aria-pressed="${!!track.muted}"
+                onclick="teToggleTrackMute(${k})">${track.muted ? '🔇' : '🔊'}</button>
+        <button class="icon-btn sm more-btn" aria-label="More for ${label}" aria-haspopup="menu"
+                onclick="teMenu('track', this, ${k})">${TE_ICON_MORE}${advOn ? '<span class="adv-dot"></span>' : ''}</button>
+    </div>`;
+}
+
+function teRenderGroup(group) {
+    const name = group.name;
+    const n = jsArg(name);
+    const label = escapeHtml(name);
+    const tracks = te.tracks.filter(t => trackGroupOf(t.name) === name);
+    const open = !te.closed[name];
+    const s = group.settings || {};
+    const muted = !!s.muted;
+    const vol = Math.round(groupMaster(group, 'volume') * 100);
+    const pres = Math.round(groupMaster(group, 'presence') * 100);
+    const gapMin = s.gap_min != null ? Math.round(s.gap_min / 6) / 10 : '';
+    const gapMax = s.gap_max != null ? Math.round(s.gap_max / 6) / 10 : '';
+    const renaming = te.renaming === name;
+    const confirming = te.confirmDel === name;
+    const count = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
+    const gap = (cls) => `
+        <div class="${cls}">
+            <span class="${cls === 'gap-row' ? 'c-lbl' : 'gap-word'}">Gap</span>
+            <input class="num" type="number" min="0" step="0.5" placeholder="2" value="${teEsc(gapMin)}" aria-label="${label} minimum gap, minutes"
+                   data-gap="min" onchange="teSetGroupGap(${n}, this)">
+            <span>–</span>
+            <input class="num" type="number" min="0" step="0.5" placeholder="2" value="${teEsc(gapMax)}" aria-label="${label} maximum gap, minutes"
+                   data-gap="max" onchange="teSetGroupGap(${n}, this)">
+            <span>min</span>
+        </div>`;
+    let nameCell;
+    if (renaming) {
+        nameCell = `<input class="inp sm grp-rename" type="text" maxlength="60" enterkeyhint="done" aria-label="Group name" value="${label}"
+                           onkeydown="teRenameKey(event, ${n})" onblur="teCommitRename(${n}, this.value)">`;
+    } else if (confirming) {
+        nameCell = `<span class="pb-confirm">Delete ${label}? Tracks move to the theme.</span>
+                    <span class="grp-confirm-btns">
+                        <button class="btn btn-sm btn-danger" onclick="teDeleteGroup(${n})">Delete</button>
+                        <button class="btn btn-sm btn-secondary" onclick="teCancelDelete()">Cancel</button>
+                    </span>`;
+    } else {
+        nameCell = `<button class="gname" title="Double-click to rename" ondblclick="teStartRename(${n})">${label}</button>
+                    <span class="badge badge-type">${count}</span>`;
     }
+    const masterSlider = (kind, text, value) => teSliderCell(kind, text, value,
+        `aria-label="${label} group ${text.toLowerCase()}" oninput="teGroupSliderInput(this, ${n})" onchange="teSetGroupValue(${n}, '${kind}', this.value)"`, '');
+    return `
+    <div class="sec grp-sec${open ? ' open-sec' : ''}${muted ? ' gmuted' : ''}" data-group="${label}"
+         ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, ${n})">
+        <div class="ghead tgrid${muted ? ' muted' : ''}">
+            <button class="chev-btn${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${label}"
+                    onclick="teToggleGroup(${n})">${TE_ICON_CHEV}</button>
+            <span class="folder">${TE_ICON_FOLDER_LG}</span>
+            <div class="gname-cell">
+                ${nameCell}
+                <span class="drop-note">Drop to add</span>
+                ${confirming ? '' : gap('gap-ctl')}
+            </div>
+            <div class="master">${masterSlider('volume', 'Volume', vol)}</div>
+            <div class="master">${masterSlider('presence', 'Interval', pres)}</div>
+            <button class="track-mute-btn${muted ? ' muted' : ''}" title="${muted ? 'Unmute group' : 'Mute group'}"
+                    aria-label="${muted ? 'Unmute group' : 'Mute group'}: ${label}" aria-pressed="${muted}"
+                    onclick="teSetGroupValue(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
+            <button class="icon-btn sm" aria-label="More for group ${label}" aria-haspopup="menu" onclick="teMenu('group', this, ${n})">${TE_ICON_MORE}</button>
+        </div>
+        ${open ? `
+        <div class="pg-master">
+            <span class="mlabel">Group</span>
+            ${masterSlider('volume', 'Volume', vol)}
+            ${masterSlider('presence', 'Interval', pres)}
+            ${gap('gap-row')}
+        </div>
+        ${tracks.map(t => teRenderRow(t, group)).join('')}
+        ${tracks.length ? '' : `<div class="empty-row">Drag tracks here or use ⋯ › Move to group</div>`}` : ''}
+    </div>`;
 }
 
-async function toggleTrackMute(trackName) {
-    if (!currentTrackMixerThemeId) return;
-
-    const trackItem = document.querySelector(`.track-item[data-track="${trackName}"]`);
-    const muteBtn = trackItem?.querySelector('.track-mute-btn');
-    const isMuted = muteBtn?.classList.contains('muted');
-
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/muted`, { muted: !isMuted });
-
-        // Update UI
-        if (trackItem) {
-            trackItem.classList.toggle('muted');
-        }
-        if (muteBtn) {
-            muteBtn.classList.toggle('muted');
-            muteBtn.innerHTML = isMuted ? '🔊' : '🔇';
-            muteBtn.title = isMuted ? 'Mute' : 'Unmute';
-        }
-    } catch (error) {
-        console.error('Failed to toggle track mute:', error);
-        showToast('Failed to toggle track mute', 'error');
+function teRenderTracks() {
+    const list = document.getElementById('te-tracks');
+    if (!list || !te.themeId) return;
+    document.getElementById('te-track-count').textContent = te.tracks.length;
+    document.getElementById('te-newgroup-btn').hidden = !te.groupsOk;
+    const ungrouped = te.tracks.filter(t => !te.groupsOk || !trackGroupOf(t.name));
+    const groupsHtml = te.groupsOk ? te.groups.map(teRenderGroup).join('') : '';
+    let themeHtml;
+    if (!te.tracks.length && !te.groups.length) {
+        themeHtml = '<div class="empty-row">No audio files in this theme. Use Upload to add some.</div>';
+    } else {
+        themeHtml = `
+        <div class="sec theme-sec" ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, null)">
+            <div class="slabel"><span>${te.groups.length ? 'Theme (no group)' : 'Tracks'}</span>
+                <span class="badge badge-type">${ungrouped.length} track${ungrouped.length === 1 ? '' : 's'}</span>
+                <span class="drop-note">Drop to move out of group</span></div>
+            ${ungrouped.map(t => teRenderRow(t, null)).join('')}
+            ${ungrouped.length ? '' : '<div class="empty-row">All tracks are in groups</div>'}
+        </div>`;
     }
+    const scroll = list.scrollTop;
+    list.innerHTML = `<section aria-label="Tracks">${groupsHtml}${themeHtml}</section>`;
+    list.scrollTop = scroll;
+    teUpdateMarquees();
+    const rename = list.querySelector('.grp-rename');
+    if (rename) { rename.focus(); rename.select(); }
 }
 
-async function resetTrackMixer() {
-    if (!currentTrackMixerThemeId) return;
-
-    if (!confirm('Reset all track settings to defaults?')) return;
-
-    try {
-        await api('POST', `/themes/${currentTrackMixerThemeId}/tracks/reset`);
-        // Reload the mixer
-        await loadTrackMixer(currentTrackMixerThemeId);
-        showToast('Track mixer reset to defaults', 'success');
-    } catch (error) {
-        console.error('Failed to reset track mixer:', error);
-        showToast('Failed to reset track mixer', 'error');
-    }
-}
-
-function toggleTrackAdvanced(btn) {
-    const trackItem = btn.closest('.track-item');
-    const panel = trackItem.querySelector('.track-advanced-panel');
-    panel.classList.toggle('expanded');
-    btn.classList.toggle('active', panel.classList.contains('expanded'));
-}
-
-function updateTrackVolumeDisplay(slider) {
-    updateSliderDisplay(slider, 'volume');
-}
-
-async function setTrackVolume(trackName, volumePercent) {
-    if (!currentTrackMixerThemeId) return;
-
-    const volume = parseFloat(volumePercent) / 100;
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/volume`, { volume });
-    } catch (error) {
-        console.error('Failed to set track volume:', error);
-        showToast('Failed to set track volume', 'error');
-    }
-}
-
-async function setTrackPlaybackMode(trackName, mode) {
-    if (!currentTrackMixerThemeId) return;
-
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/playback_mode`, { playback_mode: mode });
-    } catch (error) {
-        console.error('Failed to set playback mode:', error);
-        showToast('Failed to set playback mode', 'error');
-    }
-}
-
-async function setTrackSeamlessLoop(trackName, seamless) {
-    if (!currentTrackMixerThemeId) return;
-
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/seamless_loop`, { seamless_loop: seamless });
-    } catch (error) {
-        console.error('Failed to set seamless loop:', error);
-        showToast('Failed to set seamless loop', 'error');
-    }
-}
-
-async function setTrackExclusive(trackName, exclusive) {
-    if (!currentTrackMixerThemeId) return;
-
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/exclusive`, { exclusive: exclusive });
-    } catch (error) {
-        console.error('Failed to set exclusive:', error);
-        showToast('Failed to set exclusive', 'error');
-    }
-}
-
-// ============================================
-// Preset Functions
-// ============================================
-
-let currentPresets = [];
-
-async function loadPresets(themeId) {
-    try {
-        const result = await api('GET', `/themes/${themeId}/presets`);
-        currentPresets = result.presets || [];
-        updatePresetDropdown();
-    } catch (error) {
-        console.error('Failed to load presets:', error);
-        currentPresets = [];
-        updatePresetDropdown();
-    }
-}
-
-function updatePresetDropdown() {
-    const select = document.getElementById('preset-select');
-    if (!select) return;
-
-    // Keep the default option
-    select.innerHTML = '<option value="">-- Current Settings --</option>';
-
-    // Add presets
-    currentPresets.forEach(preset => {
-        const option = document.createElement('option');
-        option.value = preset.id;
-        option.textContent = preset.name + (preset.is_default ? ' ★' : '');
-        select.appendChild(option);
+// Names that don't fit scroll slowly to the end, pause, jump back (CSS animation)
+function teUpdateMarquees() {
+    requestAnimationFrame(() => {
+        document.querySelectorAll('#te-tracks .trk-name').forEach(el => {
+            const inner = el.firstElementChild;
+            el.classList.toggle('mq', !!inner && inner.scrollWidth > el.clientWidth + 1);
+        });
     });
 }
 
-async function onPresetSelectChange(presetId) {
-    const defaultBtn = document.getElementById('preset-default-btn');
-    const renameBtn = document.getElementById('preset-rename-btn');
-    const deleteBtn = document.getElementById('preset-delete-btn');
-    const exportBtn = document.getElementById('preset-export-btn');
-    const updateBtn = document.getElementById('preset-update-btn');
+let teResizeTimer = null;
+window.addEventListener('resize', () => {
+    if (!te.themeId) return;
+    teCloseMenu();
+    clearTimeout(teResizeTimer);
+    teResizeTimer = setTimeout(() => {
+        teUpdateMarquees();
+        teAutoGrow(document.getElementById('te-desc'));
+    }, 150);
+});
 
-    if (presetId) {
-        defaultBtn.style.display = '';
-        renameBtn.style.display = '';
-        deleteBtn.style.display = '';
-        exportBtn.style.display = '';
-        updateBtn.style.display = '';
+function teSliderInput(slider) {
+    const cell = slider.closest('.mx');
+    cell.querySelector('.track-slider-value').textContent = slider.value + '%';
+    const hint = cell.querySelector('.mx-hint');
+    if (hint) hint.textContent = playsAtHint(slider.value / 100, parseFloat(slider.dataset.master || '1'));
+}
 
-        // Auto-load the preset when selected
-        if (currentTrackMixerThemeId) {
-            try {
-                const result = await api('POST', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/load`);
-                // Reload track mixer to show new settings, preserve preset selection
-                await loadTrackMixer(currentTrackMixerThemeId, true);
-                showToast(`Loaded: ${result.name}`, 'success');
-            } catch (error) {
-                console.error('Failed to load preset:', error);
-                showToast('Failed to load preset', 'error');
+// Live "plays at" hints while a group master slider moves (saved on release)
+function teGroupSliderInput(slider, name) {
+    teSliderInput(slider);
+    const kind = slider.closest('.mx').dataset.kind;
+    const section = slider.closest('.grp-sec');
+    if (!section) return;
+    // Keep the desktop header and the phone master block in step
+    section.querySelectorAll(`.master .mx[data-kind="${kind}"] .track-slider, .pg-master .mx[data-kind="${kind}"] .track-slider`).forEach(other => {
+        if (other !== slider) { other.value = slider.value; teSliderInput(other); }
+    });
+    section.querySelectorAll(`.trow .mx[data-kind="${kind}"] .track-slider`).forEach(trackSlider => {
+        trackSlider.dataset.master = slider.value / 100;
+        teSliderInput(trackSlider);
+    });
+}
+
+function teMarkMixChanged() {
+    te.mixDirty = true;
+    teRenderPresetField();
+}
+
+async function teSetTrackValue(key, kind, percent) {
+    const value = parseFloat(percent) / 100;
+    try {
+        await api('PUT', teTrackUrl(key, kind), { [kind]: value });
+        const track = teTrack(key);
+        if (track) track[kind] = value;
+        teMarkMixChanged();
+    } catch (error) {
+        showToast(error.message || `Failed to set ${kind === 'presence' ? 'interval' : 'volume'}`, 'error');
+        teRenderTracks();
+    }
+}
+
+async function teSetTrackFlag(key, field, value, render = true) {
+    try {
+        await api('PUT', teTrackUrl(key, field), { [field]: value });
+        const track = teTrack(key);
+        if (track) track[field] = value;
+        teMarkMixChanged();
+    } catch (error) {
+        showToast(error.message || 'Failed to save', 'error');
+    }
+    if (render) teRenderTracks();
+}
+
+function teToggleTrackMute(key) {
+    const track = teTrack(key);
+    if (track) teSetTrackFlag(key, 'muted', !track.muted);
+}
+
+function teSetMode(key, mode) {
+    setTimeout(teRestartMixPreview, 300);
+    teSetTrackFlag(key, 'playback_mode', mode);
+}
+
+function teToggleGapless(key) {
+    setTimeout(teRestartMixPreview, 300);
+    const track = teTrack(key);
+    teCloseMenu();
+    if (track) teSetTrackFlag(key, 'seamless_loop', !track.seamless_loop);
+}
+
+function teToggleExclusive(key) {
+    const track = teTrack(key);
+    teCloseMenu();
+    if (track) teSetTrackFlag(key, 'exclusive', !track.exclusive);
+}
+
+async function teResetTrack(key) {
+    teCloseMenu();
+    const track = teTrack(key);
+    if (!track) return;
+    const changes = [['volume', 1], ['presence', 1], ['muted', false], ['seamless_loop', false]];
+    if (track.exclusive) changes.push(['exclusive', false]);
+    try {
+        for (const [field, value] of changes) {
+            await api('PUT', teTrackUrl(key, field), { [field]: value });
+            track[field] = value;
+        }
+        teMarkMixChanged();
+        teFlash(`Reset ${trackDisplayName(key)}`);
+    } catch (error) {
+        showToast(error.message || 'Failed to reset track', 'error');
+    }
+    teRenderTracks();
+}
+
+async function teResetAll() {
+    teCloseMenu();
+    try {
+        await api('POST', `/themes/${te.themeId}/tracks/reset`);
+        // Group masters back to 100% and unmuted (gaps are left as they are)
+        for (const group of te.groups) {
+            const s = group.settings || {};
+            if (s.volume != null || s.presence != null || s.muted != null) {
+                await api('PUT', teGroupUrl(group.name), { volume: null, presence: null, muted: null });
             }
         }
+        teMarkMixChanged();
+        teFlash('Tracks and groups reset');
+    } catch (error) {
+        showToast(error.message || 'Failed to reset tracks', 'error');
+    }
+    await teLoadTracks();
+    teRestartMixPreview();
+}
+
+// Groups
+function teToggleGroup(name) {
+    te.closed[name] = !te.closed[name];
+    teRenderTracks();
+}
+
+async function teSetGroupValue(name, key, value) {
+    if (key === 'volume' || key === 'presence') value = parseFloat(value) / 100;
+    try {
+        const result = await api('PUT', teGroupUrl(name), { [key]: value });
+        const group = teGroup(name);
+        if (group) group.settings = result?.settings || { ...(group.settings || {}), [key]: value };
+        teMarkMixChanged();
+    } catch (error) {
+        showToast(error.message || 'Failed to save group', 'error');
+    }
+    teRenderTracks();
+}
+
+async function teSetGroupGap(name, input) {
+    const box = input.parentElement;
+    const read = which => {
+        const raw = box.querySelector(`[data-gap="${which}"]`).value;
+        const minutes = parseFloat(raw);
+        return raw === '' || !Number.isFinite(minutes) ? null : Math.max(0, minutes) * 60;
+    };
+    let low = read('min');
+    let high = read('max');
+    if (low != null && high != null && high < low) [low, high] = [high, low];
+    try {
+        const result = await api('PUT', teGroupUrl(name), { gap_min: low, gap_max: high });
+        const group = teGroup(name);
+        if (group) group.settings = result?.settings || { ...(group.settings || {}), gap_min: low, gap_max: high };
+        teMarkMixChanged();
+    } catch (error) {
+        showToast(error.message || 'Failed to save gap', 'error');
+    }
+    teRenderTracks();
+}
+
+function teUniqueGroupName() {
+    let name = 'New group';
+    let i = 2;
+    while (te.groups.some(g => g.name.toLowerCase() === name.toLowerCase())) name = `New group ${i++}`;
+    return name;
+}
+
+async function teNewGroup(moveKey = null) {
+    teCloseMenu();
+    if (!te.groupsOk || !te.themeId) return;
+    const wanted = teUniqueGroupName();
+    try {
+        const result = await api('POST', `/themes/${te.themeId}/groups`, { name: wanted });
+        const name = result?.name || wanted;
+        delete te.closed[name];
+        if (moveKey) {
+            await api('POST', teTrackUrl(moveKey, 'move'), { group: name });
+            te.renaming = name;
+            await teLoadTracks(true);
+        } else {
+            if (!teGroup(name)) {
+                te.groups.push({ name, settings: {}, tracks: [] });
+                te.groups.sort((a, b) => a.name.localeCompare(b.name));
+            }
+            te.renaming = name;
+            teRenderTracks();
+        }
+    } catch (error) {
+        showToast(error.message || 'Failed to create group', 'error');
+    }
+}
+
+function teStartRename(name) {
+    teCloseMenu();
+    te.confirmDel = null;
+    te.renaming = name;
+    teRenderTracks();
+}
+
+function teRenameKey(event, name) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        event.target.blur();
+    } else if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        te.renaming = null;
+        teRenderTracks();
+    }
+}
+
+async function teCommitRename(name, value) {
+    if (te.renaming !== name) return;
+    te.renaming = null;
+    const newName = (value || '').trim();
+    if (!newName || newName === name) { teRenderTracks(); return; }
+    if (te.groups.some(g => g.name !== name && g.name.toLowerCase() === newName.toLowerCase())) {
+        showToast('A group with that name exists', 'warning');
+        teRenderTracks();
+        return;
+    }
+    try {
+        const result = await api('POST', teGroupUrl(name, '/rename'), { name: newName });
+        const finalName = result?.name || newName;
+        if (te.closed[name]) { te.closed[finalName] = true; delete te.closed[name]; }
+        if (te.upload === name) te.upload = finalName;
+        // Show the new name now; tracks follow after the rebuild
+        const group = teGroup(name);
+        if (group) group.name = finalName;
+        te.tracks.forEach(t => { if (trackGroupOf(t.name) === name) t.name = finalName + t.name.slice(name.length); });
+        teSetUpload(te.upload);
+        teRenderTracks();
+        await teLoadTracks(true);
+    } catch (error) {
+        showToast(error.message || 'Failed to rename group', 'error');
+        teRenderTracks();
+    }
+}
+
+function teAskDelete(name) {
+    teCloseMenu();
+    te.renaming = null;
+    te.confirmDel = name;
+    teRenderTracks();
+}
+
+function teCancelDelete() {
+    te.confirmDel = null;
+    teRenderTracks();
+}
+
+async function teDeleteGroup(name) {
+    te.confirmDel = null;
+    try {
+        await api('DELETE', teGroupUrl(name));
+        if (te.upload === name) teSetUpload('');
+        teFlash(`Deleted group ${name}`);
+        await teLoadTracks(true);
+    } catch (error) {
+        showToast(error.message || 'Failed to delete group', 'error');
+        teRenderTracks();
+    }
+}
+
+async function teMoveTrack(key, group) {
+    teCloseMenu();
+    if ((trackGroupOf(key) || null) === (group || null)) return;
+    try {
+        await api('POST', teTrackUrl(key, 'move'), { group: group || null });
+        teFlash(`Moved ${trackDisplayName(key)} to ${group || 'theme'}`);
+        await teLoadTracks(true);
+    } catch (error) {
+        showToast(error.message || 'Failed to move track', 'error');
+        teRenderTracks();
+    }
+}
+
+// Drag & drop (desktop): drag a track by its handle onto a group or the theme section
+function teDragStart(event, key) {
+    te.drag = key;
+    teCloseMenu();
+    try {
+        event.dataTransfer.setData('text/sonorium-track', key);
+        event.dataTransfer.effectAllowed = 'move';
+        const row = event.target.closest('.trow');
+        if (row) event.dataTransfer.setDragImage(row, 24, 24);
+    } catch (e) { /* ignore */ }
+    const row = event.target.closest('.trow');
+    setTimeout(() => row?.classList.add('dragging'), 0);
+}
+
+function teDragEnd() {
+    te.drag = null;
+    document.querySelectorAll('#te-tracks .dragging, #te-tracks .drop').forEach(el => el.classList.remove('dragging', 'drop'));
+}
+
+function teDragOver(event, section) {
+    if (!te.drag) return;
+    const from = trackGroupOf(te.drag);
+    const to = section.dataset.group || null;
+    if ((from || null) === (to || null)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    section.classList.add('drop');
+}
+
+function teDragLeave(event, section) {
+    if (!section.contains(event.relatedTarget)) section.classList.remove('drop');
+}
+
+function teDrop(event, group) {
+    if (!te.drag) return;
+    event.preventDefault();
+    const key = te.drag;
+    teDragEnd();
+    teMoveTrack(key, group);
+}
+
+// Upload
+function teSetUpload(target) {
+    te.upload = target;
+    const zone = document.getElementById('te-upload-zone');
+    if (!zone) return;
+    zone.hidden = target === null;
+    document.getElementById('te-upload-label').textContent = target ? target : 'theme';
+}
+
+function tePickUpload(target) {
+    teCloseMenu();
+    teSetUpload(target);
+    document.getElementById('te-upload-input').click();
+}
+
+function teZoneDragOver(event) {
+    if (!event.dataTransfer || !Array.from(event.dataTransfer.types || []).includes('Files')) return;
+    event.preventDefault();
+    event.currentTarget.classList.add('over');
+}
+
+function teZoneDrop(event) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('over');
+    if (event.dataTransfer?.files?.length) teUploadFiles(event.dataTransfer.files);
+}
+
+async function teUploadFiles(files) {
+    if (!files || !files.length || !te.themeId) return;
+    const themeId = te.themeId;
+    const group = te.upload || '';
+    let done = 0;
+    teFlash(`Uploading ${files.length} file${files.length === 1 ? '' : 's'}…`);
+    for (const file of files) {
+        try {
+            const formData = new FormData();
+            formData.append('file', file);
+            if (group) formData.append('group', group);
+            const query = group ? `?group=${encodeURIComponent(group)}` : '';
+            const response = await fetch(`${BASE_PATH}/api/themes/${themeId}/upload${query}`, { method: 'POST', body: formData });
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({}));
+                throw new Error(error.detail || error.error || 'Upload failed');
+            }
+            done++;
+        } catch (error) {
+            showToast(`${file.name}: ${error.message}`, 'error');
+        }
+    }
+    if (te.themeId !== themeId) return;
+    if (done) teFlash(`Uploaded ${done} file${done === 1 ? '' : 's'}`);
+    await teLoadTracks(true);
+}
+
+// ---------- Presets (footer) ----------
+
+async function teLoadPresets(selectDefault = false) {
+    const themeId = te.themeId;
+    if (!themeId) return;
+    try {
+        const result = await api('GET', `/themes/${themeId}/presets`);
+        if (te.themeId !== themeId) return;
+        te.presets = result.presets || [];
+    } catch (error) {
+        console.error('Failed to load presets:', error);
+        te.presets = [];
+    }
+    // Opens with no preset selected: a preset only changes when it's picked
+    // on purpose and Save preset is pressed
+    if (selectDefault) te.selPreset = '';
+    if (te.selPreset && !te.presets.some(p => p.id === te.selPreset)) te.selPreset = '';
+    teRenderPresetField();
+}
+
+// Kept for the import dialog: reload the open theme's presets
+function loadPresets() {
+    return teLoadPresets(false);
+}
+
+function teSelectedPreset() {
+    return te.presets.find(p => p.id === te.selPreset) || null;
+}
+
+function teRenderPresetField() {
+    const btn = document.getElementById('te-preset-btn');
+    if (!btn) return;
+    const preset = teSelectedPreset();
+    btn.classList.toggle('is-cur', !preset);
+    btn.setAttribute('aria-label', `Preset: ${preset ? preset.name : 'Current settings'}`);
+    btn.innerHTML = `${preset?.is_default ? '<span class="def-star" title="Default">★</span>' : ''}
+        <span class="pdd-name">${preset ? escapeHtml(preset.name) : '— Current settings —'}</span>
+        ${preset && te.mixDirty ? '<span class="dirty dot-only" title="Mix changed"><i></i></span>' : ''}${TE_ICON_CHEV_UP}`;
+    document.getElementById('te-load-btn').disabled = !preset;
+    document.getElementById('te-savepreset-btn').disabled = !preset;
+    document.getElementById('te-dirty').hidden = !(preset && te.mixDirty);
+}
+
+function teChoosePreset(id) {
+    te.selPreset = id;
+    teCloseMenu();
+    teRenderPresetField();
+}
+
+async function teLoadPreset() {
+    const preset = teSelectedPreset();
+    if (!preset || !te.themeId) return;
+    teCloseMenu();
+    try {
+        const result = await api('POST', `/themes/${te.themeId}/presets/${preset.id}/load`);
+        te.mixDirty = false;
+        teRenderPresetField();
+        teFlash(`Loaded “${result?.name || preset.name}”`);
+        await teLoadTracks();
+        teRestartMixPreview();
+    } catch (error) {
+        showToast(error.message || 'Failed to load preset', 'error');
+    }
+}
+
+async function teStarPreset(id) {
+    if (!te.themeId) return;
+    try {
+        await api('PUT', `/themes/${te.themeId}/presets/${id}/default`);
+        const preset = te.presets.find(p => p.id === id);
+        await teLoadPresets(false);
+        if (te.menu === 'presets') teMenu('presets', te.menuBtn, null, true);
+        teFlash(`“${preset?.name || ''}” is the default`);
+    } catch (error) {
+        showToast(error.message || 'Failed to set default preset', 'error');
+    }
+}
+
+function teSetDefaultPreset() {
+    teCloseMenu();
+    if (te.selPreset) teStarPreset(te.selPreset);
+}
+
+// Save preset: saves the theme, then the selected preset with the current mix
+async function teSavePreset() {
+    const preset = teSelectedPreset();
+    if (!preset || !te.themeId) return;
+    teCloseMenu();
+    if (!(await teSaveTheme(true))) return;
+    try {
+        await api('PUT', `/themes/${te.themeId}/presets/${preset.id}`);
+        te.mixDirty = false;
+        teRenderPresetField();
+        teFlash('Saved');
+    } catch (error) {
+        showToast(error.message || 'Failed to save preset', 'error');
+    }
+}
+
+function tePresetNameTaken(name, exceptId = null) {
+    return te.presets.some(p => p.id !== exceptId && p.name.toLowerCase() === name.toLowerCase());
+}
+
+async function teCommitPresetName() {
+    const input = document.getElementById('te-pop-name');
+    const name = (input?.value || '').trim();
+    if (!name || !te.themeId) return;
+    const mode = te.menu;
+    const preset = teSelectedPreset();
+    if (tePresetNameTaken(name, mode === 'prename' ? preset?.id : null)) {
+        showToast('A preset with that name exists', 'warning');
+        input.focus();
+        return;
+    }
+    teCloseMenu();
+    if (mode === 'pnew') {
+        // New: save the theme first, then the current mix as a new preset, and select it
+        if (!(await teSaveTheme(true))) return;
+        try {
+            const result = await api('POST', `/themes/${te.themeId}/presets`, { name });
+            await teLoadPresets(false);
+            te.selPreset = result?.preset_id || te.presets.find(p => p.name === name)?.id || '';
+            te.mixDirty = false;
+            teRenderPresetField();
+            teFlash('Saved');
+        } catch (error) {
+            showToast(error.message || 'Failed to save preset', 'error');
+        }
+    } else if (mode === 'prename' && preset) {
+        try {
+            await api('PUT', `/themes/${te.themeId}/presets/${preset.id}/rename`, { name });
+            await teLoadPresets(false);
+            teFlash(`Renamed to “${name}”`);
+        } catch (error) {
+            showToast(error.message || 'Failed to rename preset', 'error');
+        }
+    }
+}
+
+async function teDeletePreset() {
+    const preset = teSelectedPreset();
+    teCloseMenu();
+    if (!preset || !te.themeId) return;
+    try {
+        await api('DELETE', `/themes/${te.themeId}/presets/${preset.id}`);
+        te.selPreset = '';
+        await teLoadPresets(false);
+        teFlash(`Deleted “${preset.name}”`);
+    } catch (error) {
+        showToast(error.message || 'Failed to delete preset', 'error');
+    }
+}
+
+function teImportPreset() {
+    teCloseMenu();
+    showImportPresetModal();
+}
+
+function teExportPreset() {
+    teCloseMenu();
+    exportSelectedPreset();
+}
+
+function teExportTheme() {
+    teCloseMenu();
+    exportThemeZip();
+}
+
+function teComingSoon() {
+    teCloseMenu();
+    teFlash('Sequences: coming soon');
+}
+
+// ---------- Menus and popovers (one floating element) ----------
+
+function teMenuHtml(kind, arg) {
+    const mi = (label, action, opts = {}) => `<button type="button" class="mi${opts.cls ? ' ' + opts.cls : ''}" role="menuitem"
+        ${opts.disabled ? 'disabled' : ''} ${opts.title ? `title="${escapeHtml(opts.title)}"` : ''} onclick="${action}">${opts.icon || ''}${label}${opts.after || ''}</button>`;
+    const sep = '<div class="msep"></div>';
+    const preset = teSelectedPreset();
+    switch (kind) {
+        case 'theme':
+            return { cls: 'menu', align: 'right', html: `
+                <div class="mi-row"><label for="te-short">Short file threshold</label>
+                    <input id="te-short" class="num" type="number" min="0" step="1" value="${teEsc(te.threshold)}" oninput="teSetThreshold(this)"><span>s</span></div>
+                ${sep}${mi('Export theme', 'teExportTheme()', { icon: TE_ICON_DOWNLOAD })}` };
+        case 'icon': {
+            const current = te.icon;
+            return { cls: 'menu', align: 'left', html: `
+                <div class="icon-grid">${availableIcons.map(icon => `<button type="button" class="ic${icon === current ? ' cur' : ''}"
+                    onclick="tePickIcon(${jsArg(icon)})" title="${icon}">${icon}</button>`).join('')}</div>
+                ${sep}${mi('Auto', "tePickIcon('')", { cls: current ? '' : 'cur', after: '<span class="mi-note">from theme</span>' })}` };
+        }
+        case 'seq':
+            return { cls: 'menu seq-menu', align: 'left', html: `
+                <div class="mhead">Theme sequences<span class="badge badge-soon">Coming soon</span></div>
+                ${mi('+ New sequence', 'teComingSoon()', { cls: 'add' })}
+                ${sep}<div class="mhead">My sequences</div>
+                ${mi('+ New sequence', 'teComingSoon()', { cls: 'add' })}` };
+        case 'upload':
+            return { cls: 'menu', align: 'right', html: `<div class="mhead">Upload to</div>
+                ${mi('Theme (no group)', "tePickUpload('')", { cls: te.upload === '' ? 'cur' : '' })}
+                ${te.groups.map(g => mi(escapeHtml(g.name), `tePickUpload(${jsArg(g.name)})`, { cls: te.upload === g.name ? 'cur' : '', icon: TE_ICON_FOLDER })).join('')}` };
+        case 'reset':
+            return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
+                <span class="pop-title">Reset all tracks and groups to defaults?</span>
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="teResetAll()">Reset</button></div>` };
+        case 'track': {
+            const track = teTrack(arg);
+            if (!track) return null;
+            const k = jsArg(arg);
+            const inGroup = trackGroupOf(arg);
+            const gaplessOk = teGaplessAllowed(track);
+            let html = '';
+            if (!inGroup) {
+                html += mi('Gapless', `teToggleGapless(${k})`, {
+                    disabled: !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Background only',
+                    after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
+            }
+            if (track.exclusive) {
+                html += mi('One at a time (legacy)', `teToggleExclusive(${k})`, {
+                    title: 'Older themes: only one of these tracks plays at a time. Use a group instead.',
+                    after: '<span class="sw on"></span>' });
+            }
+            if (te.groupsOk) {
+                if (html) html += sep;
+                html += '<div class="mhead">Move to group</div>';
+                html += [{ name: null, label: 'Theme (no group)' }, ...te.groups.map(g => ({ name: g.name, label: g.name }))].map(m => {
+                    const here = (m.name || null) === (inGroup || null);
+                    return mi(escapeHtml(m.label), `teMoveTrack(${k}, ${m.name === null ? 'null' : jsArg(m.name)})`, {
+                        cls: here ? 'cur' : '', disabled: here, icon: TE_ICON_FOLDER, after: here ? '<span class="mi-note">here</span>' : '' });
+                }).join('');
+                html += mi('New group', `teNewGroup(${k})`, { icon: TE_ICON_PLUS });
+            }
+            html += (html ? sep : '') + mi('Reset track', `teResetTrack(${k})`, { icon: TE_ICON_RESET });
+            return { cls: 'menu', align: 'right', html };
+        }
+        case 'group': {
+            const n = jsArg(arg);
+            return { cls: 'menu', align: 'right', html: `
+                ${mi('Rename…', `teStartRename(${n})`)}
+                ${mi(`Upload into ${escapeHtml(arg)}`, `tePickUpload(${n})`)}
+                ${sep}${mi('Delete group…', `teAskDelete(${n})`, { cls: 'danger' })}` };
+        }
+        case 'presets': {
+            const rows = [{ id: '', name: '— Current settings —' }, ...te.presets].map(p => `
+                <div class="prow">
+                    <button type="button" class="mi${p.id === te.selPreset ? ' cur' : ''}${p.id ? '' : ' cur-set'}" role="option"
+                            aria-selected="${p.id === te.selPreset}" onclick="teChoosePreset(${jsArg(p.id)})">${escapeHtml(p.name)}</button>
+                    ${p.id ? `<button type="button" class="star-btn${p.is_default ? ' on' : ''}" title="${p.is_default ? 'Default preset' : 'Set as default'}"
+                            aria-label="${p.is_default ? 'Default preset' : 'Set as default'}: ${escapeHtml(p.name)}"
+                            onclick="teStarPreset(${jsArg(p.id)})">★</button>` : '<span class="star-gap"></span>'}
+                </div>`).join('');
+            return { cls: 'menu preset-list', align: 'left', dir: 'up', role: 'listbox', html: rows };
+        }
+        case 'pmore':
+            return { cls: 'menu', align: 'left', dir: 'up', html: `
+                ${mi('Rename…', "teMenu('prename', teMenuAnchor())", { disabled: !preset })}
+                ${mi('Set as default', 'teSetDefaultPreset()', { disabled: !preset || preset.is_default, icon: '<span class="def-star">★</span>' })}
+                ${sep}${mi('Import…', 'teImportPreset()')}
+                ${mi('Export', 'teExportPreset()', { disabled: !preset })}
+                ${sep}${mi('Delete…', "teMenu('pdelete', teMenuAnchor())", { disabled: !preset, cls: 'danger' })}` };
+        case 'pnew':
+        case 'prename': {
+            const isNew = kind === 'pnew';
+            return { cls: 'pop', align: 'left', dir: 'up', role: 'dialog', html: `
+                <span class="pop-title">${isNew ? 'New preset' : 'Rename preset'}</span>
+                <input id="te-pop-name" class="inp sm" type="text" maxlength="80" enterkeyhint="done" autocomplete="off"
+                       placeholder="Preset name" aria-label="Preset name" value="${isNew ? '' : escapeHtml(preset?.name || '')}"
+                       oninput="document.getElementById('te-pop-ok').disabled = !this.value.trim()"
+                       onkeydown="if (event.key === 'Enter') { event.preventDefault(); teCommitPresetName(); }">
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="te-pop-ok" ${isNew ? 'disabled' : ''} onclick="teCommitPresetName()">OK</button></div>` };
+        }
+        case 'pdelete':
+            if (!preset) return null;
+            return { cls: 'pop', align: 'left', dir: 'up', role: 'alertdialog', html: `
+                <span class="pop-title">Delete “${escapeHtml(preset.name)}”?</span>
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="teDeletePreset()">Delete</button></div>` };
+    }
+    return null;
+}
+
+// The footer button a preset popover hangs from (the New/⋯ button that opened the menu)
+function teMenuAnchor() {
+    return document.getElementById('te-preset-btn');
+}
+
+function teMenu(kind, button, arg = null, keepOpen = false) {
+    const id = arg === null ? kind : `${kind}:${arg}`;
+    if (te.menu === id && !keepOpen) { teCloseMenu(); return; }
+    const spec = teMenuHtml(kind, arg);
+    if (!spec || !button) { teCloseMenu(); return; }
+    const pop = document.getElementById('te-menu');
+    pop.className = `te-pop ${spec.cls}`;
+    pop.setAttribute('role', spec.role || 'menu');
+    pop.innerHTML = spec.html;
+    pop.hidden = false;
+    if (te.menuBtn && te.menuBtn !== button) te.menuBtn.removeAttribute('aria-expanded');
+    te.menu = id;
+    te.menuBtn = button;
+    button.setAttribute('aria-expanded', 'true');
+    tePlaceMenu(pop, button, spec.align || 'right', spec.dir || 'down');
+    const focus = pop.querySelector('input') || (keepOpen ? null : pop.querySelector('button:not([disabled])'));
+    if (focus) { focus.focus(); if (focus.select && focus.value) focus.select(); }
+}
+
+function tePlaceMenu(pop, button, align, dir) {
+    const r = button.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    pop.style.left = '0px';
+    pop.style.top = '0px';
+    pop.style.maxHeight = '';
+    const w = pop.offsetWidth;
+    let h = pop.offsetHeight;
+    let left = align === 'left' ? r.left : r.right - w;
+    left = Math.max(8, Math.min(left, vw - w - 8));
+    const below = vh - r.bottom - 8;
+    const above = r.top - 8;
+    let up = dir === 'up' ? above >= Math.min(h, 160) || above > below : (h > below && above > below);
+    const room = (up ? above : below) - 4;
+    if (h > room) { pop.style.maxHeight = room + 'px'; h = room; }
+    const top = up ? r.top - 4 - h : r.bottom + 4;
+    pop.style.left = left + 'px';
+    pop.style.top = Math.max(8, top) + 'px';
+}
+
+function teCloseMenu() {
+    const pop = document.getElementById('te-menu');
+    if (pop && !pop.hidden) {
+        pop.hidden = true;
+        pop.innerHTML = '';
+    }
+    if (te.menuBtn) te.menuBtn.removeAttribute('aria-expanded');
+    te.menu = null;
+    te.menuBtn = null;
+}
+
+document.addEventListener('mousedown', event => {
+    if (!te.menu) return;
+    const pop = document.getElementById('te-menu');
+    if (pop.contains(event.target) || te.menuBtn?.contains(event.target)) return;
+    teCloseMenu();
+}, true);
+
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !te.themeId) return;
+    if (document.getElementById('theme-edit-modal').style.display !== 'flex') return;
+    // Another dialog (import/export preset) open on top: leave it alone
+    const onTop = ['preset-import-modal', 'preset-export-modal'].some(id => document.getElementById(id)?.style.display === 'flex');
+    if (onTop) return;
+    if (teHelpOpen()) {
+        teCloseHelp();
+        document.getElementById('te-help-btn')?.focus();
+    } else if (te.menu) {
+        const button = te.menuBtn;
+        teCloseMenu();
+        button?.focus();
+    } else if (te.renaming || te.confirmDel) {
+        te.renaming = null;
+        te.confirmDel = null;
+        teRenderTracks();
     } else {
-        defaultBtn.style.display = 'none';
-        renameBtn.style.display = 'none';
-        deleteBtn.style.display = 'none';
-        exportBtn.style.display = 'none';
-        updateBtn.style.display = 'none';
+        closeThemeEditModal();
     }
-}
+});
 
-async function loadSelectedPreset() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-
-    if (!presetId) {
-        showToast('Select a preset first', 'warning');
-        return;
-    }
-
-    if (!currentTrackMixerThemeId) return;
-
-    try {
-        const result = await api('POST', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/load`);
-        showToast(`Loaded preset: ${result.name}`, 'success');
-        // Reload track mixer to show new settings
-        await loadTrackMixer(currentTrackMixerThemeId);
-    } catch (error) {
-        console.error('Failed to load preset:', error);
-        showToast('Failed to load preset', 'error');
-    }
-}
-
-async function setPresetAsDefault() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-
-    if (!presetId || !currentTrackMixerThemeId) return;
-
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/default`);
-        showToast('Set as default preset', 'success');
-        await loadPresets(currentTrackMixerThemeId);
-        select.value = presetId;
-        onPresetSelectChange(presetId);
-    } catch (error) {
-        console.error('Failed to set default preset:', error);
-        showToast('Failed to set default preset', 'error');
-    }
-}
-
-async function deleteSelectedPreset() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-
-    if (!presetId || !currentTrackMixerThemeId) return;
-
-    const preset = currentPresets.find(p => p.id === presetId);
-    if (!confirm(`Delete preset "${preset?.name || presetId}"?`)) return;
-
-    try {
-        await api('DELETE', `/themes/${currentTrackMixerThemeId}/presets/${presetId}`);
-        showToast('Preset deleted', 'success');
-        await loadPresets(currentTrackMixerThemeId);
-        onPresetSelectChange('');
-    } catch (error) {
-        console.error('Failed to delete preset:', error);
-        showToast('Failed to delete preset', 'error');
-    }
-}
-
-async function updateSelectedPreset() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-
-    if (!presetId) {
-        showToast('Select a preset first', 'warning');
-        return;
-    }
-
-    if (!currentTrackMixerThemeId) return;
-
-    const preset = currentPresets.find(p => p.id === presetId);
-    const presetName = preset?.name || presetId;
-
-    if (!confirm(`Update preset "${presetName}" with current track settings?`)) return;
-
-    try {
-        const result = await api('PUT', `/themes/${currentTrackMixerThemeId}/presets/${presetId}`);
-        showToast(`Updated preset: ${result.name} (${result.tracks_updated} tracks)`, 'success');
-    } catch (error) {
-        console.error('Failed to update preset:', error);
-        showToast('Failed to update preset', 'error');
-    }
-}
-
-function saveCurrentAsPreset() {
-    document.getElementById('preset-save-name').value = '';
-    document.getElementById('preset-save-modal').style.display = 'flex';
-}
-
-function closePresetSaveModal() {
-    document.getElementById('preset-save-modal').style.display = 'none';
-}
-
-async function confirmSavePreset() {
-    const name = document.getElementById('preset-save-name').value.trim();
-
-    if (!name) {
-        showToast('Please enter a preset name', 'warning');
-        return;
-    }
-
-    if (!currentTrackMixerThemeId) return;
-
-    try {
-        const result = await api('POST', `/themes/${currentTrackMixerThemeId}/presets`, { name });
-        showToast(`Saved preset: ${result.name}`, 'success');
-        closePresetSaveModal();
-        await loadPresets(currentTrackMixerThemeId);
-        // Select the new preset
-        const select = document.getElementById('preset-select');
-        select.value = result.preset_id;
-        onPresetSelectChange(result.preset_id);
-    } catch (error) {
-        console.error('Failed to save preset:', error);
-        showToast('Failed to save preset', 'error');
-    }
-}
+// ============================================
+// Preset import / export dialogs (opened from the preset ⋯ menu)
+// ============================================
 
 function showImportPresetModal() {
     document.getElementById('preset-import-name').value = '';
@@ -2522,8 +3716,7 @@ async function importPreset() {
 }
 
 async function exportSelectedPreset() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
+    const presetId = te.selPreset;
 
     if (!presetId || !currentTrackMixerThemeId) {
         showToast('Select a preset first', 'warning');
@@ -2574,74 +3767,6 @@ async function copyPresetJson() {
 }
 
 // ============================================
-// Rename Functions
-// ============================================
-
-async function renameTheme() {
-    const themeId = document.getElementById('theme-edit-id').value;
-    const newName = document.getElementById('theme-edit-name').value.trim();
-
-    if (!newName) {
-        showToast('Please enter a theme name', 'warning');
-        return;
-    }
-
-    try {
-        const result = await api('PUT', `/themes/${themeId}/rename`, { name: newName });
-        showToast(`Renamed to: ${result.new_name}`, 'success');
-
-        // Close the modal and refresh themes
-        closeThemeEditModal();
-        await loadThemes();
-    } catch (error) {
-        console.error('Failed to rename theme:', error);
-        const detail = error.message || 'Failed to rename theme';
-        showToast(detail, 'error');
-    }
-}
-
-function showRenamePresetModal() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-    if (!presetId) return;
-
-    // Get current preset name
-    const preset = currentPresets.find(p => p.id === presetId);
-    document.getElementById('preset-rename-name').value = preset ? preset.name : '';
-    document.getElementById('preset-rename-modal').style.display = 'flex';
-}
-
-function closeRenamePresetModal() {
-    document.getElementById('preset-rename-modal').style.display = 'none';
-}
-
-async function confirmRenamePreset() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-    const newName = document.getElementById('preset-rename-name').value.trim();
-
-    if (!newName) {
-        showToast('Please enter a preset name', 'warning');
-        return;
-    }
-
-    if (!presetId || !currentTrackMixerThemeId) return;
-
-    try {
-        const result = await api('PUT', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/rename`, { name: newName });
-        showToast(`Renamed to: ${result.name}`, 'success');
-        closeRenamePresetModal();
-
-        // Reload presets to show new name
-        await loadPresets(currentTrackMixerThemeId);
-        select.value = presetId;
-    } catch (error) {
-        console.error('Failed to rename preset:', error);
-        showToast('Failed to rename preset', 'error');
-    }
-}
-
-// ============================================
 // Track Preview Playback
 // ============================================
 
@@ -2650,6 +3775,7 @@ let currentPreviewTrack = null;
 
 function toggleTrackPreview(trackName) {
     if (!currentTrackMixerThemeId) return;
+    teStopMixPreview();  // one preview at a time
 
     // If same track is playing, stop it
     if (currentPreviewTrack === trackName && trackPreviewAudio && !trackPreviewAudio.paused) {
@@ -2719,11 +3845,12 @@ function stopTrackPreview() {
 }
 
 function updatePreviewButtonState(trackName, isPlaying) {
-    const trackItem = document.querySelector(`.track-item[data-track="${CSS.escape(trackName)}"]`);
+    const trackItem = document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(trackName)}"]`);
     if (!trackItem) return;
 
     const btn = trackItem.querySelector('.track-preview-btn');
     if (!btn) return;
+    btn.title = isPlaying ? 'Stop preview' : 'Preview';
 
     const playIcon = btn.querySelector('.play-icon');
     const stopIcon = btn.querySelector('.stop-icon');
@@ -2776,6 +3903,8 @@ function startThemePreview(themeId, themeName) {
     const nameEl = document.getElementById('preview-theme-name');
     player.style.display = 'flex';
     nameEl.textContent = themeName;
+    document.body.classList.add('preview-active');
+    renderThemesBrowser();
 
     themePreviewAudio.play().then(() => {
         themePreviewIsPlaying = true;
@@ -2832,7 +3961,9 @@ function closeThemePreview() {
     if (player) {
         player.style.display = 'none';
     }
+    document.body.classList.remove('preview-active');
     updateThemePreviewButton(false);
+    renderThemesBrowser();
 }
 
 function setThemePreviewVolume(value) {
@@ -2865,316 +3996,8 @@ function updateThemePreviewButton(isPlaying) {
 // End Theme Preview Playback
 // ============================================
 
-async function addNewCategoryFromEdit() {
-    const input = document.getElementById('theme-edit-new-category');
-    const name = input.value.trim();
-    if (!name) return;
-
-    try {
-        await api('POST', '/categories', { name });
-
-        // Add the new category to local list if not already present
-        if (!themeCategories.includes(name)) {
-            themeCategories.push(name);
-        }
-
-        // Re-render checkboxes with new category (auto-checked)
-        const themeId = document.getElementById('theme-edit-id').value;
-        const theme = themes.find(t => t.id === themeId);
-        const themeCats = theme?.categories || [];
-
-        const categoriesContainer = document.getElementById('theme-edit-categories');
-        categoriesContainer.innerHTML = themeCategories.map(cat => `
-            <label class="category-checkbox">
-                <input type="checkbox" value="${escapeHtml(cat)}" ${themeCats.includes(cat) || cat === name ? 'checked' : ''}>
-                ${escapeHtml(cat)}
-            </label>
-        `).join('');
-
-        input.value = '';
-        showToast(`Category "${name}" created`, 'success');
-    } catch (error) {
-        showToast(error.message || 'Failed to create category', 'error');
-    }
-}
-
-function getSelectedEditCategories() {
-    const checkboxes = document.querySelectorAll('#theme-edit-categories input[type="checkbox"]:checked');
-    return Array.from(checkboxes).map(cb => cb.value);
-}
-
-async function saveThemeMetadata() {
-    const themeId = document.getElementById('theme-edit-id').value;
-    const newName = document.getElementById('theme-edit-name').value.trim();
-    const description = document.getElementById('theme-edit-description').value.trim();
-    const icon = document.getElementById('theme-edit-icon').value.trim();
-    const selectedCategories = getSelectedEditCategories();
-
-    if (!newName) {
-        showToast('Please enter a theme name', 'warning');
-        return;
-    }
-
-    try {
-        // Check if name changed and rename if needed
-        const theme = themes.find(t => t.id === themeId);
-        if (theme && theme.name !== newName) {
-            await api('PUT', `/themes/${themeId}/rename`, { name: newName });
-        }
-
-        // Save description and icon
-        await api('PUT', `/themes/${themeId}/metadata`, { description, icon });
-        // Save categories
-        await api('POST', `/themes/${themeId}/categories`, { categories: selectedCategories });
-
-        // Update local state
-        if (theme) {
-            theme.name = newName;
-            theme.description = description;
-            theme.icon = icon || null;  // Store null if empty (for auto-detect)
-            theme.categories = selectedCategories;
-        }
-        closeThemeEditModal();
-        renderThemesBrowser();
-        showToast('Theme saved', 'success');
-    } catch (error) {
-        console.error('Save theme error:', error);
-        let msg = 'Failed to save theme';
-        if (typeof error === 'string') {
-            msg = error;
-        } else if (error instanceof Error) {
-            msg = error.message;
-        } else if (error && typeof error === 'object') {
-            msg = error.message || error.detail || error.error || JSON.stringify(error);
-        }
-        showToast(msg, 'error');
-    }
-}
-
-// Theme Creation
-let pendingThemeFiles = [];
-
-function openThemeCreateModal() {
-    // Reset form
-    document.getElementById('theme-create-name').value = '';
-    document.getElementById('theme-create-description').value = '';
-    document.getElementById('theme-file-list').innerHTML = '';
-    document.getElementById('theme-upload-progress').style.display = 'none';
-    document.getElementById('theme-file-upload-area').classList.remove('has-files');
-    document.getElementById('theme-create-submit').disabled = false;
-    pendingThemeFiles = [];
-
-    // Reset icon picker to default
-    document.querySelectorAll('#theme-icon-picker .icon-option').forEach(opt => {
-        opt.classList.remove('selected');
-    });
-    document.querySelector('#theme-icon-picker .icon-option[data-icon="🎵"]').classList.add('selected');
-    document.getElementById('theme-create-icon').value = '🎵';
-
-    // Populate category dropdown
-    const categorySelect = document.getElementById('theme-create-category');
-    categorySelect.innerHTML = '<option value="">No category</option>';
-    if (themeCategories && themeCategories.length > 0) {
-        themeCategories.forEach(cat => {
-            categorySelect.innerHTML += `<option value="${escapeHtml(cat)}">${escapeHtml(cat)}</option>`;
-        });
-    }
-    categorySelect.innerHTML += '<option value="__new__">+ New Category...</option>';
-    document.getElementById('theme-create-new-category').style.display = 'none';
-    document.getElementById('theme-create-new-category').value = '';
-
-    // Setup drag and drop
-    const uploadArea = document.getElementById('theme-file-upload-area');
-    uploadArea.ondragover = (e) => {
-        e.preventDefault();
-        uploadArea.classList.add('dragover');
-    };
-    uploadArea.ondragleave = () => {
-        uploadArea.classList.remove('dragover');
-    };
-    uploadArea.ondrop = (e) => {
-        e.preventDefault();
-        uploadArea.classList.remove('dragover');
-        handleThemeFileSelect(e.dataTransfer.files);
-    };
-
-    document.getElementById('theme-create-modal').style.display = 'flex';
-}
-
-function handleCategorySelectChange(select) {
-    const newCategoryInput = document.getElementById('theme-create-new-category');
-    if (select.value === '__new__') {
-        newCategoryInput.style.display = 'block';
-        newCategoryInput.focus();
-    } else {
-        newCategoryInput.style.display = 'none';
-    }
-}
-
-function closeThemeCreateModal() {
-    document.getElementById('theme-create-modal').style.display = 'none';
-    pendingThemeFiles = [];
-}
-
-function selectThemeIcon(element) {
-    // Remove selected from all icons
-    document.querySelectorAll('#theme-icon-picker .icon-option').forEach(opt => {
-        opt.classList.remove('selected');
-    });
-    // Add selected to clicked icon
-    element.classList.add('selected');
-    // Update hidden input
-    document.getElementById('theme-create-icon').value = element.dataset.icon;
-}
-
-function handleThemeFileSelect(fileList) {
-    const validExtensions = ['.mp3', '.wav', '.flac', '.ogg'];
-    const maxSize = 50 * 1024 * 1024; // 50MB
-
-    for (const file of fileList) {
-        const ext = '.' + file.name.split('.').pop().toLowerCase();
-        if (!validExtensions.includes(ext)) {
-            showToast(`Invalid file type: ${file.name}`, 'error');
-            continue;
-        }
-        if (file.size > maxSize) {
-            showToast(`File too large: ${file.name} (max 50MB)`, 'error');
-            continue;
-        }
-        // Avoid duplicates
-        if (!pendingThemeFiles.some(f => f.name === file.name)) {
-            pendingThemeFiles.push(file);
-        }
-    }
-
-    renderThemeFileList();
-}
-
-function renderThemeFileList() {
-    const container = document.getElementById('theme-file-list');
-    const uploadArea = document.getElementById('theme-file-upload-area');
-
-    if (pendingThemeFiles.length === 0) {
-        container.innerHTML = '';
-        uploadArea.classList.remove('has-files');
-        return;
-    }
-
-    uploadArea.classList.add('has-files');
-
-    container.innerHTML = pendingThemeFiles.map((file, index) => `
-        <div class="file-item">
-            <span class="file-item-name">${escapeHtml(file.name)}</span>
-            <span class="file-item-size">${formatFileSize(file.size)}</span>
-            <button class="file-item-remove" onclick="removeThemeFile(${index})" title="Remove">&times;</button>
-        </div>
-    `).join('');
-}
-
-function removeThemeFile(index) {
-    pendingThemeFiles.splice(index, 1);
-    renderThemeFileList();
-}
-
-function formatFileSize(bytes) {
-    if (bytes < 1024) return bytes + ' B';
-    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-}
-
-async function createTheme() {
-    const name = document.getElementById('theme-create-name').value.trim();
-    const description = document.getElementById('theme-create-description').value.trim();
-    const icon = document.getElementById('theme-create-icon').value;
-
-    // Get category selection
-    const categorySelect = document.getElementById('theme-create-category');
-    let category = categorySelect.value;
-    if (category === '__new__') {
-        category = document.getElementById('theme-create-new-category').value.trim();
-    }
-
-    if (!name) {
-        showToast('Please enter a theme name', 'error');
-        return;
-    }
-
-    // Disable submit button during creation
-    const submitBtn = document.getElementById('theme-create-submit');
-    submitBtn.disabled = true;
-    submitBtn.textContent = 'Creating...';
-
-    try {
-        // Step 1: Create the theme folder
-        const createResult = await api('POST', '/themes/create', { name, description, icon });
-        const themeId = createResult.theme_id;
-
-        // Step 2: Set category if selected
-        if (category) {
-            // If it's a new category, create it first
-            if (categorySelect.value === '__new__') {
-                await api('POST', '/categories', { name: category });
-            }
-            await api('POST', `/themes/${themeId}/categories`, { categories: [category] });
-            // Reload categories to update the list
-            await loadCategories();
-        }
-
-        // Step 3: Upload files if any
-        if (pendingThemeFiles.length > 0) {
-            const progressEl = document.getElementById('theme-upload-progress');
-            const progressFill = document.getElementById('theme-progress-fill');
-            const progressText = document.getElementById('theme-progress-text');
-            progressEl.style.display = 'block';
-
-            let uploaded = 0;
-            for (const file of pendingThemeFiles) {
-                progressText.textContent = `Uploading ${file.name}...`;
-                progressFill.style.width = `${(uploaded / pendingThemeFiles.length) * 100}%`;
-
-                await uploadThemeFile(themeId, file);
-                uploaded++;
-            }
-
-            progressFill.style.width = '100%';
-            progressText.textContent = 'Upload complete!';
-        }
-
-        // Refresh themes list
-        await loadThemes();
-        renderThemesBrowser();
-
-        closeThemeCreateModal();
-        showToast(`Theme "${name}" created successfully!`, 'success');
-
-    } catch (error) {
-        showToast(error.message || 'Failed to create theme', 'error');
-    } finally {
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Create Theme';
-    }
-}
-
-async function uploadThemeFile(themeId, file) {
-    const formData = new FormData();
-    formData.append('file', file);
-
-    const response = await fetch(`${BASE_PATH}/api/themes/${themeId}/upload`, {
-        method: 'POST',
-        body: formData
-    });
-
-    if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || error.error || 'Upload failed');
-    }
-
-    return response.json();
-}
-
 // Theme Export/Import
-async function exportThemeZip() {
-    const themeId = document.getElementById('theme-edit-id').value;
+async function exportThemeZip(themeId = document.getElementById('theme-edit-id').value) {
     if (!themeId) {
         showToast('No theme selected', 'error');
         return;
@@ -3264,103 +4087,109 @@ function importThemeZip() {
 }
 
 // Audio Settings
-let audioSettings = {
-    crossfade_duration: 3.0,
-    default_volume: 60,
-    master_gain: 60
-};
-
-function updateCrossfadeDisplay(value) {
-    document.getElementById('settings-crossfade-value').textContent = `${parseFloat(value).toFixed(1)}s`;
-}
-
-function updateDefaultVolumeDisplay(value) {
-    document.getElementById('settings-default-volume-value').textContent = `${value}%`;
-}
-
-function updateMasterGainDisplay(value) {
-    document.getElementById('settings-master-gain-value').textContent = `${value}%`;
-}
-
-// Apply settings in real-time as sliders move (debounced)
-let settingsTimeout = {};
-
-async function applySettingLive(key, value) {
-    // Debounce to avoid flooding the API
-    if (settingsTimeout[key]) clearTimeout(settingsTimeout[key]);
-    settingsTimeout[key] = setTimeout(async () => {
-        try {
-            const payload = {};
-            payload[key] = value;
-            await api('PUT', '/settings', payload);
-        } catch (e) {
-            console.error(`Failed to apply ${key}:`, e);
-        }
-    }, 100);
-}
-
-function applyMasterGainLive(value) {
-    applySettingLive('master_gain', parseInt(value));
-}
-
-function applyCrossfadeLive(value) {
-    applySettingLive('crossfade_duration', parseFloat(value));
-}
-
-function applyDefaultVolumeLive(value) {
-    applySettingLive('default_volume', parseInt(value));
-}
+// --- Settings > Audio: sliders change a draft; Save settings / Cancel ---
+const AUDIO_DEFAULTS = { crossfade_duration: 3.0, default_volume: 60, master_gain: 60 };
+const AUDIO_FIELDS = [
+    { key: 'crossfade_duration', id: 'settings-crossfade', label: 'Crossfade', short: 'Crossfade', tip: 'Fade when changing themes', tipShort: 'Fade between themes',
+      min: 0, max: 10, step: 0.5, fmt: v => `${Number(v).toFixed(1)} s`, num: v => parseFloat(v) },
+    { key: 'default_volume', id: 'settings-default-volume', label: 'Default volume', short: 'Volume', tip: 'Starting volume for new channels', tipShort: 'New channels',
+      min: 0, max: 100, step: 5, fmt: v => `${v}%`, num: v => parseInt(v, 10) },
+    { key: 'master_gain', id: 'settings-master-gain', label: 'Master output gain', short: 'Gain', tip: 'Multiplier for every stream', tipShort: 'All streams',
+      min: 0, max: 100, step: 5, fmt: v => `${v}%`, num: v => parseInt(v, 10) }
+];
+let audioSettings = { ...AUDIO_DEFAULTS };   // saved
+let audioDraft = { ...AUDIO_DEFAULTS };      // on screen
 
 async function loadAudioSettings() {
     try {
         const result = await api('GET', '/settings');
         if (result && !result.error) {
             audioSettings = {
-                crossfade_duration: result.crossfade_duration ?? 3.0,
-                default_volume: result.default_volume ?? 60,
-                master_gain: result.master_gain ?? 60
+                crossfade_duration: result.crossfade_duration ?? AUDIO_DEFAULTS.crossfade_duration,
+                default_volume: result.default_volume ?? AUDIO_DEFAULTS.default_volume,
+                master_gain: result.master_gain ?? AUDIO_DEFAULTS.master_gain
             };
-            applyAudioSettingsToUI();
+            audioDraft = { ...audioSettings };
         }
     } catch (error) {
         console.log('Could not load audio settings, using defaults');
     }
 }
 
-function applyAudioSettingsToUI() {
-    document.getElementById('settings-crossfade').value = audioSettings.crossfade_duration;
-    updateCrossfadeDisplay(audioSettings.crossfade_duration);
-
-    document.getElementById('settings-default-volume').value = audioSettings.default_volume;
-    updateDefaultVolumeDisplay(audioSettings.default_volume);
-
-    document.getElementById('settings-master-gain').value = audioSettings.master_gain;
-    updateMasterGainDisplay(audioSettings.master_gain);
+function audioDirty() {
+    return AUDIO_FIELDS.some(f => audioDraft[f.key] !== audioSettings[f.key]);
 }
 
-// Render functions for settings sub-views
 function renderAudioSettings() {
-    applyAudioSettingsToUI();
+    const rows = document.getElementById('audio-rows');
+    if (!rows) return;
+    rows.innerHTML = AUDIO_FIELDS.map(f => `
+        <div class="sp-srow" data-key="${f.key}">
+            <span class="sp-slab"><label for="${f.id}">${f.label}</label><span class="sp-tip" title="${f.tip}" aria-label="${f.tip}">${SP_ICON_INFO}</span><span class="sp-mod-dot sp-ph" title="Changed" hidden></span></span>
+            <div class="track-slider-wrapper sp-sl"><input type="range" class="track-slider" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${audioDraft[f.key]}" oninput="onAudioInput('${f.key}', this.value)"></div>
+            <span class="sp-sval"></span>
+            <span class="sp-sdef"><span class="sp-ph">${f.tipShort} · default </span>${f.fmt(AUDIO_DEFAULTS[f.key])}</span>
+            <span class="sp-schg"><span class="sp-mod-dot" title="Changed, not saved" hidden></span></span>
+        </div>`).join('');
+    updateAudioState();
 }
 
-function renderPluginsSettings() {
-    // Placeholder - plugins list is static HTML for now
+function onAudioInput(key, value) {
+    const field = AUDIO_FIELDS.find(f => f.key === key);
+    audioDraft[key] = field.num(value);
+    updateAudioState();
+}
+
+function updateAudioState() {
+    for (const f of AUDIO_FIELDS) {
+        const row = document.querySelector(`#audio-rows .sp-srow[data-key="${f.key}"]`);
+        if (!row) continue;
+        row.querySelector('.sp-sval').textContent = f.fmt(audioDraft[f.key]);
+        const changed = audioDraft[f.key] !== audioSettings[f.key];
+        row.querySelectorAll('.sp-mod-dot').forEach(dot => { dot.hidden = !changed; });
+    }
+    const dirty = audioDirty();
+    const state = document.getElementById('audio-state');
+    if (state) state.hidden = !dirty;
+    ['audio-save-btn', 'audio-cancel-btn'].forEach(id => {
+        const button = document.getElementById(id);
+        if (button) button.disabled = !dirty;
+    });
 }
 
 async function saveAudioSettings() {
-    const settings = {
-        crossfade_duration: parseFloat(document.getElementById('settings-crossfade').value),
-        default_volume: parseInt(document.getElementById('settings-default-volume').value),
-        master_gain: parseInt(document.getElementById('settings-master-gain').value)
-    };
-
+    const settings = { ...audioDraft };
     try {
         await api('PUT', '/settings', settings);
         audioSettings = settings;
+        updateAudioState();
         showToast('Audio settings saved', 'success');
     } catch (error) {
         showToast(error.message || 'Failed to save settings', 'error');
     }
+}
+
+function cancelAudioSettings() {
+    audioDraft = { ...audioSettings };
+    renderAudioSettings();
+}
+
+function openAudioMenu(button) {
+    const atDefaults = AUDIO_FIELDS.every(f => audioDraft[f.key] === AUDIO_DEFAULTS[f.key]);
+    spMenu('audio', button, `<button type="button" class="mi" role="menuitem" ${atDefaults ? 'disabled' : ''} onclick="askResetAudio()">${SP_ICON_RESET}Reset to defaults…</button>`);
+}
+
+function askResetAudio() {
+    spConfirm('audio-reset', spMenuAnchor(), {
+        title: 'Reset to defaults?',
+        sub: AUDIO_FIELDS.map(f => `${f.short} ${f.fmt(AUDIO_DEFAULTS[f.key])}`).join(' · '),
+        ok: 'Reset',
+        danger: true
+    }, () => {
+        audioDraft = { ...AUDIO_DEFAULTS };
+        renderAudioSettings();
+        showToast('Defaults restored · not saved yet', 'success');
+    });
 }
 
 // Settings - Connection (standalone/Docker only; the HA add-on returns 404)
@@ -3436,7 +4265,7 @@ function renderSpaces() {
     const groups = spacesData.floors.map(f => ({ floor: f, areas: f.areas }));
     if (spacesData.unassigned_areas.length) groups.push({ floor: null, areas: spacesData.unassigned_areas });
     if (!groups.length) {
-        list.innerHTML = `<div class="empty-state" style="padding: 2rem;"><p style="color: var(--text-muted);">${editable ? 'No floors or areas yet.' : 'Home Assistant has no floors or areas.'}</p></div>`;
+        list.innerHTML = `<div class="empty-state"><p>${editable ? 'No floors or areas yet.' : 'Home Assistant has no floors or areas.'}</p></div>`;
         return;
     }
     list.innerHTML = groups.map(({ floor, areas }) => {
@@ -3531,7 +4360,7 @@ let installInfo = null;
 const ADVANCED_FEATURES = {
     network_speakers: {
         label: 'Network speakers',
-        hint: "Add speakers by IP address, outside Home Assistant. Speakers on the network can't be found automatically from inside a Home Assistant app."
+        hint: 'Add speakers by IP address, outside Home Assistant'
     }
 };
 
@@ -3554,43 +4383,68 @@ function hasAdvancedSettings() {
     return !!installInfo && Object.keys(ADVANCED_FEATURES).some(name => installInfo.features[name]?.overridable);
 }
 
+// --- Settings > Advanced: one row per feature; a change shows the restart bar ---
+let advancedRunning = null;   // what is running now (until the next restart)
+let advancedBusy = false;
+
 function renderAdvancedSettings() {
-    const form = document.getElementById('advanced-settings-form');
-    if (!form || !installInfo) return;
-    form.innerHTML = Object.entries(ADVANCED_FEATURES)
-        .filter(([name]) => installInfo.features[name]?.overridable)
-        .map(([name, f]) => `
-            <div class="settings-row">
-                <div class="settings-label">
-                    <label for="adv-${name}">${f.label}</label>
-                    <span class="settings-hint">${f.hint}</span>
-                </div>
-                <label class="toggle-switch">
-                    <input type="checkbox" id="adv-${name}" ${installInfo.features[name].enabled ? 'checked' : ''}
+    const body = document.getElementById('advanced-settings-form');
+    if (!body || !installInfo) return;
+    spSetTitle('settings-advanced', 'Advanced', installInfo.label, 'Install type');
+    const names = Object.keys(ADVANCED_FEATURES).filter(name => installInfo.features[name]?.overridable);
+    if (!advancedRunning) advancedRunning = Object.fromEntries(names.map(name => [name, !!installInfo.features[name].enabled]));
+    let pending = false;
+    body.innerHTML = names.map(name => {
+        const f = ADVANCED_FEATURES[name];
+        const on = !!installInfo.features[name].enabled;
+        const changed = on !== advancedRunning[name];
+        pending = pending || changed;
+        return `
+            <div class="sp-lrow spa-grid">
+                <label class="spa-name" for="adv-${name}">${escapeHtml(f.label)}</label>
+                <span class="spa-desc" title="${escapeHtml(f.hint)}">${escapeHtml(f.hint)}</span>
+                <span class="c spa-def"><span class="badge badge-type">Off</span></span>
+                <span class="spa-pend">${changed ? '<span class="badge sp-badge-warn" title="Takes effect after a restart"><i></i>Restart to apply</span>' : ''}</span>
+                <label class="toggle-switch c spa-tog" title="${on ? 'On' : 'Off'}">
+                    <input type="checkbox" id="adv-${name}" aria-label="${escapeHtml(f.label)}" ${on ? 'checked' : ''} ${advancedBusy ? 'disabled' : ''}
                            onchange="setAdvancedFeature('${name}', this.checked)">
                     <span class="toggle-slider"></span>
                 </label>
-            </div>`).join('');
+            </div>`;
+    }).join('');
+    document.getElementById('advanced-restart').hidden = !(pending || advancedBusy);
+    document.getElementById('adv-restart-note').innerHTML = advancedBusy
+        ? `${SP_ICON_SPIN}Restarting…`
+        : `${SP_ICON_WARN}Restart Sonorium to apply.`;
+    document.getElementById('adv-restart-btn').disabled = advancedBusy;
 }
 
 async function setAdvancedFeature(name, on) {
     try {
         await api('PUT', '/install/features', { [name]: on });
-        document.getElementById('advanced-restart').hidden = false;
+        installInfo.features[name].enabled = on;
     } catch (error) {
         showToast(error.message, 'error');
-        renderAdvancedSettings();
     }
+    renderAdvancedSettings();
+}
+
+function askAdvancedRestart(button) {
+    spConfirm('adv-restart', button, { title: 'Restart Sonorium?', ok: 'Restart' }, restartForAdvancedSettings);
 }
 
 async function restartForAdvancedSettings() {
+    advancedBusy = true;
+    renderAdvancedSettings();
     try {
         await api('PUT', '/install/features', { restart: true });
         showToast('Restarting Sonorium...', 'success');
-        setTimeout(() => window.location.reload(), 8000);
+        await spWaitForRestart();
     } catch (error) {
         showToast(error.message, 'error');
     }
+    advancedBusy = false;
+    renderAdvancedSettings();
 }
 
 async function loadConnectionSettings() {
@@ -3603,76 +4457,202 @@ async function loadConnectionSettings() {
     if (nav) nav.style.display = connectionSettings ? '' : 'none';
 }
 
-function setConnectionStatus(dotId, textId, configured, connected, problem) {
-    document.getElementById(dotId).className = connected ? 'channel-status active' : 'channel-status';
-    document.getElementById(textId).textContent =
-        !configured ? 'Not configured' : (connected ? 'Connected' : `Not connected: ${problem}`);
+// --- Settings > Connection: edits are a draft until Save and restart; Cancel drops them ---
+const CONN_FIELDS = ['ha_url', 'ha_token', 'mqtt_host', 'mqtt_port', 'mqtt_username', 'mqtt_password', 'stream_url'];
+const CONN_SECRET_SAVED = { ha_token: 'ha_token_set', mqtt_password: 'mqtt_password_set' };
+const CONN_GROUPS = {
+    ha: ['ha_url', 'ha_token'],
+    mqtt: ['mqtt_host', 'mqtt_port', 'mqtt_username', 'mqtt_password']
+};
+let connDraft = null;
+let connTried = false;   // after a Save attempt, mark the fields that need fixing
+let connBusy = false;    // restarting
+
+function connFromSaved(c) {
+    return {
+        ha_url: c.ha_url || '', ha_token: '',
+        mqtt_host: c.mqtt_host || '', mqtt_port: String(c.mqtt_port || 1883),
+        mqtt_username: c.mqtt_username || '', mqtt_password: '',
+        stream_url: c.stream_url || ''
+    };
+}
+
+// The same checks the server makes on PUT /api/connection
+function connErrors(d) {
+    const urlErr = v => (v.trim() && !/^https?:\/\//i.test(v.trim())) ? 'Must start with http:// or https://' : '';
+    const portErr = v => {
+        const t = String(v).trim();
+        if (!t) return '';
+        const n = Number(t);
+        return (Number.isInteger(n) && n >= 1 && n <= 65535) ? '' : 'Port must be 1–65535';
+    };
+    return { ha_url: urlErr(d.ha_url), stream_url: urlErr(d.stream_url), mqtt_port: portErr(d.mqtt_port) };
+}
+
+function connDirty() {
+    if (!connectionSettings || !connDraft) return false;
+    const saved = connFromSaved(connectionSettings);
+    return CONN_FIELDS.some(k => connDraft[k] !== saved[k]);
+}
+
+function connConfigured(kind) {
+    const c = connectionSettings || {};
+    return kind === 'ha' ? !!(c.ha_url || c.ha_token_set) : !!c.mqtt_host;
+}
+
+function setConnectionStatus(kind, configured, connected, problem) {
+    const badge = document.getElementById(`conn-${kind}-status`);
+    const note = document.getElementById(`conn-${kind}-note`);
+    if (!badge) return;
+    const state = !configured ? ['sp-st-off', 'Not configured', 'Optional']
+        : connected ? ['sp-st-ok', 'Connected', 'Connected']
+        : ['sp-st-bad', 'Not connected', problem];
+    badge.className = `badge sp-st ${state[0]}`;
+    badge.title = state[2];
+    badge.lastElementChild.textContent = state[1];
+    note.textContent = configured && !connected ? problem : '';
+    note.hidden = !(configured && !connected);
 }
 
 function renderConnectionSettings() {
     const c = connectionSettings;
     if (!c) return;
-    document.getElementById('conn-ha-url').value = c.ha_url || '';
-    document.getElementById('conn-ha-token').value = '';
+    if (!connDraft) connDraft = connFromSaved(c);
+    document.querySelectorAll('#view-settings-connection [data-conn]').forEach(input => {
+        input.value = connDraft[input.dataset.conn] ?? '';
+    });
     document.getElementById('conn-ha-token').placeholder = c.ha_token_set ? 'Saved (hidden)' : 'Paste a long-lived access token';
-    document.getElementById('conn-mqtt-host').value = c.mqtt_host || '';
-    document.getElementById('conn-mqtt-port').value = c.mqtt_port || 1883;
-    document.getElementById('conn-mqtt-user').value = c.mqtt_username || '';
-    document.getElementById('conn-mqtt-pass').value = '';
     document.getElementById('conn-mqtt-pass').placeholder = c.mqtt_password_set ? 'Saved (hidden)' : '';
-    document.getElementById('conn-stream-url').value = c.stream_url || '';
-    setConnectionStatus('conn-ha-dot', 'conn-ha-status', !!c.ha_url, c.ha_connected, 'check the address and token');
-    setConnectionStatus('conn-mqtt-dot', 'conn-mqtt-status', !!c.mqtt_host, c.mqtt_connected, 'check the broker address and login');
-    document.getElementById('conn-saved').style.display = 'none';
-    document.getElementById('conn-save-btn').disabled = false;
+    setConnectionStatus('ha', !!c.ha_url, c.ha_connected, 'Check the address and token');
+    setConnectionStatus('mqtt', !!c.mqtt_host, c.mqtt_connected, 'Check the broker address and login');
+    updateConnectionState();
+}
+
+function updateConnectionState() {
+    const c = connectionSettings;
+    if (!c || !connDraft) return;
+    const errors = connErrors(connDraft);
+    const view = document.getElementById('view-settings-connection');
+    view.querySelectorAll('[data-conn]').forEach(input => {
+        const key = input.dataset.conn;
+        const err = connTried ? (errors[key] || '') : '';
+        input.classList.toggle('bad', !!err);
+        input.disabled = connBusy;
+        const errEl = view.querySelector(`[data-err="${key}"]`);
+        if (errEl) {
+            errEl.textContent = err;
+            errEl.hidden = !err;
+        }
+    });
+    view.querySelectorAll('[data-saved]').forEach(chip => {
+        const key = chip.dataset.saved;
+        chip.hidden = !(c[CONN_SECRET_SAVED[key]] && !connDraft[key]);
+    });
+    const dirty = connDirty();
+    const state = document.getElementById('conn-state');
+    if (connBusy) {
+        state.innerHTML = `${SP_ICON_SPIN}Restarting…`;
+        state.hidden = false;
+    } else if (dirty) {
+        state.innerHTML = '<span class="sp-mod-dot"></span>Unsaved changes';
+        state.hidden = false;
+    } else {
+        state.hidden = true;
+    }
+    document.getElementById('conn-save-btn').disabled = connBusy || !dirty;
+    document.getElementById('conn-cancel-btn').disabled = connBusy || !dirty;
+    document.getElementById('conn-ha-remove').disabled = connBusy || !connConfigured('ha');
+    document.getElementById('conn-mqtt-remove').disabled = connBusy || !connConfigured('mqtt');
+}
+
+function onConnectionInput(input) {
+    connDraft[input.dataset.conn] = input.value;
+    updateConnectionState();
+}
+
+function askSaveConnection(button) {
+    connTried = true;
+    if (Object.values(connErrors(connDraft)).some(Boolean)) {
+        updateConnectionState();
+        showToast('Fix the marked fields', 'error');
+        return;
+    }
+    updateConnectionState();
+    spConfirm('conn-save', button, { title: 'Restart Sonorium?', sub: 'Playing channels stop for a few seconds.', ok: 'Restart' }, saveConnectionSettings);
 }
 
 async function saveConnectionSettings() {
-    const value = id => document.getElementById(id).value.trim();
+    const d = connDraft;
     const settings = {
-        ha_url: value('conn-ha-url'),
-        mqtt_host: value('conn-mqtt-host'),
-        mqtt_port: value('conn-mqtt-port') || 1883,
-        mqtt_username: value('conn-mqtt-user'),
-        stream_url: value('conn-stream-url')
+        ha_url: d.ha_url.trim(),
+        mqtt_host: d.mqtt_host.trim(),
+        mqtt_port: String(d.mqtt_port).trim() || 1883,
+        mqtt_username: d.mqtt_username.trim(),
+        stream_url: d.stream_url.trim()
     };
     // Secrets are only sent when typed; blank keeps the saved value
-    if (value('conn-ha-token')) settings.ha_token = value('conn-ha-token');
-    if (value('conn-mqtt-pass')) settings.mqtt_password = value('conn-mqtt-pass');
+    if (d.ha_token.trim()) settings.ha_token = d.ha_token.trim();
+    if (d.mqtt_password) settings.mqtt_password = d.mqtt_password;
 
-    const button = document.getElementById('conn-save-btn');
+    connBusy = true;
+    updateConnectionState();
     try {
-        button.disabled = true;
         await api('PUT', '/connection', settings);
-        document.getElementById('conn-ha-token').value = '';
-        document.getElementById('conn-mqtt-pass').value = '';
-        document.getElementById('conn-saved').style.display = '';
-        // Wait for the restart to finish, then reload so everything reflects the new settings
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        for (let i = 0; i < 30; i++) {
-            try {
-                await api('GET', '/connection');
-                window.location.reload();
-                return;
-            } catch (error) {
-                await new Promise(resolve => setTimeout(resolve, 2000));
-            }
-        }
-        showToast('Sonorium is taking a while to restart. Refresh the page in a moment.', 'error');
+        await spWaitForRestart();
     } catch (error) {
-        button.disabled = false;
         showToast(error.message || 'Failed to save connection settings', 'error');
+    }
+    connBusy = false;
+    updateConnectionState();
+}
+
+function cancelConnectionEdits() {
+    if (!connectionSettings) return;
+    connDraft = connFromSaved(connectionSettings);
+    connTried = false;
+    renderConnectionSettings();
+}
+
+function askRemoveConnection(kind, button) {
+    spConfirm(`conn-rm-${kind}`, button, {
+        title: kind === 'ha' ? 'Remove Home Assistant?' : 'Remove MQTT?',
+        ok: 'Remove',
+        danger: true
+    }, () => removeConnection(kind));
+}
+
+// Removing a connection takes effect at once (no restart). Removing Home
+// Assistant drops its floors, areas and speakers from every list.
+async function removeConnection(kind) {
+    try {
+        const result = await api('DELETE', `/connection/${kind}`);
+        connectionSettings = result.connection || await api('GET', '/connection');
+        const fresh = connFromSaved(connectionSettings);
+        CONN_GROUPS[kind].forEach(key => { connDraft[key] = fresh[key]; });
+        if (kind === 'ha') await afterHomeAssistantRemoved();
+        renderConnectionSettings();
+        if (result.restart_required) {
+            showToast('MQTT removed. Restart Sonorium to finish.', 'success');
+        } else {
+            showToast(kind === 'ha' ? 'Home Assistant removed' : 'MQTT removed', 'success');
+        }
+    } catch (error) {
+        showToast(error.message || 'Could not remove the connection', 'error');
     }
 }
 
-function resetAudioSettings() {
-    audioSettings = {
-        crossfade_duration: 3.0,
-        default_volume: 60,
-        master_gain: 60
-    };
-    applyAudioSettingsToUI();
-    showToast('Settings reset to defaults (not saved yet)', 'info');
+async function afterHomeAssistantRemoved() {
+    spacesData = null;
+    await Promise.all([
+        loadSpeakerHierarchy(),
+        loadEnabledSpeakers(),
+        loadSpeakerGroups(),
+        loadSessions(),
+        loadChannels(),
+        loadNetworkInfo()
+    ]);
+    renderSessions();
+    updatePlayingBadge();
 }
 
 // Settings - Local Audio Devices
@@ -3971,11 +4951,12 @@ function timeAgo(isoTime) {
 function renderSpeakerScanMeta() {
     const meta = document.getElementById('spk-scan-meta');
     if (!meta) return;
-    meta.style.display = networkInfo ? '' : 'none';
+    meta.hidden = !networkInfo;
     if (!networkInfo) return;
     if (speakerScanRunning) meta.textContent = 'Scanning...';
     else if (!networkInfo.last_scan) meta.textContent = 'Not scanned yet';
     else meta.textContent = `Last scan ${timeAgo(networkInfo.last_scan)} · ${networkInfo.found} found`;
+    meta.title = meta.textContent;
 }
 
 // Keep "Last scan N minutes ago" current while the page is open
@@ -3995,15 +4976,23 @@ function renderSpeakerToolbar() {
     const seg = document.getElementById('spk-filter');
     if (seg) {
         // Only worth showing when speakers can come from more than one place
-        seg.style.display = filters.length > 2 ? '' : 'none';
+        document.getElementById('spk-filter-wrap').hidden = filters.length <= 2;
         seg.innerHTML = filters.map(([key, label]) =>
             `<button type="button" aria-pressed="${key === speakerSourceFilter}" onclick="setSpeakerSourceFilter('${key}')">${label}</button>`
         ).join('');
     }
+    const label = networkInfo ? (speakerScanRunning ? 'Scanning…' : 'Rescan network') : 'Refresh from HA';
     const rescanLabel = document.getElementById('spk-rescan-label');
-    if (rescanLabel) rescanLabel.textContent = networkInfo ? 'Rescan network' : 'Refresh from HA';
+    if (rescanLabel) rescanLabel.textContent = label;
     const rescan = document.getElementById('spk-rescan');
-    if (rescan) rescan.disabled = speakerScanRunning;
+    if (rescan) {
+        rescan.disabled = speakerScanRunning;
+        rescan.title = label;
+        rescan.setAttribute('aria-label', label);
+    }
+    const search = document.getElementById('spk-search');
+    const clear = document.getElementById('spk-search-clr');
+    if (search && clear) clear.hidden = !search.value;
     renderSpeakerScanMeta();
 }
 
@@ -4012,7 +5001,20 @@ function setSpeakerSourceFilter(key) {
     renderSettingsSpeakerTree();
 }
 
-// Rooms a speaker can be put in: every Home Assistant area
+function clearSpeakerSearch() {
+    const search = document.getElementById('spk-search');
+    search.value = '';
+    renderSettingsSpeakerTree();
+    search.focus();
+}
+
+function clearSpeakerFilters() {
+    document.getElementById('spk-search').value = '';
+    speakerSourceFilter = 'all';
+    setHideOfflineSpeakers(false);
+}
+
+// Areas a speaker can be put in: every floor's areas, then areas without a floor
 function allSpeakerRooms() {
     const floorAreas = (speakerHierarchy?.floors || []).flatMap(f => f.areas || []);
     return floorAreas.concat(speakerHierarchy?.unassigned_areas || []).map(a => ({ id: a.area_id, name: a.name }));
@@ -4022,14 +5024,14 @@ function settingsSpeakerGroups() {
     const groups = [];
     for (const floor of speakerHierarchy?.floors || []) {
         for (const area of floor.areas || []) {
-            if ((area.speakers || []).length) groups.push({ title: `${floor.name} · ${area.name}`, speakers: area.speakers });
+            if ((area.speakers || []).length) groups.push({ key: area.area_id, title: `${floor.name} · ${area.name}`, speakers: area.speakers });
         }
     }
     for (const area of speakerHierarchy?.unassigned_areas || []) {
-        if ((area.speakers || []).length) groups.push({ title: area.name, speakers: area.speakers });
+        if ((area.speakers || []).length) groups.push({ key: area.area_id, title: area.name, speakers: area.speakers });
     }
     if ((speakerHierarchy?.unassigned_speakers || []).length) {
-        groups.push({ title: 'No area', speakers: speakerHierarchy.unassigned_speakers });
+        groups.push({ key: '__none__', title: 'No area', speakers: speakerHierarchy.unassigned_speakers });
     }
     return groups;
 }
@@ -4042,6 +5044,20 @@ try { hideOfflineSpeakers = localStorage.getItem('sonorium_spkHideOffline') === 
 function setHideOfflineSpeakers(hide) {
     hideOfflineSpeakers = hide;
     try { localStorage.setItem('sonorium_spkHideOffline', hide ? '1' : '0'); } catch (e) { /* storage unavailable */ }
+    renderSettingsSpeakerTree();
+}
+
+// Collapsed area sections, remembered in this browser
+let spkClosed = (() => {
+    try { return JSON.parse(localStorage.getItem('sonorium_spkClosed') || '{}') || {}; } catch (e) { return {}; }
+})();
+let spkEditId = null;   // speaker being renamed
+const spkTesting = {};  // speakers playing a test sound
+
+function toggleSpeakerSection(key) {
+    spkClosed[key] = !spkClosed[key];
+    if (!spkClosed[key]) delete spkClosed[key];
+    try { localStorage.setItem('sonorium_spkClosed', JSON.stringify(spkClosed)); } catch (e) { /* storage unavailable */ }
     renderSettingsSpeakerTree();
 }
 
@@ -4060,51 +5076,75 @@ function renderSettingsSpeakerTree() {
     if (hideOfflineBox) hideOfflineBox.checked = hideOfflineSpeakers;
     renderSpeakerToolbar();
 
+    const all = allHierarchySpeakers();
+    const onCount = all.filter(s => isSpeakerEnabled(s.entity_id)).length;
+    spSetTitle('settings-speakers', 'Speakers', speakerHierarchy ? `${onCount} / ${all.length}` : '', `${onCount} in use of ${all.length}`);
+    const lhead = document.getElementById('spk-lhead');
+
     if (!speakerHierarchy) {
+        lhead.hidden = true;
         container.innerHTML = '<div class="loading"><div class="spinner"></div>Loading speakers...</div>';
         return;
     }
 
-    // Keep focus on the same control across re-renders (e.g. tabbing from the name to the room)
+    // Keep focus on the same control across re-renders
     const active = document.activeElement;
-    const activeRow = container.contains(active) ? active.closest('.spk-row')?.dataset.id : null;
+    const activeRow = container.contains(active) ? active.closest('.sps-row')?.dataset.id : null;
     const activeSelector = !activeRow ? null
-        : active.matches('.spk-name input') ? '.spk-name input'
-        : active.matches('select.room') ? 'select.room'
-        : active.matches('select.offset') ? 'select.offset'
-        : active.matches('.merge-note select') ? '.merge-note select'
+        : active.matches('.sps-area') ? '.sps-area'
+        : active.matches('.sps-off') ? '.sps-off'
+        : active.matches('.sps-use input') ? '.sps-use input'
         : null;
 
     const query = (document.getElementById('spk-search')?.value || '').trim().toLowerCase();
-    const isAllEnabled = false;  // the enabled list is exact
     const rooms = allSpeakerRooms();
     const html = settingsSpeakerGroups().map(group => {
         const rows = group.speakers.filter(s => speakerMatchesSettingsFilter(s, query));
         if (!rows.length) return '';
+        const open = !spkClosed[group.key];
+        const on = rows.filter(s => isSpeakerEnabled(s.entity_id)).length;
+        const title = escapeHtml(group.title);
         return `
-            <div class="spk-group">
-                <h4>${escapeHtml(group.title)}</h4>
-                ${rows.map(s => renderSettingsSpeakerRow(s, isAllEnabled, rooms)).join('')}
+            <div class="sps-sec${open ? ' open' : ''}">
+                <div class="sps-fhead sps-grid">
+                    <button type="button" class="chev-btn${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${title}" onclick="toggleSpeakerSection(${spArg(group.key)})">${SP_ICON_CHEV}</button>
+                    <span class="trk-name sps-gtitle" title="${title}"><span class="mq-in">${title}</span></span>
+                    <span class="sp-muted sps-fh-count">${spPlural(rows.length, 'speaker')}</span>
+                    <span class="sps-fh-gap"></span><span class="sps-fh-gap"></span>
+                    <span class="sp-muted c sps-fh-on">${on} of ${rows.length} on</span>
+                    <span class="sps-fh-gap"></span>
+                </div>
+                ${open ? rows.map(s => renderSettingsSpeakerRow(s, rooms)).join('') : ''}
             </div>`;
     }).join('');
 
+    lhead.hidden = !html;
     if (html) {
         container.innerHTML = html;
-    } else if (allHierarchySpeakers().length === 0) {
-        container.innerHTML = `<p class="text-muted">No speakers found yet. ${networkInfo ? 'Rescan the network or add one by address.' : 'Click "Refresh from HA" to load them.'}</p>`;
+    } else if (all.length === 0) {
+        container.innerHTML = '<div class="sp-empty"><strong>No speakers found yet</strong></div>';
     } else {
-        container.innerHTML = '<p class="text-muted">No speakers match.</p>';
+        container.innerHTML = `<div class="sp-empty">${SP_ICON_SEARCH_LG}<strong>No speakers match</strong>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="clearSpeakerFilters()">Clear filters</button></div>`;
     }
 
     if (activeSelector) {
-        const row = container.querySelector(`.spk-row[data-id="${CSS.escape(activeRow)}"]`);
-        const target = row?.querySelector(activeSelector);
-        if (target) target.focus();
+        const row = container.querySelector(`.sps-row[data-id="${CSS.escape(activeRow)}"]`);
+        row?.querySelector(activeSelector)?.focus();
     }
+    if (spkEditId) {
+        const input = container.querySelector(`.sps-row[data-id="${CSS.escape(spkEditId)}"] .sps-nm-inp`);
+        if (input) {
+            input.focus();
+            input.select();
+        } else {
+            spkEditId = null;
+        }
+    }
+    spUpdateMarquees(container);
 }
 
-const TEST_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
-const MORE_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>';
+const TEST_ICON = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
 const PLAY_VIA_LABELS = {
     cast: 'Google Cast (direct)', sonos: 'Sonos (direct)', dlna: 'DLNA (direct)', airplay: 'AirPlay (direct)',
     linkplay: 'LinkPlay (direct)', heos: 'HEOS (direct)'
@@ -4114,11 +5154,22 @@ function formatOffset(value) {
     return value > 0 ? `+${value}%` : `${value}%`;
 }
 
-function renderSettingsSpeakerRow(speaker, isAllEnabled, rooms) {
+function speakerRenamed(speaker) {
+    return !!speaker.original_name && speaker.name !== speaker.original_name;
+}
+
+function speakerPlayViaOptions(speaker) {
+    if (!(speaker.merged || []).length) return [];
+    return [['ha', 'Home Assistant']].concat(speaker.merged.map(m => [m.id, PLAY_VIA_LABELS[m.type] || `${m.type} (direct)`]));
+}
+
+function renderSettingsSpeakerRow(speaker, rooms) {
     const id = speaker.entity_id;
-    const name = speaker.name;
-    const enabled = isAllEnabled || (enabledSpeakers || []).includes(id);
+    const name = escapeHtml(speaker.name);
+    const enabled = isSpeakerEnabled(id);
     const online = speaker.online !== false;
+    const renamed = speakerRenamed(speaker);
+    const advanced = renamed || ((speaker.merged || []).length && (speaker.play_via || 'ha') !== 'ha');
     const room = speaker.area_id || '';
     const roomOptions = rooms.map(r => `<option value="${escapeHtml(r.id)}" ${r.id === room ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')
         + `<option value="" ${room ? '' : 'selected'}>No area</option>`;
@@ -4129,58 +5180,51 @@ function renderSettingsSpeakerRow(speaker, isAllEnabled, rooms) {
         offsets.sort((a, b) => a - b);
     }
     const offsetOptions = offsets.map(v => `<option value="${v}" ${v === offset ? 'selected' : ''}>${formatOffset(v)}</option>`).join('');
-
-    let mergeNote = '';
-    if ((speaker.merged || []).length) {
-        const options = [['ha', 'Home Assistant']].concat(speaker.merged.map(m => [m.id, PLAY_VIA_LABELS[m.type] || `${m.type} (direct)`]));
-        const manual = speaker.merged.some(m => m.source === 'manual');
-        mergeNote = `
-            <div class="merge-note">
-                <span>Same device ${manual ? 'in Home Assistant and added by address' : 'found in Home Assistant and on the network'}. Play via</span>
-                <select aria-label="Play via" onchange="saveSpeakerPlayVia(this)">
-                    ${options.map(([value, label]) => `<option value="${escapeHtml(value)}" ${value === (speaker.play_via || 'ha') ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
-                </select>
-            </div>`;
-    }
+    const testing = !!spkTesting[id];
+    const address = escapeHtml(speaker.address || id);
+    const nameCell = spkEditId === id
+        ? `<input class="sp-inp sm sps-nm-inp" type="text" maxlength="100" enterkeyhint="done" aria-label="Name"
+                  placeholder="${escapeHtml(speaker.original_name || speaker.name)}" value="${name}"
+                  onkeydown="onSpeakerNameKey(event)" onblur="saveSpeakerName(this)">`
+        : `<button type="button" class="trk-name sps-name" title="${renamed ? `${name} (${escapeHtml(speaker.original_name)})` : name}"
+                   aria-label="Rename ${name}" onclick="startSpeakerRename(${spArg(id)})"><span class="mq-in">${name}</span></button>`;
 
     return `
-        <div class="spk-row${enabled ? '' : ' off'}" data-id="${escapeHtml(id)}">
-            <label class="toggle-switch" aria-label="Use ${escapeHtml(name)}">
-                <input type="checkbox" ${enabled ? 'checked' : ''} onchange="toggleSpeakerEnabled(speakerRowId(this), this.checked)">
+        <div class="sps-row sps-grid${enabled ? '' : ' off'}${online ? '' : ' offline'}" data-id="${escapeHtml(id)}">
+            <span class="channel-status${online ? ' active' : ''} sps-dot" title="${online ? 'Online' : 'Offline'}" role="img" aria-label="${online ? 'Online' : 'Offline'}"></span>
+            <div class="sps-namecell">${nameCell}</div>
+            <div class="badges sps-src">${speakerBadges(speaker)}</div>
+            <span class="sps-addr${speaker.address ? '' : ' eid'}" title="${address}">${address}</span>
+            <select class="sp-inp sm sps-area" aria-label="Area for ${name}" onchange="saveSpeakerRoom(this)">${roomOptions}</select>
+            <select class="sp-inp sm sps-off" aria-label="Volume offset for ${name}" title="Volume offset" onchange="saveSpeakerOffset(this)">${offsetOptions}</select>
+            <button type="button" class="icon-btn sm sps-test${testing ? ' busy' : ''}" title="${testing ? 'Playing…' : 'Play a short test sound'}"
+                    aria-label="Test ${name}" ${testing ? 'disabled' : ''} onclick="testSpeaker(this)">${TEST_ICON}</button>
+            <label class="toggle-switch sps-use" title="Use ${name}">
+                <input type="checkbox" aria-label="Use ${name}" ${enabled ? 'checked' : ''} onchange="toggleSpeakerEnabled(speakerRowId(this), this.checked)">
                 <span class="toggle-slider"></span>
             </label>
-            <div class="spk-name">
-                <input type="text" value="${escapeHtml(name)}" aria-label="Name" maxlength="100"
-                       placeholder="${escapeHtml(speaker.original_name || name)}"
-                       onkeydown="onSpeakerNameKey(event)" onblur="saveSpeakerName(this)">
-                <div class="spk-meta">
-                    ${onlineDot(speaker)}<span>${online ? 'Online' : 'Offline'}</span>
-                    ${speakerBadges(speaker, true)}
-                    <span>${escapeHtml(speaker.address || id)}</span>
-                </div>
-            </div>
-            <span></span>
-            <select class="room" aria-label="Area" onchange="saveSpeakerRoom(this)">${roomOptions}</select>
-            <select class="offset" aria-label="Volume offset" onchange="saveSpeakerOffset(this)">${offsetOptions}</select>
-            <div class="spk-actions">
-                <button type="button" class="icon-btn test" aria-label="Test ${escapeHtml(name)}" title="Play a short test sound" onclick="testSpeaker(this)">${TEST_ICON}</button>
-                <button type="button" class="icon-btn more" aria-label="More options for ${escapeHtml(name)}" aria-haspopup="menu" aria-expanded="false" onclick="toggleSpeakerMenu(this, event)">${MORE_ICON}</button>
-            </div>
-            ${mergeNote}
+            <button type="button" class="icon-btn sm sps-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openSpeakerMenu(this)">${SP_ICON_MORE}${advanced ? '<i class="sp-adv-dot"></i>' : ''}</button>
         </div>`;
 }
 
 function speakerRowId(element) {
-    return element.closest('.spk-row')?.dataset.id;
+    return element.closest('.sps-row')?.dataset.id;
 }
 
-async function saveSpeakerSettings(entityId, changes) {
+async function saveSpeakerSettings(entityId, changes, doneMessage = '') {
     try {
         await api('PUT', `/speakers/${encodeURIComponent(entityId)}/settings`, changes);
         await loadSpeakerHierarchy();
+        if (doneMessage) showToast(doneMessage, 'success');
     } catch (error) {
         showToast(error.message || 'Failed to save speaker', 'error');
     }
+    renderSettingsSpeakerTree();
+}
+
+function startSpeakerRename(id) {
+    spClosePop();
+    spkEditId = id;
     renderSettingsSpeakerTree();
 }
 
@@ -4190,21 +5234,26 @@ function onSpeakerNameKey(event) {
         event.preventDefault();
         input.blur();
     } else if (event.key === 'Escape') {
-        const speaker = findHierarchySpeaker(speakerRowId(input));
-        if (speaker) input.value = speaker.name;
-        input.blur();
+        event.stopPropagation();
+        spkEditId = null;
+        renderSettingsSpeakerTree();
     }
 }
 
 function saveSpeakerName(input) {
     const id = speakerRowId(input);
+    if (!id || spkEditId !== id) return;
+    spkEditId = null;
     const speaker = findHierarchySpeaker(id);
-    if (!speaker) return;
     const name = input.value.trim();
-    if (name === speaker.name) return;
+    if (!speaker || name === speaker.name) {
+        renderSettingsSpeakerTree();
+        return;
+    }
     // Empty (or the original name) = back to the speaker's own name
     const original = speaker.original_name || speaker.name;
-    saveSpeakerSettings(id, { name: !name || name === original ? null : name });
+    const reset = !name || name === original;
+    saveSpeakerSettings(id, { name: reset ? null : name }, reset ? `Name reset to “${original}”` : `Renamed to “${name}”`);
 }
 
 function saveSpeakerRoom(select) {
@@ -4213,81 +5262,90 @@ function saveSpeakerRoom(select) {
     if (!speaker) return;
     // The speaker's own Home Assistant area is the default (stored as no override)
     const value = select.value;
-    saveSpeakerSettings(id, { room: value === (speaker.default_area_id || '') ? null : value });
+    const label = select.options[select.selectedIndex]?.text || 'No area';
+    saveSpeakerSettings(id, { room: value === (speaker.default_area_id || '') ? null : value }, `“${speaker.name}” moved to ${label}`);
 }
 
 function saveSpeakerOffset(select) {
     saveSpeakerSettings(speakerRowId(select), { volume_offset: parseInt(select.value, 10) || 0 });
 }
 
-function saveSpeakerPlayVia(select) {
-    saveSpeakerSettings(speakerRowId(select), { play_via: select.value });
+function setSpeakerPlayVia(id, value) {
+    spClosePop();
+    const speaker = findHierarchySpeaker(id);
+    const option = speaker ? speakerPlayViaOptions(speaker).find(([v]) => v === value) : null;
+    saveSpeakerSettings(id, { play_via: value }, option ? `Plays via ${option[1]}` : '');
 }
 
 async function testSpeaker(button) {
     const id = speakerRowId(button);
     const speaker = findHierarchySpeaker(id);
+    spkTesting[id] = true;
     button.disabled = true;
+    button.classList.add('busy');
+    button.title = 'Playing…';
+    const done = () => {
+        delete spkTesting[id];
+        const row = document.querySelector(`.sps-row[data-id="${CSS.escape(id)}"] .sps-test`);
+        if (row) {
+            row.disabled = false;
+            row.classList.remove('busy');
+            row.title = 'Play a short test sound';
+        }
+    };
     try {
         const result = await api('POST', `/speakers/${encodeURIComponent(id)}/test`);
         showToast(`Playing a test sound on ${speaker ? speaker.name : id}`, 'success');
-        setTimeout(() => { button.disabled = false; }, ((result && result.seconds) || 4) * 1000);
+        setTimeout(done, ((result && result.seconds) || 4) * 1000);
     } catch (error) {
         showToast(error.message || 'Test sound failed', 'error');
-        button.disabled = false;
+        done();
     }
 }
 
-function closeSpeakerMenus() {
-    document.querySelectorAll('.spk-menu').forEach(menu => {
-        menu.parentElement?.querySelector('.icon-btn.more')?.setAttribute('aria-expanded', 'false');
-        menu.remove();
-    });
-}
-
-function toggleSpeakerMenu(button, event) {
-    event.stopPropagation();
-    const wasOpen = !!button.parentElement.querySelector('.spk-menu');
-    closeSpeakerMenus();
-    if (wasOpen) return;
-
-    const speaker = findHierarchySpeaker(speakerRowId(button));
+function openSpeakerMenu(button) {
+    const id = speakerRowId(button);
+    const speaker = findHierarchySpeaker(id);
     if (!speaker) return;
-    const renamed = speaker.original_name && speaker.name !== speaker.original_name;
+    const renamed = speakerRenamed(speaker);
     const isManual = speaker.entity_id.startsWith('net:') && (speaker.source || []).includes('manual');
     const manualIds = isManual ? [speaker.entity_id] : (speaker.merged || []).filter(m => m.source === 'manual').map(m => m.id);
+    const via = speaker.play_via || 'ha';
+    const viaOptions = speakerPlayViaOptions(speaker);
 
-    let items = `<button type="button" role="menuitem" ${renamed ? '' : 'disabled'} onclick="resetSpeakerName(this)">Reset name</button>`;
-    for (const manualId of manualIds) {
-        items += `<button type="button" role="menuitem" class="danger" data-manual-id="${escapeHtml(manualId)}" onclick="removeManualSpeaker(this)">${isManual ? 'Remove' : 'Remove the address added manually'}</button>`;
+    let html = `<button type="button" class="mi" role="menuitem" onclick="startSpeakerRename(${spArg(id)})">${SP_ICON_PENCIL}Rename</button>
+        <button type="button" class="mi" role="menuitem" ${renamed ? '' : 'disabled'} onclick="resetSpeakerName(${spArg(id)})">${SP_ICON_RESET}Reset name${renamed ? `<span class="mi-note">${escapeHtml(speaker.original_name)}</span>` : ''}</button>`;
+    if (viaOptions.length) {
+        html += '<div class="msep"></div><div class="mhead">Play via</div>' + viaOptions.map(([value, label]) =>
+            `<button type="button" class="mi${value === via ? ' cur' : ''}" role="menuitemradio" aria-checked="${value === via}" onclick="setSpeakerPlayVia(${spArg(id)}, ${spArg(value)})"><span class="rad">${value === via ? '●' : ''}</span>${escapeHtml(label)}</button>`
+        ).join('');
     }
-    button.parentElement.insertAdjacentHTML('beforeend', `<div class="spk-menu" role="menu">${items}</div>`);
-    button.setAttribute('aria-expanded', 'true');
-    // Open upwards when there's no room below (the list scrolls)
-    const menu = button.parentElement.querySelector('.spk-menu');
-    const list = button.closest('.spk-list');
-    if (list && menu.getBoundingClientRect().bottom > list.getBoundingClientRect().bottom) menu.classList.add('up');
-    menu.querySelector('button:not([disabled])')?.focus();
+    if (manualIds.length) {
+        html += '<div class="msep"></div>' + manualIds.map(manualId =>
+            `<button type="button" class="mi danger" role="menuitem" onclick="askRemoveManualSpeaker(${spArg(id)}, ${spArg(manualId)})">${SP_ICON_TRASH}${isManual ? 'Remove…' : 'Remove the address added manually…'}</button>`
+        ).join('');
+    }
+    spMenu(`spk:${id}`, button, html);
 }
 
-document.addEventListener('click', event => {
-    if (!event.target.closest('.spk-menu')) closeSpeakerMenus();
-});
-document.addEventListener('keydown', event => {
-    if (event.key === 'Escape') closeSpeakerMenus();
-});
-
-function resetSpeakerName(item) {
-    const id = speakerRowId(item);
-    closeSpeakerMenus();
-    saveSpeakerSettings(id, { name: null });
+function resetSpeakerName(id) {
+    spClosePop();
+    const speaker = findHierarchySpeaker(id);
+    saveSpeakerSettings(id, { name: null }, speaker ? `Name reset to “${speaker.original_name || speaker.name}”` : '');
 }
 
-async function removeManualSpeaker(item) {
-    const manualId = item.dataset.manualId;
-    const speaker = findHierarchySpeaker(speakerRowId(item));
-    closeSpeakerMenus();
-    if (!confirm(`Remove ${speaker ? speaker.name : 'this speaker'}?`)) return;
+function askRemoveManualSpeaker(id, manualId) {
+    const speaker = findHierarchySpeaker(id);
+    const name = speaker ? speaker.name : id;
+    const isManual = id === manualId;
+    spConfirm(`spk-rm:${id}`, spMenuAnchor(), {
+        title: isManual ? `Remove “${name}”?` : `Remove the manual address for “${name}”?`,
+        ok: 'Remove',
+        danger: true
+    }, () => removeManualSpeaker(manualId));
+}
+
+async function removeManualSpeaker(manualId) {
     try {
         await api('DELETE', `/speakers/manual/${encodeURIComponent(manualId)}`);
         await Promise.all([loadSpeakerHierarchy(), loadEnabledSpeakers()]);
@@ -4444,29 +5502,52 @@ async function disableAllSpeakers() {
 // Status View
 async function renderStatus() {
     const activePlayingSessions = sessions.filter(s => s.is_playing).length;
-    document.getElementById('status-active-channels').textContent = activePlayingSessions;
-
-    const allSpeakers = getAllSpeakersFlat();
-    document.getElementById('status-total-speakers').textContent = allSpeakers.length;
+    const active = document.getElementById('status-active-channels');
+    active.textContent = activePlayingSessions;
+    active.classList.toggle('spst-on', activePlayingSessions > 0);
+    document.getElementById('status-total-speakers').textContent = getAllSpeakersFlat().length;
 
     await loadChannels();
+    document.getElementById('status-ch-count').textContent = channels.length;
+    document.getElementById('status-lhead').hidden = channels.length === 0;
     const channelList = document.getElementById('channel-list');
-    channelList.innerHTML = channels.map(ch => `
-        <div class="channel-item">
-            <div class="channel-status ${ch.state === 'playing' ? 'active' : ''}"></div>
-            <div class="channel-info">
-                <div class="channel-name">${escapeHtml(ch.name)}</div>
-                <div class="channel-theme">${ch.current_theme_name || 'Idle'}</div>
-            </div>
-        </div>
-    `).join('');
+    if (!channels.length) {
+        channelList.innerHTML = '<div class="sp-empty"><strong>No channels</strong></div>';
+        return;
+    }
+    channelList.innerHTML = `<div class="sp-lbody">${channels.map(ch => {
+        const on = ch.state === 'playing';
+        const name = escapeHtml(ch.name);
+        const theme = escapeHtml(ch.current_theme_name || '');
+        return `
+            <div class="sp-lrow spst-grid${on ? ' on' : ''}">
+                <span class="trk-name spst-name" title="${name}"><span class="mq-in">${name}</span></span>
+                <div class="spst-theme">${on && theme
+                    ? `<span class="trk-name" title="${theme}"><span class="mq-in">${theme}</span></span>`
+                    : '<span class="spst-idle">—</span>'}</div>
+                <span class="spst-state"><span class="badge ${on ? 'sp-badge-air' : 'sp-badge-idle'}"><i></i>${on ? 'Playing' : 'Idle'}</span></span>
+            </div>`;
+    }).join('')}</div>`;
+    spUpdateMarquees(channelList);
 }
 
-async function refreshStatus() {
-    await loadSessions();
-    await loadChannels();
-    renderStatus();
-    showToast('Status refreshed', 'success');
+async function refreshStatus(button) {
+    if (button) {
+        button.disabled = true;
+        button.classList.add('sp-spinning');
+    }
+    try {
+        await loadSessions();
+        await renderStatus();
+        showToast('Status refreshed', 'success');
+    } catch (error) {
+        showToast(error.message || 'Refresh failed', 'error');
+    } finally {
+        if (button) {
+            button.disabled = false;
+            button.classList.remove('sp-spinning');
+        }
+    }
 }
 
 // Volume Slider
@@ -4496,108 +5577,127 @@ function showToast(message, type = 'success') {
 // Speaker Groups Management
 // ============================================
 
-let selectedGroupSpeakers = {
-    floors: [],
-    areas: [],
-    speakers: []
-};
+// --- Settings > Speaker Groups: collapsible rows with their members; editor dialog ---
+const grpOpen = {};      // groups showing their speakers
+let grpEd = null;        // editor: { id, floors, areas, speakers, xa, xs }
+let grpEdShut = {};      // collapsed floors / areas / sections in the editor
+
+// Every speaker with where it lives, plus floor and area lookups
+function groupIndex() {
+    const all = [];
+    const floorById = {};
+    const areaById = {};
+    for (const floor of speakerHierarchy?.floors || []) {
+        floorById[floor.floor_id] = floor;
+        for (const area of floor.areas || []) {
+            areaById[area.area_id] = area;
+            for (const s of area.speakers || []) all.push({ s, areaId: area.area_id, floorId: floor.floor_id, loc: `${floor.name} · ${area.name}` });
+        }
+    }
+    for (const area of speakerHierarchy?.unassigned_areas || []) {
+        areaById[area.area_id] = area;
+        for (const s of area.speakers || []) all.push({ s, areaId: area.area_id, floorId: null, loc: area.name });
+    }
+    for (const s of speakerHierarchy?.unassigned_speakers || []) all.push({ s, areaId: null, floorId: null, loc: 'No area' });
+    const speakerById = {};
+    all.forEach(x => { speakerById[x.s.entity_id] = x.s; });
+    return { all, floorById, areaById, speakerById };
+}
+
+// Union of floors, areas and speakers, minus excluded areas and speakers (as the server does)
+function resolveGroupMembers(g, idx) {
+    const out = [];
+    for (const x of idx.all) {
+        const id = x.s.entity_id;
+        let via = '';
+        if ((g.include_speakers || []).includes(id)) via = 'speaker';
+        else if (x.areaId && (g.include_areas || []).includes(x.areaId)) via = 'area';
+        else if (x.floorId && (g.include_floors || []).includes(x.floorId)) via = 'floor';
+        if (!via) continue;
+        const excluded = (g.exclude_speakers || []).includes(id) || (!!x.areaId && (g.exclude_areas || []).includes(x.areaId));
+        out.push({ ...x, via, excluded });
+    }
+    return out;
+}
+
+function groupChip(cls, icon, label, title) {
+    return `<span class="spg-chip ${cls}" title="${title}">${icon}<span>${escapeHtml(label)}</span></span>`;
+}
 
 function renderSettingsGroupsList() {
     const container = document.getElementById('settings-groups-list');
     if (!container) return;
-
-    if (speakerGroups.length === 0) {
-        container.innerHTML = '<div class="settings-groups-empty">No speaker groups created yet. Click "New Group" to create one.</div>';
+    spSetTitle('settings-groups', 'Speaker Groups', speakerGroups.length);
+    document.getElementById('grp-bar').hidden = speakerGroups.length === 0;
+    if (!speakerGroups.length) {
+        container.innerHTML = '<div class="sp-empty"><strong>No speaker groups</strong></div>';
         return;
     }
-
-    let html = '';
-    for (const group of speakerGroups) {
-        const speakerCount = (group.include_floors?.length || 0) +
-                            (group.include_areas?.length || 0) +
-                            (group.include_speakers?.length || 0);
-        const speakerText = speakerCount === 1 ? '1 selection' : `${speakerCount} selections`;
-
-        html += `
-            <div class="settings-group-item">
-                <div class="settings-group-icon">🔊</div>
-                <div class="settings-group-info">
-                    <div class="settings-group-name">${escapeHtml(group.name)}</div>
-                    <div class="settings-group-meta">${speakerText}</div>
+    const idx = groupIndex();
+    const chipMax = SP_PHONE.matches ? 3 : 5;
+    container.innerHTML = `<div class="sp-lbody">${speakerGroups.map(g => {
+        const open = !!grpOpen[g.id];
+        const members = resolveGroupMembers(g, idx);
+        const count = members.filter(m => !m.excluded).length;
+        const name = escapeHtml(g.name);
+        const chips = []
+            .concat((g.include_floors || []).filter(id => idx.floorById[id]).map(id => groupChip('fl', SP_ICON_FLOOR, idx.floorById[id].name, 'Floor')))
+            .concat((g.include_areas || []).filter(id => idx.areaById[id]).map(id => groupChip('ar', SP_ICON_AREA, idx.areaById[id].name, 'Area')))
+            .concat((g.include_speakers || []).filter(id => idx.speakerById[id]).map(id => groupChip('sp', SP_ICON_SPK, idx.speakerById[id].name, 'Speaker')))
+            .concat((g.exclude_areas || []).filter(id => idx.areaById[id]).map(id => groupChip('ex', SP_ICON_EX, idx.areaById[id].name, 'Excluded area')))
+            .concat((g.exclude_speakers || []).filter(id => idx.speakerById[id]).map(id => groupChip('ex', SP_ICON_EX, idx.speakerById[id].name, 'Excluded speaker')));
+        const parts = [];
+        if ((g.include_floors || []).length) parts.push(spPlural(g.include_floors.length, 'floor'));
+        if ((g.include_areas || []).length) parts.push(spPlural(g.include_areas.length, 'area'));
+        if ((g.include_speakers || []).length) parts.push(spPlural(g.include_speakers.length, 'speaker'));
+        const rest = chips.length - chipMax;
+        const memberRows = members.map(m => {
+            const online = m.s.online !== false;
+            const type = SPEAKER_TYPE_LABELS[m.s.type];
+            const sname = escapeHtml(m.s.name);
+            return `
+                <div class="spg-srow spg-grid${online ? '' : ' off'}${m.excluded ? ' exd' : ''}">
+                    <span class="spg-gap"></span>
+                    <div class="spg-sname"><span class="channel-status${online ? ' active' : ''}" title="${online ? 'Online' : 'Offline'}"></span><span class="trk-name" title="${sname}"><span class="mq-in">${sname}</span></span></div>
+                    <span class="spg-loc">${escapeHtml(m.loc)} <span class="spg-via">· ${m.via === 'speaker' ? 'added' : `via ${m.via}`}</span></span>
+                    <span class="c spg-type">${type ? `<span class="badge badge-type">${type}</span>` : ''}</span>
+                    <span class="c spg-exc">${m.excluded ? '<span class="badge sp-badge-ex">Excluded</span>' : ''}</span>
+                    <span class="spg-gap"></span>
+                </div>`;
+        }).join('');
+        return `
+            <div class="spg-grp" data-id="${escapeHtml(g.id)}">
+                <div class="sp-lrow spg-grid spg-row">
+                    <button type="button" class="chev-btn spg-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Hide' : 'Show'} speakers in ${name}" onclick="toggleGroupOpen(${spArg(g.id)})">${SP_ICON_CHEV}</button>
+                    <div class="spg-name"><span class="spg-ic" aria-hidden="true">🔊</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span></div>
+                    <div class="spg-chips" title="${escapeHtml(parts.join(', '))}">${chips.slice(0, chipMax).join('')}${rest > 0 ? `<span class="spg-more-n">+${rest}</span>` : ''}</div>
+                    <span class="spg-num c" title="${spPlural(count, 'speaker')}">${count}</span>
+                    <button type="button" class="btn btn-sm btn-secondary spg-edit" onclick="openGroupModal(${spArg(g.id)})">Edit</button>
+                    <button type="button" class="icon-btn sm spg-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openGroupMenu(this, ${spArg(g.id)})">${SP_ICON_MORE}</button>
                 </div>
-                <div class="settings-group-actions">
-                    <button onclick="editGroup('${group.id}')" title="Edit">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                        </svg>
-                    </button>
-                    <button class="delete" onclick="deleteGroup('${group.id}')" title="Delete">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="3 6 5 6 21 6"/>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                        </svg>
-                    </button>
-                </div>
-            </div>
-        `;
-    }
-    container.innerHTML = html;
+                ${open ? `<div class="spg-subs">${memberRows || '<div class="sp-muted spg-none">No speakers</div>'}</div>` : ''}
+            </div>`;
+    }).join('')}</div>`;
+    spUpdateMarquees(container);
 }
 
-function openGroupModal(groupId = null) {
-    const modal = document.getElementById('group-modal');
-    const title = document.getElementById('group-modal-title');
-    const saveBtn = document.getElementById('group-save-btn-text');
-    const editIdField = document.getElementById('edit-group-id');
-    const nameInput = document.getElementById('group-name');
-
-    // Reset selection
-    selectedGroupSpeakers = { floors: [], areas: [], speakers: [] };
-
-    if (groupId) {
-        // Editing existing group
-        const group = speakerGroups.find(g => g.id === groupId);
-        if (!group) {
-            showToast('Group not found', 'error');
-            return;
-        }
-        title.textContent = 'Edit Speaker Group';
-        saveBtn.textContent = 'Save Changes';
-        editIdField.value = groupId;
-        nameInput.value = group.name;
-
-        // Restore selections
-        selectedGroupSpeakers.floors = [...(group.include_floors || [])];
-        selectedGroupSpeakers.areas = [...(group.include_areas || [])];
-        selectedGroupSpeakers.speakers = [...(group.include_speakers || [])];
-    } else {
-        // Creating new group
-        title.textContent = 'New Speaker Group';
-        saveBtn.textContent = 'Create Group';
-        editIdField.value = '';
-        nameInput.value = '';
-    }
-
-    renderGroupSpeakerTree();
-    updateGroupSpeakerDropdownText();
-    modal.style.display = 'flex';
+function toggleGroupOpen(groupId) {
+    grpOpen[groupId] = !grpOpen[groupId];
+    renderSettingsGroupsList();
 }
 
-function closeGroupModal() {
-    document.getElementById('group-modal').style.display = 'none';
+function openGroupMenu(button, groupId) {
+    spMenu(`grp:${groupId}`, button, `<button type="button" class="mi danger" role="menuitem" onclick="askDeleteGroup(${spArg(groupId)})">${SP_ICON_TRASH}Delete…</button>`);
 }
 
-function editGroup(groupId) {
-    openGroupModal(groupId);
+function askDeleteGroup(groupId) {
+    const group = speakerGroups.find(g => g.id === groupId);
+    spConfirm(`grp-del:${groupId}`, spMenuAnchor(), { title: `Delete “${group?.name || groupId}”?`, ok: 'Delete', danger: true }, () => deleteGroup(groupId));
 }
 
 async function deleteGroup(groupId) {
-    const group = speakerGroups.find(g => g.id === groupId);
-    if (!confirm(`Delete speaker group "${group?.name || groupId}"?`)) return;
-
     try {
-        await api('DELETE', `/groups/${groupId}`);
+        await api('DELETE', `/groups/${encodeURIComponent(groupId)}`);
         await loadSpeakerGroups();
         renderSettingsGroupsList();
         showToast('Group deleted', 'success');
@@ -4606,35 +5706,168 @@ async function deleteGroup(groupId) {
     }
 }
 
-async function saveGroup() {
-    const editId = document.getElementById('edit-group-id').value;
-    const name = document.getElementById('group-name').value.trim();
-
-    if (!name) {
-        showToast('Please enter a group name', 'error');
+// ---------- Editor ----------
+function openGroupModal(groupId = null) {
+    spClosePop();
+    const group = groupId ? speakerGroups.find(g => g.id === groupId) : null;
+    if (groupId && !group) {
+        showToast('Group not found', 'error');
         return;
     }
+    grpEd = group
+        ? { id: group.id, floors: [...(group.include_floors || [])], areas: [...(group.include_areas || [])], speakers: [...(group.include_speakers || [])],
+            xa: group.exclude_areas || [], xs: group.exclude_speakers || [] }
+        : { id: null, floors: [], areas: [], speakers: [], xa: [], xs: [] };
+    grpEdShut = {};
+    document.getElementById('group-modal-title').textContent = group ? 'Edit group' : 'Add group';
+    document.getElementById('group-save-btn-text').textContent = group ? 'Save' : 'Add group';
+    const nameInput = document.getElementById('group-name');
+    nameInput.value = group ? group.name : '';
+    nameInput.classList.remove('bad');
+    document.getElementById('group-speaker-tree').scrollTop = 0;
+    renderGroupSpeakerTree();
+    document.getElementById('group-modal').classList.add('active');
+    setTimeout(() => nameInput.focus(), 50);
+}
 
-    if (selectedGroupSpeakers.floors.length === 0 &&
-        selectedGroupSpeakers.areas.length === 0 &&
-        selectedGroupSpeakers.speakers.length === 0) {
-        showToast('Please select at least one speaker', 'error');
-        return;
+function closeGroupModal() {
+    document.getElementById('group-modal').classList.remove('active');
+    grpEd = null;
+}
+
+function editGroup(groupId) {
+    openGroupModal(groupId);
+}
+
+function onGroupNameKey(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        saveGroup();
     }
+}
 
-    const payload = {
-        name,
-        include_floors: selectedGroupSpeakers.floors,
-        include_areas: selectedGroupSpeakers.areas,
-        include_speakers: selectedGroupSpeakers.speakers
+function toggleGroupItem(key, id) {
+    if (!grpEd) return;
+    const list = grpEd[key];
+    grpEd[key] = list.includes(id) ? list.filter(x => x !== id) : [...list, id];
+    renderGroupSpeakerTree();
+}
+
+function toggleGroupEdSection(key) {
+    grpEdShut[key] = !grpEdShut[key];
+    renderGroupSpeakerTree();
+}
+
+function renderGroupSpeakerTree() {
+    const container = document.getElementById('group-speaker-tree');
+    if (!container || !grpEd) return;
+    const ed = grpEd;
+    const shut = grpEdShut;
+    const chev = (key, label) => `<button type="button" class="chev-btn spe-chev${shut[key] ? '' : ' open'}" aria-label="${shut[key] ? 'Expand' : 'Collapse'} ${escapeHtml(label)}" onclick="toggleGroupEdSection(${spArg(key)})">${SP_ICON_CHEV}</button>`;
+    const box = (key, id, label, checked, implied) =>
+        `<input type="checkbox" ${checked ? 'checked' : ''} ${implied ? 'disabled' : ''} aria-label="${escapeHtml(label)}" onchange="toggleGroupItem('${key}', ${spArg(id)})">`;
+
+    const speakerRow = (s, indent, impliedBy) => {
+        const explicit = ed.speakers.includes(s.entity_id);
+        const implied = !explicit && !!impliedBy;
+        const online = s.online !== false;
+        const type = SPEAKER_TYPE_LABELS[s.type];
+        return `
+            <div class="spe-row spe-grid k-spk ${indent}"${implied ? ` title="Included with ${escapeHtml(impliedBy)}"` : ''}>
+                <span>${box('speakers', s.entity_id, s.name, explicit || implied, implied)}</span>
+                <div class="spe-name"><span class="lbl">${escapeHtml(s.name)}</span>${ed.xs.includes(s.entity_id) ? '<span class="badge sp-badge-ex">Excluded</span>' : ''}</div>
+                <span>${type ? `<span class="badge badge-type">${type}</span>` : ''}</span>
+                <span class="spe-stat"><span class="channel-status${online ? ' active' : ''}" title="${online ? 'Online' : 'Offline'}"></span><span class="spe-stxt">${online ? 'Online' : 'Offline'}</span></span>
+            </div>`;
+    };
+    const areaRows = (area, indent, floorName) => {
+        const explicit = ed.areas.includes(area.area_id);
+        const implied = !explicit && !!floorName;
+        const key = `a:${area.area_id}`;
+        let html = `
+            <div class="spe-row spe-grid k-area ${indent}"${implied ? ` title="Included with ${escapeHtml(floorName)}"` : ''}>
+                <span>${box('areas', area.area_id, area.name, explicit || implied, implied)}</span>
+                <div class="spe-name">${chev(key, area.name)}<span class="spe-ico ar">${SP_ICON_AREA}</span><span class="lbl">${escapeHtml(area.name)}</span><span class="spe-count">${(area.speakers || []).length}</span>${ed.xa.includes(area.area_id) ? '<span class="badge sp-badge-ex">Excluded</span>' : ''}</div>
+                <span></span><span></span>
+            </div>`;
+        if (!shut[key]) {
+            const by = floorName || (explicit ? area.name : '');
+            html += (area.speakers || []).map(s => speakerRow(s, indent === 'ind1' ? 'ind2' : 'ind1', by)).join('');
+        }
+        return html;
     };
 
+    const sections = [];
+    for (const floor of speakerHierarchy?.floors || []) {
+        const on = ed.floors.includes(floor.floor_id);
+        const key = `f:${floor.floor_id}`;
+        const n = (floor.areas || []).reduce((sum, a) => sum + (a.speakers || []).length, 0);
+        let html = `
+            <div class="spe-row spe-grid k-floor">
+                <span>${box('floors', floor.floor_id, floor.name, on, false)}</span>
+                <div class="spe-name">${chev(key, floor.name)}<span class="spe-ico fl">${SP_ICON_FLOOR}</span><span class="lbl">${escapeHtml(floor.name)}</span><span class="spe-count">${spPlural(n, 'speaker')}</span></div>
+                <span></span><span></span>
+            </div>`;
+        if (!shut[key]) html += (floor.areas || []).map(a => areaRows(a, 'ind1', on ? floor.name : '')).join('');
+        sections.push(html);
+    }
+    const otherAreas = (speakerHierarchy?.unassigned_areas || []).filter(a => (a.speakers || []).length);
+    if (otherAreas.length) {
+        let html = `<div class="spe-row spe-grid k-sect"><span></span><div class="spe-name">${chev('s:other', 'Other areas')}<span class="lbl">Other areas</span></div><span></span><span></span></div>`;
+        if (!shut['s:other']) html += otherAreas.map(a => areaRows(a, 'ind1', '')).join('');
+        sections.push(html);
+    }
+    const unassigned = speakerHierarchy?.unassigned_speakers || [];
+    if (unassigned.length) {
+        let html = `<div class="spe-row spe-grid k-sect"><span></span><div class="spe-name">${chev('s:none', 'Unassigned')}<span class="lbl">Unassigned</span></div><span></span><span></span></div>`;
+        if (!shut['s:none']) html += unassigned.map(s => speakerRow(s, 'ind1', '')).join('');
+        sections.push(html);
+    }
+    const scroll = container.scrollTop;
+    container.innerHTML = sections.length
+        ? sections.map(html => `<div class="spe-sec">${html}</div>`).join('')
+        : '<div class="sp-empty"><strong>No speakers available</strong></div>';
+    container.scrollTop = scroll;
+
+    const parts = [];
+    if (ed.floors.length) parts.push(spPlural(ed.floors.length, 'floor'));
+    if (ed.areas.length) parts.push(spPlural(ed.areas.length, 'area'));
+    if (ed.speakers.length) parts.push(spPlural(ed.speakers.length, 'speaker'));
+    const count = parts.length ? resolveGroupMembers({
+        include_floors: ed.floors, include_areas: ed.areas, include_speakers: ed.speakers, exclude_areas: ed.xa, exclude_speakers: ed.xs
+    }, groupIndex()).filter(m => !m.excluded).length : 0;
+    document.getElementById('group-ed-sum').innerHTML = parts.length
+        ? `<span>${parts.join(' · ')}</span><span class="badge badge-type">= ${spPlural(count, 'speaker')}</span>`
+        : '<span>Nothing selected</span>';
+}
+
+async function saveGroup() {
+    if (!grpEd) return;
+    const nameInput = document.getElementById('group-name');
+    const name = nameInput.value.trim();
+    if (!name) {
+        nameInput.classList.add('bad');
+        nameInput.focus();
+        showToast('Enter a group name', 'error');
+        return;
+    }
+    if (!grpEd.floors.length && !grpEd.areas.length && !grpEd.speakers.length) {
+        showToast('Select at least one speaker', 'error');
+        return;
+    }
+    const payload = {
+        name,
+        include_floors: grpEd.floors,
+        include_areas: grpEd.areas,
+        include_speakers: grpEd.speakers
+    };
     try {
-        if (editId) {
-            await api('PUT', `/groups/${editId}`, payload);
+        if (grpEd.id) {
+            await api('PUT', `/groups/${encodeURIComponent(grpEd.id)}`, payload);
             showToast('Group updated', 'success');
         } else {
-            await api('POST', '/groups', payload);
+            const created = await api('POST', '/groups', payload);
+            if (created?.id) grpOpen[created.id] = true;
             showToast('Group created', 'success');
         }
         closeGroupModal();
@@ -4644,206 +5877,6 @@ async function saveGroup() {
         showToast(error.message, 'error');
     }
 }
-
-function toggleGroupSpeakerDropdown(event) {
-    event.stopPropagation();
-    const dropdown = document.getElementById('group-speaker-dropdown');
-    dropdown.classList.toggle('open');
-}
-
-function updateGroupSpeakerDropdownText() {
-    const text = document.getElementById('group-speaker-dropdown-text');
-    if (!text) return;
-
-    const floorCount = selectedGroupSpeakers.floors.length;
-    const areaCount = selectedGroupSpeakers.areas.length;
-    const speakerCount = selectedGroupSpeakers.speakers.length;
-
-    if (floorCount === 0 && areaCount === 0 && speakerCount === 0) {
-        text.textContent = 'Click to select speakers...';
-        text.style.color = 'var(--text-muted)';
-    } else {
-        const parts = [];
-        if (floorCount > 0) parts.push(`${floorCount} floor${floorCount > 1 ? 's' : ''}`);
-        if (areaCount > 0) parts.push(`${areaCount} area${areaCount > 1 ? 's' : ''}`);
-        if (speakerCount > 0) parts.push(`${speakerCount} speaker${speakerCount > 1 ? 's' : ''}`);
-        text.textContent = parts.join(', ');
-        text.style.color = 'var(--text-primary)';
-    }
-}
-
-function renderGroupSpeakerTree() {
-    const container = document.getElementById('group-speaker-tree');
-    if (!speakerHierarchy || !container) return;
-
-    let html = '';
-
-    // Render floors with areas
-    for (const floor of speakerHierarchy.floors || []) {
-        const floorChecked = selectedGroupSpeakers.floors.includes(floor.floor_id);
-        html += `
-            <div class="tree-floor">
-                <div class="tree-floor-header">
-                    <input type="checkbox" ${floorChecked ? 'checked' : ''}
-                           onchange="toggleGroupFloor('${floor.floor_id}', this.checked)">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                    </svg>
-                    <span class="tree-floor-name">${escapeHtml(floor.name)}</span>
-                </div>
-                <div class="tree-areas">
-        `;
-
-        for (const area of floor.areas || []) {
-            const areaChecked = selectedGroupSpeakers.areas.includes(area.area_id);
-            html += `
-                <div class="tree-area">
-                    <div class="tree-area-header">
-                        <input type="checkbox" ${areaChecked ? 'checked' : ''}
-                               onchange="toggleGroupArea('${area.area_id}', this.checked)">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                        </svg>
-                        <span>${escapeHtml(area.name)}</span>
-                    </div>
-                    <div class="tree-speakers">
-            `;
-
-            for (const speaker of area.speakers || []) {
-                const speakerChecked = selectedGroupSpeakers.speakers.includes(speaker.entity_id);
-                html += `
-                    <div class="tree-speaker">
-                        <input type="checkbox" ${speakerChecked ? 'checked' : ''}
-                               onchange="toggleGroupSpeaker('${speaker.entity_id}', this.checked)">
-                        <span>${escapeHtml(speaker.name)}</span>
-                    </div>
-                `;
-            }
-
-            html += `</div></div>`;
-        }
-
-        html += `</div></div>`;
-    }
-
-    // Unassigned areas
-    if ((speakerHierarchy.unassigned_areas || []).length > 0) {
-        html += `
-            <div class="tree-floor">
-                <div class="tree-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                    </svg>
-                    <span class="tree-floor-name">Other Areas</span>
-                </div>
-                <div class="tree-areas">
-        `;
-
-        for (const area of speakerHierarchy.unassigned_areas) {
-            if ((area.speakers || []).length === 0) continue;
-            const areaChecked = selectedGroupSpeakers.areas.includes(area.area_id);
-            html += `
-                <div class="tree-area">
-                    <div class="tree-area-header">
-                        <input type="checkbox" ${areaChecked ? 'checked' : ''}
-                               onchange="toggleGroupArea('${area.area_id}', this.checked)">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                        </svg>
-                        <span>${escapeHtml(area.name)}</span>
-                    </div>
-                    <div class="tree-speakers">
-            `;
-
-            for (const speaker of area.speakers || []) {
-                const speakerChecked = selectedGroupSpeakers.speakers.includes(speaker.entity_id);
-                html += `
-                    <div class="tree-speaker">
-                        <input type="checkbox" ${speakerChecked ? 'checked' : ''}
-                               onchange="toggleGroupSpeaker('${speaker.entity_id}', this.checked)">
-                        <span>${escapeHtml(speaker.name)}</span>
-                    </div>
-                `;
-            }
-
-            html += `</div></div>`;
-        }
-
-        html += `</div></div>`;
-    }
-
-    // Unassigned speakers
-    if ((speakerHierarchy.unassigned_speakers || []).length > 0) {
-        html += `
-            <div class="tree-floor">
-                <div class="tree-floor-header">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="12" cy="12" r="10"/>
-                        <line x1="12" y1="8" x2="12" y2="12"/>
-                        <line x1="12" y1="16" x2="12.01" y2="16"/>
-                    </svg>
-                    <span class="tree-floor-name">Unassigned</span>
-                </div>
-                <div class="tree-speakers" style="margin-left: 1.5rem;">
-        `;
-
-        for (const speaker of speakerHierarchy.unassigned_speakers) {
-            const speakerChecked = selectedGroupSpeakers.speakers.includes(speaker.entity_id);
-            html += `
-                <div class="tree-speaker">
-                    <input type="checkbox" ${speakerChecked ? 'checked' : ''}
-                           onchange="toggleGroupSpeaker('${speaker.entity_id}', this.checked)">
-                    <span>${escapeHtml(speaker.name)}</span>
-                </div>
-            `;
-        }
-
-        html += `</div></div>`;
-    }
-
-    container.innerHTML = html || '<p style="color: var(--text-muted); padding: 0.5rem;">No speakers available</p>';
-}
-
-function toggleGroupFloor(floorId, checked) {
-    if (checked) {
-        if (!selectedGroupSpeakers.floors.includes(floorId)) {
-            selectedGroupSpeakers.floors.push(floorId);
-        }
-    } else {
-        selectedGroupSpeakers.floors = selectedGroupSpeakers.floors.filter(f => f !== floorId);
-    }
-    updateGroupSpeakerDropdownText();
-}
-
-function toggleGroupArea(areaId, checked) {
-    if (checked) {
-        if (!selectedGroupSpeakers.areas.includes(areaId)) {
-            selectedGroupSpeakers.areas.push(areaId);
-        }
-    } else {
-        selectedGroupSpeakers.areas = selectedGroupSpeakers.areas.filter(a => a !== areaId);
-    }
-    updateGroupSpeakerDropdownText();
-}
-
-function toggleGroupSpeaker(entityId, checked) {
-    if (checked) {
-        if (!selectedGroupSpeakers.speakers.includes(entityId)) {
-            selectedGroupSpeakers.speakers.push(entityId);
-        }
-    } else {
-        selectedGroupSpeakers.speakers = selectedGroupSpeakers.speakers.filter(s => s !== entityId);
-    }
-    updateGroupSpeakerDropdownText();
-}
-
-// Close group dropdown when clicking outside
-document.addEventListener('click', function(event) {
-    const dropdown = document.getElementById('group-speaker-dropdown');
-    if (dropdown && !dropdown.contains(event.target)) {
-        dropdown.classList.remove('open');
-    }
-});
 
 // ============================================
 // End Speaker Groups Management
@@ -4867,37 +5900,37 @@ async function loadPlugins() {
 // Track active plugins tab
 let activePluginsTab = 'installed';
 let pluginCatalog = null;
+let pluginCatalogState = 'idle';   // idle | loading | error | ready
+let pluginInstalling = null;       // catalog plugin being installed
+let pluginUploading = false;
+const pluginVals = {};             // typed form values: { pluginId: { field: value } }
+const pluginOpen = {};             // form shown (default: shown when the plugin has one)
 
 function renderPluginsView() {
     const container = document.getElementById('plugins-list');
     if (!container) return;
+    spSetTitle('settings-plugins', 'Plugins', plugins.length);
+    const browse = activePluginsTab === 'browse';
+    document.getElementById('plg-tab-installed').setAttribute('aria-pressed', String(!browse));
+    document.getElementById('plg-tab-browse').setAttribute('aria-pressed', String(browse));
+    document.getElementById('plg-count').textContent = plugins.length;
 
-    // Tabs for Installed vs Browse
-    let html = `
-        <div class="plugins-tabs">
-            <button class="plugins-tab ${activePluginsTab === 'installed' ? 'active' : ''}"
-                    onclick="switchPluginsTab('installed')">
-                Installed (${plugins.length})
-            </button>
-            <button class="plugins-tab ${activePluginsTab === 'browse' ? 'active' : ''}"
-                    onclick="switchPluginsTab('browse')">
-                Browse Catalog
-            </button>
-        </div>
-    `;
-
-    if (activePluginsTab === 'browse') {
-        html += renderPluginsCatalog();
+    const catalogPlugins = pluginCatalog?.plugins || [];
+    const head = document.getElementById('plg-lhead');
+    if (!browse && plugins.length) {
+        head.innerHTML = '<div class="sp-lhead spp-igrid"><span></span><span>Name</span><span>Version</span><span>Description</span><span>Author</span><span class="c">On</span><span></span></div>';
+    } else if (browse && pluginCatalogState === 'ready' && catalogPlugins.length) {
+        head.innerHTML = '<div class="sp-lhead spp-cgrid"><span>Name</span><span>Version</span><span>Category</span><span>Description</span><span>Author</span><span></span></div>';
     } else {
-        html += renderInstalledPlugins();
+        head.innerHTML = '';
     }
 
-    container.innerHTML = html;
-
-    // Load catalog if on browse tab and not loaded
-    if (activePluginsTab === 'browse' && !pluginCatalog) {
+    if (browse && !pluginCatalog && pluginCatalogState === 'idle') {
         loadPluginCatalog();
+        return;
     }
+    container.innerHTML = browse ? renderPluginsCatalog() : renderInstalledPlugins();
+    spUpdateMarquees(container);
 }
 
 function switchPluginsTab(tab) {
@@ -4906,318 +5939,203 @@ function switchPluginsTab(tab) {
 }
 
 async function loadPluginCatalog() {
-    const catalogContainer = document.getElementById('plugin-catalog-content');
-    if (!catalogContainer) return;
-
-    catalogContainer.innerHTML = '<div class="loading-spinner">Loading catalog...</div>';
-
+    pluginCatalogState = 'loading';
+    renderPluginsView();
     try {
-        const response = await api('GET', '/plugins/catalog');
-        pluginCatalog = response;
-        renderPluginsView();
+        pluginCatalog = await api('GET', '/plugins/catalog');
+        pluginCatalogState = 'ready';
     } catch (error) {
-        catalogContainer.innerHTML = `
-            <div class="error-state" style="padding: 2rem; text-align: center;">
-                <p style="color: var(--error);">Failed to load catalog: ${escapeHtml(error.message)}</p>
-                <button class="btn btn-secondary" onclick="loadPluginCatalog()" style="margin-top: 1rem;">
-                    Retry
-                </button>
-            </div>
-        `;
+        pluginCatalogState = 'error';
     }
+    renderPluginsView();
 }
 
 function renderPluginsCatalog() {
-    if (!pluginCatalog) {
-        return `
-            <div id="plugin-catalog-content">
-                <div class="loading-spinner">Loading catalog...</div>
-            </div>
-        `;
+    if (pluginCatalogState === 'loading' || (!pluginCatalog && pluginCatalogState !== 'error')) {
+        return '<div class="spp-cat-state"><span class="spp-spin"></span>Loading catalog…</div>';
     }
-
+    if (pluginCatalogState === 'error') {
+        return `<div class="spp-cat-state"><span>Couldn’t load the catalog</span>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="loadPluginCatalog()">Retry</button></div>`;
+    }
     const catalogPlugins = pluginCatalog.plugins || [];
-    if (catalogPlugins.length === 0) {
+    if (!catalogPlugins.length) return '<div class="sp-empty"><strong>No plugins available</strong></div>';
+    return `<div class="sp-lbody">${catalogPlugins.map(plugin => {
+        const installed = !!plugin.installed;
+        const update = installed && !!plugin.update_available;
+        const busy = pluginInstalling === plugin.id;
+        const name = escapeHtml(plugin.name);
+        const description = escapeHtml(plugin.description || '');
+        const author = escapeHtml(plugin.author || '');
+        const label = busy ? 'Installing…' : update ? 'Update' : installed ? 'Installed' : 'Install';
         return `
-            <div class="empty-state" style="padding: 2rem;">
-                <h3>No Plugins Available</h3>
-                <p style="color: var(--text-muted);">The plugin catalog is empty.</p>
-            </div>
-        `;
-    }
-
-    let html = `
-        <div id="plugin-catalog-content">
-            <p style="color: var(--text-muted); margin-bottom: 1rem; font-size: 0.9rem;">
-                Available plugins from the Sonorium catalog. Click Install to add a plugin.
-            </p>
-    `;
-
-    for (const plugin of catalogPlugins) {
-        const isInstalled = plugin.installed;
-        const hasUpdate = plugin.update_available;
-
-        html += `
-            <div class="plugin-card catalog-plugin ${isInstalled ? 'installed' : ''}">
-                <div class="plugin-header">
-                    <div class="plugin-info">
-                        <h4>${escapeHtml(plugin.name)}</h4>
-                        <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
-                        ${plugin.category ? `<span class="plugin-category">${escapeHtml(plugin.category)}</span>` : ''}
-                        ${isInstalled ? `<span class="plugin-status enabled">Installed${hasUpdate ? ' (Update Available)' : ''}</span>` : ''}
-                    </div>
-                    <div class="plugin-actions">
-                        ${isInstalled && hasUpdate ? `
-                            <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
-                                Update
-                            </button>
-                        ` : isInstalled ? `
-                            <button class="btn btn-sm btn-secondary" disabled>
-                                Installed
-                            </button>
-                        ` : `
-                            <button class="btn btn-sm btn-primary" onclick="installFromCatalog('${plugin.id}')">
-                                Install
-                            </button>
-                        `}
-                    </div>
+            <div class="spp-row">
+                <div class="sp-lrow spp-cgrid">
+                    <div class="spp-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span></div>
+                    <span class="spp-ver">v${escapeHtml(plugin.version)}${update ? `<span class="badge sp-badge-upd"${plugin.installed_version ? ` title="Installed: v${escapeHtml(plugin.installed_version)}"` : ''}>Update</span>` : ''}</span>
+                    <span class="spp-cat">${plugin.category ? `<span class="badge badge-type">${escapeHtml(plugin.category)}</span>` : ''}</span>
+                    <span class="spp-desc" title="${description}">${description}</span>
+                    <span class="spp-auth" title="${author}">${author}</span>
+                    <button type="button" class="btn btn-sm spp-act ${installed && !update ? 'btn-secondary' : 'btn-primary'}" ${busy || (installed && !update) ? 'disabled' : ''}
+                            onclick="installFromCatalog(${spArg(plugin.id)})">${label}</button>
                 </div>
-                ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
-                ${plugin.author ? `<p class="plugin-author">by ${escapeHtml(plugin.author)}</p>` : ''}
-            </div>
-        `;
-    }
-
-    html += '</div>';
-    return html;
+            </div>`;
+    }).join('')}</div>`;
 }
 
 async function installFromCatalog(pluginId) {
-    const btn = event.target;
-    const originalText = btn.textContent;
-    btn.disabled = true;
-    btn.textContent = 'Installing...';
-
+    pluginInstalling = pluginId;
+    renderPluginsView();
     try {
         const result = await api('POST', '/plugins/install-from-catalog', { plugin_id: pluginId });
         showToast(`${result.name || pluginId} installed successfully`, 'success');
-
-        // Refresh plugins list and catalog
         await loadPlugins();
-        pluginCatalog = null;  // Force refresh
+        pluginInstalling = null;
+        pluginCatalog = null;
         await loadPluginCatalog();
     } catch (error) {
         showToast(`Failed to install: ${error.message}`, 'error');
-        btn.disabled = false;
-        btn.textContent = originalText;
+        pluginInstalling = null;
+        renderPluginsView();
     }
+}
+
+function pluginHasForm(plugin) {
+    return !!(plugin.ui_schema && plugin.ui_schema.fields && plugin.ui_schema.fields.length);
 }
 
 function renderInstalledPlugins() {
-    // Upload section
-    let html = `
-        <div class="plugin-upload-section">
-            <h4>Install Plugin</h4>
-            <p style="color: var(--text-muted); margin-bottom: 0.5rem; font-size: 0.9rem;">
-                Upload a plugin ZIP file containing <code>plugin.py</code> with required class attributes.
-            </p>
-            <details style="margin-bottom: 1rem; font-size: 0.85rem; color: var(--text-muted);">
-                <summary style="cursor: pointer; color: var(--accent-primary);">Plugin Requirements</summary>
-                <div style="margin-top: 0.5rem; padding: 0.75rem; background: var(--bg-secondary); border-radius: 6px;">
-                    <p style="margin: 0 0 0.5rem 0;"><strong>Required in plugin.py:</strong></p>
-                    <pre style="margin: 0; font-size: 0.8rem; overflow-x: auto;">class MyPlugin(BasePlugin):
-    id = "my_plugin"           # Unique identifier
-    name = "My Plugin"         # Display name
-    version = "1.0.0"          # Semantic version (MAJOR.MINOR.PATCH)
-    description = "..."        # Brief description
-    author = "Your Name"       # Plugin author</pre>
-                    <p style="margin: 0.75rem 0 0 0; font-size: 0.8rem;">
-                        Optional: Include <code>manifest.json</code> for additional metadata.
-                    </p>
-                </div>
-            </details>
-            <div class="upload-controls">
-                <input type="file" id="plugin-file-input" accept=".zip" style="display: none;"
-                       onchange="handlePluginFileSelect(event)">
-                <button class="btn btn-primary" onclick="document.getElementById('plugin-file-input').click()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 16px; height: 16px; margin-right: 0.5rem;">
-                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                        <polyline points="17 8 12 3 7 8"/>
-                        <line x1="12" y1="3" x2="12" y2="15"/>
-                    </svg>
-                    Upload Plugin
-                </button>
-                <span id="plugin-upload-status" style="margin-left: 1rem; color: var(--text-muted);"></span>
-            </div>
-        </div>
-    `;
-
     if (plugins.length === 0) {
-        html += `
-            <div class="empty-state" style="padding: 2rem;">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 48px; height: 48px; margin-bottom: 1rem; opacity: 0.5;">
-                    <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-                    <path d="M2 17l10 5 10-5"/>
-                    <path d="M2 12l10 5 10-5"/>
-                </svg>
-                <h3>No Plugins Installed</h3>
-                <p style="color: var(--text-muted);">Upload a plugin or check the Browse Catalog tab</p>
-            </div>
-        `;
-        return html;
+        return `<div class="sp-empty">${SP_ICON_PLUGINS}<strong>No plugins installed</strong></div>`;
     }
-
-    html += '<h4 style="margin-top: 1.5rem; margin-bottom: 1rem;">Installed Plugins</h4>';
-
-    for (const plugin of plugins) {
-        const statusClass = plugin.enabled ? 'enabled' : 'disabled';
-        const statusText = plugin.enabled ? 'Enabled' : 'Disabled';
-        const toggleText = plugin.enabled ? 'Disable' : 'Enable';
-        const isBuiltin = plugin.builtin || false;
-
-        html += `
-            <div class="plugin-card ${statusClass}">
-                <div class="plugin-header">
-                    <div class="plugin-info">
-                        <h4>${escapeHtml(plugin.name)}</h4>
-                        <span class="plugin-version">v${escapeHtml(plugin.version)}</span>
-                        <span class="plugin-status ${statusClass}">${statusText}</span>
-                        ${isBuiltin ? '<span class="plugin-builtin">Built-in</span>' : ''}
-                    </div>
-                    <div class="plugin-actions">
-                        <button class="btn btn-sm ${plugin.enabled ? 'btn-secondary' : 'btn-primary'}"
-                                onclick="togglePlugin('${plugin.id}', ${!plugin.enabled})">
-                            ${toggleText}
-                        </button>
-                        ${!isBuiltin ? `
-                        <button class="btn btn-sm btn-danger"
-                                onclick="uninstallPlugin('${plugin.id}', '${escapeHtml(plugin.name)}')"
-                                title="Uninstall plugin">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width: 14px; height: 14px;">
-                                <polyline points="3 6 5 6 21 6"/>
-                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            </svg>
-                        </button>
-                        ` : ''}
-                    </div>
+    return `<div class="sp-lbody">${plugins.map(plugin => {
+        const hasForm = pluginHasForm(plugin);
+        const canOpen = hasForm && plugin.enabled;
+        const open = canOpen && pluginOpen[plugin.id] !== false;
+        const name = escapeHtml(plugin.name);
+        const description = escapeHtml(plugin.description || '');
+        const author = escapeHtml(plugin.author || '');
+        const chevTitle = !hasForm ? 'No options' : !plugin.enabled ? 'Enable to use' : '';
+        return `
+            <div class="spp-row${plugin.enabled ? '' : ' off'}">
+                <div class="sp-lrow spp-igrid">
+                    <button type="button" class="chev-btn spp-chev${open ? ' open' : ''}" ${canOpen ? '' : 'disabled'} aria-expanded="${open}"
+                            aria-label="${open ? 'Hide' : 'Show'} ${name}"${chevTitle ? ` title="${chevTitle}"` : ''} onclick="togglePluginForm(${spArg(plugin.id)})">${SP_ICON_CHEV}</button>
+                    <div class="spp-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span></div>
+                    <span class="spp-ver">v${escapeHtml(plugin.version)}${plugin.builtin ? '<span class="badge sp-badge-bi">Built-in</span>' : ''}</span>
+                    <span class="spp-desc" title="${description}">${description}</span>
+                    <span class="spp-auth" title="${author}">${author}</span>
+                    <label class="toggle-switch c spp-tog" title="${plugin.enabled ? 'Enabled' : 'Disabled'}">
+                        <input type="checkbox" aria-label="Enabled: ${name}" ${plugin.enabled ? 'checked' : ''} onchange="togglePlugin(${spArg(plugin.id)}, this.checked)">
+                        <span class="toggle-slider"></span>
+                    </label>
+                    <button type="button" class="icon-btn sm spp-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openPluginMenu(this, ${spArg(plugin.id)})">${SP_ICON_MORE}</button>
                 </div>
-                ${plugin.description ? `<p class="plugin-description">${escapeHtml(plugin.description)}</p>` : ''}
-                ${plugin.author ? `<p class="plugin-author">by ${escapeHtml(plugin.author)}</p>` : ''}
-                ${plugin.enabled && plugin.ui_schema && plugin.ui_schema.fields ? renderPluginUI(plugin) : ''}
-            </div>
-        `;
-    }
+                ${open ? renderPluginUI(plugin) : ''}
+            </div>`;
+    }).join('')}</div>`;
+}
 
-    return html;
+function togglePluginForm(pluginId) {
+    const plugin = plugins.find(p => p.id === pluginId);
+    if (!plugin) return;
+    const open = pluginOpen[pluginId] !== false;
+    pluginOpen[pluginId] = !open;
+    renderPluginsView();
+}
+
+// A field's value: what was typed, else its default (first option of a select)
+function pluginFieldValue(pluginId, field) {
+    const typed = (pluginVals[pluginId] || {})[field.name];
+    if (typed !== undefined) return typed;
+    if (field.type === 'select') return (field.options || [])[0]?.value ?? '';
+    if (field.type === 'boolean') return false;
+    return field.default ?? '';
+}
+
+function pluginFieldShown(plugin, field) {
+    const cond = field.condition;
+    if (!cond || !cond.field) return true;
+    const source = plugin.ui_schema.fields.find(f => f.name === cond.field);
+    const value = source ? pluginFieldValue(plugin.id, source) : '';
+    return String(value ?? '') === String(cond.value ?? '');
 }
 
 function renderPluginUI(plugin) {
-    if (!plugin.ui_schema || !plugin.ui_schema.fields) return '';
-
-    let fieldsHtml = '';
-    for (const field of plugin.ui_schema.fields) {
-        fieldsHtml += renderPluginField(plugin.id, field);
-    }
-
-    let actionsHtml = '';
-    if (plugin.ui_schema.actions) {
-        for (const action of plugin.ui_schema.actions) {
-            const btnClass = action.primary ? 'btn-primary' : 'btn-secondary';
-            actionsHtml += `
-                <button class="btn btn-sm ${btnClass}"
-                        onclick="executePluginAction('${plugin.id}', '${action.id}')">
-                    ${escapeHtml(action.label)}
-                </button>
-            `;
-        }
-    }
-
+    if (!pluginHasForm(plugin)) return '';
+    const fields = plugin.ui_schema.fields.map(field => renderPluginField(plugin, field)).join('');
+    const actions = (plugin.ui_schema.actions || []).slice()
+        .sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0))
+        .map(action => `<button type="button" class="btn btn-sm ${action.primary ? 'btn-primary' : 'btn-secondary'}"
+                onclick="executePluginAction(${spArg(plugin.id)}, ${spArg(action.id)})">${escapeHtml(action.label)}</button>`).join('');
     return `
-        <div class="plugin-ui">
-            <div class="plugin-fields">${fieldsHtml}</div>
-            ${actionsHtml ? `<div class="plugin-actions-row">${actionsHtml}</div>` : ''}
-        </div>
-    `;
+        <div class="spp-form">
+            <div class="spp-fields">${fields}</div>
+            ${actions ? `<div class="spp-acts">${actions}</div>` : ''}
+        </div>`;
 }
 
-function renderPluginField(pluginId, field) {
+function renderPluginField(plugin, field) {
+    const pluginId = plugin.id;
     const id = `plugin-${pluginId}-${field.name}`;
     const required = field.required ? 'required' : '';
-    const placeholder = field.placeholder || '';
-
+    const help = field.help ? ` title="${escapeHtml(field.help)}"` : '';
+    const value = pluginFieldValue(pluginId, field);
+    const data = `data-plugin="${escapeHtml(pluginId)}" data-field="${escapeHtml(field.name)}" oninput="onPluginField(this)" onchange="onPluginField(this)"`;
+    const cond = field.condition && field.condition.field
+        ? ` data-cond-plugin="${escapeHtml(pluginId)}" data-cond-field="${escapeHtml(field.condition.field)}" data-cond-value="${escapeHtml(String(field.condition.value ?? ''))}"`
+        : '';
+    const hidden = pluginFieldShown(plugin, field) ? '' : ' hidden';
+    const label = `<label class="sp-fld-label" for="${id}"${help}>${escapeHtml(field.label)}</label>`;
     switch (field.type) {
         case 'url':
         case 'string':
-            return `
-                <div class="plugin-field">
-                    <label for="${id}">${escapeHtml(field.label)}</label>
-                    <input type="${field.type === 'url' ? 'url' : 'text'}"
-                           id="${id}"
-                           data-plugin="${pluginId}"
-                           data-field="${field.name}"
-                           placeholder="${escapeHtml(placeholder)}"
-                           ${required}>
-                </div>
-            `;
         case 'number':
-            return `
-                <div class="plugin-field">
-                    <label for="${id}">${escapeHtml(field.label)}</label>
-                    <input type="number"
-                           id="${id}"
-                           data-plugin="${pluginId}"
-                           data-field="${field.name}"
-                           placeholder="${escapeHtml(placeholder)}"
-                           ${required}>
-                </div>
-            `;
+            return `<div class="sp-fld spp-f-${field.type === 'url' ? 'url' : field.type === 'number' ? 'num' : 'str'}"${cond}${hidden}>${label}
+                <input class="sp-inp" type="${field.type === 'url' ? 'url' : field.type === 'number' ? 'number' : 'text'}" id="${id}" ${data}
+                       placeholder="${escapeHtml(field.placeholder || '')}" value="${escapeHtml(String(value ?? ''))}"${help} ${required}></div>`;
         case 'boolean':
-            return `
-                <div class="plugin-field checkbox">
-                    <label>
-                        <input type="checkbox"
-                               id="${id}"
-                               data-plugin="${pluginId}"
-                               data-field="${field.name}">
-                        ${escapeHtml(field.label)}
-                    </label>
-                </div>
-            `;
+            return `<label class="spp-f-bool"${help}${cond}${hidden}><input type="checkbox" id="${id}" ${data} ${value ? 'checked' : ''}>${escapeHtml(field.label)}</label>`;
         case 'select':
-            let options = '';
-            for (const opt of (field.options || [])) {
-                options += `<option value="${escapeHtml(opt.value)}">${escapeHtml(opt.label)}</option>`;
-            }
-            return `
-                <div class="plugin-field">
-                    <label for="${id}">${escapeHtml(field.label)}</label>
-                    <select id="${id}" data-plugin="${pluginId}" data-field="${field.name}" ${required}>
-                        ${options}
-                    </select>
-                </div>
-            `;
+            return `<div class="sp-fld spp-f-sel"${cond}${hidden}>${label}
+                <select class="sp-inp" id="${id}" ${data}${help} ${required}>
+                    ${(field.options || []).map(opt => `<option value="${escapeHtml(String(opt.value))}" ${String(opt.value) === String(value) ? 'selected' : ''}>${escapeHtml(opt.label)}</option>`).join('')}
+                </select></div>`;
         default:
             return '';
     }
+}
+
+// Remember what was typed; show or hide the fields that depend on this one
+function onPluginField(el) {
+    const pluginId = el.dataset.plugin;
+    const name = el.dataset.field;
+    const value = el.type === 'checkbox' ? el.checked : el.value;
+    pluginVals[pluginId] = { ...(pluginVals[pluginId] || {}), [name]: value };
+    document.querySelectorAll('#plugins-list [data-cond-plugin]').forEach(wrap => {
+        if (wrap.dataset.condPlugin !== pluginId || wrap.dataset.condField !== name) return;
+        wrap.hidden = String(value) !== wrap.dataset.condValue;
+    });
 }
 
 async function togglePlugin(pluginId, enable) {
     try {
         const endpoint = enable ? `/plugins/${pluginId}/enable` : `/plugins/${pluginId}/disable`;
         await api('PUT', endpoint);
+        if (enable) pluginOpen[pluginId] = true;
         showToast(`Plugin ${enable ? 'enabled' : 'disabled'}`, 'success');
         await loadPlugins();
-        renderPluginsView();
     } catch (error) {
         showToast(error.message || 'Failed to toggle plugin', 'error');
     }
+    renderPluginsView();
 }
 
 async function executePluginAction(pluginId, actionId) {
     try {
         // Gather form data for this plugin
         const data = {};
-        const fields = document.querySelectorAll(`[data-plugin="${pluginId}"]`);
+        const fields = document.querySelectorAll(`#plugins-list [data-plugin="${CSS.escape(pluginId)}"]`);
         for (const field of fields) {
             const fieldName = field.dataset.field;
             if (field.type === 'checkbox') {
@@ -5244,9 +6162,49 @@ async function executePluginAction(pluginId, actionId) {
             themes = result.themes;
             renderThemesBrowser();
         }
+        // Refresh the plugin's options (e.g. a theme list) and keep what was typed
+        await loadPlugins();
+        if (currentView === 'settings-plugins') renderPluginsView();
     } catch (error) {
         showToast(error.message || 'Failed to execute action', 'error');
     }
+}
+
+function openPluginMenu(button, pluginId) {
+    const plugin = plugins.find(p => p.id === pluginId);
+    if (!plugin) return;
+    spMenu(`plg:${pluginId}`, button, `<button type="button" class="mi danger" role="menuitem" ${plugin.builtin ? 'disabled' : ''} onclick="askUninstallPlugin(${spArg(pluginId)})">${SP_ICON_TRASH}Uninstall…${plugin.builtin ? '<span class="mi-note">Built-in</span>' : ''}</button>`);
+}
+
+function askUninstallPlugin(pluginId) {
+    const plugin = plugins.find(p => p.id === pluginId);
+    const name = plugin ? plugin.name : pluginId;
+    spConfirm(`plg-del:${pluginId}`, spMenuAnchor(), { title: `Uninstall “${name}”?`, sub: 'Removes the plugin files.', ok: 'Uninstall', danger: true },
+        () => uninstallPlugin(pluginId, name));
+}
+
+function openPluginsPageMenu(button) {
+    spMenu('plg-page', button, `<button type="button" class="mi" role="menuitem" onclick="openPluginRequirements()">${SP_ICON_DOC}Plugin requirements…</button>`);
+}
+
+function openPluginRequirements() {
+    spClosePop();
+    document.getElementById('plugin-req-modal').classList.add('active');
+}
+
+function closePluginRequirements() {
+    document.getElementById('plugin-req-modal').classList.remove('active');
+}
+
+function choosePluginFile() {
+    document.getElementById('plugin-file-input').click();
+}
+
+function renderPluginUploadState() {
+    const status = document.getElementById('plg-up-status');
+    const button = document.getElementById('plg-upload-btn');
+    if (status) status.hidden = !pluginUploading;
+    if (button) button.disabled = pluginUploading;
 }
 
 function handlePluginFileSelect(event) {
@@ -5263,8 +6221,8 @@ function handlePluginFileSelect(event) {
 }
 
 async function uploadPlugin(file) {
-    const statusEl = document.getElementById('plugin-upload-status');
-    if (statusEl) statusEl.textContent = 'Uploading...';
+    pluginUploading = true;
+    renderPluginUploadState();
 
     try {
         const formData = new FormData();
@@ -5283,16 +6241,17 @@ async function uploadPlugin(file) {
 
         const pluginName = result.plugin?.name || 'Unknown';
         showToast(`Plugin "${pluginName}" installed successfully!`, 'success');
-        if (statusEl) statusEl.textContent = '';
 
-        // Reload plugins list
         await loadPlugins();
-        renderPluginsView();
-
+        pluginCatalog = null;
+        pluginCatalogState = 'idle';
+        activePluginsTab = 'installed';
     } catch (error) {
         showToast(error.message || 'Failed to upload plugin', 'error');
-        if (statusEl) statusEl.textContent = 'Upload failed';
     }
+    pluginUploading = false;
+    renderPluginUploadState();
+    renderPluginsView();
 
     // Clear the file input
     const fileInput = document.getElementById('plugin-file-input');
@@ -5300,19 +6259,15 @@ async function uploadPlugin(file) {
 }
 
 async function uninstallPlugin(pluginId, pluginName) {
-    if (!confirm(`Are you sure you want to uninstall "${pluginName}"?\n\nThis will remove the plugin files permanently.`)) {
-        return;
-    }
-
     try {
         await api('DELETE', `/plugins/${pluginId}`);
         showToast(`Plugin "${pluginName}" uninstalled successfully`, 'success');
 
         // Reload plugins list and clear catalog cache so it refreshes
         await loadPlugins();
-        pluginCatalog = null;  // Force catalog to re-fetch and update installed status
+        pluginCatalog = null;
+        pluginCatalogState = 'idle';
         renderPluginsView();
-
     } catch (error) {
         showToast(error.message || 'Failed to uninstall plugin', 'error');
     }
@@ -5321,6 +6276,185 @@ async function uninstallPlugin(pluginId, pluginName) {
 // ============================================
 // End Plugin Management
 // ============================================
+
+// ============================================
+// Settings pages: shared bits (Connection, Audio, Speakers, Speaker Groups,
+// Plugins, Advanced, Status). One floating menu / "Are you sure?" popover
+// (#sp-menu, the Theme Editor's .te-pop look), title badges, marquees.
+// ============================================
+
+// Pages with the fixed title bar, scrolling list and bottom action row
+const SP_VIEWS = ['settings-connection', 'settings-audio', 'settings-speakers', 'settings-groups', 'settings-plugins', 'settings-advanced', 'status'];
+// Pages whose title row lines up with the settings column (Logs keeps the full width)
+const SP_COL_VIEWS = SP_VIEWS.concat(['settings-spaces']);
+const SP_PHONE = window.matchMedia('(max-width: 760px)');
+
+const SP_ICON_MORE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+const SP_ICON_TRASH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
+const SP_ICON_INFO = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+const SP_ICON_CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
+const SP_ICON_PLUS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+const SP_ICON_RESET = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
+const SP_ICON_REFRESH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
+const SP_ICON_PENCIL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
+const SP_ICON_UPLOAD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
+const SP_ICON_DOC = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+const SP_ICON_SPIN = '<svg class="sp-spin" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.22-8.56"/></svg>';
+const SP_ICON_WARN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+const SP_ICON_FLOOR = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+const SP_ICON_AREA = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>';
+const SP_ICON_SPK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="2" width="16" height="20" rx="2"/><circle cx="12" cy="14" r="4"/></svg>';
+const SP_ICON_EX = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+const SP_ICON_PLUGINS = '<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>';
+const SP_ICON_SEARCH_LG = '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>';
+
+// A value for an inline onclick="f(...)" argument (HTML-escaped JS string)
+function spArg(value) {
+    return escapeHtml(JSON.stringify(String(value)));
+}
+
+function spPlural(n, word) {
+    return `${n} ${word}${n === 1 ? '' : 's'}`;
+}
+
+// Title with an optional count/label badge (only while that page is shown)
+function spSetTitle(viewName, title, badge, badgeTitle) {
+    if (currentView !== viewName) return;
+    const hasBadge = badge !== undefined && badge !== null && badge !== '';
+    document.getElementById('view-title').innerHTML = `<span class="ttl">${escapeHtml(title)}</span>`
+        + (hasBadge ? `<span class="badge badge-type"${badgeTitle ? ` title="${escapeHtml(badgeTitle)}"` : ''}>${escapeHtml(String(badge))}</span>` : '');
+}
+
+// Names that don't fit scroll slowly (same as the Theme Editor and Themes page)
+function spUpdateMarquees(root) {
+    if (!root) return;
+    requestAnimationFrame(() => {
+        root.querySelectorAll('.trk-name').forEach(el => {
+            const inner = el.firstElementChild;
+            el.classList.toggle('mq', !!inner && inner.scrollWidth > el.clientWidth + 1);
+        });
+    });
+}
+
+// ---------- Floating menu / confirm ----------
+const spm = { id: null, btn: null, onOk: null };
+
+function spPlacePop(pop, button) {
+    const r = button.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    pop.style.left = '0px';
+    pop.style.top = '0px';
+    pop.style.maxHeight = '';
+    const w = pop.offsetWidth;
+    let h = pop.offsetHeight;
+    const left = Math.max(8, Math.min(r.right - w, vw - w - 8));
+    const below = vh - r.bottom - 8;
+    const above = r.top - 8;
+    const up = h > below && above > below;
+    const room = (up ? above : below) - 4;
+    if (h > room) { pop.style.maxHeight = room + 'px'; h = room; }
+    pop.style.left = left + 'px';
+    pop.style.top = Math.max(8, up ? r.top - 4 - h : r.bottom + 4) + 'px';
+}
+
+function spOpenPop(id, button, cls, html, role) {
+    if (spm.id === id) { spClosePop(); return null; }
+    spClosePop();
+    if (!button || !button.isConnected) return null;
+    const pop = document.getElementById('sp-menu');
+    pop.className = `te-pop ${cls}`;
+    pop.setAttribute('role', role);
+    pop.innerHTML = html;
+    pop.hidden = false;
+    spm.id = id;
+    spm.btn = button;
+    button.setAttribute('aria-expanded', 'true');
+    spPlacePop(pop, button);
+    return pop;
+}
+
+function spClosePop() {
+    const pop = document.getElementById('sp-menu');
+    if (pop && !pop.hidden) {
+        pop.hidden = true;
+        pop.innerHTML = '';
+    }
+    if (spm.btn) spm.btn.removeAttribute('aria-expanded');
+    spm.id = null;
+    spm.btn = null;
+    spm.onOk = null;
+}
+
+function spMenu(id, button, html) {
+    const pop = spOpenPop(id, button, 'menu sp-menu', html, 'menu');
+    pop?.querySelector('button:not([disabled])')?.focus();
+}
+
+// Small "Are you sure?" popover next to the button that asked
+function spConfirm(id, button, { title, sub = '', ok, danger = false }, onOk) {
+    const pop = spOpenPop(id, button, 'sp-confirm', `
+        <span class="pop-title">${escapeHtml(title)}</span>
+        ${sub ? `<span class="pop-sub">${escapeHtml(sub)}</span>` : ''}
+        <div class="pop-acts">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="spClosePop()">Cancel</button>
+            <button type="button" class="btn btn-sm ${danger ? 'btn-danger' : 'btn-primary'}" onclick="spConfirmOk()">${escapeHtml(ok)}</button>
+        </div>`, 'alertdialog');
+    if (!pop) return;
+    spm.onOk = onOk;
+    pop.querySelector('.pop-acts .btn:last-child').focus();
+}
+
+function spConfirmOk() {
+    const onOk = spm.onOk;
+    spClosePop();
+    if (onOk) onOk();
+}
+
+// The button a menu was opened from (a confirm asked from the menu sits there too)
+function spMenuAnchor() {
+    return spm.btn;
+}
+
+document.addEventListener('mousedown', event => {
+    if (!spm.id) return;
+    const pop = document.getElementById('sp-menu');
+    if (pop.contains(event.target) || spm.btn?.contains(event.target)) return;
+    spClosePop();
+}, true);
+
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    if (spm.id) {
+        const button = spm.btn;
+        spClosePop();
+        button?.focus();
+    } else if (document.getElementById('group-modal')?.classList.contains('active')) {
+        closeGroupModal();
+    } else if (document.getElementById('plugin-req-modal')?.classList.contains('active')) {
+        closePluginRequirements();
+    }
+});
+
+window.addEventListener('resize', () => spClosePop());
+document.addEventListener('scroll', event => {
+    if (spm.id && !document.getElementById('sp-menu').contains(event.target)) spClosePop();
+}, true);
+
+// After a restart: wait until Sonorium answers again, then reload the page
+async function spWaitForRestart() {
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    for (let i = 0; i < 30; i++) {
+        try {
+            await api('GET', '/install');
+            window.location.reload();
+            return;
+        } catch (error) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+    }
+    showToast('Sonorium is taking a while to restart. Refresh the page in a moment.', 'error');
+}
 
 // Utility
 function escapeHtml(text) {
@@ -5333,3 +6467,347 @@ function escapeHtml(text) {
 
 // Start
 init();
+
+// ---------- Theme Editor: Preview mix ----------
+// Plays the whole theme on this device through the browser, with the editor's
+// current settings (the theme's own stream, /stream/<id>). Volume, interval,
+// mute and group settings are heard live (a few seconds behind); changes that
+// alter how tracks are built (mode, gapless, moving tracks, uploads, reset)
+// restart the preview. The speakers are not touched.
+
+let teMixAudio = null;
+
+function teMixUrl() {
+    return `${BASE_PATH}/stream/${encodeURIComponent(te.themeId)}?preview=${Date.now()}`;
+}
+
+function teRenderMixButton() {
+    const button = document.getElementById('te-mix-btn');
+    if (!button) return;
+    const on = !!teMixAudio;
+    button.setAttribute('aria-pressed', String(on));
+    button.classList.toggle('active', on);
+    document.getElementById('te-mix-label').textContent = on ? 'Stop preview' : 'Preview mix';
+}
+
+function teToggleMixPreview() {
+    if (teMixAudio) {
+        teStopMixPreview();
+        return;
+    }
+    if (!te.themeId) return;
+    stopTrackPreview();
+    teMixAudio = new Audio(teMixUrl());
+    teMixAudio.addEventListener('error', () => {
+        if (!teMixAudio) return;
+        showToast('Preview mix stopped', 'error');
+        teStopMixPreview();
+    });
+    teMixAudio.play().catch(() => {
+        showToast('Could not play the preview', 'error');
+        teStopMixPreview();
+    });
+    teRenderMixButton();
+}
+
+function teStopMixPreview() {
+    if (teMixAudio) {
+        teMixAudio.pause();
+        teMixAudio.removeAttribute('src');
+        teMixAudio.load();  // closes the stream
+    }
+    teMixAudio = null;
+    teRenderMixButton();
+}
+
+function teRestartMixPreview() {
+    if (!teMixAudio || !te.themeId) return;
+    teMixAudio.src = teMixUrl();
+    teMixAudio.play().catch(() => teStopMixPreview());
+}
+
+
+// ---------- Help panels: the Theme Editor and every page ----------
+// A small panel under its ? button. Full screen (phone) it has a x to close;
+// otherwise it closes on a click outside, or 2 s after the pointer leaves it
+// (cancelled if the pointer comes back). Esc closes it.
+
+function helpFullScreen() {
+    return window.matchMedia('(max-width: 760px)').matches;
+}
+
+function makeHelpPanel(panelId, buttonId) {
+    let timer = null;
+    const panel = () => document.getElementById(panelId);
+    const button = () => document.getElementById(buttonId);
+    const help = {
+        isOpen() {
+            const el = panel();
+            return !!el && !el.hidden;
+        },
+        open() {
+            const el = panel();
+            if (!el) return;
+            el.hidden = false;
+            el.querySelector('.te-help-body').scrollTop = 0;
+            button()?.setAttribute('aria-expanded', 'true');
+        },
+        close() {
+            clearTimeout(timer);
+            timer = null;
+            const el = panel();
+            if (!el || el.hidden) return;
+            el.hidden = true;
+            button()?.setAttribute('aria-expanded', 'false');
+        }
+    };
+    const el = panel();
+    const btn = button();
+    if (el && btn) {
+        const leave = () => {
+            if (!help.isOpen() || helpFullScreen()) return;
+            clearTimeout(timer);
+            timer = setTimeout(help.close, 2000);
+        };
+        const enter = () => { clearTimeout(timer); timer = null; };
+        for (const node of [el, btn]) {
+            node.addEventListener('mouseleave', leave);
+            node.addEventListener('mouseenter', enter);
+        }
+        document.addEventListener('pointerdown', event => {
+            if (!help.isOpen() || helpFullScreen()) return;
+            if (el.contains(event.target) || btn.contains(event.target)) return;
+            help.close();
+        }, true);
+    }
+    return help;
+}
+
+// Theme Editor
+const teHelp = makeHelpPanel('te-help', 'te-help-btn');
+
+function teHelpOpen() {
+    return teHelp.isOpen();
+}
+
+function teToggleHelp() {
+    if (teHelp.isOpen()) return teHelp.close();
+    teCloseMenu();
+    teHelp.open();
+}
+
+function teCloseHelp() {
+    teHelp.close();
+}
+
+// Pages: one panel; its title and text follow the page shown (PAGE_HELP)
+const pageHelp = makeHelpPanel('page-help', 'page-help-btn');
+
+function pageToggleHelp() {
+    if (pageHelp.isOpen()) return pageHelp.close();
+    fillPageHelp(currentView);
+    tpCloseMenu();
+    spClosePop();
+    // Hang it under the ? button, right edges level
+    const button = document.getElementById('page-help-btn').getBoundingClientRect();
+    const panel = document.getElementById('page-help');
+    panel.style.setProperty('--help-top', `${Math.round(button.bottom + 8)}px`);
+    panel.style.setProperty('--help-right', `${Math.max(12, Math.round(document.documentElement.clientWidth - button.right))}px`);
+    pageHelp.open();
+}
+
+function pageCloseHelp() {
+    pageHelp.close();
+}
+
+function setPageHelp(viewName) {
+    pageHelp.close();
+    fillPageHelp(viewName);
+}
+
+function fillPageHelp(viewName) {
+    const help = PAGE_HELP[viewName] || PAGE_HELP.settings;
+    document.getElementById('page-help-title').textContent = help.title;
+    document.getElementById('page-help-body').innerHTML = help.html;
+}
+
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !pageHelp.isOpen()) return;
+    pageHelp.close();
+    document.getElementById('page-help-btn')?.focus();
+});
+
+const helpTerm = (term, text) => `<p class="hi"><b>${term}:</b> ${text}</p>`;
+
+const PAGE_HELP = {
+    sessions: { title: 'Channels', html: `
+        <p>A channel plays one theme on a set of speakers. Each card is one channel.</p>
+        <h4>Each channel</h4>
+        ${helpTerm('Theme', 'the sound the channel plays. Picking another theme also picks that theme\'s default preset, if it has one.')}
+        ${helpTerm('Preset', 'a saved mix of the theme\'s tracks. Default settings plays the theme without a preset.')}
+        ${helpTerm('Speakers', 'where the channel plays. Use Edit to change them.')}
+        ${helpTerm('Volume', 'the channel\'s volume. It is saved when you let go of the slider.')}
+        ${helpTerm('Play / Pause', 'starts or stops the channel on its speakers.')}
+        ${helpTerm('Edit', 'changes the channel\'s name, theme, preset, volume and speakers.')}
+        ${helpTerm('Delete', 'removes the channel. You confirm first.')}
+        <h4>New channel</h4>
+        ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it after the theme and speakers.')}
+        ${helpTerm('Speakers', 'pick floors, areas or single speakers. Only speakers turned on under Settings › Speakers are listed.')}
+        ${helpTerm('Speaker group', 'picks a saved group instead of single speakers. Shown when you have speaker groups.')}
+        ${helpTerm('Playing count', 'the number next to Channels in the menu is how many channels are playing.')}` },
+
+    themes: { title: 'Themes', html: `
+        <p>A theme is a set of tracks (sound files) mixed together. Every theme is listed here.</p>
+        <h4>Finding themes</h4>
+        ${helpTerm('Search', 'looks in theme names and descriptions.')}
+        ${helpTerm('Categories', 'a chip shows only the themes in that category. Favorites shows the themes you starred. The number is how many themes match.')}
+        ${helpTerm('Sort', 'by name, or with the most tracks first.')}
+        ${helpTerm('Cards, List', 'two layouts of the same themes. A phone always shows cards.')}
+        <h4>Each theme</h4>
+        ${helpTerm('★', 'adds the theme to Favorites or removes it.')}
+        ${helpTerm('Preview', 'plays the theme on this device only. The speakers are not changed. Press it again to stop.')}
+        ${helpTerm('Edit', 'opens the theme editor: tracks, modes, presets and more.')}
+        ${helpTerm('Green badge', 'the channel playing this theme now.')}
+        ${helpTerm('⋯ › Export', 'downloads the theme as a .zip file.')}
+        ${helpTerm('⋯ › Delete', 'removes the theme. You confirm first.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Create theme', 'asks for a name, makes an empty theme and opens it in the editor. With a category selected, the new theme goes in that category.')}
+        ${helpTerm('⋯ › Import theme', 'adds a theme from a .zip file.')}
+        ${helpTerm('⋯ › Manage categories', 'adds or deletes categories.')}
+        ${helpTerm('⋯ › Refresh', 'scans the theme folders again for new or changed themes.')}` },
+
+    settings: { title: 'Settings', html: `
+        <p>Settings are split into pages. Pick one from the Settings menu.</p>
+        <h4>Pages</h4>
+        ${helpTerm('Connection', 'Home Assistant, MQTT and the stream address. Shown when Sonorium runs outside Home Assistant.')}
+        ${helpTerm('Audio Settings', 'crossfade, default volume and output gain.')}
+        ${helpTerm('Floors &amp; Areas', 'where your speakers are.')}
+        ${helpTerm('Speakers', 'every speaker, with its area, volume offset and on/off switch.')}
+        ${helpTerm('Speaker Groups', 'saved sets of speakers for channels.')}
+        ${helpTerm('Plugins', 'extras that add features.')}
+        ${helpTerm('Logs', 'recent messages from Sonorium.')}
+        ${helpTerm('Advanced', 'features that are off by default. Shown on installs that have them.')}` },
+
+    'settings-connection': { title: 'Connection', html: `
+        <p>How Sonorium connects to Home Assistant, your MQTT broker and your speakers. Changes are saved with a restart.</p>
+        <h4>Home Assistant</h4>
+        ${helpTerm('URL', 'the address of Home Assistant, for example http://homeassistant.local:8123. Optional.')}
+        ${helpTerm('Access token', 'a long-lived access token from your Home Assistant profile (Security tab). A saved token stays hidden. Leave the field blank to keep it.')}
+        ${helpTerm('Status', 'Connected, Not connected or Not configured.')}
+        ${helpTerm('Trash', 'removes Home Assistant right away, without a restart. Its floors, areas and speakers leave every list. You confirm first.')}
+        <h4>MQTT</h4>
+        ${helpTerm('Broker, Port', 'the host name or IP address of your MQTT broker, and its port (1883 if blank). Optional.')}
+        ${helpTerm('Username, Password', 'leave Username blank for anonymous. A blank password keeps the saved one.')}
+        ${helpTerm('Trash', 'removes MQTT. If Sonorium needs a restart to finish, a message says so. You confirm first.')}
+        <h4>Streaming</h4>
+        ${helpTerm('Stream URL', 'the address speakers use to reach Sonorium (port 8008).')}
+        <h4>Top bar</h4>
+        ${helpTerm('Save and restart', 'saves the changes and restarts Sonorium. Playing channels stop for a few seconds. You confirm first.')}
+        ${helpTerm('Cancel', 'puts back the saved values.')}
+        ${helpTerm('Red fields', 'fix these before saving. An address starts with http:// or https://, and a port is 1 to 65535.')}` },
+
+    'settings-audio': { title: 'Audio Settings', html: `
+        <p>Sound settings for all of Sonorium. Move a slider, then Save settings.</p>
+        <h4>Settings</h4>
+        ${helpTerm('Crossfade', 'how long the fade lasts, in seconds, when a channel changes theme.')}
+        ${helpTerm('Default volume', 'the starting volume of a new channel.')}
+        ${helpTerm('Master output gain', 'scales the volume of every stream.')}
+        ${helpTerm('Default', 'the value out of the box. A dot marks a change that is not saved yet.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Save settings', 'saves the changes.')}
+        ${helpTerm('Cancel', 'puts back the saved values.')}
+        ${helpTerm('⋯ › Reset to defaults', 'moves every slider back to its default. Save settings keeps it.')}` },
+
+    'settings-spaces': { title: 'Floors & Areas', html: `
+        <p>Floors and areas say where your speakers are. Speaker lists across Sonorium are grouped by them.</p>
+        <h4>The list</h4>
+        ${helpTerm('Floors', 'each floor lists its areas. No floor holds the areas without one.')}
+        ${helpTerm('Badges', 'Home Assistant or Sonorium shows where a floor or area comes from. A floor or area with the same name in both becomes one.')}
+        ${helpTerm('Speakers', 'how many speakers are in the area.')}
+        ${helpTerm('From Home Assistant', 'change these in Home Assistant. They are read-only here.')}
+        <h4>Your own floors and areas</h4>
+        <p>On installs that allow it, Add floor and Add area show in the top bar.</p>
+        ${helpTerm('Add floor, Add area', 'makes a new one. An area can go on a floor.')}
+        ${helpTerm('Area name', 'type a new name for an area you added.')}
+        ${helpTerm('Floor', 'moves the area to another floor, or to No floor.')}
+        ${helpTerm('Pencil', 'renames a floor you added.')}
+        ${helpTerm('Trash', 'deletes it. The areas of a deleted floor stay, without a floor. The speakers of a deleted area move to No area.')}` },
+
+    'settings-speakers': { title: 'Speakers', html: `
+        <p>Every speaker Sonorium has found, grouped by floor and area.</p>
+        <h4>Toolbar</h4>
+        ${helpTerm('Search', 'looks in speaker names and addresses.')}
+        ${helpTerm('All, Home Assistant, Discovered, Manual', 'shows the speakers from one source. Shown when speakers come from more than one place.')}
+        ${helpTerm('Hide offline', 'hides speakers that are not reachable. It changes this list only.')}
+        ${helpTerm('Rescan network', 'looks for speakers again. Without network speakers the button is Refresh from HA. The text next to it shows the last scan and how many speakers it found.')}
+        <h4>Each speaker</h4>
+        ${helpTerm('Dot', 'green when the speaker is online.')}
+        ${helpTerm('Name', 'click to rename. An empty name goes back to the speaker\'s own name.')}
+        ${helpTerm('Area', 'the area the speaker belongs to in Sonorium.')}
+        ${helpTerm('Offset', 'plays this speaker louder or quieter than the channel volume, from -20% to +20%.')}
+        ${helpTerm('Test', 'plays a short test sound on the speaker.')}
+        ${helpTerm('Use', 'turns the speaker on or off in Sonorium. Only speakers in use can be picked for a channel.')}
+        ${helpTerm('⋯', 'Rename, Reset name, Play via and Remove. A dot on ⋯ means the name or Play via was changed.')}
+        ${helpTerm('Play via', 'for a speaker Sonorium reaches in more than one way, picks Home Assistant or the direct connection.')}
+        ${helpTerm('Remove', 'removes a speaker added by its address. You confirm first.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Count', 'speakers in use / all speakers.')}
+        ${helpTerm('Add speaker', 'adds a speaker by its IP address or network name. Check connection tests it first. Shown when network speakers are on.')}` },
+
+    'settings-groups': { title: 'Speaker Groups', html: `
+        <p>A speaker group is a saved set of speakers. Pick it for a channel instead of picking speakers one by one.</p>
+        <h4>Each group</h4>
+        ${helpTerm('Includes', 'the floors, areas and speakers in the group. A crossed-out chip is left out.')}
+        ${helpTerm('Speakers', 'how many speakers the group plays on now.')}
+        ${helpTerm('Arrow', 'shows each speaker in the group and where it comes from.')}
+        ${helpTerm('Edit', 'changes the name and what the group includes.')}
+        ${helpTerm('⋯ › Delete', 'removes the group. You confirm first.')}
+        <h4>Adding a group</h4>
+        ${helpTerm('Add group', 'opens the editor. Give the group a name and tick floors, areas or speakers.')}
+        ${helpTerm('Floors and areas', 'a ticked floor or area includes every speaker in it, also speakers added there later.')}` },
+
+    'settings-plugins': { title: 'Plugins', html: `
+        <p>Plugins add features to Sonorium.</p>
+        <h4>Installed</h4>
+        ${helpTerm('On', 'turns a plugin on or off.')}
+        ${helpTerm('Arrow', 'shows the plugin\'s fields and buttons. Only for a plugin that is on and has options.')}
+        ${helpTerm('Built-in', 'comes with Sonorium and can\'t be uninstalled.')}
+        ${helpTerm('⋯ › Uninstall', 'removes the plugin files. You confirm first.')}
+        <h4>Catalog</h4>
+        ${helpTerm('Install', 'downloads the plugin from the catalog and installs it.')}
+        ${helpTerm('Update', 'installs the newer version of a plugin you have.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Upload plugin', 'installs a plugin from a .zip file.')}
+        ${helpTerm('⋯ › Plugin requirements', 'what a plugin .zip has to contain.')}` },
+
+    'settings-logs': { title: 'Logs', html: `
+        <p>Recent messages from Sonorium. New lines show up every few seconds.</p>
+        <h4>Finding lines</h4>
+        ${helpTerm('Search', 'shows the lines that contain the text.')}
+        ${helpTerm('All, Info, Warnings, Errors', 'the lowest level shown. Warnings shows warnings and errors. All adds debug lines.')}
+        ${helpTerm('Version line', 'the Sonorium version, install type and log level.')}
+        ${helpTerm('Scrolling', 'the list follows new lines until you scroll up.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Copy', 'copies the lines shown to the clipboard.')}
+        ${helpTerm('Download', 'saves recent log messages as a text file.')}` },
+
+    'settings-advanced': { title: 'Advanced', html: `
+        <p>Features this install has off by default.</p>
+        <h4>Features</h4>
+        ${helpTerm('On', 'turns the feature on or off. A change needs a restart.')}
+        ${helpTerm('Default', 'the setting out of the box.')}
+        ${helpTerm('Restart to apply', 'marks a feature changed since the last restart.')}
+        ${helpTerm('Network speakers', 'adds speakers by IP address, outside Home Assistant.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Badge', 'the install type.')}
+        ${helpTerm('Restart now', 'restarts Sonorium to apply the changes. Shown after a change. You confirm first.')}` },
+
+    status: { title: 'Status', html: `
+        <p>What Sonorium is doing now.</p>
+        <h4>Overview</h4>
+        ${helpTerm('Active Channels', 'channels playing now.')}
+        ${helpTerm('Total Speakers', 'speakers Sonorium can play to.')}
+        ${helpTerm('Channels', 'each channel with the theme it plays, and Playing or Idle.')}
+        <h4>Top bar</h4>
+        ${helpTerm('Refresh', 'loads the status again.')}` }
+};

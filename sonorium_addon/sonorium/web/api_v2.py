@@ -877,7 +877,7 @@ def create_api_router(
         if session_ids:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
-                detail=f"Group is used by {len(session_ids)} session(s). Delete or update those sessions first."
+                detail=f"Group is used by {len(session_ids)} channel(s). Delete or update those channels first."
             )
         if not group_manager.delete(group_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
@@ -1550,6 +1550,7 @@ def create_api_router(
             if icon and icon != "🎵":  # Only store non-default icons
                 metadata["icon"] = icon
             if metadata:
+                metadata["spec_version"] = 2
                 metadata_path = theme_path / "metadata.json"
                 metadata_path.write_text(json.dumps(metadata, indent=2))
 
@@ -1565,7 +1566,12 @@ def create_api_router(
 
     @router.post("/themes/{theme_id}/upload")
     async def upload_theme_file(theme_id: str, request: Request):
-        """Upload an audio file to a theme folder."""
+        """
+        Upload an audio file to a theme folder. An optional "group" (form field
+        or query parameter) puts it in that group's folder, created if missing.
+        """
+        from sonorium.core import theme_groups
+
         theme_path = _find_theme_folder(theme_id)
         if not theme_path:
             raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
@@ -1577,22 +1583,34 @@ def create_api_router(
             if not file:
                 raise HTTPException(status_code=400, detail="No file provided")
 
+            # Only the file's own name: no folders, no path tricks
+            try:
+                filename = theme_groups.safe_upload_name(file.filename)
+            except theme_groups.GroupError as e:
+                raise HTTPException(status_code=400, detail=str(e))
+
             # Validate file extension
             valid_extensions = ['.mp3', '.wav', '.flac', '.ogg']
-            filename = file.filename
             ext = '.' + filename.split('.')[-1].lower() if '.' in filename else ''
 
             if ext not in valid_extensions:
                 raise HTTPException(status_code=400, detail=f"Invalid file type. Supported: {', '.join(valid_extensions)}")
 
-            # Save the file
-            file_path = theme_path / filename
+            # Optional group (created if missing)
+            group = form.get("group") or request.query_params.get("group")
+            try:
+                file_path = theme_groups.upload_path(theme_path, filename, group)
+            except theme_groups.GroupError as e:
+                raise HTTPException(status_code=e.status, detail=str(e))
+            target_folder = file_path.parent
 
             # Read and write the file content
             content = await file.read()
             file_path.write_bytes(content)
 
-            logger.info(f"Uploaded file to theme '{theme_id}': {filename} ({len(content)} bytes)")
+            group_name = target_folder.name if target_folder != theme_path else None
+            where = f" in group '{group_name}'" if group_name else ""
+            logger.info(f"Uploaded file to theme '{theme_id}'{where}: {filename} ({len(content)} bytes)")
             if on_themes_changed:
                 on_themes_changed()
 
@@ -1600,7 +1618,9 @@ def create_api_router(
                 "status": "ok",
                 "filename": filename,
                 "size": len(content),
-                "theme_id": theme_id
+                "theme_id": theme_id,
+                "group": group_name,
+                "track": f"{group_name}/{file_path.stem}" if group_name else file_path.stem,
             }
 
         except HTTPException:
@@ -1664,14 +1684,14 @@ def create_api_router(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-        # Read existing metadata and merge
+        # Read existing metadata and merge. If it can't be read, refuse: writing
+        # only the edited fields would lose the theme's id and track settings.
+        from sonorium.core.theme_presets import BrokenJsonError, read_json, write_json_atomic
         metadata_path = theme_path / "metadata.json"
-        metadata = {}
-        if metadata_path.exists():
-            try:
-                metadata = json.loads(metadata_path.read_text())
-            except Exception:
-                pass
+        try:
+            metadata = read_json(metadata_path) or {}
+        except BrokenJsonError as e:
+            raise HTTPException(status_code=409, detail=f"metadata.json can't be read ({e}); refresh themes to repair it first")
 
         if "description" in body:
             metadata["description"] = body["description"]
@@ -1697,9 +1717,12 @@ def create_api_router(
                     theme.short_file_threshold = threshold
                     logger.info(f"Updated short_file_threshold for '{theme_id}' to {threshold}s")
 
-        # Write back
+        # Write back (temporary file, then rename), and reload so the theme
+        # manager's copy can't overwrite the change later
         try:
-            metadata_path.write_text(json.dumps(metadata, indent=2))
+            write_json_atomic(metadata_path, metadata)
+            if on_themes_changed:
+                on_themes_changed()
             return {"status": "ok", "metadata": metadata}
         except Exception as e:
             logger.error(f"Failed to write metadata: {e}")
@@ -1749,14 +1772,32 @@ def create_api_router(
             zip_buffer = io.BytesIO()
             theme_name = theme_path.name
 
+            import json
+            from sonorium.core.theme_metadata import theme_documents_for_export
+            from sonorium.core.theme_presets import METADATA_FILE, PRESETS_FILE
+
+            def is_theme_json(path):
+                # The theme's own JSON files, their backups and broken copies
+                if path.parent != theme_path:
+                    return False
+                return any(path.name == base or path.name.startswith(base + ".")
+                           for base in (METADATA_FILE, PRESETS_FILE))
+
             with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
                 # Walk through all files in the theme folder
                 for file_path in theme_path.rglob('*'):
-                    if file_path.is_file():
+                    if file_path.is_file() and not is_theme_json(file_path):
                         # Use relative path within the theme folder
                         arcname = f"{theme_name}/{file_path.relative_to(theme_path)}"
                         zip_file.write(file_path, arcname)
                         logger.debug(f"Added to zip: {arcname}")
+
+                # Always the 2.0 layout: metadata.json without presets, plus presets.json
+                metadata_doc, presets_doc = theme_documents_for_export(theme_path)
+                zip_file.writestr(f"{theme_name}/{METADATA_FILE}",
+                                  json.dumps(metadata_doc, indent=2, ensure_ascii=False))
+                zip_file.writestr(f"{theme_name}/{PRESETS_FILE}",
+                                  json.dumps(presets_doc, indent=2, ensure_ascii=False))
 
             zip_buffer.seek(0)
 
@@ -1866,25 +1907,20 @@ def create_api_router(
                     files_extracted += 1
                     logger.debug(f"Extracted: {relative_path}")
 
-                # Generate new UUID for imported theme if metadata.json exists
-                metadata_path = target_path / "metadata.json"
-                if metadata_path.exists():
-                    try:
-                        metadata = json.loads(metadata_path.read_text())
-                        # Generate new UUID to avoid conflicts
-                        import uuid
-                        metadata["id"] = str(uuid.uuid4())
-                        metadata_path.write_text(json.dumps(metadata, indent=2))
-                    except Exception as e:
-                        logger.warning(f"Could not update metadata UUID: {e}")
-                else:
-                    # Create basic metadata
-                    import uuid
-                    metadata = {
-                        "id": str(uuid.uuid4()),
-                        "name": theme_folder_name
-                    }
-                    metadata_path.write_text(json.dumps(metadata, indent=2))
+                # Convert 1.0 themes and recover broken JSON files, then give
+                # the imported theme a new UUID to avoid conflicts
+                from sonorium.core.theme_metadata import load_theme_folder, save_theme_folder
+                import uuid
+                problems = []
+                try:
+                    metadata = load_theme_folder(target_path)
+                    problems = list(metadata.problems)
+                    metadata.id = str(uuid.uuid4())
+                    if not save_theme_folder(target_path, metadata):
+                        problems.append("Couldn't save the theme files")
+                except Exception as e:
+                    logger.warning(f"Could not prepare imported theme files: {e}")
+                    problems.append(f"Couldn't prepare the theme files: {e}")
 
                 logger.info(f"Imported theme '{theme_folder_name}' with {files_extracted} files")
 
@@ -1892,7 +1928,8 @@ def create_api_router(
                     "status": "ok",
                     "theme_folder": theme_folder_name,
                     "files_extracted": files_extracted,
-                    "path": str(target_path)
+                    "path": str(target_path),
+                    "problems": problems,
                 }
 
         except zipfile.BadZipFile:

@@ -102,12 +102,15 @@ class Sonorium:
         self.themes = IndexList()
         self.theme_metas = {}
 
+        from sonorium.theme_files import theme_audio_files
+
         for folder in theme_folders:
-            audio_files = [f for f in folder.iterdir() if f.is_file() and f.suffix.lower() in ['.mp3', '.wav', '.flac', '.ogg']]
+            # Top-level files and group folders (sonorium/theme_files.py)
+            audio_files = theme_audio_files(folder)
 
             if audio_files:
                 theme_name = folder.name
-                self.theme_metas[theme_name] = IndexList(RecordingMetadata(path) for path in audio_files)
+                self.theme_metas[theme_name] = IndexList(RecordingMetadata(path, folder) for path in audio_files)
 
                 # Read UUID from metadata.json if it exists
                 theme_id = None

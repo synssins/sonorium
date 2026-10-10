@@ -1,12 +1,13 @@
 import re
 import time
+import weakref
 from functools import cached_property
 
 import av
 import numpy as np
 
 from sonorium.obs import logger
-from sonorium.recording import LOG_THRESHOLD, ExclusionGroupCoordinator
+from sonorium.recording import LOG_THRESHOLD, SAMPLE_RATE, ExclusionGroupCoordinator
 from sonorium.utils import IndexList
 
 
@@ -57,6 +58,9 @@ class ThemeDefinition:
         # Can be customized per theme via metadata.json
         self.short_file_threshold = DEFAULT_SHORT_FILE_THRESHOLD
 
+        # Group settings by group name (metadata.json "groups"), read by grouped tracks
+        self.groups: dict[str, dict] = {}
+
         # Use theme-specific recordings instead of all recordings
         if name in self.sonorium.theme_metas:
             theme_metas = self.sonorium.theme_metas[name]
@@ -67,7 +71,11 @@ class ThemeDefinition:
         # Pass theme reference to instances so they can access threshold
         self.instances = IndexList(meta.get_instance(theme=self) for meta in theme_metas)
 
-        self.streams: list[ThemeStream] = []
+        # Mixes of this theme that are still in use. Weak references: a mix is
+        # freed (with its decoders and buffers) once its channel or listener
+        # drops it. A plain list kept every mix ever started, so memory grew
+        # with each play and theme change.
+        self.streams: weakref.WeakSet = weakref.WeakSet()
 
     @cached_property
     def url(self) -> str:
@@ -80,9 +88,10 @@ class ThemeDefinition:
         return self._theme_id if self._theme_id else sanitize(self.name)
 
 
-    def get_stream(self):
-        theme = ThemeStream(self)
-        self.streams.append(theme)
+    def get_stream(self, overrides: dict | None = None):
+        """A new mix of this theme. `overrides`: the channel's preset values (see TrackView)."""
+        theme = ThemeStream(self, overrides)
+        self.streams.add(theme)
         logger.debug(f'ThemeDefinition {self.name}: Created new ThemeStream (total: {len(self.streams)} streams)')
         return theme
 
@@ -102,17 +111,70 @@ class ThemeStream:
 
     """
 
-    def __init__(self, theme_def: ThemeDefinition):
+    def __init__(self, theme_def: ThemeDefinition, overrides: dict | None = None):
         self.theme_def = theme_def
+        # This stream's preset values; changed in place when the channel's preset changes
+        self.overrides = overrides if overrides is not None else {}
 
-        # Create shared exclusion coordinator for tracks marked as exclusive
-        self.exclusion_coordinator = ExclusionGroupCoordinator()
+        # One coordinator per named group: only one track of a group plays at a
+        # time, and groups don't wait for each other (Lute and Bar chatter can overlap)
+        self.exclusion_coordinators: dict[str, ExclusionGroupCoordinator] = {}
+        # Seconds of audio mixed so far: groups time their turns by this, not
+        # the wall clock, so a stall can't let two tracks of a group overlap
+        self.audio_seconds = 0.0
 
         # Create streams, passing the exclusion coordinator
-        self.recording_streams = [
-            instance.get_stream(exclusion_coordinator=self.exclusion_coordinator)
-            for instance in theme_def.instances
-        ]
+        from sonorium.mixing import MixLevel
+        from sonorium.recording import RecordingThemeStream
+        self.mix_level = MixLevel(SAMPLE_RATE, RecordingThemeStream.CHUNK_SIZE)
+
+        # Track key -> its TrackView, and the streams in mixing order
+        self._views: dict[str, object] = {}
+        self.recording_streams = []
+        for instance in theme_def.instances:
+            self.recording_streams.append(self._new_stream(instance))
+
+    def _new_stream(self, instance):
+        from sonorium.recording import TrackView, group_gap_range
+
+        track = TrackView(instance, self.overrides)
+        group = track.exclusion_group
+        if group and group not in self.exclusion_coordinators:
+            # Read the group's gap each time (from the theme this stream plays
+            # now), so a change in the editor applies at once
+            gap = lambda g=group: group_gap_range((getattr(self.theme_def, "groups", None) or {}).get(g))
+            self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap, clock=lambda: self.audio_seconds)
+        coordinator = self.exclusion_coordinators.get(group) if group else None
+        self._views[instance.name] = track
+        return track.get_stream(exclusion_coordinator=coordinator)
+
+    def adopt(self, theme_def: ThemeDefinition):
+        """
+        The theme was rescanned (a file uploaded, moved or deleted): follow the
+        new definition without restarting. Tracks still there keep playing
+        where they are and now read the new settings; new tracks join at once
+        with their saved settings (in a group, with no drag, so they're a
+        likely early pick); removed tracks leave.
+        """
+        old = {stream.instance.name: stream for stream in self.recording_streams}
+        streams = []
+        added = []
+        for instance in theme_def.instances:
+            stream = old.pop(instance.name, None)
+            if stream is not None:
+                self._views[instance.name]._instance = instance  # same track: new settings, same place
+                streams.append(stream)
+            else:
+                added.append(instance.name)
+        self.theme_def = theme_def
+        for name in added:
+            instance = next(i for i in theme_def.instances if i.name == name)
+            streams.append(self._new_stream(instance))
+        for name in old:
+            self._views.pop(name, None)
+        self.recording_streams = streams  # one assignment: the mixer sees the old list or the new one
+        if added or old:
+            logger.info(f'ThemeStream "{theme_def.name}": {len(added)} track(s) joined, {len(old)} left')
 
     @cached_property
     def chunk_silence(self):
@@ -120,35 +182,29 @@ class ThemeStream:
         data = np.zeros((1, RecordingThemeStream.CHUNK_SIZE), np.int16)
         return data
 
+    @staticmethod
+    def _holds_turn(stream) -> bool:
+        coordinator = getattr(stream, "exclusion_coordinator", None)
+        return coordinator is not None and coordinator.is_playing(stream.instance.name)
+
     def iter_chunks(self):
+        from sonorium.recording import RecordingThemeStream
 
         while True:
-            data_recs = [next(streams) for streams in self.recording_streams if streams.instance.is_enabled]
+            data_recs = []
+            for stream in list(self.recording_streams):
+                if stream.instance.is_enabled:
+                    data_recs.append(next(stream))
+                elif self._holds_turn(stream):
+                    next(stream)  # muted mid-play: runs on silently, so it ends on time
+            self.audio_seconds += RecordingThemeStream.CHUNK_SIZE / SAMPLE_RATE
             if not data_recs:
                 # logger.debug(f'Theme "{self.theme_def.name}" has no enabled recordings. Streaming silence...')
                 data_recs.append(self.chunk_silence)
             
-            # Stack all recordings
-            data = np.vstack(data_recs)
-            
-            # Proper audio mixing: sum the signals, then normalize to prevent clipping
-            # Using float32 for intermediate calculation to avoid overflow
-            mixed = data.astype(np.float32).sum(axis=0)
-            
-            # Soft clipping / normalization to prevent distortion
-            # Divide by sqrt(n) for a good balance between volume and avoiding clipping
-            n_tracks = len(data_recs)
-            if n_tracks > 1:
-                # Use sqrt(n) normalization - louder than mean, but prevents harsh clipping
-                mixed = mixed / np.sqrt(n_tracks)
-            
-            # Apply output gain boost (use device master_volume if available)
+            # Sum the tracks with a smoothed level (sonorium/mixing.py)
             output_gain = getattr(self.theme_def.sonorium, 'master_volume', DEFAULT_OUTPUT_GAIN)
-            mixed = mixed * output_gain
-            
-            # Clip to int16 range and convert back
-            mixed = np.clip(mixed, -32768, 32767)
-            data = mixed.astype(np.int16).reshape(1, -1)
+            data = self.mix_level.mix(data_recs, output_gain)
             
             yield data
 

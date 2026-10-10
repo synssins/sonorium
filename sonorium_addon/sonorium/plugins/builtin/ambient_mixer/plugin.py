@@ -248,11 +248,16 @@ class AmbientMixerPlugin(BasePlugin):
     def _load_theme_metadata(self, theme_path: Path) -> dict:
         """
         Load metadata.json with automatic repair on corruption.
+        The theme's presets (from presets.json) are included under "presets".
         """
+        from sonorium.core.theme_presets import load_presets
+
         metadata_path = theme_path / "metadata.json"
 
         try:
-            return json.loads(metadata_path.read_text(encoding='utf-8'))
+            metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
+            metadata["presets"] = load_presets(theme_path)
+            return metadata
         except json.JSONDecodeError as e:
             logger.warning(f"Corrupted metadata.json in {theme_path.name}: {e}")
             return self._repair_metadata(theme_path)
@@ -356,9 +361,14 @@ class AmbientMixerPlugin(BasePlugin):
         return salvaged
 
     def _save_theme_metadata(self, theme_path: Path, metadata: dict) -> None:
-        """Save metadata.json to theme folder."""
-        metadata_path = theme_path / "metadata.json"
-        metadata_path.write_text(json.dumps(metadata, indent=2), encoding='utf-8')
+        """Save metadata.json to theme folder; presets go to presets.json."""
+        from sonorium.core.theme_presets import save_presets, write_json_atomic
+
+        metadata = dict(metadata)
+        presets = metadata.pop("presets", None)
+        if presets is not None:
+            save_presets(theme_path, presets)
+        write_json_atomic(theme_path / "metadata.json", metadata)
 
     # =========================================================================
     # Duplicate Detection
