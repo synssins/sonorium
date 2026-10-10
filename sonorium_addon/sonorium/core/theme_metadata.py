@@ -53,6 +53,7 @@ class TrackSettings:
     pause_between: bool = False     # Ebb & Flow: play the file once, then pause
     pause_min: float = 30.0         # Ebb & Flow: the pause, seconds (random in this range)
     pause_max: float = 300.0
+    rise: float = 0.0               # Ebb & Flow: how fast it rises, 0 gradual .. 1 sudden
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -66,7 +67,7 @@ class TrackSettings:
 
 # Ebb & Flow settings, in metadata.json and presets under these names
 # (recording.EBB_TRACK_SETTINGS is the same list, for playback)
-EBB_TRACK_SETTINGS = ("volume_low", "pause_between", "pause_min", "pause_max")
+EBB_TRACK_SETTINGS = ("volume_low", "pause_between", "pause_min", "pause_max", "rise")
 
 
 def reset_ebb_settings(track) -> None:
@@ -123,6 +124,11 @@ class ThemeMetadata:
     # copied. Track key here -> {"theme": source theme id, "track": source track key}
     links: dict[str, dict] = field(default_factory=dict)
 
+    # Ebb & Flow's slider is Duration (higher is longer). False: the stored
+    # values still mean the old Interval (higher was quicker) and are flipped
+    # once when the theme loads (see _flip_ebb_duration).
+    ebb_duration: bool = False
+
     # Problems found while loading (e.g. a broken file), for the UI. Not saved.
     problems: list[str] = field(default_factory=list, compare=False)
 
@@ -168,6 +174,8 @@ class ThemeMetadata:
         }
         if self.links:
             data["links"] = self.links
+        if self.ebb_duration:
+            data["ebb_duration"] = True
         if self.attribution:
             data["attribution"] = self.attribution
         return data
@@ -182,7 +190,7 @@ class ThemeMetadata:
         kwargs = {}
         for key in ['id', 'name', 'description', 'icon', 'is_favorite',
                     'categories', 'short_file_threshold', 'presets', 'attribution',
-                    'spec_version', 'groups', 'links']:
+                    'spec_version', 'groups', 'links', 'ebb_duration']:
             if key in data:
                 kwargs[key] = data[key]
 
@@ -223,6 +231,46 @@ def _convert_fields(metadata: ThemeMetadata) -> None:
     metadata.spec_version = SPEC_VERSION
     if any(getattr(t, "exclusive", False) for t in metadata.tracks.values()):
         metadata.groups.setdefault(LEGACY_EXCLUSIVE_GROUP, {"legacy_exclusive": True})
+
+
+PRE_DURATION_SUFFIX = ".pre-duration.bak"
+
+
+def _flip_ebb_duration(metadata: ThemeMetadata) -> bool:
+    """
+    Ebb & Flow's Interval became Duration: higher used to mean quicker, now it
+    means longer. Every Ebb & Flow track's value (its own mode, or in an Ebb &
+    Flow group) becomes 1 - value, in the theme and in each preset (by the mode
+    the preset gives it), so it sounds as before. Once per theme: returns True
+    when it changed anything and marks the theme.
+    """
+    if metadata.ebb_duration:
+        return False
+    ebb_groups = {name for name, settings in (metadata.groups or {}).items()
+                  if isinstance(settings, dict) and settings.get("mode") == "ebb_flow"}
+
+    def is_ebb(key: str, mode) -> bool:
+        group = key.split("/", 1)[0] if "/" in key else None
+        return mode == "presence" or group in ebb_groups
+
+    def flip(value):
+        try:
+            return round(1.0 - min(1.0, max(0.0, float(value))), 4)
+        except (TypeError, ValueError):
+            return value
+
+    changed = False
+    for key, settings in (metadata.tracks or {}).items():
+        if isinstance(settings, TrackSettings) and is_ebb(key, settings.playback_mode):
+            settings.presence = flip(settings.presence)
+            changed = True
+    for preset in (metadata.presets or {}).values():
+        for key, settings in ((preset or {}).get("tracks") or {}).items():
+            if isinstance(settings, dict) and "presence" in settings and is_ebb(key, settings.get("playback_mode")):
+                settings["presence"] = flip(settings["presence"])
+                changed = True
+    metadata.ebb_duration = True
+    return changed
 
 
 def _note_broken(folder: Path, error: BrokenJsonError, problems: list[str], rename: bool = True) -> None:
@@ -324,14 +372,21 @@ def load_theme_folder(folder: Path) -> ThemeMetadata:
 
     if legacy:
         _convert_fields(metadata)
+    flipped = _flip_ebb_duration(metadata)
 
-    write_meta = raw is None or legacy or has_legacy_key or "id" not in raw
+    write_meta = raw is None or legacy or has_legacy_key or "id" not in raw or flipped or "ebb_duration" not in raw
     if not metadata.name:
         metadata.name = folder.name
         write_meta = True
-    write_presets = has_legacy_key or presets_broken or not (folder / PRESETS_FILE).exists()
+    write_presets = has_legacy_key or presets_broken or not (folder / PRESETS_FILE).exists() or flipped
 
     try:
+        if flipped:
+            # The files as they were, once, before the values are flipped
+            for name in (METADATA_FILE, PRESETS_FILE):
+                original, backup = folder / name, folder / (name + PRE_DURATION_SUFFIX)
+                if original.exists() and not backup.exists():
+                    shutil.copy2(original, backup)
         if write_presets:
             _save_presets_verified(folder, presets)
         if has_legacy_key and meta_path.exists() and not (folder / PRE_PRESETS_BACKUP).exists():
@@ -343,6 +398,9 @@ def load_theme_folder(folder: Path) -> ThemeMetadata:
     else:
         if legacy or has_legacy_key:
             logger.info(f"Theme '{metadata.name}' converted to the 2.0 format")
+        if flipped:
+            logger.info(f"Theme '{metadata.name}': Ebb & Flow Interval values converted to Duration "
+                        f"(originals kept as *{PRE_DURATION_SUFFIX})")
         elif is_new:
             logger.debug(f"Created new metadata for theme '{folder.name}' with id={metadata.id[:8]}...")
 

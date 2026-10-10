@@ -19,18 +19,37 @@ CHUNK = 1024
 FULL = 10000
 
 
-def test_levels_stay_between_the_knobs_and_each_move_is_audible():
+def test_it_drifts_between_the_knobs_and_never_seesaws():
     rng = random.Random(5)
-    levels = [recording.ebb_level(0.25, None, rng) for _ in range(5000)]
-    assert min(levels) >= 0.25 and max(levels) <= 1.0
-    assert all(abs(recording.ebb_level(0.25, 0.6, rng) - 0.6) >= 0.25 * 0.75 for _ in range(500))
-    assert recording.ebb_level(1.0, 0.4) == 1.0  # both knobs together: a steady level
+    for duration in (0.0, 1.0):
+        level, direction, levels, turns = None, 1, [], 0
+        for _ in range(4000):
+            before = direction
+            level, direction = recording.ebb_step(0.25, level, direction, duration, rng)
+            levels.append(level)
+            turns += direction != before
+        assert min(levels) >= 0.25 and max(levels) <= 1.0
+        moves = np.abs(np.diff(levels))
+        # Each move is a step, not a jump to the other knob; shorter takes smaller steps
+        assert moves.mean() < (0.2 if duration == 0.0 else 0.35) * 0.75
+        assert np.percentile(moves, 95) < 0.75 * 0.75
+        # It keeps going the same way more often than it turns
+        assert turns / len(levels) < 0.5
+    assert recording.ebb_step(1.0, 0.4, 1, 0.5)[0] == 1.0  # both knobs together: a steady level
 
 
-def test_interval_sets_how_lively():
-    slow_glide, slow_hold = recording.ebb_timing(0.0)
-    fast_glide, fast_hold = recording.ebb_timing(1.0)
-    assert slow_glide[0] > fast_glide[1] and slow_hold[0] > fast_hold[1]
+def test_duration_sets_how_long_each_rise_and_fall_takes():
+    short_glide, short_hold = recording.ebb_timing(0.0)
+    long_glide, long_hold = recording.ebb_timing(1.0)
+    assert short_glide[1] < long_glide[0] and short_hold[1] < long_hold[0]
+
+
+def test_rise_shapes_the_way_up():
+    x = np.linspace(0, 1, 11)
+    gradual = recording.ebb_curve(x, True, 0.0)
+    sudden = recording.ebb_curve(x, True, 1.0)
+    assert sudden[2] > gradual[2] + 0.3  # most of the way up early
+    assert np.allclose(recording.ebb_curve(x, False, 1.0), gradual)  # falling is never sudden
 
 
 class Ones:
@@ -57,7 +76,7 @@ def gains(stream, seconds):
 
 def test_it_rises_and_falls_between_the_knobs():
     random.seed(3)
-    stream = recording.PresenceMixingStream(Ones(), track(presence=0.8))
+    stream = recording.PresenceMixingStream(Ones(), track(presence=0.2))
     g = gains(stream, 300)
     assert g.min() >= 0.3 - 0.001 and g.max() <= 1.0  # never below the lower knob
     per_5s = g[: len(g) // (5 * RATE) * 5 * RATE].reshape(-1, 5 * RATE).mean(axis=1)
@@ -67,7 +86,7 @@ def test_it_rises_and_falls_between_the_knobs():
 
 def test_pause_between_plays_plays_the_file_once_then_pauses():
     random.seed(4)
-    stream = recording.PresenceMixingStream(Ones(), track(seconds=8.0, pause_between=True, presence=1.0))
+    stream = recording.PresenceMixingStream(Ones(), track(seconds=8.0, pause_between=True, presence=0.0))
     g = gains(stream, 120)
     quiet = g < 0.001
     assert quiet[: int(1.5 * RATE)].all()  # its first start is staggered by a pause (2-4 s)
@@ -81,7 +100,7 @@ def test_pause_between_plays_plays_the_file_once_then_pauses():
 def test_an_ebb_flow_group_with_pause_between_plays_is_never_silent():
     random.seed(6)
     group = recording.EbbGroup(lambda: True)
-    views = [track(f"Wave {i}", seconds=6.0 + i, pause_between=True, presence=1.0, pause_min=3.0, pause_max=12.0)
+    views = [track(f"Wave {i}", seconds=6.0 + i, pause_between=True, presence=0.0, pause_min=3.0, pause_max=12.0)
              for i in range(3)]
     streams = []
     for v in views:
@@ -102,7 +121,7 @@ def test_an_ebb_flow_group_with_pause_between_plays_is_never_silent():
 def test_a_group_without_its_toggle_leaves_each_file_to_its_own():
     random.seed(7)
     group = recording.EbbGroup(lambda: False)
-    v = track("Alone", seconds=5.0, pause_between=True, presence=1.0, pause_min=20.0, pause_max=30.0)
+    v = track("Alone", seconds=5.0, pause_between=True, presence=0.0, pause_min=20.0, pause_max=30.0)
     s = recording.PresenceMixingStream(Ones(), v)
     group.register(v.name, v)
     s.ebb_group = group
@@ -131,3 +150,29 @@ def test_presets_carry_the_ebb_flow_settings():
                                                            "pause_min": 30, "pause_max": 600}})
     rain = overrides["Rain"]
     assert (rain["volume_low"], rain["pause_between"], rain["pause_min"], rain["pause_max"]) == (0.3, True, 30, 600)
+
+
+def test_a_sudden_rise_goes_up_quicker_than_it_comes_down():
+    random.seed(8)
+    stream = recording.PresenceMixingStream(Ones(), track(presence=0.3, rise=1.0, volume_low=0.1))
+    g = gains(stream, 600)
+    q = RATE // 4
+    d = np.diff(g[: len(g) // q * q].reshape(-1, q).mean(axis=1))  # level change per quarter second
+    # the steepest rise is much steeper than the steepest fall
+    assert d.max() > 2.0 * -d.min()
+
+
+def test_an_ebb_flow_group_can_set_one_rise_for_every_file():
+    theme = SimpleNamespace(groups={"Wind": {"mode": "ebb_flow", "rise": 0.9}})
+    inst = recording.RecordingThemeInstance(SimpleNamespace(name="Wind/A", group="Wind", is_short_file=lambda t: False), theme)
+    inst.rise = 0.1
+    assert recording.TrackView(inst, {}).rise == 0.9
+    theme.groups["Wind"].pop("rise")
+    assert recording.TrackView(inst, {}).rise == 0.1
+
+
+def test_an_unassigned_file_does_not_play():
+    inst = recording.RecordingThemeInstance(SimpleNamespace(name="New", group=None, is_short_file=lambda t: False))
+    inst.playback_mode = recording.PlaybackMode.UNASSIGNED
+    stream = inst.get_stream()
+    assert isinstance(stream, recording.SilentTrackStream) and not next(stream).any()

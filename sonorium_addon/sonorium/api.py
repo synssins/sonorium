@@ -1879,7 +1879,7 @@ class ApiSonorium(api.Base):
                 return JSONResponse({"error": f"{key} must be a number"}, status_code=400)
             if number != number or isinstance(raw, bool):
                 return JSONResponse({"error": f"{key} must be a number"}, status_code=400)
-            values[key] = max(0.0, min(1.0, number)) if key == "volume_low" else round(max(0.0, min(86400.0, number)), 1)
+            values[key] = max(0.0, min(1.0, number)) if key in ("volume_low", "rise") else round(max(0.0, min(86400.0, number)), 1)
         for key, value in values.items():
             setattr(track_inst, key, value)
         self._save_track_setting_to_metadata(theme_id, track_name, **values)
@@ -1932,7 +1932,7 @@ class ApiSonorium(api.Base):
     # overlap in seconds. Mode and crossfade are theme settings, not in presets.
     # Mode "intrusion": the tracks play as their own settings say (no turns)
     # and the group can hold files linked from other themes.
-    GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max", "mode", "crossfade", "pause_between")
+    GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max", "mode", "crossfade", "pause_between", "rise")
 
     def _theme_group_folder(self, theme_id: str):
         """(theme, folder, metadata) for a theme, or raise 404."""
@@ -2153,7 +2153,9 @@ class ApiSonorium(api.Base):
                 settings.pop(key, None)
                 continue
             try:
-                if key in ("presence", "volume"):
+                if key in ("presence", "volume", "rise"):
+                    if isinstance(value, bool):
+                        raise ValueError(value)
                     value = max(0.0, min(1.0, float(value)))
                 elif key in ("gap_min", "gap_max"):
                     value = max(0.0, float(value))

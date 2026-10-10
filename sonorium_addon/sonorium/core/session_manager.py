@@ -181,8 +181,13 @@ class SessionManager:
                 return preset_id
         return None
 
-    def preset_overrides(self, theme_id: str, preset_id: Optional[str]) -> dict:
-        """A channel's preset layer for a theme ({} for no preset, or one that isn't found)."""
+    def preset_overrides(self, theme_id: str, preset_id: Optional[str], step: Optional[dict] = None) -> dict:
+        """
+        A channel's preset layer for a theme ({} for no preset, or one that
+        isn't found), with a sequence step's While playing values on top
+        (core/sequences.merge_step: a null keeps the preset's value).
+        """
+        from sonorium.core.sequences import merge_step
         from sonorium.recording import preset_group_overrides, preset_track_overrides
         if not preset_id:
             return {}
@@ -190,7 +195,34 @@ class SessionManager:
         if not preset:
             logger.warning(f"  Preset '{preset_id}' not found for theme '{theme_id}'")
             return {}
+        preset = merge_step(preset, step)
         return {**preset_track_overrides(preset.get("tracks", {})), **preset_group_overrides(preset.get("groups", {}))}
+
+    def step_layer(self, session: Session, preset_id: Optional[str] = None) -> Optional[dict]:
+        """The While playing layer of the sequence step the channel is on (None when no sequence runs)."""
+        preset_id = preset_id if preset_id is not None else session.preset_id
+        if not session.sequence_id or not preset_id:
+            return None
+        sequence = self.runner.sequence(session.theme_id, session.sequence_id)
+        return ((sequence or {}).get("while") or {}).get(preset_id)
+
+    def session_overrides(self, session: Session, preset_id: Optional[str] = None) -> dict:
+        """What the channel plays: its preset, with its sequence step's While playing values on top."""
+        preset_id = preset_id if preset_id is not None else session.preset_id
+        return self.preset_overrides(session.theme_id, preset_id, self.step_layer(session, preset_id))
+
+    def step_saved(self, theme_ids, sequence_id: str, preset_id: str) -> int:
+        """A step's While playing layer was saved: channels on that step glide to it. Returns how many."""
+        theme_ids = {t for t in theme_ids if t}
+        count = 0
+        for session in list(self.state.sessions.values()):
+            if (session.is_playing and session.theme_id in theme_ids and session.sequence_id == sequence_id
+                    and session.preset_id == preset_id):
+                channel = self._channel_for(session)
+                if channel:
+                    channel.set_track_overrides(self.session_overrides(session), glide_seconds=PRESET_GLIDE_SECONDS)
+                    count += 1
+        return count
 
     def preset_saved(self, theme_ids, preset_id: str) -> int:
         """
@@ -206,7 +238,7 @@ class SessionManager:
                 continue
             channel = self._channel_for(session)
             if channel:
-                channel.set_track_overrides(self.preset_overrides(session.theme_id, preset_id),
+                channel.set_track_overrides(self.session_overrides(session, preset_id),
                                             glide_seconds=PRESET_GLIDE_SECONDS)
                 count += 1
         if count:
@@ -644,7 +676,7 @@ class SessionManager:
         elif session.is_playing and preset_changed and session.theme_id:
             channel = self._channel_for(session)
             if channel:
-                channel.set_track_overrides(self.preset_overrides(session.theme_id, session.preset_id),
+                channel.set_track_overrides(self.session_overrides(session),
                                             glide_seconds=PRESET_GLIDE_SECONDS)
                 logger.info(f"  Applied preset change for playing session")
 
@@ -704,7 +736,7 @@ class SessionManager:
         if session.is_playing and session.theme_id:
             channel = self._channel_for(session)
             if channel:
-                channel.set_track_overrides(self.preset_overrides(session.theme_id, session.preset_id),
+                channel.set_track_overrides(self.session_overrides(session),
                                             glide_seconds=glide, fade_seconds=fade)
 
     def transition_plans(self, session: Session, from_preset: Optional[str], to_preset: str,
@@ -726,8 +758,8 @@ class SessionManager:
             return bool(group) and group_mode(groups.get(group)) == GROUP_MODE_MERRY_GO_ROUND
 
         return step_plans(list(theme.instances),
-                          self.preset_overrides(session.theme_id, from_preset),
-                          self.preset_overrides(session.theme_id, to_preset),
+                          self.session_overrides(session, from_preset) if from_preset else {},
+                          self.session_overrides(session, to_preset),
                           step_in, step_out, to_preset, from_preset or "",
                           lambda instance, overrides: TrackView(instance, overrides), skip=bed)
 
@@ -854,7 +886,7 @@ class SessionManager:
             return
         
         logger.info(f"  Triggering crossfade to '{theme.name}' on channel {channel_id}")
-        channel.set_theme(theme, self.preset_overrides(session.theme_id, session.preset_id),
+        channel.set_theme(theme, self.session_overrides(session),
                           crossfade=self.crossfade_seconds())
     
     @logger.instrument("Deleting session {session_id}...")
@@ -1015,7 +1047,7 @@ class SessionManager:
             theme = self.get_theme(session.theme_id)
             if theme:
                 fade = self.crossfade_seconds()
-                channel.set_theme(theme, self.preset_overrides(session.theme_id, session.preset_id),
+                channel.set_theme(theme, self.session_overrides(session),
                                   crossfade=fade, fade_in=fade)
                 channel.fade_in(fade)  # also after a pause, or a stop still fading out
                 logger.debug(f"  Channel {channel.id}: theme '{theme.name}'")

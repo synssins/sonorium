@@ -117,11 +117,12 @@ def test_preset_picked_by_hand_still_fades_tracks_over_three_seconds(tones):
 
 
 def test_ebb_and_flow_track_turned_on_again_restarts_from_its_beginning(tones):
-    random.seed(3)  # presence 0.99: it starts in an active period (and stays in it)
+    random.seed(3)
     theme = make_theme(tones, ["E"])
     track = theme.instances[0]
     track.playback_mode = m.recording.PlaybackMode.PRESENCE
-    track.presence = 0.99
+    track.presence = 0.0  # a short Duration: it comes back in quickly
+    track.volume_low = track.volume  # both knobs together: a steady level
     channel = channel_on(theme, {})
     assert isinstance(channel._theme_stream.recording_streams[0], m.recording.PresenceMixingStream)
 
@@ -151,7 +152,8 @@ def test_ebb_and_flow_track_that_stays_on_is_not_restarted(tones):
     theme = make_theme(tones, ["E", "A"])
     track = theme.instances[0]
     track.playback_mode = m.recording.PlaybackMode.PRESENCE
-    track.presence = 0.99
+    track.presence = 0.0  # a short Duration: it comes back in quickly
+    track.volume_low = track.volume  # both knobs together: a steady level
     channel = channel_on(theme, {})
     full = envelope(pull(channel, 12.0), LATER_HZ)[-10:].mean()
     # A sequence step that turns another track off: E plays on where it is

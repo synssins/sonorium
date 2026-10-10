@@ -146,7 +146,7 @@ def test_ebb_flow_group_and_its_pause_between_plays(m):
 def test_track_ebb_settings_save_and_go_into_presets(m):
     inst = SimpleNamespace(name="Waves", volume=0.8, presence=0.5, playback_mode=SimpleNamespace(value="presence"),
                            crossfade_enabled=True, exclusive=False, is_enabled=True,
-                           volume_low=0.2, pause_between=False, pause_min=30.0, pause_max=300.0)
+                           volume_low=0.2, pause_between=False, pause_min=30.0, pause_max=300.0, rise=0.0)
     theme = SimpleNamespace(name="Storm", instances=[inst], groups={})
     metadata = m.meta.ThemeMetadata(id="t1", name="Storm")
     api = make_api(m, metadata, theme)

@@ -232,6 +232,7 @@ class PlaybackMode(str, Enum):
     SPARSE = "sparse"
     PRESENCE = "presence"
     AUTO = "auto"
+    UNASSIGNED = "unassigned"  # uploaded or linked, not placed in a section yet: not played
 
 # Threshold for "short" audio files that get sparse playback
 SHORT_FILE_THRESHOLD_SECONDS = 15.0
@@ -496,6 +497,7 @@ class RecordingThemeInstance:
         self.volume_low = EBB_DEFAULT_LOW
         self.pause_between = False
         self.pause_min, self.pause_max = DEFAULT_PAUSE
+        self.rise = 0.0  # Ebb & Flow: 0 gradual .. 1 sudden
 
     @property
     def short_file_threshold(self) -> float:
@@ -517,6 +519,10 @@ class RecordingThemeInstance:
 
     def get_stream(self, exclusion_coordinator: ExclusionGroupCoordinator = None):
         mode = self._resolve_playback_mode()
+
+        # UNASSIGNED: not placed yet, so not played (and not decoded)
+        if mode == PlaybackMode.UNASSIGNED:
+            return SilentTrackStream(self)
 
         # SPARSE: Play once at full volume, then silence for interval
         if mode == PlaybackMode.SPARSE:
@@ -548,7 +554,7 @@ LEGACY_EXCLUSIVE_GROUP = "Exclusive"
 # value (track 50% x group 50% = 25%); muted mutes every track in the group.
 # The gap between plays (gap_min/gap_max, seconds) is a real interval, never scaled.
 GROUP_TRACK_SETTINGS = {"volume": "volume", "presence": "presence", "muted": "is_enabled",
-                        "pause_between": "pause_between"}
+                        "pause_between": "pause_between", "rise": "rise"}
 GROUP_GAP_SETTINGS = ("gap_min", "gap_max")
 # What a preset saves for a group: the master controls and the gap
 GROUP_PRESET_SETTINGS = (*GROUP_TRACK_SETTINGS, *GROUP_GAP_SETTINGS)
@@ -620,7 +626,7 @@ PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", 
                        "volume_low", "pause_between", "pause_min", "pause_max")
 # Ebb & Flow settings, saved in metadata.json and presets under the same names
 # (theme_metadata.EBB_TRACK_SETTINGS; repeated here so this module stands alone)
-EBB_TRACK_SETTINGS = ("volume_low", "pause_between", "pause_min", "pause_max")
+EBB_TRACK_SETTINGS = ("volume_low", "pause_between", "pause_min", "pause_max", "rise")
 
 
 def preset_track_overrides(preset_tracks: dict) -> dict:
@@ -786,6 +792,9 @@ class TrackView:
                 return PlaybackMode.PRESENCE
             # Pause between plays: the group's, when it's on, else the track's own
             return bool(self._group_master(group, name)) or bool(value)
+        if name == "rise" and self._ebb_group(group):
+            master = self._group_master(group, name)  # Same Rise for every file
+            return value if master is None else master
         if name == "volume_low":
             master = self._group_master(group, "volume")
             return value * master if master is not None and value is not None else value
@@ -815,6 +824,21 @@ class TrackView:
     # Same decisions as the theme's own track, made with the channel's values
     _resolve_playback_mode = RecordingThemeInstance._resolve_playback_mode
     get_stream = RecordingThemeInstance.get_stream
+
+
+class SilentTrackStream:
+    """A track that doesn't play (Unassigned): silence, nothing decoded."""
+    CHUNK_SIZE = 1_024
+
+    def __init__(self, instance):
+        self.instance = instance
+        self._silence = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self._silence
 
 
 class RecordingThemeStream:
@@ -1279,39 +1303,57 @@ class SparsePlaybackStream:
         return next(self.gen)
 
 
-# Ebb & Flow: the level glides from one random level to the next between the
-# two knobs of the track's Volume (volume_low .. volume), holds, and moves
-# again. Interval (presence) sets how lively: at 0 the glides take
-# EBB_GLIDE_SLOW seconds and the holds EBB_HOLD_SLOW, at 100% EBB_GLIDE_FAST
-# and EBB_HOLD_FAST. Each move goes at least a quarter of the range.
-EBB_GLIDE_SLOW, EBB_GLIDE_FAST = (15.0, 40.0), (2.0, 6.0)
-EBB_HOLD_SLOW, EBB_HOLD_FAST = (20.0, 60.0), (2.0, 10.0)
+# Ebb & Flow: the level drifts between the two knobs of the track's Volume
+# (volume_low .. volume). Duration (the track's presence) sets how long each
+# rise and fall takes: at 0 (shorter) the glides take EBB_GLIDE_SHORT seconds
+# and the holds EBB_HOLD_SHORT, at 1 (longer) EBB_GLIDE_LONG and EBB_HOLD_LONG.
+# Rise (0 gradual .. 1 sudden) sets how fast it rises compared with how it
+# falls: gradual rises as smoothly as it falls; sudden jumps up quickly and
+# eases back down slower (gusts of wind, waves on rocks).
+EBB_GLIDE_SHORT, EBB_GLIDE_LONG = (2.0, 6.0), (15.0, 40.0)
+EBB_HOLD_SHORT, EBB_HOLD_LONG = (2.0, 10.0), (20.0, 60.0)
+EBB_LONG_REST = 0.12  # the chance a hold lasts 2 to 4 times longer: uneven, not metronomic
+EBB_TURN = 0.35  # the chance a move changes direction: it drifts more than it seesaws
 
 
-def ebb_timing(presence: float) -> tuple[tuple[float, float], tuple[float, float]]:
-    """(glide range, hold range) in seconds for an Interval (0 slow and gradual .. 1 quick)."""
-    p = min(1.0, max(0.0, float(presence)))
-    lerp = lambda a, b: (a[0] + (b[0] - a[0]) * p, a[1] + (b[1] - a[1]) * p)
-    return lerp(EBB_GLIDE_SLOW, EBB_GLIDE_FAST), lerp(EBB_HOLD_SLOW, EBB_HOLD_FAST)
+def ebb_timing(duration: float) -> tuple[tuple[float, float], tuple[float, float]]:
+    """(glide range, hold range) in seconds for a Duration (0 shorter .. 1 longer)."""
+    d = min(1.0, max(0.0, float(duration)))
+    lerp = lambda a, b: (a[0] + (b[0] - a[0]) * d, a[1] + (b[1] - a[1]) * d)
+    return lerp(EBB_GLIDE_SHORT, EBB_GLIDE_LONG), lerp(EBB_HOLD_SHORT, EBB_HOLD_LONG)
 
 
-def ebb_level(low: float, current, rng=random) -> float:
-    """The next level, as a share of the top knob: anywhere from `low` to 1, at least a quarter of that range away."""
+def ebb_step(low: float, current, direction: int, duration: float, rng=random) -> tuple[float, int]:
+    """
+    The next level (a share of the top knob, `low` .. 1) and the direction it
+    went. A drift, not a seesaw: it usually keeps going the way it was, and a
+    shorter Duration takes smaller steps more often, so it never just swings
+    between the two knobs. At a knob it turns back.
+    """
     low = min(1.0, max(0.0, float(low)))
     span = 1.0 - low
     if span < 0.02:
-        return 1.0
+        return 1.0, direction
     if current is None:
-        return low + span * rng.random()
-    # Uniform over the levels at least a quarter of the range away (below, above, or both)
-    step = 0.25 * span
-    below = (low, max(low, current - step))
-    above = (min(1.0, current + step), 1.0)
-    room = (below[1] - below[0]) + (above[1] - above[0])
-    if room <= 0:
-        return low if current - low > 1.0 - current else 1.0
-    x = rng.random() * room
-    return below[0] + x if x < below[1] - below[0] else above[0] + (x - (below[1] - below[0]))
+        return low + span * rng.random(), rng.choice((-1, 1))
+    d = min(1.0, max(0.0, float(duration)))
+    if rng.random() < EBB_TURN:
+        direction = -direction
+    size = span * rng.uniform(0.12, 0.3 + 0.4 * d)
+    level = current + direction * size
+    if level > 1.0:
+        level, direction = max(low, 2.0 - level), -1
+    elif level < low:
+        level, direction = min(1.0, 2.0 * low - level), 1
+    return min(1.0, max(low, level)), direction
+
+
+def ebb_curve(x, rising: bool, rise: float):
+    """Where a glide is (0..1) at x (0..1): an S-curve; a sudden rise starts fast and settles."""
+    s = 0.5 - 0.5 * np.cos(np.pi * x)
+    if not rising or rise <= 0:
+        return s
+    return (1.0 - rise) * s + rise * (1.0 - (1.0 - x) ** 3)
 
 
 class EbbGroup:
@@ -1436,9 +1478,9 @@ class PresenceMixingStream:
 
     def _gen_wander(self):
         """
-        The level glides from one random level to the next between the two
-        knobs of the track's Volume (see ebb_level), at the pace its Interval
-        sets (see ebb_timing). With Pause between plays, each play starts at
+        The level drifts between the two knobs of the track's Volume (see
+        ebb_step), at the pace its Duration sets (see ebb_timing), rising as
+        its Rise says (see ebb_curve). With Pause between plays, each play starts at
         the file's beginning rising from silence, runs to the file's end,
         fades out and pauses for a while from the track's Pause range; the
         first start is staggered the same way. In an Ebb & Flow group with the
@@ -1453,6 +1495,29 @@ class PresenceMixingStream:
         glide = done = hold = wait = 0  # samples
         played = 0  # samples of the file into this pass
         end_fade = 0  # samples: how long this play's fade-out at the file's end lasts
+        direction = 1  # which way the level last moved
+        rising = False  # the glide in progress goes up (Rise shapes it)
+
+        def duration() -> float:
+            return float(getattr(self.instance, "presence", 0.5) or 0.0)
+
+        def rise() -> float:
+            try:
+                return min(1.0, max(0.0, float(getattr(self.instance, "rise", 0.0) or 0.0)))
+            except (TypeError, ValueError):
+                return 0.0
+
+        def next_hold() -> int:
+            seconds = random.uniform(*ebb_timing(duration())[1])
+            if random.random() < EBB_LONG_REST:
+                seconds *= random.uniform(2.0, 4.0)
+            return int(seconds * rate)
+
+        def move():
+            """The next drift step, at the pace Duration and Rise set."""
+            nonlocal direction
+            to, direction = ebb_step(self._ebb_low(), level, direction, duration())
+            go(to, random.uniform(*ebb_timing(duration())[0]))
 
         def pauses() -> bool:
             return bool(getattr(self.instance, "pause_between", False))
@@ -1464,8 +1529,12 @@ class PresenceMixingStream:
             if group is not None:
                 group.set_sounding(name, on)
 
-        def go(to: float, seconds: float):
-            nonlocal start, target, glide, done
+        def go(to: float, seconds: float, shaped: bool = True):
+            nonlocal start, target, glide, done, rising
+            rising = to > level
+            if shaped and rise() > 0:
+                # sudden: up quickly, down slower
+                seconds *= (1.0 - 0.85 * rise()) if rising else (1.0 + 0.5 * rise())
             start, target, glide, done = level, to, max(1, int(seconds * rate)), 0
             self._log_move(to * self._top(), seconds)
 
@@ -1473,10 +1542,12 @@ class PresenceMixingStream:
             """From the file's beginning, rising from silence."""
             nonlocal state, level, played, end_fade
             self._restart_base()
+            nonlocal direction
             state, level, played = "playing", 0.0, 0
-            glides, _ = ebb_timing(self.instance.presence)
+            glides, _ = ebb_timing(duration())
             end_fade = int(random.uniform(*glides) * rate)
-            go(ebb_level(self._ebb_low(), None), random.uniform(*glides))
+            to, direction = ebb_step(self._ebb_low(), None, direction, duration())
+            go(to, random.uniform(*glides))
             sounding(True)
 
         def pause(log_reason: str = ""):
@@ -1487,12 +1558,13 @@ class PresenceMixingStream:
                         f'{log_reason}pausing for {wait / rate:.0f}s')
 
         # Joining the mix
-        glides, holds = ebb_timing(self.instance.presence)
+        glides, _ = ebb_timing(duration())
         if pauses() and not (guarded() and group.claim_first(name)):
             pause("starts staggered, ")
         else:
-            level = start = target = ebb_level(self._ebb_low(), None)  # at a level: the mix fades the track in
-            hold = int(random.uniform(*holds) * rate)
+            level, direction = ebb_step(self._ebb_low(), None, direction, duration())  # at a level: the mix fades the track in
+            start = target = level
+            hold = next_hold()
             end_fade = int(random.uniform(*glides) * rate)
             sounding(True)
 
@@ -1528,27 +1600,27 @@ class PresenceMixingStream:
                     else:
                         state = "ending"
                         sounding(False)
-                        go(0.0, max(left, n) / rate)
+                        go(0.0, max(left, n) / rate, shaped=False)  # silent exactly at the file's end
             elif state == "ending" and not pauses():
                 state = "playing"  # switched back to looping while fading out
                 sounding(True)
-                go(ebb_level(self._ebb_low(), level), random.uniform(*ebb_timing(self.instance.presence)[0]))
+                move()
             if played >= pass_length:
                 played -= pass_length  # the file looped
 
             if glide:
                 done = min(glide, done + n)
                 x = done / glide
-                end = start + (target - start) * (0.5 - 0.5 * np.cos(np.pi * x))  # an S-curve glide
+                end = start + (target - start) * float(ebb_curve(x, rising, rise()))
                 if done >= glide:
                     glide = 0
-                    hold = int(random.uniform(*ebb_timing(self.instance.presence)[1]) * rate)
+                    hold = next_hold()
             else:
                 end = level
                 if state == "playing":
                     hold -= n
                     if hold <= 0:
-                        go(ebb_level(self._ebb_low(), level), random.uniform(*ebb_timing(self.instance.presence)[0]))
+                        move()
 
             if level != end or level < 1.0:
                 ramp = np.linspace(level, end, n, dtype=np.float32) if level != end else level

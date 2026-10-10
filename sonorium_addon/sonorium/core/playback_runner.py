@@ -110,6 +110,7 @@ class PlaybackRunner:
             "presets": [p for p in (data.get("presets") or []) if p in presets],
             "at_end": data.get("at_end") if data.get("at_end") in AT_END else DEFAULT_AT_END,
             "transitions": dict(data.get("transitions") or {}),
+            "while": dict(data.get("while") or {}),
             **timing,
         }
 

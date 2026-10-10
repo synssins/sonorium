@@ -845,6 +845,43 @@ def create_api_router(
         return {"theme_id": theme_id, "sequence_id": sequence_id, "preset_id": preset_id,
                 **seq.step_transitions(existing[sequence_id], preset_id)}
 
+    # --- A sequence step's While playing layer (core/sequences.STEP_*_FIELDS) ---
+
+    @router.get("/themes/{theme_id}/sequences/{sequence_id}/while/{preset_id}")
+    async def get_step_while(theme_id: str, sequence_id: str, preset_id: str) -> dict:
+        """A preset's While playing layer in a sequence: {"tracks": {key: {...}}, "groups": {...}}, null = the preset's."""
+        from sonorium.core import sequences as seq
+        existing = _sequence_or_404(_theme_folder_or_404(theme_id), sequence_id)
+        if preset_id not in (existing[sequence_id].get("presets") or []):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="That preset is not in the sequence")
+        return {"theme_id": theme_id, "sequence_id": sequence_id, "preset_id": preset_id,
+                **seq.step_while(existing[sequence_id], preset_id)}
+
+    @router.put("/themes/{theme_id}/sequences/{sequence_id}/while/{preset_id}")
+    async def set_step_while(theme_id: str, sequence_id: str, preset_id: str, request: Request) -> dict:
+        """Replace a preset's While playing layer. Channels on that step glide to it."""
+        from sonorium.core import sequences as seq
+        folder = _theme_folder_or_404(theme_id)
+        data = await _json_body(request)
+        existing = _sequence_or_404(folder, sequence_id)
+        if preset_id not in (existing[sequence_id].get("presets") or []):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="That preset is not in the sequence")
+        try:
+            existing[sequence_id] = seq.set_step_while(existing[sequence_id], preset_id, data)
+        except seq.SequenceError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        try:
+            seq.save_sequences(folder, existing)
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        if session_manager is not None:
+            try:
+                session_manager.step_saved({theme_id}, sequence_id, preset_id)
+            except Exception as e:
+                logger.warning(f"While playing for '{preset_id}' saved, but playing channels could not follow it: {e}")
+        return {"theme_id": theme_id, "sequence_id": sequence_id, "preset_id": preset_id,
+                **seq.step_while(existing[sequence_id], preset_id)}
+
     @router.get("/themes/{theme_id}/transition_tracks")
     async def get_transition_tracks(theme_id: str, preset: str, prev: Optional[str] = None,
                                     next: Optional[str] = None) -> dict:

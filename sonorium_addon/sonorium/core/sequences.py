@@ -203,7 +203,96 @@ def clean_sequence(data: dict, preset_ids, current: Optional[dict] = None) -> di
         result["transitions"] = keep_presets(result["transitions"], presets_now)  # presets taken out drop theirs
     if not result.get("transitions"):
         result.pop("transitions", None)
+    if result.get("while"):
+        result["while"] = {p: layer for p, layer in result["while"].items() if p in presets_now}
+    if not result.get("while"):
+        result.pop("while", None)
     return result
+
+
+# A sequence step's While playing layer (sequence["while"][preset_id]): the
+# settings this step changes on top of the preset, per track and per group.
+# Every entry lists every field; null means "not changed here: the preset's".
+STEP_TRACK_FIELDS = ("volume", "volume_low", "presence", "muted", "rise", "pause_between", "pause_min", "pause_max")
+STEP_GROUP_FIELDS = ("volume", "presence", "muted", "gap_min", "gap_max", "pause_between", "rise")
+_STEP_SHARES = {"volume", "volume_low", "presence", "rise"}  # 0..1
+_STEP_FLAGS = {"muted", "pause_between"}
+
+
+def _clean_step_entry(entry, fields, where: str) -> Optional[dict]:
+    if not isinstance(entry, dict):
+        raise SequenceError(f"{where}: expected an object")
+    unknown = set(entry) - set(fields)
+    if unknown:
+        raise SequenceError(f"{where}: unknown setting '{sorted(unknown)[0]}'")
+    result = {}
+    for field in fields:
+        value = entry.get(field)
+        if value is None:
+            result[field] = None
+        elif field in _STEP_FLAGS:
+            if not isinstance(value, bool):
+                raise SequenceError(f"{where}: {field} must be true, false or null")
+            result[field] = value
+        else:
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or value != value or value < 0:
+                raise SequenceError(f"{where}: {field} must be a number of 0 or more, or null")
+            limit = 1.0 if field in _STEP_SHARES else MAX_SECONDS
+            result[field] = min(limit, float(value))
+    return result if any(v is not None for v in result.values()) else None
+
+
+def clean_step_while(data) -> dict:
+    """A checked While playing layer: {"tracks": {key: {...}}, "groups": {name: {...}}}, empty entries left out."""
+    if data is None:
+        return {"tracks": {}, "groups": {}}
+    if not isinstance(data, dict) or set(data) - {"tracks", "groups"}:
+        raise SequenceError('expected {"tracks": {...}, "groups": {...}}')
+    result = {"tracks": {}, "groups": {}}
+    for part, fields in (("tracks", STEP_TRACK_FIELDS), ("groups", STEP_GROUP_FIELDS)):
+        entries = data.get(part) or {}
+        if not isinstance(entries, dict):
+            raise SequenceError(f"{part} must be an object")
+        for key, entry in entries.items():
+            cleaned = _clean_step_entry(entry, fields, f"{part[:-1]} '{key}'")
+            if cleaned:
+                result[part][str(key)] = cleaned
+    return result
+
+
+def step_while(sequence: dict, preset_id: str) -> dict:
+    """A preset's While playing layer in a sequence (every field listed, null where unchanged)."""
+    return clean_step_while((sequence.get("while") or {}).get(preset_id))
+
+
+def set_step_while(sequence: dict, preset_id: str, data) -> dict:
+    """The sequence with a preset's While playing layer replaced (checked). Raises SequenceError."""
+    if preset_id not in (sequence.get("presets") or []):
+        raise SequenceError(f"'{preset_id}' is not a preset of this sequence")
+    cleaned = clean_step_while(data)
+    result = dict(sequence)
+    layers = dict(result.get("while") or {})
+    if cleaned["tracks"] or cleaned["groups"]:
+        layers[preset_id] = cleaned
+    else:
+        layers.pop(preset_id, None)
+    if layers:
+        result["while"] = layers
+    else:
+        result.pop("while", None)
+    return result
+
+
+def merge_step(preset: dict, step: Optional[dict]) -> dict:
+    """A preset ({"tracks", "groups"}) with a step's While playing values on top (nulls keep the preset's)."""
+    if not step:
+        return preset
+    merged = {"tracks": {k: dict(v or {}) for k, v in (preset.get("tracks") or {}).items()},
+              "groups": {k: dict(v or {}) for k, v in (preset.get("groups") or {}).items()}}
+    for part in ("tracks", "groups"):
+        for key, values in (step.get(part) or {}).items():
+            merged[part].setdefault(key, {}).update({f: v for f, v in (values or {}).items() if v is not None})
+    return merged
 
 
 def step_transitions(sequence: dict, preset_id: str) -> dict:
@@ -357,6 +446,10 @@ def drop_preset(folder: Path, preset_id: str) -> list[str]:
             changed.append(sequence_id)
         if preset_id in (sequence.get("transitions") or {}):
             sequence["transitions"] = {p: s for p, s in sequence["transitions"].items() if p != preset_id}
+            if sequence_id not in changed:
+                changed.append(sequence_id)
+        if preset_id in (sequence.get("while") or {}):
+            sequence["while"] = {p: s for p, s in sequence["while"].items() if p != preset_id}
             if sequence_id not in changed:
                 changed.append(sequence_id)
     if changed:
