@@ -842,63 +842,6 @@ const availableIcons = [
     '✨', '🌈', '💎', '🕯️', '🔔'
 ];
 
-// Icon Picker Functions
-function initIconPicker() {
-    const grid = document.getElementById('icon-picker-grid');
-    if (!grid) return;
-
-    grid.innerHTML = availableIcons.map(icon => `
-        <button type="button" class="icon-picker-item" onclick="selectIcon('${icon}')" title="${icon}">
-            ${icon}
-        </button>
-    `).join('');
-}
-
-function toggleIconPicker() {
-    const dropdown = document.getElementById('icon-picker-dropdown');
-    if (!dropdown) return;
-
-    const isVisible = dropdown.style.display !== 'none';
-    dropdown.style.display = isVisible ? 'none' : 'block';
-
-    if (!isVisible) {
-        initIconPicker();
-        updateIconPickerSelection();
-    }
-}
-
-function selectIcon(icon) {
-    document.getElementById('theme-edit-icon').value = icon;
-    document.getElementById('theme-edit-icon-preview').textContent = icon;
-    document.getElementById('icon-picker-dropdown').style.display = 'none';
-    updateIconPickerSelection();
-}
-
-function clearThemeIcon() {
-    const themeId = document.getElementById('theme-edit-id').value;
-    const autoIcon = getThemeIcon(themeId);
-    document.getElementById('theme-edit-icon').value = '';  // Empty = auto-detect
-    document.getElementById('theme-edit-icon-preview').textContent = autoIcon;
-    updateIconPickerSelection();
-}
-
-function updateIconPickerSelection() {
-    const currentIcon = document.getElementById('theme-edit-icon').value;
-    const items = document.querySelectorAll('.icon-picker-item');
-    items.forEach(item => {
-        item.classList.toggle('selected', item.textContent.trim() === currentIcon);
-    });
-}
-
-// Close icon picker when clicking outside
-document.addEventListener('click', function(e) {
-    const picker = document.querySelector('.icon-picker');
-    const dropdown = document.getElementById('icon-picker-dropdown');
-    if (picker && dropdown && !picker.contains(e.target)) {
-        dropdown.style.display = 'none';
-    }
-});
-
 async function togglePlayback(sessionId) {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
@@ -2000,106 +1943,60 @@ async function deleteTheme(themeId, themeName) {
     }
 }
 
-// Theme Edit Modal
-function openThemeEditModal(themeId) {
-    const theme = themes.find(t => t.id === themeId);
-    if (!theme) return;
+// ============================================
+// Theme Edit window
+// Fixed top (details, tracks toolbar) and footer (presets, save); only the
+// track list scrolls. Groups are collapsible sections whose header row holds
+// the group master controls. All menus and popovers share one floating
+// element (#te-menu) placed next to the button that opened it.
+// ============================================
 
-    document.getElementById('theme-edit-id').value = themeId;
-    document.getElementById('theme-edit-title').textContent = `Edit: ${theme.name}`;
-    document.getElementById('theme-edit-name').value = theme.name || '';
-    document.getElementById('theme-edit-description').value = theme.description || '';
+const TE_ICON_MORE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+const TE_ICON_FOLDER = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>';
+const TE_ICON_PLUS = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
+const TE_ICON_RESET = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
+const TE_ICON_DOWNLOAD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+const TE_ICON_X = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+const TE_ICON_GRIP = '<svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="3" cy="8" r="1.5"/><circle cx="9" cy="8" r="1.5"/><circle cx="3" cy="13" r="1.5"/><circle cx="9" cy="13" r="1.5"/></svg>';
+const TE_ICON_CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
+const TE_ICON_CHEV_UP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>';
+const TE_ICON_FOLDER_LG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>';
+const TE_ICON_PLAY = '<svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const TE_ICON_STOP = '<svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
 
-    // Set icon - use stored icon or show auto-detected
-    const storedIcon = theme.icon || '';
-    const displayIcon = storedIcon ? resolveThemeIcon(storedIcon, themeId) : getThemeIcon(themeId);
-    document.getElementById('theme-edit-icon').value = storedIcon ? displayIcon : '';
-    document.getElementById('theme-edit-icon-preview').textContent = displayIcon;
-    document.getElementById('icon-picker-dropdown').style.display = 'none';
+const TE_MODES = [['auto', 'Auto'], ['continuous', 'Continuous'], ['sparse', 'Sparse'], ['presence', 'Presence']];
+const TE_GROUP_MODES = [['auto', 'Auto'], ['sparse', 'Sparse'], ['presence', 'Presence']];
+// The server rebuilds its theme list about 2 s after files move, rename or upload
+const TE_REBUILD_WAIT_MS = 2600;
 
-    // Render category checkboxes
-    const categoriesContainer = document.getElementById('theme-edit-categories');
-    const themeCats = theme.categories || [];
+const te = {
+    themeId: null,
+    tracks: [],
+    groups: [],
+    groupsOk: true,        // false on an older server without /groups
+    icon: '',              // stored icon ('' = automatic)
+    cats: [],
+    catText: '',
+    catHi: 0,
+    catFocus: false,
+    threshold: null,
+    saved: '',             // snapshot of the details as last saved
+    closed: {},            // collapsed groups
+    presets: [],
+    selPreset: '',         // '' = current settings
+    mixDirty: false,
+    upload: null,          // null = upload zone hidden; '' = theme; otherwise a group name
+    menu: null,
+    menuBtn: null,
+    renaming: null,        // group being renamed inline
+    confirmDel: null,      // group waiting for delete confirmation
+    drag: null,            // track key being dragged
+    msgTimer: null,
+    loadSeq: 0,
+};
 
-    if (themeCategories && themeCategories.length > 0) {
-        categoriesContainer.innerHTML = themeCategories.map(cat => `
-            <label class="category-checkbox">
-                <input type="checkbox" value="${escapeHtml(cat)}" ${themeCats.includes(cat) ? 'checked' : ''}>
-                ${escapeHtml(cat)}
-            </label>
-        `).join('');
-    } else {
-        categoriesContainer.innerHTML = '<span style="color: var(--text-muted); font-size: 0.875rem;">No categories created yet</span>';
-    }
-
-    document.getElementById('theme-edit-new-category').value = '';
-    document.getElementById('theme-edit-modal').style.display = 'flex';
-
-    // Load track mixer data
-    loadTrackMixer(themeId);
-}
-
-function closeThemeEditModal() {
-    document.getElementById('theme-edit-modal').style.display = 'none';
-}
-
-// Track Mixer Functions
+// Kept for other callers (import preset, preview): the open theme's id
 let currentTrackMixerThemeId = null;
-
-async function loadTrackMixer(themeId, preservePresetSelection = false) {
-    currentTrackMixerThemeId = themeId;
-    const container = document.getElementById('track-mixer-list');
-    container.innerHTML = '<div class="track-mixer-empty">Loading tracks...</div>';
-
-    // Save current preset selection if preserving
-    const presetSelect = document.getElementById('preset-select');
-    const currentPresetId = preservePresetSelection && presetSelect ? presetSelect.value : '';
-
-    // Load presets for this theme
-    await loadPresets(themeId);
-
-    // Restore or reset preset dropdown selection
-    if (presetSelect) {
-        presetSelect.value = currentPresetId;
-        // Update button visibility without triggering load
-        const defaultBtn = document.getElementById('preset-default-btn');
-        const renameBtn = document.getElementById('preset-rename-btn');
-        const deleteBtn = document.getElementById('preset-delete-btn');
-        const exportBtn = document.getElementById('preset-export-btn');
-        if (currentPresetId) {
-            defaultBtn.style.display = '';
-            renameBtn.style.display = '';
-            deleteBtn.style.display = '';
-            exportBtn.style.display = '';
-        } else {
-            defaultBtn.style.display = 'none';
-            renameBtn.style.display = 'none';
-            deleteBtn.style.display = 'none';
-            exportBtn.style.display = 'none';
-        }
-    }
-
-    try {
-        trackMixerView = null;
-        await loadTrackMixerData(themeId);
-        if (!trackMixerTracks.length && !trackMixerGroups.length) {
-            container.innerHTML = renderTrackMixerToolbar() + '<div class="track-mixer-empty">No audio files in this theme</div>';
-            return;
-        }
-        renderTrackMixer();
-    } catch (error) {
-        console.error('Failed to load tracks:', error);
-        container.innerHTML = `<div class="track-mixer-empty">${escapeHtml(error.message || 'Failed to load tracks')}</div>`;
-    }
-}
-
-// --- Track mixer: tracks, groups (theme subfolders) and each group's page ---
-// A group plays one of its tracks at a time. Its master Volume and How often
-// multiply each track's own value; its Gap between plays is a real interval.
-
-let trackMixerTracks = [];
-let trackMixerGroups = [];
-let trackMixerView = null;  // null: the theme's track list; otherwise a group's name
 
 function trackDisplayName(key) {
     return key.includes('/') ? key.slice(key.indexOf('/') + 1) : key;
@@ -2114,24 +2011,6 @@ function jsArg(text) {
     return escapeHtml(JSON.stringify(String(text)));
 }
 
-async function loadTrackMixerData(themeId) {
-    const result = await api('GET', `/themes/${themeId}/tracks`);
-    if (result.error) throw new Error(result.error);
-    trackMixerTracks = (result.tracks || []).sort((a, b) => a.name.localeCompare(b.name));
-    try {
-        trackMixerGroups = (await api('GET', `/themes/${themeId}/groups`)).groups || [];
-    } catch (error) {
-        trackMixerGroups = [];  // older server without groups
-    }
-    // Groups that exist only as a folder prefix in track keys (defensive)
-    for (const t of trackMixerTracks) {
-        const g = trackGroupOf(t.name);
-        if (g && !trackMixerGroups.some(x => x.name === g)) trackMixerGroups.push({ name: g, settings: {}, tracks: [] });
-    }
-    trackMixerGroups.sort((a, b) => a.name.localeCompare(b.name));
-    if (trackMixerView && !trackMixerGroups.some(g => g.name === trackMixerView)) trackMixerView = null;
-}
-
 function groupMaster(group, key) {
     const value = group?.settings?.[key];
     return value === undefined || value === null ? 1 : value;
@@ -2142,339 +2021,886 @@ function playsAtHint(trackValue, master) {
     return `plays at ${Math.round(trackValue * master * 100)}%`;
 }
 
-function renderTrackRow(track, group) {
+function teEsc(value) {
+    return value === 0 ? '0' : escapeHtml(value == null ? '' : String(value));
+}
+
+function teGroup(name) {
+    return te.groups.find(g => g.name === name) || null;
+}
+
+function teTrack(key) {
+    return te.tracks.find(t => t.name === key) || null;
+}
+
+function teTrackUrl(key, suffix) {
+    return `/themes/${te.themeId}/tracks/${encodeURIComponent(key)}/${suffix}`;
+}
+
+function teGroupUrl(name, suffix = '') {
+    return `/themes/${te.themeId}/groups/${encodeURIComponent(name)}${suffix}`;
+}
+
+function teWait(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function teFlash(text) {
+    const el = document.getElementById('te-msg');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.add('show');
+    clearTimeout(te.msgTimer);
+    te.msgTimer = setTimeout(() => { el.textContent = ''; el.classList.remove('show'); }, 2600);
+}
+
+// ---------- Open / close ----------
+
+function openThemeEditModal(themeId) {
+    const theme = themes.find(t => t.id === themeId);
+    if (!theme) return;
+
+    teCloseMenu();
+    stopTrackPreview();
+    Object.assign(te, {
+        themeId, tracks: [], groups: [], groupsOk: true,
+        icon: theme.icon ? resolveThemeIcon(theme.icon, themeId) : '',
+        cats: [...(theme.categories || [])], catText: '', catHi: 0, catFocus: false,
+        threshold: theme.short_file_threshold ?? null,
+        closed: {}, presets: [], selPreset: '', mixDirty: false,
+        upload: null, renaming: null, confirmDel: null, drag: null,
+    });
+    currentTrackMixerThemeId = themeId;
+
+    document.getElementById('theme-edit-id').value = themeId;
+    document.getElementById('te-title-name').textContent = theme.name || '';
+    document.getElementById('te-name').value = theme.name || '';
+    const desc = document.getElementById('te-desc');
+    desc.value = theme.description || '';
+    document.getElementById('te-cat').value = '';
+    document.getElementById('te-msg').textContent = '';
+    teRenderIcon();
+    teRenderChips();
+    teRenderCatList();
+    teSetUpload(null);
+    te.saved = teDetailsSnap();
+    teDetailsChanged();
+    teRenderPresetField();
+
+    document.getElementById('te-tracks').innerHTML = '<div class="empty-row">Loading tracks…</div>';
+    document.getElementById('theme-edit-modal').style.display = 'flex';
+    teAutoGrow(desc);
+
+    loadCategories().then(teRenderCatList);
+    teLoadPresets(true);
+    teLoadTracks();
+}
+
+function closeThemeEditModal() {
+    teCloseMenu();
+    stopTrackPreview();
+    document.getElementById('theme-edit-modal').style.display = 'none';
+    te.themeId = null;
+}
+
+// ---------- Details: name, icon, description, categories, threshold ----------
+
+function teDetailsSnap() {
+    return JSON.stringify([
+        document.getElementById('te-name').value.trim(),
+        te.icon,
+        document.getElementById('te-desc').value.trim(),
+        te.cats,
+        te.threshold,
+    ]);
+}
+
+function teDetailsChanged() {
+    const dot = document.getElementById('te-sdot');
+    if (dot) dot.hidden = teDetailsSnap() === te.saved;
+}
+
+function teAutoGrow(textarea) {
+    // One line, grows to two, then scrolls (field-sizing isn't everywhere yet)
+    textarea.style.height = 'auto';
+    const style = getComputedStyle(textarea);
+    const max = parseFloat(style.maxHeight) || 9999;
+    const border = parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth);
+    textarea.style.height = Math.min(textarea.scrollHeight + border, max) + 'px';
+}
+
+function teRenderIcon() {
+    document.getElementById('te-icon').textContent = te.icon || resolveThemeIcon('', te.themeId);
+}
+
+function tePickIcon(icon) {
+    te.icon = icon;
+    teRenderIcon();
+    teCloseMenu();
+    teDetailsChanged();
+}
+
+function teSetThreshold(input) {
+    const value = input.value === '' ? null : Math.max(0, parseFloat(input.value));
+    te.threshold = Number.isFinite(value) ? value : null;
+    teDetailsChanged();
+}
+
+// Categories: one chip field with autocomplete
+function teHasCat(list, name) {
+    return list.some(c => c.toLowerCase() === name.toLowerCase());
+}
+
+function teCatOptions() {
+    const q = te.catText.trim().replace(/\s+/g, ' ');
+    const ql = q.toLowerCase();
+    const options = (themeCategories || [])
+        .filter(c => !teHasCat(te.cats, c) && c.toLowerCase().includes(ql))
+        .sort((a, b) => (b.toLowerCase().startsWith(ql) ? 1 : 0) - (a.toLowerCase().startsWith(ql) ? 1 : 0))
+        .map(c => ({ label: c, create: false }));
+    if (q && !teHasCat(themeCategories || [], q) && !teHasCat(te.cats, q)) options.push({ label: q, create: true });
+    return options;
+}
+
+function teRenderChips() {
+    document.getElementById('te-chips').innerHTML = te.cats.map((c, i) => `
+        <span class="chip">${escapeHtml(c)}<button type="button" aria-label="Remove ${escapeHtml(c)}"
+            onmousedown="event.preventDefault()" onclick="event.preventDefault(); teRemoveCat(${i})">${TE_ICON_X}</button></span>`).join('');
+    const input = document.getElementById('te-cat');
+    input.placeholder = te.cats.length ? '' : 'Add a category…';
+    const field = document.getElementById('te-chipfield');
+    field.scrollLeft = field.scrollWidth;
+}
+
+function teRenderCatList() {
+    const list = document.getElementById('te-cat-list');
+    const input = document.getElementById('te-cat');
+    if (!list || !input) return;
+    const options = te.catFocus ? teCatOptions() : [];
+    te.catHi = Math.max(0, Math.min(te.catHi, options.length - 1));
+    list.hidden = !options.length;
+    input.setAttribute('aria-expanded', options.length ? 'true' : 'false');
+    list.innerHTML = options.map((o, i) => `
+        <button type="button" class="ac-opt${i === te.catHi ? ' hi' : ''}${o.create ? ' create' : ''}" role="option"
+                id="te-cat-opt-${i}" aria-selected="${i === te.catHi}"
+                onmousedown="event.preventDefault(); teAddCat(${jsArg(o.label)})" onmouseenter="teCatHover(${i})">
+            ${o.create ? `<span class="plus">+</span><span>Create “${escapeHtml(o.label)}”</span>` : `<span>${escapeHtml(o.label)}</span>`}
+            ${i === te.catHi ? '<span class="key">Enter</span>' : ''}
+        </button>`).join('');
+    if (options.length) input.setAttribute('aria-activedescendant', `te-cat-opt-${te.catHi}`);
+    else input.removeAttribute('aria-activedescendant');
+}
+
+function teCatHover(i) {
+    if (te.catHi === i) return;
+    te.catHi = i;
+    teRenderCatList();
+}
+
+function teCatInput(input) {
+    te.catText = input.value;
+    te.catHi = 0;
+    te.catFocus = true;
+    teRenderCatList();
+}
+
+function teCatFocus(on) {
+    te.catFocus = on;
+    document.getElementById('te-chipfield').classList.toggle('focus', on);
+    teRenderCatList();
+}
+
+function teAddCat(label) {
+    const text = String(label).trim().replace(/\s+/g, ' ');
+    if (!text) return;
+    const known = (themeCategories || []).find(c => c.toLowerCase() === text.toLowerCase());
+    const name = known || text;
+    if (!teHasCat(te.cats, name)) te.cats.push(name);
+    te.catText = '';
+    te.catHi = 0;
+    document.getElementById('te-cat').value = '';
+    teRenderChips();
+    teRenderCatList();
+    teDetailsChanged();
+}
+
+function teRemoveCat(index) {
+    te.cats.splice(index, 1);
+    teRenderChips();
+    teRenderCatList();
+    teDetailsChanged();
+    document.getElementById('te-cat').focus();
+}
+
+function teCatKey(event) {
+    const options = teCatOptions();
+    const key = event.key;
+    const q = te.catText.trim();
+    if (key === 'ArrowDown' && options.length) {
+        event.preventDefault();
+        te.catHi = (te.catHi + 1) % options.length;
+        teRenderCatList();
+    } else if (key === 'ArrowUp' && options.length) {
+        event.preventDefault();
+        te.catHi = (te.catHi - 1 + options.length) % options.length;
+        teRenderCatList();
+    } else if (key === 'Enter' || key === 'Tab') {
+        if (q) {
+            event.preventDefault();
+            teAddCat(options.length ? options[Math.min(te.catHi, options.length - 1)].label : q);
+        } else if (key === 'Enter') {
+            event.preventDefault();
+        }
+    } else if (key === 'Backspace' && event.target.value === '' && te.cats.length) {
+        te.cats.pop();
+        teRenderChips();
+        teRenderCatList();
+        teDetailsChanged();
+    } else if (key === 'Escape') {
+        if (!document.getElementById('te-cat-list').hidden) {
+            event.stopPropagation();
+            te.catFocus = false;
+            teRenderCatList();
+        }
+    }
+}
+
+// Save theme: name, icon, description, categories and the short file threshold
+async function teSaveTheme(quiet = false) {
+    const themeId = te.themeId;
+    if (!themeId) return false;
+    const pending = te.catText.trim();
+    if (pending) teAddCat(pending);
+    const name = document.getElementById('te-name').value.trim();
+    const description = document.getElementById('te-desc').value.trim();
+    if (!name) {
+        showToast('Please enter a theme name', 'warning');
+        document.getElementById('te-name').focus();
+        return false;
+    }
+    const theme = themes.find(t => t.id === themeId);
+    try {
+        if (theme && theme.name !== name) {
+            await api('PUT', `/themes/${themeId}/rename`, { name });
+        }
+        const body = { description, icon: te.icon || '' };
+        if (te.threshold !== null && te.threshold !== (theme?.short_file_threshold ?? null)) {
+            body.short_file_threshold = te.threshold;
+        }
+        await api('PUT', `/themes/${themeId}/metadata`, body);
+        await api('POST', `/themes/${themeId}/categories`, { categories: [...te.cats] });
+        if (theme) {
+            theme.name = name;
+            theme.description = description;
+            theme.icon = te.icon || null;
+            theme.categories = [...te.cats];
+            if (body.short_file_threshold !== undefined) theme.short_file_threshold = te.threshold;
+        }
+        document.getElementById('te-title-name').textContent = name;
+        te.saved = teDetailsSnap();
+        teDetailsChanged();
+        await loadCategories();
+        renderThemesBrowser();
+        renderThemeSelector();
+        if (!quiet) teFlash('Saved');
+        return true;
+    } catch (error) {
+        console.error('Save theme error:', error);
+        showToast(error?.message || 'Failed to save theme', 'error');
+        return false;
+    }
+}
+
+// ---------- Tracks and groups ----------
+
+async function teLoadData(themeId) {
+    const result = await api('GET', `/themes/${themeId}/tracks`);
+    const tracks = (result.tracks || []).sort((a, b) => a.name.localeCompare(b.name));
+    let groups = [];
+    let groupsOk = true;
+    try {
+        groups = (await api('GET', `/themes/${themeId}/groups`)).groups || [];
+    } catch (error) {
+        groupsOk = false;  // older server without groups: tracks only
+    }
+    if (groupsOk) {
+        // Groups that exist only as a folder prefix in track keys (defensive)
+        for (const t of tracks) {
+            const g = trackGroupOf(t.name);
+            if (g && !groups.some(x => x.name === g)) groups.push({ name: g, settings: {}, tracks: [] });
+        }
+        groups.sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return { tracks, groups, groupsOk };
+}
+
+async function teLoadTracks(afterFileChange = false) {
+    const themeId = te.themeId;
+    if (!themeId) return;
+    const seq = ++te.loadSeq;
+    const list = document.getElementById('te-tracks');
+    if (afterFileChange) {
+        list.classList.add('busy');
+        await teWait(TE_REBUILD_WAIT_MS);
+    }
+    try {
+        const data = await teLoadData(themeId);
+        if (seq !== te.loadSeq || te.themeId !== themeId) return;
+        Object.assign(te, data);
+        if (te.upload && !teGroup(te.upload)) te.upload = '';
+        teRenderTracks();
+    } catch (error) {
+        if (seq !== te.loadSeq || te.themeId !== themeId) return;
+        console.error('Failed to load tracks:', error);
+        list.innerHTML = `<div class="empty-row">${escapeHtml(error.message || 'Failed to load tracks')}</div>`;
+    } finally {
+        if (seq === te.loadSeq) list.classList.remove('busy');
+    }
+}
+
+// Kept for older callers: reload the track list (after a file change, wait for the rebuild)
+function refreshTrackMixer(afterFileChange = false) {
+    return teLoadTracks(afterFileChange);
+}
+
+function teModeOptions(track, inGroup) {
+    const modes = inGroup ? TE_GROUP_MODES : TE_MODES;
+    let current = track.playback_mode || 'auto';
+    if (!modes.some(([v]) => v === current)) current = 'auto';
+    return modes.map(([v, label]) => `<option value="${v}"${v === current ? ' selected' : ''}>${label}</option>`).join('');
+}
+
+function teGaplessAllowed(track) {
+    const mode = track.playback_mode || 'auto';
+    return mode === 'continuous' || (mode === 'auto' && !track.is_short_file);
+}
+
+function teSliderCell(kind, label, percent, attrs, hint) {
+    return `
+        <div class="mx" data-kind="${kind}">
+            <span class="c-lbl">${label}</span>
+            <div class="mx-ctl">
+                <div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="100" value="${percent}" ${attrs}></div>
+                <span class="track-slider-value">${percent}%</span>
+            </div>
+            <span class="mx-hint">${hint || ''}</span>
+        </div>`;
+}
+
+function teRenderRow(track, group) {
     const key = track.name;
-    const presencePercent = Math.round(track.presence * 100);
-    const volumePercent = Math.round((track.volume ?? 1.0) * 100);
-    const playbackMode = track.playback_mode || 'auto';
-    const seamlessLoop = track.seamless_loop || false;
     const k = jsArg(key);
-    const modes = group
-        ? [['auto', 'Auto'], ['sparse', 'Sparse'], ['presence', 'Presence']]
-        : [['auto', 'Auto'], ['continuous', 'Continuous'], ['sparse', 'Sparse'], ['presence', 'Presence']];
-    const groupControl = group
-        ? `<button class="btn btn-sm btn-secondary track-move-out" onclick="moveTrackToGroup(${k}, null)" title="Move out of group">Move out</button>`
-        : `<select class="track-group-select" onchange="onTrackGroupSelect(${k}, this)" title="Group">
-               <option value="">No group</option>
-               ${trackMixerGroups.map(g => `<option value="${escapeHtml(g.name)}">${escapeHtml(g.name)}</option>`).join('')}
-               <option value="__new__">New group…</option>
-           </select>
-           ${track.exclusive ? `<label class="track-exclusive-label" title="Only one exclusive sound plays at a time (older themes). Put tracks in a group instead.">
-               <input type="checkbox" checked onchange="setTrackExclusive(${k}, this.checked)"> Exclusive</label>` : ''}`;
+    const name = trackDisplayName(key);
+    const vol = Math.round((track.volume ?? 1) * 100);
+    const pres = Math.round((track.presence ?? 1) * 100);
     const volMaster = group ? groupMaster(group, 'volume') : 1;
     const presMaster = group ? groupMaster(group, 'presence') : 1;
+    const playing = currentPreviewTrack === key && trackPreviewAudio && !trackPreviewAudio.paused;
+    const advOn = (!group && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive;
+    const muted = track.muted || (group && group.settings?.muted);
+    const cls = ['trow', 'tgrid', group ? 'in-grp' : '', muted ? 'muted' : ''].filter(Boolean).join(' ');
+    const label = escapeHtml(name);
     return `
-    <div class="track-item ${track.muted ? 'muted' : ''}" data-track="${escapeHtml(key)}" draggable="true"
-         ondragstart="onTrackDragStart(event, ${k})">
-        <div class="track-preview-cell">
-            <button class="track-preview-btn" onclick="toggleTrackPreview(${k})" title="Preview track">
-                <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><path d="M8 5v14l11-7z"/></svg>
-                <svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" width="16" height="16" style="display:none;"><rect x="6" y="6" width="12" height="12"/></svg>
-            </button>
+    <div class="${cls}" data-track="${escapeHtml(key)}">
+        ${te.groupsOk ? `<span class="drag-handle" draggable="true" title="Drag to another section" aria-label="Drag ${label}"
+              ondragstart="teDragStart(event, ${k})" ondragend="teDragEnd()">${TE_ICON_GRIP}</span>` : '<span></span>'}
+        <button class="track-preview-btn${playing ? ' playing' : ''}" title="${playing ? 'Stop preview' : 'Preview'}"
+                aria-label="Preview: ${label}" onclick="toggleTrackPreview(${k})">
+            ${TE_ICON_PLAY.replace('<svg', `<svg style="display:${playing ? 'none' : 'block'}"`)}
+            ${TE_ICON_STOP.replace('<svg', `<svg style="display:${playing ? 'block' : 'none'}"`)}
+        </button>
+        <span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>
+        <div class="c-mode">
+            <span class="c-lbl">Mode</span>
+            <select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"
+                    title="Auto picks by file length. Continuous loops. Sparse plays once, then waits. Presence fades in and out.">${teModeOptions(track, !!group)}</select>
         </div>
-        <div class="track-name-cell">
-            <span class="track-drag-handle" aria-hidden="true">⋮⋮</span>
-            <span class="track-name">${escapeHtml(trackDisplayName(key))}</span>
-        </div>
-        <div class="track-mode-cell">
-            <select class="track-mode-select" onchange="setTrackPlaybackMode(${k}, this.value)"
-                    title="How this sound plays: Auto = picks by file length. Continuous = loops forever. Sparse = plays once, then waits. Presence = fades in and out.">
-                ${modes.map(([v, label]) => `<option value="${v}" ${playbackMode === v ? 'selected' : ''}>${label}</option>`).join('')}
-            </select>
-            ${group ? '' : `<label class="track-seamless-label" title="Skip the crossfade when looping, for files that already loop smoothly.">
-                <input type="checkbox" ${seamlessLoop ? 'checked' : ''} onchange="setTrackSeamlessLoop(${k}, this.checked)"> Gapless</label>`}
-            ${groupControl}
-        </div>
-        <div class="track-sliders-cell">
-            <div class="track-slider-row" title="How loud this sound is in the mix.">
-                <span class="track-slider-label">Vol</span>
-                <div class="track-slider-wrapper">
-                    <input type="range" class="track-slider track-volume-slider" min="0" max="100" value="${volumePercent}"
-                           data-master="${volMaster}"
-                           onchange="setTrackVolume(${k}, this.value)" oninput="updateSliderDisplay(this)">
-                </div>
-                <span class="track-slider-value track-volume-value">${volumePercent}%</span>
-            </div>
-            <div class="track-plays-at">${playsAtHint(volumePercent / 100, volMaster)}</div>
-            <div class="track-slider-row" title="How often this sound plays.">
-                <span class="track-slider-label">Pres</span>
-                <div class="track-slider-wrapper">
-                    <input type="range" class="track-slider track-presence-slider" min="0" max="100" value="${presencePercent}"
-                           data-master="${presMaster}"
-                           onchange="setTrackPresence(${k}, this.value)" oninput="updateSliderDisplay(this)">
-                </div>
-                <span class="track-slider-value track-presence-value">${presencePercent}%</span>
-            </div>
-            <div class="track-plays-at">${playsAtHint(presencePercent / 100, presMaster)}</div>
-        </div>
-        <div class="track-mute-cell">
-            <button class="track-mute-btn ${track.muted ? 'muted' : ''}" onclick="toggleTrackMute(${k})" title="${track.muted ? 'Unmute' : 'Mute'}">
-                ${track.muted ? '🔇' : '🔊'}
-            </button>
-        </div>
+        ${teSliderCell('volume', 'Volume', vol,
+            `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"`,
+            playsAtHint(vol / 100, volMaster))}
+        ${teSliderCell('presence', 'How often', pres,
+            `aria-label="How often: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'presence', this.value)"`,
+            playsAtHint(pres / 100, presMaster))}
+        <button class="track-mute-btn${track.muted ? ' muted' : ''}" title="${track.muted ? 'Unmute' : 'Mute'}"
+                aria-label="${track.muted ? 'Unmute' : 'Mute'}: ${label}" aria-pressed="${!!track.muted}"
+                onclick="teToggleTrackMute(${k})">${track.muted ? '🔇' : '🔊'}</button>
+        <button class="icon-btn sm more-btn" aria-label="More for ${label}" aria-haspopup="menu"
+                onclick="teMenu('track', this, ${k})">${TE_ICON_MORE}${advOn ? '<span class="adv-dot"></span>' : ''}</button>
     </div>`;
 }
 
-function renderTrackMixerToolbar() {
-    const targets = [['', 'Theme (no group)'], ...trackMixerGroups.map(g => [g.name, g.name])];
-    const selected = trackMixerView || '';
-    return `
-    <div class="track-mixer-toolbar">
-        <select id="track-upload-target" class="track-upload-target" aria-label="Upload to">
-            ${targets.map(([v, label]) => `<option value="${escapeHtml(v)}" ${v === selected ? 'selected' : ''}>${escapeHtml(label)}</option>`).join('')}
-        </select>
-        <button class="btn btn-sm btn-secondary" onclick="document.getElementById('track-upload-input').click()">Upload</button>
-        <input type="file" id="track-upload-input" multiple accept=".mp3,.wav,.flac,.ogg,audio/*" style="display:none"
-               onchange="uploadTracksToMixer(this.files); this.value = ''">
-        ${trackMixerView ? '' : '<button class="btn btn-sm btn-secondary" onclick="createTrackGroup()">New group</button>'}
-    </div>`;
-}
-
-function renderTrackMixer() {
-    const container = document.getElementById('track-mixer-list');
-    if (!container) return;
-    if (trackMixerView) {
-        renderTrackGroupPage(container, trackMixerGroups.find(g => g.name === trackMixerView));
-        return;
-    }
-    const ungrouped = trackMixerTracks.filter(t => !trackGroupOf(t.name));
-    const groupRows = trackMixerGroups.map(g => {
-        const count = trackMixerTracks.filter(t => trackGroupOf(t.name) === g.name).length;
-        const how = Math.round(groupMaster(g, 'presence') * 100);
-        const muted = !!g.settings?.muted;
-        const n = jsArg(g.name);
-        return `
-        <div class="track-group-row ${muted ? 'muted' : ''}" data-group="${escapeHtml(g.name)}"
-             onclick="openTrackGroup(${n})"
-             ondragover="event.preventDefault(); this.classList.add('drop-target')"
-             ondragleave="this.classList.remove('drop-target')"
-             ondrop="onTrackDrop(event, ${n}); this.classList.remove('drop-target')">
-            <span class="track-group-icon" aria-hidden="true">📁</span>
-            <span class="track-group-name">${escapeHtml(g.name)}</span>
-            <span class="badge">${count} track${count === 1 ? '' : 's'}</span>
-            <span class="track-group-meta">How often ${how}%</span>
-            <button class="track-mute-btn ${muted ? 'muted' : ''}" title="${muted ? 'Unmute group' : 'Mute group'}"
-                    onclick="event.stopPropagation(); setGroupSetting(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
-            <svg class="track-group-chevron" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-        </div>`;
-    }).join('');
-    container.innerHTML = renderTrackMixerToolbar()
-        + groupRows
-        + (ungrouped.length ? ungrouped.map(t => renderTrackRow(t, null)).join('')
-            : (trackMixerGroups.length ? '' : '<div class="track-mixer-empty">No audio files in this theme</div>'));
-}
-
-function renderTrackGroupPage(container, group) {
-    if (!group) { trackMixerView = null; renderTrackMixer(); return; }
-    const tracks = trackMixerTracks.filter(t => trackGroupOf(t.name) === group.name);
+function teRenderGroup(group) {
+    const name = group.name;
+    const n = jsArg(name);
+    const label = escapeHtml(name);
+    const tracks = te.tracks.filter(t => trackGroupOf(t.name) === name);
+    const open = !te.closed[name];
     const s = group.settings || {};
-    const n = jsArg(group.name);
+    const muted = !!s.muted;
     const vol = Math.round(groupMaster(group, 'volume') * 100);
-    const how = Math.round(groupMaster(group, 'presence') * 100);
+    const pres = Math.round(groupMaster(group, 'presence') * 100);
     const gapMin = s.gap_min != null ? Math.round(s.gap_min / 6) / 10 : '';
     const gapMax = s.gap_max != null ? Math.round(s.gap_max / 6) / 10 : '';
-    container.innerHTML = `
-    <div class="track-group-breadcrumb"
-         ondragover="event.preventDefault(); this.classList.add('drop-target')"
-         ondragleave="this.classList.remove('drop-target')"
-         ondrop="onTrackDrop(event, null); this.classList.remove('drop-target')">
-        <button class="btn btn-sm btn-secondary" onclick="closeTrackGroup()">← Theme tracks</button>
-        <span class="track-group-crumb">› ${escapeHtml(group.name)}</span>
-    </div>
-    ${renderTrackMixerToolbar()}
-    <div class="track-group-master">
-        <div class="track-group-master-row">
-            <label>Name</label>
-            <input type="text" class="track-group-rename" value="${escapeHtml(group.name)}" maxlength="60"
-                   onchange="renameTrackGroup(${n}, this.value)">
-            <button class="btn btn-sm btn-secondary btn-danger" onclick="deleteTrackGroup(${n})">Delete group</button>
-        </div>
-        <div class="track-slider-row" title="Multiplies each track's volume.">
-            <span class="track-slider-label">Volume</span>
-            <div class="track-slider-wrapper">
-                <input type="range" class="track-slider" min="0" max="100" value="${vol}"
-                       oninput="updateSliderDisplay(this); previewGroupMaster('volume', this.value)"
-                       onchange="setGroupSetting(${n}, 'volume', this.value / 100)">
+    const renaming = te.renaming === name;
+    const confirming = te.confirmDel === name;
+    const count = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
+    const gap = (cls) => `
+        <div class="${cls}">
+            <span class="${cls === 'gap-row' ? 'c-lbl' : 'gap-word'}">Gap</span>
+            <input class="num" type="number" min="0" step="0.5" placeholder="2" value="${teEsc(gapMin)}" aria-label="${label} minimum gap, minutes"
+                   data-gap="min" onchange="teSetGroupGap(${n}, this)">
+            <span>–</span>
+            <input class="num" type="number" min="0" step="0.5" placeholder="2" value="${teEsc(gapMax)}" aria-label="${label} maximum gap, minutes"
+                   data-gap="max" onchange="teSetGroupGap(${n}, this)">
+            <span>min</span>
+        </div>`;
+    let nameCell;
+    if (renaming) {
+        nameCell = `<input class="inp sm grp-rename" type="text" maxlength="60" enterkeyhint="done" aria-label="Group name" value="${label}"
+                           onkeydown="teRenameKey(event, ${n})" onblur="teCommitRename(${n}, this.value)">`;
+    } else if (confirming) {
+        nameCell = `<span class="pb-confirm">Delete ${label}? Tracks move to the theme.</span>
+                    <span class="grp-confirm-btns">
+                        <button class="btn btn-sm btn-danger" onclick="teDeleteGroup(${n})">Delete</button>
+                        <button class="btn btn-sm btn-secondary" onclick="teCancelDelete()">Cancel</button>
+                    </span>`;
+    } else {
+        nameCell = `<button class="gname" title="Double-click to rename" ondblclick="teStartRename(${n})">${label}</button>
+                    <span class="badge badge-type">${count}</span>`;
+    }
+    const masterSlider = (kind, text, value) => teSliderCell(kind, text, value,
+        `aria-label="${label} group ${text.toLowerCase()}" oninput="teGroupSliderInput(this, ${n})" onchange="teSetGroupValue(${n}, '${kind}', this.value)"`, '');
+    return `
+    <div class="sec grp-sec${open ? ' open-sec' : ''}${muted ? ' gmuted' : ''}" data-group="${label}"
+         ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, ${n})">
+        <div class="ghead tgrid${muted ? ' muted' : ''}">
+            <button class="chev-btn${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${label}"
+                    onclick="teToggleGroup(${n})">${TE_ICON_CHEV}</button>
+            <span class="folder">${TE_ICON_FOLDER_LG}</span>
+            <div class="gname-cell">
+                ${nameCell}
+                <span class="drop-note">Drop to add</span>
+                ${confirming ? '' : gap('gap-ctl')}
             </div>
-            <span class="track-slider-value">${vol}%</span>
+            <div class="master">${masterSlider('volume', 'Volume', vol)}</div>
+            <div class="master">${masterSlider('presence', 'How often', pres)}</div>
+            <button class="track-mute-btn${muted ? ' muted' : ''}" title="${muted ? 'Unmute group' : 'Mute group'}"
+                    aria-label="${muted ? 'Unmute group' : 'Mute group'}: ${label}" aria-pressed="${muted}"
+                    onclick="teSetGroupValue(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
+            <button class="icon-btn sm" aria-label="More for group ${label}" aria-haspopup="menu" onclick="teMenu('group', this, ${n})">${TE_ICON_MORE}</button>
         </div>
-        <div class="track-slider-row" title="Multiplies each track's How often.">
-            <span class="track-slider-label">How often</span>
-            <div class="track-slider-wrapper">
-                <input type="range" class="track-slider" min="0" max="100" value="${how}"
-                       oninput="updateSliderDisplay(this); previewGroupMaster('presence', this.value)"
-                       onchange="setGroupSetting(${n}, 'presence', this.value / 100)">
-            </div>
-            <span class="track-slider-value">${how}%</span>
+        ${open ? `
+        <div class="pg-master">
+            <span class="mlabel">Group</span>
+            ${masterSlider('volume', 'Volume', vol)}
+            ${masterSlider('presence', 'How often', pres)}
+            ${gap('gap-row')}
         </div>
-        <div class="track-group-master-row">
-            <label>Gap between plays</label>
-            <input type="number" class="track-group-gap" min="0" step="0.5" value="${gapMin}" placeholder="2"
-                   onchange="setGroupGap(${n})" id="group-gap-min"> –
-            <input type="number" class="track-group-gap" min="0" step="0.5" value="${gapMax}" placeholder="2"
-                   onchange="setGroupGap(${n})" id="group-gap-max"> min
-            <label class="track-group-mute">
-                <input type="checkbox" ${s.muted ? 'checked' : ''} onchange="setGroupSetting(${n}, 'muted', this.checked)"> Mute group
-            </label>
-        </div>
-    </div>
-    ${tracks.length ? tracks.map(t => renderTrackRow(t, group)).join('')
-        : '<div class="track-mixer-empty">No tracks in this group. Upload, or drag tracks onto the group in the theme\'s track list.</div>'}`;
+        ${tracks.map(t => teRenderRow(t, group)).join('')}
+        ${tracks.length ? '' : `<div class="empty-row">Drag tracks here or use ⋯ › Move to group</div>`}` : ''}
+    </div>`;
 }
 
-function openTrackGroup(name) {
-    trackMixerView = name;
-    renderTrackMixer();
+function teRenderTracks() {
+    const list = document.getElementById('te-tracks');
+    if (!list || !te.themeId) return;
+    document.getElementById('te-track-count').textContent = te.tracks.length;
+    document.getElementById('te-newgroup-btn').hidden = !te.groupsOk;
+    const ungrouped = te.tracks.filter(t => !te.groupsOk || !trackGroupOf(t.name));
+    const groupsHtml = te.groupsOk ? te.groups.map(teRenderGroup).join('') : '';
+    let themeHtml;
+    if (!te.tracks.length && !te.groups.length) {
+        themeHtml = '<div class="empty-row">No audio files in this theme. Use Upload to add some.</div>';
+    } else {
+        themeHtml = `
+        <div class="sec theme-sec" ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, null)">
+            <div class="slabel"><span>${te.groups.length ? 'Theme (no group)' : 'Tracks'}</span>
+                <span class="badge badge-type">${ungrouped.length} track${ungrouped.length === 1 ? '' : 's'}</span>
+                <span class="drop-note">Drop to move out of group</span></div>
+            ${ungrouped.map(t => teRenderRow(t, null)).join('')}
+            ${ungrouped.length ? '' : '<div class="empty-row">All tracks are in groups</div>'}
+        </div>`;
+    }
+    const scroll = list.scrollTop;
+    list.innerHTML = `<section aria-label="Tracks">${groupsHtml}${themeHtml}</section>`;
+    list.scrollTop = scroll;
+    teUpdateMarquees();
+    const rename = list.querySelector('.grp-rename');
+    if (rename) { rename.focus(); rename.select(); }
 }
 
-function closeTrackGroup() {
-    trackMixerView = null;
-    renderTrackMixer();
-}
-
-// Live "plays at" hints while a group master slider moves (saved on release)
-function previewGroupMaster(key, percent) {
-    const selector = key === 'volume' ? '.track-volume-slider' : '.track-presence-slider';
-    document.querySelectorAll(`#track-mixer-list ${selector}`).forEach(slider => {
-        slider.dataset.master = percent / 100;
-        updatePlaysAt(slider);
+// Names that don't fit scroll slowly to the end, pause, jump back (CSS animation)
+function teUpdateMarquees() {
+    requestAnimationFrame(() => {
+        document.querySelectorAll('#te-tracks .trk-name').forEach(el => {
+            const inner = el.firstElementChild;
+            el.classList.toggle('mq', !!inner && inner.scrollWidth > el.clientWidth + 1);
+        });
     });
 }
 
-function updatePlaysAt(slider) {
-    const hint = slider.closest('.track-slider-row')?.nextElementSibling;
-    if (!hint || !hint.classList.contains('track-plays-at')) return;
-    hint.textContent = playsAtHint(slider.value / 100, parseFloat(slider.dataset.master || '1'));
+let teResizeTimer = null;
+window.addEventListener('resize', () => {
+    if (!te.themeId) return;
+    teCloseMenu();
+    clearTimeout(teResizeTimer);
+    teResizeTimer = setTimeout(() => {
+        teUpdateMarquees();
+        teAutoGrow(document.getElementById('te-desc'));
+    }, 150);
+});
+
+function teSliderInput(slider) {
+    const cell = slider.closest('.mx');
+    cell.querySelector('.track-slider-value').textContent = slider.value + '%';
+    const hint = cell.querySelector('.mx-hint');
+    if (hint) hint.textContent = playsAtHint(slider.value / 100, parseFloat(slider.dataset.master || '1'));
 }
 
-async function refreshTrackMixer(afterFileChange = false) {
-    if (afterFileChange) {
-        // The server rebuilds its theme list about 2 s after files move
-        const container = document.getElementById('track-mixer-list');
-        if (container) container.style.opacity = '0.6';
-        await new Promise(resolve => setTimeout(resolve, 2600));
-        if (container) container.style.opacity = '';
-    }
+// Live "plays at" hints while a group master slider moves (saved on release)
+function teGroupSliderInput(slider, name) {
+    teSliderInput(slider);
+    const kind = slider.closest('.mx').dataset.kind;
+    const section = slider.closest('.grp-sec');
+    if (!section) return;
+    // Keep the desktop header and the phone master block in step
+    section.querySelectorAll(`.master .mx[data-kind="${kind}"] .track-slider, .pg-master .mx[data-kind="${kind}"] .track-slider`).forEach(other => {
+        if (other !== slider) { other.value = slider.value; teSliderInput(other); }
+    });
+    section.querySelectorAll(`.trow .mx[data-kind="${kind}"] .track-slider`).forEach(trackSlider => {
+        trackSlider.dataset.master = slider.value / 100;
+        teSliderInput(trackSlider);
+    });
+}
+
+function teMarkMixChanged() {
+    te.mixDirty = true;
+    teRenderPresetField();
+}
+
+async function teSetTrackValue(key, kind, percent) {
+    const value = parseFloat(percent) / 100;
     try {
-        await loadTrackMixerData(currentTrackMixerThemeId);
+        await api('PUT', teTrackUrl(key, kind), { [kind]: value });
+        const track = teTrack(key);
+        if (track) track[kind] = value;
+        teMarkMixChanged();
     } catch (error) {
-        showToast(error.message, 'error');
+        showToast(error.message || `Failed to set ${kind === 'presence' ? 'how often' : 'volume'}`, 'error');
+        teRenderTracks();
     }
-    renderTrackMixer();
 }
 
-async function setGroupSetting(name, key, value) {
+async function teSetTrackFlag(key, field, value, render = true) {
     try {
-        const result = await api('PUT', `/themes/${currentTrackMixerThemeId}/groups/${encodeURIComponent(name)}`, { [key]: value });
-        const group = trackMixerGroups.find(g => g.name === name);
-        if (group) group.settings = result.settings || group.settings;
-        renderTrackMixer();
+        await api('PUT', teTrackUrl(key, field), { [field]: value });
+        const track = teTrack(key);
+        if (track) track[field] = value;
+        teMarkMixChanged();
     } catch (error) {
-        showToast(error.message, 'error');
+        showToast(error.message || 'Failed to save', 'error');
     }
+    if (render) teRenderTracks();
 }
 
-async function setGroupGap(name) {
-    const low = document.getElementById('group-gap-min').value;
-    const high = document.getElementById('group-gap-max').value;
-    const body = {
-        gap_min: low === '' ? null : parseFloat(low) * 60,
-        gap_max: high === '' ? null : parseFloat(high) * 60,
-    };
-    try {
-        const result = await api('PUT', `/themes/${currentTrackMixerThemeId}/groups/${encodeURIComponent(name)}`, body);
-        const group = trackMixerGroups.find(g => g.name === name);
-        if (group) group.settings = result.settings || group.settings;
-        renderTrackMixer();
-    } catch (error) {
-        showToast(error.message, 'error');
-    }
+function teToggleTrackMute(key) {
+    const track = teTrack(key);
+    if (track) teSetTrackFlag(key, 'muted', !track.muted);
 }
 
-async function createTrackGroup(thenMoveKey) {
-    const name = (prompt('Group name') || '').trim();
-    if (!name) return null;
+function teSetMode(key, mode) {
+    teSetTrackFlag(key, 'playback_mode', mode);
+}
+
+function teToggleGapless(key) {
+    const track = teTrack(key);
+    teCloseMenu();
+    if (track) teSetTrackFlag(key, 'seamless_loop', !track.seamless_loop);
+}
+
+function teToggleExclusive(key) {
+    const track = teTrack(key);
+    teCloseMenu();
+    if (track) teSetTrackFlag(key, 'exclusive', !track.exclusive);
+}
+
+async function teResetTrack(key) {
+    teCloseMenu();
+    const track = teTrack(key);
+    if (!track) return;
+    const changes = [['volume', 1], ['presence', 1], ['muted', false], ['seamless_loop', false]];
+    if (track.exclusive) changes.push(['exclusive', false]);
     try {
-        await api('POST', `/themes/${currentTrackMixerThemeId}/groups`, { name });
-        if (thenMoveKey) {
-            await moveTrackToGroup(thenMoveKey, name);
-        } else {
-            await refreshTrackMixer(true);
+        for (const [field, value] of changes) {
+            await api('PUT', teTrackUrl(key, field), { [field]: value });
+            track[field] = value;
         }
-        return name;
+        teMarkMixChanged();
+        teFlash(`Reset ${trackDisplayName(key)}`);
     } catch (error) {
-        showToast(error.message, 'error');
-        return null;
+        showToast(error.message || 'Failed to reset track', 'error');
     }
+    teRenderTracks();
 }
 
-async function renameTrackGroup(name, newName) {
-    newName = (newName || '').trim();
-    if (!newName || newName === name) return;
+async function teResetAll() {
+    teCloseMenu();
     try {
-        await api('POST', `/themes/${currentTrackMixerThemeId}/groups/${encodeURIComponent(name)}/rename`, { name: newName });
-        if (trackMixerView === name) trackMixerView = newName;
-        await refreshTrackMixer(true);
+        await api('POST', `/themes/${te.themeId}/tracks/reset`);
+        // Group masters back to 100% and unmuted (gaps are left as they are)
+        for (const group of te.groups) {
+            const s = group.settings || {};
+            if (s.volume != null || s.presence != null || s.muted != null) {
+                await api('PUT', teGroupUrl(group.name), { volume: null, presence: null, muted: null });
+            }
+        }
+        teMarkMixChanged();
+        teFlash('Tracks and groups reset');
     } catch (error) {
-        showToast(error.message, 'error');
-        renderTrackMixer();
+        showToast(error.message || 'Failed to reset tracks', 'error');
     }
+    await teLoadTracks();
 }
 
-async function deleteTrackGroup(name) {
-    if (!confirm(`Delete group "${name}"? Its tracks move back to the theme; no audio files are deleted.`)) return;
+// Groups
+function teToggleGroup(name) {
+    te.closed[name] = !te.closed[name];
+    teRenderTracks();
+}
+
+async function teSetGroupValue(name, key, value) {
+    if (key === 'volume' || key === 'presence') value = parseFloat(value) / 100;
     try {
-        await api('DELETE', `/themes/${currentTrackMixerThemeId}/groups/${encodeURIComponent(name)}`);
-        trackMixerView = null;
-        await refreshTrackMixer(true);
+        const result = await api('PUT', teGroupUrl(name), { [key]: value });
+        const group = teGroup(name);
+        if (group) group.settings = result?.settings || { ...(group.settings || {}), [key]: value };
+        teMarkMixChanged();
     } catch (error) {
-        showToast(error.message, 'error');
+        showToast(error.message || 'Failed to save group', 'error');
+    }
+    teRenderTracks();
+}
+
+async function teSetGroupGap(name, input) {
+    const box = input.parentElement;
+    const read = which => {
+        const raw = box.querySelector(`[data-gap="${which}"]`).value;
+        const minutes = parseFloat(raw);
+        return raw === '' || !Number.isFinite(minutes) ? null : Math.max(0, minutes) * 60;
+    };
+    let low = read('min');
+    let high = read('max');
+    if (low != null && high != null && high < low) [low, high] = [high, low];
+    try {
+        const result = await api('PUT', teGroupUrl(name), { gap_min: low, gap_max: high });
+        const group = teGroup(name);
+        if (group) group.settings = result?.settings || { ...(group.settings || {}), gap_min: low, gap_max: high };
+        teMarkMixChanged();
+    } catch (error) {
+        showToast(error.message || 'Failed to save gap', 'error');
+    }
+    teRenderTracks();
+}
+
+function teUniqueGroupName() {
+    let name = 'New group';
+    let i = 2;
+    while (te.groups.some(g => g.name.toLowerCase() === name.toLowerCase())) name = `New group ${i++}`;
+    return name;
+}
+
+async function teNewGroup(moveKey = null) {
+    teCloseMenu();
+    if (!te.groupsOk || !te.themeId) return;
+    const wanted = teUniqueGroupName();
+    try {
+        const result = await api('POST', `/themes/${te.themeId}/groups`, { name: wanted });
+        const name = result?.name || wanted;
+        delete te.closed[name];
+        if (moveKey) {
+            await api('POST', teTrackUrl(moveKey, 'move'), { group: name });
+            te.renaming = name;
+            await teLoadTracks(true);
+        } else {
+            if (!teGroup(name)) {
+                te.groups.push({ name, settings: {}, tracks: [] });
+                te.groups.sort((a, b) => a.name.localeCompare(b.name));
+            }
+            te.renaming = name;
+            teRenderTracks();
+        }
+    } catch (error) {
+        showToast(error.message || 'Failed to create group', 'error');
     }
 }
 
-async function moveTrackToGroup(key, group) {
+function teStartRename(name) {
+    teCloseMenu();
+    te.confirmDel = null;
+    te.renaming = name;
+    teRenderTracks();
+}
+
+function teRenameKey(event, name) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        event.target.blur();
+    } else if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        te.renaming = null;
+        teRenderTracks();
+    }
+}
+
+async function teCommitRename(name, value) {
+    if (te.renaming !== name) return;
+    te.renaming = null;
+    const newName = (value || '').trim();
+    if (!newName || newName === name) { teRenderTracks(); return; }
+    if (te.groups.some(g => g.name !== name && g.name.toLowerCase() === newName.toLowerCase())) {
+        showToast('A group with that name exists', 'warning');
+        teRenderTracks();
+        return;
+    }
+    try {
+        const result = await api('POST', teGroupUrl(name, '/rename'), { name: newName });
+        const finalName = result?.name || newName;
+        if (te.closed[name]) { te.closed[finalName] = true; delete te.closed[name]; }
+        if (te.upload === name) te.upload = finalName;
+        // Show the new name now; tracks follow after the rebuild
+        const group = teGroup(name);
+        if (group) group.name = finalName;
+        te.tracks.forEach(t => { if (trackGroupOf(t.name) === name) t.name = finalName + t.name.slice(name.length); });
+        teSetUpload(te.upload);
+        teRenderTracks();
+        await teLoadTracks(true);
+    } catch (error) {
+        showToast(error.message || 'Failed to rename group', 'error');
+        teRenderTracks();
+    }
+}
+
+function teAskDelete(name) {
+    teCloseMenu();
+    te.renaming = null;
+    te.confirmDel = name;
+    teRenderTracks();
+}
+
+function teCancelDelete() {
+    te.confirmDel = null;
+    teRenderTracks();
+}
+
+async function teDeleteGroup(name) {
+    te.confirmDel = null;
+    try {
+        await api('DELETE', teGroupUrl(name));
+        if (te.upload === name) teSetUpload('');
+        teFlash(`Deleted group ${name}`);
+        await teLoadTracks(true);
+    } catch (error) {
+        showToast(error.message || 'Failed to delete group', 'error');
+        teRenderTracks();
+    }
+}
+
+async function teMoveTrack(key, group) {
+    teCloseMenu();
     if ((trackGroupOf(key) || null) === (group || null)) return;
     try {
-        await api('POST', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(key)}/move`, { group: group || null });
-        await refreshTrackMixer(true);
+        await api('POST', teTrackUrl(key, 'move'), { group: group || null });
+        if (group) delete te.closed[group];
+        teFlash(`Moved ${trackDisplayName(key)} to ${group || 'theme'}`);
+        await teLoadTracks(true);
     } catch (error) {
-        showToast(error.message, 'error');
-        renderTrackMixer();
+        showToast(error.message || 'Failed to move track', 'error');
+        teRenderTracks();
     }
 }
 
-function onTrackGroupSelect(key, select) {
-    const value = select.value;
-    if (value === '__new__') {
-        createTrackGroup(key).then(name => { if (!name) select.value = ''; });
-    } else if (value) {
-        moveTrackToGroup(key, value);
-    }
+// Drag & drop (desktop): drag a track by its handle onto a group or the theme section
+function teDragStart(event, key) {
+    te.drag = key;
+    teCloseMenu();
+    try {
+        event.dataTransfer.setData('text/sonorium-track', key);
+        event.dataTransfer.effectAllowed = 'move';
+        const row = event.target.closest('.trow');
+        if (row) event.dataTransfer.setDragImage(row, 24, 24);
+    } catch (e) { /* ignore */ }
+    const row = event.target.closest('.trow');
+    setTimeout(() => row?.classList.add('dragging'), 0);
 }
 
-function onTrackDragStart(event, key) {
-    event.dataTransfer.setData('text/sonorium-track', key);
-    event.dataTransfer.effectAllowed = 'move';
+function teDragEnd() {
+    te.drag = null;
+    document.querySelectorAll('#te-tracks .dragging, #te-tracks .drop').forEach(el => el.classList.remove('dragging', 'drop'));
 }
 
-function onTrackDrop(event, group) {
+function teDragOver(event, section) {
+    if (!te.drag) return;
+    const from = trackGroupOf(te.drag);
+    const to = section.dataset.group || null;
+    if ((from || null) === (to || null)) return;
     event.preventDefault();
-    event.stopPropagation();
-    const key = event.dataTransfer.getData('text/sonorium-track');
-    if (key) moveTrackToGroup(key, group);
+    event.dataTransfer.dropEffect = 'move';
+    section.classList.add('drop');
 }
 
-async function uploadTracksToMixer(files) {
-    if (!files || !files.length || !currentTrackMixerThemeId) return;
-    const group = document.getElementById('track-upload-target')?.value || '';
+function teDragLeave(event, section) {
+    if (!section.contains(event.relatedTarget)) section.classList.remove('drop');
+}
+
+function teDrop(event, group) {
+    if (!te.drag) return;
+    event.preventDefault();
+    const key = te.drag;
+    teDragEnd();
+    teMoveTrack(key, group);
+}
+
+// Upload
+function teSetUpload(target) {
+    te.upload = target;
+    const zone = document.getElementById('te-upload-zone');
+    if (!zone) return;
+    zone.hidden = target === null;
+    document.getElementById('te-upload-label').textContent = target ? target : 'theme';
+}
+
+function tePickUpload(target) {
+    teCloseMenu();
+    teSetUpload(target);
+    document.getElementById('te-upload-input').click();
+}
+
+function teZoneDragOver(event) {
+    if (!event.dataTransfer || !Array.from(event.dataTransfer.types || []).includes('Files')) return;
+    event.preventDefault();
+    event.currentTarget.classList.add('over');
+}
+
+function teZoneDrop(event) {
+    event.preventDefault();
+    event.currentTarget.classList.remove('over');
+    if (event.dataTransfer?.files?.length) teUploadFiles(event.dataTransfer.files);
+}
+
+async function teUploadFiles(files) {
+    if (!files || !files.length || !te.themeId) return;
+    const themeId = te.themeId;
+    const group = te.upload || '';
     let done = 0;
+    teFlash(`Uploading ${files.length} file${files.length === 1 ? '' : 's'}…`);
     for (const file of files) {
         try {
             const formData = new FormData();
             formData.append('file', file);
             if (group) formData.append('group', group);
             const query = group ? `?group=${encodeURIComponent(group)}` : '';
-            const response = await fetch(`${BASE_PATH}/api/themes/${currentTrackMixerThemeId}/upload${query}`, { method: 'POST', body: formData });
+            const response = await fetch(`${BASE_PATH}/api/themes/${themeId}/upload${query}`, { method: 'POST', body: formData });
             if (!response.ok) {
                 const error = await response.json().catch(() => ({}));
                 throw new Error(error.detail || error.error || 'Upload failed');
@@ -2484,318 +2910,378 @@ async function uploadTracksToMixer(files) {
             showToast(`${file.name}: ${error.message}`, 'error');
         }
     }
-    if (done) showToast(`Uploaded ${done} file${done === 1 ? '' : 's'}`, 'success');
-    await refreshTrackMixer(true);
+    if (te.themeId !== themeId) return;
+    if (done) teFlash(`Uploaded ${done} file${done === 1 ? '' : 's'}`);
+    await teLoadTracks(true);
 }
 
-function updateSliderDisplay(slider) {
-    const row = slider.closest('.track-slider-row');
-    const valueSpan = row.querySelector('.track-slider-value');
-    valueSpan.textContent = slider.value + '%';
-    updatePlaysAt(slider);
-}
+// ---------- Presets (footer) ----------
 
-// Legacy function for backwards compatibility
-function updateTrackPresenceDisplay(slider) {
-    updateSliderDisplay(slider, 'presence');
-}
-
-async function setTrackPresence(trackName, presencePercent) {
-    if (!currentTrackMixerThemeId) return;
-
-    const presence = parseFloat(presencePercent) / 100;
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/presence`, { presence });
-    } catch (error) {
-        console.error('Failed to set track presence:', error);
-        showToast('Failed to set track presence', 'error');
-    }
-}
-
-async function toggleTrackMute(trackName) {
-    if (!currentTrackMixerThemeId) return;
-
-    const trackItem = document.querySelector(`.track-item[data-track="${trackName}"]`);
-    const muteBtn = trackItem?.querySelector('.track-mute-btn');
-    const isMuted = muteBtn?.classList.contains('muted');
-
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/muted`, { muted: !isMuted });
-
-        // Update UI
-        if (trackItem) {
-            trackItem.classList.toggle('muted');
-        }
-        if (muteBtn) {
-            muteBtn.classList.toggle('muted');
-            muteBtn.innerHTML = isMuted ? '🔊' : '🔇';
-            muteBtn.title = isMuted ? 'Mute' : 'Unmute';
-        }
-    } catch (error) {
-        console.error('Failed to toggle track mute:', error);
-        showToast('Failed to toggle track mute', 'error');
-    }
-}
-
-async function resetTrackMixer() {
-    if (!currentTrackMixerThemeId) return;
-
-    if (!confirm('Reset all track settings to defaults?')) return;
-
-    try {
-        await api('POST', `/themes/${currentTrackMixerThemeId}/tracks/reset`);
-        // Reload the mixer
-        await loadTrackMixer(currentTrackMixerThemeId);
-        showToast('Track mixer reset to defaults', 'success');
-    } catch (error) {
-        console.error('Failed to reset track mixer:', error);
-        showToast('Failed to reset track mixer', 'error');
-    }
-}
-
-function toggleTrackAdvanced(btn) {
-    const trackItem = btn.closest('.track-item');
-    const panel = trackItem.querySelector('.track-advanced-panel');
-    panel.classList.toggle('expanded');
-    btn.classList.toggle('active', panel.classList.contains('expanded'));
-}
-
-function updateTrackVolumeDisplay(slider) {
-    updateSliderDisplay(slider, 'volume');
-}
-
-async function setTrackVolume(trackName, volumePercent) {
-    if (!currentTrackMixerThemeId) return;
-
-    const volume = parseFloat(volumePercent) / 100;
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/volume`, { volume });
-    } catch (error) {
-        console.error('Failed to set track volume:', error);
-        showToast('Failed to set track volume', 'error');
-    }
-}
-
-async function setTrackPlaybackMode(trackName, mode) {
-    if (!currentTrackMixerThemeId) return;
-
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/playback_mode`, { playback_mode: mode });
-    } catch (error) {
-        console.error('Failed to set playback mode:', error);
-        showToast('Failed to set playback mode', 'error');
-    }
-}
-
-async function setTrackSeamlessLoop(trackName, seamless) {
-    if (!currentTrackMixerThemeId) return;
-
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/seamless_loop`, { seamless_loop: seamless });
-    } catch (error) {
-        console.error('Failed to set seamless loop:', error);
-        showToast('Failed to set seamless loop', 'error');
-    }
-}
-
-async function setTrackExclusive(trackName, exclusive) {
-    if (!currentTrackMixerThemeId) return;
-
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/tracks/${encodeURIComponent(trackName)}/exclusive`, { exclusive: exclusive });
-    } catch (error) {
-        console.error('Failed to set exclusive:', error);
-        showToast('Failed to set exclusive', 'error');
-    }
-}
-
-// ============================================
-// Preset Functions
-// ============================================
-
-let currentPresets = [];
-
-async function loadPresets(themeId) {
+async function teLoadPresets(selectDefault = false) {
+    const themeId = te.themeId;
+    if (!themeId) return;
     try {
         const result = await api('GET', `/themes/${themeId}/presets`);
-        currentPresets = result.presets || [];
-        updatePresetDropdown();
+        if (te.themeId !== themeId) return;
+        te.presets = result.presets || [];
     } catch (error) {
         console.error('Failed to load presets:', error);
-        currentPresets = [];
-        updatePresetDropdown();
+        te.presets = [];
+    }
+    if (selectDefault) te.selPreset = te.presets.find(p => p.is_default)?.id || '';
+    if (te.selPreset && !te.presets.some(p => p.id === te.selPreset)) te.selPreset = '';
+    teRenderPresetField();
+}
+
+// Kept for the import dialog: reload the open theme's presets
+function loadPresets() {
+    return teLoadPresets(false);
+}
+
+function teSelectedPreset() {
+    return te.presets.find(p => p.id === te.selPreset) || null;
+}
+
+function teRenderPresetField() {
+    const btn = document.getElementById('te-preset-btn');
+    if (!btn) return;
+    const preset = teSelectedPreset();
+    btn.classList.toggle('is-cur', !preset);
+    btn.setAttribute('aria-label', `Preset: ${preset ? preset.name : 'Current settings'}`);
+    btn.innerHTML = `${preset?.is_default ? '<span class="def-star" title="Default">★</span>' : ''}
+        <span class="pdd-name">${preset ? escapeHtml(preset.name) : '— Current settings —'}</span>
+        ${preset && te.mixDirty ? '<span class="dirty dot-only" title="Mix changed"><i></i></span>' : ''}${TE_ICON_CHEV_UP}`;
+    document.getElementById('te-load-btn').disabled = !preset;
+    document.getElementById('te-savepreset-btn').disabled = !preset;
+    document.getElementById('te-dirty').hidden = !(preset && te.mixDirty);
+}
+
+function teChoosePreset(id) {
+    te.selPreset = id;
+    teCloseMenu();
+    teRenderPresetField();
+}
+
+async function teLoadPreset() {
+    const preset = teSelectedPreset();
+    if (!preset || !te.themeId) return;
+    teCloseMenu();
+    try {
+        const result = await api('POST', `/themes/${te.themeId}/presets/${preset.id}/load`);
+        te.mixDirty = false;
+        teRenderPresetField();
+        teFlash(`Loaded “${result?.name || preset.name}”`);
+        await teLoadTracks();
+    } catch (error) {
+        showToast(error.message || 'Failed to load preset', 'error');
     }
 }
 
-function updatePresetDropdown() {
-    const select = document.getElementById('preset-select');
-    if (!select) return;
-
-    // Keep the default option
-    select.innerHTML = '<option value="">-- Current Settings --</option>';
-
-    // Add presets
-    currentPresets.forEach(preset => {
-        const option = document.createElement('option');
-        option.value = preset.id;
-        option.textContent = preset.name + (preset.is_default ? ' ★' : '');
-        select.appendChild(option);
-    });
+async function teStarPreset(id) {
+    if (!te.themeId) return;
+    try {
+        await api('PUT', `/themes/${te.themeId}/presets/${id}/default`);
+        const preset = te.presets.find(p => p.id === id);
+        await teLoadPresets(false);
+        if (te.menu === 'presets') teMenu('presets', te.menuBtn, null, true);
+        teFlash(`“${preset?.name || ''}” is the default`);
+    } catch (error) {
+        showToast(error.message || 'Failed to set default preset', 'error');
+    }
 }
 
-async function onPresetSelectChange(presetId) {
-    const defaultBtn = document.getElementById('preset-default-btn');
-    const renameBtn = document.getElementById('preset-rename-btn');
-    const deleteBtn = document.getElementById('preset-delete-btn');
-    const exportBtn = document.getElementById('preset-export-btn');
-    const updateBtn = document.getElementById('preset-update-btn');
+function teSetDefaultPreset() {
+    teCloseMenu();
+    if (te.selPreset) teStarPreset(te.selPreset);
+}
 
-    if (presetId) {
-        defaultBtn.style.display = '';
-        renameBtn.style.display = '';
-        deleteBtn.style.display = '';
-        exportBtn.style.display = '';
-        updateBtn.style.display = '';
+// Save preset: saves the theme, then the selected preset with the current mix
+async function teSavePreset() {
+    const preset = teSelectedPreset();
+    if (!preset || !te.themeId) return;
+    teCloseMenu();
+    if (!(await teSaveTheme(true))) return;
+    try {
+        await api('PUT', `/themes/${te.themeId}/presets/${preset.id}`);
+        te.mixDirty = false;
+        teRenderPresetField();
+        teFlash('Saved');
+    } catch (error) {
+        showToast(error.message || 'Failed to save preset', 'error');
+    }
+}
 
-        // Auto-load the preset when selected
-        if (currentTrackMixerThemeId) {
-            try {
-                const result = await api('POST', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/load`);
-                // Reload track mixer to show new settings, preserve preset selection
-                await loadTrackMixer(currentTrackMixerThemeId, true);
-                showToast(`Loaded: ${result.name}`, 'success');
-            } catch (error) {
-                console.error('Failed to load preset:', error);
-                showToast('Failed to load preset', 'error');
-            }
+function tePresetNameTaken(name, exceptId = null) {
+    return te.presets.some(p => p.id !== exceptId && p.name.toLowerCase() === name.toLowerCase());
+}
+
+async function teCommitPresetName() {
+    const input = document.getElementById('te-pop-name');
+    const name = (input?.value || '').trim();
+    if (!name || !te.themeId) return;
+    const mode = te.menu;
+    const preset = teSelectedPreset();
+    if (tePresetNameTaken(name, mode === 'prename' ? preset?.id : null)) {
+        showToast('A preset with that name exists', 'warning');
+        input.focus();
+        return;
+    }
+    teCloseMenu();
+    if (mode === 'pnew') {
+        // New: save the theme first, then the current mix as a new preset, and select it
+        if (!(await teSaveTheme(true))) return;
+        try {
+            const result = await api('POST', `/themes/${te.themeId}/presets`, { name });
+            await teLoadPresets(false);
+            te.selPreset = result?.preset_id || te.presets.find(p => p.name === name)?.id || '';
+            te.mixDirty = false;
+            teRenderPresetField();
+            teFlash('Saved');
+        } catch (error) {
+            showToast(error.message || 'Failed to save preset', 'error');
         }
+    } else if (mode === 'prename' && preset) {
+        try {
+            await api('PUT', `/themes/${te.themeId}/presets/${preset.id}/rename`, { name });
+            await teLoadPresets(false);
+            teFlash(`Renamed to “${name}”`);
+        } catch (error) {
+            showToast(error.message || 'Failed to rename preset', 'error');
+        }
+    }
+}
+
+async function teDeletePreset() {
+    const preset = teSelectedPreset();
+    teCloseMenu();
+    if (!preset || !te.themeId) return;
+    try {
+        await api('DELETE', `/themes/${te.themeId}/presets/${preset.id}`);
+        te.selPreset = '';
+        await teLoadPresets(false);
+        teFlash(`Deleted “${preset.name}”`);
+    } catch (error) {
+        showToast(error.message || 'Failed to delete preset', 'error');
+    }
+}
+
+function teImportPreset() {
+    teCloseMenu();
+    showImportPresetModal();
+}
+
+function teExportPreset() {
+    teCloseMenu();
+    exportSelectedPreset();
+}
+
+function teExportTheme() {
+    teCloseMenu();
+    exportThemeZip();
+}
+
+function teComingSoon() {
+    teCloseMenu();
+    teFlash('Sequences: coming soon');
+}
+
+// ---------- Menus and popovers (one floating element) ----------
+
+function teMenuHtml(kind, arg) {
+    const mi = (label, action, opts = {}) => `<button type="button" class="mi${opts.cls ? ' ' + opts.cls : ''}" role="menuitem"
+        ${opts.disabled ? 'disabled' : ''} ${opts.title ? `title="${escapeHtml(opts.title)}"` : ''} onclick="${action}">${opts.icon || ''}${label}${opts.after || ''}</button>`;
+    const sep = '<div class="msep"></div>';
+    const preset = teSelectedPreset();
+    switch (kind) {
+        case 'theme':
+            return { cls: 'menu', align: 'right', html: `
+                <div class="mi-row"><label for="te-short">Short file threshold</label>
+                    <input id="te-short" class="num" type="number" min="0" step="1" value="${teEsc(te.threshold)}" oninput="teSetThreshold(this)"><span>s</span></div>
+                ${sep}${mi('Export theme', 'teExportTheme()', { icon: TE_ICON_DOWNLOAD })}` };
+        case 'icon': {
+            const current = te.icon;
+            return { cls: 'menu', align: 'left', html: `
+                <div class="icon-grid">${availableIcons.map(icon => `<button type="button" class="ic${icon === current ? ' cur' : ''}"
+                    onclick="tePickIcon(${jsArg(icon)})" title="${icon}">${icon}</button>`).join('')}</div>
+                ${sep}${mi('Auto', "tePickIcon('')", { cls: current ? '' : 'cur', after: '<span class="mi-note">from theme</span>' })}` };
+        }
+        case 'seq':
+            return { cls: 'menu seq-menu', align: 'left', html: `
+                <div class="mhead">Theme sequences<span class="badge badge-soon">Coming soon</span></div>
+                ${mi('+ New sequence', 'teComingSoon()', { cls: 'add' })}
+                ${sep}<div class="mhead">My sequences</div>
+                ${mi('+ New sequence', 'teComingSoon()', { cls: 'add' })}` };
+        case 'upload':
+            return { cls: 'menu', align: 'right', html: `<div class="mhead">Upload to</div>
+                ${mi('Theme (no group)', "tePickUpload('')", { cls: te.upload === '' ? 'cur' : '' })}
+                ${te.groups.map(g => mi(escapeHtml(g.name), `tePickUpload(${jsArg(g.name)})`, { cls: te.upload === g.name ? 'cur' : '', icon: TE_ICON_FOLDER })).join('')}` };
+        case 'reset':
+            return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
+                <span class="pop-title">Reset all tracks and groups to defaults?</span>
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="teResetAll()">Reset</button></div>` };
+        case 'track': {
+            const track = teTrack(arg);
+            if (!track) return null;
+            const k = jsArg(arg);
+            const inGroup = trackGroupOf(arg);
+            const gaplessOk = teGaplessAllowed(track);
+            let html = '';
+            if (!inGroup) {
+                html += mi('Gapless', `teToggleGapless(${k})`, {
+                    disabled: !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Continuous only',
+                    after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
+            }
+            if (track.exclusive) {
+                html += mi('Exclusive (legacy)', `teToggleExclusive(${k})`, {
+                    title: 'Only one exclusive track plays at a time (older themes). Use a group instead.',
+                    after: '<span class="sw on"></span>' });
+            }
+            if (te.groupsOk) {
+                if (html) html += sep;
+                html += '<div class="mhead">Move to group</div>';
+                html += [{ name: null, label: 'Theme (no group)' }, ...te.groups.map(g => ({ name: g.name, label: g.name }))].map(m => {
+                    const here = (m.name || null) === (inGroup || null);
+                    return mi(escapeHtml(m.label), `teMoveTrack(${k}, ${m.name === null ? 'null' : jsArg(m.name)})`, {
+                        cls: here ? 'cur' : '', disabled: here, icon: TE_ICON_FOLDER, after: here ? '<span class="mi-note">here</span>' : '' });
+                }).join('');
+                html += mi('New group', `teNewGroup(${k})`, { icon: TE_ICON_PLUS });
+            }
+            html += (html ? sep : '') + mi('Reset track', `teResetTrack(${k})`, { icon: TE_ICON_RESET });
+            return { cls: 'menu', align: 'right', html };
+        }
+        case 'group': {
+            const n = jsArg(arg);
+            return { cls: 'menu', align: 'right', html: `
+                ${mi('Rename…', `teStartRename(${n})`)}
+                ${mi(`Upload into ${escapeHtml(arg)}`, `tePickUpload(${n})`)}
+                ${sep}${mi('Delete group…', `teAskDelete(${n})`, { cls: 'danger' })}` };
+        }
+        case 'presets': {
+            const rows = [{ id: '', name: '— Current settings —' }, ...te.presets].map(p => `
+                <div class="prow">
+                    <button type="button" class="mi${p.id === te.selPreset ? ' cur' : ''}${p.id ? '' : ' cur-set'}" role="option"
+                            aria-selected="${p.id === te.selPreset}" onclick="teChoosePreset(${jsArg(p.id)})">${escapeHtml(p.name)}</button>
+                    ${p.id ? `<button type="button" class="star-btn${p.is_default ? ' on' : ''}" title="${p.is_default ? 'Default preset' : 'Set as default'}"
+                            aria-label="${p.is_default ? 'Default preset' : 'Set as default'}: ${escapeHtml(p.name)}"
+                            onclick="teStarPreset(${jsArg(p.id)})">★</button>` : '<span class="star-gap"></span>'}
+                </div>`).join('');
+            return { cls: 'menu preset-list', align: 'left', dir: 'up', role: 'listbox', html: rows };
+        }
+        case 'pmore':
+            return { cls: 'menu', align: 'left', dir: 'up', html: `
+                ${mi('Rename…', "teMenu('prename', teMenuAnchor())", { disabled: !preset })}
+                ${mi('Set as default', 'teSetDefaultPreset()', { disabled: !preset || preset.is_default, icon: '<span class="def-star">★</span>' })}
+                ${sep}${mi('Import…', 'teImportPreset()')}
+                ${mi('Export', 'teExportPreset()', { disabled: !preset })}
+                ${sep}${mi('Delete…', "teMenu('pdelete', teMenuAnchor())", { disabled: !preset, cls: 'danger' })}` };
+        case 'pnew':
+        case 'prename': {
+            const isNew = kind === 'pnew';
+            return { cls: 'pop', align: 'left', dir: 'up', role: 'dialog', html: `
+                <span class="pop-title">${isNew ? 'New preset' : 'Rename preset'}</span>
+                <input id="te-pop-name" class="inp sm" type="text" maxlength="80" enterkeyhint="done" autocomplete="off"
+                       placeholder="Preset name" aria-label="Preset name" value="${isNew ? '' : escapeHtml(preset?.name || '')}"
+                       oninput="document.getElementById('te-pop-ok').disabled = !this.value.trim()"
+                       onkeydown="if (event.key === 'Enter') { event.preventDefault(); teCommitPresetName(); }">
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-primary" id="te-pop-ok" ${isNew ? 'disabled' : ''} onclick="teCommitPresetName()">OK</button></div>` };
+        }
+        case 'pdelete':
+            if (!preset) return null;
+            return { cls: 'pop', align: 'left', dir: 'up', role: 'alertdialog', html: `
+                <span class="pop-title">Delete “${escapeHtml(preset.name)}”?</span>
+                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
+                    <button type="button" class="btn btn-sm btn-danger" onclick="teDeletePreset()">Delete</button></div>` };
+    }
+    return null;
+}
+
+// The footer button a preset popover hangs from (the New/⋯ button that opened the menu)
+function teMenuAnchor() {
+    return document.getElementById('te-preset-btn');
+}
+
+function teMenu(kind, button, arg = null, keepOpen = false) {
+    const id = arg === null ? kind : `${kind}:${arg}`;
+    if (te.menu === id && !keepOpen) { teCloseMenu(); return; }
+    const spec = teMenuHtml(kind, arg);
+    if (!spec || !button) { teCloseMenu(); return; }
+    const pop = document.getElementById('te-menu');
+    pop.className = `te-pop ${spec.cls}`;
+    pop.setAttribute('role', spec.role || 'menu');
+    pop.innerHTML = spec.html;
+    pop.hidden = false;
+    if (te.menuBtn && te.menuBtn !== button) te.menuBtn.removeAttribute('aria-expanded');
+    te.menu = id;
+    te.menuBtn = button;
+    button.setAttribute('aria-expanded', 'true');
+    tePlaceMenu(pop, button, spec.align || 'right', spec.dir || 'down');
+    const focus = pop.querySelector('input') || (keepOpen ? null : pop.querySelector('button:not([disabled])'));
+    if (focus) { focus.focus(); if (focus.select && focus.value) focus.select(); }
+}
+
+function tePlaceMenu(pop, button, align, dir) {
+    const r = button.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    pop.style.left = '0px';
+    pop.style.top = '0px';
+    pop.style.maxHeight = '';
+    const w = pop.offsetWidth;
+    let h = pop.offsetHeight;
+    let left = align === 'left' ? r.left : r.right - w;
+    left = Math.max(8, Math.min(left, vw - w - 8));
+    const below = vh - r.bottom - 8;
+    const above = r.top - 8;
+    let up = dir === 'up' ? above >= Math.min(h, 160) || above > below : (h > below && above > below);
+    const room = (up ? above : below) - 4;
+    if (h > room) { pop.style.maxHeight = room + 'px'; h = room; }
+    const top = up ? r.top - 4 - h : r.bottom + 4;
+    pop.style.left = left + 'px';
+    pop.style.top = Math.max(8, top) + 'px';
+}
+
+function teCloseMenu() {
+    const pop = document.getElementById('te-menu');
+    if (pop && !pop.hidden) {
+        pop.hidden = true;
+        pop.innerHTML = '';
+    }
+    if (te.menuBtn) te.menuBtn.removeAttribute('aria-expanded');
+    te.menu = null;
+    te.menuBtn = null;
+}
+
+document.addEventListener('mousedown', event => {
+    if (!te.menu) return;
+    const pop = document.getElementById('te-menu');
+    if (pop.contains(event.target) || te.menuBtn?.contains(event.target)) return;
+    teCloseMenu();
+}, true);
+
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || !te.themeId) return;
+    if (document.getElementById('theme-edit-modal').style.display !== 'flex') return;
+    // Another dialog (import/export preset) open on top: leave it alone
+    const onTop = ['preset-import-modal', 'preset-export-modal'].some(id => document.getElementById(id)?.style.display === 'flex');
+    if (onTop) return;
+    if (te.menu) {
+        const button = te.menuBtn;
+        teCloseMenu();
+        button?.focus();
+    } else if (te.renaming || te.confirmDel) {
+        te.renaming = null;
+        te.confirmDel = null;
+        teRenderTracks();
     } else {
-        defaultBtn.style.display = 'none';
-        renameBtn.style.display = 'none';
-        deleteBtn.style.display = 'none';
-        exportBtn.style.display = 'none';
-        updateBtn.style.display = 'none';
+        closeThemeEditModal();
     }
-}
+});
 
-async function loadSelectedPreset() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-
-    if (!presetId) {
-        showToast('Select a preset first', 'warning');
-        return;
-    }
-
-    if (!currentTrackMixerThemeId) return;
-
-    try {
-        const result = await api('POST', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/load`);
-        showToast(`Loaded preset: ${result.name}`, 'success');
-        // Reload track mixer to show new settings
-        await loadTrackMixer(currentTrackMixerThemeId);
-    } catch (error) {
-        console.error('Failed to load preset:', error);
-        showToast('Failed to load preset', 'error');
-    }
-}
-
-async function setPresetAsDefault() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-
-    if (!presetId || !currentTrackMixerThemeId) return;
-
-    try {
-        await api('PUT', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/default`);
-        showToast('Set as default preset', 'success');
-        await loadPresets(currentTrackMixerThemeId);
-        select.value = presetId;
-        onPresetSelectChange(presetId);
-    } catch (error) {
-        console.error('Failed to set default preset:', error);
-        showToast('Failed to set default preset', 'error');
-    }
-}
-
-async function deleteSelectedPreset() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-
-    if (!presetId || !currentTrackMixerThemeId) return;
-
-    const preset = currentPresets.find(p => p.id === presetId);
-    if (!confirm(`Delete preset "${preset?.name || presetId}"?`)) return;
-
-    try {
-        await api('DELETE', `/themes/${currentTrackMixerThemeId}/presets/${presetId}`);
-        showToast('Preset deleted', 'success');
-        await loadPresets(currentTrackMixerThemeId);
-        onPresetSelectChange('');
-    } catch (error) {
-        console.error('Failed to delete preset:', error);
-        showToast('Failed to delete preset', 'error');
-    }
-}
-
-async function updateSelectedPreset() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-
-    if (!presetId) {
-        showToast('Select a preset first', 'warning');
-        return;
-    }
-
-    if (!currentTrackMixerThemeId) return;
-
-    const preset = currentPresets.find(p => p.id === presetId);
-    const presetName = preset?.name || presetId;
-
-    if (!confirm(`Update preset "${presetName}" with current track settings?`)) return;
-
-    try {
-        const result = await api('PUT', `/themes/${currentTrackMixerThemeId}/presets/${presetId}`);
-        showToast(`Updated preset: ${result.name} (${result.tracks_updated} tracks)`, 'success');
-    } catch (error) {
-        console.error('Failed to update preset:', error);
-        showToast('Failed to update preset', 'error');
-    }
-}
-
-function saveCurrentAsPreset() {
-    document.getElementById('preset-save-name').value = '';
-    document.getElementById('preset-save-modal').style.display = 'flex';
-}
-
-function closePresetSaveModal() {
-    document.getElementById('preset-save-modal').style.display = 'none';
-}
-
-async function confirmSavePreset() {
-    const name = document.getElementById('preset-save-name').value.trim();
-
-    if (!name) {
-        showToast('Please enter a preset name', 'warning');
-        return;
-    }
-
-    if (!currentTrackMixerThemeId) return;
-
-    try {
-        const result = await api('POST', `/themes/${currentTrackMixerThemeId}/presets`, { name });
-        showToast(`Saved preset: ${result.name}`, 'success');
-        closePresetSaveModal();
-        await loadPresets(currentTrackMixerThemeId);
-        // Select the new preset
-        const select = document.getElementById('preset-select');
-        select.value = result.preset_id;
-        onPresetSelectChange(result.preset_id);
-    } catch (error) {
-        console.error('Failed to save preset:', error);
-        showToast('Failed to save preset', 'error');
-    }
-}
+// ============================================
+// Preset import / export dialogs (opened from the preset ⋯ menu)
+// ============================================
 
 function showImportPresetModal() {
     document.getElementById('preset-import-name').value = '';
@@ -2839,8 +3325,7 @@ async function importPreset() {
 }
 
 async function exportSelectedPreset() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
+    const presetId = te.selPreset;
 
     if (!presetId || !currentTrackMixerThemeId) {
         showToast('Select a preset first', 'warning');
@@ -2887,74 +3372,6 @@ async function copyPresetJson() {
         const textArea = document.getElementById('preset-export-json');
         textArea.select();
         showToast('Please copy manually (Ctrl+C)', 'warning');
-    }
-}
-
-// ============================================
-// Rename Functions
-// ============================================
-
-async function renameTheme() {
-    const themeId = document.getElementById('theme-edit-id').value;
-    const newName = document.getElementById('theme-edit-name').value.trim();
-
-    if (!newName) {
-        showToast('Please enter a theme name', 'warning');
-        return;
-    }
-
-    try {
-        const result = await api('PUT', `/themes/${themeId}/rename`, { name: newName });
-        showToast(`Renamed to: ${result.new_name}`, 'success');
-
-        // Close the modal and refresh themes
-        closeThemeEditModal();
-        await loadThemes();
-    } catch (error) {
-        console.error('Failed to rename theme:', error);
-        const detail = error.message || 'Failed to rename theme';
-        showToast(detail, 'error');
-    }
-}
-
-function showRenamePresetModal() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-    if (!presetId) return;
-
-    // Get current preset name
-    const preset = currentPresets.find(p => p.id === presetId);
-    document.getElementById('preset-rename-name').value = preset ? preset.name : '';
-    document.getElementById('preset-rename-modal').style.display = 'flex';
-}
-
-function closeRenamePresetModal() {
-    document.getElementById('preset-rename-modal').style.display = 'none';
-}
-
-async function confirmRenamePreset() {
-    const select = document.getElementById('preset-select');
-    const presetId = select.value;
-    const newName = document.getElementById('preset-rename-name').value.trim();
-
-    if (!newName) {
-        showToast('Please enter a preset name', 'warning');
-        return;
-    }
-
-    if (!presetId || !currentTrackMixerThemeId) return;
-
-    try {
-        const result = await api('PUT', `/themes/${currentTrackMixerThemeId}/presets/${presetId}/rename`, { name: newName });
-        showToast(`Renamed to: ${result.name}`, 'success');
-        closeRenamePresetModal();
-
-        // Reload presets to show new name
-        await loadPresets(currentTrackMixerThemeId);
-        select.value = presetId;
-    } catch (error) {
-        console.error('Failed to rename preset:', error);
-        showToast('Failed to rename preset', 'error');
     }
 }
 
@@ -3036,11 +3453,12 @@ function stopTrackPreview() {
 }
 
 function updatePreviewButtonState(trackName, isPlaying) {
-    const trackItem = document.querySelector(`.track-item[data-track="${CSS.escape(trackName)}"]`);
+    const trackItem = document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(trackName)}"]`);
     if (!trackItem) return;
 
     const btn = trackItem.querySelector('.track-preview-btn');
     if (!btn) return;
+    btn.title = isPlaying ? 'Stop preview' : 'Preview';
 
     const playIcon = btn.querySelector('.play-icon');
     const stopIcon = btn.querySelector('.stop-icon');
@@ -3181,92 +3599,6 @@ function updateThemePreviewButton(isPlaying) {
 // ============================================
 // End Theme Preview Playback
 // ============================================
-
-async function addNewCategoryFromEdit() {
-    const input = document.getElementById('theme-edit-new-category');
-    const name = input.value.trim();
-    if (!name) return;
-
-    try {
-        await api('POST', '/categories', { name });
-
-        // Add the new category to local list if not already present
-        if (!themeCategories.includes(name)) {
-            themeCategories.push(name);
-        }
-
-        // Re-render checkboxes with new category (auto-checked)
-        const themeId = document.getElementById('theme-edit-id').value;
-        const theme = themes.find(t => t.id === themeId);
-        const themeCats = theme?.categories || [];
-
-        const categoriesContainer = document.getElementById('theme-edit-categories');
-        categoriesContainer.innerHTML = themeCategories.map(cat => `
-            <label class="category-checkbox">
-                <input type="checkbox" value="${escapeHtml(cat)}" ${themeCats.includes(cat) || cat === name ? 'checked' : ''}>
-                ${escapeHtml(cat)}
-            </label>
-        `).join('');
-
-        input.value = '';
-        showToast(`Category "${name}" created`, 'success');
-    } catch (error) {
-        showToast(error.message || 'Failed to create category', 'error');
-    }
-}
-
-function getSelectedEditCategories() {
-    const checkboxes = document.querySelectorAll('#theme-edit-categories input[type="checkbox"]:checked');
-    return Array.from(checkboxes).map(cb => cb.value);
-}
-
-async function saveThemeMetadata() {
-    const themeId = document.getElementById('theme-edit-id').value;
-    const newName = document.getElementById('theme-edit-name').value.trim();
-    const description = document.getElementById('theme-edit-description').value.trim();
-    const icon = document.getElementById('theme-edit-icon').value.trim();
-    const selectedCategories = getSelectedEditCategories();
-
-    if (!newName) {
-        showToast('Please enter a theme name', 'warning');
-        return;
-    }
-
-    try {
-        // Check if name changed and rename if needed
-        const theme = themes.find(t => t.id === themeId);
-        if (theme && theme.name !== newName) {
-            await api('PUT', `/themes/${themeId}/rename`, { name: newName });
-        }
-
-        // Save description and icon
-        await api('PUT', `/themes/${themeId}/metadata`, { description, icon });
-        // Save categories
-        await api('POST', `/themes/${themeId}/categories`, { categories: selectedCategories });
-
-        // Update local state
-        if (theme) {
-            theme.name = newName;
-            theme.description = description;
-            theme.icon = icon || null;  // Store null if empty (for auto-detect)
-            theme.categories = selectedCategories;
-        }
-        closeThemeEditModal();
-        renderThemesBrowser();
-        showToast('Theme saved', 'success');
-    } catch (error) {
-        console.error('Save theme error:', error);
-        let msg = 'Failed to save theme';
-        if (typeof error === 'string') {
-            msg = error;
-        } else if (error instanceof Error) {
-            msg = error.message;
-        } else if (error && typeof error === 'object') {
-            msg = error.message || error.detail || error.error || JSON.stringify(error);
-        }
-        showToast(msg, 'error');
-    }
-}
 
 // Theme Creation
 let pendingThemeFiles = [];
