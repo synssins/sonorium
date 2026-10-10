@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.5 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Save theme sits next to Cancel in the Theme Editor
+  ([`ed3e4ba`](https://github.com/synssins/sonorium/commit/ed3e4ba5dc171dd8e78e6e54d8cb5652bad6f0a4))
+
+
 ## v1.6.1-dev.4 (2026-10-10)
 
 ### Bug Fixes
