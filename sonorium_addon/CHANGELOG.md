@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.3-dev.3 (2026-10-10)
+
+### Bug Fixes
+
+- A new, empty theme can be edited, saved and given presets
+  ([`9d0e710`](https://github.com/synssins/sonorium/commit/9d0e710131926fda9af5ce5a76fc69440571af24))
+
+
 ## v1.5.3-dev.2 (2026-10-10)
 
 ### Bug Fixes
