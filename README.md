@@ -4,6 +4,12 @@
 
 ![Sonorium](logo.png)
 
+> ## ⭐ Major Release: Themes 2.0
+>
+> This is a major update. Themes can now hold **groups**, every channel can play its **own preset**, the **Theme Editor** and **Themes** page are rebuilt, and the playback modes have **new names**.
+>
+> Your themes are converted automatically the first time this version starts. Each theme's old settings file is kept next to it as `metadata.json.pre-presets.bak`.
+
 **Multi-Zone Ambient Soundscape Mixer**
 
 Sonorium lets you create immersive ambient audio environments. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to speakers throughout your home or directly through your computer.
@@ -75,9 +81,19 @@ Search themes, then pick speakers by floor, room or one at a time.
 ![Edit Channel](screenshots/Channel_Editor.png)
 
 ### Themes
-Your theme library, with favorites and categories.
+Search, filter by category, and switch between cards and a list.
 
 ![Themes](screenshots/Themes.png)
+
+### Edit Theme
+Tracks in one table, with groups, presets and a live preview.
+
+![Edit Theme](screenshots/Theme_Editor.png)
+
+### Theme Editor help
+The **?** button explains modes, groups and saving.
+
+![Theme Editor help](screenshots/Theme_Editor_Help.png)
 
 ### Settings → Speakers
 Switch speakers on or off, set their room and volume offset, and play a test sound.
@@ -102,6 +118,46 @@ Recent messages with filters, search, copy and download.
 ---
 
 ## What's New
+
+### Themes 2.0
+
+- **Groups.** A folder inside a theme is a group: its tracks take turns, one at a time, never overlapping, with a random gap between them.
+- **A preset per channel.** Two channels can play the same theme with different presets.
+- **New Theme Editor.** Name, categories and description at the top; every track in one aligned table with its mode, volume, how often and mute; groups as sections you can collapse; upload, drag tracks between groups, and presets at the bottom. Changes are heard live, **Preview mix** plays the theme on the device you're editing from, and the **?** button explains it all.
+- **New Themes page.** Search, category chips, sort, and cards or a list. Each theme appears once, with its categories, a preview and a badge for the channel playing it.
+- **New mode names.** Continuous is now **Background**, Sparse is **Intermittent**, Presence is **Ebb & Flow**. Your saved settings keep working.
+- **Steadier sound.** The mix keeps an even level as tracks come and go, without clipping.
+- **Fixes.** A memory leak while playing is fixed, and tracks in a group can no longer overlap after a stall.
+
+#### How a theme plays
+
+These are the same words as the **?** help in the Theme Editor.
+
+A theme is a set of tracks (sound files) mixed together. Each track has a **mode**, a **volume** and a **how often**.
+
+**Modes**
+
+- **Background:** plays all the time, looping smoothly. Rain, wind, a fire.
+- **Intermittent:** plays once, then goes quiet before playing again. *How often* sets the wait. Bird calls, a thunder crack, a door.
+- **Ebb & Flow:** fades in, plays a while, fades out, then stays quiet before coming back. *How often* sets how much of the time it's heard. Distant traffic, a passing crowd.
+- **Auto:** picks for you. Under 15 seconds plays Intermittent, longer plays Ebb & Flow. At 100% *how often*, either plays as Background.
+
+**Groups**
+
+- **Take turns:** a group is a folder of tracks where only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
+- **Gap:** after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.
+- **Intermittent only:** on its turn, a track plays its whole file once, then hands over. Background and Ebb & Flow are for the ambience outside groups.
+- **Volume, how often, mute:** the group's settings scale every track in it. A track's own *how often* sets how keen it is to take the next turn.
+- **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
+- **Deleting a group:** keeps its files; they move back into the theme.
+
+**Saving**
+
+- **Live:** changes are heard on speakers playing this theme, and on this device with Preview mix.
+- **Cancel:** Reverts unsaved changes.
+- **Save Preset:** Saves loaded preset
+- **Save Theme:** Saves theme with all changes (presets, name, etc) Required after saving a preset.
+- **New:** makes a new preset from the current mix.
 
 ### v1.4.0
 
