@@ -71,6 +71,11 @@ Editor design "C — Aligned table".
 - Creating a named thing: a small name prompt, and OK saves immediately.
 
 ## Phone
+- A top bar with the hamburger is **always** there. The hamburger opens the
+  menu downward from the bar (scrollable); tapping an item goes there and
+  closes it; an item with submenus (Settings) expands in place first; the
+  hamburger closes an open menu.
+- Cards scale to the screen width.
 - Same structure and order as desktop. Table rows become cards; toolbars and
   the footer wrap to extra rows; everything stays reachable without drag and
   drop.
