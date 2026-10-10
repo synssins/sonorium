@@ -3455,7 +3455,7 @@ function teRenderTracks() {
     if (!list || !te.themeId) return;
     document.getElementById('te-track-count').textContent = te.tracks.length;
     const scroll = list.scrollTop;
-    list.innerHTML = `<section aria-label="Tracks">${TE_SECTIONS.map(teRenderSection).join('')}</section>`;
+    list.innerHTML = `<section aria-label="Tracks">${TE_SECTIONS.map(s => teRenderSection(s)).join('')}</section>`;
     list.scrollTop = scroll;
     teUpdateMarquees();
     const rename = list.querySelector('.grp-rename');
