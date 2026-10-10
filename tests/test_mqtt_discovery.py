@@ -161,7 +161,7 @@ class MQTTDiscoveryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.publish.reset_mock()
         await restarted.publish_discovery()
-        self.assertEqual(len(self.publish.call_args_list), 6)
+        self.assertEqual(len(self.publish.call_args_list), len(self.entities_module.SessionMQTTEntities.ENTITIES))
         for call in self.publish.call_args_list:
             topic, payload = call.args
             config = json.loads(payload)

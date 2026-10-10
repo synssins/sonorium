@@ -28,9 +28,15 @@ if TYPE_CHECKING:
     from sonorium.theme import ThemeDefinition, ThemeStream
 
 
-# Crossfade duration for theme transitions (in seconds)
+# Default length of a theme-to-theme crossfade and of a channel's start/stop
+# fade (seconds). The session manager passes Settings > Audio Settings >
+# Crossfade (crossfade_duration) instead; this is only the fallback.
 THEME_CROSSFADE_DURATION = 3.0
 THEME_CROSSFADE_SAMPLES = int(THEME_CROSSFADE_DURATION * SAMPLE_RATE)
+
+# Track settings that glide when a channel's preset changes (the others,
+# e.g. mute, switch at once; a track turning on or off fades by itself)
+GLIDE_FIELDS = ("volume", "presence")
 
 # Chunk size for silence generation
 CHUNK_SIZE = 1024
@@ -42,6 +48,17 @@ DEFAULT_OUTPUT_GAIN = 6.0
 # At 1024 samples per chunk @ 44100Hz, each chunk is ~23ms
 # 50 chunks = ~1.16 seconds of buffer
 BROADCAST_BUFFER_SIZE = 50
+
+
+def crossfade_curves(samples: int) -> tuple[np.ndarray, np.ndarray]:
+    """Equal-power crossfade curves (old fades out, new fades in) over `samples`."""
+    x = np.linspace(0, np.pi / 2, samples)
+    return np.cos(x).astype(np.float32), np.sin(x).astype(np.float32)
+
+
+def fade_gain(level):
+    """The gain at a point (0..1) of a channel's start/stop fade: equal-power, like the theme crossfade."""
+    return np.sin(np.asarray(level, dtype=np.float32) * (np.pi / 2))
 
 
 class ChannelState(str, Enum):
@@ -58,6 +75,12 @@ class Channel:
     ONE audio generator runs continuously (when playing).
     ALL connected clients read from the same stream.
     New clients join at current playback position.
+
+    Every chunk passes through, in order: a theme crossfade (when the theme
+    changes), the preset glide (volume and presence moving to a new preset's
+    values), and the channel's output fade (fading the whole mix in when it
+    starts and out before it stops). The channel's volume setting (the
+    speakers' volume) is never touched by any of these.
     """
 
     id: int
@@ -81,7 +104,7 @@ class Channel:
     _last_listener_time: float = field(default_factory=time.monotonic)
 
     # Lock for thread-safe operations
-    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     # Condition for notifying clients of new data
     _data_available: threading.Condition = field(default_factory=threading.Condition, repr=False)
@@ -90,13 +113,30 @@ class Channel:
     _theme_stream: Optional[ThemeStream] = field(default=None, repr=False)
     _chunk_generator: Optional[Generator] = field(default=None, repr=False)
 
-    # Pending theme change (for thread-safe crossfade)
+    # Pending theme change (for thread-safe crossfade), and its length in seconds
     _pending_theme: Optional[ThemeDefinition] = field(default=None, repr=False)
+    _pending_crossfade: float = THEME_CROSSFADE_DURATION
 
     # This channel's preset layer for the theme it plays ({track: {field: value}},
     # see recording.TrackView), and the one queued with a pending theme
     _track_overrides: dict = field(default_factory=dict, repr=False)
     _pending_overrides: dict = field(default_factory=dict, repr=False)
+
+    # A theme crossfade in progress: the old theme's chunks, how far it is, its curves
+    _xfade_old: Optional[Generator] = field(default=None, repr=False)
+    _xfade_pos: int = 0
+    _xfade_out: Optional[np.ndarray] = field(default=None, repr=False)
+    _xfade_in: Optional[np.ndarray] = field(default=None, repr=False)
+
+    # A preset glide in progress: {"start": {(key, field): v}, "end": {...},
+    # "pos": samples, "length": samples, "final": overrides when done}
+    _glide: Optional[dict] = field(default=None, repr=False)
+
+    # Output fade (start/stop): position along the fade (0 silent .. 1 full),
+    # where it is going, and how much it moves per sample
+    _out_level: float = 1.0
+    _out_target: float = 1.0
+    _out_rate: float = 0.0
 
     # Broadcast buffer - recent chunks for all clients
     _broadcast_buffer: deque = field(default_factory=lambda: deque(maxlen=BROADCAST_BUFFER_SIZE), repr=False)
@@ -106,19 +146,12 @@ class Channel:
     _generator_thread: Optional[threading.Thread] = field(default=None, repr=False)
     _generator_running: bool = False
 
-    # Pre-generated crossfade curves
-    _fade_out: np.ndarray = field(default=None, repr=False)
-    _fade_in: np.ndarray = field(default=None, repr=False)
-
     # Silence chunk
     _silence: np.ndarray = field(default=None, repr=False)
 
     def __post_init__(self):
         if not self.name:
             self.name = f"Channel {self.id}"
-        # Initialize crossfade curves
-        self._fade_out = np.cos(np.linspace(0, np.pi/2, THEME_CROSSFADE_SAMPLES)).astype(np.float32)
-        self._fade_in = np.sin(np.linspace(0, np.pi/2, THEME_CROSSFADE_SAMPLES)).astype(np.float32)
         self._silence = np.zeros((1, CHUNK_SIZE), dtype=np.int16)
 
     @property
@@ -146,6 +179,21 @@ class Channel:
         """Check if channel has connected clients."""
         return self._client_count > 0
 
+    @property
+    def output_level(self) -> float:
+        """Where the start/stop fade is (0 silent .. 1 full level)."""
+        return self._out_level
+
+    @property
+    def is_faded_out(self) -> bool:
+        """The channel has faded out (or is stopped) and outputs silence."""
+        return self.state != ChannelState.PLAYING or (self._out_target <= 0.0 and self._out_level <= 0.0)
+
+    @property
+    def is_gliding(self) -> bool:
+        """A preset glide is in progress."""
+        return self._glide is not None
+
     def idle_seconds(self) -> float:
         """Seconds since any listener pulled audio from this playing channel."""
         if self.state != ChannelState.PLAYING:
@@ -161,25 +209,115 @@ class Channel:
         """Get the stream URL path for this channel."""
         return f"/stream/channel{self.id}"
 
-    def set_track_overrides(self, overrides: dict | None) -> None:
+    # --- Preset layer and glide ---
+
+    def _replace_overrides(self, overrides: dict) -> None:
+        """Swap the preset layer's contents in place (the playing mix holds this dict)."""
+        self._track_overrides.clear()
+        self._track_overrides.update(overrides)
+
+    def _base_value(self, key: str, name: str):
+        """A track's (or group master's) value when no preset sets it: the theme's own."""
+        from sonorium.recording import GROUP_KEY_PREFIX
+        theme = self._current_theme
+        if theme is None:
+            return None
+        if key.startswith(GROUP_KEY_PREFIX):
+            saved = (getattr(theme, "groups", None) or {}).get(key[len(GROUP_KEY_PREFIX):]) or {}
+            value = saved.get(name)
+            return 1.0 if value is None else value
+        for instance in list(getattr(theme, "instances", None) or []):
+            if instance.name == key:
+                return getattr(instance, name, None)
+        return None
+
+    def set_track_overrides(self, overrides: dict | None, glide_seconds: float = 0.0) -> None:
         """
         Change this channel's preset layer for the theme it's playing, in place,
-        so the playing mix follows at once. Other channels are not affected.
-        """
-        with self._lock:
-            self._track_overrides.clear()
-            self._track_overrides.update(overrides or {})
+        so the playing mix follows. Other channels are not affected.
 
-    def set_theme(self, theme: ThemeDefinition, overrides: dict | None = None) -> None:
+        With `glide_seconds`, volume and presence (of tracks and group masters)
+        move from where they are now to the new values over that long, counted
+        in audio played; other settings change at once (a track turning on or
+        off fades by itself, theme.TRACK_TOGGLE_FADE_SECONDS). A new glide
+        starts from wherever a running one has got to.
+        """
+        new = {key: dict(values) for key, values in (overrides or {}).items()}
+        with self._lock:
+            if self._pending_theme is not None:
+                # The change is for the theme that is about to fade in
+                self._pending_overrides = new
+                return
+            if glide_seconds <= 0 or self._chunk_generator is None:
+                self._glide = None
+                self._replace_overrides(new)
+                return
+
+            start, end = {}, {}
+            for key in set(self._track_overrides) | set(new):
+                old_values = self._track_overrides.get(key) or {}
+                new_values = new.get(key) or {}
+                for name in GLIDE_FIELDS:
+                    if name not in old_values and name not in new_values:
+                        continue
+                    base = self._base_value(key, name)
+                    a = old_values[name] if name in old_values else base
+                    b = new_values[name] if name in new_values else base
+                    if a is None or b is None:
+                        continue
+                    a, b = float(a), float(b)
+                    if a != b:
+                        start[(key, name)], end[(key, name)] = a, b
+
+            if not start:
+                self._glide = None
+                self._replace_overrides(new)
+                return
+            # Everything else switches now; the gliding values start where they are
+            working = {key: dict(values) for key, values in new.items()}
+            for (key, name), value in start.items():
+                working.setdefault(key, {})[name] = value
+            self._replace_overrides(working)
+            self._glide = {
+                "start": start,
+                "end": end,
+                "pos": 0,
+                "length": max(1, int(glide_seconds * SAMPLE_RATE)),
+                "final": new,
+            }
+            logger.debug(f"Channel {self.id}: Gliding {len(start)} value(s) over {glide_seconds:g}s")
+
+    def _advance_glide(self, samples: int) -> None:
+        """Move a running glide on by `samples` of audio (call with the lock held)."""
+        glide = self._glide
+        if glide is None:
+            return
+        glide["pos"] += samples
+        fraction = glide["pos"] / glide["length"]
+        if fraction >= 1.0:
+            self._replace_overrides(glide["final"])
+            self._glide = None
+            return
+        for (key, name), a in glide["start"].items():
+            b = glide["end"][(key, name)]
+            self._track_overrides.setdefault(key, {})[name] = a + (b - a) * fraction
+
+    # --- Theme ---
+
+    def set_theme(self, theme: ThemeDefinition, overrides: dict | None = None,
+                  crossfade: float = THEME_CROSSFADE_DURATION, fade_in: float = 0.0) -> None:
         """
         Set or change the theme for this channel, with the channel's preset
         values for it (see recording.TrackView).
-        If generator is running, queues a crossfade; otherwise starts immediately.
+
+        If the channel is playing, the old theme crossfades into the new one
+        over `crossfade` seconds (0 cuts). Otherwise playback starts, fading
+        the whole mix in from silence over `fade_in` seconds.
         """
         with self._lock:
-            if theme == self._current_theme:
-                self._track_overrides.clear()
-                self._track_overrides.update(overrides or {})
+            if theme == self._current_theme and self._pending_theme is None:
+                self._glide = None
+                self._replace_overrides({key: dict(values) for key, values in (overrides or {}).items()})
                 logger.info(f"Channel {self.id}: Theme '{theme.name}' already active, no change needed")
                 return
 
@@ -191,48 +329,137 @@ class Channel:
             if self._generator_running:
                 # Queue the theme change - generator thread will handle crossfade
                 self._pending_theme = theme
-                self._pending_overrides = dict(overrides or {})
-                logger.info(f"Channel {self.id}: Queued theme change for crossfade")
+                self._pending_overrides = {key: dict(values) for key, values in (overrides or {}).items()}
+                self._pending_crossfade = max(0.0, float(crossfade or 0.0))
+                logger.info(f"Channel {self.id}: Queued theme change for a {self._pending_crossfade:g}s crossfade")
             else:
                 # No generator running, start fresh
                 self._current_theme = theme
                 self.state = ChannelState.PLAYING
                 self._last_listener_time = time.monotonic()
-                self._track_overrides = dict(overrides or {})
+                self._track_overrides = {key: dict(values) for key, values in (overrides or {}).items()}
+                self._glide = None
+                self._xfade_old = None
                 self._theme_stream = theme.get_stream(self._track_overrides)
                 self._chunk_generator = self._theme_stream.iter_chunks()
+                if fade_in and fade_in > 0:
+                    self._out_level, self._out_target = 0.0, 1.0
+                    self._out_rate = 1.0 / (fade_in * SAMPLE_RATE)
+                else:
+                    self._out_level, self._out_target, self._out_rate = 1.0, 1.0, 0.0
                 self._ensure_generator_running()
 
-    def _apply_crossfade(self, old_chunk: np.ndarray, new_chunk: np.ndarray, position: int) -> np.ndarray:
-        """Apply crossfade mixing between two chunks."""
-        chunk_size = old_chunk.shape[1]
+    def _begin_crossfade(self) -> None:
+        """Start the queued theme change (call with the lock held)."""
+        theme, overrides = self._pending_theme, self._pending_overrides
+        seconds = self._pending_crossfade
+        self._pending_theme = None
+        self._pending_overrides = {}
+        if theme is None:
+            return
 
-        fade_start = position
-        fade_end = min(fade_start + chunk_size, THEME_CROSSFADE_SAMPLES)
-        fade_len = fade_end - fade_start
-
-        if fade_len <= 0 or fade_start >= THEME_CROSSFADE_SAMPLES:
-            return new_chunk
-
-        old_f = old_chunk.astype(np.float32).flatten()
-        new_f = new_chunk.astype(np.float32).flatten()
-
-        if fade_len < chunk_size:
-            fade_out = np.concatenate([
-                self._fade_out[fade_start:fade_end],
-                np.zeros(chunk_size - fade_len, dtype=np.float32)
-            ])
-            fade_in = np.concatenate([
-                self._fade_in[fade_start:fade_end],
-                np.ones(chunk_size - fade_len, dtype=np.float32)
-            ])
+        # Create new stream, with the channel's preset layer for the new theme
+        new_stream = theme.get_stream(overrides)
+        old_generator = self._chunk_generator
+        samples = int(seconds * SAMPLE_RATE)
+        if self._xfade_old is not None:
+            self._xfade_old.close()  # a crossfade still running: its oldest theme goes
+            self._xfade_old = None
+        if old_generator is not None and samples > 0:
+            logger.info(f"Channel {self.id}: Crossfading to '{theme.name}' over {seconds:g}s")
+            self._xfade_old = old_generator
+            self._xfade_pos = 0
+            self._xfade_out, self._xfade_in = crossfade_curves(samples)
         else:
-            fade_out = self._fade_out[fade_start:fade_end]
-            fade_in = self._fade_in[fade_start:fade_end]
+            logger.info(f"Channel {self.id}: Switching to '{theme.name}'")
+            if old_generator is not None:
+                old_generator.close()
 
-        mixed = old_f[:len(fade_out)] * fade_out + new_f[:len(fade_in)] * fade_in
-        mixed = np.clip(mixed, -32768, 32767).astype(np.int16)
-        return mixed.reshape(1, -1)
+        self._current_theme = theme
+        self._theme_stream = new_stream
+        self._track_overrides = overrides
+        self._chunk_generator = new_stream.iter_chunks()
+        self._glide = None
+
+    def _crossfade_step(self, new_chunk: np.ndarray) -> np.ndarray:
+        """Mix one chunk of a running theme crossfade."""
+        try:
+            old_chunk = next(self._xfade_old)
+        except StopIteration:
+            old_chunk = self._silence
+        size = new_chunk.shape[1]
+        pos, total = self._xfade_pos, len(self._xfade_out)
+        take = max(0, min(size, total - pos))
+        fade_out = np.concatenate([self._xfade_out[pos:pos + take], np.zeros(size - take, dtype=np.float32)])
+        fade_in = np.concatenate([self._xfade_in[pos:pos + take], np.ones(size - take, dtype=np.float32)])
+        mixed = old_chunk.astype(np.float32).reshape(-1)[:size] * fade_out + new_chunk.astype(np.float32).reshape(-1) * fade_in
+        self._xfade_pos += size
+        if self._xfade_pos >= total:
+            self._xfade_old.close()
+            self._xfade_old = None
+            logger.info(f"Channel {self.id}: Crossfade complete")
+        return np.clip(mixed, -32768, 32767).astype(np.int16).reshape(1, -1)
+
+    # --- Start/stop fade ---
+
+    def fade_in(self, seconds: float) -> None:
+        """Fade the whole mix up to full level over `seconds` (from wherever it is)."""
+        with self._lock:
+            self._out_target = 1.0
+            if seconds and seconds > 0:
+                self._out_rate = 1.0 / (seconds * SAMPLE_RATE)
+            else:
+                self._out_level = 1.0
+
+    def fade_out(self, seconds: float) -> None:
+        """Fade the whole mix down to silence over `seconds`; the channel keeps running, silent."""
+        with self._lock:
+            self._out_target = 0.0
+            if seconds and seconds > 0 and self.state == ChannelState.PLAYING:
+                self._out_rate = 1.0 / (seconds * SAMPLE_RATE)
+                logger.info(f"Channel {self.id}: Fading out over {seconds:g}s")
+            else:
+                self._out_level = 0.0
+
+    def _apply_output_fade(self, chunk: np.ndarray) -> np.ndarray:
+        level, target = self._out_level, self._out_target
+        if level == target:
+            if level >= 1.0:
+                return chunk
+            if level <= 0.0:
+                return np.zeros_like(chunk)
+            return (chunk.astype(np.float32) * fade_gain(level)).astype(np.int16)
+        size = chunk.shape[-1]
+        direction = 1.0 if target > level else -1.0
+        levels = level + direction * self._out_rate * np.arange(1, size + 1, dtype=np.float64)
+        levels = np.clip(levels, min(level, target), max(level, target))
+        self._out_level = float(levels[-1])
+        gains = fade_gain(levels)
+        return np.clip(chunk.astype(np.float32) * gains, -32768, 32767).astype(np.int16)
+
+    # --- Audio generation ---
+
+    def next_chunk(self) -> np.ndarray:
+        """
+        The channel's next chunk of audio: the theme's mix, through a theme
+        crossfade if one is running, with the preset glide moved on and the
+        start/stop fade applied. Called by the generator thread (and tests).
+        """
+        with self._lock:
+            if self._pending_theme is not None:
+                self._begin_crossfade()
+            self._advance_glide(CHUNK_SIZE)
+            generator = self._chunk_generator
+            if generator is None:
+                chunk = self._silence
+            else:
+                try:
+                    chunk = next(generator)
+                except StopIteration:
+                    chunk = self._silence
+            if self._xfade_old is not None:
+                chunk = self._crossfade_step(chunk)
+            return self._apply_output_fade(chunk)
 
     def _add_to_buffer(self, chunk: np.ndarray):
         """Add a chunk to the broadcast buffer and notify waiting clients."""
@@ -254,7 +481,7 @@ class Channel:
         logger.debug(f"Channel {self.id}: Started generator thread")
 
     def _generator_loop(self):
-        """Background thread that generates audio chunks."""
+        """Background thread that generates audio chunks, paced in real time."""
         logger.debug(f"Channel {self.id}: Generator loop started")
 
         start_time = time.time()
@@ -262,23 +489,12 @@ class Channel:
 
         try:
             while self._generator_running and self.state == ChannelState.PLAYING:
-                # Check for pending theme change
-                if self._pending_theme is not None:
-                    self._do_crossfade_in_thread()
-
-                # Get next chunk from current generator
-                if self._chunk_generator is None:
-                    chunk = self._silence
-                else:
-                    try:
-                        chunk = next(self._chunk_generator)
-                    except StopIteration:
-                        chunk = self._silence
+                chunk = self.next_chunk()
 
                 # Add to broadcast buffer (this notifies clients)
                 self._add_to_buffer(chunk)
 
-                # Maintain real-time pacing
+                # Maintain real-time pacing (crossfade chunks count too)
                 chunk_duration = chunk.shape[1] / SAMPLE_RATE
                 audio_time += chunk_duration
 
@@ -296,52 +512,8 @@ class Channel:
                 self._data_available.notify_all()
             logger.debug(f"Channel {self.id}: Generator loop stopped")
 
-    def _do_crossfade_in_thread(self):
-        """Perform crossfade to pending theme (called from generator thread)."""
-        theme = self._pending_theme
-        overrides = self._pending_overrides
-        self._pending_theme = None
-        self._pending_overrides = {}
-
-        if theme is None:
-            return
-
-        logger.info(f"Channel {self.id}: Performing crossfade to '{theme.name}'")
-
-        # Create new stream, with the channel's preset layer for the new theme
-        new_stream = theme.get_stream(overrides)
-        new_generator = new_stream.iter_chunks()
-
-        # Get references to old generator
-        old_generator = self._chunk_generator
-
-        # Do crossfade
-        crossfade_position = 0
-        while crossfade_position < THEME_CROSSFADE_SAMPLES:
-            try:
-                old_chunk = next(old_generator) if old_generator else self._silence
-                new_chunk = next(new_generator)
-
-                # Apply crossfade
-                mixed = self._apply_crossfade(old_chunk, new_chunk, crossfade_position)
-                crossfade_position += mixed.shape[1]
-
-                # Add to broadcast buffer
-                self._add_to_buffer(mixed)
-
-            except StopIteration:
-                break
-
-        # Switch to new theme
-        self._current_theme = theme
-        self._theme_stream = new_stream
-        self._track_overrides = overrides
-        self._chunk_generator = new_generator
-
-        logger.info(f"Channel {self.id}: Crossfade complete")
-
     def stop(self) -> None:
-        """Stop the channel and return to idle."""
+        """Stop the channel and return to idle (at once: fade_out() first for a smooth stop)."""
         with self._lock:
             logger.info(f"Channel {self.id}: Stopping playback")
             self._generator_running = False
@@ -349,6 +521,9 @@ class Channel:
             self._theme_stream = None
             self._chunk_generator = None
             self._pending_theme = None
+            self._xfade_old = None
+            self._glide = None
+            self._out_level, self._out_target, self._out_rate = 1.0, 1.0, 0.0
             self._theme_version += 1
             self.state = ChannelState.IDLE
             self._broadcast_buffer.clear()

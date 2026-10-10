@@ -19,8 +19,8 @@ code and this document disagree, the code wins and this document has a bug.
 | Version | One of several tracks that are variations of the same sound (for example three lute songs). |
 | Group | A named group: a subfolder of a theme. In Intermittent mode (the default) only one of its tracks plays at a time; in Merry-go-round mode its files make one continuous bed, each crossfading into the next (3.6); in Intrusion mode each track plays as its own settings say and the group can hold files linked from other themes (2.6). In every mode the group works like a mixer bus over its tracks. |
 | Preset | A saved set of track (and optionally group) settings for one theme. |
-| Sequence | Presets played in order inside one theme (planned). |
-| Playlist | Themes played in order. |
+| Sequence | Presets played in order inside one theme, gliding from one to the next (section 5). |
+| Playlist | Themes played in order on a channel (stored by the server, not in a theme; see `docs/PLAYBACK.md`). |
 | Channel | One live mix that speakers listen to. Each channel plays one theme with its own preset. |
 
 Status labels: **built** means in the code now; **target** means Themes 2.0 work that is
@@ -81,7 +81,7 @@ Presets are stored in `presets.json`:
 { "presets": { "<preset_id>": { ... } } }
 ```
 
-Other top-level keys in `presets.json` (for example a later `"sequences"`, section 5) are kept
+Other top-level keys in `presets.json` (`"sequences"` and `"sequence_defaults"`, section 5) are kept
 untouched when presets are saved (`core/theme_presets.py:135-144`). Every write of
 `metadata.json` or `presets.json` is atomic: a temp file is written, read back and compared,
 then renamed over the original (`core/theme_presets.py:60-75`).
@@ -304,8 +304,8 @@ API (`api.py`):
 | Channels | mono. Every file is decoded and resampled to s16 mono 44100 Hz by ffmpeg's resampler (PyAV `AudioResampler`), so stereo is down-mixed by libswresample defaults | `recording.py:488`, `:545`, `:771` |
 | Chunk size | 1024 samples (about 23.2 ms) for every stream and the mix | `recording.py:484`, `:537`, `:719`, `:932`; `theme.py:123` |
 | Per-track chunk type | int16, shape (1, 1024). Float results are clipped to [-32768, 32767] and cast with truncation toward zero | `recording.py:682`, `:891`, `:1088` |
-| Stream output | MP3, 128 kbit/s, 44100 Hz, mono | `core/channel.py:422-441`, `theme.py:156-158` |
-| Pacing | real time: the generator sleeps when ahead of the wall clock | `core/channel.py:281-288` |
+| Stream output | MP3, 128 kbit/s, 44100 Hz, mono | `core/channel.py` `ChannelStream`, `theme.py:156-158` |
+| Pacing | real time: the generator sleeps when ahead of the wall clock (crossfade chunks included) | `core/channel.py` `_generator_loop` |
 
 Generators should deliver 44.1 kHz mono files so no resampling or down-mix happens.
 
@@ -515,9 +515,9 @@ Presets can set group `volume`, `presence` and `muted`, not the gap, `mode` or `
 ### 3.7 What is read live and what is fixed at stream creation
 
 A theme stream (and its track streams) is created when a channel starts a theme or
-crossfades to a new one (`core/channel.py:173-204`, `:299-341`). A preset change on the same
-theme only swaps the override values in place (`core/channel.py:164-171`,
-`core/session_manager.py:558-562`).
+crossfades to a new one (`core/channel.py` `set_theme`, `_begin_crossfade`). A preset change on
+the same theme changes the override values in place, gliding volume and presence (4.2)
+(`core/channel.py` `set_track_overrides`).
 
 | Setting | When it applies |
 |---|---|
@@ -550,16 +550,34 @@ theme only swaps the override values in place (`core/channel.py:164-171`,
 
 **Output gain** is `device.master_volume`, default **6.0** (`device.py:59`, `theme.py:23`, `:150`).
 The HA "Master Volume" number maps 0-100 % to 0-10 (`controls.py:62-68`), so the default is 60 %.
+Settings > Audio Settings > **Master output gain** (`master_gain`, 0-100 %, default 60) sets it on the
+same scale when the add-on starts and whenever it is saved (`api.py` `_apply_master_gain`).
 With one track sounding, any sample above `22936.9 / 6 = 3823` (about -18.7 dBFS) reaches the limiter.
 
 ### 3.9 Theme-to-theme crossfade on a channel (built)
 
-When a playing channel changes theme (`core/channel.py:299-341`):
+When a playing channel changes theme (by hand or by a playlist; `core/channel.py` `_begin_crossfade`, `_crossfade_step`):
 
-- A new theme stream is created with the channel's preset for the new theme (`:311-313`). Its mix gain starts at 1.0 and all its sparse initial delays and group 60 s delays start over.
-- Length 3.0 s = 132300 samples (`core/channel.py:32-33`), equal power: old `cos(linspace(0, pi/2, 132300))`, new `sin(...)` (`:120-121`).
-- Applied per sample, chunk by chunk, 130 chunks; the last chunk pads old with 0 and new with 1 (`core/channel.py:206-235`, `:320-330`).
-- The sum is clipped and truncated to int16 with **no** limiter (`core/channel.py:234`).
+- A new theme stream is created with the channel's preset for the new theme. Its mix gain starts at 1.0 and all its sparse initial delays and group 60 s delays start over.
+- Length: Settings > Audio Settings > **Crossfade** (`crossfade_duration`, default 3.0 s, 0-10 s; `core/session_manager.py` `crossfade_seconds`). 0 cuts. Equal power over `n = round_down(seconds * 44100)` samples: old `cos(linspace(0, pi/2, n))`, new `sin(...)` (`core/channel.py` `crossfade_curves`).
+- Applied per sample, chunk by chunk (each chunk counted in real-time pacing); the last chunk pads old with 0 and new with 1.
+- The sum is clipped and truncated to int16 with **no** limiter.
+- A theme change while a crossfade is still running drops the oldest theme at once.
+
+### 3.9a Start and stop fades on a channel (built)
+
+The whole mix of a channel fades in when the channel starts playing and out before it stops or
+pauses (GitHub #34). It is an output gain on the channel's stream, after the theme crossfade;
+the channel's volume (the speakers' volume) never changes (`core/channel.py` `fade_in`,
+`fade_out`, `_apply_output_fade`).
+
+- Length: the same **Crossfade** setting. A position `p` moves linearly from 0 to 1 (in) or 1 to 0
+  (out) at `1 / (seconds * 44100)` per sample; the gain is `sin(p * pi / 2)` (equal power, like the
+  theme crossfade). Fading in from part way takes the matching part of the time.
+- Stop and pause: the session is marked stopped at once; the mix fades out; only then are the
+  speakers told to stop (or pause) and the channel released (`core/session_manager.py` `_fade_out`,
+  `stop`, `pause`). Playing again during the fade cancels the stop and fades back in.
+- A faded-out channel outputs exact silence until it is stopped.
 
 ### 3.10 Sources of randomness
 
@@ -635,7 +653,7 @@ Consequences:
 
 - **Only saved fields change.** A track not in the preset, or a field the preset leaves out, follows the theme's own setting from `metadata.json` `tracks` (`recording.py:374-395`).
 - **Group masters per field:** a preset that sets only a group's `presence` still uses `metadata.json` `groups[name].volume` (`recording.py:440-447`).
-- Switching preset on a playing channel changes `volume` and `presence` (track and group) at once and crossfades the tracks it turns on or off over 3 s (`muted`, 3.7), but `playback_mode`, `seamless_loop` and group membership only on the next stream creation (3.7).
+- Switching preset on a playing channel **glides** `volume` and `presence` (of tracks and group masters) from where they are to the new values: over 3 s (`PRESET_GLIDE_SECONDS`, the same as `TRACK_TOGGLE_FADE_SECONDS`) when picked by hand (web UI, API, MQTT), over the sequence's ramp time inside a sequence (section 5). The glide is linear, counted in audio samples, and updates the channel's override values once per 1024-sample chunk (`core/channel.py` `set_track_overrides`, `_advance_glide`). A value the new preset doesn't set glides to the theme's own value and then follows the theme again. Tracks it turns on or off crossfade over 3 s (`muted`, 3.7). `playback_mode`, `seamless_loop` and group membership change only on the next stream creation (3.7). A new glide starts from wherever a running one has got to.
 
 The mixer editor's "load preset" is different: it copies the preset's `tracks` into the
 theme's own settings, filling missing fields with defaults, and saves them to
@@ -658,13 +676,65 @@ preset. Mark exactly one preset `"is_default": true`.
 
 ---
 
-## 5. Planned, not built
+## 5. Sequences (built)
 
-Short list of agreed direction. Nothing here is in the code yet; field names may change.
+A sequence plays some of a theme's presets in order on a channel, gliding from one to the next.
 
-- **Sequences** in `presets.json` `"sequences"`: an ordered list of chosen presets; at the end `reverse`, `repeat` or `stop`; each step holds for a random time between hold minimum and maximum; changes ramp over a given number of seconds.
-- **Preset changes glide** over a few seconds instead of switching at once.
-- **Theme defaults** for hold and ramp times.
+### 5.1 Stored in presets.json
+
+```json
+{
+  "presets": { "drizzle": {...}, "rain": {...}, "downpour": {...}, "tornado": {...} },
+  "sequence_defaults": { "hold_min": 300, "hold_max": 900, "ramp": 30 },
+  "sequences": {
+    "gentle_storm": {
+      "name": "Gentle storm",
+      "presets": ["drizzle", "rain", "downpour"],
+      "at_end": "reverse",
+      "hold_min": null, "hold_max": null, "ramp": 20,
+      "owner": null
+    }
+  }
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `sequence_defaults.hold_min`, `.hold_max` | seconds | The theme's default time on each preset: a random time in this range. Built-in default 300-900. |
+| `sequence_defaults.ramp` | seconds | The theme's default glide time between presets. Built-in default 30. |
+| `sequences.<id>.name` | string | Shown in the Sequence menus and the MQTT Sequence select (1-100 characters, unique in the theme). |
+| `sequences.<id>.presets` | list of preset IDs | In play order; only these presets are ever reached ("Gentle storm" never reaches Tornado). |
+| `sequences.<id>.at_end` | `reverse`, `restart`, `stop` | At the last preset: go back (ping-pong: 1 2 3 2 1 2 ...), start again at the first, or stop and stay on the last preset. Default `reverse`. |
+| `sequences.<id>.hold_min`, `hold_max`, `ramp` | seconds or null | The sequence's own timing; null (or missing) uses `sequence_defaults`. |
+| `sequences.<id>.owner` | null | Every sequence is a theme sequence for now; the field is kept for per-user sequences later. |
+
+The ID is made from the name like a preset ID (`core/sequences.py` `new_sequence_id`). Times
+are 0 to 604800 s (a week) and `hold_min` must not be above `hold_max` once defaults are applied.
+Deleting a preset removes it from every sequence of its theme (`core/sequences.py` `drop_preset`);
+a sequence left with no preset can't be started. Unknown preset IDs in a sequence are skipped
+when it plays.
+
+### 5.2 How a sequence plays (`core/playback_runner.py`)
+
+- A channel runs at most one sequence, of the theme it plays. Starting it applies the first
+  preset (a 3 s glide if the channel is playing).
+- Each preset holds for `uniform(hold_min, hold_max)` seconds, drawn fresh each step, then the
+  channel glides to the next preset over `ramp` seconds; the next hold starts when the glide ends.
+  Holds are timed on the server's monotonic clock (checked every second).
+- Picking a preset by hand stops the sequence (the channel stays on that preset). Choosing a
+  different theme by hand stops it too.
+- Stopping or pausing the channel stops the timer; the channel keeps the sequence, and playing
+  again starts it from its first preset. The sequence a channel runs is saved in `state.json`.
+- Next (API or MQTT button) moves to the next step at once with a 3 s glide.
+
+### 5.3 Generator rule
+
+A generator may write `sequences` and `sequence_defaults`. Every preset ID in a sequence must
+exist in `presets`. Leave `owner` null.
+
+### 5.4 Planned, not built
+
+- **Per-user sequences** in each user's own file (owner set).
 - **Seedable randomness** per stream (3.10).
 
 ---
@@ -732,7 +802,7 @@ a `MANIFEST.json` with at least `source` and `license` in the shape above.
 | Groups | none | `metadata.json` `groups`: master volume, presence, mute (multiplying the tracks) and gap; presets may set volume, presence, mute (built) |
 | Presets | Inside `metadata.json` | `presets.json`, converted automatically with a `.pre-presets.bak` backup (built) |
 | Version marker | none | `"spec_version": 2` (built) |
-| Sequences | none | planned (section 5) |
+| Sequences | none | `presets.json` `"sequences"` and `"sequence_defaults"` (built, section 5) |
 
 ---
 
@@ -790,10 +860,8 @@ UTF-8 (`core/theme_presets.py:48`, `:64-66`); the v2 metadata edit writes escape
 (`web/api_v2.py:1703`). If that edit's read fails it starts from an empty object and writes
 back only the edited fields, wiping the rest of `metadata.json` (`web/api_v2.py:1670-1675`, `:1703`).
 
-Q12. **Theme crossfade chunks are not counted in real-time pacing.** `_do_crossfade_in_thread`
-pushes about 130 chunks without adding to `audio_time` (`core/channel.py:299-341` vs `:281-288`),
-and the broadcast buffer holds only 50 chunks (`core/channel.py:44`), so a slow listener can
-miss part of the crossfade and the channel runs about 3 s ahead of the clock afterwards.
+Q12. *(Fixed.)* Theme crossfade chunks used to be pushed without real-time pacing; the
+crossfade now runs one chunk per paced step (`core/channel.py` `next_chunk`).
 
 Q13. **Group timing uses the wall clock** while sparse gaps and presence times count samples
 (3.6), so the clocks only agree because output is paced in real time.

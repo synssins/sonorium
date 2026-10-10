@@ -73,7 +73,7 @@ class ApiSonorium(api.Base):
         self._session_manager = None
         self._group_manager = None
         self._channel_manager = None
-        self._cycle_manager = None
+        self._background = None
         self._mqtt_manager = None
         self._theme_refresh_task = None
         self._plugin_manager = None
@@ -88,7 +88,7 @@ class ApiSonorium(api.Base):
             logbuffer.attach("uvicorn")
             await self.initialize_v2()
         
-        # Register shutdown event to stop cycle manager
+        # Register shutdown event to stop the background loop
         @self.app.on_event("shutdown")
         async def shutdown_event():
             logger.info("FastAPI shutdown event triggered")
@@ -202,7 +202,7 @@ class ApiSonorium(api.Base):
             from sonorium.core.session_manager import SessionManager
             from sonorium.core.group_manager import GroupManager
             from sonorium.core.channel import ChannelManager
-            from sonorium.core.cycle_manager import CycleManager
+            from sonorium.core.background import BackgroundLoop
             from sonorium.ha.registry import HARegistry
             from sonorium.ha.media_controller import HAMediaController
             from sonorium.web.api_v2 import create_api_router
@@ -230,6 +230,13 @@ class ApiSonorium(api.Base):
 
             # Apply saved track settings to themes (now reads from metadata.json)
             self._apply_saved_track_settings()
+
+            # Theme cycling became playlists: convert channels' cycling once
+            # (before anything saves state.json, which no longer keeps cycle_config)
+            self._migrate_cycling()
+
+            # Settings > Audio Settings > Master output gain (0-100) is the mix's output gain
+            self._apply_master_gain()
 
             # Initialize channel manager
             max_channels = getattr(settings, 'max_channels', 6)
@@ -285,27 +292,19 @@ class ApiSonorium(api.Base):
             stream_base_url = settings.stream_url
             logger.debug(f"  Stream base URL: {stream_base_url}")
             
-            # Initialize cycle manager
-            self._cycle_manager = CycleManager(
-                session_manager=None,  # Will set after session_manager is created
-                themes=self.client.device.themes,
-                check_interval=10.0,  # Check every 10 seconds
-            )
-            
-            # Initialize session manager (with cycle manager and metadata manager)
+            # Initialize session manager (with metadata manager)
             self._session_manager = SessionManager(
                 self._state_store,
                 self._ha_registry,
                 self._media_controller,
                 stream_base_url,
                 channel_manager=self._channel_manager,
-                cycle_manager=self._cycle_manager,
                 themes=self.client.device.themes,
                 theme_metadata_manager=self._theme_metadata_manager,
             )
 
-            # Connect cycle manager to session manager
-            self._cycle_manager.set_session_manager(self._session_manager)
+            # Background loop: sequence and playlist timers, idle sessions
+            self._background = BackgroundLoop(self._session_manager)
             
             self._group_manager = GroupManager(
                 self._state_store,
@@ -363,21 +362,23 @@ class ApiSonorium(api.Base):
                 ha_registry=self._ha_registry,
                 state_store=self._state_store,
                 channel_manager=self._channel_manager,
-                cycle_manager=self._cycle_manager,
                 plugin_manager=self._plugin_manager,
                 mqtt_manager=self._mqtt_manager,
                 on_themes_changed=self.schedule_theme_refresh,
                 network_service=self._network_service,
+                on_master_gain=self._apply_master_gain,
             )
             self.app.include_router(api_router)
             
-            # Keep MQTT entities in sync when idle sessions are stopped
+            # Keep MQTT entities in sync when idle sessions are stopped, and
+            # when a sequence or playlist moves a channel on
             if self._mqtt_manager:
-                self._cycle_manager.on_session_stopped = self._mqtt_manager.update_session_state
+                self._background.on_session_stopped = self._mqtt_manager.update_session_state
+                self._session_manager.runner.on_change = self._mqtt_manager.update_session_state
 
-            # Start cycle manager background task
-            await self._cycle_manager.start()
-            logger.debug("  CycleManager started")
+            # Start the background loop
+            await self._background.start()
+            logger.debug("  Background loop started")
 
             # Network speaker discovery runs in the background: the UI is up meanwhile
             if self._network_service:
@@ -394,6 +395,31 @@ class ApiSonorium(api.Base):
             import traceback
             traceback.print_exc()
     
+    def _migrate_cycling(self):
+        """Turn channels' theme cycling into playlists, once (core/playlists.migrate_cycling)."""
+        from sonorium.core.playlists import migrate_cycling
+        state = self._state_store.state
+        if state.cycling_migrated:
+            return
+        try:
+            themes = sorted(self.client.device.themes or [], key=lambda t: (t.name or "").lower())
+            migrate_cycling(state, [t.id for t in themes])
+            self._state_store.save()
+        except Exception as e:
+            logger.warning(f"  Could not convert theme cycling to playlists: {e}")
+
+    def _apply_master_gain(self):
+        """
+        Settings > Audio Settings > Master output gain (0-100 %) as the mix's
+        output gain (device.master_volume, 0-10; 60 % = 6.0, the old default),
+        the same scale as the Home Assistant "Master Volume" number.
+        """
+        try:
+            gain = int(self._state_store.settings.master_gain)
+            self.client.device.master_volume = max(0, min(100, gain)) / 100 * 10.0
+        except Exception as e:
+            logger.warning(f"  Could not apply the master output gain: {e}")
+
     def _migrate_theme_data_to_metadata(self):
         """
         Migrate theme data from state.json to metadata.json (one-time migration).
@@ -528,9 +554,8 @@ class ApiSonorium(api.Base):
 
     async def shutdown_v2(self):
         """Shutdown v2 components gracefully."""
-        if self._cycle_manager:
-            await self._cycle_manager.stop()
-            logger.info("CycleManager stopped")
+        if self._background:
+            await self._background.stop()
         if self._network_service:
             await self._network_service.stop()
 
@@ -2642,6 +2667,7 @@ class ApiSonorium(api.Base):
                 if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
                     raise HTTPException(status_code=500, detail="Failed to save changes")
 
+                await self._preset_removed(theme_id, theme_folder, preset_id)
                 return {"status": "ok", "preset_id": preset_id}
 
         # Fallback to direct file I/O
@@ -2663,7 +2689,24 @@ class ApiSonorium(api.Base):
         if not self._write_theme_metadata(theme_id, metadata):
             raise HTTPException(status_code=500, detail="Failed to save changes")
 
+        await self._preset_removed(theme_id, theme_folder or self._find_theme_folder(theme_id), preset_id)
         return {"status": "ok", "preset_id": preset_id}
+
+    async def _preset_removed(self, theme_id: str, folder, preset_id: str) -> None:
+        """A preset was deleted: take it out of the theme's sequences, and update the MQTT selects."""
+        if folder:
+            try:
+                from sonorium.core.sequences import drop_preset
+                changed = drop_preset(folder, preset_id)
+                if changed:
+                    logger.info(f"  Preset '{preset_id}' removed from sequence(s): {', '.join(changed)}")
+            except Exception as e:
+                logger.warning(f"  Could not remove preset '{preset_id}' from the theme's sequences: {e}")
+        if self._mqtt_manager:
+            try:
+                await self._mqtt_manager.refresh_sequences(theme_id)
+            except Exception as e:
+                logger.warning(f"  Could not update MQTT selects: {e}")
 
     async def set_default_preset(self, theme_id: str, preset_id: str):
         """Set a preset as the default for this theme."""
@@ -3143,12 +3186,10 @@ class ApiSonorium(api.Base):
                 status_data["channels"] = self._channel_manager.max_channels
                 status_data["active_channels"] = self._channel_manager.get_active_count()
             
-            # Count sessions with cycling enabled
-            cycling_count = sum(
-                1 for s in self._state_store.sessions.values() 
-                if s.cycle_config and s.cycle_config.enabled
+            # Channels playing a playlist (theme cycling became playlists)
+            status_data["playlist_sessions"] = sum(
+                1 for s in self._state_store.sessions.values() if s.playlist_id
             )
-            status_data["cycling_sessions"] = cycling_count
         
         return status_data
 
