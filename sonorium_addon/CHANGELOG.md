@@ -4,6 +4,21 @@
 
 ## v1.6.0 (2026-10-10)
 
+> ## ⭐ 1.6.0: Merry-go-round and Intrusions
+>
+> Groups now have three modes. **Merry-go-round** turns a few recordings of the same scene into one continuous bed that crossfades from file to file and never repeats the same way. **Intrusion** lets a preset bring in sounds from another theme, like rain over a campsite, without copying any files. Tracks now fade in and out over 3 seconds when a preset turns them on or off.
+
+### Highlights
+
+- **Group modes:** Intermittent, **Merry-go-round** (a continuous bed that crossfades from file to file) and **Intrusion** (tracks keep their own settings and can be linked from other themes).
+- **Preset marks:** ★ for the default, ⚭ for a preset that turns intrusion tracks on, in the Theme Editor, on channel cards and in the channel Edit dialog.
+- **Smooth preset changes:** tracks fade in and out over 3 seconds when turned on or off.
+- **Theme Editor:** instant moves, messages as small notices, track preview at the track's own volume.
+- **Fixes:** new themes can be edited at once and keep the name you typed; Preview mix no longer shows a false error.
+- **Known issue:** Crossfade and Master output gain (Settings → Audio Settings) are saved but don't change the sound yet.
+
+The full list is in the README under What's new.
+
 ### Documentation
 
 - 1.6.0 what's new and announcement; 1.5.2 and 1.5.0 kept under their own headings
