@@ -3108,6 +3108,7 @@ body.sidebar-open .sidebar-overlay {
 .te-help-body dl { margin: .25rem 0; }
 .te-help-body dt { font-weight: 600; margin-top: .5rem; }
 .te-help-body dd { margin: 0; }
+.te-help-body p.hi { margin: .375rem 0 .375rem .75rem; padding-left: 1rem; text-indent: -1rem; }
 @media (max-width: 760px) {
     .te-help { top: 0; right: 0; width: 100%; max-height: none; height: 100%; border-radius: 0; border: 0; }
     .te-help-x { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; }
