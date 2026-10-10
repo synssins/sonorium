@@ -2655,7 +2655,7 @@ body.sidebar-open .sidebar-overlay {
 .te .cat-head { display: flex; align-items: center; gap: .5rem; min-height: 44px; padding: .375rem .75rem; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); }
 .te .cat-title { font-size: .9375rem; font-weight: 600; color: var(--text-primary); }
 .te .cat-desc { font-size: .75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-.te .cat-thead { padding: .375rem .75rem .25rem; font-size: .6875rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); border-bottom: 1px solid rgba(51,65,85,.55); }
+.te .cat-thead { padding: .375rem .75rem .25rem; font-size: .6875rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); background: var(--bg-secondary); border-bottom: 1px solid rgba(51,65,85,.55); }
 .te .cat .grp-sec { margin: 0; border-width: 0 0 1px; border-radius: 0; }
 .te .cat-unassigned { border-style: dashed; }
 .te .cat-unassigned .trow { opacity: .9; }
