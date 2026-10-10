@@ -515,7 +515,7 @@ class ThemeStream:
                     transition.finish_at = now  # nothing playing: done at once
             elif getattr(stream, "length", 0):
                 from sonorium.recording import CROSSFADE_SAMPLES
-                left = stream.length - CROSSFADE_SAMPLES - stream.position
+                left = stream.length - getattr(stream, "overlap", CROSSFADE_SAMPLES) - stream.position
                 if left <= 0:
                     left += stream.length
                 transition.finish_at = now + min(left / RATE, 600.0)

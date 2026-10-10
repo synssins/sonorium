@@ -47,6 +47,8 @@ class TrackSettings:
     playback_mode: str = "auto"     # auto/continuous/sparse/presence
     seamless_loop: bool = False
     exclusive: bool = False
+    fade_in: float = 0.0            # the file's own fades, seconds (0 = off)
+    fade_out: float = 0.0
 
     def to_dict(self) -> dict:
         return asdict(self)

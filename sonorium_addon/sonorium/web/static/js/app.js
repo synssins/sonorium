@@ -2785,7 +2785,7 @@ function openThemeEditModal(themeId) {
 // values from when the window opened (or from the last save). Uploads, moving
 // tracks between groups, creating/deleting groups and saved presets stay.
 
-const TE_TRACK_FIELDS = ['volume', 'presence', 'muted', 'playback_mode', 'seamless_loop', 'exclusive'];
+const TE_TRACK_FIELDS = ['volume', 'presence', 'muted', 'playback_mode', 'seamless_loop', 'exclusive', 'fade_in', 'fade_out'];
 const TE_GROUP_FIELDS = ['volume', 'presence', 'muted', 'gap_min', 'gap_max', 'mode', 'crossfade'];
 
 function teMixSnapshot() {
@@ -2805,7 +2805,7 @@ async function teRestoreMix() {
         if (!before) continue;  // moved or uploaded since: nothing to put back
         for (const f of TE_TRACK_FIELDS) {
             if (before[f] !== undefined && before[f] !== t[f]) {
-                calls.push(api('PUT', teTrackUrl(t.name, f), { [f]: before[f] }));
+                calls.push(api('PUT', teTrackUrl(t.name, f.startsWith('fade_') ? 'fades' : f), { [f]: before[f] }));
             }
         }
     }
@@ -3146,7 +3146,7 @@ function teRenderRow(track, group) {
     const link = track.linked || null;  // a file linked from another theme
     const missing = !!link?.missing;    // its source is gone: shown greyed, only ⋯ works
     const off = missing ? ' disabled' : '';
-    const advOn = (own && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive;
+    const advOn = (own && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive || !!track.fade_in || !!track.fade_out;
     const muted = track.muted || (group && group.settings?.muted);
     const cls = ['trow', 'tgrid', group ? 'in-grp' : '', muted ? 'muted' : '', link ? 'linked' : '', missing ? 'missing' : '',
         playing ? 'previewing' : ''].filter(Boolean).join(' ');
@@ -3408,6 +3408,23 @@ function teToggleGapless(key) {
     if (track) teSetTrackFlag(key, 'seamless_loop', !track.seamless_loop);
 }
 
+// A file's own Fade in / Fade out (seconds, empty = off), saved when the field is left
+async function teSetFade(key, field, input) {
+    const raw = input.value.trim();
+    const seconds = raw === '' ? 0 : Math.min(30, Math.max(0, parseFloat(raw) || 0));
+    input.value = seconds ? String(seconds) : '';
+    const track = teTrack(key);
+    if (!track || (track[field] || 0) === seconds) return;
+    try {
+        await api('PUT', teTrackUrl(key, 'fades'), { [field]: seconds });
+        track[field] = seconds;
+        teMarkMixChanged();
+    } catch (error) {
+        showToast(error.message || 'Failed to save', 'error');
+    }
+    teRenderTracks();
+}
+
 function teToggleExclusive(key) {
     const track = teTrack(key);
     teCloseMenu();
@@ -3424,6 +3441,10 @@ async function teResetTrack(key) {
         for (const [field, value] of changes) {
             await api('PUT', teTrackUrl(key, field), { [field]: value });
             track[field] = value;
+        }
+        if (track.fade_in || track.fade_out) {
+            await api('PUT', teTrackUrl(key, 'fades'), { fade_in: 0, fade_out: 0 });
+            track.fade_in = track.fade_out = 0;
         }
         teMarkMixChanged();
         teFlash(`Reset ${trackDisplayName(key)}`);
@@ -4017,6 +4038,12 @@ function teMenuHtml(kind, arg) {
         ${opts.disabled ? 'disabled' : ''} ${opts.title ? `title="${escapeHtml(opts.title)}"` : ''} onclick="${action}">${opts.icon || ''}${label}${opts.after || ''}</button>`;
     const sep = '<div class="msep"></div>';
     const preset = teSelectedPreset();
+    // A file's own fades, at the top of a track's menu
+    const fadeRows = (track, k, disabled) => [['fade_in', 'Fade in', 'Seconds it fades in each time the file starts'],
+        ['fade_out', 'Fade out', 'Seconds it fades out each time the file ends']].map(([f, label, tip]) => `
+        <div class="mi-row"><label for="te-${f.replace('_', '-')}">${label}</label>
+            <input id="te-${f.replace('_', '-')}" class="num" type="number" min="0" max="30" step="0.5" placeholder="Off" title="${tip}"
+                value="${track[f] ? teEsc(track[f]) : ''}" onchange="teSetFade(${k}, '${f}', this)"${disabled ? ' disabled' : ''}><span>s</span></div>`).join('');
     switch (kind) {
         case 'theme':
             return { cls: 'menu', align: 'right', html: `
@@ -4047,9 +4074,9 @@ function teMenuHtml(kind, arg) {
             const k = jsArg(arg);
             const inGroup = trackGroupOf(arg);
             const gaplessOk = teGaplessAllowed(track);
-            let html = '';
+            let html = fadeRows(track, k, false);
             if (!inGroup || teIsIntrusion(teGroup(inGroup))) {
-                html += mi('Gapless', `teToggleGapless(${k})`, {
+                html += sep + mi('Gapless', `teToggleGapless(${k})`, {
                     disabled: !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Background only',
                     after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
             }
@@ -4079,7 +4106,7 @@ function teMenuHtml(kind, arg) {
             const inGroup = trackGroupOf(arg);
             const missing = !!track.linked.missing;
             const gaplessOk = teGaplessAllowed(track);
-            let html = mi('Gapless', `teToggleGapless(${k})`, {
+            let html = fadeRows(track, k, missing) + sep + mi('Gapless', `teToggleGapless(${k})`, {
                 disabled: missing || !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Background only',
                 after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
             if (te.groupsOk) {
@@ -8230,9 +8257,8 @@ function txRowFrom(track, side, saved) {
     TX_STYLES.forEach(k => { on[k] = (cfg.styles || []).includes(k); });
     const cap = Math.round((side === 'in' ? track.to : track.from) * 100);
     const values = { ...TX_DEFAULTS, ...(cfg.values || {}) };
-    const sel = TX_STYLES.find(k => on[k] && k !== 'fresh') || TX_STYLES.find(k => on[k]) || '';
     return {
-        ...track, on, sel, v: values, cap,
+        ...track, on, v: values, cap,
         maxVol: cfg.max_volume !== undefined && cfg.max_volume !== null ? Math.min(cap, Math.round(cfg.max_volume * 100)) : cap,
         pre: Math.round(cfg.pre_fade || 0),
     };
@@ -8310,24 +8336,23 @@ function txPct(v) {
     return v > 0 ? `${Math.round(v * 100)}%` : 'off';
 }
 
-function txSliderState(r, ramp) {
+// One style's setting: its slider's range, value and text
+function txSliderState(r, k, ramp) {
     const win = r.pre + ramp;
-    const s = r.sel, has = !!s && s !== 'fresh';
-    const anyOn = TX_STYLES.some(k => r.on[k]);
-    let min = 0, max = 100, value = has ? r.v[s] : 0, text = '';
-    if (s === 'swell') {
+    let min = 0, max = 100, value = r.v[k];
+    let text = `${Math.round(value)}%`;
+    if (k === 'swell') {
         min = Math.min(5, win);
         max = Math.max(min, win);
         value = Math.max(min, Math.min(max, r.v.swell));
         text = `${Math.round(value)} s of ${win} s`;
-    } else if (has) {
-        text = `${Math.round(value)}%`;
     }
-    return {
-        has, min, max, value,
-        label: has ? TX_SLIDER[s] : (s === 'fresh' ? TX_NAMES[tx.tab].fresh : (anyOn ? '' : 'Smooth')),
-        text: has ? text : (s === 'fresh' || anyOn ? '' : `ramp ${ramp} s`),
-    };
+    return { min, max, value, text };
+}
+
+// The styles that are on and apply to this track, in button order
+function txActive(r) {
+    return TX_STYLES.filter(k => r.on[k] && !(k === 'build' && r.mode !== 'Intermittent'));
 }
 
 function txHints(r) {
@@ -8343,28 +8368,40 @@ function txRowHtml(r, i, ramp) {
     const side = tx.tab, out = side === 'out';
     const name = escapeHtml(r.name);
     const playing = txp.key === `${side}:${i}`;
-    const sl = txSliderState(r, ramp);
     const intermittent = r.mode === 'Intermittent';
     const btns = TX_STYLES.map(k => {
         const dis = k === 'build' && !intermittent;
         const label = TX_NAMES[side][k];
-        return `<button type="button" class="ad-tg${out ? ' x' : ''}${r.on[k] && !dis ? ' on' : ''}${r.sel === k ? ' sel' : ''}" title="${escapeHtml(dis ? `${label}: Intermittent tracks only` : TX_TIPS[side][k])}" aria-label="${escapeHtml(label)}" aria-pressed="${r.on[k] && !dis}" ${dis ? 'disabled' : ''} onclick="txPress(${i}, '${k}')">${TX_ICONS[k]}</button>`;
+        return `<button type="button" class="ad-tg${out ? ' x' : ''}${r.on[k] && !dis ? ' on' : ''}" title="${escapeHtml(dis ? `${label}: Intermittent tracks only` : TX_TIPS[side][k])}" aria-label="${escapeHtml(label)}" aria-pressed="${r.on[k] && !dis}" ${dis ? 'disabled' : ''} onclick="txPress(${i}, '${k}')">${TX_ICONS[k]}</button>`;
     }).join('');
-    const hints = r.on.build && intermittent ? txHints(r) : null;
     const maxVol = Math.min(r.maxVol, r.cap);
+    const active = txActive(r);
+    // One block per style that's on, each with its own setting; Smooth when none is
+    const blocks = active.length ? active.map(k => {
+        const icon = `<span class="ad-sl-ic${out ? ' x' : ''}" title="${escapeHtml(TX_NAMES[side][k])}">${TX_ICONS[k]}</span>`;
+        if (k === 'fresh') {
+            return `<div class="ad-sl"><div class="ad-sl-hd"><span class="ad-sl-lbl">${icon}${escapeHtml(TX_NAMES[side].fresh)}</span><span class="ad-sl-val">${out ? 'no new play' : 'from the file start'}</span></div></div>`;
+        }
+        const sl = txSliderState(r, k, ramp);
+        const hints = k === 'build' ? txHints(r) : null;
+        return `<div class="ad-sl" data-k="${k}">
+                <div class="ad-sl-hd"><span class="ad-sl-lbl">${icon}${TX_SLIDER[k]}</span><span class="ad-sl-val">${escapeHtml(sl.text)}</span></div>
+                <input type="range" class="track-slider" min="${sl.min}" max="${sl.max}" step="1" value="${sl.value}" aria-label="${escapeHtml(TX_NAMES[side][k])}, ${TX_SLIDER[k]}: ${name}" oninput="txSlide(${i}, '${k}', this)">
+                ${hints ? `<span class="ad-hint">${hints[0]}</span><span class="ad-hint">${hints[1]}</span>` : ''}
+                ${k === 'gusts' ? `<div class="ad-sl-hd sub"><span class="ad-sl-lbl" title="Capped at the track's volume in this preset">Max volume</span><span class="ad-sl-val ad-max-val">${maxVol}% of ${r.cap}%</span></div>
+                <input type="range" class="track-slider" min="0" max="${r.cap}" step="1" value="${maxVol}" aria-label="Max volume: ${name}" oninput="txMax(${i}, this)">` : ''}
+            </div>`;
+    }).join('') : `<div class="ad-sl off">
+                <div class="ad-sl-hd"><span class="ad-sl-lbl">Smooth</span><span class="ad-sl-val">ramp ${ramp} s</span></div>
+                <input type="range" class="track-slider" min="0" max="100" value="0" disabled aria-label="Smooth: ${name}">
+            </div>`;
     return `
         <div class="ad-r adgrid${playing ? ' previewing' : ''}" data-i="${i}">
             <button type="button" class="track-preview-btn${playing ? ' playing' : ''}" title="${playing ? 'Stop preview' : out ? 'Preview this exit' : 'Preview this entrance'}" aria-label="${playing ? 'Stop preview' : out ? 'Preview this exit' : 'Preview this entrance'}: ${name}" aria-pressed="${playing}" onclick="txPreview(${i})">${playing ? TX_ICON_STOP : TX_ICON_PLAY}</button>
             <div class="ad-nm"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span><span class="ad-mode">${escapeHtml(r.mode)}</span></div>
             <span class="ad-chg" aria-label="${txPct(r.from)} to ${txPct(r.to)}"><span class="ad-from">${txPct(r.from)}</span>${TX_ICON_ARROW}<span class="ad-to">${txPct(r.to)}</span></span>
             <div class="ad-btns" role="group" aria-label="Style: ${name}">${btns}</div>
-            <div class="ad-sl${sl.has ? '' : ' off'}">
-                <div class="ad-sl-hd"><span class="ad-sl-lbl">${escapeHtml(sl.label)}</span><span class="ad-sl-val">${escapeHtml(sl.text)}</span></div>
-                <input type="range" class="track-slider" min="${sl.min}" max="${sl.max}" step="1" value="${sl.value}" ${sl.has ? '' : 'disabled'} aria-label="${escapeHtml(sl.label || 'Setting')}: ${name}" oninput="txSlide(${i}, this)">
-                ${hints ? `<span class="ad-hint">${hints[0]}</span><span class="ad-hint">${hints[1]}</span>` : ''}
-                ${r.on.gusts ? `<div class="ad-sl-hd sub"><span class="ad-sl-lbl" title="Capped at the track's volume in this preset">Max volume</span><span class="ad-sl-val">${maxVol}% of ${r.cap}%</span></div>
-                <input type="range" class="track-slider" min="0" max="${r.cap}" step="1" value="${maxVol}" aria-label="Max volume: ${name}" oninput="txMax(${i}, this)">` : ''}
-            </div>
+            <div class="ad-sls">${blocks}</div>
             <div class="ad-pre"><span class="c-lbl">Pre-fade</span><div class="mx-ctl"><div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="90" step="5" value="${r.pre}" title="Starts this long before the step" aria-label="Pre-fade: ${name}" oninput="txPre(${i}, this)"></div><span class="track-slider-value">${r.pre ? `${r.pre} s` : 'Off'}</span></div></div>
         </div>`;
 }
@@ -8406,28 +8443,24 @@ function txRenderSum() {
         : `All Smooth · the ${ramp} s ramp`;
 }
 
-// A button: on, then selected (its setting on the slider), then off
+// A style button: on or off. Several can be on; each shows its own setting.
 function txPress(i, k) {
     const r = tx.rows[tx.tab][i];
     if (!r) return;
-    if (!r.on[k]) { r.on[k] = true; r.sel = k; }
-    else if (r.sel !== k) r.sel = k;
-    else { r.on[k] = false; r.sel = TX_STYLES.find(x => x !== k && r.on[x]) || ''; }
+    r.on[k] = !r.on[k];
     txRenderRow(i);
     txPreviewFollow(i);
 }
 
-function txSlide(i, input) {
+function txSlide(i, k, input) {
     const r = tx.rows[tx.tab][i];
-    if (!r || !r.sel || r.sel === 'fresh') return;
-    r.v[r.sel] = +input.value;
-    const sl = txSliderState(r, txRamp());
-    const row = input.closest('.ad-r');
-    row.querySelector('.ad-sl-val').textContent = sl.text;
-    if (r.on.build) {
-        const hints = row.querySelectorAll('.ad-hint');
+    if (!r || !r.on[k] || k === 'fresh') return;
+    r.v[k] = +input.value;
+    const block = input.closest('.ad-sl');
+    block.querySelector('.ad-sl-val').textContent = txSliderState(r, k, txRamp()).text;
+    if (k === 'build') {
         const text = txHints(r);
-        hints.forEach((h, n) => { h.textContent = text[n]; });
+        block.querySelectorAll('.ad-hint').forEach((h, n) => { h.textContent = text[n]; });
     }
     txPreviewFollow(i);
 }
@@ -8436,8 +8469,7 @@ function txMax(i, input) {
     const r = tx.rows[tx.tab][i];
     if (!r) return;
     r.maxVol = +input.value;
-    const vals = input.closest('.ad-sl').querySelectorAll('.ad-sl-val');
-    vals[vals.length - 1].textContent = `${r.maxVol}% of ${r.cap}%`;
+    input.closest('.ad-sl').querySelector('.ad-max-val').textContent = `${r.maxVol}% of ${r.cap}%`;
     txPreviewFollow(i);
 }
 
@@ -8447,7 +8479,7 @@ function txPre(i, input) {
     r.pre = +input.value;
     input.closest('.ad-pre').querySelector('.track-slider-value').textContent = r.pre ? `${r.pre} s` : 'Off';
     // The swell's range follows the window (pre-fade + ramp)
-    if (r.sel === 'swell') txRenderRow(i);
+    if (r.on.swell) txRenderRow(i);
     else txRenderSum();
     txPreviewFollow(i);
 }
@@ -8461,7 +8493,6 @@ function txAskReset() {
         { title: `Reset every track in “${tx.name}” to Smooth?`, ok: 'Reset', danger: true }, () => {
             ['in', 'out'].forEach(side => tx.rows[side].forEach(r => {
                 TX_STYLES.forEach(k => { r.on[k] = false; });
-                r.sel = '';
                 r.pre = 0;
             }));
             tx.keep = { in: {}, out: {} };

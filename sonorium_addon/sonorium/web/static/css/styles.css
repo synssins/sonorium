@@ -4050,11 +4050,17 @@ button.pk-row { cursor: pointer; }
 .ad-tg:hover:not([disabled]) { color: var(--text-primary); border-color: var(--accent-secondary); }
 .ad-tg.on { background: rgba(6, 214, 160, .16); border-color: rgba(6, 214, 160, .6); color: var(--accent-primary); }
 .ad-tg.on:hover:not([disabled]) { color: var(--accent-primary); border-color: var(--accent-primary); }
-.ad-tg.sel { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--accent-primary); }
 .ad-tg[disabled] { opacity: .3; cursor: default; }
 .ad-tg.x svg { transform: scaleX(-1); }
 /* One slider; its label follows the selected button */
 .ad-sl { display: flex; flex-direction: column; gap: .125rem; min-width: 0; }
+/* One block per style that's on, each with its style's icon */
+.ad-sls { display: flex; flex-direction: column; gap: .5rem; min-width: 0; }
+.ad-sl-ic { display: inline-flex; vertical-align: -2px; margin-right: .3rem; color: var(--accent-primary); }
+.ad-sl-ic svg { width: 12px; height: 12px; }
+.ad-sl-ic.x svg { transform: scaleX(-1); }
+.te-help-body p.hi.ex { margin-left: 1.75rem; }
+.te-pop .mi-row .num::placeholder { color: var(--text-muted); }
 .ad-sl-hd { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; font-size: .6875rem; line-height: 1.2; color: var(--text-muted); white-space: nowrap; }
 .ad-sl-lbl { font-weight: 600; color: var(--text-secondary); }
 .ad-sl-val { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
@@ -4104,7 +4110,8 @@ button.pk-row { cursor: pointer; }
     .ad-r .ad-btns { grid-area: bt; gap: 8px; }
     .ad-tg { width: 44px; height: 40px; }
     .ad-tg svg { width: 18px; height: 18px; }
-    .ad-r .ad-sl { grid-area: sl; }
+    .ad-r .ad-sls { grid-area: sl; }
+    .ad-sl-ic svg { width: 14px; height: 14px; }
     .ad-sl-hd { font-size: .75rem; }
     .ad-sl .track-slider { height: 28px; }
     .ad-hint { font-size: .75rem; }

@@ -281,6 +281,87 @@ def decode_mono(path):
     return decode()
 
 
+# A file's own Fade in / Fade out (Theme Editor, the track's ⋯ menu): for a
+# file that starts or ends abruptly. Off (0) unless set. Applied wherever the
+# file is decoded, so every play, loop, step and transition has them.
+FILE_FADE_MAX_SECONDS = 30.0
+
+
+def file_fade_samples(track) -> tuple[int, int]:
+    """A track's (fade in, fade out) in samples; 0 when off."""
+    def samples(name):
+        try:
+            seconds = float(getattr(track, name, 0.0) or 0.0)
+        except (TypeError, ValueError):
+            seconds = 0.0
+        return int(min(FILE_FADE_MAX_SECONDS, max(0.0, seconds)) * SAMPLE_RATE)
+    return samples("fade_in"), samples("fade_out")
+
+
+def _fade_in_gain(start: int, count: int, length: int):
+    """Equal-power fade-in gains for samples start..start+count of a fade `length` long."""
+    return np.sin(np.pi / 2 * (np.arange(start, start + count, dtype=np.float32) + 1) / length).astype(np.float32)
+
+
+def _fade_out_gain(count: int, length: int):
+    """Equal-power fade-out gains for the last `count` samples of a fade `length` long (ends at 0)."""
+    done = np.arange(length - count, length, dtype=np.float32) + 1
+    return np.cos(np.pi / 2 * done / length).astype(np.float32)
+
+
+def apply_file_fades(samples, fade_in: int, fade_out: int):
+    """The whole file's samples with its fades applied (a copy when any is set)."""
+    n = len(samples)
+    if not n or not (fade_in or fade_out):
+        return samples
+    out = np.asarray(samples, dtype=np.float32).copy()
+    if fade_in:
+        k = min(n, fade_in)
+        out[:k] *= _fade_in_gain(0, k, fade_in)
+    if fade_out:
+        k = min(n, fade_out)
+        out[n - k:] *= _fade_out_gain(k, fade_out)
+    return out
+
+
+def decode_faded(path, fade_in: int = 0, fade_out: int = 0):
+    """
+    decode_mono with the file's fades: the first `fade_in` samples rise from
+    silence, the last `fade_out` fall to silence. The end is found by holding
+    back `fade_out` samples, so no length is needed.
+    """
+    blocks = decode_mono(path)
+    if not (fade_in or fade_out):
+        return blocks
+
+    def faded():
+        pos = 0
+        pending, held = deque(), 0
+        for block in blocks:
+            block = np.asarray(block, dtype=np.float32).reshape(-1)
+            if fade_in and pos < fade_in:
+                k = min(len(block), fade_in - pos)
+                block = block.copy()
+                block[:k] *= _fade_in_gain(pos, k, fade_in)
+            pos += len(block)
+            if not fade_out:
+                yield block
+                continue
+            pending.append(block)
+            held += len(block)
+            while pending and held - len(pending[0]) >= fade_out:
+                first = pending.popleft()
+                held -= len(first)
+                yield first
+        if fade_out and pending:
+            tail = np.concatenate(list(pending))
+            k = min(len(tail), fade_out)
+            tail[len(tail) - k:] *= _fade_out_gain(k, fade_out)
+            yield tail
+
+    return faded()
+
+
 class RecordingMetadata:
     """
     Represents file, metadata, etc. The non-state stuff, on disk. One per file. Immutable
@@ -370,6 +451,8 @@ class RecordingThemeInstance:
         self.crossfade_enabled = True  # Enable crossfade looping by default
         self.playback_mode = PlaybackMode.AUTO  # How playback/looping is handled
         self.exclusive = False  # If True, only one exclusive track can play at a time
+        self.fade_in = 0.0  # The file's own fades, seconds (0 = off), see file_fade_samples
+        self.fade_out = 0.0
 
     @property
     def short_file_threshold(self) -> float:
@@ -641,35 +724,23 @@ class RecordingThemeStream:
 
     def _gen(self):
         while True:
-            container = av.open(self.instance.meta.path)
-
-            if len(container.streams.audio) == 0:
-                raise ValueError('No audio stream')
-            stream = next(iter(container.streams.audio))
-
-            buffer = np.empty((1, 0), dtype=np.int16)
-
+            buffer = np.empty(0, dtype=np.float32)
             i = 0
-            for frame_orig in container.decode(stream):
-                for frame_resamp in self.resampler.resample(frame_orig):
-                    data_resamp = frame_resamp.to_ndarray()
-                    data_resamp = data_resamp.mean(axis=0).astype(data_resamp.dtype).reshape(data_resamp.shape)
+            # Each pass through the file has the file's own fades (if set)
+            for block in decode_faded(self.instance.meta.path, *file_fade_samples(self.instance)):
+                buffer = np.concatenate([buffer, np.asarray(block, dtype=np.float32).reshape(-1)])
 
-                    buffer = np.hstack((buffer, data_resamp))
+                while len(buffer) >= self.CHUNK_SIZE:
+                    data = buffer[:self.CHUNK_SIZE].reshape(1, -1)
+                    buffer = buffer[self.CHUNK_SIZE:]
 
-                    while buffer.shape[1] >= self.CHUNK_SIZE:
-                        data = buffer[:, :self.CHUNK_SIZE]
-                        buffer = buffer[:, self.CHUNK_SIZE:]
+                    # The volume is read as each chunk goes out (no lag behind a glide or a transition)
+                    yield np.clip(data * self.instance.volume, -32768, 32767).astype(np.int16)
 
-                        # The volume is read as each chunk goes out (no lag behind a glide or a transition)
-                        yield np.clip(data * self.instance.volume, -32768, 32767).astype(np.int16)
-
-                        if i % LOG_THRESHOLD == 0:
-                            vol_mean = round(abs(data).mean())
-                            logger.debug(f'{self.__class__.__name__} Yielding chunk #{i} {data.shape=}, {buffer.shape=}, {vol_mean=}')
-                        i += 1
-
-            container.close()
+                    if i % LOG_THRESHOLD == 0:
+                        vol_mean = round(abs(data).mean())
+                        logger.debug(f'{self.__class__.__name__} Yielding chunk #{i} {data.shape=}, {buffer.shape=}, {vol_mean=}')
+                    i += 1
 
     def __iter__(self):
         return self
@@ -696,13 +767,22 @@ class CrossfadeRecordingStream:
 
     def _create_decoder(self):
         """Create a new decoder generator for the audio file (the volume is applied as chunks go out)"""
-        return decode_mono(self.instance.meta.path)
+        return decode_faded(self.instance.meta.path, *self._fades)
 
     def _gen(self):
         """Main generator with crossfade logic"""
         
         # Get track duration for crossfade timing
         track_duration = self.instance.meta.duration_samples
+
+        # The file's own fades: the loop's overlap is as long as the longer
+        # one, and a side with its own fade isn't faded again (its fade does
+        # it). Without fades, the usual equal-power crossfade.
+        self._fades = fade_in_n, fade_out_n = file_fade_samples(self.instance)
+        CROSSFADE_SAMPLES = max(fade_in_n, fade_out_n) or globals()["CROSSFADE_SAMPLES"]
+        if track_duration:
+            CROSSFADE_SAMPLES = max(self.CHUNK_SIZE, min(CROSSFADE_SAMPLES, track_duration // 2))
+        self.overlap = CROSSFADE_SAMPLES
         crossfade_start = max(0, track_duration - CROSSFADE_SAMPLES)
         
         logger.debug(f'CrossfadeStream: {self.instance.name} duration={track_duration} samples ({track_duration/SAMPLE_RATE:.1f}s), crossfade at {crossfade_start} ({crossfade_start/SAMPLE_RATE:.1f}s)')
@@ -720,6 +800,10 @@ class CrossfadeRecordingStream:
         # Pre-generate crossfade curves (equal-power)
         fade_out = np.cos(np.linspace(0, np.pi/2, CROSSFADE_SAMPLES)).astype(np.float32)
         fade_in = np.sin(np.linspace(0, np.pi/2, CROSSFADE_SAMPLES)).astype(np.float32)
+        if fade_out_n:
+            fade_out = np.ones(CROSSFADE_SAMPLES, dtype=np.float32)  # the file's end fades by itself
+        if fade_in_n:
+            fade_in = np.ones(CROSSFADE_SAMPLES, dtype=np.float32)  # the file's start rises by itself
         
         next_buffer = np.empty(0, dtype=np.float32)
         current_done = False
@@ -930,7 +1014,7 @@ class SparsePlaybackStream:
             if not samples:
                 return np.zeros(0, dtype=np.float32)
 
-            return np.concatenate(samples)
+            return apply_file_fades(np.concatenate(samples), *file_fade_samples(self.instance))
 
         def is_blocked_exclusive():
             """Check if this exclusive track is blocked (without claiming playback)."""
@@ -1366,7 +1450,7 @@ class _BedFile:
         except Exception:
             self.estimate = 0
         try:
-            self._decoder = decode_mono(view.meta.path)
+            self._decoder = decode_faded(view.meta.path, *file_fade_samples(view))
         except Exception as e:
             logger.warning(f'MerryGoRound: cannot play "{self.name}": {e}')
             self._decoder = iter(())

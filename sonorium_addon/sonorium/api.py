@@ -147,6 +147,7 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/volume', method=self.set_track_volume),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/playback_mode', method=self.set_track_playback_mode),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/seamless_loop', method=self.set_track_seamless_loop),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/fades', method=self.set_track_fades),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/exclusive', method=self.set_track_exclusive),
 
             # Groups (subfolders of a theme, Themes 2.0)
@@ -535,6 +536,7 @@ class ApiSonorium(api.Base):
                     inst.playback_mode = PlaybackMode.AUTO
                     inst.crossfade_enabled = True
                     inst.exclusive = False
+                    inst.fade_in = inst.fade_out = 0.0
                     if getattr(inst.meta, "link", None):
                         inst.is_enabled = False  # a linked file without settings stays off
                     continue
@@ -549,6 +551,7 @@ class ApiSonorium(api.Base):
                     inst.playback_mode = PlaybackMode.AUTO
                 inst.crossfade_enabled = not track_settings.seamless_loop
                 inst.exclusive = track_settings.exclusive
+                inst.fade_in, inst.fade_out = track_settings.fade_in, track_settings.fade_out
 
             logger.debug(f"    Applied settings to theme '{theme.name}'")
 
@@ -1443,6 +1446,7 @@ class ApiSonorium(api.Base):
                                 inst.playback_mode = PlaybackMode.AUTO
                             inst.crossfade_enabled = not track_settings.seamless_loop
                             inst.exclusive = track_settings.exclusive
+                            inst.fade_in, inst.fade_out = track_settings.fade_in, track_settings.fade_out
                             continue
 
                     # Use defaults if no metadata (a linked file stays off)
@@ -1452,6 +1456,7 @@ class ApiSonorium(api.Base):
                     inst.playback_mode = PlaybackMode.AUTO
                     inst.crossfade_enabled = True
                     inst.exclusive = False
+                    inst.fade_in = inst.fade_out = 0.0
 
         logger.info(f'Theme refresh complete: {len(device.themes)} themes loaded')
 
@@ -1535,6 +1540,8 @@ class ApiSonorium(api.Base):
                 ),
                 "seamless_loop": track_settings.seamless_loop if track_settings else not inst.crossfade_enabled,
                 "exclusive": track_settings.exclusive if track_settings else inst.exclusive,
+                "fade_in": track_settings.fade_in if track_settings else getattr(inst, "fade_in", 0.0),
+                "fade_out": track_settings.fade_out if track_settings else getattr(inst, "fade_out", 0.0),
                 "group": getattr(inst.meta, "group", None),
                 "intrusion_group": is_intrusion_group((getattr(theme, "groups", None) or {}).get(getattr(inst.meta, "group", None))),
             })
@@ -1560,6 +1567,8 @@ class ApiSonorium(api.Base):
                     "playback_mode": track_settings.playback_mode if track_settings else "auto",
                     "seamless_loop": track_settings.seamless_loop if track_settings else False,
                     "exclusive": track_settings.exclusive if track_settings else False,
+                    "fade_in": track_settings.fade_in if track_settings else 0.0,
+                    "fade_out": track_settings.fade_out if track_settings else 0.0,
                     "group": group,
                     "intrusion_group": is_intrusion_group((metadata.groups or {}).get(group)),
                     "linked": self._link_info(link),
@@ -1822,6 +1831,45 @@ class ApiSonorium(api.Base):
         self._save_track_setting_to_metadata(theme_id, track_name, seamless_loop=seamless)
 
         return {"status": "ok", "track": track_name, "seamless_loop": seamless}
+
+    async def set_track_fades(self, theme_id: str, track_name: str, request: Request):
+        """
+        A file's own Fade in / Fade out, seconds (0 or empty = off, at most 30).
+        Body: {"fade_in": s, "fade_out": s}; either may be left out. They apply
+        from the file's next start or loop.
+        """
+        from fastapi.responses import JSONResponse
+        from sonorium.recording import FILE_FADE_MAX_SECONDS
+        theme, _ = self._get_theme_by_id(theme_id)
+        if not theme:
+            return JSONResponse({"error": "Theme not found"}, status_code=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+        track_inst = next((inst for inst in theme.instances if inst.name == track_name), None)
+        if track_inst is None:
+            return JSONResponse({"error": "Track not found"}, status_code=404)
+        values = {}
+        for key in ("fade_in", "fade_out"):
+            if key not in body:
+                continue
+            raw = body[key]
+            try:
+                seconds = float(raw) if raw not in (None, "") else 0.0
+            except (TypeError, ValueError):
+                return JSONResponse({"error": f"{key} must be a number of seconds"}, status_code=400)
+            if seconds != seconds or seconds < 0:
+                return JSONResponse({"error": f"{key} must be 0 or more"}, status_code=400)
+            values[key] = round(min(FILE_FADE_MAX_SECONDS, seconds), 2)
+        if not values:
+            return JSONResponse({"error": "fade_in or fade_out is required"}, status_code=400)
+        for key, seconds in values.items():
+            setattr(track_inst, key, seconds)
+        self._save_track_setting_to_metadata(theme_id, track_name, **values)
+        return {"status": "ok", "track": track_name, "fade_in": track_inst.fade_in, "fade_out": track_inst.fade_out}
 
     # --- Groups ---
 

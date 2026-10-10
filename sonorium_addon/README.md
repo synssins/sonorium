@@ -298,6 +298,7 @@ automations that use the entity first.
 - **Channels fade in and out** when they start and stop, instead of cutting (#34).
 - **Preset glides.** Picking a preset glides the mix to it over 3 seconds; a sequence glides over its ramp time.
 - **Advanced transitions.** In a sequence, a preset's ⋯ › Advanced… sets, track by track, how each track comes in and how it leaves: Gusts, Swell, Build, Distance or Start fresh (and Gusts dying down, Smooth fade, Thin out, Recede or Finish then stop), in any combination, with a pre-fade of up to 90 s before the step. ▶ previews a track's change on your device.
+- **File fades.** A track's ⋯ menu in the Theme Editor has **Fade in** and **Fade out** (seconds), for a file that starts or ends abruptly. They apply every time the file starts or ends, including each loop, and in sequences and transitions. Empty is off, so a thunder crack keeps its attack.
 
 **Fixes**
 - **Crossfade** and **Master output gain** on **Settings → Audio Settings** now change the sound in the Home Assistant app. Crossfade also sets how long a channel fades in and out.
@@ -400,6 +401,7 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 - **Intermittent:** plays once, then goes quiet before playing again. *Interval* sets the wait. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.
 - **Ebb & Flow:** fades in, plays a while, fades out, then stays quiet before coming back. *Interval* sets how much of the time it's heard. Distant traffic, a passing crowd.
 - **Auto:** picks for you. Under 15 seconds plays Intermittent, longer plays Ebb & Flow. At 100% *interval*, either plays as Background.
+- **Fade in / Fade out:** for a file that starts or ends abruptly. In the track's ⋯ menu, set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.
 
 **Groups**
 
@@ -438,7 +440,7 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 - **Advanced:** in a sequence, a preset's ⋯ › Advanced sets how each track comes in, and how it leaves.
 - **Coming in / Leaving:** tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.
 - **Smooth:** no button on. The track follows the sequence's ramp.
-- **Buttons:** click to turn one on, click it again to show its setting on the slider, click once more to turn it off. Several can be on together.
+- **Buttons:** click to turn a style on, click again to turn it off. Each style that's on shows its own setting under Setting.
 - **Pre-fade:** starts the change this many seconds before the step.
 - **Gusts / Gusts dying down:** rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.
 - **Swell / Smooth fade:** one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.
@@ -446,6 +448,14 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 - **Distance / Recede:** starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.
 - **Start fresh / Finish then stop:** plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.
 - **Preview:** ▶ plays that track's change on this device and follows your edits.
+- **File fades:** a file's own Fade in and Fade out (Theme Editor, the track's ⋯ menu) apply on top of every style.
+- **Combining styles:** several styles can be on together. They all work over the same fade time (pre-fade plus ramp). For example:
+  - **Gusts + Distance:** wind starts far off and muffled, and surges unevenly as it comes closer.
+  - **Gusts + Swell:** the surges ride on one curved rise instead of a steady one.
+  - **Gusts + Start fresh:** the file plays from its start and rises in uneven surges.
+  - **Build + Distance:** thunder comes more often and louder as it moves from far off to close.
+  - **Thin out + Recede:** thunder comes less often and quieter as it drifts away.
+  - **Smooth fade + Finish then stop:** fades out over the fade time; if the current play ends first, it stops there with a short fade.
 
 **Saving**
 
