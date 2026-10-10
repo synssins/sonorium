@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.24 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Top-bar buttons one height, square icon buttons, steady right edge
+  ([`e0a0e68`](https://github.com/synssins/sonorium/commit/e0a0e682c5467b0ba08bea4b8db31b479ec1fccc))
+
+
 ## v1.4.2-dev.23 (2026-10-10)
 
 ### Features
