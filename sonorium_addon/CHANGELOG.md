@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.20 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Help uses the owner's exact wording for Cancel, Save Preset, Save Theme
+  ([`a9f7376`](https://github.com/synssins/sonorium/commit/a9f7376c71b7b9e1af4ce01e983fcba191bdfd96))
+
+
 ## v1.4.2-dev.19 (2026-10-10)
 
 ### Bug Fixes
