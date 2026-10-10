@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.23 (2026-10-10)
+
+### Features
+
+- **ui**: Page actions in the top bar, a help button on every page
+  ([`e73b58b`](https://github.com/synssins/sonorium/commit/e73b58bebf3cb9efc185e2f1d6d2b4eac82e4c07))
+
+
 ## v1.4.2-dev.22 (2026-10-10)
 
 ### Documentation
