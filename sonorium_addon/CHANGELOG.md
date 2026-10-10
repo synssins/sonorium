@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.17 (2026-10-10)
+
+### Code Style
+
+- **ui**: Restore a space lost in TE_ICON_FOLDER_LG
+  ([`91bcec3`](https://github.com/synssins/sonorium/commit/91bcec388080c7a22453ca491d6e77e5b1003780))
+
+
 ## v1.6.1-dev.16 (2026-10-10)
 
 ### Bug Fixes
