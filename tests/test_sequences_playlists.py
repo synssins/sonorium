@@ -280,6 +280,33 @@ def test_shuffle_never_repeats_an_entry_back_to_back(tmp_path):
     assert order[:4] != order[4:8] or order[4:8] != order[8:12]  # really shuffled
 
 
+def _shuffled_themes(tmp_path, themes, steps):
+    t = build(tmp_path)
+    entries = [{"theme_id": th, "preset_id": None, "sequence_id": None} for th in themes]
+    add_playlist(t, entries, order="shuffle", play_min=5, play_max=5)
+    run(t.manager.play(t.session.id))
+    t.manager.set_playlist(t.session.id, "p1")
+    played = []
+    for _ in range(steps):
+        played.append(themes[t.session.playlist_order[t.session.playlist_position]])
+        t.clock.now += 5
+        run(t.manager.runner.tick())
+    return played
+
+
+def test_shuffle_never_plays_a_theme_twice_in_a_row_nor_a_b_a(tmp_path):
+    # Two entries share each of two themes; the rule is about themes, across rounds too
+    themes = ["tavern", "forest", "tavern", "storm", "beach", "forest"]
+    played = _shuffled_themes(tmp_path, themes, 120)
+    assert all(a != b for a, b in zip(played, played[1:]))  # never the same theme twice in a row
+    assert all(a != c for a, c in zip(played, played[2:]))  # never A, B, A
+
+
+def test_a_two_theme_shuffle_alternates(tmp_path):
+    played = _shuffled_themes(tmp_path, ["tavern", "forest"], 20)
+    assert all(a != b for a, b in zip(played, played[1:]))  # A, B, A, B is the only way
+
+
 def test_playlist_without_repeat_stops_the_channel_at_the_end(tmp_path):
     t = build(tmp_path)
     add_playlist(t, ENTRIES[:2], repeat=False, play_min=10, play_max=10)

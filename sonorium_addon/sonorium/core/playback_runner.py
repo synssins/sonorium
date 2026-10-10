@@ -118,15 +118,54 @@ class PlaybackRunner:
         high = float(playlist.get("play_max", low))
         return self.rng.uniform(min(low, high), max(low, high))
 
-    def _new_order(self, count: int, shuffle: bool, last: Optional[int] = None) -> list[int]:
-        """Entry indexes for one round: in order, or shuffled without repeating the last one played."""
+    def _new_order(self, count: int, shuffle: bool, last: Optional[int] = None,
+                   themes: Optional[list] = None, recent: Optional[list] = None) -> list[int]:
+        """
+        Entry indexes for one round: in order, or shuffled. A shuffled round
+        plays every entry once and never plays the same THEME twice in a row,
+        nor the theme before that (no A, B, A) when the playlist has 3 or more
+        different themes. `recent` holds the themes that just played (oldest
+        first), so the rule also holds where one round meets the next. When an
+        order can't avoid it (e.g. most entries are one theme), the closest
+        one found is used.
+        """
         order = list(range(count))
-        if shuffle and count > 1:
-            self.rng.shuffle(order)
-            if last is not None and order[0] == last:
-                swap = self.rng.randrange(1, count)
-                order[0], order[swap] = order[swap], order[0]
-        return order
+        if not shuffle or count < 2:
+            return order
+        themes = list(themes) if themes else [str(i) for i in range(count)]
+        if recent is None:
+            recent = [themes[last]] if last is not None and 0 <= last < count else []
+        distinct = len(set(themes))
+
+        def allowed(index, history, strict):
+            theme = themes[index]
+            if history and theme == history[-1]:
+                return False
+            if strict and distinct >= 3 and len(history) >= 2 and theme == history[-2]:
+                return False
+            return True
+
+        fallback = None
+        for _ in range(50):
+            remaining = list(range(count))
+            self.rng.shuffle(remaining)
+            out, history, clean = [], list(recent), True
+            while remaining:
+                pick = next((i for i in remaining if allowed(i, history, True)), None)
+                if pick is None:
+                    clean = False
+                    pick = next((i for i in remaining if allowed(i, history, False)), remaining[0])
+                remaining.remove(pick)
+                out.append(pick)
+                history.append(themes[pick])
+            if clean:
+                return out
+            fallback = fallback or out
+        return fallback
+
+    @staticmethod
+    def _themes_of(playlist: dict) -> list:
+        return [entry.get("theme_id") for entry in (playlist.get("entries") or [])]
 
     def _order_ok(self, session: Session, playlist: dict) -> bool:
         count = len(playlist.get("entries") or [])
@@ -236,7 +275,8 @@ class PlaybackRunner:
         if not count:
             raise ValueError(f"Playlist '{playlist.get('name', playlist_id)}' has no entries")
         session.playlist_id = playlist_id
-        session.playlist_order = self._new_order(count, playlist.get("order") == "shuffle")
+        session.playlist_order = self._new_order(count, playlist.get("order") == "shuffle",
+                                                 themes=self._themes_of(playlist))
         session.playlist_position = 0
         self._playlists.pop(session.id, None)
         if not self._enter_entry(session, playlist, tries=count):
@@ -255,7 +295,8 @@ class PlaybackRunner:
         for session in self.manager.state.sessions.values():
             if session.playlist_id == playlist_id and not self._order_ok(session, playlist):
                 session.playlist_order = self._new_order(len(playlist.get("entries") or []),
-                                                         playlist.get("order") == "shuffle")
+                                                         playlist.get("order") == "shuffle",
+                                                         themes=self._themes_of(playlist))
                 session.playlist_position = 0
 
     def clear_playlist(self, session: Session) -> bool:
@@ -344,7 +385,8 @@ class PlaybackRunner:
         """Move to the next entry; at the end start a new round if it repeats. False at the end of a non-repeating playlist."""
         count = len(playlist.get("entries") or [])
         if not self._order_ok(session, playlist):
-            session.playlist_order = self._new_order(count, playlist.get("order") == "shuffle")
+            session.playlist_order = self._new_order(count, playlist.get("order") == "shuffle",
+                                                 themes=self._themes_of(playlist))
             session.playlist_position = 0
             return True
         session.playlist_position += 1
@@ -353,8 +395,10 @@ class PlaybackRunner:
         if not playlist.get("repeat", True):
             session.playlist_position = 0
             return False
-        last = session.playlist_order[-1] if session.playlist_order else None
-        session.playlist_order = self._new_order(count, playlist.get("order") == "shuffle", last)
+        themes = self._themes_of(playlist)
+        recent = [themes[i] for i in (session.playlist_order or [])[-2:] if 0 <= i < len(themes)]
+        session.playlist_order = self._new_order(count, playlist.get("order") == "shuffle",
+                                                 themes=themes, recent=recent)
         session.playlist_position = 0
         return True
 
@@ -404,7 +448,8 @@ class PlaybackRunner:
                 self.clear_playlist(session)
             else:
                 if not self._order_ok(session, playlist):
-                    session.playlist_order = self._new_order(len(playlist["entries"]), playlist.get("order") == "shuffle")
+                    session.playlist_order = self._new_order(len(playlist["entries"]), playlist.get("order") == "shuffle",
+                                                             themes=self._themes_of(playlist))
                     session.playlist_position = 0
                 if not self._enter_entry(session, playlist, tries=len(playlist["entries"])):
                     self.clear_playlist(session)

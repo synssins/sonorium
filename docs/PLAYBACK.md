@@ -64,7 +64,7 @@ the server's `state.json` (add-on: `/config/sonorium/state.json`) under `"playli
 | `entries` | Each entry is a theme, plus at most one of its presets or sequences. With neither, the theme's default preset plays. |
 | `play_min`, `play_max` | Seconds (1 to 604800). One range for the whole playlist: every entry plays for a random time in it, drawn fresh each time. Default 1800-3600. An entry with a sequence ignores it unless `fit_sequences` is on. |
 | `fit_sequences` | `false` (default): an entry with a sequence plays **one full pass** of it (each preset once, first to last, holds drawn in the sequence's range, its ramps between them), however long that takes, then the playlist moves on. `true`: the entry's time is drawn from `play_min`-`play_max` like any entry and the pass is squeezed (or stretched) to end exactly then: holds and ramps are scaled by the same factor; if a ramp would be longer than half a hold, the holds become equal shares and the ramp at most half of one. |
-| `order` | `in_order`, or `shuffle`: each round plays every entry once in a random order, never the same entry twice in a row (also across rounds). |
+| `order` | `in_order`, or `shuffle`: each round plays every entry once in a random order, never the same theme twice in a row and, with 3 or more different themes, never A, B, A (also across rounds). |
 | `repeat` | `true`: start a new round at the end. `false`: the channel stops (fading out) after the last entry; playing it again starts from the first entry. |
 | `owner` | `null` (every playlist is shared for now; per-user playlists come later). |
 
