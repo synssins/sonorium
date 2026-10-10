@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.2 (2026-10-10)
+
+### Features
+
+- Sequences are picked like presets; playlists can fit sequences into their time
+  ([`9f96faa`](https://github.com/synssins/sonorium/commit/9f96faaa9367ee0f7fe80a9b5ee46d7dc7a1932c))
+
+
 ## v1.6.1-dev.1 (2026-10-10)
 
 ### Documentation
