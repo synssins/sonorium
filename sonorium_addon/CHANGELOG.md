@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.1 (2026-10-10)
+
+### Documentation
+
+- **changelog**: 1.6.0 notice and highlights [skip ci]
+  ([`dd7fcff`](https://github.com/synssins/sonorium/commit/dd7fcff5df3abd3fbeca4a151662cd187ff45da9))
+
+### Features
+
+- Sequences, playlists, preset glides and channel start/stop fades
+  ([`d5a6dc5`](https://github.com/synssins/sonorium/commit/d5a6dc5b5701216a772ca47bd53a2f77e1da957b))
+
+
 ## v1.6.0 (2026-10-10)
 
 > ## ⭐ 1.6.0: Merry-go-round and Intrusions
