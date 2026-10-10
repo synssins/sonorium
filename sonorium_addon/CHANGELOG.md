@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.13 (2026-10-10)
+
+### Bug Fixes
+
+- Tracks in a group can never overlap
+  ([`b7d5c4a`](https://github.com/synssins/sonorium/commit/b7d5c4a37dab5c14cdaf2e8b314201de0afab210))
+
+
 ## v1.4.2-dev.12 (2026-10-10)
 
 ### Features
