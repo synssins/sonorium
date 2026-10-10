@@ -173,6 +173,7 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets', method=self.list_presets),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets', method=self.create_preset),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/{preset_id}/load', method=self.load_preset),
+            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.get_preset),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.update_preset),
             api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.delete_preset),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/default', method=self.set_default_preset),
@@ -2596,6 +2597,26 @@ class ApiSonorium(api.Base):
 
         return {"theme_id": theme_id, "presets": result,
                 "sequences": self._sequence_choices(self._find_theme_folder(theme_id), {})}
+
+    async def get_preset(self, theme_id: str, preset_id: str):
+        """One preset's settings: {"id", "name", "tracks": {key: {...}}, "groups": {name: {...}}}."""
+        _, theme_folder = self._get_theme_by_id(theme_id)
+        presets = None
+        if self._theme_metadata_manager and theme_folder:
+            metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata_obj:
+                presets = metadata_obj.presets
+        if presets is None:  # fallback: direct file I/O
+            presets = self._read_theme_metadata(theme_id).get("presets", {})
+        if preset_id not in presets:
+            raise HTTPException(status_code=404, detail="Preset not found")
+        preset = presets[preset_id]
+        return {
+            "id": preset_id,
+            "name": preset.get("name", preset_id),
+            "tracks": preset.get("tracks") or {},
+            "groups": preset.get("groups") or {},
+        }
 
     async def create_preset(self, theme_id: str, request: Request):
         """Create a new preset from current track settings."""

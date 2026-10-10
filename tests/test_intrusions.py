@@ -305,6 +305,23 @@ def test_d_has_intrusion_flag_on_presets(world):
     assert snapshot["tracks"]["Rain"]["muted"] is True
 
 
+def test_reading_one_preset(world):
+    """GET one preset: its track and group values (what a sequence step's While playing view starts from)."""
+    api = world.api
+    with_preset(world, {"Crickets": {"volume": 0.4, "muted": False}}, {"Weather": {"volume": 0.5, "gap_min": 60}})
+    assert run(api.get_preset("camping-id", "p")) == {
+        "id": "p", "name": "P",
+        "tracks": {"Crickets": {"volume": 0.4, "muted": False}},
+        "groups": {"Weather": {"volume": 0.5, "gap_min": 60}},
+    }
+    # An older preset without groups
+    metadata = api._theme_metadata_manager.get_metadata("camping-id")
+    metadata.presets["old"] = {"name": "Old", "tracks": {"Crickets": {"volume": 1.0}}}
+    api._theme_metadata_manager.save_metadata("camping-id", metadata)
+    assert run(api.get_preset("camping-id", "old"))["groups"] == {}
+    refused(api.get_preset("camping-id", "nope"), 404)
+
+
 def test_e_missing_source_is_skipped_and_the_link_kept(world):
     link_rain(world)
     place_rain(world)
