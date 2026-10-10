@@ -1291,6 +1291,7 @@ class ApiSonorium(api.Base):
             logger.debug(f'Created ThemeDefinition "{theme_name}" with {len(theme_def.instances)} instances')
 
         # Step 4: Update device.themes
+        previous = {t.id: t for t in (device.themes or [])}
         device.themes = new_themes
 
         # Set current theme if we have themes
@@ -1337,6 +1338,19 @@ class ApiSonorium(api.Base):
                     inst.exclusive = False
 
         logger.info(f'Theme refresh complete: {len(device.themes)} themes loaded')
+
+        # Channels and previews playing a theme follow its new files at once:
+        # added tracks join the mix, removed ones leave, nothing restarts
+        for theme in device.themes:
+            old = previous.get(theme.id)
+            if old is None or old is theme:
+                continue
+            for stream in list(getattr(old, "streams", ())):
+                try:
+                    stream.adopt(theme)
+                    theme.streams.add(stream)
+                except Exception as e:
+                    logger.warning(f'Could not update a playing stream of "{theme.name}": {e}')
 
         # Update session manager's theme reference
         if self._session_manager:

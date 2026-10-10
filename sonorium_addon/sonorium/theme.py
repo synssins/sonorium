@@ -112,8 +112,6 @@ class ThemeStream:
     """
 
     def __init__(self, theme_def: ThemeDefinition, overrides: dict | None = None):
-        from sonorium.recording import TrackView, group_gap_range
-
         self.theme_def = theme_def
         # This stream's preset values; changed in place when the channel's preset changes
         self.overrides = overrides if overrides is not None else {}
@@ -130,16 +128,53 @@ class ThemeStream:
         from sonorium.recording import RecordingThemeStream
         self.mix_level = MixLevel(SAMPLE_RATE, RecordingThemeStream.CHUNK_SIZE)
 
+        # Track key -> its TrackView, and the streams in mixing order
+        self._views: dict[str, object] = {}
         self.recording_streams = []
         for instance in theme_def.instances:
-            track = TrackView(instance, self.overrides)
-            group = track.exclusion_group
-            if group and group not in self.exclusion_coordinators:
-                # Read the group's gap each time, so a change in the editor applies at once
-                gap = lambda g=group: group_gap_range((getattr(theme_def, "groups", None) or {}).get(g))
-                self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap, clock=lambda: self.audio_seconds)
-            coordinator = self.exclusion_coordinators.get(group) if group else None
-            self.recording_streams.append(track.get_stream(exclusion_coordinator=coordinator))
+            self.recording_streams.append(self._new_stream(instance))
+
+    def _new_stream(self, instance):
+        from sonorium.recording import TrackView, group_gap_range
+
+        track = TrackView(instance, self.overrides)
+        group = track.exclusion_group
+        if group and group not in self.exclusion_coordinators:
+            # Read the group's gap each time (from the theme this stream plays
+            # now), so a change in the editor applies at once
+            gap = lambda g=group: group_gap_range((getattr(self.theme_def, "groups", None) or {}).get(g))
+            self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap, clock=lambda: self.audio_seconds)
+        coordinator = self.exclusion_coordinators.get(group) if group else None
+        self._views[instance.name] = track
+        return track.get_stream(exclusion_coordinator=coordinator)
+
+    def adopt(self, theme_def: ThemeDefinition):
+        """
+        The theme was rescanned (a file uploaded, moved or deleted): follow the
+        new definition without restarting. Tracks still there keep playing
+        where they are and now read the new settings; new tracks join at once
+        with their saved settings (in a group, with no drag, so they're a
+        likely early pick); removed tracks leave.
+        """
+        old = {stream.instance.name: stream for stream in self.recording_streams}
+        streams = []
+        added = []
+        for instance in theme_def.instances:
+            stream = old.pop(instance.name, None)
+            if stream is not None:
+                self._views[instance.name]._instance = instance  # same track: new settings, same place
+                streams.append(stream)
+            else:
+                added.append(instance.name)
+        self.theme_def = theme_def
+        for name in added:
+            instance = next(i for i in theme_def.instances if i.name == name)
+            streams.append(self._new_stream(instance))
+        for name in old:
+            self._views.pop(name, None)
+        self.recording_streams = streams  # one assignment: the mixer sees the old list or the new one
+        if added or old:
+            logger.info(f'ThemeStream "{theme_def.name}": {len(added)} track(s) joined, {len(old)} left')
 
     @cached_property
     def chunk_silence(self):
@@ -157,7 +192,7 @@ class ThemeStream:
 
         while True:
             data_recs = []
-            for stream in self.recording_streams:
+            for stream in list(self.recording_streams):
                 if stream.instance.is_enabled:
                     data_recs.append(next(stream))
                 elif self._holds_turn(stream):
