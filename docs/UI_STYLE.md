@@ -16,6 +16,15 @@ Editor design "C — Aligned table".
 - A window grows with the screen up to a sensible **maximum width** (about
   960 px for edit dialogs, 1200 px for settings pages), almost full height on
   large monitors, and fills the screen on a phone.
+- **Settings pages share one column width:** two cards side by side (540 px
+  each, 24 px gap), so 1104 px at most, centered. A full-width list row is as
+  wide as those two cards. The header's title and actions line up with the
+  column. Logs is the exception and uses the full width. A single dialog or
+  panel (e.g. Add network speaker) is one card wide.
+- **Connection-style cards** (Home Assistant, MQTT, Streaming) are identical
+  in size; side by side on desktop, stacked on a phone. Short related fields
+  share a row (Broker + Port, Username + Password) and fields never shrink
+  below their content.
 - **Fixed top and bottom.** The title bar, the item's main fields and the
   list toolbar with its column headers stay in place; **only the list
   scrolls**. The footer bar stays at the bottom.
