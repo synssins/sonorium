@@ -1310,6 +1310,17 @@ class ApiSonorium(api.Base):
                     metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
 
                 if metadata:
+                    # metadata.json and the presets follow the files: new tracks
+                    # get an entry, removed tracks and groups lose theirs
+                    from sonorium.core.theme_metadata import sync_entries_with_files
+                    changes = sync_entries_with_files(theme_folder, metadata)
+                    if changes:
+                        self._theme_metadata_manager.save_metadata(theme.id, metadata)
+                        logger.info(
+                            f'Theme "{theme.name}": {len(changes["added"])} track(s) added to metadata.json, '
+                            f'{len(changes["removed"])} removed, {len(changes["groups_removed"])} group(s) removed, '
+                            f'{changes["preset_entries_removed"]} preset entr(y/ies) removed')
+
                     # Apply short_file_threshold and group settings from metadata
                     theme.short_file_threshold = metadata.short_file_threshold
                     theme.groups = dict(getattr(metadata, "groups", None) or {})

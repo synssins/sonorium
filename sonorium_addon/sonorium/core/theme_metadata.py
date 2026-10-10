@@ -549,3 +549,60 @@ class ThemeMetadataManager:
             return self.save_metadata(theme_id, metadata)
 
         return True
+
+
+def sync_entries_with_files(folder: Path, metadata: ThemeMetadata) -> Optional[dict]:
+    """
+    Make metadata.json and the presets match the theme's files: a track that
+    has no entry gets one with the default settings; entries for tracks and
+    group folders that no longer exist are removed, from metadata.json and from
+    every preset. Returns what changed ({"added", "removed", "groups_removed",
+    "preset_entries_removed"}), or None when nothing did.
+
+    Nothing is removed when the folder holds no audio at all (e.g. a share
+    that is briefly unreachable), so a hiccup can't wipe a theme's settings.
+    """
+    from sonorium.core.theme_groups import group_folder_names
+    from sonorium.theme_files import theme_audio_files, track_key
+
+    folder = Path(folder)
+    if not folder.is_dir():
+        return None
+    keys = [track_key(folder, f) for f in theme_audio_files(folder)]
+    if not keys:
+        return None
+    present = set(keys)
+    groups = set(group_folder_names(folder))
+
+    def stale_group(name, settings):
+        return name not in groups and not (settings or {}).get("legacy_exclusive") and name != LEGACY_EXCLUSIVE_GROUP
+
+    added = [k for k in keys if k not in metadata.tracks]
+    for key in added:
+        metadata.tracks[key] = TrackSettings()
+    removed = [k for k in metadata.tracks if k not in present]
+    for key in removed:
+        del metadata.tracks[key]
+    groups_removed = [g for g, s in (metadata.groups or {}).items() if stale_group(g, s)]
+    for name in groups_removed:
+        del metadata.groups[name]
+
+    preset_entries_removed = 0
+    for preset in (metadata.presets or {}).values():
+        if not isinstance(preset, dict):
+            continue
+        tracks = preset.get("tracks")
+        if isinstance(tracks, dict):
+            for key in [k for k in tracks if k not in present]:
+                del tracks[key]
+                preset_entries_removed += 1
+        preset_groups = preset.get("groups")
+        if isinstance(preset_groups, dict):
+            for name in [g for g, s in preset_groups.items() if stale_group(g, s)]:
+                del preset_groups[name]
+                preset_entries_removed += 1
+
+    if not (added or removed or groups_removed or preset_entries_removed):
+        return None
+    return {"added": added, "removed": removed, "groups_removed": groups_removed,
+            "preset_entries_removed": preset_entries_removed}

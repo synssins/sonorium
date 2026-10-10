@@ -233,3 +233,57 @@ def test_session_manager_reads_presets_json(mods, tmp_path):
     manager.theme_metadata_manager = mods.meta.ThemeMetadataManager(tmp_path)
     manager.theme_metadata_manager.scan_themes()
     assert manager._theme_presets("theme-1") == PRESETS
+
+
+# --- metadata.json and presets follow the files (run on every rescan) ---
+
+def _sync(mods, folder):
+    _exec("sonorium.core.theme_groups", "core/theme_groups.py")
+    metadata = mods.meta.load_theme_folder(folder)
+    changes = mods.meta.sync_entries_with_files(folder, metadata)
+    if changes:
+        mods.meta.save_theme_folder(folder, metadata)
+    return changes
+
+
+def test_a_new_file_gets_an_entry_and_a_removed_one_loses_it_everywhere(mods, tmp_path):
+    folder = make_theme(tmp_path, metadata={
+        "id": "theme-1", "name": "Forest", "spec_version": 2,
+        "tracks": {"Rain": {"volume": 0.5}, "Birds": {"volume": 0.8}, "Gone": {"volume": 0.2}},
+        "groups": {"Thunder": {"gap_min": 60}, "Old group": {"gap_min": 30}},
+    }, presets_json={"presets": {"calm": {"name": "Calm", "tracks": {"Rain": {"volume": 0.3}, "Gone": {"volume": 1.0}},
+                                          "groups": {"Thunder": {"volume": 0.5}, "Old group": {"volume": 0.1}}}}})
+    (folder / "Thunder").mkdir()
+    (folder / "Thunder" / "Crack.mp3").write_bytes(b"x")
+
+    changes = _sync(mods, folder)
+    assert changes["added"] == ["Thunder/Crack"]
+    assert changes["removed"] == ["Gone"] and changes["groups_removed"] == ["Old group"]
+    assert changes["preset_entries_removed"] == 2
+
+    meta = read(folder / "metadata.json")
+    assert set(meta["tracks"]) == {"Rain", "Birds", "Thunder/Crack"}
+    assert meta["tracks"]["Rain"]["volume"] == 0.5  # kept as it was
+    assert meta["tracks"]["Thunder/Crack"]["volume"] == 1.0 and meta["tracks"]["Thunder/Crack"]["playback_mode"] == "auto"
+    assert set(meta["groups"]) == {"Thunder"}
+    calm = read(folder / "presets.json")["presets"]["calm"]
+    assert set(calm["tracks"]) == {"Rain"} and set(calm["groups"]) == {"Thunder"}
+
+    assert _sync(mods, folder) is None  # in step: nothing more to do
+
+
+def test_an_empty_or_missing_folder_never_wipes_settings(mods, tmp_path):
+    folder = make_theme(tmp_path, metadata={"id": "t", "name": "Forest", "spec_version": 2,
+                                            "tracks": {"Rain": {"volume": 0.5}}})
+    for f in folder.glob("*.mp3"):
+        f.unlink()  # the share is briefly unreachable / files not there
+    assert _sync(mods, folder) is None
+    assert read(folder / "metadata.json")["tracks"]["Rain"]["volume"] == 0.5
+
+
+def test_the_legacy_exclusive_group_is_kept(mods, tmp_path):
+    folder = make_theme(tmp_path, metadata={"id": "t", "name": "Forest", "spec_version": 2,
+                                            "tracks": {"Rain": {"exclusive": True}, "Birds": {}},
+                                            "groups": {"Exclusive": {"legacy_exclusive": True}}})
+    _sync(mods, folder)
+    assert "Exclusive" in read(folder / "metadata.json")["groups"]
