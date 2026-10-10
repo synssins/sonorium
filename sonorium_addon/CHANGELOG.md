@@ -2,6 +2,88 @@
 
 <!-- version list -->
 
+## v1.5.3-dev.9 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: The Edit dialog's preset list opens upward when there's no room below
+  ([`6bc898f`](https://github.com/synssins/sonorium/commit/6bc898fa5eb58650b9ac3016b3c45ae1e514dc2c))
+
+
+## v1.5.3-dev.8 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Preset marks in the channel Edit dialog and the editor's preset list
+  ([`3e33253`](https://github.com/synssins/sonorium/commit/3e33253442b90501dc69e684e6fd76d038e0a829))
+
+
+## v1.5.3-dev.7 (2026-10-10)
+
+### Bug Fixes
+
+- A new theme can be edited at once and keeps the name you typed
+  ([`ec81d2c`](https://github.com/synssins/sonorium/commit/ec81d2c5c45de4445b921441a85ce7ceabceff10))
+
+
+## v1.5.3-dev.6 (2026-10-10)
+
+### Documentation
+
+- Intrusion mockup screenshots (desktop and phone)
+  ([`f502223`](https://github.com/synssins/sonorium/commit/f502223ccc9b76505c85d3955b79f48de7013be5))
+
+### Features
+
+- **ui**: Intrusions in the Theme Editor and preset icons
+  ([`0c190d1`](https://github.com/synssins/sonorium/commit/0c190d1400611d173cbb5346bff6cee198af7740))
+
+
+## v1.5.3-dev.5 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Preview mix no longer reports an error when it restarts
+  ([`d976c69`](https://github.com/synssins/sonorium/commit/d976c694aee5417b0970fdd7967b2bf0aaa61201))
+
+### Features
+
+- Intrusion groups with files linked from other themes; 3 s fades on track on/off
+  ([`96bce19`](https://github.com/synssins/sonorium/commit/96bce19d219116cdeda4ca1a170b5361ea702305))
+
+
+## v1.5.3-dev.4 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: A track's preview plays at its volume and follows its slider
+  ([`fadb858`](https://github.com/synssins/sonorium/commit/fadb85840014f7fbcefc3d56f1d5c038deed4664))
+
+
+## v1.5.3-dev.3 (2026-10-10)
+
+### Bug Fixes
+
+- A new, empty theme can be edited, saved and given presets
+  ([`9d0e710`](https://github.com/synssins/sonorium/commit/9d0e710131926fda9af5ce5a76fc69440571af24))
+
+
+## v1.5.3-dev.2 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Moving tracks is immediate; editor messages are toasts
+  ([`af8f44b`](https://github.com/synssins/sonorium/commit/af8f44ba25631fe48dae9de830079fffb9ee8975))
+
+
+## v1.5.3-dev.1 (2026-10-10)
+
+### Features
+
+- Merry-go-round group mode, a continuous crossfading bed
+  ([`292250b`](https://github.com/synssins/sonorium/commit/292250b0c58d58135d9432be80d84d18786ac9d6))
+
+
 ## v1.5.2 (2026-10-10)
 
 ### Continuous Integration

@@ -4,6 +4,10 @@
 
 ## Announcements
 
+> ## ⭐ 1.6.0: Merry-go-round and Intrusions
+>
+> Groups now have three modes. **Merry-go-round** turns a few recordings of the same scene into one continuous bed that crossfades from file to file and never repeats the same way. **Intrusion** lets a preset bring in sounds from another theme, like rain over a campsite, without copying any files. Tracks now fade in and out over 3 seconds when a preset turns them on or off.
+
 > ## ⭐ Major Release: 1.5.0, Themes 2.0
 >
 > This is a major update. Themes can now hold **groups**, channels playing the same theme can each use their **own preset**, the **Theme Editor**, the **Themes** page and every **Settings** page are rebuilt, and the playback modes have **new names**.
@@ -93,6 +97,20 @@ The **?** in the top bar explains the page you're on.
 
 ![Help on every page](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Page_Help.png)
 
+#### Intrusions (mockup)
+An Intrusion group with files linked from another theme, and presets marked ★ and ⚭.
+
+![Intrusions in the Theme Editor](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/mockups/Intrusions_Editor.png)
+
+#### Add from another theme (mockup)
+Pick a theme, preview its files, tick the ones to link.
+
+![Add from another theme](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/mockups/Intrusions_Picker.png)
+
+#### Preset marks on a channel (mockup)
+
+![Preset marks on a channel](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/mockups/Intrusions_Channel.png)
+
 #### On a phone
 The menu opens from the top bar.
 
@@ -134,7 +152,9 @@ Fine-tune how each audio file plays within a theme:
   - **Background** - Plays all the time, looping with a smooth crossfade (rain, wind, a crackling fire)
   - **Intermittent** - Plays once, then goes quiet for a while before playing again; "interval" sets the wait (bird calls, thunder claps, a door creaking)
   - **Ebb & Flow** - Fades in, plays for a while, fades out, then stays quiet before coming back; "interval" sets how much of the time it's heard (distant traffic, a passing crowd)
-- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in a group plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
+- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in an Intermittent group (the default) plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
+- **Merry-go-round groups** - A group set to Merry-go-round makes a continuous bed instead: one file plays, then crossfades into another picked at random, never the same one twice in a row. Each group sets its own crossfade (seconds). A single file crossfades into itself.
+- **Intrusion groups** - A group set to Intrusion is a layer a preset turns on, like rain over a campsite: its tracks keep their own mode and settings, and it can hold files linked from other themes without copying them.
 
 #### Home Assistant Dashboard Integration
 - **MQTT Entities** - Full dashboard control via MQTT (session select, theme/preset dropdowns, play/stop, volume)
@@ -265,6 +285,39 @@ automations that use the entity first.
 
 ## What's new
 
+### 1.6.0
+
+**Themes and playback**
+- **Group modes.** A group's Mode is now **Intermittent** (one track at a time with a gap, as before), **Merry-go-round** or **Intrusion**. Pick it in the group's row in the Theme Editor.
+- **Merry-go-round.** One file plays, then crossfades into another picked at random, never the same one twice in a row. The group's **Crossfade** sets the overlap. A single file crossfades into itself, which also fixes recordings that fade in and out on their own.
+- **Intrusions.** An Intrusion group's tracks keep their own mode and settings. It can hold files **linked** from other themes: **⋯ › Add from another theme** opens a picker where you preview a theme's files and tick the ones you want. Linked files play from their own theme's folder, start muted, and are turned on by presets. A linked file whose source is gone shows **Missing**.
+- **Presets show what they do.** ★ marks the default preset; ⚭ marks a preset that turns intrusion tracks on. Both show in the Theme Editor and on the channel cards, and in the channel's Edit dialog.
+- **Smooth preset changes.** A track that a preset (or the mute button) turns on or off fades in or out over 3 seconds instead of cutting.
+- **Moving linked files.** Dragging a linked file to a normal group or out to the theme asks first, then copies the file into this theme. Exports copy linked files in, so a shared theme is complete.
+
+**Theme Editor**
+- **Instant moves.** Moving a track, and renaming or deleting a group, show at once. The list no longer greys out for a few seconds.
+- **Track preview** plays at the track's own volume, follows its Volume slider as you drag, and works for muted and linked tracks.
+- **Messages** show as small notices at the top right instead of in the footer.
+- **Group header.** Gap or Crossfade sits under the group's name.
+
+**Themes**
+- **New themes** can be edited, saved and given presets straight away, and keep the name you typed.
+
+**Fixes**
+- A new theme said "Theme not found" in the editor until Sonorium restarted.
+- Preview mix showed "Could not play the preview" when it restarted after a change, while still playing.
+- Dragging a track selected text across the list.
+
+**Known issue**
+- In the Home Assistant app, **Crossfade** and **Master output gain** on **Settings → Audio Settings** are saved but don't change the sound yet.
+
+### 1.5.2
+
+- **Clearer help** for Intermittent in groups and for track weight.
+- **Version and install type** are shown at the bottom left of the menu; the README says where to find them.
+- **Releases** no longer skip their version number after a merge.
+
 ### 1.5.0
 
 **Themes and playback**
@@ -316,7 +369,7 @@ automations that use the entity first.
 **Known issue**
 - In the Home Assistant app, **Crossfade** and **Master output gain** on **Settings → Audio Settings** are saved but don't change the sound yet.
 
-#### How a theme plays
+### How a theme plays
 
 These are the same words as the **?** help in the Theme Editor.
 
@@ -332,14 +385,22 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 
 **Groups**
 
-- **Take turns:** a group is a folder of tracks where only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
+- **Take turns:** a group is a folder of tracks. In an Intermittent group only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
+- **Group mode:** Intermittent plays one track at a time with a gap; Merry-go-round makes a continuous bed.
 - **Gap:** after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.
-- **Intermittent only:** on its turn, a track plays its whole file once, start to finish, then hands over. Background and Ebb & Flow are for the ambience outside groups.
+- **Intermittent group:** on its turn, a track plays its whole file once, start to finish, then hands over. Background and Ebb & Flow are for the ambience outside groups.
+- **Merry-go-round:** one file plays, then crossfades into another picked at random, never the same one twice in a row. Crossfade sets the overlap. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.
 - **Weight:** each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.
 - **Interval:** how fast a track's weight wears off. Higher comes back sooner; lower plays less often.
 - **Group volume, interval, mute:** scale every track in the group.
 - **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
 - **Deleting a group:** keeps its files; they move back into the theme.
+
+**Intrusions**
+
+- **Intrusion group:** a group in Intrusion mode, marked 🔗. Its tracks keep their own mode and settings, and it can hold files linked from other themes.
+- **Linked file:** plays here but stays in its own theme. Add one with the group's ⋯ › Add from another theme. New links start muted. If the file is gone, it shows Missing.
+- **Presets:** turn intrusion tracks on and other tracks off, like rain that mutes the crickets. A preset that turns intrusion tracks on shows ⚭.
 
 **Saving**
 

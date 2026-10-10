@@ -1543,20 +1543,29 @@ def create_api_router(
             theme_path.mkdir(parents=True, exist_ok=True)
             logger.info(f"Created theme folder: {theme_path}")
 
-            # Write metadata.json with description and icon
-            metadata = {}
+            # metadata.json from the start: it gives the theme its id and the
+            # name as typed, and an empty theme is loaded because it has one
+            import uuid
+            theme_id = str(uuid.uuid4())
+            metadata = {"spec_version": 2, "id": theme_id, "name": name}
             if description:
                 metadata["description"] = description
             if icon and icon != "🎵":  # Only store non-default icons
                 metadata["icon"] = icon
-            if metadata:
-                metadata["spec_version"] = 2
-                metadata_path = theme_path / "metadata.json"
-                metadata_path.write_text(json.dumps(metadata, indent=2))
+            (theme_path / "metadata.json").write_text(json.dumps(metadata, indent=2))
+
+            # Load it now, so the editor can open it straight away
+            if on_themes_changed:
+                task = on_themes_changed(0.0)
+                if task is not None:
+                    try:
+                        await task
+                    except Exception as e:
+                        logger.warning(f"Theme refresh after creating '{name}' failed: {e}")
 
             return {
                 "status": "ok",
-                "theme_id": folder_name,
+                "theme_id": theme_id,
                 "path": str(theme_path),
                 "message": f"Theme '{name}' created successfully"
             }
@@ -1794,6 +1803,15 @@ def create_api_router(
 
                 # Always the 2.0 layout: metadata.json without presets, plus presets.json
                 metadata_doc, presets_doc = theme_documents_for_export(theme_path)
+
+                # Self-contained: an intrusion group's linked files (they live in
+                # other themes' folders) go in as normal files of their group,
+                # the links are dropped and their settings kept under the same keys
+                from sonorium.core.intrusions import export_entries
+                for relative, source in export_entries(theme_path, metadata_doc):
+                    zip_file.write(source, f"{theme_name}/{relative}")
+                    logger.debug(f"Added linked file to zip: {relative} (from {source})")
+
                 zip_file.writestr(f"{theme_name}/{METADATA_FILE}",
                                   json.dumps(metadata_doc, indent=2, ensure_ascii=False))
                 zip_file.writestr(f"{theme_name}/{PRESETS_FILE}",

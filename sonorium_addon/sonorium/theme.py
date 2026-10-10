@@ -1,4 +1,5 @@
 import re
+import threading
 import time
 import weakref
 from functools import cached_property
@@ -25,6 +26,10 @@ DEFAULT_OUTPUT_GAIN = 6.0
 
 # Default threshold for short file detection (seconds)
 DEFAULT_SHORT_FILE_THRESHOLD = 15.0
+
+# A track turning on or off in a playing mix (a preset change, the mute
+# button) fades in or out over this long instead of cutting
+TRACK_TOGGLE_FADE_SECONDS = 3.0
 
 
 class ThemeDefinition:
@@ -128,16 +133,20 @@ class ThemeStream:
         from sonorium.recording import RecordingThemeStream
         self.mix_level = MixLevel(SAMPLE_RATE, RecordingThemeStream.CHUNK_SIZE)
 
-        # Track key -> its TrackView, and the streams in mixing order
+        # Track key -> its TrackView, and the streams in mixing order: one per
+        # track, except a Merry-go-round group, which plays as one stream (its bed)
         self._views: dict[str, object] = {}
         self.recording_streams = []
-        for instance in theme_def.instances:
-            self.recording_streams.append(self._new_stream(instance))
+        self._beds: tuple = ()  # the groups playing as a merry-go-round
+        self._intrusions: tuple = ()  # the groups in Intrusion mode (tracks play as ungrouped)
+        # Track key -> its on/off fade gain (1 on, 0 off), ramped each chunk (TRACK_TOGGLE_FADE_SECONDS)
+        self._toggle_gain: dict[str, float] = {}
+        self._lock = threading.Lock()  # adopt (API thread) and mode changes (mixing thread)
+        self._build(theme_def)
 
-    def _new_stream(self, instance):
-        from sonorium.recording import TrackView, group_gap_range
+    def _new_stream(self, track):
+        from sonorium.recording import group_gap_range
 
-        track = TrackView(instance, self.overrides)
         group = track.exclusion_group
         if group and group not in self.exclusion_coordinators:
             # Read the group's gap each time (from the theme this stream plays
@@ -145,8 +154,85 @@ class ThemeStream:
             gap = lambda g=group: group_gap_range((getattr(self.theme_def, "groups", None) or {}).get(g))
             self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap, clock=lambda: self.audio_seconds)
         coordinator = self.exclusion_coordinators.get(group) if group else None
-        self._views[instance.name] = track
         return track.get_stream(exclusion_coordinator=coordinator)
+
+    def _bed_groups(self, theme_def=None) -> tuple:
+        """The groups set to Merry-go-round now."""
+        from sonorium.recording import GROUP_MODE_MERRY_GO_ROUND, group_mode
+        groups = getattr(theme_def or self.theme_def, "groups", None) or {}
+        return tuple(sorted(g for g, s in list(groups.items()) if group_mode(s) == GROUP_MODE_MERRY_GO_ROUND))
+
+    def _intrusion_groups(self, theme_def=None) -> tuple:
+        """The groups set to Intrusion now (their tracks play as their own settings say)."""
+        from sonorium.recording import GROUP_MODE_INTRUSION, group_mode
+        groups = getattr(theme_def or self.theme_def, "groups", None) or {}
+        return tuple(sorted(g for g, s in list(groups.items()) if group_mode(s) == GROUP_MODE_INTRUSION))
+
+    def _new_bed(self, group: str):
+        """A Merry-go-round group's stream. It reads the group's files and settings from this stream's theme now."""
+        from sonorium.recording import MerryGoRoundStream
+
+        def members():
+            views = (self._views.get(i.name) for i in list(self.theme_def.instances)
+                     if getattr(i.meta, "group", None) == group)
+            return [v for v in views if v is not None]
+
+        def settings():
+            return (getattr(self.theme_def, "groups", None) or {}).get(group)
+
+        logger.info(f'ThemeStream "{self.theme_def.name}": group "{group}" plays as a merry-go-round')
+        return MerryGoRoundStream(group, members, settings)
+
+    def _build(self, theme_def):
+        """
+        Streams for `theme_def`, keeping the ones still right: a track still
+        there keeps playing where it is and reads the new settings; a new track
+        gets its stream; a Merry-go-round group keeps its bed (new files join
+        its pool, removed ones finish first); a group whose mode changed gets
+        new streams. Returns (tracks joined, tracks left).
+        """
+        from sonorium.recording import MerryGoRoundStream, TrackView
+
+        beds = self._bed_groups(theme_def)
+        intrusions = self._intrusion_groups(theme_def)
+        # Groups that became or stopped being Intrusion: their tracks get new
+        # streams (taking turns or not is decided when a stream is made)
+        switched = set(intrusions) ^ set(self._intrusions)
+        old_tracks, old_beds = {}, {}
+        for stream in self.recording_streams:
+            if isinstance(stream, MerryGoRoundStream):
+                old_beds[stream.group] = stream
+            else:
+                old_tracks[stream.instance.name] = stream
+        for group in beds + intrusions:
+            self.exclusion_coordinators.pop(group, None)  # turns start over if it goes back to Intermittent
+        self.theme_def = theme_def
+        before = set(self._views)
+        streams, seen = [], set()
+        for instance in theme_def.instances:
+            view = self._views.get(instance.name)
+            if view is None:
+                view = self._views[instance.name] = TrackView(instance, self.overrides)
+            else:
+                view._instance = instance  # same track: new settings, same place
+            group = getattr(instance.meta, "group", None)
+            if group in beds:
+                old_tracks.pop(instance.name, None)  # its own stream (Intermittent before) stops
+                if group not in seen:
+                    seen.add(group)
+                    streams.append(old_beds.pop(group, None) or self._new_bed(group))
+                continue
+            stream = old_tracks.pop(instance.name, None)
+            if group in switched:
+                stream = None
+            streams.append(stream if stream is not None else self._new_stream(view))
+        names = {instance.name for instance in theme_def.instances}
+        for name in [n for n in list(self._views) if n not in names]:
+            self._views.pop(name, None)
+        self.recording_streams = streams  # one assignment: the mixer sees the old list or the new one
+        self._beds = beds
+        self._intrusions = intrusions
+        return sorted(names - before), sorted(before - names)
 
     def adopt(self, theme_def: ThemeDefinition):
         """
@@ -156,25 +242,20 @@ class ThemeStream:
         with their saved settings (in a group, with no drag, so they're a
         likely early pick); removed tracks leave.
         """
-        old = {stream.instance.name: stream for stream in self.recording_streams}
-        streams = []
-        added = []
-        for instance in theme_def.instances:
-            stream = old.pop(instance.name, None)
-            if stream is not None:
-                self._views[instance.name]._instance = instance  # same track: new settings, same place
-                streams.append(stream)
-            else:
-                added.append(instance.name)
-        self.theme_def = theme_def
-        for name in added:
-            instance = next(i for i in theme_def.instances if i.name == name)
-            streams.append(self._new_stream(instance))
-        for name in old:
-            self._views.pop(name, None)
-        self.recording_streams = streams  # one assignment: the mixer sees the old list or the new one
-        if added or old:
-            logger.info(f'ThemeStream "{theme_def.name}": {len(added)} track(s) joined, {len(old)} left')
+        with self._lock:
+            added, left = self._build(theme_def)
+        if added or left:
+            logger.info(f'ThemeStream "{theme_def.name}": {len(added)} track(s) joined, {len(left)} left')
+
+    def _follow_group_modes(self):
+        """A group switched between Intermittent, Merry-go-round and Intrusion: rebuild its streams."""
+        if self._bed_groups() == self._beds and self._intrusion_groups() == self._intrusions:
+            return
+        with self._lock:
+            if self._bed_groups() != self._beds or self._intrusion_groups() != self._intrusions:
+                self._build(self.theme_def)
+                logger.info(f'ThemeStream "{self.theme_def.name}": group modes changed '
+                            f'(merry-go-round: {", ".join(self._beds) or "none"})')
 
     @cached_property
     def chunk_silence(self):
@@ -187,16 +268,40 @@ class ThemeStream:
         coordinator = getattr(stream, "exclusion_coordinator", None)
         return coordinator is not None and coordinator.is_playing(stream.instance.name)
 
+    def _pull(self, step: float) -> list:
+        """
+        One chunk from each track stream, with its on/off fade: a track turned
+        off fades out over TRACK_TOGGLE_FADE_SECONDS and is then no longer
+        pulled (it pauses), except a group's turn holder, which runs on
+        silently so it ends on time; a track turned on fades in from silence.
+        A track already on when the mix starts (or joins it) starts at full level.
+        """
+        chunks, gains = [], {}
+        for stream in list(self.recording_streams):
+            name = stream.instance.name
+            enabled = bool(stream.instance.is_enabled)
+            old = self._toggle_gain.get(name, 1.0 if enabled else 0.0)
+            new = min(1.0, old + step) if enabled else max(0.0, old - step)
+            gains[name] = new
+            if old <= 0.0 and new <= 0.0:
+                if self._holds_turn(stream):
+                    next(stream)  # muted mid-play: runs on silently, so it ends on time
+                continue
+            data = next(stream)
+            if old < 1.0 or new < 1.0:
+                ramp = np.linspace(old, new, data.shape[-1], dtype=np.float32)
+                data = (data.astype(np.float32) * ramp).astype(np.int16)
+            chunks.append(data)
+        self._toggle_gain = gains
+        return chunks
+
     def iter_chunks(self):
         from sonorium.recording import RecordingThemeStream
 
+        step = RecordingThemeStream.CHUNK_SIZE / (TRACK_TOGGLE_FADE_SECONDS * SAMPLE_RATE)
         while True:
-            data_recs = []
-            for stream in list(self.recording_streams):
-                if stream.instance.is_enabled:
-                    data_recs.append(next(stream))
-                elif self._holds_turn(stream):
-                    next(stream)  # muted mid-play: runs on silently, so it ends on time
+            self._follow_group_modes()
+            data_recs = self._pull(step)
             self.audio_seconds += RecordingThemeStream.CHUNK_SIZE / SAMPLE_RATE
             if not data_recs:
                 # logger.debug(f'Theme "{self.theme_def.name}" has no enabled recordings. Streaming silence...')

@@ -344,14 +344,20 @@
                             <p class="hi"><b>Ebb &amp; Flow:</b> fades in, plays a while, fades out, then stays quiet before coming back. <i>Interval</i> sets how much of the time it's heard. Distant traffic, a passing crowd.</p>
                             <p class="hi"><b>Auto:</b> picks for you. Under 15 seconds plays Intermittent, longer plays Ebb &amp; Flow. At 100% <i>interval</i>, either plays as Background.</p>
                             <h4>Groups</h4>
-                            <p class="hi"><b>Take turns:</b> a group is a folder of tracks where only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.</p>
+                            <p class="hi"><b>Take turns:</b> a group is a folder of tracks. In an Intermittent group only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.</p>
+                            <p class="hi"><b>Group mode:</b> Intermittent plays one track at a time with a gap; Merry-go-round makes a continuous bed.</p>
                             <p class="hi"><b>Gap:</b> after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.</p>
-                            <p class="hi"><b>Intermittent only:</b> on its turn, a track plays its whole file once, start to finish, then hands over. Background and Ebb &amp; Flow are for the ambience outside groups.</p>
+                            <p class="hi"><b>Intermittent group:</b> on its turn, a track plays its whole file once, start to finish, then hands over. Background and Ebb &amp; Flow are for the ambience outside groups.</p>
+                            <p class="hi"><b>Merry-go-round:</b> one file plays, then crossfades into another picked at random, never the same one twice in a row. Crossfade sets the overlap. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.</p>
                             <p class="hi"><b>Weight:</b> each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.</p>
                             <p class="hi"><b>Interval:</b> how fast a track's weight wears off. Higher comes back sooner; lower plays less often.</p>
                             <p class="hi"><b>Group volume, interval, mute:</b> scale every track in the group.</p>
                             <p class="hi"><b>Moving tracks:</b> drag a track onto a group, or use its ⋯ menu.</p>
                             <p class="hi"><b>Deleting a group:</b> keeps its files; they move back into the theme.</p>
+                            <h4>Intrusions</h4>
+                            <p class="hi"><b>Intrusion group:</b> a group in Intrusion mode, marked <span class="int-ic" role="img" aria-label="link icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>. Its tracks keep their own mode and settings, and it can hold files linked from other themes.</p>
+                            <p class="hi"><b>Linked file:</b> plays here but stays in its own theme. Add one with the group's ⋯ › Add from another theme. New links start muted. If the file is gone, it shows Missing.</p>
+                            <p class="hi"><b>Presets:</b> turn intrusion tracks on and other tracks off, like rain that mutes the crickets. A preset that turns intrusion tracks on shows <span class="int-ic" role="img" aria-label="two circles icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg></span>.</p>
                             <h4>Saving</h4>
                             <p class="hi"><b>Live:</b> changes are heard on speakers playing this theme, and on this device with Preview mix.</p>
                             <p class="hi"><b>Cancel:</b> Reverts unsaved changes.</p>
@@ -407,6 +413,9 @@
                                 <button class="btn btn-sm btn-secondary" id="te-newgroup-btn" onclick="teNewGroup()">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>New group
                                 </button>
+                                <button class="btn btn-sm btn-secondary" id="te-intrusion-btn" onclick="teAddIntrusion()">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Add intrusion
+                                </button>
                                 <button class="btn btn-sm btn-secondary" aria-haspopup="dialog" onclick="teMenu('reset', this)">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>Reset all
                                 </button>
@@ -456,6 +465,28 @@
 
                     <!-- One floating menu/popover, filled and placed by teMenu() -->
                     <div class="te-pop" id="te-menu" hidden></div>
+                </div>
+            </div>
+
+            <!-- Add from another theme: link files into an intrusion group. Step 1 picks a theme,
+                 step 2 ticks its tracks (read-only). Rendered by pk* in app.js. -->
+            <div id="te-pk" class="modal-backdrop pk-backdrop" onclick="if(event.target===this) pkClose()">
+                <div class="modal pk tp" role="dialog" aria-modal="true" aria-labelledby="pk-title">
+                    <div class="modal-header">
+                        <h2 id="pk-title">Add from another theme <span class="sub" id="pk-target"></span></h2>
+                        <button class="modal-close" aria-label="Close" onclick="pkClose()">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                    <div class="pk-bar" id="pk-bar"></div>
+                    <div class="pk-headwrap"><div class="pk-head" id="pk-head"></div></div>
+                    <div class="pk-body" id="pk-body"></div>
+                    <div class="modal-footer pk-foot">
+                        <span class="pk-count" id="pk-count" role="status"></span>
+                        <span class="grow"></span>
+                        <button class="btn btn-primary" id="pk-add" disabled onclick="pkAdd()">Add</button>
+                        <button class="btn btn-secondary" onclick="pkClose()">Cancel</button>
+                    </div>
                 </div>
             </div>
 
@@ -768,10 +799,12 @@ Example:
                     </div>
 
                     <div class="session-field" id="channel-preset-field" style="display: none;">
-                        <label for="channel-preset-select">Theme Preset</label>
-                        <select id="channel-preset-select" onchange="onChannelPresetChange()">
+                        <label id="channel-preset-lbl">Theme Preset</label>
+                        <!-- The value lives in this hidden select; the list below shows it with the preset marks -->
+                        <select id="channel-preset-select" hidden aria-hidden="true" tabindex="-1" onchange="onChannelPresetChange()">
                             <option value="">-- Default Settings --</option>
                         </select>
+                        <div class="psel" id="channel-preset-picker"></div>
                     </div>
 
                     <div class="session-field">

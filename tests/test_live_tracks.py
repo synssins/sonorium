@@ -83,6 +83,8 @@ def test_a_track_added_mid_play_joins_the_group(tmp_path):
     for name in ("Crack A", "Crack B", "Crack C", "Crack D"):
         silent_mp3(folder / "Thunder" / f"{name}.mp3", 2.0)
 
+    import random
+    random.seed(3)  # the group's pick is random: keep this run the same every time
     starts = Starts()
     recording.logger.addHandler(starts)
     level = recording.logger.level
