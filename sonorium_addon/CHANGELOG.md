@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.14 (2026-10-10)
+
+### Features
+
+- Ebb & Flow Duration, drift and Rise; Unassigned mode; a sequence step's While playing layer
+  ([`d3de5df`](https://github.com/synssins/sonorium/commit/d3de5dfaa487b1388f414263b46b3467fa1136b2))
+
+
 ## v1.6.1-dev.13 (2026-10-10)
 
 ### Bug Fixes
