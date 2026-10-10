@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.15 (2026-10-10)
+
+### Documentation
+
+- Approved design boards for sections, Ebb & Flow and a sequence step's While playing
+  ([`b0197d1`](https://github.com/synssins/sonorium/commit/b0197d1eb5a5a6618178ab4f57f9b0f8bd2b22aa))
+
+- **ui**: Theme Editor help: Sections, and Ebb & Flow's Duration
+  ([`2aa3b2e`](https://github.com/synssins/sonorium/commit/2aa3b2ee3fed6d2288d5f30661c433361844ee8c))
+
+### Features
+
+- **ui**: Theme Editor track list in sections by playback type
+  ([`b4abf41`](https://github.com/synssins/sonorium/commit/b4abf41dfb5ae0f30abb8275f7757931c4b872ac))
+
+
 ## v1.6.1-dev.14 (2026-10-10)
 
 ### Features
