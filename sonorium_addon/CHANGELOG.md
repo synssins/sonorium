@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.10 (2026-10-10)
+
+### Features
+
+- Group gaps saved in presets; volume changes ease instead of stepping
+  ([`6423fdd`](https://github.com/synssins/sonorium/commit/6423fdd1e6ec9de2626743c855a24e70f20590e2))
+
+
 ## v1.6.1-dev.9 (2026-10-10)
 
 ### Features
