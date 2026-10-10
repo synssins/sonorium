@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.16 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Phone: a group's Gap and Crossfade on their own line
+  ([`05f46eb`](https://github.com/synssins/sonorium/commit/05f46ebbdf6294fafe1527d3f253ed73c0fa5897))
+
+
 ## v1.6.1-dev.15 (2026-10-10)
 
 ### Documentation
