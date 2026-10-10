@@ -1,7 +1,11 @@
 /* Sonorium log viewer: Settings > Logs and the standalone /logs page.
    Depends on nothing else in the UI, so it still works when app.js doesn't. */
 (function () {
-    const LEVELS = [['all', 'All'], ['info', 'Info'], ['warning', 'Warnings'], ['error', 'Errors']];
+    // "Playback" shows only the lines the mixer and sequences write with "Playback:" (any level)
+    const LEVELS = [['all', 'All'], ['info', 'Info'], ['warning', 'Warnings'], ['error', 'Errors'], ['playback', 'Playback']];
+    const PLAYBACK_TAG = 'Playback:';
+    const ICON_PAUSE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>';
+    const ICON_RESUME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
     const RANK = { DEBUG: 0, INFO: 1, WARNING: 2, ERROR: 3, CRITICAL: 4 };
     const MIN_RANK = { all: 0, info: 1, warning: 2, error: 3 };
     const POLL_MS = 3000;
@@ -13,13 +17,19 @@
     }
 
     function visible() {
-        const min = MIN_RANK[state.level];
+        const playback = state.level === 'playback';
+        const min = playback ? 0 : MIN_RANK[state.level];
         const q = state.query.toLowerCase();
         return state.entries.filter(e => (RANK[e.level] ?? 1) >= min &&
+            (!playback || e.message.includes(PLAYBACK_TAG)) &&
             (!q || e.message.toLowerCase().includes(q) || e.source.toLowerCase().includes(q)));
     }
 
-    function render() {
+    function render(fromPoll = false) {
+        if (fromPoll && state.paused) {  // paused: the list stays put; new lines are kept for Resume
+            state.root.querySelector('.scan-meta').textContent = state.meta;
+            return;
+        }
         const view = state.root.querySelector('.log-view');
         const atBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 40;
         const rows = visible();
@@ -47,7 +57,7 @@
         } catch (e) {
             state.meta = `Can't reach Sonorium (${e.message})`;
         }
-        render();
+        render(true);
         if (state && state.root.isConnected && state.root.offsetParent !== null) {
             state.timer = setTimeout(poll, POLL_MS);
         } else if (state) {
@@ -61,7 +71,8 @@
             return;
         }
         if (state && state.timer) clearTimeout(state.timer);
-        state = { root, base: base || '', entries: [], after: 0, level: 'info', query: '', meta: '', timer: null, firstRender: true };
+        state = { root, base: base || '', entries: [], after: 0, level: 'info', query: '', meta: '', timer: null, firstRender: true,
+                  paused: false };
         root.innerHTML = `
             <div class="spk-toolbar">
                 <input type="search" class="spk-search" placeholder="Search logs" aria-label="Search logs">
@@ -106,5 +117,26 @@
         }
     }
 
-    window.SonoriumLogs = { mount, copy };
+    function pauseButtonHtml() {
+        const paused = !!(state && state.paused);
+        return `${paused ? ICON_RESUME : ICON_PAUSE}<span class="lbl">${paused ? 'Resume' : 'Pause'}</span>`;
+    }
+
+    // Pause / Resume (the top bar's button): the list stops updating and scrolling while paused
+    function togglePause(button) {
+        if (!state) return;
+        state.paused = !state.paused;
+        if (button) {
+            button.innerHTML = pauseButtonHtml();
+            button.setAttribute('aria-pressed', String(state.paused));
+            button.setAttribute('aria-label', state.paused ? 'Resume' : 'Pause');
+        }
+        if (!state.paused) render();
+    }
+
+    function isPaused() {
+        return !!(state && state.paused);
+    }
+
+    window.SonoriumLogs = { mount, copy, togglePause, isPaused, pauseButtonHtml };
 })();

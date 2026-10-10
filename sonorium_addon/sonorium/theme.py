@@ -1,3 +1,4 @@
+import math
 import re
 import threading
 import time
@@ -31,6 +32,31 @@ DEFAULT_SHORT_FILE_THRESHOLD = 15.0
 # button) fades in or out over this long instead of cutting. A sequence step
 # fades the tracks it turns on or off over its ramp time instead.
 TRACK_TOGGLE_FADE_SECONDS = 3.0
+
+# A transition stopped half way (Next, a preset picked by hand) glides to
+# what the channel plays now over this long
+TRANSITION_RELEASE_SECONDS = 3.0
+# Log the mix level when it has moved this far since the last line
+MIX_LEVEL_LOG_DB = 1.0
+
+
+class _Transition:
+    """One track's advanced transition running in a mix (see core/transitions.py)."""
+
+    def __init__(self, plan: dict, started: float, envelope, vref: float):
+        self.plan = plan
+        self.track = plan["track"]
+        self.side = plan["side"]
+        self.started = started  # audio seconds
+        self.env = envelope
+        self.vref = vref  # the volume the track's stream plays at while this runs (pinned)
+        self.level = envelope.level(0.0)  # where it got to (volume 0..1)
+        self.filter = None
+        self.old_stream = None  # Start fresh over a sounding track: the old play, fading out
+        self.old_level = 0.0
+        self.finishing = self.side == "out" and "fresh" in envelope.styles
+        self.finish_at = None  # audio seconds (looped files: the end of this pass)
+        self.release = None  # {"at", "length", "from", "to" (a number, or None: what the channel plays now)}
 
 
 class ThemeDefinition:
@@ -147,8 +173,25 @@ class ThemeStream:
         self._toggle_step: dict[str, float] = {}
         # Track key -> fade length (seconds) for the on/off change it just had (a sequence step's ramp)
         self._next_fade: dict[str, float] = {}
+        # Advanced transitions (core/transitions.py): planned ones (start in audio
+        # seconds), running ones by track, and the values they pin on a track
+        self._pending: list = []
+        self._active: dict[str, _Transition] = {}
+        self._pins: dict[str, dict] = {}
+        self._cancel: float | None = None
+        # Who plays this mix, for "Playback:" log lines (the channel sets it)
+        self._context = {"label": theme_def.name}
+        self._logged_gain: float | None = None
         self._lock = threading.Lock()  # adopt (API thread) and mode changes (mixing thread)
         self._build(theme_def)
+
+    @property
+    def label(self) -> str:
+        return self._context.get("label") or self.theme_def.name
+
+    @label.setter
+    def label(self, value: str) -> None:
+        self._context["label"] = value
 
     def _new_stream(self, track):
         from sonorium.recording import group_gap_range
@@ -218,7 +261,7 @@ class ThemeStream:
         for instance in theme_def.instances:
             view = self._views.get(instance.name)
             if view is None:
-                view = self._views[instance.name] = TrackView(instance, self.overrides)
+                view = self._views[instance.name] = TrackView(instance, self.overrides, self._pins, self._context)
             else:
                 view._instance = instance  # same track: new settings, same place
             group = getattr(instance.meta, "group", None)
@@ -306,15 +349,24 @@ class ThemeStream:
         (from its file's beginning, see PresenceMixingStream.restart). A track
         already on when the mix starts (or joins it) starts at full level.
         """
+        self._start_due_transitions()
         chunks, gains = [], {}
         for stream in list(self.recording_streams):
             name = stream.instance.name
+            transition = self._active.get(name)
+            if transition is not None:
+                data, gains[name] = self._pull_transition(transition, stream)
+                if data is not None:
+                    chunks.append(data)
+                continue
             enabled = bool(stream.instance.is_enabled)
             was = self._toggle_on.get(name)
             self._toggle_on[name] = enabled
             if was is not None and was != enabled:
                 seconds = self._next_fade.get(name)
                 self._toggle_step[name] = step if seconds is None else self._fade_step(seconds)
+                fade = TRACK_TOGGLE_FADE_SECONDS if seconds is None else seconds
+                logger.info(f'Playback: {self.label}: {name} {"on, fading in" if enabled else "off, fading out"} over {fade:g}s')
             track_step = self._toggle_step.get(name, step)
             old = self._toggle_gain.get(name, 1.0 if enabled else 0.0)
             new = min(1.0, old + track_step) if enabled else max(0.0, old - track_step)
@@ -332,6 +384,8 @@ class ThemeStream:
                 ramp = np.linspace(old, new, data.shape[-1], dtype=np.float32)
                 data = (data.astype(np.float32) * ramp).astype(np.int16)
             chunks.append(data)
+        for name in [n for n in self._active if n not in gains]:
+            self._finish_transition(name)  # its track left the theme
         self._toggle_gain = gains
         self._next_fade.clear()
         for name in [n for n in self._toggle_on if n not in gains]:
@@ -354,8 +408,250 @@ class ThemeStream:
             # Sum the tracks with a smoothed level (sonorium/mixing.py)
             output_gain = getattr(self.theme_def.sonorium, 'master_volume', DEFAULT_OUTPUT_GAIN)
             data = self.mix_level.mix(data_recs, output_gain)
-            
+            self._log_mix_level()
+
             yield data
+
+    def _log_mix_level(self) -> None:
+        """A "Playback:" line when the mixer's level has moved MIX_LEVEL_LOG_DB since the last one."""
+        gain = float(getattr(self.mix_level, "gain", 1.0) or 0.0)
+        if gain <= 0:
+            return
+        if self._logged_gain is None:
+            self._logged_gain = gain
+            return
+        if abs(20.0 * math.log10(gain / self._logged_gain)) >= MIX_LEVEL_LOG_DB:
+            self._logged_gain = gain
+            count = float(getattr(self.mix_level, "count", 0.0) or 0.0)
+            logger.info(f'Playback: {self.label}: mix level {20.0 * math.log10(gain):.1f} dB '
+                        f'({count:.1f} tracks sounding)')
+
+    # --- Advanced transitions (core/transitions.py, docs/PLAYBACK.md) ---
+
+    def schedule_transitions(self, plans: list) -> None:
+        """
+        Plan tracks' advanced transitions. Each plan (transitions.step_plans
+        plus "delay": seconds from now until it starts, and "window": its
+        length in seconds) starts when that much audio has been mixed.
+        """
+        with self._lock:
+            for plan in plans:
+                plan = dict(plan)
+                plan["start_at"] = self.audio_seconds + max(0.0, float(plan.get("delay", 0.0)))
+                self._pending.append(plan)
+            self._pending.sort(key=lambda p: p["start_at"])
+
+    def cancel_transitions(self, seconds: float = TRANSITION_RELEASE_SECONDS) -> None:
+        """Drop the planned transitions; running ones glide to what the channel plays now."""
+        with self._lock:
+            self._pending = []
+            self._cancel = seconds
+
+    def transitions_running(self) -> list:
+        """The tracks with a transition running now."""
+        return sorted(self._active)
+
+    def _stream_of(self, name: str):
+        from sonorium.recording import MerryGoRoundStream
+        for stream in list(self.recording_streams):
+            if not isinstance(stream, MerryGoRoundStream) and stream.instance.name == name:
+                return stream
+        return None
+
+    def _replace_stream(self, old, new) -> None:
+        self.recording_streams = [new if s is old else s for s in self.recording_streams]
+
+    def _start_due_transitions(self) -> None:
+        now = self.audio_seconds
+        if not self._pending and self._cancel is None:
+            return
+        with self._lock:
+            due = [p for p in self._pending if p["start_at"] <= now + 1e-9]
+            self._pending = [p for p in self._pending if p["start_at"] > now + 1e-9]
+            cancel, self._cancel = self._cancel, None
+        if cancel is not None:
+            for transition in list(self._active.values()):
+                self._begin_release(transition, now, cancel, None)
+        for plan in due:
+            try:
+                self._begin_transition(plan, now)
+            except Exception as e:
+                logger.warning(f'Playback: {self.label}: transition for {plan.get("track")} not started: {e}')
+
+    def _begin_transition(self, plan: dict, now: float) -> None:
+        from sonorium.core.transitions import EPS, Envelope, OnePoleLowpass, style_names
+        from sonorium.recording import SAMPLE_RATE as RATE
+        name = plan["track"]
+        view, stream = self._views.get(name), self._stream_of(name)
+        if view is None or stream is None:
+            return
+        running = self._active.get(name)
+        enabled = bool(view.unpinned("is_enabled"))
+        if running is not None:
+            a = running.level
+        else:
+            gain = self._toggle_gain.get(name, 1.0 if enabled else 0.0)
+            a = float(view.unpinned("volume") or 0.0) * gain
+        b = float(plan["target_volume"])
+        side = plan["side"]
+        if (side == "in" and b <= a + EPS) or (side == "out" and b >= a - EPS):
+            return  # not louder (or quieter) any more: the normal ramp does it
+        pa = float(view.unpinned("presence")) if side == "out" else float(plan.get("from_presence", 1.0))
+        envelope = Envelope(side, plan.get("styles"), plan.get("values"), a, b, plan.get("window", 0.0),
+                            plan.get("max_volume"), plan.get("seed", 0), pa=pa,
+                            pb=float(plan.get("target_presence", 1.0)))
+        transition = _Transition(plan, now, envelope, max(a, b, 0.001))
+        if envelope.far is not None:
+            transition.filter = OnePoleLowpass(RATE)
+        pins = {"volume": transition.vref, "is_enabled": True}
+        if envelope.amount:
+            pins["interval_live"] = True
+            pins["presence"] = envelope.presence(0.0)
+        grouped = getattr(stream, "exclusion_coordinator", None) is not None
+        if transition.finishing:
+            if hasattr(stream, "playing"):
+                pins["is_enabled"] = False  # no new play starts; the one going out finishes
+                if not stream.playing:
+                    transition.finish_at = now  # nothing playing: done at once
+            elif getattr(stream, "length", 0):
+                from sonorium.recording import CROSSFADE_SAMPLES
+                left = stream.length - CROSSFADE_SAMPLES - stream.position
+                if left <= 0:
+                    left += stream.length
+                transition.finish_at = now + min(left / RATE, 600.0)
+            elif envelope.holds:
+                transition.finish_at = now  # can't tell where the play is: stop now (short fade)
+        if running is not None:
+            running.release = None
+            if running.old_stream is not None:
+                getattr(running.old_stream, "gen", None) and running.old_stream.gen.close()
+        self._pins[name] = pins
+        self._active[name] = transition
+        paused = running is None and self._toggle_gain.get(name, 1.0 if enabled else 0.0) <= 0.0
+        if side == "in" and "fresh" in envelope.styles and not grouped:
+            new = self._new_stream(view)
+            if hasattr(new, "play_now"):
+                new.play_now = True
+            if not paused and a > EPS:
+                transition.old_stream, transition.old_level = stream, a
+            else:
+                old_gen = getattr(stream, "gen", None)
+                if old_gen is not None:
+                    old_gen.close()
+            self._replace_stream(stream, new)
+        elif side == "in" and paused:
+            restart = getattr(stream, "restart", None)
+            if restart is not None:
+                restart()  # an Ebb & Flow track starts afresh
+        pre = plan.get("pre_fade_used", 0.0)
+        logger.info(f'Playback: {self.label}: {name} {"coming in" if side == "in" else "leaving"} '
+                    f'({style_names(side, envelope.styles)}) over {envelope.window:.0f}s'
+                    f'{f", starting {pre:.0f}s before the step" if pre else ""}: '
+                    f'{round(a * 100)}% -> {round(b * 100)}%')
+
+    def _begin_release(self, transition, now: float, seconds: float, target) -> None:
+        """Glide from where the transition is to `target` (None: what the channel plays now)."""
+        transition.release = {"at": now, "length": max(0.05, seconds), "from": transition.level, "to": target}
+        pins = self._pins.get(transition.track)
+        if pins is not None:
+            pins.pop("presence", None)
+            pins.pop("interval_live", None)
+            if target is None:
+                pins["is_enabled"] = True
+
+    def _live_level(self, name: str) -> float:
+        """A track's volume as the channel's preset has it now (0 when off)."""
+        view = self._views.get(name)
+        if view is None:
+            return 0.0
+        return float(view.unpinned("volume") or 0.0) if view.unpinned("is_enabled") else 0.0
+
+    def _release_target(self, transition) -> float:
+        release = transition.release
+        if release["to"] is not None:
+            return float(release["to"])
+        return self._live_level(transition.track)
+
+    def _pull_transition(self, transition, stream):
+        """One chunk of a track with a transition running: its level from the envelope (and filter)."""
+        from sonorium.recording import RecordingThemeStream, SAMPLE_RATE as RATE
+        size = RecordingThemeStream.CHUNK_SIZE
+        chunk_seconds = size / RATE
+        now = self.audio_seconds
+        name = transition.track
+        pins = self._pins.get(name, {})
+        env = transition.env
+        t1 = now + chunk_seconds - transition.started
+        start_level = transition.level
+        if transition.release is None:
+            end_level = env.level(t1)
+            presence = env.presence(t1)
+            if presence is not None:
+                pins["presence"] = presence
+        else:
+            release = transition.release
+            target = self._release_target(transition)
+            if target > transition.vref:
+                transition.vref = pins["volume"] = target
+            share = min(1.0, (now + chunk_seconds - release["at"]) / release["length"])
+            end_level = release["from"] + (target - release["from"]) * share
+        data = next(stream)
+        vref = transition.vref
+        out = data.astype(np.float32).reshape(-1) * np.linspace(start_level / vref, end_level / vref, size,
+                                                               dtype=np.float32)
+        if transition.filter is not None:
+            cutoff = env.cutoff(t1 - chunk_seconds / 2)
+            if cutoff is not None:
+                out = transition.filter.process(out, cutoff).astype(np.float32)
+        if transition.old_stream is not None:
+            # Start fresh over a sounding track: the old play fades out under the new one
+            t0 = t1 - chunk_seconds
+            from sonorium.core.transitions import FRESH_FADE
+            g0 = transition.old_level * max(0.0, 1.0 - t0 / FRESH_FADE) / vref
+            g1 = transition.old_level * max(0.0, 1.0 - t1 / FRESH_FADE) / vref
+            old = next(transition.old_stream)
+            out = out + old.astype(np.float32).reshape(-1) * np.linspace(g0, g1, size, dtype=np.float32)
+            if g1 <= 0.0:
+                getattr(transition.old_stream, "gen", None) and transition.old_stream.gen.close()
+                transition.old_stream = None
+        transition.level = end_level
+        data = np.clip(out, -32768, 32767).astype(np.int16).reshape(1, -1)
+
+        # Finish then stop: once the play going out has finished, a short fade
+        if transition.finishing and transition.release is None:
+            ended = (hasattr(stream, "playing") and not stream.playing) or \
+                    (transition.finish_at is not None and now + chunk_seconds >= transition.finish_at)
+            if ended:
+                from sonorium.core.transitions import FINISH_FADE
+                self._begin_release(transition, now + chunk_seconds, FINISH_FADE, env.b)
+                transition.release["from"] = end_level
+        done = False
+        if transition.release is not None:
+            release = transition.release
+            done = now + chunk_seconds >= release["at"] + release["length"]
+        elif t1 >= env.window and not env.holds:
+            if abs(self._live_level(name) - end_level) > 0.02:
+                self._begin_release(transition, now + chunk_seconds, TRANSITION_RELEASE_SECONDS, None)
+            else:
+                done = True
+        gain = 1.0 if end_level > 0 else 0.0
+        if done:
+            gain = self._finish_transition(name)
+        return data, gain
+
+    def _finish_transition(self, name: str) -> float:
+        """The transition is over: the track goes back to its preset values (and on/off fades)."""
+        transition = self._active.pop(name, None)
+        self._pins.pop(name, None)
+        if transition is not None and transition.old_stream is not None:
+            getattr(transition.old_stream, "gen", None) and transition.old_stream.gen.close()
+        view = self._views.get(name)
+        enabled = bool(view.is_enabled) if view is not None else False
+        self._toggle_on[name] = enabled
+        self._toggle_step.pop(name, None)
+        if transition is not None:
+            logger.info(f'Playback: {self.label}: {name} transition done ({round(transition.level * 100)}%)')
+        return 1.0 if enabled else 0.0
 
     def __iter__(self):
         output = av.open(file='.mp3', mode="w")

@@ -806,6 +806,104 @@ def create_api_router(
             raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
         return {"theme_id": theme_id, **defaults}
 
+    # --- Advanced transitions of a sequence's presets (core/transitions.py) ---
+
+    def _sequence_or_404(folder, sequence_id: str):
+        from sonorium.core import sequences as seq
+        existing = seq.load_sequences(folder)
+        if sequence_id not in existing:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found")
+        return existing
+
+    @router.get("/themes/{theme_id}/sequences/{sequence_id}/transitions/{preset_id}")
+    async def get_step_transitions(theme_id: str, sequence_id: str, preset_id: str) -> dict:
+        """A preset's advanced transitions in a sequence: {"in": {track: {...}}, "out": {...}} (missing = Smooth)."""
+        from sonorium.core import sequences as seq
+        existing = _sequence_or_404(_theme_folder_or_404(theme_id), sequence_id)
+        if preset_id not in (existing[sequence_id].get("presets") or []):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="That preset is not in the sequence")
+        return {"theme_id": theme_id, "sequence_id": sequence_id, "preset_id": preset_id,
+                **seq.step_transitions(existing[sequence_id], preset_id)}
+
+    @router.put("/themes/{theme_id}/sequences/{sequence_id}/transitions/{preset_id}")
+    async def set_step_transitions(theme_id: str, sequence_id: str, preset_id: str, request: Request) -> dict:
+        """Replace a preset's advanced transitions ({"in": {...}, "out": {...}}; empty = all Smooth)."""
+        from sonorium.core import sequences as seq
+        folder = _theme_folder_or_404(theme_id)
+        data = await _json_body(request)
+        existing = _sequence_or_404(folder, sequence_id)
+        if preset_id not in (existing[sequence_id].get("presets") or []):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="That preset is not in the sequence")
+        try:
+            existing[sequence_id] = seq.set_step_transitions(existing[sequence_id], preset_id, data)
+        except seq.SequenceError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        try:
+            seq.save_sequences(folder, existing)
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        return {"theme_id": theme_id, "sequence_id": sequence_id, "preset_id": preset_id,
+                **seq.step_transitions(existing[sequence_id], preset_id)}
+
+    @router.get("/themes/{theme_id}/transition_tracks")
+    async def get_transition_tracks(theme_id: str, preset: str, prev: Optional[str] = None,
+                                    next: Optional[str] = None) -> dict:
+        """
+        The tracks a sequence step changes, for the Advanced dialog: "in", the
+        tracks `preset` turns on or makes louder after `prev`; "out", the tracks
+        `next` turns off or makes quieter after `preset`. Volumes and intervals
+        are 0..1 (volume 0 = off). Merry-go-round tracks are left out (their
+        group's bed plays them).
+        """
+        from sonorium.core.transitions import EPS, track_level
+        from sonorium.recording import GROUP_MODE_MERRY_GO_ROUND, PlaybackMode, TrackView, group_mode
+        theme = session_manager.get_theme(theme_id)
+        if theme is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Theme not found")
+        presets = session_manager._theme_presets(theme_id)
+        for value in (preset, prev, next):
+            if value and value not in presets:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Preset '{value}' not found")
+        groups = getattr(theme, "groups", None) or {}
+        labels = {PlaybackMode.SPARSE: "Intermittent", PlaybackMode.PRESENCE: "Ebb & Flow",
+                  PlaybackMode.CONTINUOUS: "Background"}
+
+        def rows(before_id, after_id, side):
+            if not before_id or not after_id:
+                return []
+            before = session_manager.preset_overrides(theme_id, before_id)
+            after = session_manager.preset_overrides(theme_id, after_id)
+            result = []
+            for instance in list(theme.instances):
+                group = getattr(instance.meta, "group", None)
+                if group and group_mode(groups.get(group)) == GROUP_MODE_MERRY_GO_ROUND:
+                    continue
+                va, vb = TrackView(instance, before), TrackView(instance, after)
+                la, lb = track_level(va), track_level(vb)
+                if (side == "in" and lb > la + EPS) or (side == "out" and lb < la - EPS):
+                    view = vb if side == "in" else va
+                    try:
+                        mode = labels.get(view._resolve_playback_mode(), "Background")
+                    except Exception:
+                        mode = "Background"
+                    try:
+                        duration = round(float(instance.meta.duration_seconds), 1)
+                    except Exception:
+                        duration = 0.0
+                    result.append({
+                        "key": instance.name,
+                        "name": instance.name.split("/", 1)[-1],
+                        "group": group,
+                        "mode": mode,
+                        "from": round(la, 4), "to": round(lb, 4),
+                        "presence_from": round(float(va.presence), 4), "presence_to": round(float(vb.presence), 4),
+                        "duration_seconds": duration,
+                    })
+            return result
+
+        return {"theme_id": theme_id, "preset": preset, "prev": prev, "next": next,
+                "in": rows(prev, preset, "in"), "out": rows(preset, next, "out")}
+
     # --- Playlists (global, stored in state.json) ---
 
     def _playlist_lookups():

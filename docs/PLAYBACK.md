@@ -47,6 +47,48 @@ id `seq:<sequence_id>`; picking it starts the sequence from its first preset.
 One **pass** of a sequence is each of its presets once, first to last, with the ramps between
 them: `pass_min` = presets x hold minimum + ramps, `pass_max` = presets x hold maximum + ramps.
 
+## Advanced transitions
+
+A sequence's preset can set, per track, how the track **comes in** at its step (tracks the step
+turns on or makes louder) and how it **leaves** at the next step (tracks the next step turns off
+or makes quieter). In the web UI: the sequence editor, a preset's ⋯ › Advanced…. Stored in the
+sequence (THEME_FORMAT.md 5.2a); a track with nothing set follows the ramp (Smooth).
+
+| Coming in | Leaving | What the mixer does to the track |
+|---|---|---|
+| Gusts | Gusts dying down | The level rides from the old volume to the new one with uneven swells (a seeded random curve, so the same step sounds the same every time and in the preview); Intensity sets how far and how fast it swings; Max volume caps the peaks |
+| Swell | Smooth fade | One S-curve, over Speed seconds from the start of the change |
+| Build | Thin out | Intermittent tracks: the interval (presence) and the volume start lower and rise to the preset's, or fall; Amount sets how far. To off, a short fade at the end |
+| Distance | Recede | A low-pass filter whose cutoff rises (falls) and the level rising from far below (falling away); How far sets how muffled and quiet |
+| Start fresh | Finish then stop | From the beginning of its file (a sounding track crossfades over 1 s); or the play going out finishes, then a 0.5 s fade |
+
+Styles combine by multiplying: e.g. Distance + Gusts is the filter and level of the distance with
+the gust swing on top. **Pre-fade** (0-90 s) starts the change that many seconds before the step:
+the **fade window** is pre-fade + ramp, from `step - pre_fade` to `step + ramp`. A pre-fade never
+starts before the glide into the current preset has finished (with a short hold it is shortened).
+
+How it runs:
+
+- When a step is taken (and when a sequence starts), the runner looks at the next step (the next
+  preset, as `at_end` will take it) and plans its transitions on the channel's mix at once: each
+  track's start time and window. Only tracks that really come in or leave at that step are used.
+- In the mix (`theme.ThemeStream`), a track with a running transition gets its level from the
+  envelope (`core/transitions.py` `Envelope`), applied per chunk as a ramp from the level at the
+  chunk's start to its end, plus, for Distance / Recede, two one-pole low-pass filters (12 dB per
+  octave, numpy only, state carried between chunks). For the window the track's volume, on/off and
+  (Build / Thin out) interval are pinned, so the preset glide and the on/off fade leave it alone.
+  At the end the track goes back to its preset values; if they differ from where the envelope
+  ended (the step was taken by hand) it glides there over 3 s.
+- Next, a preset picked by hand, a different theme, or stopping the sequence drops the planned
+  transitions; running ones glide over 3 s to what the channel plays now.
+- Cost: well under 1 ms per 23 ms chunk with four transitions running (tests measure it).
+- The web UI's ▶ preview runs the same envelope (the same seeded gusts, a low-pass BiquadFilter)
+  on this device and follows edits as they are made.
+
+Each step's lines in the log start with `Playback:` (Settings > Logs > Playback): the step, the
+transitions starting (track, styles, window, levels), tracks turning on or off, Ebb & Flow fades,
+Intermittent plays, and the mix level whenever it moves 1 dB.
+
 ## Playlists
 
 A playlist plays themes one after another on a channel. Playlists are global and stored in
@@ -122,9 +164,16 @@ presets left, Next with nothing running or on a stopped channel).
 | DELETE | `/themes/{theme_id}/sequences/{sequence_id}` | `{status, sequence_id, stopped_on: [session ids]}` |
 | GET | `/themes/{theme_id}/sequence_defaults` | `{theme_id, hold_min, hold_max, ramp}` |
 | PUT | `/themes/{theme_id}/sequence_defaults` | any of `hold_min`, `hold_max`, `ramp` |
+| GET | `/themes/{theme_id}/sequences/{sequence_id}/transitions/{preset_id}` | `{theme_id, sequence_id, preset_id, in: {track: {...}}, out: {...}}` (missing tracks are Smooth) |
+| PUT | `/themes/{theme_id}/sequences/{sequence_id}/transitions/{preset_id}` | `{in?, out?}`: replaces that preset's transitions (`{}`: all Smooth); 400 bad values, 404 a preset not in the sequence |
+| GET | `/themes/{theme_id}/transition_tracks?preset=&prev=&next=` | the tracks a step changes, for the Advanced dialog: `{in: [...], out: [...]}`, each `{key, name, group, mode, from, to, presence_from, presence_to, duration_seconds}` (volumes 0-1, 0 = off) |
+
+A sequence's `transitions` (THEME_FORMAT.md 5.2a) can also be sent whole with the sequence's POST
+or PUT (the web UI saves them that way, with the sequence); transitions of presets taken out of the
+sequence are dropped.
 
 A sequence is returned as `{id, name, presets, at_end, hold_min, hold_max, ramp, owner,
-effective: {hold_min, hold_max, ramp}, pass_min, pass_max}`; `effective` is the timing it plays
+transitions, effective: {hold_min, hold_max, ramp}, pass_min, pass_max}`; `effective` is the timing it plays
 with (its own, or the theme's defaults); `pass_min` and `pass_max` are the seconds one pass
 takes at the shortest and longest holds.
 

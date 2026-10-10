@@ -389,6 +389,18 @@
                             <p class="hi"><b>Save:</b> saves the sequence at once. Every channel playing this theme can pick it.</p>
                             <p class="hi"><b>Picking one:</b> preset lists show the sequences after the presets. Picking a preset by hand stops a running sequence.</p>
                             <p class="hi"><b>Edit:</b> pick a sequence in the preset field below, then Edit.</p>
+                            <h4>Advanced transitions</h4>
+                            <p class="hi"><b>Advanced:</b> in a sequence, a preset's ⋯ › Advanced sets how each track comes in, and how it leaves.</p>
+                            <p class="hi"><b>Coming in / Leaving:</b> tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.</p>
+                            <p class="hi"><b>Smooth:</b> no button on. The track follows the sequence's ramp.</p>
+                            <p class="hi"><b>Buttons:</b> click to turn one on, click it again to show its setting on the slider, click once more to turn it off. Several can be on together.</p>
+                            <p class="hi"><b>Pre-fade:</b> starts the change this many seconds before the step.</p>
+                            <p class="hi"><b>Gusts / Gusts dying down:</b> rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.</p>
+                            <p class="hi"><b>Swell / Smooth fade:</b> one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.</p>
+                            <p class="hi"><b>Build / Thin out:</b> Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.</p>
+                            <p class="hi"><b>Distance / Recede:</b> starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.</p>
+                            <p class="hi"><b>Start fresh / Finish then stop:</b> plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.</p>
+                            <p class="hi"><b>Preview:</b> ▶ plays that track's change on this device and follows your edits.</p>
                             <h4>Saving</h4>
                             <p class="hi"><b>Live:</b> changes are heard on speakers playing this theme, and on this device with Preview mix.</p>
                             <p class="hi"><b>Cancel:</b> Reverts unsaved changes.</p>
@@ -939,6 +951,49 @@ Example:
                 <span class="grow"></span>
                 <button type="button" class="btn btn-primary" onclick="sqSave()">Save</button>
                 <button type="button" class="btn btn-secondary" onclick="sqClose()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sequence step: Advanced transitions (over the sequence editor): header, tabs and column heads fixed, the tracks scroll (tx* in app.js) -->
+    <div id="tx-modal" class="modal-backdrop ad-back" onclick="if(event.target===this) txCancel()">
+        <div class="modal ad" role="dialog" aria-modal="true" aria-labelledby="tx-title">
+            <div class="modal-header">
+                <h2 id="tx-title"><span class="ttl" id="tx-ttl">Coming into</span> <span class="sub" id="tx-sub"></span></h2>
+                <div class="hd-acts">
+                    <button type="button" class="icon-btn sm hd-more" id="tx-help-btn" aria-label="Help" aria-expanded="false" aria-controls="tx-help" onclick="txToggleHelp()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>
+                    <button type="button" class="icon-btn sm hd-more" id="tx-more-btn" aria-label="More transition actions" aria-haspopup="menu" onclick="txMenu(this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+                    <button type="button" class="modal-close" aria-label="Close" onclick="txCancel()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                </div>
+            </div>
+            <div id="tx-help" class="te-help" role="dialog" aria-label="Advanced transitions help" hidden>
+                <div class="te-help-hd">
+                    <strong>Advanced transitions</strong>
+                    <button type="button" class="modal-close te-help-x" aria-label="Close help" onclick="txToggleHelp()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                </div>
+                <div class="te-help-body">
+                    <p class="hi"><b>Advanced:</b> in a sequence, a preset's ⋯ › Advanced sets how each track comes in, and how it leaves.</p>
+                    <p class="hi"><b>Coming in / Leaving:</b> tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.</p>
+                    <p class="hi"><b>Smooth:</b> no button on. The track follows the sequence's ramp.</p>
+                    <p class="hi"><b>Buttons:</b> click to turn one on, click it again to show its setting on the slider, click once more to turn it off. Several can be on together.</p>
+                    <p class="hi"><b>Pre-fade:</b> starts the change this many seconds before the step.</p>
+                    <p class="hi"><b>Gusts / Gusts dying down:</b> rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.</p>
+                    <p class="hi"><b>Swell / Smooth fade:</b> one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.</p>
+                    <p class="hi"><b>Build / Thin out:</b> Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.</p>
+                    <p class="hi"><b>Distance / Recede:</b> starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.</p>
+                    <p class="hi"><b>Start fresh / Finish then stop:</b> plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.</p>
+                    <p class="hi"><b>Preview:</b> ▶ plays that track's change on this device and follows your edits.</p>
+                </div>
+            </div>
+            <div class="ad-ctx" id="tx-ctx"></div>
+            <div class="ad-top"><div class="seg ad-tabs" role="tablist" aria-label="Transition side" id="tx-tabs"></div></div>
+            <div class="ad-fix"><div class="sq-thead adgrid"><span></span><span>Track</span><span>Change</span><span>Style</span><span>Setting</span><span title="Starts this long before the step">Pre-fade</span></div></div>
+            <div class="ad-list"><div class="sq-box" id="tx-rows"></div></div>
+            <div class="modal-footer foot">
+                <span class="sq-sum" id="tx-sum"></span>
+                <span class="grow"></span>
+                <button type="button" class="btn btn-primary" onclick="txSave()">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="txCancel()">Cancel</button>
             </div>
         </div>
     </div>

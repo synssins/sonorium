@@ -534,13 +534,37 @@ class TrackView:
 
     `overrides` is the channel's dict ({track name: {field: value}}), shared by
     reference, so changing it in place changes what the channel plays.
+
+    `pins` (shared with the mix, see theme.ThemeStream) holds values an
+    advanced transition sets for a while ({track name: {field: value}}):
+    they win over everything else, group masters included. `context` is the
+    mix's {"label": ...}, for log lines.
     """
 
-    def __init__(self, instance: RecordingThemeInstance, overrides: dict):
+    def __init__(self, instance: RecordingThemeInstance, overrides: dict, pins: dict | None = None,
+                 context: dict | None = None):
         self._instance = instance
         self._overrides = overrides
+        self._pins = pins if pins is not None else {}
+        self._context = context if context is not None else {}
+
+    @property
+    def log_label(self) -> str:
+        """Who is playing, for log lines: the mix's label (channel and theme)."""
+        return self._context.get("label") or getattr(getattr(self._instance, "theme", None), "name", "") or ""
+
+    def unpinned(self, name):
+        """A value as the presets set it, ignoring a transition's pins."""
+        value = self._track_value(name)
+        group = getattr(self._instance.meta, "group", None)
+        if group:
+            return self._in_group(group, name, value)
+        return value
 
     def __getattr__(self, name):
+        pinned = self._pins.get(self._instance.name)
+        if pinned is not None and name in pinned:
+            return pinned[name]
         value = self._track_value(name)
         group = getattr(self._instance.meta, "group", None)
         if group:
@@ -630,7 +654,6 @@ class RecordingThemeStream:
                 for frame_resamp in self.resampler.resample(frame_orig):
                     data_resamp = frame_resamp.to_ndarray()
                     data_resamp = data_resamp.mean(axis=0).astype(data_resamp.dtype).reshape(data_resamp.shape)
-                    data_resamp = (data_resamp * self.instance.volume).astype(data_resamp.dtype)
 
                     buffer = np.hstack((buffer, data_resamp))
 
@@ -638,7 +661,8 @@ class RecordingThemeStream:
                         data = buffer[:, :self.CHUNK_SIZE]
                         buffer = buffer[:, self.CHUNK_SIZE:]
 
-                        yield data
+                        # The volume is read as each chunk goes out (no lag behind a glide or a transition)
+                        yield np.clip(data * self.instance.volume, -32768, 32767).astype(np.int16)
 
                         if i % LOG_THRESHOLD == 0:
                             vol_mean = round(abs(data).mean())
@@ -665,11 +689,14 @@ class CrossfadeRecordingStream:
 
     def __init__(self, instance: RecordingThemeInstance):
         self.instance = instance
+        # Where the current pass through the file is (samples), and the file's length
+        self.position = 0
+        self.length = 0
         self.gen = self._gen()
 
     def _create_decoder(self):
-        """Create a new decoder generator for the audio file (the track's volume read per block)"""
-        return (block * self.instance.volume for block in decode_mono(self.instance.meta.path))
+        """Create a new decoder generator for the audio file (the volume is applied as chunks go out)"""
+        return decode_mono(self.instance.meta.path)
 
     def _gen(self):
         """Main generator with crossfade logic"""
@@ -780,11 +807,12 @@ class CrossfadeRecordingStream:
                     in_crossfade = False
                     crossfade_position = 0
             
-            # Convert to int16 and reshape for output
-            output_chunk = np.clip(output_chunk, -32768, 32767).astype(np.int16)
+            # The track's volume, read as each chunk goes out; int16 for output
+            output_chunk = np.clip(output_chunk * self.instance.volume, -32768, 32767).astype(np.int16)
             output_data = output_chunk.reshape(1, -1)
             
             samples_played += self.CHUNK_SIZE
+            self.position, self.length = samples_played, track_duration
             chunk_count += 1
             
             if chunk_count % LOG_THRESHOLD == 0:
@@ -820,9 +848,14 @@ class SparsePlaybackStream:
     """
     CHUNK_SIZE = 1_024
 
-    def __init__(self, instance: RecordingThemeInstance, exclusion_coordinator: ExclusionGroupCoordinator = None):
+    def __init__(self, instance: RecordingThemeInstance, exclusion_coordinator: ExclusionGroupCoordinator = None,
+                 play_now: bool = False):
         self.instance = instance
         self.exclusion_coordinator = exclusion_coordinator
+        # Start fresh (an advanced transition): the first play starts now, without the random first wait
+        self.play_now = play_now
+        # True while a play is going out (Finish then stop waits for it)
+        self.playing = False
 
         # Register exclusive tracks with coordinator
         if self.instance.exclusive and self.exclusion_coordinator is not None:
@@ -948,8 +981,8 @@ class SparsePlaybackStream:
 
             # On first play, delay with a random portion of the interval
             # This prevents all sparse tracks from playing at stream start
-            if first_play and grouped:
-                first_play = False  # the group decides when its tracks play
+            if first_play and (grouped or self.play_now):
+                first_play = False  # the group decides when its tracks play (or: play now)
             if first_play:
                 first_play = False
                 # Random initial delay: 0% to 100% of the normal interval
@@ -983,8 +1016,10 @@ class SparsePlaybackStream:
             audio_data = decode_file_once()
 
             if len(audio_data) > 0:
-                # Apply volume
-                audio_data = audio_data * self.instance.volume
+                group = getattr(self.instance, "exclusion_group", None) if grouped else None
+                logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} plays '
+                            f'(Intermittent{", group " + group if group else ""}, {len(audio_data) / SAMPLE_RATE:.1f}s)')
+                self.playing = True
 
                 # Apply fade in at start
                 if len(fade_in_curve) <= len(audio_data):
@@ -1004,8 +1039,8 @@ class SparsePlaybackStream:
                     if len(chunk) < self.CHUNK_SIZE:
                         chunk = np.concatenate([chunk, np.zeros(self.CHUNK_SIZE - len(chunk), dtype=np.float32)])
 
-                    # Convert to int16
-                    output = np.clip(chunk, -32768, 32767).astype(np.int16).reshape(1, -1)
+                    # The volume, read for each chunk; int16 for output
+                    output = np.clip(chunk * self.instance.volume, -32768, 32767).astype(np.int16).reshape(1, -1)
 
                     chunk_count += 1
                     if chunk_count % LOG_THRESHOLD == 0:
@@ -1014,6 +1049,7 @@ class SparsePlaybackStream:
                     yield output
                     pos += self.CHUNK_SIZE
 
+            self.playing = False
             # Mark exclusive track as finished playing
             finish_exclusive()
 
@@ -1024,9 +1060,21 @@ class SparsePlaybackStream:
 
             logger.debug(f'SparsePlaybackStream: {self.instance.name} entering silence for {silent_samples/SAMPLE_RATE:.1f}s ({silent_chunks} chunks)')
 
-            for _ in range(silent_chunks):
+            # While a transition moves the interval (Build / Thin out), the wait
+            # left is stretched or shortened as it moves
+            waited_at = presence
+            remaining = float(silent_chunks)
+            while remaining >= 1.0:
                 chunk_count += 1
+                remaining -= 1.0
                 yield silence_chunk
+                if getattr(self.instance, "interval_live", False):
+                    now = self.instance.presence
+                    if abs(now - waited_at) > 0.005:
+                        old_base = SPARSE_MIN_INTERVAL + (SPARSE_MAX_INTERVAL - SPARSE_MIN_INTERVAL) * (1.0 - waited_at)
+                        new_base = SPARSE_MIN_INTERVAL + (SPARSE_MAX_INTERVAL - SPARSE_MIN_INTERVAL) * (1.0 - now)
+                        remaining *= new_base / old_base
+                        waited_at = presence = now
 
     def __iter__(self):
         return self
@@ -1061,6 +1109,18 @@ class PresenceMixingStream:
             exclusion_coordinator.register_track(instance.name)
         self._restart = False
         self.gen = self._gen()
+
+    @property
+    def position(self) -> int:
+        return getattr(self.base_stream, "position", 0)
+
+    @property
+    def length(self) -> int:
+        return getattr(self.base_stream, "length", 0)
+
+    def _log_fade(self, direction: str):
+        logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} Ebb & Flow '
+                    f'fading {direction} over {TRACK_FADE_DURATION:g}s')
 
     def restart(self):
         """
@@ -1174,9 +1234,11 @@ class PresenceMixingStream:
                 elif presence >= 1.0 and target_gain < 1.0:
                     target_gain = 1.0
                     fade_position = 0
+                    self._log_fade("in")
                 elif presence <= 0.0 and target_gain > 0.0:
                     target_gain = 0.0
                     fade_position = 0
+                    self._log_fade("out")
 
             # Check if it's time to change state
             samples_until_change -= self.CHUNK_SIZE
@@ -1192,6 +1254,7 @@ class PresenceMixingStream:
                     if coordinator.try_start_playing(self.instance.name, seconds, presence):
                         is_active, target_gain, fade_position = True, 1.0, 0
                         samples_until_change = active_samples
+                        self._log_fade("in")
                     else:
                         samples_until_change = retry_samples
                 else:
@@ -1200,16 +1263,17 @@ class PresenceMixingStream:
                     is_active, target_gain, fade_position = False, 0.0, 0
                     releasing = True
                     samples_until_change = retry_samples
+                    self._log_fade("out")
             elif coordinator is not None and presence <= 0.0 and is_active:
                 is_active, target_gain, fade_position = False, 0.0, 0
                 releasing = True
+                self._log_fade("out")
             elif coordinator is None and samples_until_change <= 0 and 0 < presence < 1.0:
                 is_active = not is_active
                 target_gain = 1.0 if is_active else 0.0
                 fade_position = 0
                 samples_until_change = get_next_duration(presence, is_active)
-                if chunk_count % LOG_THRESHOLD == 0:
-                    logger.debug(f'PresenceMixingStream: {self.instance.name} {"fading in" if is_active else "fading out"}')
+                self._log_fade("in" if is_active else "out")
 
             # Apply fade if current_gain != target_gain
             if current_gain != target_gain:

@@ -682,6 +682,44 @@ class SessionManager:
                 channel.set_track_overrides(self.preset_overrides(session.theme_id, session.preset_id),
                                             glide_seconds=glide, fade_seconds=fade)
 
+    def transition_plans(self, session: Session, from_preset: Optional[str], to_preset: str,
+                         step_in: Optional[dict], step_out: Optional[dict]) -> list:
+        """
+        The tracks with an advanced transition at a sequence step from one
+        preset of the channel's theme to another (core/transitions.step_plans).
+        Merry-go-round tracks play as their group's bed and are left out.
+        """
+        from sonorium.core.transitions import step_plans
+        from sonorium.recording import GROUP_MODE_MERRY_GO_ROUND, TrackView, group_mode
+        theme = self.get_theme(session.theme_id) if session.theme_id else None
+        if theme is None:
+            return []
+        groups = getattr(theme, "groups", None) or {}
+
+        def bed(instance):
+            group = getattr(instance.meta, "group", None)
+            return bool(group) and group_mode(groups.get(group)) == GROUP_MODE_MERRY_GO_ROUND
+
+        return step_plans(list(theme.instances),
+                          self.preset_overrides(session.theme_id, from_preset),
+                          self.preset_overrides(session.theme_id, to_preset),
+                          step_in, step_out, to_preset, from_preset or "",
+                          lambda instance, overrides: TrackView(instance, overrides), skip=bed)
+
+    def schedule_transitions(self, session: Session, plans: list) -> None:
+        """Hand a step's planned transitions to the channel's mix."""
+        channel = self._channel_for(session)
+        schedule = getattr(channel, "schedule_transitions", None)
+        if schedule is not None:
+            schedule(plans)
+
+    def cancel_transitions(self, session: Session) -> None:
+        """Drop the channel's planned transitions; running ones glide to what it plays now."""
+        channel = self._channel_for(session)
+        cancel = getattr(channel, "cancel_transitions", None)
+        if cancel is not None:
+            cancel()
+
     def _apply_theme(self, session: Session, theme_id: str, preset_id: Optional[str]) -> None:
         """
         Switch the channel to a theme with a preset (None: the theme's default),

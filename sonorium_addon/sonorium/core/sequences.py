@@ -12,10 +12,15 @@ Stored in the theme's presets.json next to the presets:
           "presets": ["drizzle", "rain", "downpour"],
           "at_end": "reverse",
           "hold_min": null, "hold_max": null, "ramp": null,
-          "owner": null
+          "owner": null,
+          "transitions": {"rain": {"in": {...}, "out": {...}}}
         }
       }
     }
+
+"transitions" (optional) holds the advanced transitions of the sequence's
+presets, checked by core/transitions.py; a preset or track without one
+follows the ramp (Smooth).
 
 A sequence's own hold_min / hold_max / ramp (seconds) override the theme's
 sequence_defaults; null (or absent) uses the default. "owner" is null for a
@@ -186,6 +191,46 @@ def clean_sequence(data: dict, preset_ids, current: Optional[dict] = None) -> di
 
     if "owner" in data and data["owner"] is not None:
         raise SequenceError("owner must be null (personal sequences are not available yet)")
+
+    from sonorium.core.transitions import TransitionError, clean_transitions, keep_presets
+    presets_now = result.get("presets") or []
+    if "transitions" in data:
+        try:
+            result["transitions"] = clean_transitions(data["transitions"], presets_now)
+        except TransitionError as e:
+            raise SequenceError(str(e))
+    elif result.get("transitions"):
+        result["transitions"] = keep_presets(result["transitions"], presets_now)  # presets taken out drop theirs
+    if not result.get("transitions"):
+        result.pop("transitions", None)
+    return result
+
+
+def step_transitions(sequence: dict, preset_id: str) -> dict:
+    """A preset's advanced transitions in a sequence ({"in": {...}, "out": {...}}; empty sides are {})."""
+    step = (sequence.get("transitions") or {}).get(preset_id) or {}
+    return {"in": dict(step.get("in") or {}), "out": dict(step.get("out") or {})}
+
+
+def set_step_transitions(sequence: dict, preset_id: str, data) -> dict:
+    """The sequence with a preset's transitions replaced (checked). Raises SequenceError."""
+    from sonorium.core.transitions import TransitionError, clean_step
+    if preset_id not in (sequence.get("presets") or []):
+        raise SequenceError(f"'{preset_id}' is not a preset of this sequence")
+    try:
+        cleaned = clean_step(data)
+    except TransitionError as e:
+        raise SequenceError(str(e))
+    result = dict(sequence)
+    transitions = dict(result.get("transitions") or {})
+    if cleaned:
+        transitions[preset_id] = cleaned
+    else:
+        transitions.pop(preset_id, None)
+    if transitions:
+        result["transitions"] = transitions
+    else:
+        result.pop("transitions", None)
     return result
 
 
@@ -277,6 +322,7 @@ def to_response(sequence_id: str, sequence: dict, defaults: dict) -> dict:
         "hold_max": sequence.get("hold_max"),
         "ramp": sequence.get("ramp"),
         "owner": sequence.get("owner"),
+        "transitions": dict(sequence.get("transitions") or {}),
         "effective": effective,
         "pass_min": pass_min,
         "pass_max": pass_max,
@@ -309,6 +355,10 @@ def drop_preset(folder: Path, preset_id: str) -> list[str]:
         if preset_id in presets:
             sequence["presets"] = [p for p in presets if p != preset_id]
             changed.append(sequence_id)
+        if preset_id in (sequence.get("transitions") or {}):
+            sequence["transitions"] = {p: s for p, s in sequence["transitions"].items() if p != preset_id}
+            if sequence_id not in changed:
+                changed.append(sequence_id)
     if changed:
         save_sequences(folder, sequences)
     return changed

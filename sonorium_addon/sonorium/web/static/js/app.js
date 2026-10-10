@@ -542,6 +542,7 @@ function showView(viewName) {
             <button class="icon-btn" aria-label="More" aria-haspopup="menu" onclick="openPluginsPageMenu(this)">${SP_ICON_MORE}</button>
         `,
         'settings-logs': `
+            <button class="btn btn-secondary sp-hbtn log-pause-btn" aria-pressed="${window.SonoriumLogs?.isPaused?.() ? 'true' : 'false'}" aria-label="${window.SonoriumLogs?.isPaused?.() ? 'Resume' : 'Pause'}" title="Stop the list moving; new lines wait until Resume" onclick="SonoriumLogs.togglePause(this)">${window.SonoriumLogs?.pauseButtonHtml?.() || '<span class="lbl">Pause</span>'}</button>
             <button class="btn btn-secondary" onclick="SonoriumLogs.copy(this)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <rect x="9" y="9" width="13" height="13" rx="2"/>
@@ -7810,7 +7811,7 @@ function teOpenSequence(id) {
 }
 
 // ---------- Sequence editor (#sq-modal) ----------
-const sq = { id: null, presets: [], end: 'reverse' };
+const sq = { id: null, presets: [], end: 'reverse', transitions: {} };
 
 function sqIsOpen() {
     return !!document.getElementById('sq-modal')?.classList.contains('active');
@@ -7823,6 +7824,7 @@ function sqOpen(id) {
     sq.id = seq ? seq.id : null;
     sq.presets = seq ? seq.presets.filter(p => te.presets.some(x => x.id === p)) : [];
     sq.end = seq?.at_end || 'reverse';
+    sq.transitions = JSON.parse(JSON.stringify(seq?.transitions || {}));
     const d = teSeqDefaults();
     const set = (fieldId, value, placeholder) => {
         const input = document.getElementById(fieldId);
@@ -7850,6 +7852,7 @@ function sqRenderHead() {
 }
 
 function sqClose() {
+    if (txIsOpen()) txClose();
     spClosePop();
     rowDragEnd();
     document.getElementById('sq-modal')?.classList.remove('active');
@@ -7909,7 +7912,7 @@ function sqRender() {
                 <span class="drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag ${name}" ondragstart="rowDragStart(event, 'sq', ${i})" ondragend="rowDragEnd()">${TE_ICON_GRIP}</span>
                 <span class="sq-n">${i + 1}</span>
                 <span class="sq-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${presetMarks(!!p?.is_default, !!p?.has_intrusion)}</span>
-                <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="sqMenu('row', this, ${i})">${TE_ICON_MORE}</button>
+                <button type="button" class="icon-btn sm more-btn" aria-label="More for ${name}" aria-haspopup="menu" onclick="sqMenu('row', this, ${i})">${TE_ICON_MORE}${txStepHasSet(sq.transitions[id]) ? '<span class="adv-dot" title="Advanced transition set"></span>' : ''}</button>
             </div>`;
     }).join('') : `<div class="sq-empty"><button type="button" class="link-btn" onclick="sqMenu('add', this)">${TE_ICON_PLUS}Add preset</button></div>`;
     spUpdateMarquees(rows);
@@ -7946,6 +7949,7 @@ function sqMenu(kind, button, arg = null) {
         xMenu(`sq-row:${arg}`, button, `
             ${xMenuItem('Move up', `sqMove(${arg}, ${arg - 1})`, { icon: ICON_UP, disabled: arg === 0 })}
             ${xMenuItem('Move down', `sqMove(${arg}, ${arg + 1})`, { icon: ICON_DOWN, disabled: arg === n - 1 })}
+            ${X_SEP}${xMenuItem('Advanced…', `txOpen(${arg})`, { icon: TX_ICON_ADV, note: txStepHasSet(sq.transitions[sq.presets[arg]]) ? 'On' : '' })}
             ${X_SEP}${xMenuItem('Remove', `sqRemove(${arg})`, { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
     } else if (kind === 'more') {
         xMenu('sq-more', button, `
@@ -7983,52 +7987,660 @@ async function sqDelete() {
     }
 }
 
-async function sqSave() {
-    if (!te.themeId) return;
+// keepOpen: saved from the Advanced dialog (the editor stays open); returns true when saved
+async function sqSave({ keepOpen = false, quiet = false } = {}) {
+    if (!te.themeId) return false;
     const nameInput = document.getElementById('sq-name');
     const name = nameInput.value.trim();
     if (!name) {
         nameInput.classList.add('err');
         nameInput.focus();
         showToast('Enter a name', 'error');
-        return;
+        return false;
     }
     if (te.sequences.some(q => q.id !== sq.id && q.name.toLowerCase() === name.toLowerCase())) {
         nameInput.classList.add('err');
         showToast('A sequence with that name exists', 'error');
-        return;
+        return false;
     }
     const t = sqTimingValues();
     if (!(t.min > 0) || !(t.max > 0) || t.min > t.max) {
         ['sq-min', 'sq-max'].forEach(id => document.getElementById(id).classList.add('err'));
         showToast(t.min > t.max ? 'Minimum is more than maximum' : 'Enter the time on each preset', 'error');
-        return;
+        return false;
     }
     if (!(t.ramp >= 0)) {
         document.getElementById('sq-ramp').classList.add('err');
         showToast('Enter the ramp in seconds', 'error');
-        return;
+        return false;
     }
     if (sq.presets.length < 2) {
         showToast('Add at least 2 presets', 'error');
-        return;
+        return false;
     }
     const body = {
         name, presets: [...sq.presets], at_end: sq.end,
         hold_min: t.raw.min === '' ? null : Math.round(t.min * 60),
         hold_max: t.raw.max === '' ? null : Math.round(t.max * 60),
         ramp: t.raw.ramp === '' ? null : Math.round(t.ramp),
+        // Advanced transitions of the presets still in it
+        transitions: Object.fromEntries(Object.entries(sq.transitions || {}).filter(([p]) => sq.presets.includes(p))),
     };
     try {
-        if (sq.id) await api('PUT', `/themes/${te.themeId}/sequences/${encodeURIComponent(sq.id)}`, body);
-        else await api('POST', `/themes/${te.themeId}/sequences`, body);
-        sqClose();
-        teFlash(`Saved “${name}”`);
+        const saved = sq.id ? await api('PUT', `/themes/${te.themeId}/sequences/${encodeURIComponent(sq.id)}`, body)
+                            : await api('POST', `/themes/${te.themeId}/sequences`, body);
+        if (keepOpen) {
+            sq.id = saved?.id || sq.id;
+            sq.transitions = JSON.parse(JSON.stringify(saved?.transitions || body.transitions));
+            sqRenderHead();
+            sqRender();
+            if (!quiet) teFlash(`Saved “${name}”`);
+        } else {
+            sqClose();
+            teFlash(`Saved “${name}”`);
+        }
         await teLoadPresets(false);
+        return true;
     } catch (error) {
         showToast(error.message || 'Failed to save the sequence', 'error');
+        return false;
     }
 }
+
+// ---------- Sequence step: Advanced transitions (#tx-modal) ----------
+// A preset's ⋯ › Advanced… in the sequence editor: how each track comes in at
+// this step, and how it leaves at the next one. Saved in the sequence
+// ("transitions", core/transitions.py); ▶ previews one track's change here.
+
+// --- transition envelope (mirrors core/transitions.py) ---
+const TX_STYLES = ['gusts', 'swell', 'build', 'dist', 'fresh'];
+const TX_DEFAULTS = { gusts: 50, swell: 20, build: 60, dist: 50 };
+const TX_MIN_WINDOW = 0.05, TX_FRESH_FADE = 1.0, TX_EDGE = 0.1, TX_EPS = 0.002;
+
+function txFnv1a(text) {
+    let h = 0x811C9DC5;
+    for (const byte of new TextEncoder().encode(text)) {
+        h ^= byte;
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h >>> 0;
+}
+
+function txMulberry32(seed) {
+    let a = seed >>> 0;
+    return () => {
+        a = (a + 0x6D2B79F5) >>> 0;
+        let t = Math.imul(a ^ (a >>> 15), a | 1) >>> 0;
+        t = (((t + (Math.imul(t ^ (t >>> 7), t | 61) >>> 0)) >>> 0) ^ t) >>> 0;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function txSwellCurve(x) {
+    x = Math.min(1, Math.max(0, x));
+    return 0.5 - 0.5 * Math.cos(Math.PI * x);
+}
+
+function txEnvelope(side, styles, values, a, b, window, maxVolume, seed, pa = 1, pb = 1) {
+    const st = new Set(styles || []);
+    const v = { ...TX_DEFAULTS, ...(values || {}) };
+    const e = { side, styles: st };
+    a = Math.max(0, +a); b = Math.max(0, +b);
+    const w = Math.max(TX_MIN_WINDOW, +window);
+    e.window = w;
+    const swell = Math.min(Math.max(+v.swell, Math.min(5, w)), w);
+    const amount = st.has('build') ? v.build / 100 : 0;
+    e.amount = amount;
+    let start = a, end = b;
+    if (side === 'in' && amount) start = Math.max(a, b * (1 - 0.7 * amount));
+    if (side === 'out' && amount) end = Math.max(b, a * (1 - 0.7 * amount));
+    const tail = (side === 'out' && amount && b <= TX_EPS) ? Math.min(2, TX_EDGE * w) : 0;
+    const gusts = st.has('gusts') ? v.gusts / 100 : 0;
+    const rate = 0.15 + 0.45 * gusts;
+    const knots = [];
+    if (gusts) {
+        const rng = txMulberry32(seed);
+        const count = Math.ceil(Math.max(w, TX_MIN_WINDOW) * rate) + 2;
+        for (let i = 0; i < count; i++) knots.push(2 * rng() - 1);
+    } else {
+        knots.push(0);
+    }
+    const top = Math.max(a, b);
+    const cap = maxVolume !== null && maxVolume !== undefined ? Math.min(top, +maxVolume) : top;
+    const far = st.has('dist') ? v.dist / 100 : null;
+    e.far = far;
+    const fresh = st.has('fresh');
+    const holds = side === 'out' && st.size === 1 && fresh;
+    e.holds = holds;
+    const others = [...st].some(s => s !== 'fresh');
+    const noise = t => {
+        const x = Math.max(0, t) * rate;
+        const i = Math.floor(x);
+        const f = x - i;
+        const last = knots.length - 1;
+        const k0 = knots[Math.min(i, last)], k1 = knots[Math.min(i + 1, last)];
+        return k0 + (k1 - k0) * (1 - Math.cos(Math.PI * f)) / 2;
+    };
+    const shape = t => {
+        if (st.has('swell')) return txSwellCurve(t / swell);
+        if (far !== null && !st.has('gusts') && !st.has('build')) {
+            if (side === 'in' && start <= TX_EPS) return Math.min(1, t / (TX_EDGE * w));
+            if (side === 'out' && end <= TX_EPS) return Math.min(1, Math.max(0, (t - (1 - TX_EDGE) * w) / (TX_EDGE * w)));
+        }
+        if (fresh && side === 'in' && !others) return Math.min(1, t / Math.min(TX_FRESH_FADE, w));
+        if (fresh && side === 'out' && !others) return 0;
+        const span = w - tail;
+        return span > 0 ? Math.min(1, Math.max(0, t / span)) : 1;
+    };
+    e.distance = t => {
+        if (far === null) return 0;
+        const u = Math.min(1, Math.max(0, t / w));
+        if (side === 'in') return a <= TX_EPS ? 1 - u : (1 - u) * Math.min(1, u / 0.15);
+        return b <= TX_EPS ? u : u * Math.min(1, (1 - u) / 0.15);
+    };
+    e.cutoff = t => {
+        const d = e.distance(t);
+        if (d < 0.002) return null;
+        const farHz = 250 * 8 ** (1 - far);
+        return 18000 * (farHz / 18000) ** d;
+    };
+    e.level = t => {
+        t = Math.max(0, t);
+        if (holds) return start;
+        let base = start + (end - start) * shape(t);
+        if (tail && t > w - tail) base *= Math.max(0, (w - t) / tail);
+        let level = base;
+        if (far !== null) level *= 10 ** (-(6 + 24 * far) * e.distance(t) / 20);
+        if (gusts) {
+            const u = Math.min(1, t / w);
+            const swing = 1 + 0.9 * gusts * Math.sin(Math.PI * u) * noise(t);
+            const gusty = level * swing;
+            level = Math.min(gusty, Math.max(cap, level));
+        }
+        if (t >= w) return !tail ? end : b;
+        return Math.max(0, level);
+    };
+    e.presence = t => {
+        if (!amount) return null;
+        const u = Math.min(1, Math.max(0, t / w));
+        if (side === 'in') {
+            const low = Math.max(0.01, pb * (1 - amount));
+            return low + (pb - low) * u;
+        }
+        const low = Math.max(0.01, pa * (1 - amount));
+        return pa + (low - pa) * u;
+    };
+    return e;
+}
+// --- end transition envelope ---
+
+const TX_NAMES = {
+    in: { gusts: 'Gusts', swell: 'Swell', build: 'Build', dist: 'Distance', fresh: 'Start fresh' },
+    out: { gusts: 'Gusts dying down', swell: 'Smooth fade', build: 'Thin out', dist: 'Recede', fresh: 'Finish then stop' },
+};
+const TX_TIPS = {
+    in: { gusts: 'Gusts: comes in with uneven surges', swell: 'Swell: one curved rise',
+          build: 'Build: plays more often and louder over the fade (Intermittent tracks)',
+          dist: 'Distance: starts faint and muffled, ends clear at the preset volume',
+          fresh: 'Start fresh: plays from the start of the file, with a short fade' },
+    out: { gusts: 'Gusts dying down: falls away in uneven surges', swell: 'Smooth fade: one curved fade out',
+           build: 'Thin out: plays less often and quieter over the fade (Intermittent tracks)',
+           dist: 'Recede: drifts into the distance, fainter and muffled',
+           fresh: 'Finish then stop: lets the current play finish, then stops' },
+};
+const TX_SLIDER = { gusts: 'Intensity', swell: 'Speed', build: 'Amount', dist: 'How far' };
+const TX_ICONS = {
+    gusts: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 13c1.5-3 2.5-3 4 0s2.5 4 4 0 2-6 4-2 2 5 4 1 2-3 4-1"/></svg>',
+    swell: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 19h4c5 0 5-14 10-14h6"/></svg>',
+    build: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="20" x2="5" y2="16"/><line x1="10" y1="20" x2="10" y2="12"/><line x1="15" y1="20" x2="15" y2="8"/><line x1="20" y1="20" x2="20" y2="4"/></svg>',
+    dist: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="3.5" cy="12" r="1" fill="currentColor"/><path d="M7 10.5a2 2 0 0 1 0 3"/><path d="M11 8a5.5 5.5 0 0 1 0 8"/><path d="M15.5 5a10 10 0 0 1 0 14"/></svg>',
+    fresh: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="19 20 9 12 19 4 19 20" fill="currentColor"/><line x1="5" y1="19" x2="5" y2="5"/></svg>',
+};
+const TX_ICON_ADV = '<span class="adv-ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>';
+const TX_ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const TX_ICON_STOP = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
+const TX_ICON_ARROW = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>';
+
+const tx = { open: false, step: null, name: '', prev: null, next: null, tab: 'in', rows: { in: [], out: [] }, keep: {}, loading: false };
+
+function txIsOpen() {
+    return !!document.getElementById('tx-modal')?.classList.contains('active');
+}
+
+// A step's saved transitions in the sequence being edited
+function txStepHasSet(step) {
+    return !!step && ['in', 'out'].some(side => Object.keys(step[side] || {}).length > 0);
+}
+
+function txRamp() {
+    const r = sqTimingValues().ramp;
+    return Number.isFinite(r) && r >= 0 ? Math.round(r) : teSeqDefaults().ramp;
+}
+
+function txNeighbours(index) {
+    const p = sq.presets, n = p.length;
+    const prev = index > 0 ? p[index - 1] : (sq.end === 'restart' && n > 1 ? p[n - 1] : sq.end === 'reverse' && n > 1 ? p[1] : null);
+    const next = index < n - 1 ? p[index + 1] : (sq.end === 'restart' && n > 1 ? p[0] : sq.end === 'reverse' && n > 1 ? p[n - 2] : null);
+    return { prev, next };
+}
+
+function txRowFrom(track, side, saved) {
+    const cfg = (saved || {})[track.key] || {};
+    const on = {};
+    TX_STYLES.forEach(k => { on[k] = (cfg.styles || []).includes(k); });
+    const cap = Math.round((side === 'in' ? track.to : track.from) * 100);
+    const values = { ...TX_DEFAULTS, ...(cfg.values || {}) };
+    const sel = TX_STYLES.find(k => on[k] && k !== 'fresh') || TX_STYLES.find(k => on[k]) || '';
+    return {
+        ...track, on, sel, v: values, cap,
+        maxVol: cfg.max_volume !== undefined && cfg.max_volume !== null ? Math.min(cap, Math.round(cfg.max_volume * 100)) : cap,
+        pre: Math.round(cfg.pre_fade || 0),
+    };
+}
+
+function txRowSet(r) {
+    return r.pre > 0 || TX_STYLES.some(k => r.on[k]);
+}
+
+function txRowConfig(r) {
+    if (!txRowSet(r)) return null;
+    const styles = TX_STYLES.filter(k => r.on[k] && !(k === 'build' && r.mode !== 'Intermittent'));
+    const values = {};
+    styles.forEach(k => { if (k !== 'fresh') values[k] = r.v[k]; });
+    const cfg = { styles, values, pre_fade: r.pre };
+    if (r.on.gusts && r.maxVol < r.cap) cfg.max_volume = Math.round(r.maxVol) / 100;
+    return cfg;
+}
+
+async function txOpen(index) {
+    spClosePop();
+    const step = sq.presets[index];
+    if (!step || !te.themeId) return;
+    const { prev, next } = txNeighbours(index);
+    const name = id => sqPreset(id)?.name || id;
+    Object.assign(tx, { step, name: name(step), prev, next, prevName: prev ? name(prev) : '', nextName: next ? name(next) : '',
+                        tab: 'in', rows: { in: [], out: [] }, loading: true });
+    txHelp.close();
+    txStopPreview();
+    document.getElementById('tx-modal').classList.add('active');
+    txRender();
+    try {
+        const q = new URLSearchParams({ preset: step });
+        if (prev) q.set('prev', prev);
+        if (next) q.set('next', next);
+        const result = await api('GET', `/themes/${te.themeId}/transition_tracks?${q}`);
+        if (tx.step !== step) return;
+        const saved = (sq.transitions || {})[step] || {};
+        tx.rows = { in: (result.in || []).map(t => txRowFrom(t, 'in', saved.in)), out: (result.out || []).map(t => txRowFrom(t, 'out', saved.out)) };
+        // Saved settings for tracks not listed here (they don't change at this step in this order) are kept
+        const listed = side => new Set(tx.rows[side].map(r => r.key));
+        tx.keep = {
+            in: Object.fromEntries(Object.entries(saved.in || {}).filter(([k]) => !listed('in').has(k))),
+            out: Object.fromEntries(Object.entries(saved.out || {}).filter(([k]) => !listed('out').has(k))),
+        };
+    } catch (error) {
+        showToast(error.message || 'Failed to load the tracks', 'error');
+    }
+    tx.loading = false;
+    txRender();
+    document.querySelector('#tx-modal .ad-list').scrollTop = 0;
+}
+
+function txClose() {
+    txStopPreview();
+    txHelp.close();
+    spClosePop();
+    tx.step = null;
+    document.getElementById('tx-modal')?.classList.remove('active');
+}
+
+function txCancel() {
+    txClose();
+}
+
+function txSetTab(tab) {
+    if (tx.tab === tab) return;
+    txStopPreview();
+    tx.tab = tab;
+    txRender();
+    document.querySelector('#tx-modal .ad-list').scrollTop = 0;
+}
+
+function txPct(v) {
+    return v > 0 ? `${Math.round(v * 100)}%` : 'off';
+}
+
+function txSliderState(r, ramp) {
+    const win = r.pre + ramp;
+    const s = r.sel, has = !!s && s !== 'fresh';
+    const anyOn = TX_STYLES.some(k => r.on[k]);
+    let min = 0, max = 100, value = has ? r.v[s] : 0, text = '';
+    if (s === 'swell') {
+        min = Math.min(5, win);
+        max = Math.max(min, win);
+        value = Math.max(min, Math.min(max, r.v.swell));
+        text = `${Math.round(value)} s of ${win} s`;
+    } else if (has) {
+        text = `${Math.round(value)}%`;
+    }
+    return {
+        has, min, max, value,
+        label: has ? TX_SLIDER[s] : (s === 'fresh' ? TX_NAMES[tx.tab].fresh : (anyOn ? '' : 'Smooth')),
+        text: has ? text : (s === 'fresh' || anyOn ? '' : `ramp ${ramp} s`),
+    };
+}
+
+function txHints(r) {
+    const amt = r.v.build / 100;
+    const out = tx.tab === 'out';
+    const iv = Math.round((out ? r.presence_from : r.presence_to) * 100);
+    const vol = Math.round((out ? r.from : r.to) * 100);
+    const ivA = Math.max(1, Math.round(iv * (1 - amt))), volA = Math.round(vol * (1 - amt * 0.7));
+    return out ? [`Interval ${iv}% → ${ivA}%`, `Volume ${vol}% → ${volA}%`] : [`Interval ${ivA}% → ${iv}%`, `Volume ${volA}% → ${vol}%`];
+}
+
+function txRowHtml(r, i, ramp) {
+    const side = tx.tab, out = side === 'out';
+    const name = escapeHtml(r.name);
+    const playing = txp.key === `${side}:${i}`;
+    const sl = txSliderState(r, ramp);
+    const intermittent = r.mode === 'Intermittent';
+    const btns = TX_STYLES.map(k => {
+        const dis = k === 'build' && !intermittent;
+        const label = TX_NAMES[side][k];
+        return `<button type="button" class="ad-tg${out ? ' x' : ''}${r.on[k] && !dis ? ' on' : ''}${r.sel === k ? ' sel' : ''}" title="${escapeHtml(dis ? `${label}: Intermittent tracks only` : TX_TIPS[side][k])}" aria-label="${escapeHtml(label)}" aria-pressed="${r.on[k] && !dis}" ${dis ? 'disabled' : ''} onclick="txPress(${i}, '${k}')">${TX_ICONS[k]}</button>`;
+    }).join('');
+    const hints = r.on.build && intermittent ? txHints(r) : null;
+    const maxVol = Math.min(r.maxVol, r.cap);
+    return `
+        <div class="ad-r adgrid${playing ? ' previewing' : ''}" data-i="${i}">
+            <button type="button" class="track-preview-btn${playing ? ' playing' : ''}" title="${playing ? 'Stop preview' : out ? 'Preview this exit' : 'Preview this entrance'}" aria-label="${playing ? 'Stop preview' : out ? 'Preview this exit' : 'Preview this entrance'}: ${name}" aria-pressed="${playing}" onclick="txPreview(${i})">${playing ? TX_ICON_STOP : TX_ICON_PLAY}</button>
+            <div class="ad-nm"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span><span class="ad-mode">${escapeHtml(r.mode)}</span></div>
+            <span class="ad-chg" aria-label="${txPct(r.from)} to ${txPct(r.to)}"><span class="ad-from">${txPct(r.from)}</span>${TX_ICON_ARROW}<span class="ad-to">${txPct(r.to)}</span></span>
+            <div class="ad-btns" role="group" aria-label="Style: ${name}">${btns}</div>
+            <div class="ad-sl${sl.has ? '' : ' off'}">
+                <div class="ad-sl-hd"><span class="ad-sl-lbl">${escapeHtml(sl.label)}</span><span class="ad-sl-val">${escapeHtml(sl.text)}</span></div>
+                <input type="range" class="track-slider" min="${sl.min}" max="${sl.max}" step="1" value="${sl.value}" ${sl.has ? '' : 'disabled'} aria-label="${escapeHtml(sl.label || 'Setting')}: ${name}" oninput="txSlide(${i}, this)">
+                ${hints ? `<span class="ad-hint">${hints[0]}</span><span class="ad-hint">${hints[1]}</span>` : ''}
+                ${r.on.gusts ? `<div class="ad-sl-hd sub"><span class="ad-sl-lbl" title="Capped at the track's volume in this preset">Max volume</span><span class="ad-sl-val">${maxVol}% of ${r.cap}%</span></div>
+                <input type="range" class="track-slider" min="0" max="${r.cap}" step="1" value="${maxVol}" aria-label="Max volume: ${name}" oninput="txMax(${i}, this)">` : ''}
+            </div>
+            <div class="ad-pre"><span class="c-lbl">Pre-fade</span><div class="mx-ctl"><div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="90" step="5" value="${r.pre}" title="Starts this long before the step" aria-label="Pre-fade: ${name}" oninput="txPre(${i}, this)"></div><span class="track-slider-value">${r.pre ? `${r.pre} s` : 'Off'}</span></div></div>
+        </div>`;
+}
+
+function txRender() {
+    if (!tx.step) return;
+    const out = tx.tab === 'out';
+    const ramp = txRamp();
+    document.getElementById('tx-ttl').textContent = `${out ? 'Leaving' : 'Coming into'} ${tx.name}`;
+    const sub = out ? (tx.nextName ? `to ${tx.nextName} · ramp ${ramp} s` : `last preset · ramp ${ramp} s`)
+                    : (tx.prevName ? `from ${tx.prevName} · ramp ${ramp} s` : `sequence start · ramp ${ramp} s`);
+    document.getElementById('tx-sub').textContent = sub;
+    document.getElementById('tx-ctx').textContent = sub;
+    document.getElementById('tx-tabs').innerHTML = [['in', 'Coming in'], ['out', `Leaving ${tx.name}`]].map(([k, label]) =>
+        `<button type="button" role="tab" aria-selected="${tx.tab === k}" aria-pressed="${tx.tab === k}" onclick="txSetTab('${k}')"><span class="tl">${escapeHtml(label)}</span><span class="badge badge-type">${tx.rows[k].length}</span></button>`).join('');
+    const rows = tx.rows[tx.tab];
+    const box = document.getElementById('tx-rows');
+    box.innerHTML = tx.loading ? '<div class="sq-empty ad-empty">Loading…</div>'
+        : rows.length ? rows.map((r, i) => txRowHtml(r, i, ramp)).join('')
+        : `<div class="sq-empty ad-empty">${out ? (tx.next ? 'No track leaves at the next step' : 'Nothing comes after this preset') : (tx.prev ? 'No track comes in at this step' : 'The sequence starts here')}</div>`;
+    spUpdateMarquees(box);
+    txRenderSum();
+}
+
+function txRenderRow(i) {
+    const row = document.querySelector(`#tx-rows .ad-r[data-i="${i}"]`);
+    const r = tx.rows[tx.tab][i];
+    if (!row || !r) return txRender();
+    row.outerHTML = txRowHtml(r, i, txRamp());
+    spUpdateMarquees(document.getElementById('tx-rows'));
+    txRenderSum();
+}
+
+function txRenderSum() {
+    const ramp = txRamp();
+    const n = tx.rows.in.filter(txRowSet).length + tx.rows.out.filter(txRowSet).length;
+    document.getElementById('tx-sum').textContent = n
+        ? `${n} ${n === 1 ? 'track' : 'tracks'} set · the rest follow the ${ramp} s ramp`
+        : `All Smooth · the ${ramp} s ramp`;
+}
+
+// A button: on, then selected (its setting on the slider), then off
+function txPress(i, k) {
+    const r = tx.rows[tx.tab][i];
+    if (!r) return;
+    if (!r.on[k]) { r.on[k] = true; r.sel = k; }
+    else if (r.sel !== k) r.sel = k;
+    else { r.on[k] = false; r.sel = TX_STYLES.find(x => x !== k && r.on[x]) || ''; }
+    txRenderRow(i);
+    txPreviewFollow(i);
+}
+
+function txSlide(i, input) {
+    const r = tx.rows[tx.tab][i];
+    if (!r || !r.sel || r.sel === 'fresh') return;
+    r.v[r.sel] = +input.value;
+    const sl = txSliderState(r, txRamp());
+    const row = input.closest('.ad-r');
+    row.querySelector('.ad-sl-val').textContent = sl.text;
+    if (r.on.build) {
+        const hints = row.querySelectorAll('.ad-hint');
+        const text = txHints(r);
+        hints.forEach((h, n) => { h.textContent = text[n]; });
+    }
+    txPreviewFollow(i);
+}
+
+function txMax(i, input) {
+    const r = tx.rows[tx.tab][i];
+    if (!r) return;
+    r.maxVol = +input.value;
+    const vals = input.closest('.ad-sl').querySelectorAll('.ad-sl-val');
+    vals[vals.length - 1].textContent = `${r.maxVol}% of ${r.cap}%`;
+    txPreviewFollow(i);
+}
+
+function txPre(i, input) {
+    const r = tx.rows[tx.tab][i];
+    if (!r) return;
+    r.pre = +input.value;
+    input.closest('.ad-pre').querySelector('.track-slider-value').textContent = r.pre ? `${r.pre} s` : 'Off';
+    // The swell's range follows the window (pre-fade + ramp)
+    if (r.sel === 'swell') txRenderRow(i);
+    else txRenderSum();
+    txPreviewFollow(i);
+}
+
+function txMenu(button) {
+    xMenu('tx-more', button, xMenuItem('Reset to Smooth…', 'txAskReset()', { icon: TX_ICON_ADV }), { cls: 'menu sp-menu x-menu' });
+}
+
+function txAskReset() {
+    spConfirm('tx-reset', spMenuAnchor() || document.getElementById('tx-more-btn'),
+        { title: `Reset every track in “${tx.name}” to Smooth?`, ok: 'Reset', danger: true }, () => {
+            ['in', 'out'].forEach(side => tx.rows[side].forEach(r => {
+                TX_STYLES.forEach(k => { r.on[k] = false; });
+                r.sel = '';
+                r.pre = 0;
+            }));
+            tx.keep = { in: {}, out: {} };
+            txStopPreview();
+            txRender();
+            teFlash('Reset to Smooth');
+        });
+}
+
+async function txSave() {
+    const step = tx.step;
+    if (!step) return;
+    const data = {};
+    ['in', 'out'].forEach(side => {
+        const tracks = { ...(tx.keep[side] || {}) };
+        tx.rows[side].forEach(r => {
+            const cfg = txRowConfig(r);
+            if (cfg) tracks[r.key] = cfg;
+            else delete tracks[r.key];
+        });
+        if (Object.keys(tracks).length) data[side] = tracks;
+    });
+    sq.transitions = { ...(sq.transitions || {}) };
+    if (Object.keys(data).length) sq.transitions[step] = data;
+    else delete sq.transitions[step];
+    const name = tx.name;
+    txClose();
+    sqRender();
+    // Saving a part saves the whole: the sequence is saved with them (it stays open)
+    if (await sqSave({ keepOpen: true, quiet: true })) teFlash(`Saved transitions for “${name}”`);
+}
+
+// --- Preview: one track's change on this device (Web Audio), following the edits ---
+const txp = { key: null, ctx: null, gain: null, filter: null, sources: [], timer: null, startAt: 0, buffers: new Map(),
+              nextPlayAt: 0, playingUntil: 0, end: 0, offset: 0, token: 0 };
+
+function txPreviewEnvelope(r, side) {
+    const window = r.pre + txRamp();
+    const cfg = txRowConfig(r) || { styles: [], values: {} };
+    return txEnvelope(side, cfg.styles, { ...TX_DEFAULTS, ...r.v }, r.from, r.to, window,
+        cfg.max_volume !== undefined ? cfg.max_volume : null, txFnv1a(`${side}|${tx.step}|${r.key}`),
+        r.presence_from, r.presence_to);
+}
+
+// Gaps for an Intermittent preview: the interval scaled down to fit the fade
+function txPreviewGap(duration, presence) {
+    return Math.max(0.5, Math.min(15, duration * (0.4 + 2.5 * (1 - presence))));
+}
+
+async function txPreview(i) {
+    const side = tx.tab;
+    const key = `${side}:${i}`;
+    if (txp.key === key) { txStopPreview(); return; }
+    txStopPreview();
+    const r = tx.rows[side][i];
+    if (!r) return;
+    if (typeof stopTrackPreview === 'function') stopTrackPreview();
+    if (typeof teStopMixPreview === 'function') teStopMixPreview();
+    const token = ++txp.token;
+    txp.key = key;
+    txRenderRow(i);
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!txp.ctx) txp.ctx = new AudioCtx();
+        if (txp.ctx.state === 'suspended') await txp.ctx.resume();
+        let buffer = txp.buffers.get(r.key);
+        if (!buffer) {
+            const url = `${BASE_PATH}/api/themes/${encodeURIComponent(te.themeId)}/tracks/${encodeURIComponent(r.key)}/audio`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            buffer = await txp.ctx.decodeAudioData(await response.arrayBuffer());
+            txp.buffers.set(r.key, buffer);
+        }
+        if (txp.token !== token) return;
+        txStartPreview(r, side, buffer);
+    } catch (error) {
+        if (txp.token !== token) return;
+        console.error('Transition preview failed:', error);
+        showToast('Failed to play track', 'error');
+        txStopPreview();
+    }
+}
+
+function txStartPreview(r, side, buffer) {
+    const ctx = txp.ctx;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.value = 0.5;  // like the server's two one-pole filters
+    filter.frequency.value = 20000;
+    const gain = ctx.createGain();
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    Object.assign(txp, { gain, filter, sources: [], buffer, startAt: ctx.currentTime + 0.05, nextPlayAt: 0, playingUntil: 0, row: r, side });
+    const env = txPreviewEnvelope(r, side);
+    gain.gain.value = env.level(0);
+    txp.intermittent = r.mode === 'Intermittent';
+    const finish = side === 'out' && r.on.fresh;
+    if (!txp.intermittent) {
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        src.loop = !finish;
+        src.connect(filter);
+        // Finish then stop: from near the end of the file, so its finish is heard
+        const offset = finish ? Math.max(0, buffer.duration - Math.min(buffer.duration, env.window + 2)) : 0;
+        src.start(txp.startAt, offset);
+        if (finish) src.onended = () => { if (txp.sources.includes(src)) txStopPreview(); };
+        txp.sources.push(src);
+    }
+    txp.end = env.window + (side === 'in' ? 3 : 0.5);
+    txp.timer = setInterval(txPreviewTick, 50);
+    txPreviewTick();
+}
+
+// Called every 50 ms: the level, cutoff and (Intermittent) next play from the current envelope
+function txPreviewTick() {
+    const ctx = txp.ctx, r = txp.row;
+    if (!ctx || !r || !txp.gain) return;
+    const t = ctx.currentTime - txp.startAt;
+    const env = txPreviewEnvelope(r, txp.side);
+    const ahead = 0.1;
+    const level = env.level(Math.max(0, t + ahead));
+    txp.gain.gain.cancelScheduledValues(ctx.currentTime);
+    txp.gain.gain.setValueAtTime(txp.gain.gain.value, ctx.currentTime);
+    txp.gain.gain.linearRampToValueAtTime(Math.max(0, level), ctx.currentTime + ahead);
+    const cutoff = env.cutoff(Math.max(0, t + ahead));
+    txp.filter.frequency.cancelScheduledValues(ctx.currentTime);
+    txp.filter.frequency.setValueAtTime(txp.filter.frequency.value, ctx.currentTime);
+    txp.filter.frequency.linearRampToValueAtTime(cutoff === null ? 20000 : cutoff, ctx.currentTime + ahead);
+    if (txp.intermittent && t >= 0) {
+        const finish = txp.side === 'out' && r.on.fresh;
+        if (ctx.currentTime >= txp.playingUntil && ctx.currentTime >= txp.nextPlayAt && !(finish && txp.played)) {
+            const src = ctx.createBufferSource();
+            src.buffer = txp.buffer;
+            src.connect(txp.filter);
+            src.start();
+            txp.sources.push(src);
+            txp.played = true;
+            const presence = env.presence(t) ?? (txp.side === 'in' ? r.presence_to : r.presence_from);
+            txp.playingUntil = ctx.currentTime + txp.buffer.duration;
+            txp.nextPlayAt = txp.playingUntil + txPreviewGap(txp.buffer.duration, presence);
+        }
+        if (finish && txp.played && ctx.currentTime >= txp.playingUntil) { txStopPreview(); return; }
+    }
+    if (t >= txp.end && !(env.holds && !txp.intermittent)) txStopPreview();
+}
+
+// An edit while previewing: the next tick builds the envelope again from where it is
+function txPreviewFollow(i) {
+    if (txp.key !== `${tx.tab}:${i}`) return;
+    txp.row = tx.rows[tx.tab][i];
+    const env = txPreviewEnvelope(txp.row, txp.side);
+    txp.end = env.window + (txp.side === 'in' ? 3 : 0.5);
+    txPreviewTick();
+}
+
+function txStopPreview() {
+    txp.token++;
+    clearInterval(txp.timer);
+    txp.timer = null;
+    txp.sources.forEach(src => { try { src.onended = null; src.stop(); } catch (e) { /* not started */ } });
+    txp.sources = [];
+    try { txp.gain?.disconnect(); } catch (e) { /* gone */ }
+    txp.gain = txp.filter = null;
+    txp.played = false;
+    const key = txp.key;
+    txp.key = null;
+    txp.row = null;
+    if (key && tx.step && key.startsWith(`${tx.tab}:`)) txRenderRow(+key.split(':')[1]);
+}
+
+// Help (?) in the dialog's title bar
+const txHelp = makeHelpPanel('tx-help', 'tx-help-btn');
+
+function txToggleHelp() {
+    if (txHelp.isOpen()) return txHelp.close();
+    spClosePop();
+    txHelp.open();
+}
+
 
 // ---------- Playlists page ----------
 const plOpenRows = {};
@@ -8403,10 +9015,11 @@ async function plSave() {
     }
 }
 
-// Esc in the sequence or playlist editor: closes its open menu, else the editor (never the Theme Editor under it)
+// Esc in the sequence or playlist editor: closes its open menu, else the editor (never the Theme Editor under it);
+// over the sequence editor, the Advanced dialog (its help first)
 document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    const which = plIsOpen() ? 'pl' : sqIsOpen() ? 'sq' : null;
+    const which = plIsOpen() ? 'pl' : txIsOpen() ? 'tx' : sqIsOpen() ? 'sq' : null;
     if (!which || xs.key) return;
     event.preventDefault();
     event.stopPropagation();
@@ -8416,6 +9029,9 @@ document.addEventListener('keydown', event => {
         button?.focus();
     } else if (which === 'pl') {
         plClose();
+    } else if (which === 'tx') {
+        if (txHelp.isOpen()) txHelp.close();
+        else txClose();
     } else {
         sqClose();
     }
@@ -8768,9 +9384,11 @@ const PAGE_HELP = {
         <h4>Finding lines</h4>
         ${helpTerm('Search', 'shows the lines that contain the text.')}
         ${helpTerm('All, Info, Warnings, Errors', 'the lowest level shown. Warnings shows warnings and errors. All adds debug lines.')}
+        ${helpTerm('Playback', 'only what the channels play: sequence steps, transitions, tracks fading in and out, the mix level.')}
         ${helpTerm('Version line', 'the Sonorium version, install type and log level.')}
         ${helpTerm('Scrolling', 'the list follows new lines until you scroll up.')}
         <h4>Top bar</h4>
+        ${helpTerm('Pause', 'stops the list moving so you can read it. New lines wait and show up on Resume.')}
         ${helpTerm('Copy', 'copies the lines shown to the clipboard.')}
         ${helpTerm('Download', 'saves recent log messages as a text file.')}` },
 

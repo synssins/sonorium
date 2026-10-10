@@ -17,6 +17,11 @@ stopping a channel stops its timers (the sequence and playlist it has are
 kept, so playing again starts the sequence from its first preset and
 carries on with the playlist entry it was on).
 
+Advanced transitions (core/transitions.py): each time a step's time is
+set, the next step's transitions are planned on the channel's mix right
+away, so a track with a pre-fade starts that many seconds before the step.
+Next, a preset picked by hand, or a stopped sequence cancels them.
+
 The session manager owns one runner; a background loop calls tick().
 """
 
@@ -51,6 +56,8 @@ class SequenceRun:
     presets: Optional[list] = None
     holds: Optional[list] = None
     ramp: Optional[float] = None
+    # The preset the next step's advanced transitions were planned for
+    planned: Optional[str] = None
 
     @property
     def single_pass(self) -> bool:
@@ -102,6 +109,7 @@ class PlaybackRunner:
             "name": data.get("name", sequence_id),
             "presets": [p for p in (data.get("presets") or []) if p in presets],
             "at_end": data.get("at_end") if data.get("at_end") in AT_END else DEFAULT_AT_END,
+            "transitions": dict(data.get("transitions") or {}),
             **timing,
         }
 
@@ -198,9 +206,11 @@ class PlaybackRunner:
             self.manager._apply_preset(session, sequence["presets"][0], glide)
         else:
             session.preset_id = sequence["presets"][0]
+        self._cancel_transitions(session)
         if session.is_playing:
-            self._sequences[session.id] = SequenceRun(
+            run = self._sequences[session.id] = SequenceRun(
                 sequence_id, session.theme_id, next_at=self.clock() + glide + self._hold(sequence))
+            self._plan_transitions(session, run, glide)
         self.manager.state.save()
         logger.info(f"  Channel '{session.name}': sequence '{sequence['name']}' started "
                     f"({len(sequence['presets'])} presets, then {sequence['at_end']})")
@@ -209,11 +219,83 @@ class PlaybackRunner:
     def stop_sequence(self, session: Session) -> bool:
         """Stop the channel's sequence; it stays on the preset it is on. True if it had one."""
         had = session.sequence_id is not None
-        self._sequences.pop(session.id, None)
+        if self._sequences.pop(session.id, None) is not None:
+            self._cancel_transitions(session)
         session.sequence_id = None
         if had:
             logger.info(f"  Channel '{session.name}': sequence stopped")
         return had
+
+    # --- Advanced transitions ---
+
+    def _peek_next(self, session: Session, run: SequenceRun) -> Optional[tuple]:
+        """The run's next step without taking it: (preset id, ramp, sequence), or None."""
+        sequence = self.sequence(session.theme_id, run.sequence_id)
+        if sequence is None or run.theme_id != session.theme_id:
+            return None
+        if run.single_pass:
+            nxt = run.index + 1
+            return (run.presets[nxt], float(run.ramp or 0.0), sequence) if nxt < len(run.presets) else None
+        presets = sequence["presets"]
+        count = len(presets)
+        if not count:
+            return None
+        index = min(run.index, count - 1)
+        nxt = index + run.direction
+        if not 0 <= nxt < count:
+            if sequence["at_end"] == "reverse" and count > 1:
+                nxt = index - run.direction
+            elif sequence["at_end"] == "restart":
+                nxt = 0
+            else:
+                return None
+        return presets[nxt], float(sequence["ramp"]), sequence
+
+    def _plan_transitions(self, session: Session, run: SequenceRun, glide: float) -> None:
+        """
+        Plan the next step's advanced transitions on the channel: each track's
+        starts its pre-fade before the step (never before the glide into the
+        current preset has finished) and lasts pre-fade + ramp.
+        """
+        run.planned = None
+        if not session.is_playing or run.next_at == NEVER:
+            return
+        peek = self._peek_next(session, run)
+        if peek is None:
+            return
+        next_preset, ramp, sequence = peek
+        transitions = sequence.get("transitions") or {}
+        step_in = (transitions.get(next_preset) or {}).get("in")
+        step_out = (transitions.get(session.preset_id) or {}).get("out") if session.preset_id else None
+        run.planned = next_preset
+        if not step_in and not step_out:
+            return
+        planner = getattr(self.manager, "transition_plans", None)
+        if planner is None:
+            return
+        plans = planner(session, session.preset_id, next_preset, step_in, step_out)
+        if not plans:
+            return
+        until_step = max(0.0, run.next_at - self.clock())
+        for plan in plans:
+            pre = min(plan["pre_fade"], max(0.0, until_step - glide))
+            plan["delay"] = until_step - pre
+            plan["window"] = pre + ramp
+            plan["pre_fade_used"] = pre
+        self.manager.schedule_transitions(session, plans)
+        logger.info(f"Playback: Channel '{session.name}': {len(plans)} advanced transition(s) planned for "
+                    f"the step to '{next_preset}' in {until_step:.0f}s")
+
+    def _cancel_transitions(self, session: Session) -> None:
+        cancel = getattr(self.manager, "cancel_transitions", None)
+        if cancel is not None:
+            cancel(session)
+
+    def _check_planned(self, session: Session, run: SequenceRun, preset_id: str, glide: Optional[float]) -> None:
+        """The step about to happen isn't the one planned (or is taken by hand): drop its transitions."""
+        if run.planned is not None and (glide is not None or run.planned != preset_id):
+            self._cancel_transitions(session)
+        run.planned = None
 
     def _advance_pass(self, session: Session, run: SequenceRun, glide: Optional[float] = None) -> None:
         """A playlist entry's pass: the next preset, or nothing more after the last one."""
@@ -222,12 +304,14 @@ class PlaybackRunner:
             run.next_at = NEVER
             return
         ramp = run.ramp if glide is None else glide
+        self._check_planned(session, run, run.presets[nxt], glide)
         run.index = nxt
         run.next_at = self.clock() + ramp + run.holds[nxt]
         if run.presets[nxt] != session.preset_id:
             self.manager._apply_preset(session, run.presets[nxt], ramp, fade=ramp)
-            logger.info(f"  Channel '{session.name}': sequence '{run.sequence_id}' step {nxt + 1}/{len(run.presets)} "
+            logger.info(f"Playback: Channel '{session.name}': sequence '{run.sequence_id}' step {nxt + 1}/{len(run.presets)} "
                         f"'{run.presets[nxt]}' (glide {ramp:g}s, hold {run.holds[nxt]:.0f}s)")
+        self._plan_transitions(session, run, ramp)
 
     def _advance_sequence(self, session: Session, run: SequenceRun, glide: Optional[float] = None) -> None:
         if run.single_pass and run.theme_id == session.theme_id:
@@ -257,12 +341,14 @@ class PlaybackRunner:
             else:
                 nxt = run.index  # one preset, reverse: nothing to change
         ramp = sequence["ramp"] if glide is None else glide
+        self._check_planned(session, run, presets[nxt], glide)
         run.index = nxt
         run.next_at = self.clock() + ramp + self._hold(sequence)
         if presets[nxt] != session.preset_id:
             self.manager._apply_preset(session, presets[nxt], ramp, fade=ramp)
-            logger.info(f"  Channel '{session.name}': sequence '{sequence['name']}' step {nxt + 1}/{count} "
+            logger.info(f"Playback: Channel '{session.name}': sequence '{sequence['name']}' step {nxt + 1}/{count} "
                         f"'{presets[nxt]}' (glide {ramp:g}s)")
+        self._plan_transitions(session, run, ramp)
 
     # --- Playlists ---
 
@@ -313,6 +399,7 @@ class PlaybackRunner:
             if run.next_at == NEVER:
                 sequence = self.sequence(session.theme_id, run.sequence_id)
                 run.next_at = self.clock() + (self._hold(sequence) if sequence else 0.0)
+                self._plan_transitions(session, run, 0.0)
         session.playlist_id = None
         session.playlist_order = []
         session.playlist_position = 0
@@ -344,6 +431,7 @@ class PlaybackRunner:
         if sequence is not None and not sequence["presets"]:
             sequence = None
         preset_id = sequence["presets"][0] if sequence else entry.get("preset_id")
+        self._cancel_transitions(session)
         self.manager._apply_theme(session, theme_id, preset_id)
         self._sequences.pop(session.id, None)
         session.sequence_id = sequence["id"] if sequence else None
@@ -377,9 +465,17 @@ class PlaybackRunner:
             run, length = self._plan_pass(session, sequence, playlist)
             run.next_at = now + run.holds[0] if len(run.presets) > 1 else NEVER
             self._sequences[session.id] = run
+            self._plan_transitions(session, run, self._entry_glide())
         else:
             length = self._play_time(playlist)
         self._playlists[session.id] = PlaylistRun(session.playlist_id, next_at=now + length)
+
+    def _entry_glide(self) -> float:
+        """How long a playlist entry takes to come in (the theme crossfade)."""
+        try:
+            return float(self.manager.crossfade_seconds())
+        except Exception:
+            return PRESET_GLIDE_SECONDS
 
     def _step_position(self, session: Session, playlist: dict) -> bool:
         """Move to the next entry; at the end start a new round if it repeats. False at the end of a non-repeating playlist."""
@@ -433,6 +529,8 @@ class PlaybackRunner:
             return "end" if result == "end" else "playlist"
         run = self._sequences.get(session.id)
         if run is not None:
+            self._cancel_transitions(session)
+            run.planned = None
             self._advance_sequence(session, run, glide=PRESET_GLIDE_SECONDS)
             self.manager.state.save()
             return "sequence"
@@ -480,8 +578,9 @@ class PlaybackRunner:
         if session.sequence_id:
             sequence = self.sequence(session.theme_id, session.sequence_id)
             if sequence is not None and sequence["presets"]:
-                self._sequences[session.id] = SequenceRun(session.sequence_id, session.theme_id,
-                                                          next_at=now + self._hold(sequence))
+                run = self._sequences[session.id] = SequenceRun(session.sequence_id, session.theme_id,
+                                                                next_at=now + self._hold(sequence))
+                self._plan_transitions(session, run, self._entry_glide())
 
     def on_stop(self, session_id: str) -> None:
         """The channel stopped: its timers stop (its sequence and playlist stay set)."""

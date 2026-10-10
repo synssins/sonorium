@@ -692,7 +692,14 @@ A sequence plays some of a theme's presets in order on a channel, gliding from o
       "presets": ["drizzle", "rain", "downpour"],
       "at_end": "reverse",
       "hold_min": null, "hold_max": null, "ramp": 20,
-      "owner": null
+      "owner": null,
+      "transitions": {
+        "downpour": {
+          "in":  { "Wind": { "styles": ["gusts", "dist"], "values": { "gusts": 80, "dist": 45 },
+                             "max_volume": 0.85, "pre_fade": 45 } },
+          "out": { "Drums": { "styles": ["fresh"], "values": {}, "pre_fade": 0 } }
+        }
+      }
     }
   }
 }
@@ -707,10 +714,11 @@ A sequence plays some of a theme's presets in order on a channel, gliding from o
 | `sequences.<id>.at_end` | `reverse`, `restart`, `stop` | At the last preset: go back (ping-pong: 1 2 3 2 1 2 ...; shown as "Reverse"), start again at the first, or stop and stay on the last preset. Default `reverse`. Not used by a playlist entry, which plays one pass. |
 | `sequences.<id>.hold_min`, `hold_max`, `ramp` | seconds or null | The sequence's own timing; null (or missing) uses `sequence_defaults`. |
 | `sequences.<id>.owner` | null | Every sequence is a theme sequence for now; the field is kept for per-user sequences later. |
+| `sequences.<id>.transitions` | object (optional) | Advanced transitions, by preset ID (5.2a). Missing, or a track missing in it, is Smooth. |
 
 The ID is made from the name like a preset ID (`core/sequences.py` `new_sequence_id`). Times
 are 0 to 604800 s (a week) and `hold_min` must not be above `hold_max` once defaults are applied.
-Deleting a preset removes it from every sequence of its theme (`core/sequences.py` `drop_preset`);
+Deleting a preset removes it (and its transitions) from every sequence of its theme (`core/sequences.py` `drop_preset`);
 a sequence left with no preset can't be started. Unknown preset IDs in a sequence are skipped
 when it plays.
 
@@ -733,10 +741,34 @@ when it plays.
   and `pass_max`). A playlist entry with a sequence plays one pass, then the playlist moves on;
   with the playlist's `fit_sequences` the pass is scaled to the entry's play time (docs/PLAYBACK.md).
 
+### 5.2a Advanced transitions (`core/transitions.py`)
+
+`transitions.<preset_id>.in` holds how tracks **come in** at that preset's step (the tracks the
+step turns on or makes louder); `transitions.<preset_id>.out` how tracks **leave** that preset at
+the next step (the tracks the next step turns off or makes quieter). Each is keyed by track key:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `styles` | list of `gusts`, `swell`, `build`, `dist`, `fresh` | Any combination; empty with `pre_fade` 0 is Smooth (and is not stored). |
+| `values.gusts` | 0-100 | Gusts / Gusts dying down: Intensity (how far and how fast the level swings). |
+| `values.swell` | seconds | Swell / Smooth fade: how much of the fade window the S-curve uses; kept within 5 s (or the window) and the window. |
+| `values.build` | 0-100 | Build / Thin out (Intermittent tracks): Amount. The interval starts (or ends) at `interval x (1 - amount)`, the volume at `volume x (1 - 0.7 amount)`. |
+| `values.dist` | 0-100 | Distance / Recede: How far (start or end level 6-30 dB down, low-pass cutoff 2 kHz-250 Hz). |
+| `max_volume` | 0-1 or missing | Gusts: the peaks never go above this (missing: the track's volume in the preset). |
+| `pre_fade` | 0-90 seconds | The change starts this long before the step; the fade window is `pre_fade + ramp`. |
+
+`fresh` has no value: coming in, the track starts from the beginning of its file (with a short
+fade); leaving, it lets the play going out finish, then stops (a looping file: the end of its
+current pass, at most 10 minutes). A transition is only used when the track really comes in or
+leaves at that step (with `at_end: reverse` the same preset is also reached from the other side);
+Merry-go-round tracks are not affected. Track keys that are not in the theme are ignored. Values
+outside the ranges are refused by the API (400). The envelope math is described in
+`docs/PLAYBACK.md` ("Advanced transitions").
+
 ### 5.3 Generator rule
 
-A generator may write `sequences` and `sequence_defaults`. Every preset ID in a sequence must
-exist in `presets`. Leave `owner` null.
+A generator may write `sequences` and `sequence_defaults`, and `transitions` with the fields above.
+Every preset ID in a sequence (and in its `transitions`) must exist in `presets`. Leave `owner` null.
 
 ### 5.4 Planned, not built
 

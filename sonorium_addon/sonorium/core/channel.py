@@ -122,6 +122,10 @@ class Channel:
     _track_overrides: dict = field(default_factory=dict, repr=False)
     _pending_overrides: dict = field(default_factory=dict, repr=False)
 
+    # Advanced transitions planned while a theme crossfade was queued:
+    # (monotonic time, plans), handed to the new theme's mix when it starts
+    _pending_transitions: Optional[tuple] = field(default=None, repr=False)
+
     # A theme crossfade in progress: the old theme's chunks, how far it is, its curves
     _xfade_old: Optional[Generator] = field(default=None, repr=False)
     _xfade_pos: int = 0
@@ -312,6 +316,31 @@ class Channel:
             b = glide["end"][(key, name)]
             self._track_overrides.setdefault(key, {})[name] = a + (b - a) * fraction
 
+    # --- Advanced transitions (core/transitions.py) ---
+
+    def _label_stream(self, stream, theme) -> None:
+        """Name the mix for its "Playback:" log lines: this channel and the theme."""
+        if stream is not None and hasattr(stream, "label"):
+            stream.label = f"{self.name}: {theme.name}"
+
+    def schedule_transitions(self, plans: list) -> None:
+        """Plan tracks' advanced transitions on the playing mix (see theme.ThemeStream.schedule_transitions)."""
+        with self._lock:
+            if self._pending_theme is not None:
+                self._pending_transitions = (time.monotonic(), [dict(p) for p in plans])
+                return
+            stream = self._theme_stream
+        if stream is not None and hasattr(stream, "schedule_transitions"):
+            stream.schedule_transitions(plans)
+
+    def cancel_transitions(self) -> None:
+        """Drop planned transitions; running ones glide to what the channel plays now."""
+        with self._lock:
+            self._pending_transitions = None
+            stream = self._theme_stream
+        if stream is not None and hasattr(stream, "cancel_transitions"):
+            stream.cancel_transitions()
+
     # --- Theme ---
 
     def set_theme(self, theme: ThemeDefinition, overrides: dict | None = None,
@@ -351,6 +380,7 @@ class Channel:
                 self._glide = None
                 self._xfade_old = None
                 self._theme_stream = theme.get_stream(self._track_overrides)
+                self._label_stream(self._theme_stream, theme)
                 self._chunk_generator = self._theme_stream.iter_chunks()
                 if fade_in and fade_in > 0:
                     self._out_level, self._out_target = 0.0, 1.0
@@ -370,6 +400,12 @@ class Channel:
 
         # Create new stream, with the channel's preset layer for the new theme
         new_stream = theme.get_stream(overrides)
+        self._label_stream(new_stream, theme)
+        planned, self._pending_transitions = self._pending_transitions, None
+        if planned is not None and hasattr(new_stream, "schedule_transitions"):
+            elapsed = time.monotonic() - planned[0]
+            new_stream.schedule_transitions([{**p, "delay": max(0.0, p.get("delay", 0.0) - elapsed)}
+                                             for p in planned[1]])
         old_generator = self._chunk_generator
         samples = int(seconds * SAMPLE_RATE)
         if self._xfade_old is not None:

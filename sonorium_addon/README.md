@@ -297,6 +297,7 @@ automations that use the entity first.
 **Playback**
 - **Channels fade in and out** when they start and stop, instead of cutting (#34).
 - **Preset glides.** Picking a preset glides the mix to it over 3 seconds; a sequence glides over its ramp time.
+- **Advanced transitions.** In a sequence, a preset's ⋯ › Advanced… sets, track by track, how each track comes in and how it leaves: Gusts, Swell, Build, Distance or Start fresh (and Gusts dying down, Smooth fade, Thin out, Recede or Finish then stop), in any combination, with a pre-fade of up to 90 s before the step. ▶ previews a track's change on your device.
 
 **Fixes**
 - **Crossfade** and **Master output gain** on **Settings → Audio Settings** now change the sound in the Home Assistant app. Crossfade also sets how long a channel fades in and out.
@@ -431,6 +432,20 @@ A theme is a set of tracks (sound files) mixed together. Each track has a **mode
 - **Save:** saves the sequence at once. Every channel playing this theme can pick it.
 - **Picking one:** preset lists show the sequences after the presets. Picking a preset by hand stops a running sequence.
 - **Edit:** pick a sequence in the preset field below, then Edit.
+
+**Advanced transitions**
+
+- **Advanced:** in a sequence, a preset's ⋯ › Advanced sets how each track comes in, and how it leaves.
+- **Coming in / Leaving:** tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.
+- **Smooth:** no button on. The track follows the sequence's ramp.
+- **Buttons:** click to turn one on, click it again to show its setting on the slider, click once more to turn it off. Several can be on together.
+- **Pre-fade:** starts the change this many seconds before the step.
+- **Gusts / Gusts dying down:** rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.
+- **Swell / Smooth fade:** one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.
+- **Build / Thin out:** Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.
+- **Distance / Recede:** starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.
+- **Start fresh / Finish then stop:** plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.
+- **Preview:** ▶ plays that track's change on this device and follows your edits.
 
 **Saving**
 
