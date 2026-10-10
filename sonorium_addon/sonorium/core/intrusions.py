@@ -1,19 +1,23 @@
 """
-Intrusion groups and linked files (docs/THEME_FORMAT.md 2.6).
-
-An intrusion group is a group in Intrusion mode (groups[name]["mode"] =
-"intrusion"): its tracks play as their own settings say, like ungrouped
-tracks (no turns, no bed). Besides its own files it can hold linked files: audio files that live in another
+Linked files (docs/THEME_FORMAT.md 2.6): audio files that live in another
 theme's folder and are not copied. A link is stored in this theme's
 metadata.json:
 
-    "links": {"Weather/Rain": {"theme": "<source theme id>", "track": "Rain"}}
+    "links": {"Rain": {"theme": "<source theme id>", "track": "Rain"},
+              "Weather/Thunder": {"theme": "<source theme id>", "track": "Storm/Thunder"}}
 
-The key is "<group>/<source display name>" (" (2)", " (3)", ... on a clash).
-A linked track has its own entry in this theme's "tracks" and presets save
-it like any other track. The source is found by theme id, so renaming the
+A linked file is an ordinary track of the theme: ungrouped (key "<name>") or
+in any group (key "<group>/<name>"), with the source's display name (" (2)",
+" (3)", ... on a clash). It has its own entry in this theme's "tracks" and
+presets save it like any other track. Moving it into or out of a group only
+re-keys it; no file moves. The source is found by theme id, so renaming the
 source theme's folder doesn't break the link. A link whose source theme or
 file is gone is reported as missing and left out of playback, but kept.
+
+Intrusion groups (groups[name]["mode"] = "intrusion") held the linked files
+before; they are converted once when a theme loads (see
+retire_intrusion_groups) and can't be made any more. A preset that turns a
+linked file on still gets the ⚭ mark ("has_intrusion", see enables_intrusion).
 
 Everything here works on ThemeMetadata objects and paths; the API saves.
 """
@@ -31,7 +35,7 @@ from sonorium.theme_files import theme_audio_files, track_display_name, track_ke
 FolderForId = Callable[[str], Optional[Path]]
 
 
-INTRUSION_MODE = "intrusion"  # recording.GROUP_MODE_INTRUSION
+INTRUSION_MODE = "intrusion"  # recording.GROUP_MODE_INTRUSION: read from old files, never offered
 
 
 def is_intrusion_group(group_settings: Optional[dict]) -> bool:
@@ -40,6 +44,17 @@ def is_intrusion_group(group_settings: Optional[dict]) -> bool:
 
 def intrusion_group_names(metadata) -> list[str]:
     return sorted(name for name, settings in (metadata.groups or {}).items() if is_intrusion_group(settings))
+
+
+def link_group(key: str) -> Optional[str]:
+    """The group of a track key ("Weather/Rain" -> "Weather"), None when it is ungrouped ("Rain")."""
+    group, sep, _ = key.partition("/")
+    return group if sep else None
+
+
+def link_names(metadata, group: Optional[str]) -> set[str]:
+    """The display names of the linked files in group (None: the ungrouped ones), taken for a file there."""
+    return {track_display_name(k) for k in (metadata.links or {}) if link_group(k) == group}
 
 
 def resolve_link(link: dict, folder_for_id: FolderForId) -> Optional[Path]:
@@ -79,31 +94,34 @@ def file_keys(folder: Path) -> list[str]:
     return [track_key(folder, f) for f in theme_audio_files(folder)]
 
 
-def free_link_key(group: str, display: str, taken: Iterable[str]) -> str:
-    """'<group>/<display>', or with ' (2)', ' (3)', ... when that key is taken (compared without case)."""
+def free_link_key(group: Optional[str], display: str, taken: Iterable[str]) -> str:
+    """'<group>/<display>' ('<display>' ungrouped), with ' (2)', ' (3)', ... when taken (compared without case)."""
     used = {k.casefold() for k in taken}
-    key = f"{group}/{display}"
+    prefix = f"{group}/" if group else ""
+    key = f"{prefix}{display}"
     n = 2
     while key.casefold() in used:
-        key = f"{group}/{display} ({n})"
+        key = f"{prefix}{display} ({n})"
         n += 1
     return key
 
 
-def add_links(metadata, folder: Path, group: str, source_id: str, source_metadata,
+def add_links(metadata, folder: Path, group: Optional[str], source_id: str, source_metadata,
               source_keys: list[str]) -> list[dict]:
     """
-    Link source_keys (tracks of the theme source_id) into this theme's group.
-    Each new linked track's settings start as a copy of the source theme's
-    settings for it, muted, so the theme's own sound doesn't change until a
-    preset turns it on. A track already linked into the group is left as is.
+    Link source_keys (tracks of the theme source_id) into this theme's group,
+    or ungrouped with group None. Each new linked track's settings start as a
+    copy of the source theme's settings for it, muted, so the theme's own
+    sound doesn't change until a preset turns it on; an ungrouped one is
+    Unassigned (playback_mode "unassigned": not played until placed). A track
+    already linked there is left as is.
     Returns [{"key", "theme", "track", "added": bool}] in the order given.
     """
     taken = set(file_keys(folder)) | set(metadata.tracks or {}) | set(metadata.links or {})
     results = []
     for source_key in source_keys:
         existing = next((k for k, link in metadata.links.items()
-                         if k.split("/", 1)[0] == group and link == {"theme": source_id, "track": source_key}), None)
+                         if link_group(k) == group and link == {"theme": source_id, "track": source_key}), None)
         if existing is not None:
             results.append({"key": existing, "theme": source_id, "track": source_key, "added": False})
             continue
@@ -116,6 +134,8 @@ def add_links(metadata, folder: Path, group: str, source_id: str, source_metadat
             from sonorium.core.theme_metadata import TrackSettings
             settings = TrackSettings()
         settings.muted = True
+        if group is None:
+            settings.playback_mode = "unassigned"
         metadata.tracks[key] = settings
         results.append({"key": key, "theme": source_id, "track": source_key, "added": True})
     return results
@@ -143,96 +163,104 @@ def remove_link_keep_settings(metadata, key: str) -> bool:
 
 def group_link_keys(metadata, group: str) -> list[str]:
     """The keys of a group's linked files."""
-    return [k for k in (metadata.links or {}) if k.split("/", 1)[0] == group]
+    return [k for k in (metadata.links or {}) if link_group(k) == group]
 
 
-def remove_group_links(metadata, group: str) -> list[str]:
-    """Remove every link of a group (settings and preset entries too, never a file); returns their keys."""
-    keys = group_link_keys(metadata, group)
+def regroup_link_keys(metadata, folder: Path, keys: Iterable[str], group: Optional[str],
+                      taken: Iterable[str] = ()) -> dict:
+    """
+    New keys for linked files moved into group (None: ungrouped): "<group>/<name>"
+    or "<name>", " (2)" etc. on a clash with a file, a track entry, another link
+    or a key in `taken`. Returns {old key: new key} for the ones that change;
+    nothing is changed here (theme_groups.migrate_keys applies it).
+    """
+    keys = [k for k in keys if k in (metadata.links or {})]
+    used = (set(file_keys(folder)) | set(metadata.tracks or {}) | set(metadata.links or {}) | set(taken)) - set(keys)
+    result = {}
     for key in keys:
-        remove_link(metadata, key)
-    return keys
-
-
-def rekey_track(metadata, old: str, new: str) -> None:
-    """Carry a track's settings and preset entries from key old to key new (metadata.presets too)."""
-    if old == new:
-        return
-    from sonorium.core.theme_groups import migrate_presets, remap_tracks
-    metadata.tracks = remap_tracks(dict(metadata.tracks or {}), {old: new})
-    metadata.presets = migrate_presets(metadata.presets or {}, {old: new})
-
-
-def move_link(metadata, folder: Path, key: str, group: str) -> str:
-    """
-    Move a linked file into another (intrusion) group: the link gets the key
-    "<group>/<name>" (" (2)" on a clash) and keeps its settings and preset
-    values. Returns the new key (the old one when it is already there).
-    """
-    if key not in (metadata.links or {}):
-        raise KeyError(key)
-    if key.split("/", 1)[0] == group:
-        return key
-    taken = (set(file_keys(folder)) | set(metadata.tracks or {}) | set(metadata.links or {})) - {key}
-    new = free_link_key(group, key.split("/", 1)[1], taken)
-    metadata.links = {(new if k == key else k): v for k, v in metadata.links.items()}
-    rekey_track(metadata, key, new)
-    return new
-
-
-def intrusion_track_keys(metadata, local_keys: Iterable[str], playable_links: Optional[set] = None) -> dict:
-    """
-    {intrusion group: [its track keys]}: its own files plus its links (only
-    the playable ones when playable_links is given).
-    """
-    groups = intrusion_group_names(metadata)
-    result = {g: [] for g in groups}
-    for key in local_keys:
-        group = key.split("/", 1)[0] if "/" in key else None
-        if group in result:
-            result[group].append(key)
-    for key in metadata.links or {}:
-        group = key.split("/", 1)[0]
-        if group in result and (playable_links is None or key in playable_links) and key not in result[group]:
-            result[group].append(key)
+        if link_group(key) == group:
+            used.add(key)
+            continue
+        new = free_link_key(group, track_display_name(key), used)
+        used.add(new)
+        result[key] = new
     return result
 
 
-def enables_intrusion(metadata, keys_by_group: dict, preset: Optional[dict] = None) -> bool:
+def linked_track_keys(metadata, playable_links: Optional[set] = None) -> list[str]:
+    """The keys of a theme's linked files (only the playable ones when playable_links is given)."""
+    return [k for k in (metadata.links or {}) if playable_links is None or k in playable_links]
+
+
+def enables_intrusion(metadata, keys: Iterable[str], preset: Optional[dict] = None) -> bool:
     """
-    True when, with the preset's settings over the theme's own (or the theme's
-    own alone when preset is None), at least one intrusion-group track is on:
-    the track not muted and its group not muted.
+    The ⚭ mark: True when, with the preset's settings over the theme's own (or
+    the theme's own alone when preset is None), at least one of keys (the
+    linked files, see linked_track_keys) is on: the track not muted and its
+    group, if it has one, not muted.
     """
     preset = preset if isinstance(preset, dict) else {}
     preset_tracks = preset.get("tracks") if isinstance(preset.get("tracks"), dict) else {}
     preset_groups = preset.get("groups") if isinstance(preset.get("groups"), dict) else {}
-    for group, keys in keys_by_group.items():
-        group_muted = bool(((metadata.groups or {}).get(group) or {}).get("muted", False))
-        saved = preset_groups.get(group)
-        if isinstance(saved, dict) and "muted" in saved:
-            group_muted = bool(saved["muted"])
-        if group_muted:
-            continue
-        for key in keys:
-            settings = (metadata.tracks or {}).get(key)
-            muted = bool(getattr(settings, "muted", False))
-            saved = preset_tracks.get(key)
+    for key in keys:
+        group = link_group(key)
+        if group is not None:
+            group_muted = bool(((metadata.groups or {}).get(group) or {}).get("muted", False))
+            saved = preset_groups.get(group)
             if isinstance(saved, dict) and "muted" in saved:
-                muted = bool(saved["muted"])
-            if not muted:
-                return True
+                group_muted = bool(saved["muted"])
+            if group_muted:
+                continue
+        settings = (metadata.tracks or {}).get(key)
+        muted = bool(getattr(settings, "muted", False))
+        saved = preset_tracks.get(key)
+        if isinstance(saved, dict) and "muted" in saved:
+            muted = bool(saved["muted"])
+        if not muted:
+            return True
     return False
+
+
+def retire_intrusion_groups(metadata, folder: Path, sequences: dict):
+    """
+    The one-time conversion of a theme's intrusion groups (they were the only
+    place for linked files): each one's linked files become ungrouped (their
+    own playback mode kept), then the group is removed as the "delete group"
+    API removes one (its own files move up to the theme folder, renamed
+    " (2)" on a clash). Keys follow in metadata (tracks, links, groups and
+    metadata.presets) and in `sequences` (presets.json "sequences").
+    Moves files: the caller backs up the JSON files first.
+    Returns (groups converted, migrated sequences, error): error is the
+    GroupError of a group whose files couldn't be moved (it and the groups
+    after it are left as they are; the ones before stay converted), else None.
+    """
+    from sonorium.core import theme_groups
+    folder = Path(folder)
+    converted = []
+    for name in intrusion_group_names(metadata):
+        try:
+            change = theme_groups.delete_group(folder, name, reserved=link_names(metadata, None))
+        except theme_groups.NotFound:
+            change = theme_groups.Change(group_renames={name: None})  # only links, no folder
+        except theme_groups.GroupError as e:
+            return converted, sequences, e
+        change.track_keys.update(regroup_link_keys(metadata, folder, group_link_keys(metadata, name), None,
+                                                   taken=change.track_keys.values()))
+        metadata.presets = theme_groups.migrate_keys(metadata, metadata.presets or {}, change)
+        sequences = theme_groups.migrate_sequences(sequences, change.track_keys, change.group_renames)
+        converted.append(name)
+    return converted, sequences, None
 
 
 def export_entries(theme_path: Path, metadata_doc: dict, folder_for_id: Optional[FolderForId] = None):
     """
     For a self-contained export: drops "links" from metadata_doc (in place)
     and returns [(path inside the theme, source file)] for every linked file
-    that can be found, stored as a normal file in its group folder, so its
-    settings (kept under the same key) apply to it. A link whose source is
-    missing, or whose name a file of the group already has, is left out.
-    Only the linked files are added, never the rest of another theme.
+    that can be found, stored as a normal file where it sits (the theme folder
+    or its group's folder), so its settings (kept under the same key) apply to
+    it. A link whose source is missing, or whose name a file there already
+    has, is left out. Only the linked files are added, never the rest of
+    another theme.
     """
     theme_path = Path(theme_path)
     links = metadata_doc.pop("links", None) or {}
@@ -247,6 +275,5 @@ def export_entries(theme_path: Path, metadata_doc: dict, folder_for_id: Optional
         if source is None or key.casefold() in taken:
             continue
         taken.add(key.casefold())
-        group, display = key.split("/", 1)
-        entries.append((f"{group}/{display}{source.suffix.lower()}", source))
+        entries.append((f"{key}{source.suffix.lower()}", source))
     return entries

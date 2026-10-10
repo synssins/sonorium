@@ -1922,6 +1922,8 @@ def create_api_router(
         """
         Upload an audio file to a theme folder. An optional "group" (form field
         or query parameter) puts it in that group's folder, created if missing.
+        A new track starts Unassigned (playback_mode "unassigned": not played
+        until it is placed); a file uploaded over one keeps its settings.
         """
         from sonorium.core import theme_groups
 
@@ -1956,12 +1958,31 @@ def create_api_router(
             except theme_groups.GroupError as e:
                 raise HTTPException(status_code=e.status, detail=str(e))
             target_folder = file_path.parent
+            group_name = target_folder.name if target_folder != theme_path else None
+
+            # A linked file's name there is taken: " (2)" etc. instead
+            metadata = _cached_metadata(theme_id, theme_path)
+            if metadata is not None and metadata.links:
+                from sonorium.core.intrusions import link_names
+                reserved = link_names(metadata, group_name)
+                if file_path.stem.casefold() in {n.casefold() for n in reserved}:
+                    file_path = target_folder / theme_groups.free_file_name(target_folder, file_path.name, reserved=reserved)
+                    filename = file_path.name
+            key = f"{group_name}/{file_path.stem}" if group_name else file_path.stem
+            is_new = not file_path.exists()
 
             # Read and write the file content
             content = await file.read()
             file_path.write_bytes(content)
+            if is_new:
+                from sonorium.core.theme_metadata import add_unassigned_track
+                manager = getattr(session_manager, "theme_metadata_manager", None) if session_manager else None
+                try:
+                    add_unassigned_track(theme_path, key, metadata, manager)
+                except OSError as e:
+                    # The file is there and plays as a track without settings would
+                    logger.warning(f"Theme '{theme_id}': '{key}' uploaded, but it couldn't be made Unassigned ({e})")
 
-            group_name = target_folder.name if target_folder != theme_path else None
             where = f" in group '{group_name}'" if group_name else ""
             logger.info(f"Uploaded file to theme '{theme_id}'{where}: {filename} ({len(content)} bytes)")
             if on_themes_changed:
@@ -1973,7 +1994,7 @@ def create_api_router(
                 "size": len(content),
                 "theme_id": theme_id,
                 "group": group_name,
-                "track": f"{group_name}/{file_path.stem}" if group_name else file_path.stem,
+                "track": key,
             }
 
         except HTTPException:
@@ -1981,6 +2002,13 @@ def create_api_router(
         except Exception as e:
             logger.error(f"Failed to upload file: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    def _cached_metadata(theme_id: str, theme_path):
+        """The theme's loaded metadata (the metadata manager's), or None."""
+        manager = getattr(session_manager, "theme_metadata_manager", None) if session_manager else None
+        if manager is None:
+            return None
+        return manager.get_metadata(theme_id) or manager.get_metadata_by_folder(theme_path)
 
     def _find_theme_folder(theme_id: str):
         """Find theme folder by ID, handling sanitized names and UUID-based IDs."""
@@ -2148,9 +2176,10 @@ def create_api_router(
                 # Always the 2.0 layout: metadata.json without presets, plus presets.json
                 metadata_doc, presets_doc = theme_documents_for_export(theme_path)
 
-                # Self-contained: an intrusion group's linked files (they live in
-                # other themes' folders) go in as normal files of their group,
-                # the links are dropped and their settings kept under the same keys
+                # Self-contained: the linked files (they live in other themes'
+                # folders) go in as normal files where they sit (the theme folder
+                # or their group's), the links are dropped and their settings kept
+                # under the same keys
                 from sonorium.core.intrusions import export_entries
                 for relative, source in export_entries(theme_path, metadata_doc):
                     zip_file.write(source, f"{theme_name}/{relative}")

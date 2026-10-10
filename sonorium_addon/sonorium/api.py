@@ -160,7 +160,7 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/{track_name:path}/move', method=self.move_track_to_group),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
 
-            # Intrusion groups: linked files from other themes (docs/THEME_FORMAT.md 2.6)
+            # Linked files from other themes (docs/THEME_FORMAT.md 2.6)
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/links/source/{source_id}', method=self.list_link_source_tracks),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/links', method=self.add_links),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/links/{key:path}/copy-in', method=self.copy_link_in),
@@ -227,7 +227,7 @@ class ApiSonorium(api.Base):
             # Migrate any theme data from state.json to metadata.json (one-time migration)
             self._migrate_theme_data_to_metadata()
 
-            # Intrusion groups' linked files (in other themes' folders) join their themes
+            # Linked files (in other themes' folders) join their themes
             self._attach_linked_tracks()
 
             # Apply saved track settings to themes (now reads from metadata.json)
@@ -1136,7 +1136,7 @@ class ApiSonorium(api.Base):
         # Save back to metadata.json
         return self._theme_metadata_manager.save_metadata(metadata.id, metadata)
 
-    # ==================== Intrusion groups: linked files ====================
+    # ==================== Linked files ====================
 
     def _folder_for_theme_id(self, theme_id) -> Path | None:
         """A theme's folder by its id (metadata.json), for resolving links."""
@@ -1146,7 +1146,7 @@ class ApiSonorium(api.Base):
 
     def _linked_recordings(self, metadata) -> list:
         """RecordingMetadata for a theme's linked files that can be found (missing ones are left out)."""
-        from sonorium.core.intrusions import resolve_link
+        from sonorium.core.intrusions import link_group, resolve_link
         from sonorium.recording import RecordingMetadata
         found = []
         for key, link in (getattr(metadata, "links", None) or {}).items():
@@ -1155,7 +1155,7 @@ class ApiSonorium(api.Base):
                 logger.warning(f'Theme "{metadata.name}": linked track "{key}" is missing '
                                f'(theme {link.get("theme")}, track "{link.get("track")}"); it is skipped')
                 continue
-            found.append(RecordingMetadata(path, key=key, group=key.split("/", 1)[0], link=dict(link)))
+            found.append(RecordingMetadata(path, key=key, group=link_group(key), link=dict(link)))
         return found
 
     def _attach_linked_tracks(self):
@@ -1188,13 +1188,12 @@ class ApiSonorium(api.Base):
             "missing": resolve_link(link, self._folder_for_theme_id) is None,
         }
 
-    def _intrusion_keys(self, theme, metadata) -> dict:
-        """{intrusion group: [its playable track keys]} for a theme."""
-        from sonorium.core.intrusions import intrusion_track_keys
+    def _linked_keys(self, theme, metadata) -> list:
+        """A theme's playable linked files (their source is there): what the ⚭ preset mark looks at."""
+        from sonorium.core.intrusions import linked_track_keys
         instances = list(getattr(theme, "instances", None) or []) if theme else []
-        local = [i.name for i in instances if not getattr(i.meta, "link", None)]
         playable = {i.name for i in instances if getattr(i.meta, "link", None)}
-        return intrusion_track_keys(metadata, local, playable)
+        return linked_track_keys(metadata, playable)
 
     def _get_theme_by_id(self, theme_id: str):
         """
@@ -1368,7 +1367,7 @@ class ApiSonorium(api.Base):
             if audio_files or (folder / "metadata.json").is_file():
                 theme_name = folder.name
                 new_theme_metas[theme_name] = IndexList(RecordingMetadata(path, folder) for path in audio_files)
-                # An intrusion group's linked files, found by their source theme's
+                # The theme's linked files, found by their source theme's
                 # id (so a renamed or rescanned source is followed; a missing one is skipped)
                 folder_metadata = (self._theme_metadata_manager.get_metadata_by_folder(folder)
                                    if self._theme_metadata_manager else None)
@@ -1517,12 +1516,14 @@ class ApiSonorium(api.Base):
     async def get_theme_tracks(self, theme_id: str):
         """
         Get all tracks for a theme with presence/mute settings from metadata.json.
-        Each has its "group" and "intrusion_group" (its group is in Intrusion
-        mode); a linked file has "linked": {theme_id, theme_name, track, missing},
-        and a linked file whose source is gone is listed too (missing, not played).
+        Each has its "group" (null when ungrouped) and "intrusion_group" (its
+        group is still an old Intrusion group: only until the theme is
+        converted); a linked file has "linked": {theme_id, theme_name, track,
+        missing}, and a linked file whose source is gone is listed too
+        (missing, not played).
         """
         from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, TrackSettings
-        from sonorium.core.intrusions import is_intrusion_group
+        from sonorium.core.intrusions import is_intrusion_group, link_group
         theme, theme_folder = self._get_theme_by_id(theme_id)
         if not theme:
             return {"error": "Theme not found"}
@@ -1566,7 +1567,7 @@ class ApiSonorium(api.Base):
                 if key in listed:
                     continue
                 track_settings = metadata.tracks.get(key)
-                group = key.split("/", 1)[0]
+                group = link_group(key)
                 tracks.append({
                     "name": key,
                     "presence": track_settings.presence if track_settings else 1.0,
@@ -1764,10 +1765,13 @@ class ApiSonorium(api.Base):
         """Set playback mode for a specific track in a theme.
 
         Playback modes:
-        - auto: Automatically choose based on file length and presence
-        - continuous: Loop continuously with crossfade
-        - sparse: Play once, then silence for interval based on presence
-        - presence: Fade in/out based on presence value
+        - unassigned: not placed in a section yet, doesn't play
+        - continuous: Loop continuously with crossfade (Background)
+        - sparse: Play once, then silence for interval based on presence (Intermittent)
+        - presence: Ebb & Flow (presence is its Duration)
+        - auto: choose by file length and presence at play time (still
+          accepted; only a track without saved settings has it now)
+        A track in a group plays its group's way whatever its own mode.
         """
         from sonorium.recording import PlaybackMode
 
@@ -1930,8 +1934,8 @@ class ApiSonorium(api.Base):
     # gap between plays (seconds) is a real interval, never scaled. mode:
     # "intermittent" (default) or "merry_go_round"; crossfade: a merry-go-round's
     # overlap in seconds. Mode and crossfade are theme settings, not in presets.
-    # Mode "intrusion": the tracks play as their own settings say (no turns)
-    # and the group can hold files linked from other themes.
+    # Mode "intrusion" is retired (read from old files, converted on load,
+    # refused here); a linked file can be in any group.
     GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max", "mode", "crossfade", "pause_between", "rise")
 
     def _theme_group_folder(self, theme_id: str):
@@ -1952,9 +1956,11 @@ class ApiSonorium(api.Base):
         theme, folder, metadata = self._theme_group_folder(theme_id)
         members = {name: theme_groups.group_track_keys(folder, name)
                    for name in theme_groups.group_folder_names(folder)}
-        # An intrusion group's linked files are its tracks too
+        # A group's linked files are its tracks too
+        from sonorium.core.intrusions import link_group
         for key in (getattr(metadata, "links", None) or {}):
-            members.setdefault(key.split("/", 1)[0], []).append(key)
+            if link_group(key) is not None:
+                members.setdefault(link_group(key), []).append(key)
         return theme, metadata, members
 
     @staticmethod
@@ -1969,10 +1975,11 @@ class ApiSonorium(api.Base):
 
     def _save_group_change(self, folder, metadata, change) -> None:
         """
-        After the files moved: carry the track keys along in metadata.json and
-        presets.json, save both, and rebuild the live themes.
+        After the files moved (or a linked file was re-keyed): carry the track
+        keys along in metadata.json and presets.json (presets and sequences),
+        save both, and rebuild the live themes.
         """
-        from sonorium.core import theme_groups, theme_presets
+        from sonorium.core import sequences, theme_groups, theme_presets
         presets = theme_presets.load_presets(folder)
         migrated = theme_groups.migrate_keys(metadata, presets, change)
         # TODO: per-user preset files (planned, docs/THEME_FORMAT.md 1.5) store
@@ -1981,6 +1988,7 @@ class ApiSonorium(api.Base):
         try:
             if migrated != presets:
                 theme_presets.save_presets(folder, migrated)
+            sequences.migrate_track_keys(folder, change.track_keys, change.group_renames)
         except OSError as e:
             logger.error(f"Theme '{metadata.name}': files moved but presets.json couldn't be saved ({e})")
             self.schedule_theme_refresh()
@@ -2035,14 +2043,22 @@ class ApiSonorium(api.Base):
     async def delete_group_folder(self, theme_id: str, group: str):
         """
         Delete a group: its audio files move up to the theme folder (renamed
-        "x (2)" on a clash) and keep their settings. Audio files are never deleted.
+        "x (2)" on a clash) and keep their settings; its linked files become
+        ungrouped the same way (re-keyed, nothing moves). Audio files are never deleted.
         """
-        from sonorium.core import theme_groups
+        from sonorium.core import intrusions, theme_groups
         theme, folder, metadata = self._theme_group_folder(theme_id)
+        links = intrusions.group_link_keys(metadata, group)
         try:
-            change = theme_groups.delete_group(folder, group)
+            change = theme_groups.delete_group(folder, group, reserved=intrusions.link_names(metadata, None))
+        except theme_groups.NotFound as e:
+            if not links:
+                raise self._group_http_error(e)
+            change = theme_groups.Change(group_renames={group: None})  # only links, no folder
         except theme_groups.GroupError as e:
             raise self._group_http_error(e)
+        change.track_keys.update(intrusions.regroup_link_keys(metadata, folder, links, None,
+                                                              taken=change.track_keys.values()))
         self._save_group_change(folder, metadata, change)
         await self._refresh_now()
         result = {"name": group, "tracks": change.track_keys, "folder_removed": change.folder_removed}
@@ -2059,10 +2075,10 @@ class ApiSonorium(api.Base):
     async def move_track_to_group(self, theme_id: str, track_name: str, request: Request):
         """
         Move a track into a group (created if missing) or, with {"group": null}, to the top level.
-        A linked file moves only into another Intrusion group (its link is re-keyed, settings and
-        preset values kept); anywhere else gives 409 (copy it in: POST .../links/{key}/copy-in).
+        A linked file moves the same way, but only its key changes (no file moves). Its
+        settings, preset values and sequence entries follow the new key. 200 {"track": new key}.
         """
-        from sonorium.core import theme_groups
+        from sonorium.core import intrusions, theme_groups
         from sonorium.theme_files import track_display_name
         theme, folder, metadata = self._theme_group_folder(theme_id)
         body = await self._json_object(request)
@@ -2072,7 +2088,8 @@ class ApiSonorium(api.Base):
         if track_name in (getattr(metadata, "links", None) or {}):
             return await self._move_link(theme_id, metadata, folder, track_name, group)
         try:
-            change = theme_groups.move_track(folder, track_name, group)
+            change = theme_groups.move_track(folder, track_name, group,
+                                             reserved=intrusions.link_names(metadata, group))
         except theme_groups.GroupError as e:
             raise self._group_http_error(e)
         new_key = change.track_keys.get(track_name, track_name)
@@ -2085,23 +2102,30 @@ class ApiSonorium(api.Base):
         return {"track": new_key}
 
     async def _move_link(self, theme_id: str, metadata, folder, key: str, group):
-        """A linked file into another Intrusion group (see move_track_to_group)."""
-        from sonorium.core import intrusions
-        _, _, members = self._theme_groups(theme_id)
-        if group is not None and (not isinstance(group, str) or group not in members):
-            raise HTTPException(status_code=404, detail="Group not found")
-        if group is None or not intrusions.is_intrusion_group((metadata.groups or {}).get(group)):
-            raise HTTPException(status_code=409, detail="A linked file can only move into an Intrusion group; copy it into this theme instead")
-        new_key = intrusions.move_link(metadata, folder, key, group)
-        if new_key != key:
-            if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
-                raise HTTPException(status_code=500, detail="metadata.json couldn't be saved")
+        """
+        A linked file into a group (its folder created if missing, as for a
+        file) or ungrouped: re-keyed "<group>/<name>" or "<name>" (" (2)" on a
+        clash), like a moved file (see move_track_to_group). No file moves.
+        """
+        from sonorium.core import intrusions, theme_groups
+        if group is not None:
+            if not isinstance(group, str):
+                raise HTTPException(status_code=400, detail="'group' must be a group name or null")
+            try:
+                group = theme_groups.group_target(folder, group).name
+            except theme_groups.GroupError as e:
+                raise self._group_http_error(e)
+        moves = intrusions.regroup_link_keys(metadata, folder, [key], group)
+        new_key = moves.get(key, key)
+        if moves:
+            self._save_group_change(folder, metadata, theme_groups.Change(track_keys=moves))
             await self._refresh_now()
             logger.info(f"Theme '{metadata.name}': linked track '{key}' moved to '{new_key}'")
         return {"track": new_key}
 
     async def list_groups(self, theme_id: str):
         """A theme's groups: their master settings and their tracks."""
+        from sonorium.core.intrusions import link_group
         theme, metadata, members = self._theme_groups(theme_id)
         groups = []
         for name, keys in sorted(members.items()):
@@ -2113,7 +2137,7 @@ class ApiSonorium(api.Base):
                 "tracks": keys,
                 "intrusion": settings.get("mode") == "intrusion",
                 "links": [{"key": key, **self._link_info(link)}
-                          for key, link in links.items() if key.split("/", 1)[0] == name],
+                          for key, link in links.items() if link_group(key) == name],
             })
         return {"groups": groups}
 
@@ -2121,16 +2145,14 @@ class ApiSonorium(api.Base):
         """
         Change a group's master settings. Body: any of presence, volume (0-1,
         multiplying each track's own value), muted, gap_min, gap_max (seconds
-        between plays), mode ("intermittent", "merry_go_round" or "intrusion")
-        and crossfade (seconds, 1-60, for a merry-go-round). Mode "intrusion": the tracks
-        play as their own settings say and the group can hold linked files.
-        null removes a setting (back to 100% / no mute / default gap /
-        Intermittent / 10 s crossfade). A group that still holds linked files
-        can't leave Intrusion mode (409), unless the body also has
-        "remove_links": true: then its links are removed first (with their
-        settings and preset entries; never a file).
+        between plays), mode ("intermittent", "merry_go_round" or "ebb_flow";
+        "intrusion" is retired: 400), crossfade (seconds, 1-60, for a
+        merry-go-round), pause_between and rise (Ebb & Flow). null removes a
+        setting (back to 100% / no mute / default gap / Intermittent / 10 s
+        crossfade). A group's linked files stay in it whatever its mode.
+        "remove_links" (from when intrusion groups held them) is accepted and ignored.
         """
-        from sonorium.recording import GROUP_MODES, MAX_GROUP_CROSSFADE, MIN_GROUP_CROSSFADE
+        from sonorium.recording import GROUP_MODE_INTRUSION, GROUP_MODES, MAX_GROUP_CROSSFADE, MIN_GROUP_CROSSFADE
         theme, metadata, members = self._theme_groups(theme_id)
         if group not in members:
             raise HTTPException(status_code=404, detail="Group not found")
@@ -2163,7 +2185,7 @@ class ApiSonorium(api.Base):
                     if not isinstance(value, bool):
                         raise ValueError(value)
                 elif key == "mode":
-                    if value not in GROUP_MODES:
+                    if value not in GROUP_MODES or value == GROUP_MODE_INTRUSION:
                         raise ValueError(value)
                 elif key == "crossfade":
                     if isinstance(value, bool):
@@ -2178,42 +2200,16 @@ class ApiSonorium(api.Base):
         if "gap_min" in settings and "gap_max" in settings and settings["gap_min"] > settings["gap_max"]:
             settings["gap_min"], settings["gap_max"] = settings["gap_max"], settings["gap_min"]
 
-        from sonorium.core.intrusions import group_link_keys, is_intrusion_group, remove_group_links
-        was_intrusion = is_intrusion_group((metadata.groups or {}).get(group))
-        is_intrusion = is_intrusion_group(settings)
-        removed_links = []
-        if was_intrusion and not is_intrusion and group_link_keys(metadata, group):
-            if not remove_links:
-                raise HTTPException(status_code=409, detail="This group still holds linked files; remove them before changing its mode")
-            removed_links = remove_group_links(metadata, group)
-        if is_intrusion and not was_intrusion:
-            # An intrusion group may hold only linked files: keep its folder, so it stays a group
-            from sonorium.core import theme_groups
-            _, folder = self._get_theme_by_id(theme_id)
-            if folder is not None:
-                try:
-                    theme_groups.group_target(folder, group)
-                except theme_groups.GroupError as e:
-                    raise self._group_http_error(e)
-
         metadata.groups = {**(metadata.groups or {}), group: settings}
         self._theme_metadata_manager.save_metadata(metadata.id, metadata)
         theme.groups = dict(metadata.groups)  # live: playing channels follow (a mode change rebuilds the group's streams)
         logger.info(f"Theme '{theme.name}': group '{group}' settings changed")
-        if removed_links:
-            logger.info(f"Theme '{theme.name}': {len(removed_links)} linked track(s) of group '{group}' removed")
-        if is_intrusion != was_intrusion:
-            logger.info(f"Theme '{theme.name}': group '{group}' is {'now' if is_intrusion else 'no longer'} in Intrusion mode")
-            await self._refresh_now()
-        result = {"name": group, "settings": settings}
-        if removed_links:
-            result["removed_links"] = removed_links
-        return result
+        return {"name": group, "settings": settings}
 
     async def list_link_source_tracks(self, theme_id: str, source_id: str):
         """
-        Another theme's tracks, read-only, for picking files to link into an
-        intrusion group of theme_id: each with its key ("id"), group, display
+        Another theme's tracks, read-only, for picking files to link into
+        theme_id: each with its key ("id"), group, display
         name, duration, a preview URL (the source theme's own track audio,
         relative to the app's base path) and the key it is already linked as
         in theme_id, if it is. Linked files of the source are not offered.
@@ -2254,10 +2250,14 @@ class ApiSonorium(api.Base):
 
     async def add_links(self, theme_id: str, request: Request):
         """
-        Link files of another theme into an intrusion group. Body:
-        {"theme": source theme id, "tracks": [source track keys], "group": intrusion group}.
+        Link files of another theme into this theme. Body:
+        {"theme": source theme id, "tracks": [source track keys], "group": a group (optional)}.
         Nothing is copied. Each new linked track starts with the source theme's
-        settings for it, muted. 201 {"links": [{"key", "theme", "track", "added"}]}.
+        settings for it, muted. Without "group" (or null) they are ungrouped
+        and Unassigned (playback_mode "unassigned": not played until placed);
+        with one, they go in that group (any mode). A file already linked
+        there is not linked again ("added": false).
+        201 {"links": [{"key", "theme", "track", "added"}]}.
         """
         from fastapi.responses import JSONResponse
         from sonorium.core import intrusions, theme_groups
@@ -2266,18 +2266,16 @@ class ApiSonorium(api.Base):
         source_id, keys, group = body.get("theme"), body.get("tracks"), body.get("group")
         if not isinstance(source_id, str) or not source_id:
             raise HTTPException(status_code=400, detail="'theme' (the source theme id) is required")
-        if not isinstance(group, str) or not group:
-            raise HTTPException(status_code=400, detail="'group' (an intrusion group) is required")
+        if group is not None and (not isinstance(group, str) or not group):
+            raise HTTPException(status_code=400, detail="'group' must be a group name or null")
         if (not isinstance(keys, list) or not keys or len(keys) > 500
                 or not all(isinstance(k, str) and k for k in keys)):
             raise HTTPException(status_code=400, detail="'tracks' must be a list of track keys")
         keys = list(dict.fromkeys(keys))
 
         _, _, members = self._theme_groups(theme_id)
-        if group not in members:
+        if group is not None and group not in members:
             raise HTTPException(status_code=404, detail="Group not found")
-        if not intrusions.is_intrusion_group((metadata.groups or {}).get(group)):
-            raise HTTPException(status_code=400, detail="Files can only be linked into a group in Intrusion mode")
 
         source, source_folder = self._get_theme_by_id(source_id)
         source_metadata = (self._theme_metadata_manager.get_metadata_by_folder(source_folder)
@@ -2295,15 +2293,17 @@ class ApiSonorium(api.Base):
         if unknown:
             raise HTTPException(status_code=404, detail=f"Not a track of the source theme: {', '.join(unknown)}")
 
-        try:
-            theme_groups.group_target(folder, group)  # the group's folder exists, even with only links in it
-        except theme_groups.GroupError as e:
-            raise self._group_http_error(e)
+        if group is not None:
+            try:
+                theme_groups.group_target(folder, group)  # the group's folder exists, even with only links in it
+            except theme_groups.GroupError as e:
+                raise self._group_http_error(e)
         results = intrusions.add_links(metadata, folder, group, source_metadata.id, source_metadata, keys)
         if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
             raise HTTPException(status_code=500, detail="metadata.json couldn't be saved")
         added = [r for r in results if r["added"]]
-        logger.info(f"Theme '{metadata.name}': {len(added)} file(s) of '{source_metadata.name}' linked into group '{group}'")
+        where = f"into group '{group}'" if group is not None else "as Unassigned"
+        logger.info(f"Theme '{metadata.name}': {len(added)} file(s) of '{source_metadata.name}' linked {where}")
         if added:
             await self._refresh_now()
         return JSONResponse(status_code=201, content={"links": results})
@@ -2318,7 +2318,7 @@ class ApiSonorium(api.Base):
         """
         import shutil
         from sonorium.core import intrusions, theme_groups
-        from sonorium.theme_files import track_key
+        from sonorium.theme_files import track_display_name, track_key
         theme, folder, metadata = self._theme_group_folder(theme_id)
         body = await self._json_object(request)
         if "group" not in body:
@@ -2337,17 +2337,19 @@ class ApiSonorium(api.Base):
             target_folder = folder if group is None else theme_groups.group_target(folder, group)
         except theme_groups.GroupError as e:
             raise self._group_http_error(e)
-        target = target_folder / theme_groups.free_file_name(target_folder, source.name)
+        # Another linked file there keeps its name; this one's key is free once it is copied in
+        reserved = intrusions.link_names(metadata, group) - (
+            {track_display_name(key)} if intrusions.link_group(key) == group else set())
+        target = target_folder / theme_groups.free_file_name(target_folder, source.name, reserved=reserved)
         try:
             shutil.copy2(source, target)
         except OSError as e:
             raise HTTPException(status_code=500, detail=f"Couldn't copy the file: {e}")
         new_key = track_key(folder, target)
         intrusions.remove_link_keep_settings(metadata, key)
-        intrusions.rekey_track(metadata, key, new_key)
-        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
-            self.schedule_theme_refresh()
-            raise HTTPException(status_code=500, detail="The file was copied, but metadata.json couldn't be saved")
+        # Its settings, preset values and sequence entries move to the new key
+        self._save_group_change(folder, metadata, theme_groups.Change(
+            track_keys={key: new_key} if new_key != key else {}))
         await self._refresh_now()
         logger.info(f"Theme '{metadata.name}': linked track '{key}' copied in as '{new_key}' (from {source})")
         return {"track": new_key}
@@ -2550,9 +2552,10 @@ class ApiSonorium(api.Base):
 
     async def list_presets(self, theme_id: str):
         """
-        List all presets for a theme. "has_intrusion": the preset turns on at
-        least one track of an intrusion group (its settings over the theme's);
-        "default_has_intrusion": the theme's own settings do (no preset).
+        List all presets for a theme. "has_intrusion" (the ⚭ mark): the preset
+        turns on (unmutes) at least one linked file, wherever it is (its
+        settings over the theme's); "default_has_intrusion": the theme's own
+        settings do (no preset).
         "sequences": the theme's sequences, which a channel can pick like a
         preset (preset_id "seq:<id>"); has_intrusion if any of its presets has.
         """
@@ -2563,7 +2566,7 @@ class ApiSonorium(api.Base):
         if self._theme_metadata_manager and theme_folder:
             metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
             if metadata_obj:
-                intrusion_keys = self._intrusion_keys(theme, metadata_obj)
+                linked_keys = self._linked_keys(theme, metadata_obj)
                 result = []
                 for preset_id, preset_data in metadata_obj.presets.items():
                     result.append({
@@ -2571,11 +2574,11 @@ class ApiSonorium(api.Base):
                         "name": preset_data.get("name", preset_id),
                         "is_default": preset_data.get("is_default", False),
                         "track_count": len(preset_data.get("tracks", {})),
-                        "has_intrusion": enables_intrusion(metadata_obj, intrusion_keys, preset_data),
+                        "has_intrusion": enables_intrusion(metadata_obj, linked_keys, preset_data),
                     })
                 intrusion = {p["id"]: p["has_intrusion"] for p in result}
                 return {"theme_id": theme_id, "presets": result,
-                        "default_has_intrusion": enables_intrusion(metadata_obj, intrusion_keys),
+                        "default_has_intrusion": enables_intrusion(metadata_obj, linked_keys),
                         "sequences": self._sequence_choices(theme_folder, intrusion)}
 
         # Fallback to direct file I/O

@@ -2,6 +2,40 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.19 (2026-10-10)
+
+### Bug Fixes
+
+- **theme load**: Auto conversion uses a 0 s short-file threshold as set
+  ([`9a2d69b`](https://github.com/synssins/sonorium/commit/9a2d69bdd5038ec9615adf0842758bb69cedfceb))
+
+### Documentation
+
+- **theme format**: Linked files anywhere, intrusion groups and Auto retired, Unassigned
+  ([`325b7eb`](https://github.com/synssins/sonorium/commit/325b7eb00f4d7a514a5f0e3f8bbc8f60c71a6b30))
+
+### Testing
+
+- Intrusion groups and Auto converted once with backups
+  ([`a0547ee`](https://github.com/synssins/sonorium/commit/a0547eef1c2e158be3925f8aed96e02697a5a7a7))
+
+
+## v1.6.1-dev.18 (2026-10-10)
+
+### Documentation
+
+- Approved design boards for sections, Ebb & Flow and a sequence step's While playing
+  ([`b0197d1`](https://github.com/synssins/sonorium/commit/b0197d1eb5a5a6618178ab4f57f9b0f8bd2b22aa))
+
+### Features
+
+- Linked files anywhere; intrusion groups and Auto retired once on load; uploads start Unassigned
+  ([`4c54025`](https://github.com/synssins/sonorium/commit/4c5402595a0c82da35a872fd23b3466c2d6e4e26))
+
+- **groups**: Moved and renamed keys follow into sequences; names linked files hold stay free
+  ([`b193769`](https://github.com/synssins/sonorium/commit/b193769564c79779e6c486b4e79c720aebec530f))
+
+
 ## v1.6.1-dev.14 (2026-10-10)
 
 ### Features
