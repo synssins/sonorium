@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.9 (2026-10-10)
+
+### Features
+
+- File fades (Fade in / Fade out on a file); advanced transitions show every chosen style's setting
+  ([`f05156f`](https://github.com/synssins/sonorium/commit/f05156f0fefd6032f49cb322bb9aedfe9721dd09))
+
+
 ## v1.6.1-dev.8 (2026-10-10)
 
 ### Bug Fixes
