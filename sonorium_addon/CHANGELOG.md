@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.2-dev.17 (2026-10-10)
+
+### Features
+
+- **ui**: New Themes page: search, category chips, cards or list
+  ([`4670c00`](https://github.com/synssins/sonorium/commit/4670c00a2317f31d94f3f7dbe59b352fd384afa1))
+
+
 ## v1.4.2-dev.16 (2026-10-10)
 
 ### Features
