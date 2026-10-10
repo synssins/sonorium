@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.13 (2026-10-10)
+
+### Bug Fixes
+
+- Saving a preset updates the channels playing it
+  ([`fd2fdb1`](https://github.com/synssins/sonorium/commit/fd2fdb17be9e3b3eca6a0301477d98c369fd60b6))
+
+
 ## v1.6.1-dev.12 (2026-10-10)
 
 ### Features
