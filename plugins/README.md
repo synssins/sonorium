@@ -13,7 +13,7 @@ Downloadable plugins for Sonorium. These plugins are included by default in new 
 
 ### Ambient Mixer Importer
 
-**File:** `ambient_mixer_v3.0.0.zip`
+**File:** `ambient_mixer_v3.1.0.zip`
 
 Import soundscapes from [Ambient-Mixer.com](https://ambient-mixer.com) directly into Sonorium.
 
@@ -21,7 +21,7 @@ Import soundscapes from [Ambient-Mixer.com](https://ambient-mixer.com) directly 
 - Import any public Ambient Mixer soundscape by URL
 - Create new themes or add as presets to existing themes
 - Automatic duplicate detection (filename and audio hash)
-- Preserves volume and balance settings from original mix
+- Preserves each sound's volume, mute and loop settings; sounds the mix plays at random play Intermittent, about as often
 - Attribution tracking for Creative Commons content
 
 **Usage:**
@@ -33,41 +33,24 @@ Import soundscapes from [Ambient-Mixer.com](https://ambient-mixer.com) directly 
 
 ---
 
-### MyNoise Importer
-
-**File:** `mynoise_v1.0.0.zip`
-
-Import soundscapes from [MyNoise.net](https://mynoise.net) into Sonorium.
-
-**Features:**
-- Import MyNoise generators by URL
-- Configurable audio format (OGG, MP3, WAV)
-- Automatic metadata creation
-
-**Usage:**
-1. Enable the plugin in Settings → Plugins
-2. Find a generator on mynoise.net and copy its URL
-3. Open the plugin, paste the URL and enter a theme name
-4. Click "Import"
-
----
-
 ### Theme Merge
 
-**File:** `theme_merge_v1.0.0.zip`
+**File:** `theme_merge_v2.0.0.zip`
 
-Combine multiple themes or presets into a single theme.
+Combine two themes into a new theme, or one theme into the other.
 
 **Features:**
-- Merge audio files from multiple source themes
-- Combine presets from different themes
-- Option to copy files or create references
+- Copies the audio files with their settings, groups (subfolders) and group settings
+- Combines presets (a clashing name gets the source theme's name); every preset sounds as before
+- Linked files to either theme become that theme's track; other linked files stay linked
+- Same-named tracks: skip (keep the existing one) or rename the new one
+- Checks everything first: a merge completes or changes nothing
 
 **Usage:**
 1. Enable the plugin in Settings → Plugins
 2. Select the source themes you want to merge
 3. Choose a target theme (new or existing)
-4. Configure merge options and click "Merge"
+4. Choose how to handle same-named tracks and click "Merge Themes"
 
 ---
 
@@ -84,4 +67,8 @@ Plugins are ZIP files containing:
 - `plugin.py` - Plugin implementation (extends `BasePlugin`)
 - `__init__.py` - Python package marker (can be empty)
 
-See the existing plugins for examples of the structure and API.
+See the existing plugins for examples of the structure and API. The settings schema
+format is described in `sonorium/plugins/settings_schema.py`; a plugin that creates or
+changes themes uses `sonorium/plugins/theme_api.py` (`self.new_theme()`,
+`self.open_theme()`, `self.list_themes()`) and returns `"refresh_themes": true` so
+Sonorium rescans the themes.
