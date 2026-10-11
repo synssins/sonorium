@@ -115,3 +115,13 @@ jobs:
     uses: ./.github/workflows/docker-publish.yml
     with:
       branch: ${{ github.ref_name }}
+
+  addon-image:
+    name: Add-on images
+    needs: version
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/addon-image.yml
+    with:
+      branch: ${{ github.ref_name }}

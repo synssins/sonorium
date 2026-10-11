@@ -2,7 +2,27 @@
 
 <!-- version list -->
 
-## v1.6.2-dev.36 (2026-10-11)
+## v1.6.2-dev.37 (2026-10-11)
+
+### Build System
+
+- Audio-only LGPL FFmpeg and PyAV built from source in both images
+  ([`8259b23`](https://github.com/synssins/sonorium/commit/8259b231e6e09a830cc1d9eeee37b20ef1b7c697))
+
+### Continuous Integration
+
+- Publish prebuilt add-on images per architecture; check FFmpeg is LGPL
+  ([`778d6ca`](https://github.com/synssins/sonorium/commit/778d6cafa9d797e9a5a59a1bdbc52fd94da384fa))
+
+### Documentation
+
+- **notices**: Sonorium's own LGPL FFmpeg build replaces PyAV's bundled libraries
+  ([`47eb21d`](https://github.com/synssins/sonorium/commit/47eb21dfe8d66fd1d1159dd2c132e3378c5b3102))
+
+### Testing
+
+- Audio formats test runs inside the images
+  ([`98efb90`](https://github.com/synssins/sonorium/commit/98efb9069519675bbbc20222bf388f99a0d4da50))
 
 
 ## v1.6.2-dev.35 (2026-10-11)

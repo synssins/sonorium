@@ -81,6 +81,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Check the audio libraries (LGPL FFmpeg, MP3 encoder)
+        run: |
+          image=$(echo "${{ steps.meta.outputs.tags }}" | cut -d, -f2)
+          docker run --rm --entrypoint python "$image" -c "
+          import av, av._core as c
+          lic = c.library_meta['libavcodec']['license']
+          print('PyAV', av.__version__, 'FFmpeg', av.ffmpeg_version_info, lic)
+          assert lic.startswith('LGPL'), lic
+          assert av.codec.Codec('mp3', 'w').name == 'libmp3lame'
+          "
+
       - name: Smoke test (starts with no configuration)
         run: |
           image=$(echo "${{ steps.meta.outputs.tags }}" | cut -d, -f2)

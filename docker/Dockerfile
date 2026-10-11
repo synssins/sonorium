@@ -6,23 +6,40 @@
 # Connection settings (Home Assistant URL + token, MQTT, stream URL) are set
 # in the web UI after the first start: Settings -> Connection.
 
+# Build stage: Sonorium's own FFmpeg (audio only, LGPL only) and PyAV built
+# against it, in place of PyAV's wheel with its GPL video encoders. Same script
+# as the add-on (sonorium_addon/ffmpeg/build.sh). Only the libraries and the
+# wheel go into the image below.
+FROM python:3.12-slim AS ffmpeg
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential nasm pkg-config zlib1g-dev curl ca-certificates xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+COPY sonorium_addon/ffmpeg/build.sh /build-ffmpeg.sh
+RUN sh /build-ffmpeg.sh
+
 FROM python:3.12-slim
 
-# util-linux: setpriv (drop to PUID/PGID). No ffmpeg package: PyAV's wheel
-# brings its own FFmpeg libraries for decoding and encoding audio.
+# util-linux: setpriv (drop to PUID/PGID). No ffmpeg package: audio is decoded
+# and encoded by PyAV with the FFmpeg libraries built above.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends util-linux \
     && rm -rf /var/lib/apt/lists/*
 
+# FFmpeg's libraries and the PyAV wheel from the build stage
+COPY --from=ffmpeg /opt/ffmpeg/lib/ /opt/ffmpeg/lib/
+COPY --from=ffmpeg /wheels/ /tmp/wheels/
+
 # Same Python dependencies and pins as the add-on (sonorium_addon/Dockerfile).
 # numpy<2.4: 2.4+ wheels need x86-64-v2 CPUs (issues #18, #39).
-# av 19.x: the audio decoder version playback is tested with.
+# av: PyAV 19.0.1 built in the stage above (the version playback is tested with)
 RUN pip install --no-cache-dir \
     pyyaml appdirs cachetools fastapi 'uvicorn[standard]' pydantic httpx httpx-retries \
     websockets python-multipart soco \
     'numpy<2.4' \
-    'av>=19,<20' \
-    paho-mqtt pydantic-settings pychromecast
+    /tmp/wheels/av-*.whl \
+    paho-mqtt pydantic-settings pychromecast \
+    && rm -rf /tmp/wheels
 
 # Network speaker discovery and streaming (sonorium/network); also in the
 # add-on, where it's off unless switched on. mDNS/SSDP discovery needs host networking.
