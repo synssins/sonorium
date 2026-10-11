@@ -8,6 +8,7 @@ theme cycling, and retrieve speaker hierarchy from Home Assistant.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Optional
 from dataclasses import asdict
 
@@ -216,6 +217,7 @@ class PluginResponse(BaseModel):
     description: str
     author: str
     enabled: bool
+    builtin: bool = False
     settings: dict
     ui_schema: dict
     settings_schema: dict
@@ -1869,6 +1871,38 @@ def create_api_router(
     # NOTE: GET /themes is handled by app.py with full metadata support
     # api_v2.py only handles theme management (create, upload, delete, metadata)
 
+    async def _rescan_themes(reason: str) -> None:
+        """Rescan the themes now and wait for it (a failure is only logged)."""
+        if not on_themes_changed:
+            return
+        try:
+            task = on_themes_changed(0.0)
+            if task is not None:
+                await task
+        except asyncio.CancelledError:
+            # Another request rescheduled the refresh: that one runs instead
+            logger.debug(f"Theme refresh after {reason} was replaced by a newer one")
+        except Exception as e:
+            logger.warning(f"Theme refresh after {reason} failed: {e}")
+
+    async def _notify_theme_created(theme_id: str, theme_path) -> None:
+        """Tell the plugins about a new theme; a plugin's error never fails the theme operation."""
+        if not plugin_manager:
+            return
+        try:
+            await plugin_manager.notify_theme_created(theme_id, Path(theme_path))
+        except Exception as e:
+            logger.warning(f"Plugins couldn't be told about new theme '{theme_id}': {e}")
+
+    async def _notify_theme_deleted(theme_id: str) -> None:
+        """Tell the plugins a theme was deleted; a plugin's error never fails the theme operation."""
+        if not plugin_manager:
+            return
+        try:
+            await plugin_manager.notify_theme_deleted(theme_id)
+        except Exception as e:
+            logger.warning(f"Plugins couldn't be told about deleted theme '{theme_id}': {e}")
+
     @router.post("/themes/create")
     async def create_theme(request: Request):
         """Create a new theme folder."""
@@ -1937,13 +1971,8 @@ def create_api_router(
             (theme_path / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
             # Load it now, so the editor can open it straight away
-            if on_themes_changed:
-                task = on_themes_changed(0.0)
-                if task is not None:
-                    try:
-                        await task
-                    except Exception as e:
-                        logger.warning(f"Theme refresh after creating '{name}' failed: {e}")
+            await _rescan_themes(f"creating '{name}'")
+            await _notify_theme_created(theme_id, theme_path)
 
             return {
                 "status": "ok",
@@ -2156,6 +2185,13 @@ def create_api_router(
         if not theme_path:
             raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
 
+        # The theme's own id (theme_id may be its folder name), for the plugins
+        from sonorium.core.theme_presets import read_json
+        try:
+            deleted_id = (read_json(theme_path / "metadata.json") or {}).get("id") or theme_id
+        except Exception:
+            deleted_id = theme_id
+
         try:
             shutil.rmtree(theme_path)
             logger.info(f"Deleted theme folder: {theme_path}")
@@ -2169,6 +2205,7 @@ def create_api_router(
 
             if on_themes_changed:
                 on_themes_changed()
+            await _notify_theme_deleted(deleted_id)
 
             return {"status": "ok", "theme_id": theme_id, "message": "Theme deleted"}
         except Exception as e:
@@ -2341,17 +2378,22 @@ def create_api_router(
                 from sonorium.core.theme_metadata import load_theme_folder, save_theme_folder
                 import uuid
                 problems = []
+                new_id = None
                 try:
                     metadata = load_theme_folder(target_path)
                     problems = list(metadata.problems)
                     metadata.id = str(uuid.uuid4())
-                    if not save_theme_folder(target_path, metadata):
+                    if save_theme_folder(target_path, metadata):
+                        new_id = metadata.id
+                    else:
                         problems.append("Couldn't save the theme files")
                 except Exception as e:
                     logger.warning(f"Could not prepare imported theme files: {e}")
                     problems.append(f"Couldn't prepare the theme files: {e}")
 
                 logger.info(f"Imported theme '{theme_folder_name}' with {files_extracted} files")
+                if new_id:
+                    await _notify_theme_created(new_id, target_path)
 
                 return {
                     "status": "ok",
@@ -2370,6 +2412,28 @@ def create_api_router(
             raise HTTPException(status_code=500, detail=str(e))
 
     # --- Plugin Endpoints ---
+
+    def _plugin_dir(plugin_id) -> Path:
+        """
+        The folder of a plugin id inside the plugins folder. 400 for an id
+        that isn't letters, digits, "_" and "-" or that would lead anywhere
+        else (an id is never a path: "%2E%2E" arrives as "..").
+        """
+        import re
+        if not isinstance(plugin_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', plugin_id):
+            raise HTTPException(status_code=400, detail="Invalid plugin id")
+        plugins_dir = Path(plugin_manager.plugins_dir)
+        folder = plugins_dir / plugin_id
+        if folder.resolve().parent != plugins_dir.resolve():
+            raise HTTPException(status_code=400, detail="Invalid plugin id")
+        return folder
+
+    def _inside(folder: Path, path: Path) -> Path:
+        """path, if it is inside folder (a zip member can't write anywhere else); 400 if not."""
+        resolved = path.resolve()
+        if resolved != folder.resolve() and folder.resolve() not in resolved.parents:
+            raise HTTPException(status_code=400, detail=f"Invalid path in zip: {path.name}")
+        return path
 
     @router.get("/plugins", response_model=list[PluginResponse])
     async def list_plugins():
@@ -2501,7 +2565,10 @@ def create_api_router(
                 plugin_py = plugin_py_paths[0]
                 plugin_dir_name = plugin_py.rsplit('/', 1)[0] if '/' in plugin_py else ''
                 target_name = plugin_dir_name.split('/')[0] if plugin_dir_name else plugin_id
-                target_dir = plugin_manager.plugins_dir / target_name
+                target_dir = _plugin_dir(target_name)
+                for member in zf.namelist():
+                    if member.startswith('/') or '..' in member.replace('\\', '/').split('/'):
+                        raise HTTPException(status_code=400, detail=f'Invalid path in zip: {member}')
 
                 if target_dir.exists():
                     shutil.rmtree(target_dir)
@@ -2514,6 +2581,7 @@ def create_api_router(
                         continue
                     else:
                         target_path = target_dir / member
+                    _inside(target_dir, target_path)
 
                     if member.endswith('/'):
                         target_path.mkdir(parents=True, exist_ok=True)
@@ -2544,6 +2612,8 @@ def create_api_router(
                 'message': f'Plugin "{plugin_info.get("name", plugin_id)}" installed successfully'
             }
 
+        except HTTPException:
+            raise
         except zipfile.BadZipFile:
             raise HTTPException(status_code=400, detail='Invalid ZIP file from catalog')
         except Exception as e:
@@ -2601,28 +2671,51 @@ def create_api_router(
         return {
             "plugin_id": plugin_id,
             "settings": plugin.settings,
-            "schema": plugin.get_settings_schema(),
+            "schema": plugin.settings_schema(),
         }
 
     @router.put("/plugins/{plugin_id}/settings")
     async def update_plugin_settings(plugin_id: str, request: PluginSettingsRequest):
-        """Update settings for a plugin."""
+        """
+        Change some of a plugin's settings: {"settings": {name: value}}. The
+        values are checked against the plugin's settings schema (400 for an
+        unknown name or a wrong value, nothing is saved then); the others keep
+        their value. Answers with all the plugin's settings.
+        """
+        from sonorium.plugins.settings_schema import SettingsError
+
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
 
-        success = plugin_manager.update_plugin_settings(plugin_id, request.settings)
-        if not success:
-            raise HTTPException(status_code=400, detail=f"Failed to update plugin settings: {plugin_id}")
+        try:
+            settings = await plugin_manager.update_plugin_settings(plugin_id, request.settings)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
+        except SettingsError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid settings: {e}")
 
-        return {"status": "ok", "plugin_id": plugin_id, "settings": request.settings}
+        return {"status": "ok", "plugin_id": plugin_id, "settings": settings}
 
     @router.post("/plugins/{plugin_id}/action")
     async def execute_plugin_action(plugin_id: str, request: PluginActionRequest):
-        """Execute an action on a plugin."""
+        """
+        Execute an action on a plugin. When the result says the plugin changed
+        theme files ("refresh_themes": true), the themes are rescanned before
+        answering and the result gets "themes_changed": true, so the UI reloads
+        its theme list instead of saving a stale copy over the plugin's work.
+        A theme the plugin created ("data": {"is_new_theme", "theme_id",
+        "theme_path"}) is announced to the plugins' on_theme_created hooks.
+        """
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
 
         result = await plugin_manager.call_action(plugin_id, request.action, request.data)
+        if isinstance(result, dict) and result.get("success") and result.get("refresh_themes"):
+            await _rescan_themes(f"plugin {plugin_id} action '{request.action}'")
+            result["themes_changed"] = True
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            if data.get("is_new_theme") and data.get("theme_id") and data.get("theme_path"):
+                await _notify_theme_created(data["theme_id"], Path(data["theme_path"]))
         return result
 
     @router.post("/plugins/reload")
@@ -2706,7 +2799,7 @@ def create_api_router(
                     plugin_id = 'imported_plugin'
 
                 # Check if plugin already exists
-                target_dir = plugin_manager.plugins_dir / plugin_id
+                target_dir = _plugin_dir(plugin_id)
                 if target_dir.exists():
                     # Remove old version
                     shutil.rmtree(target_dir)
@@ -2770,6 +2863,8 @@ def create_api_router(
                     "plugin_id": plugin_id
                 }
 
+        except HTTPException:
+            raise
         except zipfile.BadZipFile:
             raise HTTPException(status_code=400, detail="Invalid or corrupted ZIP file")
         except Exception as e:
@@ -2794,8 +2889,8 @@ def create_api_router(
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
 
+        plugin_dir = _plugin_dir(plugin_id)
         plugin = plugin_manager.get_plugin(plugin_id)
-        plugin_dir = plugin_manager.plugins_dir / plugin_id
 
         # Check if plugin exists (either loaded or as directory)
         if not plugin and not plugin_dir.exists():

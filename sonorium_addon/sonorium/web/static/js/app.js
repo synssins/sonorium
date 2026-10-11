@@ -7352,6 +7352,11 @@ async function executePluginAction(pluginId, actionId) {
         if (result.themes && Array.isArray(result.themes)) {
             themes = result.themes;
             renderThemesBrowser();
+        } else if (result.themes_changed) {
+            // The plugin changed theme files and the server rescanned them:
+            // reload, so a stale copy is never saved over the plugin's work
+            await loadThemes();
+            renderThemesBrowser();
         }
         // Refresh the plugin's options (e.g. a theme list) and keep what was typed
         await loadPlugins();
@@ -7364,7 +7369,7 @@ async function executePluginAction(pluginId, actionId) {
 function openPluginMenu(button, pluginId) {
     const plugin = plugins.find(p => p.id === pluginId);
     if (!plugin) return;
-    spMenu(`plg:${pluginId}`, button, `<button type="button" class="mi danger" role="menuitem" ${plugin.builtin ? 'disabled' : ''} onclick="askUninstallPlugin(${spArg(pluginId)})">${SP_ICON_TRASH}Uninstall…${plugin.builtin ? '<span class="mi-note">Built-in</span>' : ''}</button>`);
+    spMenu(`plg:${pluginId}`, button, `<button type="button" class="mi danger" role="menuitem" onclick="askUninstallPlugin(${spArg(pluginId)})">${SP_ICON_TRASH}Uninstall…</button>`);
 }
 
 function askUninstallPlugin(pluginId) {

@@ -72,7 +72,14 @@ class Sonorium:
             logger.warning(f'Audio path "{self.path_audio}" does not exist. Will be created.')
             self.path_audio.mkdir(parents=True, exist_ok=True)
 
-        theme_folders = [folder for folder in self.path_audio.iterdir() if folder.is_dir()]
+        # A plugin's theme write interrupted by a crash leaves hidden leftovers
+        try:
+            from sonorium.plugins.theme_api import remove_stale_staging
+            remove_stale_staging(self.path_audio)
+        except Exception as e:
+            logger.warning(f'Could not check for interrupted theme writes: {e}')
+
+        theme_folders = [folder for folder in self.path_audio.iterdir() if folder.is_dir() and not folder.name.startswith(".")]
 
         logger.debug(f'Scanning for themes in "{self.path_audio}"...')
         logger.debug(f'Found {len(theme_folders)} theme folder(s): {[f.name for f in theme_folders]}')
@@ -89,7 +96,7 @@ class Sonorium:
                         dst_folder = self.path_audio / src_folder.name
                         shutil.copytree(str(src_folder), str(dst_folder))
                         logger.info(f'Installed bundled theme: {src_folder.name}')
-                    theme_folders = [folder for folder in self.path_audio.iterdir() if folder.is_dir()]
+                    theme_folders = [folder for folder in self.path_audio.iterdir() if folder.is_dir() and not folder.name.startswith(".")]
 
             # Fallback: create empty example folder if no bundled themes
             if not theme_folders:
