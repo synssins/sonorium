@@ -950,6 +950,8 @@ Example:
                     </div>
                 </div>
             </div>
+            <!-- Built-in plugins' channel fields (slots.js: channelEditor) -->
+            <div id="ch-plugin-fields" class="ch-plugin-fields" hidden></div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" onclick="closeSessionModal()">Cancel</button>
                 <button class="btn btn-primary" onclick="saveSession()">
@@ -1260,9 +1262,12 @@ Example:
             // Without the app script the page is unusable: show the logs instead
             function showLogs() { window.location.href = base + '/logs'; }
             loadScript('/static/js/logs.js');
+            // api.js, then slots.js (sign-in, plugins' bundles), which loads app.js
             loadScript('/static/js/api.js', function() {
-                loadScript('/static/js/app.js', function() {
-                    console.log('All scripts loaded');
+                loadScript('/static/js/slots.js', function() {
+                    window.Sonorium.boot().then(function() {
+                        console.log('All scripts loaded');
+                    }, showLogs);
                 }, showLogs);
             }, showLogs);
         })();

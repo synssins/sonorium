@@ -291,6 +291,7 @@ services:
       - PUID=1000             # optional: owner of the files Sonorium writes
       - PGID=1000
       - TZ=Etc/UTC            # your time zone, for log times
+      - BYPASS_LOGIN=false   # Only for forgotten logins: set to true to get in and reset the admin account, then set it back to false
     volumes:
       - ./sonorium/config:/config          # settings and channels
       - ./sonorium/media:/media/sonorium   # themes and audio
@@ -298,9 +299,22 @@ services:
 ```
 
 1. **Start** it with `docker compose up -d`
-2. **Open** `http://<docker-host>:8008`
+2. **Open** `http://<docker-host>:8008` and **create the admin account**
 3. **Optional:** connect Home Assistant and MQTT under **Settings → Connection**
 4. **Create a Channel** and press play
+
+**Sign-in.** A new install asks for an admin account on the first visit, and then a sign-in
+on every browser. Speakers, the Home Assistant entities and MQTT don't need one. Updating
+from an older version changes nothing until you create an account and turn on **Require
+login** (the banner at the top offers it). Forgot your password? Ask the Sonorium app on a
+linked phone for a sign-in code, or set `BYPASS_LOGIN=true`, restart, reset the account,
+then set it back to `false`.
+
+**Ports.** 8008 serves the web UI, the API and the streams over HTTP. 8808 serves the web
+UI and API over HTTPS, for the Sonorium app (`SONORIUM_HTTPS_PORT` changes it). Its
+certificate is self-signed, so a browser warns about it; the app checks it instead.
+With `network_mode: host` both ports are open on the host. Details:
+[docs/AUTH.md](docs/AUTH.md).
 
 ### Documentation
 

@@ -254,6 +254,24 @@ All theme management is done through the Sonorium web interface:
 | `sonorium__path_audio` | `/media/sonorium` | Path to theme folders |
 | `sonorium__max_channels` | `6` | Maximum concurrent channels (1-10) |
 | `sonorium__mqtt_host` | `auto` | MQTT broker. `auto` uses the Mosquitto broker add-on; set a host only for a different broker (plus port, username, password) |
+| `web_ui_only_through_ha` | `false` | `true`: ports 8008 and 8808 serve only streams, linked phones and keys; the web UI is only in Home Assistant's sidebar |
+| `bypass_login` | `false` | Only for forgotten logins: set to true to get in and reset the admin account, then set it back to false |
+
+#### Sign-in
+
+Home Assistant's sidebar opens Sonorium without a second sign-in: Home Assistant already
+signed you in, and your Home Assistant user gets a Sonorium account. The direct ports are
+open on your network until you choose otherwise:
+
+1. **Settings › Users & devices**: give your account a password (⋯ › Reset password…).
+2. Turn on **Require login**. From then on port 8008 (HTTP) and 8808 (HTTPS) need a
+   sign-in, a linked phone or a key.
+
+**The Sonorium app** links with **Link App** on the Channels page (a QR code), or signs in
+with a Sonorium username and password. It talks to port 8808 (HTTPS, self-signed; the app
+checks the certificate), never to HA's sidebar address. Speakers keep using port 8008.
+
+More: [docs/AUTH.md](https://github.com/synssins/sonorium/blob/main/docs/AUTH.md).
 
 #### Where data is stored
 

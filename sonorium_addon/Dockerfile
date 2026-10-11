@@ -47,6 +47,11 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 RUN pip3 install --no-cache-dir --break-system-packages \
     aiohttp zeroconf async-upnp-client pyatv
 
+# Sign-in: the HTTPS certificate (cryptography), the Link App QR code (segno),
+# and password hashes for the built-in Users plugin (argon2-cffi, Argon2id)
+RUN pip3 install --no-cache-dir --break-system-packages \
+    cryptography segno argon2-cffi
+
 # Copy local sonorium source code
 COPY sonorium/ /app/sonorium/
 COPY README.md /app/
@@ -75,6 +80,6 @@ RUN chmod a+x /run.sh
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.6.2-dev.16}"
+LABEL io.hass.version="${ADDON_VERSION:-1.6.2-dev.18}"
 
 CMD [ "/run.sh" ]
