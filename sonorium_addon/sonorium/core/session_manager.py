@@ -365,6 +365,20 @@ class SessionManager:
         session = self.state.sessions.get(session_id)
         return self._assign_channel(session) if session is not None else None
 
+    def run_mix(self, session_id: str):
+        """
+        Run the channel's theme mix without its speakers (like Listen here), for
+        an output that isn't a speaker. Returns the Channel, None when none is
+        free. ValueError: no theme, or it isn't found.
+        """
+        session = self.state.sessions.get(session_id)
+        if session is None:
+            return None
+        channel, fresh_start = self._run_mix(session)
+        if channel is not None and fresh_start:
+            self.runner.after_play(session)
+        return channel
+
     async def release_unused(self, session_id: str, why: str) -> None:
         """Nothing holds the channel's mix any more: fade out and free its Channel (if it isn't playing)."""
         await self._release_unused(session_id, why)
