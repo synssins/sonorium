@@ -45,7 +45,7 @@ def sanitize(text: str) -> str:
 _ID_SEPARATORS = re.compile(r'[\s\-_]+')
 
 
-def sanitize_id(*strings: str, sep: str = '-') -> str:
+def sanitize_id(*parts: str, sep: str = '-') -> str:
     """
     A theme folder name as the dashed ID older themes were known by
     ("Rain & Thunder" -> "rain-thunder"). Keeps letters and digits (any
@@ -53,7 +53,7 @@ def sanitize_id(*strings: str, sep: str = '-') -> str:
     into one `sep`. Gives exactly what Amniotic-era Sonorium gave, so those IDs
     keep matching (tests/test_sanitize_id.py).
     """
-    text = ' '.join(string for string in strings if string)
+    text = ' '.join(part for part in parts if part)
     text = ''.join(c.lower() for c in text if c.isalnum() or c == ' ')
     return _ID_SEPARATORS.sub(sep, text).strip()
 

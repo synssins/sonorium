@@ -23,13 +23,12 @@ LISTEN_HOST = "0.0.0.0"
 # Interactive API docs (Swagger UI), with "Try it out" switched on
 DOCS_PATH = "/docs"
 DOCS_UI_OPTIONS = {"tryItOutEnabled": True}
-# uvicorn's loggers. Sonorium writes its own request lines; uvicorn's output
-# is collected for the Logs page at start-up (logbuffer.attach("uvicorn")).
-UVICORN_LOGGERS = ("uvicorn.access", "uvicorn.error", "uvicorn")
+# uvicorn's loggers (the Logs page collects them from start-up: logbuffer.attach)
+UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
 
 
 def mute_uvicorn_handlers() -> None:
-    """Take uvicorn's loggers off the root handlers so nothing is printed twice."""
+    """uvicorn's loggers start bare: no handlers of their own, nothing passed up to the root logger."""
     for name in UVICORN_LOGGERS:
         uvicorn_log = logging.getLogger(name)
         uvicorn_log.handlers.clear()

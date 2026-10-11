@@ -99,26 +99,24 @@ def log_level_from_env() -> int:
 
 def get_logger(name: str) -> InstrumentedLogger:
     """The named logger, set up on first use (handler, filter, level, Logs page buffer)."""
-    # Set custom logger class
     logging.setLoggerClass(InstrumentedLogger)
+    named = logging.getLogger(name)
+    named.__class__ = InstrumentedLogger  # also when it existed before the class was set
 
-    logger = logging.getLogger(name)
-    logger.__class__ = InstrumentedLogger
-
-    if not logger.handlers:
+    if not named.handlers:
         # Force unbuffered stdout for Docker/container environments
         sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(LevelPrefixFormatter('%(asctime)s.%(msecs)03d %(message)s', datefmt='%H:%M:%S'))
-        handler.addFilter(RequestLineFilter(logger))
-        logger.addHandler(handler)
-        logger.setLevel(log_level_from_env())
+        handler.addFilter(RequestLineFilter(named))
+        named.addHandler(handler)
+        named.setLevel(log_level_from_env())
 
         # Recent messages for the web UI's Logs page, from the very start
         from sonorium import logbuffer
-        logbuffer.install(name, RequestLineFilter(logger))
+        logbuffer.install(name, RequestLineFilter(named))
 
-    return logger
+    return named
 
 
 logger = get_logger("sonorium")

@@ -355,7 +355,7 @@ def decode_mono(path):
     reader = AudioReader(path)
     if not reader.has_audio:
         reader.close()
-        raise ValueError(f'No audio stream in {path}')
+        raise ValueError(f'{path}: there is no audio in this file')
     return reader.blocks()
 
 
@@ -367,7 +367,7 @@ def file_length_samples(path) -> int:
     reader = AudioReader(path)
     try:
         if not reader.has_audio:
-            raise ValueError("no audio stream")
+            raise ValueError("the file holds no audio")
         declared = reader.header_length()
         if declared is not None:
             return declared

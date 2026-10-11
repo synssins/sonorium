@@ -79,7 +79,7 @@ class Library:
 
     def _prepare_audio_dir(self) -> None:
         if not self.audio_dir.exists():
-            logger.warning(f'Audio path "{self.audio_dir}" does not exist. Will be created.')
+            logger.warning(f'No audio folder at "{self.audio_dir}" yet: creating it')
             self.audio_dir.mkdir(parents=True, exist_ok=True)
         # A plugin's theme write interrupted by a crash leaves hidden leftovers
         try:

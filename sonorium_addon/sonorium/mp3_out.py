@@ -17,6 +17,8 @@ from sonorium.recording import SAMPLE_RATE
 MP3_BITRATE = 128_000
 MP3_LAYOUT = "stereo"
 MP3_SAMPLE_FORMAT = "s32p"
+# What the mixer hands over: 16-bit mono blocks
+MIX_SAMPLE_FORMAT, MIX_LAYOUT = "s16", "mono"
 
 
 class Mp3Encoder:
@@ -40,7 +42,7 @@ class Mp3Encoder:
 
     def encode(self, block) -> list[bytes]:
         """The MP3 frames completed by this block (often none)."""
-        frame = av.AudioFrame.from_ndarray(block, format="s16", layout="mono")
+        frame = av.AudioFrame.from_ndarray(block, format=MIX_SAMPLE_FORMAT, layout=MIX_LAYOUT)
         frame.rate = SAMPLE_RATE
         return [bytes(packet) for packet in self._codec.encode(frame)]
 

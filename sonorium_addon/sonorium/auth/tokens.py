@@ -258,7 +258,7 @@ class RedactTokens(logging.Filter):
 
 def install_log_redaction() -> None:
     """Mask tokens in the web server's logs (safe to call more than once)."""
-    for name in ("uvicorn.access", "uvicorn.error", "uvicorn"):
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
         log = logging.getLogger(name)
         if not any(isinstance(f, RedactTokens) for f in log.filters):
             log.addFilter(RedactTokens())

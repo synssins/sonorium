@@ -59,10 +59,9 @@ class MQTTClient:
         self._topics: set[str] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
 
-        # Set up callbacks
-        self._client.on_connect = self._on_connect
-        self._client.on_message = self._on_message
-        self._client.on_disconnect = self._on_disconnect
+        # paho calls these from its own network thread
+        paho = self._client
+        paho.on_connect, paho.on_disconnect, paho.on_message = self._on_connect, self._on_disconnect, self._on_message
 
         # Set credentials if provided
         if username and password:
