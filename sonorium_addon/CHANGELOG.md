@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.33 (2026-10-11)
+
+### Code Style
+
+- **channels**: The speaker icon centred over the headphones button
+  ([`79cf029`](https://github.com/synssins/sonorium/commit/79cf029f746bc7bbd681c7f952def5088f48d8f4))
+
+
 ## v1.6.1-dev.32 (2026-10-10)
 
 
