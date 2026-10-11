@@ -77,6 +77,7 @@ class ApiSonorium(Base):
         self._mqtt_manager = None
         self._theme_refresh_task = None
         self._plugin_manager = None
+        self._plugin_host = None  # plugins/host.py: events, actions, scheduler, triggers
         self._theme_metadata_manager = None
         self._network_service = None  # standalone only
         self._cards = None  # Home Assistant dashboard cards (ha/cards.py)
@@ -335,6 +336,22 @@ class ApiSonorium(Base):
                 self._ha_registry,
             )
 
+            # Plugin host: the services plugins use (events, actions, scheduler,
+            # triggers, notifications), next to state.json
+            try:
+                from sonorium.plugins.host import PluginHost
+                from sonorium.plugins import events as plugin_events
+                plugin_events.get_bus().bind_loop()
+                self._plugin_host = PluginHost(
+                    self._state_store.state_file.parent,
+                    session_manager=self._session_manager,
+                    state_store=self._state_store,
+                    registry=self._ha_registry,
+                )
+            except Exception as e:
+                logger.warning(f"  Plugin framework unavailable: {e}")
+                self._plugin_host = None
+
             # Initialize plugin manager
             try:
                 from sonorium.plugins.manager import PluginManager
@@ -342,6 +359,7 @@ class ApiSonorium(Base):
                 self._plugin_manager = PluginManager(
                     self._state_store,
                     audio_path=audio_path,
+                    host=self._plugin_host,
                 )
                 await self._plugin_manager.initialize()
                 logger.debug(f"  Plugin manager: {len(self._plugin_manager.plugins)} plugin(s) loaded")
@@ -394,12 +412,21 @@ class ApiSonorium(Base):
                 on_master_gain=self._apply_master_gain,
             )
             self.app.include_router(api_router)
+
+            # Plugin framework endpoints (events, triggers, schedules, notifications, extensions)
+            try:
+                from sonorium.web.plugin_framework_api import create_plugin_framework_router
+                self.app.include_router(create_plugin_framework_router(self._plugin_manager, self._plugin_host))
+            except Exception as e:
+                logger.warning(f"  Plugin framework endpoints unavailable: {e}")
             
             # Keep MQTT entities in sync when idle sessions are stopped, and
             # when a sequence or playlist moves a channel on
             if self._mqtt_manager:
                 self._background.on_session_stopped = self._mqtt_manager.update_session_state
                 self._session_manager.runner.on_change = self._mqtt_manager.update_session_state
+                if self._plugin_host:  # plugins' changes reach Home Assistant like the UI's
+                    self._plugin_host.on_change = self._mqtt_manager.update_session_state
 
             # Home Assistant dashboard cards: installed once both HA and MQTT are linked
             self._init_dashboard_cards(stream_base_url)
@@ -408,12 +435,24 @@ class ApiSonorium(Base):
             await self._background.start()
             logger.debug("  Background loop started")
 
+            # Plugin scheduler and notification routing
+            if self._plugin_host:
+                try:
+                    await self._plugin_host.start()
+                except Exception as e:
+                    logger.warning(f"  Plugin scheduler could not start: {e}")
+
             # Network speaker discovery runs in the background: the UI is up meanwhile
             if self._network_service:
                 self._network_service.start()
 
             self._v2_initialized = True
             logger.debug("  Sonorium v2 initialization complete!")
+            try:
+                from sonorium.plugins import events as plugin_events
+                plugin_events.publish("sonorium.started", {"version": __version__})
+            except Exception:
+                pass
             self._log_startup_summary()
             
         except ImportError as e:
@@ -590,6 +629,11 @@ class ApiSonorium(Base):
         """Shutdown v2 components gracefully."""
         if self._background:
             await self._background.stop()
+        if self._plugin_host:
+            try:
+                await self._plugin_host.stop()
+            except Exception as e:
+                logger.warning(f"Plugin framework stop failed: {e}")
         if self._network_service:
             await self._network_service.stop()
 

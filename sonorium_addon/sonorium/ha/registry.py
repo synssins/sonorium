@@ -416,9 +416,32 @@ class HARegistry:
             play_via = overrides.get("play_via")
             speaker.play_via = play_via if any(m["id"] == play_via for m in speaker.merged) else "ha"
 
+        previous, had_speakers = getattr(self, "_speakers", None) or {}, getattr(self, "_speakers_known", False)
         self._speakers = speakers
         self._hierarchy = self._link(speakers)
+        if had_speakers:
+            self._publish_speaker_changes(previous, speakers)
+        self._speakers_known = had_speakers or bool(speakers)
         return self._hierarchy
+
+    @staticmethod
+    def _publish_speaker_changes(before: dict, after: dict) -> None:
+        """speaker.added/removed/unavailable/available events (not for the first list at start-up)."""
+        try:
+            from sonorium.plugins import events
+        except Exception:
+            return
+        for speaker_id, speaker in after.items():
+            old = before.get(speaker_id)
+            if old is None:
+                events.publish("speaker.added", {"speaker_id": speaker_id, "name": speaker.name, "type": speaker.type})
+            elif old.online and not speaker.online:
+                events.publish("speaker.unavailable", {"speaker_id": speaker_id, "name": speaker.name})
+            elif not old.online and speaker.online:
+                events.publish("speaker.available", {"speaker_id": speaker_id, "name": speaker.name})
+        for speaker_id, speaker in before.items():
+            if speaker_id not in after:
+                events.publish("speaker.removed", {"speaker_id": speaker_id, "name": speaker.name})
 
     def _link(self, speakers: dict[str, Speaker]) -> SpeakerHierarchy:
         """Place speakers in their areas and areas on their floors."""

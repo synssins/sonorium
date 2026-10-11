@@ -1911,6 +1911,14 @@ def create_api_router(
     # NOTE: GET /themes is handled by app.py with full metadata support
     # api_v2.py only handles theme management (create, upload, delete, metadata)
 
+    def _publish(event_type: str, data: dict) -> None:
+        """An event on the plugin event bus (never fails the request)."""
+        try:
+            from sonorium.plugins import events
+            events.publish(event_type, data)
+        except Exception as e:
+            logger.debug(f"Event {event_type} not published: {e}")
+
     async def _rescan_themes(reason: str) -> None:
         """Rescan the themes now and wait for it (a failure is only logged)."""
         if not on_themes_changed:
@@ -1927,6 +1935,7 @@ def create_api_router(
 
     async def _notify_theme_created(theme_id: str, theme_path) -> None:
         """Tell the plugins about a new theme; a plugin's error never fails the theme operation."""
+        _publish("theme.created", {"theme_id": theme_id, "folder": Path(theme_path).name})
         if not plugin_manager:
             return
         try:
@@ -1936,6 +1945,7 @@ def create_api_router(
 
     async def _notify_theme_deleted(theme_id: str) -> None:
         """Tell the plugins a theme was deleted; a plugin's error never fails the theme operation."""
+        _publish("theme.deleted", {"theme_id": theme_id})
         if not plugin_manager:
             return
         try:
@@ -2459,8 +2469,8 @@ def create_api_router(
         that isn't letters, digits, "_" and "-" or that would lead anywhere
         else (an id is never a path: "%2E%2E" arrives as "..").
         """
-        import re
-        if not isinstance(plugin_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', plugin_id):
+        from sonorium.plugins.loader import is_valid_plugin_id
+        if not is_valid_plugin_id(plugin_id):
             raise HTTPException(status_code=400, detail="Invalid plugin id")
         plugins_dir = Path(plugin_manager.plugins_dir)
         folder = plugins_dir / plugin_id
@@ -2952,6 +2962,11 @@ def create_api_router(
             if plugin_dir.exists():
                 shutil.rmtree(plugin_dir)
                 logger.info(f"Removed plugin directory: {plugin_dir}")
+
+            # Its scheduled jobs, trigger tokens and connection values (plugins/host.py)
+            remove_data = getattr(plugin_manager, "plugin_removed", None)
+            if callable(remove_data):
+                remove_data(plugin_id)
 
             # Remove plugin settings from state
             if plugin_id in plugin_manager.state_store.settings.plugin_settings:

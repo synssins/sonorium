@@ -2,6 +2,28 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.15 (2026-10-11)
+
+### Documentation
+
+- **plugins**: Plugin development guide
+  ([`a03659e`](https://github.com/synssins/sonorium/commit/a03659ec50578db018af7b1c39a23bc0ede2cf8d))
+
+### Features
+
+- **plugins**: Event bus with a public event catalogue
+  ([`f938635`](https://github.com/synssins/sonorium/commit/f938635f1f829287114784855ab9f0a4db2dd47d))
+
+- **plugins**: Framework endpoints, start-up wiring and example plugin
+  ([`b3d0c5d`](https://github.com/synssins/sonorium/commit/b3d0c5d4abd673d80de0e3d149f74735fadd1284))
+
+- **plugins**: Persistent scheduler service
+  ([`26f55ea`](https://github.com/synssins/sonorium/commit/26f55ea611aaeb3e7ae2a97d5031f26ab354e0af))
+
+- **plugins**: Plugin host with actions API, triggers, notifications, extension points
+  ([`9b12b75`](https://github.com/synssins/sonorium/commit/9b12b75dcc0b406982a078e9c40ec42a5deb3f40))
+
+
 ## v1.6.2-dev.14 (2026-10-11)
 
 
