@@ -261,6 +261,17 @@ def test_app_setup_unchanged(m):
     assert route.summary == route.description == ((api.status.__doc__ or "").strip() or None)
 
 
+def test_route_docs_unchanged(m):
+    """Every route's API docs entry: its handler's docstring as summary and description, in the untagged section."""
+    app = m.api.ApiSonorium(MagicMock()).app
+    routes = [r for r in app.routes if type(r).__name__ == "APIRoute"]
+    assert len(routes) == sum(1 for row in APP_ROUTES if row[0] == "APIRoute")
+    for route in routes:
+        doc = (route.endpoint.__doc__ or "").strip() or None
+        assert route.summary == route.description == doc, route.path
+        assert route.tags == [None], route.path
+
+
 def test_v2_routes_unchanged(m):
     router = m.v2.create_api_router(
         session_manager=MagicMock(), group_manager=MagicMock(), ha_registry=MagicMock(),
