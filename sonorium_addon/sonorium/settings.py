@@ -1,6 +1,6 @@
 """
 Sonorium Settings - Configuration management.
-Replaces fmtr.tools with standard pydantic settings.
+Standard pydantic settings.
 """
 import asyncio
 import json
@@ -20,7 +20,7 @@ from sonorium.paths import PackagePaths, paths
 from sonorium.utils import HomeAssistantClient
 
 
-# HA Constants (replaces fmtr.tools.ha.constants)
+# HA Constants
 HA_URL_CORE_ADDON = "http://supervisor/core/api"
 HA_URL_SUPERVISOR_ADDON = "http://supervisor"
 HA_SUPERVISOR_TOKEN_KEY = "SUPERVISOR_TOKEN"
@@ -126,7 +126,6 @@ def get_local_ip() -> str:
 def apply_addon_env():
     """
     Apply environment variables from HA addon options.
-    Replaces fmtr.tools.ha.apply_addon_env().
     """
     options_path = Path("/data/options.json")
     if options_path.exists():

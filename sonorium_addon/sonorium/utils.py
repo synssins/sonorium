@@ -12,7 +12,6 @@ from sonorium.obs import logger
 class IndexList(list):
     """
     Simple list subclass that supports attribute-based indexing.
-    Replaces fmtr.tools.iterator_tools.IndexList.
     """
 
     def __init__(self, iterable=None):

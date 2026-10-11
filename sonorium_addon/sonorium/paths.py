@@ -1,6 +1,6 @@
 """
 Sonorium Paths - Path management for the addon.
-Replaces fmtr.tools.PackagePaths with a simple implementation.
+Package and data paths.
 """
 from functools import cached_property
 from pathlib import Path

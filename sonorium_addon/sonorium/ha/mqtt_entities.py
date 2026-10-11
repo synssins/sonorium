@@ -592,7 +592,7 @@ class SonoriumMQTTManager:
         self,
         state_store: StateStore,
         session_manager: SessionManager,
-        mqtt_client,  # paho or fmtr.tools mqtt client
+        mqtt_client,  # paho-based client (sonorium.client.MQTTClient)
         entity_prefix: str = "sonorium",
         theme_metadata_manager=None,
         version: str = "",
@@ -821,7 +821,7 @@ class SonoriumMQTTManager:
                 if "/config" in topic:
                     logger.debug(f"  MQTT: Published entity config to {topic}")
             elif hasattr(self.mqtt_client, 'send'):
-                # fmtr.tools style
+                # async client with send()
                 await self.mqtt_client.send(topic, payload, retain=retain)
             else:
                 logger.warning(f"Unknown MQTT client type ({type(self.mqtt_client).__name__}), cannot publish to {topic}")
