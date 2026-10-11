@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.39 (2026-10-11)
+
+### Documentation
+
+- Theme Editor help screenshot
+  ([`e131d53`](https://github.com/synssins/sonorium/commit/e131d534ae5a626b34d0595d926dd644d51cc3bb))
+
+- **ui**: Help lines that restated their own control removed; the rest short and literal
+  ([`263176f`](https://github.com/synssins/sonorium/commit/263176f28c9c6bbccaeba5f48b4b1138f15acbbb))
+
+
 ## v1.6.1-dev.38 (2026-10-11)
 
 ### Documentation
