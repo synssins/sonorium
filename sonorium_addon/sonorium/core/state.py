@@ -8,6 +8,7 @@ State is stored in /config/sonorium/state.json to survive addon updates.
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +19,8 @@ from sonorium.obs import logger
 
 
 # Default paths
-DEFAULT_STATE_DIR = Path("/config/sonorium")
+# SONORIUM_CONFIG_DIR: another folder (development runs; the same variable as sonorium/auth)
+DEFAULT_STATE_DIR = Path(os.environ.get("SONORIUM_CONFIG_DIR") or "/config/sonorium")
 DEFAULT_STATE_FILE = DEFAULT_STATE_DIR / "state.json"
 
 

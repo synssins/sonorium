@@ -52,6 +52,17 @@ KEEPALIVE_SECONDS = 15
 PAGE_TIMEOUT, ACTION_TIMEOUT, TEST_TIMEOUT = 10, 30, 20
 
 
+def _allowed(request: Request, ability: str) -> bool:
+    """
+    A caller sign-in recognised with that ability: a key, a linked phone, a
+    signed-in browser or HA's sidebar. Not "nobody signed in" (Require login
+    off): triggers and the event stream always needed a token, and still do.
+    """
+    from sonorium.auth.middleware import principal_of
+    principal = principal_of(request)
+    return principal.kind in ("key", "device", "session", "ingress") and principal.can(ability)
+
+
 def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["plugin-framework"])
     install_log_redaction()
@@ -135,7 +146,8 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         replays recent events after it. max_events > 0 closes the stream after that many.
         """
         bus = _host().bus
-        if not host.tokens.check(EVENTS_SCOPE, token_from_request(request)):
+        # A key with "Read events", a linked phone or a signed-in user; or the old events token
+        if not _allowed(request, "ev.read") and not host.tokens.check(EVENTS_SCOPE, token_from_request(request)):
             raise HTTPException(status_code=401, detail="A valid token is needed",
                                 headers={"WWW-Authenticate": "Bearer"})
         try:
@@ -235,7 +247,8 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         if blocked:
             raise HTTPException(status_code=429, detail="Too many failed attempts",
                                 headers={"Retry-After": str(int(wait) + 1)})
-        if not triggers.authenticate(plugin_id, trigger, token_from_request(request)):
+        # A key with "Run triggers" (or an admin); or the plugin's or trigger's own token
+        if not _allowed(request, "tr.run") and not triggers.authenticate(plugin_id, trigger, token_from_request(request)):
             triggers.auth_limiter.allow(client)
             raise HTTPException(status_code=401, detail="A valid token is needed",
                                 headers={"WWW-Authenticate": "Bearer"})

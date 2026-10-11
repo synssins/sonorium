@@ -85,6 +85,7 @@ APP_ROUTES = [
     ('APIRoute', 'DELETE', '/api/categories/{category_name}', 'delete_category'),
     ('APIRoute', 'POST', '/api/themes/{theme_id}/categories', 'set_theme_categories'),
     ('APIRoute', 'GET', '/api/status', 'status'),
+    ('APIRoute', 'GET', '/api/stream/url', 'stream_urls'),
     ('APIRoute', 'GET', '/api/channels', 'list_channels'),
     ('APIRoute', 'GET', '/api/channels/{channel_id}', 'get_channel'),
     ('Mount', '', '/static', 'static'),
@@ -233,7 +234,9 @@ def m():
 
 
 def _rows(routes):
-    return [(type(r).__name__, ",".join(sorted(getattr(r, "methods", None) or [])), r.path, r.name) for r in routes]
+    # Included routers (the sign-in router, sonorium/auth) are checked in test_auth_*.py
+    return [(type(r).__name__, ",".join(sorted(getattr(r, "methods", None) or [])), r.path, r.name)
+            for r in routes if hasattr(r, "path")]
 
 
 def test_app_routes_unchanged(m):
@@ -250,7 +253,7 @@ def test_app_setup_unchanged(m):
     assert api.HOST == "0.0.0.0"
     assert api.PORT == (8008 if m.api.runtime.STANDALONE else 8080)
     assert len(app.router.on_startup) == 1 and len(app.router.on_shutdown) == 1
-    assert len(app.user_middleware) == 1
+    assert len(app.user_middleware) == 2  # cards CORS, sign-in (sonorium/auth)
     config = api.config
     assert (config.host, config.port, config.access_log) == (api.HOST, api.PORT, False)
     # Handler docstrings are the summaries in the API docs, as before

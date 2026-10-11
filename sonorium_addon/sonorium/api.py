@@ -102,6 +102,7 @@ class ApiSonorium(Base):
             logger.debug("FastAPI startup event triggered")
             # uvicorn's loggers don't pass messages up, and are set up just before this
             logbuffer.attach("uvicorn")
+            await self._start_auth()
             await self.initialize_v2()
         
         # Register shutdown event to stop the background loop
@@ -109,6 +110,23 @@ class ApiSonorium(Base):
         async def shutdown_event():
             logger.info("FastAPI shutdown event triggered")
             await self.shutdown_v2()
+            await self._stop_auth()
+
+        # Sign-in, users, linked phones and keys: one middleware checks every
+        # route (sonorium/auth); it's outermost, so it runs first
+        from sonorium.auth.middleware import AuthMiddleware, AuthService
+        from sonorium.auth.routes import create_auth_router
+        self.auth = AuthService()
+        self._https_host_port = None  # the HTTPS port as the LAN sees it (add-on: its port mapping)
+        self._announcer = None
+        self.app.add_middleware(AuthMiddleware, service=self.auth)
+        self.app.include_router(create_auth_router(
+            self.auth,
+            stream_url=self._stream_base_url,
+            features=lambda: runtime.features(self._state_store.settings.feature_overrides if self._state_store else None),
+            version=__version__,
+            https_host_port=self._https_port_outside,
+        ))
 
         # Mount static files (CSS, JS) for the web UI
         if STATIC_DIR.exists():
@@ -207,6 +225,8 @@ class ApiSonorium(Base):
             Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/categories', method=self.set_theme_categories),
 
             Endpoint(method_http=self.app.get, path='/api/status', method=self.status),
+            # Where speakers and the app reach the streams: the direct port, never ingress
+            Endpoint(method_http=self.app.get, path='/api/stream/url', method=self.stream_urls),
             
             # Channel API
             Endpoint(method_http=self.app.get, path='/api/channels', method=self.list_channels),
@@ -636,6 +656,90 @@ class ApiSonorium(Base):
                 logger.warning(f"Plugin framework stop failed: {e}")
         if self._network_service:
             await self._network_service.stop()
+
+    # --- Sign-in (sonorium/auth) ---
+
+    def extra_configs(self):
+        """
+        The app's HTTPS port (8808, SONORIUM_HTTPS_PORT) with the pinned certificate,
+        and in the add-on the ingress port (8099) HA's sidebar uses, never mapped outside.
+        """
+        import uvicorn
+        from sonorium.auth import config
+        configs = []
+        port = config.https_port()
+        if port:
+            identity = self.auth.identity
+            if identity.tls_ready:
+                configs.append(uvicorn.Config(self.app, host=self.HOST, port=port, access_log=False, proxy_headers=False,
+                                              lifespan="off", ssl_certfile=str(identity.cert_path),
+                                              ssl_keyfile=str(identity.key_path)))
+                logger.info(f"HTTPS for the Sonorium app on port {port}")
+        ingress = config.ingress_port()
+        if ingress:
+            configs.append(uvicorn.Config(self.app, host=self.HOST, port=ingress, access_log=False,
+                                          proxy_headers=False, lifespan="off"))
+        return configs
+
+    @staticmethod
+    def _stream_base_url() -> str:
+        """The direct base URL speakers use (Settings > Connection's stream URL, or the detected address)."""
+        from sonorium.settings import settings
+        return settings.stream_url
+
+    def _https_port_outside(self) -> int:
+        from sonorium.auth import config
+        if self._https_host_port is None:
+            return config.https_port()
+        return self._https_host_port
+
+    async def _start_auth(self):
+        """Load accounts, make the server identity and certificate, warn about the bypass, announce on mDNS."""
+        import asyncio
+        from sonorium.auth import config
+        try:
+            store = self.auth.store
+            identity = await asyncio.to_thread(lambda: self.auth.identity)
+            if config.bypass_login():
+                logger.warning("BYPASS_LOGIN is on: anyone on your network can use and change Sonorium without signing in. "
+                               "Reset your account under Settings > Users & devices, then set it back to false.")
+            if config.web_ui_only_through_ha():
+                logger.info("The web UI is only served through Home Assistant's sidebar (web_ui_only_through_ha)")
+            if not runtime.STANDALONE:
+                self._https_host_port = await asyncio.to_thread(config.addon_host_port, config.https_port())
+            if runtime.STANDALONE:  # the add-on isn't on the host network: the QR code carries its address
+                from sonorium.auth.announce import Announcer
+                from sonorium.auth.routes import API_VERSION
+                self._announcer = Announcer()
+                await asyncio.to_thread(
+                    self._announcer.start, server_id=identity.server_id, version=__version__, api=API_VERSION,
+                    base_url=self._stream_base_url(),
+                    https_port=self._https_port_outside() if identity.tls_ready else 0,
+                    login_required=store.require_login)
+        except Exception as e:
+            logger.error(f"Sign-in setup failed: {e}")
+
+    async def _stop_auth(self):
+        import asyncio
+        try:
+            if self.auth._store is not None:
+                self.auth.store.flush()
+            if self._announcer is not None:
+                await asyncio.to_thread(self._announcer.stop)
+        except Exception:
+            pass
+
+    async def stream_urls(self):
+        """The stream URLs on the direct port (what speakers and the app play), never an ingress URL."""
+        base = self._stream_base_url().rstrip("/")
+        channels = {}
+        if self._session_manager is not None:
+            for session in self._session_manager.list():
+                try:
+                    channels[session.id] = self._session_manager.get_stream_url(session)
+                except Exception:
+                    pass
+        return {"base": base, "channels": channels}
 
     def _ha_linked(self) -> bool:
         """Home Assistant is linked: always for the add-on; standalone once its registry loaded."""

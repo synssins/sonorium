@@ -289,6 +289,12 @@ def _session_to_response(session, session_manager) -> SessionResponse:
 
 # --- API Router Factory ---
 
+def _caller(request: Request):
+    """Who made the request (sonorium/auth)."""
+    from sonorium.auth.middleware import principal_of
+    return principal_of(request)
+
+
 def create_api_router(
     session_manager,
     group_manager,
@@ -416,9 +422,10 @@ def create_api_router(
     # --- Session Endpoints ---
     
     @router.get("/sessions")
-    async def list_sessions() -> list[SessionResponse]:
-        """List all sessions."""
-        sessions = session_manager.list()
+    async def list_sessions(http: Request) -> list[SessionResponse]:
+        """List all sessions (a key limited to some channels sees only those)."""
+        caller = _caller(http)
+        sessions = [s for s in session_manager.list() if caller.can_channel(s.id)]
         return [_session_to_response(s, session_manager) for s in sessions]
     
     @router.post("/sessions", status_code=status.HTTP_201_CREATED)
@@ -456,11 +463,18 @@ def create_api_router(
         return _session_to_response(session, session_manager)
     
     @router.put("/sessions/{session_id}")
-    async def update_session(session_id: str, request: UpdateSessionRequest) -> SessionResponse:
+    async def update_session(session_id: str, request: UpdateSessionRequest, http: Request = None) -> SessionResponse:
         """Update an existing session."""
         # Get old session name to detect changes for MQTT discovery refresh
         old_session = session_manager.get(session_id)
         old_name = old_session.name if old_session else None
+
+        # Changing its speakers needs "Change speakers" (a key may only have "Change theme, preset and volume")
+        if old_session is not None and http is not None and not _caller(http).can("ch.speakers"):
+            new_selection = request.adhoc_selection.to_selection() if request.adhoc_selection else None
+            if ((request.speaker_group_id is not None and request.speaker_group_id != old_session.speaker_group_id)
+                    or (new_selection is not None and new_selection != old_session.adhoc_selection)):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to change speakers")
 
         try:
             session, added_speakers, removed_speakers = session_manager.update(

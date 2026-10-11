@@ -57,18 +57,52 @@ class Base:
 
     @property
     def config(self) -> uvicorn.Config:
-        return uvicorn.Config(self.app, host=self.HOST, port=self.PORT, access_log=False)
+        # proxy_headers off: the caller's address is always the real peer (the
+        # sign-in check trusts HA's ingress by the Supervisor's address)
+        return uvicorn.Config(self.app, host=self.HOST, port=self.PORT, access_log=False, proxy_headers=False)
 
     @property
     def server(self) -> uvicorn.Server:
         return uvicorn.Server(self.config)
 
+    def extra_configs(self) -> List[uvicorn.Config]:
+        """More listeners on the same app (e.g. HTTPS); they run without lifespan events."""
+        return []
+
     @classmethod
     async def launch_async(cls, *args, **kwargs):
-        """Create the API and serve it until shut down."""
+        """Create the API and serve it until shut down (the main listener, then any extra ones)."""
+        import asyncio
         self = cls(*args, **kwargs)
         logger.debug(self.message)
-        await self.server.serve()
+        main = self.server
+        extras = [_QuietServer(c) for c in self.extra_configs()]
+        tasks = [asyncio.create_task(_serve_extra(s)) for s in extras]
+        try:
+            await main.serve()
+        finally:
+            for server in extras:
+                server.should_exit = True
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+
+class _QuietServer(uvicorn.Server):
+    """An extra listener: leaves signal handling to the main one, which stops it."""
+
+    def install_signal_handlers(self) -> None:  # uvicorn < 0.29
+        pass
+
+    def capture_signals(self):  # uvicorn >= 0.29
+        import contextlib
+        return contextlib.nullcontext()
+
+
+async def _serve_extra(server: uvicorn.Server) -> None:
+    try:
+        await server.serve()
+    except (SystemExit, Exception) as e:  # uvicorn exits when the port is taken
+        logger.error(f"Listener on port {server.config.port} stopped: {e}")
 
     @classmethod
     def launch(cls, *args, **kwargs):
