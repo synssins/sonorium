@@ -336,7 +336,7 @@ def create_api_router(
     @router.get("/debug/speakers")
     async def debug_speakers() -> dict:
         """Debug endpoint to show raw speaker discovery data."""
-        from fmtr.tools import http
+        from sonorium import http_client as http
         from sonorium.settings import settings
         
         debug_info = {
@@ -2121,7 +2121,7 @@ def create_api_router(
         """Find theme folder by ID, handling sanitized names and UUID-based IDs."""
         import json
         from pathlib import Path
-        from fmtr.tools.string_tools import sanitize
+        from sonorium.utils import sanitize_id as sanitize
 
         media_paths = [
             Path("/media/sonorium"),
