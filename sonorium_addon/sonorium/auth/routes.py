@@ -8,6 +8,9 @@ The core's sign-in routes (they work with or without the sign-in plugins).
     POST   /api/link                     a Link App QR code (bound to you when you're signed in)
     POST   /api/pair                     public, HTTPS: one-time code -> phone token (shown once)
     GET    /api/devices                  linked phones: yours, or everyone's for an admin
+    GET    /api/devices/self             a linked phone: its own record
+    PUT    /api/devices/self             a linked phone: rename itself
+    DELETE /api/devices/self             a linked phone: unlink itself (its token stops working at once)
     DELETE /api/devices/{device_id}      unlink a phone (takes effect on its next request)
 """
 from __future__ import annotations
@@ -188,13 +191,47 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
             row["username"] = user["username"] if user else None
         return {"devices": rows}
 
+    # A linked phone's own record (before /api/devices/{device_id}, which would take "self")
+
+    def own_device(request: Request) -> dict:
+        p = principal_of(request)
+        row = service.device(p.device_id) if p.kind == "device" else None
+        if row is None:
+            raise HTTPException(404, "No such device")
+        return row
+
+    @router.get("/api/devices/self")
+    async def get_own_device(request: Request):
+        """The phone calling: its record (name, platform, model, linked, last seen)."""
+        return own_device(request)
+
+    @router.put("/api/devices/self")
+    async def rename_own_device(request: Request):
+        """The phone calling: a new name ({"device_name": "..."}), as shown in Users & devices."""
+        row = own_device(request)
+        data = await json_body(request)
+        name = data.get("device_name", data.get("name"))
+        if not isinstance(name, str) or not name.strip():
+            raise HTTPException(400, "A device_name is needed")
+        return service.rename_device(row["id"], name)
+
+    @router.delete("/api/devices/self")
+    async def remove_own_device(request: Request):
+        """The phone calling unlinks itself: its token stops working at once."""
+        row = own_device(request)
+        service.remove_device(row["id"])
+        logger.info(f"Devices: {row['name']} unlinked itself")
+        return {"removed": True}
+
     @router.delete("/api/devices/{device_id}")
     async def remove_device(device_id: str, request: Request):
-        """Unlink a phone: yours, or anyone's for an admin. Its next request is refused."""
+        """Unlink a phone: yours, or anyone's for an admin (a phone: only itself). Its next request is refused."""
         p = principal_of(request)
         record = service.tokens.get(device_id)
         if record is None or record.get("kind") != "device":
             raise HTTPException(404, "No such device")
+        if not p.can("self") and device_id != p.device_id:
+            raise HTTPException(403, "Not allowed")
         if record.get("user_id") != p.user_id and not p.can("admin.users"):
             raise HTTPException(403, "Not allowed")
         service.remove_device(device_id)

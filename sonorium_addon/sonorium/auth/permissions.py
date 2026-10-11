@@ -126,7 +126,11 @@ GET     /plugin-ui/{plugin_id}/{path:path}              public
 POST    /api/link                                       self
 POST    /api/pair                                       public
 GET     /api/devices                                    self
-DELETE  /api/devices/{device_id}                        self
+GET     /api/devices/self                               device
+PUT     /api/devices/self                               device
+DELETE  /api/devices/self                               device
+# a phone may remove only itself (checked by the route); "self" also matches this template
+DELETE  /api/devices/{device_id}                        self|device
 GET     /api/stream/url                                 ch.view
 
 GET     /api/connection                                 admin.connection

@@ -335,6 +335,36 @@ def test_phone_acts_as_its_user_and_is_ejected_at_once(w):
     assert r.status_code == 401 and r.json()["pair"] is True
 
 
+def test_a_phone_sees_renames_and_unlinks_itself(w):
+    """G1: /api/devices/self (permission "device"): only for the phone calling."""
+    c, csrf = w.setup_admin()
+    _, r = link_and_pair(w, c, csrf)
+    token, device_id = r.json()["token"], r.json()["device_id"]
+    _, r2 = link_and_pair(w, c, csrf, name="Tablet")
+    other_token, other_id = r2.json()["token"], r2.json()["device_id"]
+    phone = w.client()
+    me = phone.get("/api/devices/self", headers=H(token)).json()
+    assert me["id"] == device_id and me["name"] == "Pixel 8" and me["platform"] == "android"
+    assert me["user_id"] and me["created"] and me["last_seen"]
+    # Rename: trimmed to 60 characters; empty is refused
+    r = phone.put("/api/devices/self", json={"device_name": "  Chris's phone  "}, headers=H(token))
+    assert r.status_code == 200 and r.json()["name"] == "Chris's phone"
+    assert phone.put("/api/devices/self", json={"device_name": "x" * 80}, headers=H(token)).json()["name"] == "x" * 60
+    assert phone.put("/api/devices/self", json={"device_name": " "}, headers=H(token)).status_code == 400
+    assert [d["name"] for d in c.get("/api/devices").json()["devices"]][0] == "x" * 60
+    # A browser has no "device" record of its own
+    assert c.get("/api/devices/self").status_code == 403
+    # A phone can't remove another phone (even of the same user), nor list them
+    assert phone.delete(f"/api/devices/{other_id}", headers=H(token)).status_code == 403
+    assert phone.get("/api/devices", headers=H(token)).status_code == 403
+    # ...but may remove itself by id, or as "self": the token stops working at once
+    assert phone.delete("/api/devices/self", headers=H(token)).json() == {"removed": True}
+    r = phone.get("/api/devices/self", headers=H(token))
+    assert r.status_code == 401 and r.json()["pair"] is True
+    assert phone.delete(f"/api/devices/{other_id}", headers=H(other_token)).json() == {"removed": True}
+    assert phone.get("/api/sessions", headers=H(other_token)).status_code == 401
+
+
 def test_app_sign_in_with_password(w):
     w.setup_admin()
     https = w.client(base_url="https://testserver")
