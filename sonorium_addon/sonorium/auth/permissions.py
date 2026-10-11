@@ -254,6 +254,8 @@ POST    /api/network-speakers/refresh                   sp.view
 GET     /api/speakers/{speaker_id}/settings             sp.view
 PUT     /api/speakers/{speaker_id}/settings             sp.set
 POST    /api/speakers/{speaker_id}/test                 sp.set
+PUT     /api/speakers/{speaker_id}/volume               sp.mute
+PUT     /api/speakers/{speaker_id}/muted                sp.mute
 POST    /api/speakers/manual/check                      sp.set
 POST    /api/speakers/manual                            sp.set
 DELETE  /api/speakers/manual/{speaker_id}               sp.set

@@ -10,6 +10,7 @@ import math
 from typing import Optional
 
 from fastapi import HTTPException, Request
+from pydantic import BaseModel, Field
 
 
 async def _json_or_empty(request: Request) -> dict:
@@ -27,7 +28,15 @@ async def _json_or_empty(request: Request) -> dict:
     return data
 
 
-def add_app_routes(router, *, session_manager) -> None:
+class SpeakerVolumeRequest(BaseModel):
+    volume: int = Field(ge=0, le=100)
+
+
+class SpeakerMutedRequest(BaseModel):
+    muted: bool
+
+
+def add_app_routes(router, *, session_manager, ha_registry=None, speaker_live=None) -> None:
     """The app's routes, on create_api_router()'s /api router."""
 
     def session_or_404(session_id: str):
@@ -100,6 +109,28 @@ def add_app_routes(router, *, session_manager) -> None:
         if session_manager.remove_output(session_id, output_id) is None:
             raise HTTPException(status_code=404, detail="Output not found")
         return {"removed": True}
+
+    # --- A speaker's own volume and mute (G6, core/speaker_live.py) ---
+
+    def speaker_or_404(speaker_id: str):
+        if ha_registry is None or ha_registry.get_speaker(speaker_id) is None:
+            raise HTTPException(status_code=404, detail="Speaker not found")
+
+    @router.put("/speakers/{speaker_id}/volume")
+    async def set_speaker_volume(speaker_id: str, request: SpeakerVolumeRequest) -> dict:
+        """Set one speaker's volume now (0-100). Channels' volumes are unchanged."""
+        speaker_or_404(speaker_id)
+        if not await speaker_live.set_volume(speaker_id, request.volume):
+            raise HTTPException(status_code=502, detail="The speaker didn't take the change")
+        return {"speaker_id": speaker_id, "volume": request.volume}
+
+    @router.put("/speakers/{speaker_id}/muted")
+    async def set_speaker_muted(speaker_id: str, request: SpeakerMutedRequest) -> dict:
+        """Mute or unmute one speaker now. Channels' speakers-muted switches are unchanged."""
+        speaker_or_404(speaker_id)
+        if not await speaker_live.set_muted(speaker_id, request.muted):
+            raise HTTPException(status_code=502, detail="The speaker didn't take the change")
+        return {"speaker_id": speaker_id, "muted": request.muted}
 
 
 async def hold_seconds_of(request: Request) -> Optional[float]:

@@ -345,6 +345,10 @@ def create_api_router(
     """
     router = APIRouter(prefix="/api", tags=["api"])
 
+    # A speaker's own volume and mute, set from the app (web/app_routes.py)
+    from sonorium.core.speaker_live import SpeakerLive
+    speaker_live = SpeakerLive(lambda: getattr(session_manager, "media_controller", None))
+
     # Settings > Advanced's playback values: the mixer reads them from this store
     from sonorium import playback_values
     playback_values.set_source(lambda: state_store.settings.playback_values)
@@ -1328,7 +1332,8 @@ def create_api_router(
         """List all available speakers (flat list)."""
         hierarchy = ha_registry.hierarchy
         speakers = hierarchy.get_all_speakers()
-        return [s.to_dict() for s in speakers]
+        # with "volume" and "muted" when they were set live (PUT /speakers/{id}/volume, /muted)
+        return [{**s.to_dict(), **speaker_live.state(s.entity_id)} for s in speakers]
     
     @router.get("/speakers/hierarchy")
     async def get_speaker_hierarchy() -> dict:
@@ -3025,6 +3030,6 @@ def create_api_router(
 
     # The Sonorium app's routes (docs/APP_API.md section 13)
     from sonorium.web.app_routes import add_app_routes
-    add_app_routes(router, session_manager=session_manager)
+    add_app_routes(router, session_manager=session_manager, ha_registry=ha_registry, speaker_live=speaker_live)
 
     return router

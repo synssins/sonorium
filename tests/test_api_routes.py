@@ -200,6 +200,8 @@ V2_ROUTES = [
     ('APIRoute', 'POST', '/api/sessions/{session_id}/outputs', 'add_session_output'),
     ('APIRoute', 'PUT', '/api/sessions/{session_id}/outputs/{output_id}', 'heartbeat_session_output'),
     ('APIRoute', 'DELETE', '/api/sessions/{session_id}/outputs/{output_id}', 'remove_session_output'),
+    ('APIRoute', 'PUT', '/api/speakers/{speaker_id}/volume', 'set_speaker_volume'),
+    ('APIRoute', 'PUT', '/api/speakers/{speaker_id}/muted', 'set_speaker_muted'),
 ]
 
 
