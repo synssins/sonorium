@@ -60,6 +60,7 @@ class AuthService:
         self.pair_codes: dict[str, dict] = {}
         self.plugin_state: dict[str, object] = {}  # a plugin's live objects, kept across reloads (e.g. Accounts)
         self.https_only = lambda request: None     # set by the core routes
+        self.supervisor_transport = None           # tests: an httpx transport standing in for HA's Supervisor
 
     # ------------------------------------------------------------ storage
 
@@ -186,6 +187,18 @@ class AuthService:
             if found:
                 return found
         return None
+
+    def user_blocked(self, user_id: Optional[str]) -> bool:
+        """Whether a sign-in plugin has switched the user off (e.g. deactivated in Home Assistant)."""
+        if not user_id:
+            return False
+        for _, blocked in self.provider("blocked"):
+            try:
+                if blocked(user_id):
+                    return True
+            except Exception:
+                return True
+        return False
 
     # ------------------------------------------------------------ linked phones (core)
 

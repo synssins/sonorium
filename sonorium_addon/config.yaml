@@ -1,5 +1,5 @@
 name: Sonorium
-version: "1.6.2-dev.26"
+version: "1.6.2-dev.27"
 slug: sonorium
 description: "Multi-zone ambient soundscape mixer for Home Assistant"
 url: https://github.com/synssins/sonorium
@@ -11,6 +11,8 @@ arch:
 init: false
 homeassistant_api: true
 hassio_api: true
+# Home Assistant's users are Sonorium's users: their list and sign-in (Supervisor auth API)
+auth_api: true
 audio: false
 
 # Ingress - enables sidebar integration
@@ -21,6 +23,8 @@ ingress_port: 8099
 ingress_stream: true
 panel_icon: mdi:music-circle
 panel_title: Sonorium
+# Every Home Assistant user sees Sonorium in the sidebar; Sonorium gives each the role they have in HA
+panel_admin: false
 
 services:
   - mqtt:need

@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.27 (2026-10-11)
+
+### Documentation
+
+- Home Assistant's users on the add-on (AUTH, APP_API, add-on README)
+  ([`50e051a`](https://github.com/synssins/sonorium/commit/50e051adb287e2caf81ae762cc2b4f077f4ddf95))
+
+- Next release in What's new, Sign-in section, HTTPS port in the compose example,
+  THIRD_PARTY_NOTICES.md
+  ([`5833f46`](https://github.com/synssins/sonorium/commit/5833f46d06e011c013f5a85ad36736856bdfab28))
+
+
 ## v1.6.2-dev.26 (2026-10-11)
 
 

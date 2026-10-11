@@ -10,7 +10,7 @@ cuts spare keys that open only some rooms.
 | Part | Where | What it does |
 |---|---|---|
 | Core | `sonorium/auth/` | Checks every request against the route's permission, keeps tokens (as hashes), the server's identity and HTTPS certificate, Link App and phone linking, `/api/info`, mDNS |
-| Users plugin | `plugins/builtin/users/` | Accounts and roles, browser sign-in, Require login, one-time sign-in codes, Users & devices, Home Assistant sidebar users |
+| Users plugin | `plugins/builtin/users/` | Accounts and roles, browser sign-in, Require login, one-time sign-in codes, Users & devices, Home Assistant's users (add-on) |
 | Integration plugin | `plugins/builtin/integration/` | Keys with only the abilities you check (Settings › Keys) |
 
 Both plugins are built in and start switched on. Without the Users plugin,
@@ -34,14 +34,16 @@ can't change anything.
 For each request the core works out the caller, first match wins:
 
 1. **HA's sidebar** (add-on, port 8099, from the Supervisor): Home Assistant
-   already signed the person in. Full access. The `X-Remote-User-*` headers
-   pick the Sonorium account (made automatically, as an Admin) and are logged.
-   The same headers on any other port mean nothing.
+   already signed the person in. The `X-Remote-User-*` headers name the HA
+   user; they get their Sonorium user and the role HA gives them (see Home
+   Assistant's users). Without the Users plugin: full access. The same
+   headers on any other port mean nothing.
 2. **A linked phone** (`Authorization: Bearer sd_...`): what its user may do,
    but never managing users, devices or keys. Linked without the Users
    plugin: full access, less those.
 3. **A key** (`Bearer sk_...`, `X-Sonorium-Token`, or `?token=`): only the
-   boxes checked on it, and only its channels if it has a list.
+   boxes checked on it, and only its channels if it has a list. A key made
+   by a user who is now switched off in Home Assistant is refused.
 4. **A signed-in browser** (the `sonorium_session` cookie): its user's role.
 5. **BYPASS_LOGIN on:** the web UI needs no sign-in (see Recovery).
 6. **Nobody recognised:** with the Users plugin, open access while Require
@@ -95,14 +97,68 @@ or a key, even while sign-in is off.
   a banner offers to set it up: create the admin account, then turn on
   **Require login**. From then on the direct ports need a sign-in, a linked
   phone or a key.
-- **Home Assistant add-on:** HA's sidebar never shows Sonorium's sign-in. To
-  sign in on the direct port as well, give your account a password first
-  (Users & devices › Reset password…), then turn on Require login.
+- **Home Assistant add-on:** HA's sidebar never shows Sonorium's sign-in.
+  Require login needs no Sonorium password: on the direct port, sign in with
+  your Home Assistant username and password (see Home Assistant's users).
+  Docker and Windows need an admin with a password before Require login can
+  be turned on.
 - **Passwords** are Argon2id hashes in `users.json`. Five failed sign-ins a
   minute from one address, then a pause; each failure is logged.
 - **Browsers** stay signed in for 30 days, or until 14 days unused. The cookie
   is `HttpOnly`, `SameSite=Strict`, and `Secure` on HTTPS. Every change sends
   a CSRF token (`X-CSRF-Token`, from `GET /api/auth/me`).
+
+## Home Assistant's users (add-on)
+
+On the add-on, everyone with a Home Assistant login is a Sonorium user, with
+the role their HA account has. Think of HA as the building's front desk: it
+already knows who works here and who is a manager, so Sonorium reads the
+staff list instead of keeping its own.
+
+| In Home Assistant | In Sonorium |
+|---|---|
+| Owner, or the Administrators group | Admin |
+| Users, Read-only | User |
+| Switched off ("Can log in" off) or removed | Switched off: browsers signed out, phones refused (401 `{"pair": true}`), keys they made refused |
+
+- **Where the list comes from:** the Supervisor's auth API (`auth_api` in
+  the add-on's config), with the add-on's Supervisor token. Sonorium asks for
+  it at most once a minute, and at once when a Home Assistant user it hasn't
+  seen opens Sonorium in HA's sidebar. A role change in HA applies on the
+  user's next request after that, in the browser and on their phones. If the
+  Supervisor doesn't answer, Sonorium keeps the roles it last knew and
+  switches nobody off.
+- **One Sonorium user per HA user,** found by HA's user id (from HA's
+  sidebar), never by name: renaming a user in HA keeps their Sonorium user,
+  phones and settings. The Supervisor's list has usernames but no ids, so
+  after a rename, the user's phones are refused until they open Sonorium in
+  HA's sidebar once (or until the list shows the new name, whichever comes
+  first).
+- **Sidebar:** every HA user sees Sonorium in HA's sidebar (`panel_admin:
+  false`) and gets their role there.
+- **Phones:** Link App opened in HA's sidebar links the phone to that HA
+  user. In the app, an HA username and password also link a phone
+  (`POST /api/pair/login`).
+- **Signing in on the direct port** (8008, 8808) with an HA username and
+  password works the same way (`POST /api/auth/login`). Sonorium passes the
+  password to Home Assistant to check, and never keeps or logs it. The usual
+  limit applies: five failures a minute from one address.
+- **Users & devices:** HA users carry a **Home Assistant** label. Make
+  Admin, Make User and Reset password are switched off for them: their role
+  and password are set in Home Assistant. Forgot password and sign-in codes
+  don't apply to them either.
+- **Users made in Sonorium** (with a Sonorium password, for example on a
+  development version) keep working. If one has the same username as an HA
+  user, signing in with that name is the HA user's; the log warns once.
+  Rename or remove the Sonorium user. Add user refuses a username an HA user
+  has.
+
+**Updating from an earlier version:** the users Sonorium made automatically
+for HA's sidebar (all as Admins) become HA users and take their role from
+HA, so an HA owner or administrator stays Admin and everyone else becomes a
+User. A Sonorium password one of them had set is dropped: like everyone
+else, they sign in on the direct port with their Home Assistant password.
+One password per person, kept by HA.
 
 ## Linking a phone (core)
 
@@ -175,7 +231,8 @@ restart.
 ## Add-on: web UI only through Home Assistant
 
 `web_ui_only_through_ha: true` makes ports 8008 and 8808 serve only streams,
-linked phones and keys. The web UI is then only in HA's sidebar.
+linked phones and keys. The web UI is then only in HA's sidebar. No Sonorium
+password is needed for it.
 
 ## Discovery
 
@@ -205,7 +262,7 @@ without the extra names: the app checks the fingerprint, not the names.
 | File | What's in it |
 |---|---|
 | `security.json` (0600) | The signing secret (CSRF) and every token's SHA-256: phones, browser sessions, keys |
-| `users.json` (0600) | Accounts (Argon2id hashes), Require login |
+| `users.json` (0600) | Accounts (Argon2id hashes; none for Home Assistant's users), Require login |
 | `server.json` | The server ID |
 | `tls/cert.pem`, `tls/key.pem` (0600) | The HTTPS certificate (ECDSA P-256, 20 years) |
 | `plugin_secrets.json` (0600) | The plugin framework's older trigger and event-stream tokens (hashes) |

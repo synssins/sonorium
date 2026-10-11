@@ -9,6 +9,9 @@ switching it back on brings the accounts back.
 
 Roles: Admin (everything) and User (channels, playlists and sequences, view
 themes and speakers, their own phones). A linked phone acts as its user.
+
+Add-on: Home Assistant's users are Sonorium's users, with their role from HA
+(ha.py), and sign in with their HA username and password.
 Later in this plugin: zones (ownership, Kid mode, speaker homes).
 """
 from __future__ import annotations
@@ -43,6 +46,7 @@ def _sibling(name: str):
 
 
 passwords = _sibling("passwords")
+ha_mod = _sibling("ha")
 accounts_mod = _sibling("accounts")
 Accounts, AuthError = accounts_mod.Accounts, accounts_mod.AuthError
 
@@ -92,6 +96,28 @@ class UsersAuth:
     def user(self, user_id):
         return self.accounts.brief(user_id)
 
+    def blocked(self, user_id) -> bool:
+        return self.accounts.disabled(user_id)
+
+    async def prepare(self, listener: str, headers: dict) -> None:
+        """
+        Add-on: HA's list of users when it's a minute old, or at once when HA's sidebar brings an HA user
+        Sonorium hasn't seen (or one renamed in HA).
+        """
+        directory = self.accounts.ha
+        if directory is None:
+            return
+        ha_user_id = headers.get("x-remote-user-id") if listener == "ingress" else None
+        news = False
+        if ha_user_id:
+            name = accounts_mod.norm(headers.get("x-remote-user-name"))
+            known = [u for u in self.accounts.users.values() if u.get("ha_user_id") == ha_user_id]
+            renamed = bool(known and name and accounts_mod.norm(known[0].get("ha_username")) != name)
+            if renamed:  # the new name first, so the new list doesn't take the user for removed
+                self.accounts.ha_user(ha_user_id, headers.get("x-remote-user-name") or "")
+            news = not known or renamed
+        await directory.refresh(force=news)
+
     def authenticate(self, ctx) -> Optional[Principal]:
         if not ctx.web_ok:
             return None
@@ -108,7 +134,7 @@ class UsersAuth:
     def fallback(self, ctx) -> Principal:
         if not self.accounts.require_login:
             return Principal("open", accounts_mod.OPEN_PERMS)
-        refusal = {"setup": True} if not self.accounts.has_users() else {}
+        refusal = {"setup": True} if not self.accounts.has_users() and not config.is_addon() else {}
         return Principal("anonymous", extra={"refusal": refusal})
 
     def ingress(self, ctx, principal: Principal) -> Principal:
@@ -116,6 +142,10 @@ class UsersAuth:
         if ha.get("id"):
             principal.user_id = self.accounts.ha_user(ha["id"], ha.get("name") or ha.get("display_name") or "")
             self.accounts.seen(principal.user_id)
+            user = self.accounts.user(principal.user_id)
+            principal.role = user["role"]
+            # The role HA gives the user; nothing while HA has the user switched off
+            principal.perms = frozenset() if user.get("disabled") else accounts_mod.role_perms(user["role"])
         return principal
 
     def device(self, ctx, principal: Principal, record: dict):
@@ -126,7 +156,7 @@ class UsersAuth:
             principal.perms = P.device_perms(accounts_mod.OPEN_PERMS)
             return principal
         user = self.accounts.user(user_id)
-        if user is None:
+        if user is None or user.get("disabled"):
             return Reject(401, {"detail": "This phone is not linked to Sonorium. Link it again.", "pair": True})
         self.accounts.seen(user_id)
         principal.perms = P.device_perms(accounts_mod.role_perms(user["role"]))
@@ -135,9 +165,9 @@ class UsersAuth:
 
     def me(self, ctx, principal: Principal) -> dict:
         a = self.accounts
-        return {"require_login": a.require_login, "has_users": a.has_users(),
+        return {"require_login": a.require_login, "has_users": a.has_users(), "ha_users": a.ha is not None,
                 "needs_setup": (principal.kind == "anonymous" and not a.has_users() and a.require_login
-                                and principal.listener != "ingress")}
+                                and principal.listener != "ingress" and not config.is_addon())}
 
 
 def create_router(service) -> APIRouter:
@@ -177,14 +207,44 @@ def create_router(service) -> APIRouter:
                    reset=reset)
         return response
 
+    def wrong(username: str, client: str, what: str):
+        login_limiter.allow(client)
+        logger.warning(f"{what} failed for '{username[:40]}' from {client}")
+        raise HTTPException(401, "Wrong username or password.")
+
+    async def check_ha_password(entry: dict, username: str, password: str, client: str, what: str):
+        """Add-on: an HA user's username and password, checked by Home Assistant (never kept or logged)."""
+        a = accounts()
+        a.warn_shadowed(username)
+        if not entry.get("is_active", True) or not password:
+            wrong(username, client, what)
+        try:
+            ok = await a.ha.check_password(entry["username"], password)
+        except ha_mod.HAUnavailable as e:
+            logger.warning(f"{what}: Home Assistant didn't answer ({e})")
+            raise HTTPException(503, "Home Assistant didn't answer. Try again in a moment.")
+        if not ok:
+            wrong(username, client, what)
+        user_id = a.ha_login_user(entry)
+        a.apply_ha(user_id)
+        if a.disabled(user_id):
+            wrong(username, client, what)
+        a.save()
+        return user_id, a.user(user_id)
+
     async def check_password(username: str, password: str, client: str, what: str):
         limited(login_limiter, client, spend=False)
-        found = accounts().find(username)
-        ok = await asyncio.to_thread(passwords.verify_password, found[1].get("password") if found else None, password)
-        if not ok:
-            login_limiter.allow(client)
-            logger.warning(f"{what} failed for '{username[:40]}' from {client}")
-            raise HTTPException(401, "Wrong username or password.")
+        a = accounts()
+        if a.ha is not None:  # add-on: Home Assistant's users first
+            await a.ha.refresh()
+            entry = a.ha.by_username(username)
+            if entry is not None:
+                return await check_ha_password(entry, username, password, client, what)
+        found = a.find(username)
+        stored = found[1].get("password") if found and not found[1].get("ha") and not found[1].get("disabled") else None
+        ok = await asyncio.to_thread(passwords.verify_password, stored, password)
+        if not ok or not stored:
+            wrong(username, client, what)
         user_id, user = found
         if passwords.needs_rehash(user["password"]):
             user["password"] = await asyncio.to_thread(passwords.hash_password, password)
@@ -206,6 +266,8 @@ def create_router(service) -> APIRouter:
         data = await json_body(request)
         client = client_of(request)
         limited(login_limiter, client, spend=False)
+        if config.is_addon():
+            raise HTTPException(409, "Sign in with your Home Assistant username and password.")
         if accounts().has_users():
             raise HTTPException(409, "There is already an admin account. Sign in.")
         hashed = await new_hash(data)
@@ -259,7 +321,10 @@ def create_router(service) -> APIRouter:
         if request.headers.get("x-csrf-token") != p.csrf:
             raise HTTPException(403, "Reload the page and try again")
         hashed = await new_hash(await json_body(request))
-        accounts().set_password(p.user_id, hashed)  # signs out every browser of the user, this one too
+        try:
+            accounts().set_password(p.user_id, hashed)  # signs out every browser of the user, this one too
+        except AuthError as e:
+            fail(e)
         logger.info(f"Users: {accounts().user(p.user_id)['username']} chose a new password")
         return signed_in(request, p.user_id)
 
@@ -296,7 +361,10 @@ def create_router(service) -> APIRouter:
         if p.kind != "device" or not p.user_id:
             raise HTTPException(403, "Only a phone linked to a user can show a sign-in code")
         limited(code_limiter, p.device_id, spend=True)
-        code, expires = accounts().new_signin_code(p.user_id)
+        try:
+            code, expires = accounts().new_signin_code(p.user_id)
+        except AuthError as e:
+            fail(e)
         username = accounts().user(p.user_id)["username"]
         logger.info(f"Users: a one-time sign-in code for {username} was shown on a linked phone")
         return {"code": code, "expires_in": int(expires - service.clock()), "username": username}
@@ -324,7 +392,8 @@ def create_router(service) -> APIRouter:
             seen = max([d.get("last_seen") or "" for d in devices] + [u.get("last_seen") or ""]) or None
             users.append({"id": user_id, "username": u["username"], "role": u["role"],
                           "role_label": accounts_mod.ROLE_LABELS.get(u["role"], u["role"]), "you": user_id == p.user_id,
-                          "has_password": bool(u.get("password")), "ha": bool(u.get("ha_user_id")),
+                          "has_password": bool(u.get("password")), "ha": bool(u.get("ha")),
+                          "disabled": bool(u.get("disabled")),
                           "devices": devices, "last_seen": seen, "created": u.get("created")})
         users.sort(key=lambda u: (not u["you"], u["username"].lower()))
         unbound = [d for d in service.devices(None)]
@@ -359,9 +428,14 @@ def create_router(service) -> APIRouter:
         data = await json_body(request)
         if accounts().user(user_id) is None:
             raise HTTPException(404, "No such user.")
+        if accounts().user(user_id).get("ha"):
+            raise HTTPException(409, "Set in Home Assistant")
         hashed = await new_hash(data)
         p = p_of(request)
-        accounts().set_password(user_id, hashed, keep_session=p.session_id if user_id == p.user_id else None)
+        try:
+            accounts().set_password(user_id, hashed, keep_session=p.session_id if user_id == p.user_id else None)
+        except AuthError as e:
+            fail(e)
         logger.info(f"Users: password of {accounts().user(user_id)['username']} reset")
         return {"user": accounts().brief(user_id)}
 
@@ -411,7 +485,7 @@ def create_router(service) -> APIRouter:
 class UsersPlugin(BasePlugin):
     id = PLUGIN_ID
     name = "Users"
-    version = "1.0.1"
+    version = "1.0.2"
     description = "Accounts, sign-in and roles for Sonorium"
     author = "Sonorium"
     builtin = True
@@ -429,6 +503,12 @@ class UsersPlugin(BasePlugin):
         if accounts is None:
             accounts = Accounts(service)
             service.plugin_state[PLUGIN_ID] = accounts
+        if accounts.ha is None:
+            accounts.ha = ha_mod.directory_for(service)
+            if accounts.ha is not None:
+                accounts.ha.on_change = accounts.sync_ha
+                accounts.migrate_ha()
+                logger.info("Users: Home Assistant's users are Sonorium's users, with their role from Home Assistant")
         service.add_routes(PLUGIN_ID, create_router(service), PERMISSIONS)
         service.register_ui(PLUGIN_ID, self.plugin_dir / "web", js="users.js", css="users.css", version=self.version)
         service.register_authenticator(PLUGIN_ID, UsersAuth(accounts), provider=True)

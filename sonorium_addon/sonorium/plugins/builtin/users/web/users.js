@@ -219,7 +219,7 @@
         const open = ud.open.has(u.id) && u.devices.length > 0;
         return `<div class="us-row"><div class="sp-lrow us-grid">
             <button type="button" class="chev-btn us-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="Devices"${u.devices.length ? '' : ' disabled'} onclick="UsersUI.toggle(${arg(u.id)})">${svg(P_CHEV, 14)}</button>
-            <span class="us-name"><span class="sb-av">${esc(u.username.charAt(0).toUpperCase())}</span><span class="us-nm">${esc(u.username)}</span>${u.you ? '<span class="you">you</span>' : ''}</span>
+            <span class="us-name"><span class="sb-av">${esc(u.username.charAt(0).toUpperCase())}</span><span class="us-nm">${esc(u.username)}</span>${u.you ? '<span class="you">you</span>' : ''}${u.ha ? '<span class="us-ha">Home Assistant</span>' : ''}</span>
             <span class="badge us-role${u.role === 'admin' ? ' admin' : ''}">${esc(u.role_label || u.role)}</span>
             <span class="us-dim d">${u.devices.length}</span><span class="us-dim d">${esc(when(u.last_seen))}</span>
             <button type="button" class="icon-btn sm" aria-label="More" aria-haspopup="menu" onclick="UsersUI.menu(this, ${arg(u.id)})">${I_MORE}</button></div>
@@ -275,10 +275,10 @@
             const u = userOf(id);
             if (!u) return;
             const lastAdmin = u.role === 'admin' && ud.users.filter(x => x.role === 'admin').length === 1;
-            const note = lastAdmin ? 'Sonorium needs at least one admin.' : u.you ? 'You can’t remove your own account.' : '';
+            const note = u.ha ? 'Set in Home Assistant' : lastAdmin ? 'Sonorium needs at least one admin.' : u.you ? 'You can’t remove your own account.' : '';
             spMenu('us-' + id, button, `
-                <button type="button" class="mi"${lastAdmin ? ' disabled' : ''} onclick="UsersUI.setRole(${arg(id)}, '${u.role === 'admin' ? 'user' : 'admin'}')">${u.role === 'admin' ? 'Make User' : 'Make Admin'}</button>
-                <button type="button" class="mi" onclick="UsersUI.resetPassword(${arg(id)})">Reset password…</button>
+                <button type="button" class="mi"${lastAdmin || u.ha ? ' disabled' : ''} onclick="UsersUI.setRole(${arg(id)}, '${u.role === 'admin' ? 'user' : 'admin'}')">${u.role === 'admin' ? 'Make User' : 'Make Admin'}</button>
+                <button type="button" class="mi"${u.ha ? ' disabled' : ''} onclick="UsersUI.resetPassword(${arg(id)})">Reset password…</button>
                 <button type="button" class="mi" onclick="UsersUI.signOutAll(${arg(id)})">Sign out of every device</button>
                 <div class="msep"></div>
                 <button type="button" class="mi danger"${lastAdmin || u.you ? ' disabled' : ''} onclick="UsersUI.remove(${arg(id)})">Remove user…</button>

@@ -5,6 +5,8 @@ An authenticator is any object a plugin registers with
 AuthService.register_authenticator(plugin_id, authenticator). Every method is
 optional; the core calls them in this order for each request:
 
+    async prepare(listener, headers)  before the others, may wait (e.g. ask Home
+                                      Assistant who its users are)
     ingress(ctx, principal)           HA's sidebar (add-on): may return a Principal
                                       with the HA user's account (keep its perms)
     device(ctx, principal, record)    a linked phone: return the Principal it acts as,
@@ -15,6 +17,7 @@ optional; the core calls them in this order for each request:
                                       while Require login is off) or None
     me(ctx, principal) -> dict        extra fields for GET /api/auth/me
     user(user_id) -> dict | None      {"username", "role", "role_label"} of a user id
+    blocked(user_id) -> bool          the user is switched off: keys they made stop working
 
 With no authenticator registered, a request nobody recognised is "local":
 full access, which is Sonorium's behaviour without accounts.
