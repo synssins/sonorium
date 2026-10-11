@@ -1,0 +1,12 @@
+{
+  "id": "users",
+  "name": "Users",
+  "version": "1.0.0",
+  "description": "Accounts, sign-in and roles: who can use and change Sonorium",
+  "author": "Sonorium",
+  "entry_point": "plugin.py",
+  "plugin_class": "UsersPlugin",
+  "builtin": true,
+  "enabled_by_default": true,
+  "auth_provider": true
+}
