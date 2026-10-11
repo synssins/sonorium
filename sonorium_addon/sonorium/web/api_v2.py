@@ -428,7 +428,31 @@ def create_api_router(
         caller = _caller(http)
         sessions = [s for s in session_manager.list() if caller.can_channel(s.id)]
         return [_session_to_response(s, session_manager) for s in sessions]
-    
+
+    @router.get("/now-playing")
+    async def now_playing(http: Request) -> dict:
+        """
+        The playing channels as the mixer has them right now (the Status page
+        asks a few times a second while it is open): each track's state, mode,
+        level and the seconds until its next change (sonorium/now_playing.py).
+        "at" is the server's time of the snapshot (seconds since the epoch).
+        """
+        import time
+        from sonorium.now_playing import channel_now
+        caller = _caller(http)
+        channels = []
+        for session in session_manager.list():
+            if not caller.can_channel(session.id):
+                continue
+            try:
+                entry = channel_now(session_manager, session)
+            except Exception as e:
+                logger.debug(f"Now playing: '{session.name}' not read: {e}")
+                entry = None
+            if entry is not None:
+                channels.append(entry)
+        return {"at": round(time.time(), 3), "channels": channels}
+
     @router.post("/sessions", status_code=status.HTTP_201_CREATED)
     async def create_session(request: CreateSessionRequest) -> SessionResponse:
         """Create a new session."""

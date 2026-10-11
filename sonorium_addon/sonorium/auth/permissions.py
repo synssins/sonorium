@@ -195,6 +195,7 @@ POST    /api/channels/{channel_id}/stop                 ch.play
 POST    /api/channels/{channel_id}/volume               ch.change
 
 GET     /api/sessions                                   ch.view
+GET     /api/now-playing                                ch.view
 POST    /api/sessions                                   ch.add
 GET     /api/sessions/{session_id}                      ch.view
 PUT     /api/sessions/{session_id}                      ch.change

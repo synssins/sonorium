@@ -12,6 +12,7 @@ CSS under "PROPOSED", and the help text (`<p class="hi new">`).
 | `Sections.dc.html`, `Sections_Phone.dc.html` | The Theme Editor's track list in sections by playback type |
 | `Main.dc.html`, `Ebb_Flow_Phone.dc.html` | Ebb & Flow group mode, Pause between plays (group switch and track menu), two-knob Volume |
 | `Step_While.dc.html`, `Step_While_Phone.dc.html` | A sequence step's "While playing" view (Rise, Duration, Revert changes) |
+| `Now_Playing.dc.html`, `Now_Playing_Phone.dc.html` | Now playing on the Status page |
 
 ## Sections (the Theme Editor's track list)
 
@@ -110,3 +111,23 @@ override the board where they differ):
   with {"tracks": {key: {volume, volume_low, presence, muted, rise, pause_between, pause_min,
   pause_max}}, "groups": {name: {volume, presence, muted, gap_min, gap_max, pause_between, rise}}};
   every field listed, null = the preset's value. Channels on that step follow a save.
+
+## Now playing (the Status page)
+
+`Now_Playing.dc.html`, `Now_Playing_Phone.dc.html` (approved):
+
+- The Status page shows only the playing channels (idle ones are hidden): the Active Channels
+  tile (Total Speakers is gone), "Playing" with the count, a legend of the lights, then one card
+  per channel: theme icon, name, "theme · preset" (or "· sequence · Step 2 of 3: preset"), and
+  where it plays (its speakers, or "This browser" with the headphones icon).
+- In each card the tracks are grouped by section like the Theme Editor (Background,
+  Intermittent, Ebb & Flow; groups first, then the tracks outside groups). Columns: light ·
+  Name · Mode · Now · Level. Lights: Playing, Fading, Waiting, Paused, Muted. A group's mode is
+  One at a time, Every file at once or Merry-go-round.
+- Now gives exact countdowns: the wait, pause or gap the mixer picked ("Next in 0:38",
+  "Rising, 0:06", "Paused, back in 1:40"). An Intermittent group's row counts down to its next
+  turn; which file plays is picked when the gap ends ("Picking next" until then).
+- Level is a bar with the %; for Ebb & Flow the band behind it is the track's range.
+- A Server / As heard switch sits in the title bar where Refresh was. As heard delays the page
+  by the speakers' estimated buffer (the longest on a channel with several).
+- The page asks `GET /api/now-playing` five times a second while it is open and visible.

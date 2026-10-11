@@ -708,6 +708,7 @@ Status objects (PLAYBACK.md):
 | `POST /sessions/{id}/listen` | ch.play | none | `{"channel_id": 1, "stream_path": "/stream/channel1"}` | 404, 400 `"No theme selected"`/`"Theme not found"`, 409 `"No free channel"` |
 | `DELETE /sessions/{id}/listen` | ch.play | none | `{"status": "ok"}` | 404 |
 | `GET /sessions/{id}/playback` | ch.view | | `{session_id, sequence_id, preset_choice, playlist_id, sequence, playlist}` | 404 |
+| `GET /now-playing` | ch.view | | `{at, channels: [...]}`: the playing channels' tracks as the mixer has them (see below) | |
 | `POST /sessions/{id}/sequence` | pl.run | `{"sequence_id": "gentle_storm"}` | playback object | 400 missing id, 404, 409 |
 | `DELETE /sessions/{id}/sequence` | pl.run | | playback object | 404 |
 | `PUT /sessions/{id}/playlist` | pl.run | `{"playlist_id": "1a2b3c4d"}` | playback object | 400, 404, 409 |
@@ -729,6 +730,16 @@ Notes:
   `play` sets `is_playing` true immediately (optimistic).
 - `play` needs at least one speaker. The phone listening alone uses
   `listen` (section 9), not `play`.
+- **Now playing** (`GET /now-playing`, the web UI's Status page): one entry
+  per playing channel (speakers playing or a browser listening) with `id`,
+  `name`, `theme_name`, `preset_name`, `sequence` (`{name, step, steps}` or
+  null), `speakers`, `speakers_muted`, `listening`, `buffer_seconds` (the
+  speakers' estimated buffer, the longest of them) and `sections`
+  (`[{title, rows}]`). A row: `{type: "track"|"group", key, name, state:
+  "on"|"fade"|"wait"|"rest"|"off", mode, now, seconds, level, band}`; `now`
+  holds `{t}` where the countdown `seconds` goes ("Next in {t}"); `level` and
+  `band` are 0..1 (`band`: an Ebb & Flow track's range); a group has
+  `tracks`. Poll it only while the screen shows it.
 - **Advanced dialog of a sequence step** (`/themes/{id}/sequences/{seq}/transitions/{preset}`,
   `/while/{preset}`, `/transition_tracks`) is in PLAYBACK.md; the app can
   leave it to the web UI.
