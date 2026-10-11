@@ -119,7 +119,7 @@ Docker (host networking), Linux and Windows installs announce:
 | `api` | `1` | API version (section 11.3) |
 | `http` | `8008` | HTTP port |
 | `https` | `8808` | HTTPS port; empty string when HTTPS is off |
-| `pair` | `1` or `0` | **Unreliable; ignore it.** It's fixed at start from "a sign-in plugin is expected", not from Require login, and is `0` on a brand-new install even though sign-in is required. Read `login_required` from `/api/info` instead. |
+| `pair` | `1` or `0` | `1` while Require login is on (same as `/api/info.login_required`); it follows the setting within about 10 s. Older servers fixed it at start (often wrong), so the app still reads `login_required` from `/api/info` (G7). |
 | `version` | `1.6.2-dev.23` | Server version |
 | `url` | `http://192.168.1.25:8008` | The address speakers use |
 | `host` | `sonorium-2.local` | The mDNS name it got (empty if none) |
@@ -302,7 +302,9 @@ not built (AUTH.md).
   "login_required": true,
   "pair": true,
   "fingerprint": "43ac7768b9a7f1466231109553362e434deb751e90843f402446fc86d2e8123e",
-  "plugins": ["integration", "users"]
+  "plugins": ["integration", "users"],
+  "boot_id": "54615c1e5e5d4331a7b9cd713cd45918",
+  "ui": {"version": "1.6.2-dev.24", "host_api": 1}
 }
 ```
 
@@ -322,6 +324,8 @@ not built (AUTH.md).
 | `pair` | bool | Always `true`: the server supports linking. |
 | `fingerprint` | string or null | Certificate SHA-256 (hex). Null when HTTPS isn't available. Compare with the pinned value; for a typed address it's the value to show as words. |
 | `plugins` | string[] | The sign-in plugins that are on: `"users"` (accounts and roles) and/or `"integration"` (keys). Sorted. |
+| `boot_id` | string (32 hex) | New every time the server starts. A different value than last time = the server restarted: refetch everything; the event stream's ids carry it (8.3). Missing on servers before the field (G4). |
+| `ui` | `{version, host_api}` | The web UI the server serves: its version, and `host_api`, the version of its `window.SONORIUM_HOST` hooks (12.2.2). Missing: the server's UI has no hooks; use the bundled copy (12.3). |
 
 **Detecting the Users plugin:** `"users" in plugins`.
 - Present: accounts exist (or will on first visit), roles apply, `POST
@@ -514,10 +518,26 @@ never answers 401, so the app can always check the server is there.
 
   `DELETE` → `{"removed": true}`; 404 `{"detail": "No such device"}`; 403
   `{"detail": "Not allowed"}` (someone else's phone, not an admin).
-- **A phone can't remove itself today:** linked phones don't have `self`, so
-  both routes answer 403 to a device token. "Unlink" in the app can only
-  forget the token locally and tell the user to remove the phone in the web
-  UI. Gap G1 proposes `DELETE /api/devices/self`.
+- **A phone and its own record (G1):** linked phones don't have `self`, so
+  `GET /api/devices` answers 403 to a device token. A phone uses
+  `/api/devices/self` (permission `device`, only a linked phone; a browser
+  gets 403):
+
+  | Method | Body | Answer | Errors |
+  |---|---|---|---|
+  | `GET /api/devices/self` | | its row: `{"id", "name", "user_id", "platform", "model", "created", "last_seen"}` | |
+  | `PUT /api/devices/self` | `{"device_name": "Chris's phone"}` (`name` is accepted too) | the row with the new name (trimmed to 60 chars) | 400 `"A device_name is needed"` (missing or blank) |
+  | `DELETE /api/devices/self` | | `{"removed": true}`; the token stops working at once (the next call is 401 `pair`) | |
+
+  `DELETE /api/devices/{device_id}` also takes a phone's token, for its own
+  id only (403 `"Not allowed"` for any other phone, even of the same user).
+  "Unlink" in the app: `DELETE /api/devices/self`, then forget the token.
+
+  ```
+  GET /api/devices/self  → {"id": "t_5301c0783ecca0fe", "name": "Verify phone", "user_id": "u_71679933bec644d1",
+                            "platform": "android", "model": "Test", "created": "2026-10-11T22:08:11.520320+00:00",
+                            "last_seen": "2026-10-11T22:08:11.549219+00:00"}
+  ```
 - **Without the Users plugin:** there are no users, so "your phones" means
   every phone, and anyone who can reach the web UI can remove any of them.
   Phones linked earlier to a user keep their user id; while the plugin is off
@@ -582,7 +602,7 @@ middleware refuses before the handler runs. The app reads its own list from
 | `th.upload` | Create, upload into, import, delete themes |
 | `pl.view` / `pl.run` / `pl.edit` | Sequences and playlists: see / run on a channel / create and edit |
 | `sp.view` | Speakers, hierarchy, floors and areas (read), speaker groups (read), scans |
-| `sp.mute` | A channel's speakers-muted switch |
+| `sp.mute` | A channel's speakers-muted switch; a speaker's own volume and mute (G6) |
 | `sp.set` | Speaker settings, enabled speakers, manual speakers, groups, test sound |
 | `st.view` / `st.change` | Logs, HA cards / app settings, Advanced values, floors and areas, install features |
 | `ev.read` | The event stream and catalogue |
@@ -652,6 +672,7 @@ Errors follow section 11.1. Shapes were checked live unless marked
   "playlist": null,
   "speakers_muted": false,
   "listening": true,
+  "outputs": [],
   "recent": [{"at": "2026-10-11T21:03:18.046860+00:00", "text": "Speakers unmuted"}],
   "created_at": "2026-10-11T21:03:17.031646",
   "last_played_at": null
@@ -675,6 +696,7 @@ Errors follow section 11.1. Shapes were checked live unless marked
 | `sequence`, `playlist` | object or null | Status (below) |
 | `speakers_muted` | bool | The speakers' stream is silenced (listeners on the phone still hear it) |
 | `listening` | bool | Someone listens with `?local=1` (the web UI's Listen here, or the phone) |
+| `outputs` | output[] | Devices the app reports playing the channel (G2, section 9.5); `[]` when none |
 | `recent` | `[{at, text}]` | Latest changes, newest first |
 | `created_at`, `last_played_at` | string (naive local time) or null | |
 
@@ -705,8 +727,12 @@ Status objects (PLAYBACK.md):
 | `POST /sessions/stop-all` | ch.play | none | `{"stopped": 2}` | |
 | `POST /sessions/{id}/volume` | ch.change | `{"volume": 40}` (0-100) | `{"volume": 40}` | 404, 422 |
 | `PUT /sessions/{id}/speakers-muted` | ch.change or sp.mute | `{"muted": true}` | `{"speakers_muted": true}` | 404 |
-| `POST /sessions/{id}/listen` | ch.play | none | `{"channel_id": 1, "stream_path": "/stream/channel1"}` | 404, 400 `"No theme selected"`/`"Theme not found"`, 409 `"No free channel"` |
+| `POST /sessions/{id}/listen` | ch.play | none, or `{"hold_seconds": 0-300}` (or `?hold_seconds=`) | `{"channel_id": 1, "stream_path": "/stream/channel1", "hold_seconds": 15}` | 404, 400 `"No theme selected"`/`"Theme not found"`/`"hold_seconds must be between 0 and 300"`, 409 `"No free channel"` |
 | `DELETE /sessions/{id}/listen` | ch.play | none | `{"status": "ok"}` | 404 |
+| `GET /sessions/{id}/outputs` | ch.view | | `{"outputs": [output]}` | 404 |
+| `POST /sessions/{id}/outputs` | ch.play | `{kind?, name?, address?, receiver_id?}` | 201, output + stream fields (9.5) | 404, 400 bad field / no theme, 409 `"No free channel"` |
+| `PUT /sessions/{id}/outputs/{output_id}` | ch.play | none | heartbeat: output + stream fields | 404 `"Output not found"` (expired or dropped: POST again) |
+| `DELETE /sessions/{id}/outputs/{output_id}` | ch.play | none | `{"removed": true}` | 404 |
 | `GET /sessions/{id}/playback` | ch.view | | `{session_id, sequence_id, preset_choice, playlist_id, sequence, playlist}` | 404 |
 | `POST /sessions/{id}/sequence` | pl.run | `{"sequence_id": "gentle_storm"}` | playback object | 400 missing id, 404, 409 |
 | `DELETE /sessions/{id}/sequence` | pl.run | | playback object | 404 |
@@ -876,6 +902,8 @@ code; the test server had no playlists beyond an empty list.)*
 | `GET /speakers/{id}/settings` | sp.view | `{"speaker_id", "settings": {name?, room?, volume_offset?, play_via?}, "speaker": speaker}` |
 | `PUT /speakers/{id}/settings` | sp.set, **Admin** | `{name?, room?, volume_offset? (-20..20), play_via?}`; null resets one |
 | `POST /speakers/{id}/test` | sp.set, **Admin** | plays a 3 s chime at 20 % → `{"speaker_id", "playing": true, "seconds": 4.0}`; 409 busy, 502 failed |
+| `PUT /speakers/{id}/volume` | sp.mute | `{"volume": 0-100}` → `{"speaker_id", "volume"}`; 404 `"Speaker not found"`, 422 out of range, 502 `"The speaker didn't take the change"` |
+| `PUT /speakers/{id}/muted` | sp.mute | `{"muted": true}` → `{"speaker_id", "muted"}`; 404, 422, 502 as above |
 | `GET /settings/speakers` | sp.view | `{"enabled_speakers": [ids], "hierarchy": {...}}` (Settings › Speakers) |
 | `PUT /settings/speakers`, `POST /settings/speakers/enable|disable|enable-all|disable-all` | sp.set, **Admin** | switch speakers on/off |
 | `POST /speakers/manual/check`, `POST /speakers/manual`, `DELETE /speakers/manual/{id}` | sp.set, **Admin** | speakers by address (standalone) |
@@ -894,9 +922,23 @@ Speaker:
 `net:<type>:<uuid>`). Only speakers in `enabled_speakers` can be picked for
 a channel.
 
-**Speaker mute and volume:** there is no live per-speaker volume or mute.
-What exists: the channel's `volume`, the channel's `speakers-muted` switch,
-and the per-speaker `volume_offset` setting (Admin). Gap G6.
+**Speaker mute and volume (G6):** `PUT /speakers/{id}/volume` and `/muted`
+act on the speaker itself, now (a User's phone may: `sp.mute`). The
+channel's `volume` and `speakers_muted` don't change, and the speaker's
+`volume_offset` isn't added. A merged speaker is reached the way its
+`play_via` says. Home Assistant speakers use HA's `volume_set` and
+`volume_mute`; network speakers have no mute of their own, so muting sets
+their volume to 0 and unmuting gives back the volume they had (set through
+this route; 50 when none is known). Once set this way, `GET /speakers`
+lists `"volume"` and `"muted"` for that speaker; changes made elsewhere (the
+speaker's own buttons, HA) aren't followed, and a channel starting sets its
+speakers to the channel volume as before. In memory: a restart forgets them.
+
+```
+PUT /api/speakers/media_player.office/volume {"volume": 25} → {"speaker_id": "media_player.office", "volume": 25}
+PUT /api/speakers/media_player.office/muted  {"muted": true} → {"speaker_id": "media_player.office", "muted": true}
+GET /api/speakers → [{"entity_id": "media_player.office", "name": "Office", ..., "volume": 25, "muted": true}]
+```
 
 ### 7.5 Speaker groups
 
@@ -991,16 +1033,19 @@ Wire format (real capture):
 ```
 retry: 5000
 
-id: 8
+id: 54615c1e5e5d4331a7b9cd713cd45918:8
 event: channel.changed
-data: {"id": 8, "type": "channel.changed", "time": "2026-10-11T21:03:18.042403+00:00", "origin": "sonorium", "data": {"channel_id": "7c18b15c", "name": "Phone test", "changes": {"volume": 40}}}
+data: {"id": 8, "boot_id": "54615c1e5e5d4331a7b9cd713cd45918", "type": "channel.changed", "time": "2026-10-11T21:03:18.042403+00:00", "origin": "sonorium", "data": {"channel_id": "7c18b15c", "name": "Phone test", "changes": {"volume": 40}}}
 
-id: 11
+id: 54615c1e5e5d4331a7b9cd713cd45918:11
 event: channel.stopped
-data: {"id": 11, "type": "channel.stopped", "time": "2026-10-11T21:03:22.197558+00:00", "origin": "sonorium", "data": {"channel_id": "7c18b15c", "name": "Phone test", "reason": "stopped"}}
+data: {"id": 11, "boot_id": "54615c1e5e5d4331a7b9cd713cd45918", "type": "channel.stopped", "time": "2026-10-11T21:03:22.197558+00:00", "origin": "sonorium", "data": {"channel_id": "7c18b15c", "name": "Phone test", "reason": "stopped"}}
 
 : keep-alive
 ```
+
+- `id:` is `<boot_id>:<n>` (G4); the JSON keeps `id` as the number `n` and
+  adds `boot_id`. Older servers sent a bare `n`.
 
 - A `: keep-alive` comment every 15 s. Treat 45 s of silence as a dead
   connection.
@@ -1026,6 +1071,9 @@ data: {"id": 11, "type": "channel.stopped", "time": "2026-10-11T21:03:22.197558+
 | `channel.started` | `channel_id`, `name`, `theme_id`, `preset_id`, `volume`, `speakers` | Mark playing |
 | `channel.stopped` | `channel_id`, `name`, `reason`: `stopped`, `paused`, `idle`, `ended` | Mark stopped |
 | `channel.changed` | `channel_id`, `name`, `changes`: any of `theme_id`, `preset_id`, `sequence_id`, `playlist_id`, `volume`, `speakers_muted`, `name`, `speakers` | Apply `changes`, or refetch the channel |
+| `channel.listening` | `channel_id`, `name`, `listening` (true when the first listener comes, false when the last one goes) | Set the channel's `listening` (G3) |
+| `channel.output_added` | `channel_id`, `name`, `output_id`, `kind`, `output_name`, `address` | Add to the channel's `outputs` (G2) |
+| `channel.output_removed` | `channel_id`, `name`, `output_id`, `kind`, `output_name`, `address`, `reason`: `removed` (by the app), `expired` (no heartbeat), `replaced` (the same device reported again), `stopped`, `paused`, `idle`, `deleted` | Remove it; if it is the device this phone casts to, stop the Cast session (9.5) |
 | `sequence.step` | `channel_id`, `name`, `theme_id`, `sequence_id`, `step`, `steps`, `preset_id` | Refetch `/sessions/{id}/playback` (gives `next_change_at`) |
 | `playlist.entry` | `channel_id`, `name`, `playlist_id`, `position`, `entries`, `theme_id` | Same |
 | `speaker.added` / `speaker.removed` | `speaker_id`, `name` (+ `type` on added) | Refetch speakers |
@@ -1037,8 +1085,7 @@ data: {"id": 11, "type": "channel.stopped", "time": "2026-10-11T21:03:22.197558+
 | `schedule.fired`, `trigger.received`, `notification`, `error` | see PLUGIN_DEVELOPMENT.md | `notification` and `error` can be shown as in-app messages |
 | `plugin.<id>.<name>` | the plugin's | ignore |
 
-Not announced as events (poll or refetch): listening on/off (`listening`),
-playlist create/edit/delete, speaker group and floor/area changes, settings
+Not announced as events (poll or refetch): playlist create/edit/delete, speaker group and floor/area changes, settings
 changes, a sequence's `next_change_at` drift. Volume set through Home
 Assistant or MQTT does produce `channel.changed`.
 
@@ -1049,13 +1096,19 @@ Assistant or MQTT does produce `channel.changed`.
 - Send `Last-Event-ID: <last id seen>` on reconnect: the server replays
   matching events it still holds (the last 200), oldest first, then goes
   live.
-- **Event ids restart at 1 when the server restarts**, and there's no server
-  run id. So after a reconnect, if the first event's id is lower than the
-  one you sent, or you see `sonorium.started`, or `/api/info.version`
-  changed, refetch all state. Simplest safe rule: on every reconnect,
-  refetch `GET /sessions` once, then apply events. (Gap G4.)
+- **Event numbers restart at 1 when the server restarts**, so ids carry the
+  run: `<boot_id>:<n>` (G4). Send the last id back as it came. Same run: the
+  events after `n` are replayed. An id from an earlier run: every event of
+  the new run the server still holds is replayed (from `n` = 1), and the
+  frames' `boot_id` differs from the stored one: refetch all state, then
+  apply events. A bare `n` (older clients) is read as an id of the current
+  run.
+- Rule for the app: keep `boot_id` from `/api/info`; on reconnect, if the
+  first frame's `boot_id` (or `/api/info.boot_id`) differs, refetch
+  everything. Servers without `boot_id`: refetch `GET /sessions` once on
+  every reconnect.
 - If more than 200 events happened while away, replay is incomplete without
-  any marker; the refetch above covers it.
+  any marker; refetch after a long absence.
 
 ### 8.4 Polling fallback
 
@@ -1102,7 +1155,7 @@ When SSE can't be used (battery saver, widget refresh):
 | Framing | `Transfer-Encoding: chunked`, no `Content-Length`, no ICY metadata, no Range/seek |
 | Latency | A new listener joins at the live point with about 1.2 s buffered on the server (50 chunks of 1024 samples) |
 | Concurrent listeners | No limit in code; each listener has its own MP3 encoder (CPU per listener). Verified 3 at once, all at full rate. |
-| `?local=1` | A "listen here" listener: keeps the mix running without speakers (9.3) and **hears it even while the channel's speakers are muted** |
+| `?local=1` | A "listen here" listener: keeps the mix running without speakers (9.3) and **hears it even while the channel's speakers are muted**. Only for the phone's own player, never for a Cast device (9.4). |
 
 ### 9.3 Listening flow (phone)
 
@@ -1110,9 +1163,12 @@ A channel's mix only runs while its speakers play or someone listens. A
 plain `GET` on a slot that isn't playing returns 200 with **zero bytes** and
 closes at once.
 
-1. `POST /api/sessions/{id}/listen` → `{"channel_id": 1, "stream_path": "/stream/channel1"}`.
+1. `POST /api/sessions/{id}/listen` with `{"hold_seconds": 120}` →
+   `{"channel_id": 1, "stream_path": "/stream/channel1", "hold_seconds": 120}`.
    This starts the mix if the speakers aren't playing (it fades in), and
-   takes a slot (409 `"No free channel"` when all are busy).
+   takes a slot (409 `"No free channel"` when all are busy). `hold_seconds`
+   (0-300, default 15) is how long the mix waits for the phone's stream to
+   come back after it drops (G3); the app should send about 120.
 2. Play `http://<host>:<ports.http><stream_path>?local=1` with Media3
    ExoPlayer (progressive MP3; set a large `LoadControl` buffer, e.g. 5-10 s,
    for Wi-Fi blips). This needs cleartext HTTP to LAN addresses in the
@@ -1124,11 +1180,16 @@ closes at once.
 
 Disconnects and reconnects:
 
-- The server counts a `?local=1` listener as gone **15 s** after its last
-  connection closed (`LISTEN_RELEASE_SECONDS`). Within 15 s, the app just
-  reconnects to the same URL.
+- The server counts a `?local=1` listener as gone `hold_seconds` (default
+  **15 s**, `LISTEN_RELEASE_SECONDS`) after its last connection closed; it
+  checks every 10 s, so the release comes up to 10 s later. Within the hold,
+  the app just reconnects to the same URL. With several listeners the
+  longest hold asked for counts. Connect right after `POST .../listen`: the
+  hold counts from then.
 - After longer, or when the GET returns zero bytes / ends immediately, call
   `POST .../listen` again (the slot number may change) and reconnect.
+- `channel.listening {listening}` (8.2) is published when the first
+  listener comes and when the last one goes.
 - If the user pressed **Stop** for the speakers on another device, a channel
   that is also being listened to keeps its mix for the listener.
 - A slot whose only listeners are speakers (no `?local=1`) and that nobody
@@ -1141,32 +1202,83 @@ The phone does **not** appear as a speaker; the channel shows
 ### 9.4 Casting handoff (Free)
 
 The phone tells a Cast device to play the server's stream URL; the audio goes
-server to speaker.
+server to speaker, and the phone tells the server about it (9.5).
 
-1. Make sure the channel's mix runs and has a slot: either it is playing on
-   its speakers (`is_playing` and `channel_id` set), or call
-   `POST /sessions/{id}/listen`.
-2. Load `http://<host>:<ports.http>/stream/channel{N}` into the Cast Default
-   Media Receiver (Media3 `CastPlayer`; `MimeTypes.AUDIO_MPEG`, stream type
-   LIVE). Use the IP from `base`, not `sonorium.local` (Cast devices may not
-   resolve `.local`).
-3. Caveats with today's server:
-   - If the channel runs only because of `listen`, the Cast device's plain
-     URL is not a "local" listener: once the phone's own `?local=1`
-     connection has been gone 15 s, the server stops the mix and the Cast
-     device goes silent. **Workaround until G2 is built:** give the Cast
-     device the URL **with `?local=1`**. It then keeps the mix running
-     itself, as the phone would, but it also ignores the channel's
-     speakers-muted switch.
-   - The server doesn't know the Cast device is playing: the web UI and HA
-     show the channel as not playing (or only "listening"), and the device
-     isn't in the channel's speakers.
+1. `POST /api/sessions/{id}/outputs` with the Cast device (9.5). This starts
+   the channel's mix if nothing else runs it and answers with `stream_url`.
+2. Load `stream_url` into the Cast Default Media Receiver (Media3
+   `CastPlayer`; `MimeTypes.AUDIO_MPEG`, stream type LIVE). It is
+   `http://<the address speakers use>:<ports.http>/stream/channel{N}`: an IP,
+   not `sonorium.local` (Cast devices may not resolve `.local`).
+3. Every 60 s while it plays: `PUT .../outputs/{output_id}`. When the user
+   stops casting: `DELETE .../outputs/{output_id}`.
+4. On `channel.output_removed` for this output (the channel was stopped or
+   paused elsewhere, or the device pulled no audio for 90 s), stop the Cast
+   session.
 
-### 9.5 Reporting "Cast device X plays channel N": missing
+**Don't give the Cast device `?local=1`.** The plain URL is the speakers'
+stream: it follows the channel's speakers-muted switch, as every speaker
+does. `?local=1` is the phone's own listener and ignores that switch (checked
+live: with speakers muted the plain stream is silent, `?local=1` is not).
+Older servers without outputs (404 on `POST .../outputs`): `POST .../listen`
+and the plain URL; the mix then stops once the phone's own `?local=1`
+connection has been gone `hold_seconds`.
 
-There is no API for it. Gap G2 proposes one. Until then the server's view
-is wrong while the phone casts, and stopping the channel from the web UI
-doesn't stop the Cast device unless the stream ends.
+### 9.5 Reporting "Cast device X plays channel N" (G2)
+
+While an output is reported, the channel's mix runs with or without its
+speakers, and it isn't released when the phone's own listener goes. The web
+UI doesn't show outputs yet; the API and events do.
+
+`POST /api/sessions/{id}/outputs` · ch.play
+
+```json
+{"kind": "cast", "name": "Office display", "address": "192.168.10.249", "receiver_id": "a944ea78-85c9-670a-b8bb-295712de07b1"}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `kind` | string | Default `"cast"`. A short lowercase word (`[a-z][a-z0-9_-]{0,19}`) |
+| `name` | string | The device's name, trimmed to 60. Default `"Cast device"` |
+| `address` | string or null | Its IP, up to 100 chars |
+| `receiver_id` | string or null | The Cast device id (`CastDevice.deviceId`), up to 100 chars |
+
+The same device reported again (same `receiver_id`, or same `kind` and
+`address`), on this channel or another, replaces its earlier report
+(`channel.output_removed`, reason `replaced`): a device plays one stream. At
+most 10 outputs per channel (400).
+
+Answer 201 (live capture):
+
+```json
+{"output_id": "o_c4ad496bead1", "kind": "cast", "name": "Pretend display", "address": "192.0.2.10",
+ "receiver_id": "verify-1", "since": "2026-10-11T22:11:21.316793+00:00", "by_device_id": "t_0ddd6ea32a01f2a7",
+ "expires_in": 180, "channel_id": 1, "stream_path": "/stream/channel1",
+ "stream_url": "http://192.168.1.25:8008/stream/channel1", "heartbeat_seconds": 60, "expire_seconds": 180}
+```
+
+- `by_device_id`: the linked phone that reported it (null for a browser or
+  key). `expires_in`: seconds left without a heartbeat.
+- Errors: 404 `"Session not found"`; 400 a bad field, `"No theme selected"`,
+  `"Theme not found"`; 409 `"No free channel"`.
+
+`PUT /api/sessions/{id}/outputs/{output_id}` (ch.play, no body): the
+heartbeat; same answer (with the channel's current `channel_id`). Send it
+every `heartbeat_seconds`; an output not heard from for `expire_seconds`
+(three missed) is dropped (`reason: expired`) and the PUT answers 404
+`"Output not found"`: POST it again.
+
+`DELETE /api/sessions/{id}/outputs/{output_id}` (ch.play) →
+`{"removed": true}`; 404 when unknown. The mix fades out and the slot is
+freed when nothing else keeps it (speakers, a listener, another output).
+
+`GET /api/sessions/{id}/outputs` (ch.view) → `{"outputs": [output]}`; the
+channel object has the same list as `outputs`.
+
+Outputs are dropped when the channel is stopped (`reason: stopped`),
+paused (`paused`), deleted (`deleted`), or goes idle because nothing pulled
+its audio for 90 s (`idle`). They live in memory: a restart forgets them (a
+new `boot_id`); report again.
 
 ---
 
@@ -1245,10 +1357,12 @@ Flags the sign-in layer adds to error bodies:
 
 Exceptions to watch:
 
-- Some older theme and preset routes in `api.py` answer **200 with
-  `{"error": "..."}`** instead of an error status (`GET /themes/{id}`,
-  `PUT /themes/{id}/tracks/...`, `GET /channels/{n}` fallback). Check for an
-  `error` key on 200 answers from `/themes/...` routes.
+- Older theme, preset, category and channel routes in `api.py` used to
+  answer **200 with `{"error": "..."}`**. They now answer an error status
+  (G10): 404 `"... not found"`, 409 `"... already exists"`, 503 `"... not
+  initialized/available"`, 500 `"Failed ..."`, else 400, with the body
+  `{"detail": msg, "error": msg}`. Older servers: still check for an `error`
+  key on 200 answers from `/themes/...`, `/categories` and `/channels/...`.
 - `GET /stream/channel{N}` errors are plain text (404 `Channel N not found`,
   503 `Channel system not initialized`).
 - 409 is used for conflicts: duplicate names, nothing to skip, a busy
@@ -1343,7 +1457,6 @@ the `sonorium_session` cookie, with `X-CSRF-Token` added to changes.
 | `api.js:19-20` | `api()`: `${BASE_PATH}/api${endpoint}`, JSON. Used by almost every screen. Throws on non-2xx and on a 200 body with `error` |
 | `slots.js:70` | `GET /api/auth/me` (`credentials: 'same-origin'`), retried every 2 s while `starting` |
 | `slots.js:84` | `GET /api/ui/plugins` |
-| `app.js:123` | `POST /api/heartbeat` every 3 s (`app.js:105`). **This route no longer exists**: it answers 403 every 3 s. Remove it (G13). |
 | `app.js:4155` | `POST /api/themes/{id}/upload` (multipart) |
 | `app.js:5213` | `GET /api/themes/{id}/export` (zip, saved through a blob link) |
 | `app.js:5264` | `POST /api/themes/import` (multipart) |
@@ -1369,12 +1482,12 @@ Not `fetch` (the wrapper doesn't see them):
 There's no EventSource: the UI polls (`app.js:8204` channels every 15 s,
 `app.js:8205` a 1 s countdown, `app.js:6339` the speaker scan line).
 
-Calls the UI makes to routes this server doesn't have (left from the
-Windows app; they fail and the UI carries on): `GET /update/check`
-(`app.js:148`), `POST /update/*`, `GET /settings/audio-devices`
-(`app.js:6042`), `PUT /settings/audio-device`, `PUT /network-speakers/enabled`
-(`app.js:6199`), `POST /network-speakers/{id}/play|stop` (`app.js:6280`,
-`:6294`).
+The calls the UI made to routes this server doesn't have (`POST
+/api/heartbeat` every 3 s, `/update/*`, `/settings/audio-device(s)`,
+`/network-speakers/enabled` and `/{id}/play|stop`, left from the Windows
+app) are gone (G13); `tests/test_web_ui_routes.py` fails if the UI calls a
+route without a permission. Line numbers in this section are from
+1.6.2-dev.23, before that change.
 
 #### 12.2.1 What has to become configurable
 
@@ -1393,40 +1506,52 @@ Windows app; they fail and the UI carries on): `GET /update/check`
 6. **401 reload** (`slots.js:283-290`): a reload doesn't help a phone. On a
    401 with `pair: true` the host must take over (relink screen).
 
-#### 12.2.2 Smallest change to the web UI
+#### 12.2.2 The host hooks (G14, built)
 
-One optional object the app injects before any script runs. In a browser it
-doesn't exist and the UI behaves exactly as today.
+One optional object the app injects before any script runs
+(`WebViewCompat.addDocumentStartJavaScript`). In a browser it doesn't exist
+and the UI behaves exactly as before. Contract version 1:
+`GET /api/info` → `ui.host_api: 1` (`SONORIUM_HOST_API` in `static/js/api.js`).
 
 ```js
 window.SONORIUM_HOST = {
-  mode: 'server',                 // 'server' | 'offline'
-  baseUrl: '',                    // prefix for /api, /static, /plugin-ui ('' = same origin)
-  streamBase: 'http://192.168.1.20:8008',  // for /stream/... and Listen here
-  authHeader() { return null; },  // e.g. {Authorization: 'Bearer sd_...'}; null when the proxy adds it
-  // native hooks (12.5); each is optional
-  listen(sessionId, url, info) {},  // Listen here: native playback
-  stopListening(sessionId) {},
-  download(url, filename) {},
-  unlinked(body) {},              // 401 {"pair": true}
-  on(event, handler) {},          // events from the app (12.5)
-  emit(event, data) {},           // events to the app
+  mode: 'server',                        // informational: 'server' | 'offline'
+  baseUrl: '',                           // prefix for /api, /static, /plugin-ui, /logo.png ('' = same origin, the loopback proxy)
+  streamBase: 'http://192.168.1.20:8008',// prefix for /stream/... (Listen here, theme previews); unset: baseUrl
+  authHeader() { return null; },         // e.g. {Authorization: 'Bearer sd_...'}; null when the proxy adds it
+  // each of these is optional; without one the page does what a browser does
+  listen(sessionId, url, info) {},       // Listen here: url = streamBase + stream_path + '?local=1';
+                                         //   info = {name, themeName, channelId, volume (0-100)}
+  stopListening(sessionId) {},           // Listen here off (the page also sends DELETE .../listen)
+  setListenVolume(sessionId, volume) {}, // the card's volume slider while listening (0-100)
+  download(url, filename) {},            // absolute URL; filename '' = take it from Content-Disposition
+  unlinked(body) {},                     // a 401 with {"pair": true} from the server (called once)
+  on(event, handler) {},                 // the page registers: 'listening' {sessionId, playing}, 'refresh'
 };
 ```
 
-Code changes (all small, all no-ops without the object):
+What the page does with it:
 
-| Where | Change |
-|---|---|
-| `index.html:10` | `window.SONORIUM_BASE = (window.SONORIUM_HOST && SONORIUM_HOST.baseUrl) ?? <path rule>` |
-| `slots.js:271-292` (fetch wrapper) | Prefix relative `/api`, `/plugin-ui` URLs with `baseUrl`; merge `authHeader()`; on 401 `pair` call `unlinked(body)` instead of reloading |
-| `app.js:829-836` | If `SONORIUM_HOST.listen` exists, call it with `streamBase + stream_path + '?local=1'` instead of `new Audio` |
-| `app.js:5100`, `:9982` | Build preview URLs from `streamBase` when set |
-| `app.js:554`, `:5213`, `:5902` | Use `download()` when set |
-| `app.js:81`, `:95-127` | Remove the dead heartbeat |
+| Where | With the hook | Without (browser) |
+|---|---|---|
+| `index.html` head script | `SONORIUM_BASE = baseUrl` (trailing `/` dropped) | from the page's path (HA ingress) |
+| `slots.js` fetch wrapper | calls to the page's origin or `baseUrl`'s origin get `authHeader()`; a 401 `{"pair": true}` calls `unlinked(body)` instead of reloading | CSRF header, reload on a lost sign-in |
+| Listen here (`app.js` `chToggleListen`) | `POST .../listen`, then `listen(sessionId, url, info)`; the button shows on; off calls `stopListening(id)` and `DELETE .../listen` | `new Audio(url)` |
+| Theme preview, Theme Editor mix preview | `streamBase + /stream/<theme>` | `BASE_PATH + /stream/<theme>` |
+| Log download, theme export, HA cards download | `download(url, filename)` | `<a href>` / blob link |
+| `on('listening', {sessionId, playing})` | the card's Listen button follows the native player (e.g. paused from the lock screen) | |
+| `on('refresh')` | reloads the channels and redraws | |
 
-Changes to `index.html` and `app.js` are UI code changes, so they follow the
-UI change policy (only what the app needs; no visible change in a browser).
+When the native player stops by itself, the app sends `DELETE
+/api/sessions/{id}/listen` itself and tells the page with
+`listening {playing: false}`.
+
+Not routed through the hooks: track preview audio (`/api/themes/.../audio`,
+an API route: it goes to `baseUrl` like other API calls, so with a direct
+`baseUrl` it needs the proxy for its token), the plugin bundles (from
+`baseUrl`), and `logs.html` (a separate page).
+
+Checked by `tests/web_host_check.mjs` (run by `tests/test_web_host.py`).
 
 ### 12.3 Packaging in the app
 
@@ -1470,10 +1595,9 @@ Recommendation:
 - **Bundled copy**: for offline Pro, and as the fallback in server mode when
   the server's UI doesn't load (network error, or an `api` the app doesn't
   know). The bundle carries the server version it was taken from.
-- The app needs the hooks in 12.2.2 to be in the server's copy, so the
-  proxy approach requires a server that has them. Until there's a field for
-  it (G14: `/api/info.ui = {"version", "host_api": 1}`), the app uses the
-  bundled copy for servers older than the first version with the hooks.
+- The app needs the hooks in 12.2.2 to be in the server's copy: use the
+  server's UI when `/api/info.ui.host_api` is a version the app supports,
+  else (no `ui` field, or an unknown `host_api`) the bundled copy.
 
 **WebView settings** (androidx.webkit):
 
@@ -1604,87 +1728,97 @@ Read [UI_STYLE.md](UI_STYLE.md) before any native screen. In short:
 ## 13. Gaps the app will hit
 
 Prioritised. "Free" = needed for the Free MVP (remote and listening); "Pro"
-= needed for standalone/offline. Each has a proposed shape; none is built.
+= needed for standalone/offline. Built gaps say so and point to their
+section; the others have a proposed shape.
 
 ### Free MVP
 
-**G1. A phone can't unlink itself or see its own record.** (High)
-Phones lack `self`, so `GET/DELETE /api/devices` answer 403.
+Built on branch `app-gaps` (each gap's final shape is in the section named):
+G1, G2, G3, G4, G6, G7, G10, G13, G14. Not built: G5 (other than
+`channel.listening`), G8, G9, G11, G12.
+
+**G1. A phone sees, renames and unlinks itself. Built** (4.7).
 
 ```
-GET    /api/devices/self     perm: device   → {"id", "name", "user_id", "platform", "model", "created", "last_seen"}
-DELETE /api/devices/self     perm: device   → {"removed": true}   (the token stops working at once)
-PUT    /api/devices/self     perm: device   {"device_name"} → the record   (rename after the user renames the phone)
+GET    /api/devices/self   perm: device → {"id", "name", "user_id", "platform", "model", "created", "last_seen"}
+PUT    /api/devices/self   perm: device   {"device_name"} → the record
+DELETE /api/devices/self   perm: device → {"removed": true}   (the token stops working at once)
+DELETE /api/devices/{id}   now also perm device, for the phone's own id only
 ```
 
-**G2. Report casting: "Cast device X plays channel N".** (High)
+**G2. Report casting: "Cast device X plays channel N". Built** (9.4, 9.5).
 
 ```
-POST   /api/sessions/{id}/outputs          perm: ch.play
-       {"kind": "cast", "name": "Office display", "address": "192.168.10.249", "receiver_id": "<cast device id>"}
-       → 201 {"output_id": "o_1a2b", "channel_id": 1, "stream_url": "http://192.168.1.20:8008/stream/channel1?out=o_1a2b"}
-PUT    /api/sessions/{id}/outputs/{output_id}    perm: ch.play   {} → heartbeat (every 60 s; dropped after 3 missed)
-DELETE /api/sessions/{id}/outputs/{output_id}    perm: ch.play   → {"removed": true}
-GET    /api/sessions/{id}  → adds "outputs": [{"output_id", "kind", "name", "address", "since", "by_device_id"}]
-Events: channel.output_added / channel.output_removed {channel_id, output_id, kind, name}
+POST   /api/sessions/{id}/outputs               perm: ch.play  {"kind", "name", "address", "receiver_id"}
+       → 201 {"output_id": "o_c4ad496bead1", ..., "channel_id": 1, "stream_path": "/stream/channel1",
+              "stream_url": "http://192.168.1.25:8008/stream/channel1", "heartbeat_seconds": 60, "expire_seconds": 180}
+PUT    /api/sessions/{id}/outputs/{output_id}   perm: ch.play  → heartbeat (every 60 s; dropped after 180 s)
+DELETE /api/sessions/{id}/outputs/{output_id}   perm: ch.play  → {"removed": true}
+GET    /api/sessions/{id}/outputs               perm: ch.view  → {"outputs": [...]}
+GET    /api/sessions/{id}  → "outputs": [{"output_id", "kind", "name", "address", "receiver_id", "since", "by_device_id", "expires_in"}]
+Events: channel.output_added / channel.output_removed {channel_id, name, output_id, kind, output_name, address[, reason]}
 ```
 
-The returned `stream_url` (with `?out=`) keeps the mix running like a listen
-(no 15 s cut-off), counts toward `is_playing`-like state for the web UI and
-HA, and honours speakers-muted. Stopping the channel from anywhere ends the
-stream, so the Cast device stops too.
+Differences from the proposal: `stream_url` is the plain stream (no
+`?out=`): it is the speakers' stream, so speakers-muted applies without any
+stream change, and the phone's own `?local=1` stays the only listener that
+ignores it. The output keeps the mix running (no 15 s cut-off); stop, pause,
+delete and idle drop the outputs and announce it. `is_playing` is still the
+speakers' only; the web UI's channel card doesn't show outputs yet (a design
+board item), HA and MQTT don't either.
 
-**G3. A "listening" listener without the 15 s cut-off for flaky phones.** (Medium)
-Today a phone that loses Wi-Fi for more than 15 s loses the channel and must
-`POST /listen` again. Proposed: `POST /api/sessions/{id}/listen`
-accepts `{"hold_seconds": 120}` (max 600) and answers the same plus
-`"listen_id"`; `DELETE /listen` takes `?listen_id=`. Also an event
-`channel.listening {channel_id, listening: bool}`.
+**G3. A listener that survives Wi-Fi drops. Built** (9.3).
+`POST /api/sessions/{id}/listen` takes `{"hold_seconds": 0-300}` (or
+`?hold_seconds=`; default 15, as before) and answers it back. The longest
+hold asked for counts. No `listen_id`: `DELETE /listen` is unchanged. Event
+`channel.listening {channel_id, name, listening}`.
 
-**G4. Event ids restart with the server.** (Medium) Add a run id so replay is
-safe:
+**G4. Event ids restart with the server. Built** (3, 8.1, 8.3).
 
 ```
-GET /api/info → adds "boot_id": "<uuid per process start>"
-SSE frames:   id: <boot_id>:<n>   (Last-Event-ID in the same form; a different boot_id = refetch everything)
+GET /api/info → "boot_id": "<32 hex, new at every start>"
+SSE frames:   id: <boot_id>:<n>   (data JSON: "id": n, "boot_id")
+Last-Event-ID <boot_id>:<n>: replay after n; another run's id: replay all of this run's held events; bare n: as before
 ```
 
 **G5. Missing events.** (Medium) `playlist.created|changed|deleted
 {playlist_id}`, `group.changed {group_id}`, `spaces.changed`,
-`settings.changed {keys}`, `channel.listening` (G3). Each would carry ids
-only; the app refetches.
+`settings.changed {keys}`. Each would carry ids only; the app refetches.
+`channel.listening` is built (G3). Not built.
 
-**G6. Live per-speaker volume and mute.** (Medium; AUTH.md promises Users
-"mute and volume" for speakers.)
+**G6. Live per-speaker volume and mute. Built** (7.4).
 
 ```
 PUT /api/speakers/{id}/volume   perm: sp.mute   {"volume": 0-100} → {"speaker_id", "volume"}
 PUT /api/speakers/{id}/muted    perm: sp.mute   {"muted": true}   → {"speaker_id", "muted"}
-GET /api/speakers → adds "volume" and "muted" when known
+GET /api/speakers → adds "volume" and "muted" once set this way
 ```
 
-**G7. mDNS TXT `pair` is wrong.** (Low) It's fixed at start and is `0` on a
-new install that requires sign-in. Proposed: set it from Require login and
-re-announce when it changes, or drop the key. The app ignores it either way.
+404 unknown speaker, 422 bad body, 502 when the speaker doesn't take it.
+Network speakers mute by volume 0. Values set elsewhere aren't followed.
+
+**G7. mDNS TXT `pair`. Built** (1.2): it follows Require login (checked
+every 10 s, re-announced when it changes).
 
 **G8. Server name.** (Low) `n`, `name` and TXT `name` are always
 `"Sonorium"`, so two servers look alike. Proposed: a **Server name** setting
 (`PUT /api/settings {"server_name"}`, Admin), used in `/api/info.name`, the
-QR `n` and TXT `name`.
+QR `n` and TXT `name`. Not built.
 
 **G9. Capabilities list.** (Low) `/api/info` → `"capabilities": ["events",
 "listen", "pair_login", "recovery_code", "outputs", ...]`, so the app can
-light features without probing routes.
+light features without probing routes. Not built: until then, `boot_id` in
+`/api/info` marks a server with G1-G4, G6, G7, G10, G13 and G14.
 
-**G10. Legacy routes answering 200 `{"error"}`.** (Low) `GET /themes/{id}`,
-`PUT /themes/{id}/tracks/...` and the `api.py` `/channels` fallbacks should
-answer 404/400. The app works around it (11.1).
+**G10. Legacy routes answering 200 `{"error"}`. Built** (11.1): those
+routes of `/api/themes`, `/api/categories` and `/api/channels` answer
+404/409/503/500/400 with `{"detail", "error"}`.
 
 **G11. Typed pairing code without a camera.** (Low, planned in AUTH.md)
 HMAC exchange over the fingerprint:
 `POST /api/pair/challenge {"client_nonce"} → {"server_nonce", "server_proof"}`,
 `POST /api/pair {"code_proof", "client_nonce", ...}`, where proofs are
-`HMAC-SHA256(code, fp | nonces | role)`.
+`HMAC-SHA256(code, fp | nonces | role)`. Not built.
 
 **G12. Windows/Linux installs: theme IDs and paths.** (Low for the app, real
 for testers on Windows) On Windows, themes whose `metadata.json` has non-ASCII
@@ -1692,19 +1826,17 @@ text (an emoji icon) are registered under their folder name instead of their
 UUID (THEME_FORMAT.md Q11), so `POST /sessions/{id}/listen` and `play` answer
 400 `"Theme not found"` for them while `GET /themes` lists the UUID. Seen on
 the test server with Tavern and A Rainy Day; Sleigh Ride (no icon) worked.
-Docker and the add-on aren't affected.
+Docker and the add-on aren't affected. Not built (theme loading is being
+rewritten on another branch).
 
-**G13. The web UI's dead calls.** (Low) `POST /api/heartbeat` every 3 s
-(`app.js:105`, `:123`) answers 403; `/update/*`, `/settings/audio-device(s)`
-and `/network-speakers/enabled|{id}/play|{id}/stop` don't exist on this
-server. Remove them, or the app's proxy and the offline engine must answer
-them (404 is enough).
+**G13. The web UI's dead calls. Built**: removed (no visible change); the
+features were gone (updates come from HA, Docker or the Windows launcher;
+speakers are switched on in Settings › Speakers). The app's proxy and the
+offline engine needn't answer them.
 
-**G14. UI version and host hooks.** (Medium, needed before the app loads the
-server's UI) The `SONORIUM_HOST` hooks (12.2.2) in the web UI, and in
-`/api/info`: `"ui": {"version": "1.6.3", "host_api": 1}`, where `host_api`
-is the version of the hook contract, so the app knows whether the server's
-copy of the UI can run inside it.
+**G14. UI version and host hooks. Built** (12.2.2): the `SONORIUM_HOST`
+hooks in the web UI, and `/api/info` → `"ui": {"version": "1.6.2-dev.24",
+"host_api": 1}`.
 
 ### Pro
 
@@ -1788,11 +1920,42 @@ Assistant, no MQTT) on Windows, driven with `httpx`:
 - Switching the Users plugin off and on from an Admin's phone, and what
   phones and anonymous callers get meanwhile.
 
+The gaps built on `app-gaps` (1.6.2-dev.24 plus that branch, same kind of
+temp server, `httpx` over HTTPS with a phone token, the SSE stream read
+alongside):
+
+- `/api/info` `boot_id` and `ui` (HTTP and HTTPS); `/api/devices/self` GET,
+  PUT, DELETE (then 401 `pair`), a browser's 403.
+- `listen` with `hold_seconds` 400 (400) and 40: the phone's `?local=1`
+  stream decoded (RMS about 5400), closed; 25 s later the channel still had
+  its slot and `listening: true`; `DELETE /listen` released it.
+- Outputs: the phone listened, reported a pretend Cast output (a documentation
+  address, nothing contacted), stopped listening; the script pulled the plain
+  `stream_url` for 25 s and the mix kept running (RMS about 7300). With
+  speakers muted, the plain stream decoded to silence (RMS 0) while
+  `?local=1` didn't (RMS about 7100). Heartbeat, DELETE (mix released),
+  stop (outputs dropped).
+- Events: `channel.listening` on/off, `channel.output_added`,
+  `channel.output_removed` (`removed`, `stopped`); ids `<boot_id>:<n>`;
+  replay after `<boot_id>:<n>`; an unknown boot id replayed from event 1.
+- G10: `GET /api/themes/not-a-theme` and `/api/channels/99` → 404 with
+  `detail`.
+- G7: browsing `_sonorium._tcp` showed TXT `pair` 1, 0 after switching
+  Require login off, 1 again after switching it on (each within 12 s).
+- G13/G14: the web UI in a browser: no `/api/heartbeat` or `/update/check`
+  calls, Listen here still plays `/stream/channel1?local=1` through
+  `<audio>`, no `SONORIUM_HOST`. The hooks with a fake host: node test.
+- G6 only for an unknown speaker (404) and a bad body (422): no real
+  speaker's volume was changed. The rest is from unit tests with fake
+  Home Assistant and network controllers.
+
 Not run:
 
 - **Playing to real speakers or Cast**: the test channel had no speakers, so
-  `play`, speaker events and the Cast handoff (9.4), including the
-  `?local=1` workaround, are from the code only.
+  `play`, speaker events and a real Cast handoff (9.4) are from the code
+  only; outputs were checked with a pretend device. Output expiry (180 s)
+  and the 90 s idle drop are from unit tests.
+- **G6 on real speakers** (HA `volume_set`/`volume_mute`, network volume).
 - **The add-on** (ingress port, Supervisor addresses, port mappings) and
   **Docker**: from code. The live NAS server's `/api/info` and mDNS
   announcement were read.
