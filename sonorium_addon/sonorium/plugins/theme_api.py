@@ -123,17 +123,14 @@ def list_themes(audio_path: Path) -> list[dict]:
 def find_theme(audio_path: Path, theme_id: str) -> Optional[Path]:
     """
     The folder of a theme in audio_path, by its id (or its folder name), or
-    None. Only folders directly inside audio_path are ever returned, so a
-    value from a form can't point anywhere else.
+    None. The value is only compared with the themes found there (never used
+    as a path), so a value from a form can't point anywhere else.
     """
     if not isinstance(theme_id, str) or not theme_id.strip():
         return None
     theme_id = theme_id.strip()
-    root = Path(audio_path).resolve()
     by_name = None
     for folder in _theme_folders(audio_path):
-        if folder.resolve().parent != root:
-            continue  # a link out of audio_path
         raw = _read_metadata_raw(folder) or {}
         if raw.get("id") == theme_id:
             return folder
