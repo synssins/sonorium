@@ -48,7 +48,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 
 # Copy local sonorium source code
 COPY sonorium/ /app/sonorium/
-COPY setup.py pyproject.toml README.md /app/
+COPY README.md /app/
 
 # Copy logo and icon
 COPY logo.png icon.png favicon.png display.png /app/

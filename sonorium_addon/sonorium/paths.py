@@ -39,13 +39,5 @@ class PackagePaths:
         """Path to audio files."""
         return self.data / 'audio'
 
-    @cached_property
-    def example_700KB(self) -> Path:
-        return self.audio / 'file_example_MP3_700KB.mp3'
-
-    @cached_property
-    def gambling(self) -> Path:
-        return self.audio / 'A Good Bass for Gambling.mp3'
-
 
 paths = PackagePaths()
