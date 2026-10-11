@@ -53,6 +53,12 @@ async function init() {
         // Restore saved view or default to sessions
         let savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
         if (savedView === 'settings-connection' && !connectionSettings) savedView = 'sessions';
+        // A page this caller can't open (another user's last page, an uninstalled plugin's page)
+        if (!/^[a-z0-9-]+$/.test(savedView)) savedView = 'sessions';
+        const savedNav = document.querySelector(`[onclick="showView('${savedView}')"]`);
+        if (!document.getElementById('view-' + savedView) || (savedNav && savedNav.classList.contains('perm-hidden'))) {
+            savedView = 'sessions';
+        }
 
         // Always render sessions first (needed for session cards)
         renderSessions();
