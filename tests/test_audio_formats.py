@@ -22,6 +22,12 @@ from playback_helpers import RATE, addon_modules  # noqa: E402
 SECONDS = 2.0
 FREQ = 440.0
 
+# Sonorium's images build FFmpeg to read these formats but write only MP3, so
+# inside an image the files are made elsewhere first:
+#   python tests/test_audio_formats.py DIR
+# and SONORIUM_TEST_AUDIO=DIR points the test at them.
+MADE = os.environ.get("SONORIUM_TEST_AUDIO")
+
 # extension: (container format, codec, sample rate, layout, sample format, extra codec options)
 FORMATS = {
     ".mp3": ("mp3", "mp3", 44100, "stereo", "s16p", {}),
@@ -84,15 +90,27 @@ def test_accepted_formats_are_the_ones_checked():
         assert m.theme_files.AUDIO_EXTENSIONS == {".mp3", ".wav", ".flac", ".ogg"}
 
 
+def test_has_what_sonorium_reads_and_writes():
+    """The decoders, demuxers and MP3 encoder Sonorium's own FFmpeg build must keep (sonorium_addon/ffmpeg/build.sh)."""
+    for decoder in ("mp3float", "flac", "vorbis", "opus", "aac", "alac", "pcm_s16le", "pcm_s24le", "pcm_f32le"):
+        av.codec.Codec(decoder, "r")
+    assert {"mp3", "wav", "flac", "ogg", "mov,mp4,m4a,3gp,3g2,mj2"} <= av.formats_available
+    assert av.codec.Codec("mp3", "w").name == "libmp3lame"
+
+
 @pytest.mark.parametrize("ext", list(FORMATS))
 def test_decodes_with_pyav_alone(recording, tmp_path, no_programs, ext):
     container, codec, rate, layout, fmt, options = FORMATS[ext]
-    try:
-        av.codec.Codec(codec, "w")
-    except Exception:
-        pytest.skip(f"this PyAV build has no {codec} encoder to make the test file")
-    path = tmp_path / f"tone{ext}"
-    write_tone(path, container, codec, rate, layout, fmt, options)
+    if MADE:
+        path = Path(MADE) / f"tone{ext}"
+        assert path.exists(), f"{path} is missing: make the files with python tests/test_audio_formats.py DIR"
+    else:
+        try:
+            av.codec.Codec(codec, "w")
+        except Exception:
+            pytest.skip(f"this PyAV build has no {codec} encoder to make the test file")
+        path = tmp_path / f"tone{ext}"
+        write_tone(path, container, codec, rate, layout, fmt, options)
 
     samples = np.concatenate([np.asarray(b, dtype=np.float32).reshape(-1) for b in recording.decode_mono(path)])
     # Length: within an encoder's padding of the tone
@@ -105,3 +123,14 @@ def test_decodes_with_pyav_alone(recording, tmp_path, no_programs, ext):
     peak = np.argmax(spectrum) * RATE / len(middle)
     assert abs(peak - FREQ) < 3.0
     assert np.max(np.abs(middle)) > 0.2 * 32767
+
+
+if __name__ == "__main__":
+    # python tests/test_audio_formats.py DIR: make the test files in DIR
+    import sys
+
+    out = Path(sys.argv[1])
+    out.mkdir(parents=True, exist_ok=True)
+    for ext, spec in FORMATS.items():
+        write_tone(out / f"tone{ext}", *spec)
+        print(out / f"tone{ext}")
