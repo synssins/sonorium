@@ -718,38 +718,18 @@ class ThemeStream:
         return 1.0 if enabled else 0.0
 
     def __iter__(self):
-        output = av.open(file='.mp3', mode="w")
-        bitrate = 128_000
-        out_stream = output.add_stream(codec_name='mp3', rate=44100, bit_rate=bitrate)
-        iter_chunks = self.iter_chunks()
-
-        start_time = time.time()
-        audio_time = 0.0  # total audio duration sent
-
+        """
+        This mix as an MP3 byte stream for one listener (a theme's own
+        /stream/{id}), sent no faster than it plays (sonorium/mp3_out.py).
+        """
+        from sonorium.mp3_out import Mp3Encoder, RealtimePacer
+        encoder, pacer = Mp3Encoder(), RealtimePacer()
+        blocks = self.iter_chunks()
         try:
-            while True:
-                for i, data in enumerate(iter_chunks):
-                    frame = av.AudioFrame.from_ndarray(data, format='s16', layout='mono')
-                    frame.rate = 44100
-
-                    frame_duration = frame.samples / frame.rate
-                    audio_time += frame_duration
-
-                    for packet in out_stream.encode(frame):
-                        packet_bytes = bytes(packet)
-                        yield packet_bytes
-
-                    # Only sleep if we are ahead of real-time
-                    now = time.time()
-                    ahead = audio_time - (now - start_time)
-                    if ahead > 0:
-                        time.sleep(ahead)
-
-                    if i % LOG_THRESHOLD == 0:
-                        logger.debug(f'Waiting {ahead:.5f} seconds to maintain real-time pacing {audio_time=}...')
-
-
+            for block in blocks:
+                yield from encoder.encode(block)
+                pacer.advance(block.shape[-1] / SAMPLE_RATE)
         finally:
-            logger.info('Closing transcoder...')
-            iter_chunks.close()
-            output.close()
+            logger.info(f'ThemeStream "{self.label}": listener gone, MP3 stream closed')
+            blocks.close()
+            encoder.close()

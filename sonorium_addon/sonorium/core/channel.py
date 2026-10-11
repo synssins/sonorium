@@ -21,8 +21,8 @@ from typing import Optional, TYPE_CHECKING, Generator
 import numpy as np
 
 from sonorium.obs import logger
+from sonorium.mp3_out import Mp3Encoder, RealtimePacer
 from sonorium.recording import SAMPLE_RATE, CROSSFADE_SAMPLES
-import av
 
 if TYPE_CHECKING:
     from sonorium.theme import ThemeDefinition, ThemeStream
@@ -546,25 +546,12 @@ class Channel:
         """Background thread that generates audio chunks, paced in real time."""
         logger.debug(f"Channel {self.id}: Generator loop started")
 
-        start_time = time.time()
-        audio_time = 0.0
-
+        pacer = RealtimePacer()
         try:
             while self._generator_running and self.state == ChannelState.PLAYING:
                 chunk = self.next_chunk()
-
-                # Add to broadcast buffer (this notifies clients)
-                self._add_to_buffer(chunk)
-
-                # Maintain real-time pacing (crossfade chunks count too)
-                chunk_duration = chunk.shape[1] / SAMPLE_RATE
-                audio_time += chunk_duration
-
-                now = time.time()
-                ahead = audio_time - (now - start_time)
-                if ahead > 0:
-                    time.sleep(ahead)
-
+                self._add_to_buffer(chunk)  # every listener's stream picks it up from here
+                pacer.advance(chunk.shape[1] / SAMPLE_RATE)
         except Exception as e:
             logger.error(f"Channel {self.id}: Generator error: {e}")
         finally:
@@ -680,35 +667,21 @@ class ChannelStream:
         return (chunk.astype(np.float32) * ramp).astype(chunk.dtype)
 
     def __iter__(self):
-        output = av.open(file='.mp3', mode="w")
-        bitrate = 128_000
-        out_stream = output.add_stream(codec_name='mp3', rate=SAMPLE_RATE, bit_rate=bitrate)
-
+        """This listener's MP3 stream: every chunk the channel broadcasts from now on, as it is made."""
+        encoder = Mp3Encoder()
         try:
             while self.channel.state == ChannelState.PLAYING or self.channel._generator_running:
-                # Get new chunks from broadcast buffer
-                chunks = self.channel.get_chunks_since(self._last_sequence)
-
-                if chunks:
-                    self.channel.mark_listener_active()
-                    for seq, chunk in chunks:
-                        self._last_sequence = seq
-
-                        chunk = self._apply_mute(chunk)
-                        # Encode to MP3
-                        frame = av.AudioFrame.from_ndarray(chunk, format='s16', layout='mono')
-                        frame.rate = SAMPLE_RATE
-
-                        for packet in out_stream.encode(frame):
-                            yield bytes(packet)
-                else:
-                    # No new chunks - wait for notification (blocks until data or timeout)
-                    self.channel.wait_for_data(timeout=0.05)
-
+                fresh = self.channel.get_chunks_since(self._last_sequence)
+                if not fresh:
+                    self.channel.wait_for_data(timeout=0.05)  # woken as soon as the next chunk is in
+                    continue
+                self.channel.mark_listener_active()
+                for self._last_sequence, chunk in fresh:
+                    yield from encoder.encode(self._apply_mute(chunk))
         finally:
             logger.debug(f'Channel {self.channel.id}: Client stream closed')
             self.channel.client_disconnected(self.local)
-            output.close()
+            encoder.close()
 
 
 class ChannelManager:
