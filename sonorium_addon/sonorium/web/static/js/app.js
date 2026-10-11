@@ -417,7 +417,7 @@ function showView(viewName) {
     // Keep Settings menu expanded when on any settings page
     const settingsSection = document.getElementById('settings-nav-section');
     if (settingsSection) {
-        if (viewName.startsWith('settings')) {
+        if (viewName.startsWith('settings') || Sonorium.isPage(viewName)) {
             settingsSection.classList.add('expanded');
             const header = settingsSection.querySelector('.nav-section-header');
             if (header) {
