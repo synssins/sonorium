@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.41 (2026-10-11)
+
+### Documentation
+
+- Zones, the channel policy and the new UI slots
+  ([`5718e0b`](https://github.com/synssins/sonorium/commit/5718e0b1f9a21d3c1c4e76506eed7e62533a0ad5))
+
+### Features
+
+- **web**: Zones in the web UI
+  ([`46d0bf0`](https://github.com/synssins/sonorium/commit/46d0bf08fdbfdc4d7060ee0eee088a486f61f600))
+
+
 ## v1.6.2-dev.38 (2026-10-11)
 
 ### Bug Fixes
