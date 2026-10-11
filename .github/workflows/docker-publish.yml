@@ -86,8 +86,9 @@ jobs:
           image=$(echo "${{ steps.meta.outputs.tags }}" | cut -d, -f2)
           docker run -d --name smoke -p 8008:8008 "$image"
           for i in $(seq 1 45); do
-            if curl -fsS http://127.0.0.1:8008/api/connection > /tmp/conn.json; then
-              cat /tmp/conn.json; echo
+            # /api/info is public; a new install asks for its admin account before anything else
+            if curl -fsS http://127.0.0.1:8008/api/info > /tmp/info.json; then
+              cat /tmp/info.json; echo
               curl -fsS -o /dev/null http://127.0.0.1:8008/ && echo "web UI OK"
               docker logs smoke | tail -20
               exit 0
