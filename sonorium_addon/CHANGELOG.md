@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.20 (2026-10-11)
+
+### Continuous Integration
+
+- Smoke test checks the public /api/info
+  ([`d1fe367`](https://github.com/synssins/sonorium/commit/d1fe3675b5e0675c3ad99f2e88f9854da495d640))
+
+
 ## v1.6.2-dev.19 (2026-10-11)
 
 
