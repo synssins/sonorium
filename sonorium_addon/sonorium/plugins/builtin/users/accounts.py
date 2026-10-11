@@ -4,7 +4,7 @@ folder, outside the plugin's own folder so updates and reinstalls keep it.
 
     {"require_login": bool, "ha_users": 1,
      "users": {id: {username, role, password, created, last_seen,
-                    ha, ha_user_id, ha_username, disabled}}}
+                    ha, ha_user_id, ha_username, disabled, can_leave_link}}}
 
 Add-on: a Home Assistant user is a Sonorium user ("ha": true), one per HA
 user, found by HA's user id. Its role follows HA (ha.py)
@@ -21,8 +21,8 @@ Sonorium (with a Sonorium password) keep working alongside.
 New installs start with Require login on; an install that already had
 state.json (an upgrade) starts with it off until an admin turns it on.
 
-User ids never change, so channels, presets and playlists can name an owner
-later (zones: ownership, Kid mode, speaker homes).
+User ids never change, so channels can name an owner (zones.py). Whether a
+user may take their zone out of a link is can_leave_link (admins always may).
 """
 from __future__ import annotations
 
@@ -182,6 +182,12 @@ class Accounts:
         if user["role"] == "admin" and role != "admin" and self.admins() == [user_id]:
             raise AuthError("Sonorium needs at least one admin.", 409)
         user["role"] = role
+        self.save()
+
+    def set_can_leave_link(self, user_id: str, on: bool) -> None:
+        """Zones: may the user take their zone out of a link (Users & devices: Can leave a link)."""
+        user = self._require(user_id)
+        user["can_leave_link"] = bool(on)
         self.save()
 
     def set_password(self, user_id: str, password_hash: str, keep_session: Optional[str] = None) -> None:

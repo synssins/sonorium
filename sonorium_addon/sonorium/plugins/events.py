@@ -64,7 +64,8 @@ CATALOGUE: dict[str, dict] = {
     "channel.stopped": {
         "description": "A channel stopped playing on its speakers.",
         "fields": {"channel_id": "Channel id", "name": "Channel name",
-                   "reason": "stopped, paused, idle (no listener pulled audio) or ended (playlist finished)"},
+                   "reason": "stopped, paused, idle (no listener pulled audio), ended (playlist finished) or "
+                             "schedule (Kid mode's hours ended)"},
         "summary": "{name} stopped",
     },
     "channel.changed": {
@@ -134,7 +135,9 @@ CATALOGUE: dict[str, dict] = {
     "zone.home_changed": {
         "description": "A speaker has a new home channel (the one it was added to first).",
         "fields": {"speaker_id": "Speaker id", "channel_id": "The new home channel, or null",
-                   "name": "Its name, or null", "reason": "deleted (the old home went) or admin"},
+                   "name": "Its name, or null",
+                   "reason": "deleted (the old home was deleted), removed (the speaker was taken out of the old "
+                             "home) or admin (an admin chose it)"},
         "summary": "{speaker_id}: home is {name}",
     },
     "zone.schedule_ended": {
