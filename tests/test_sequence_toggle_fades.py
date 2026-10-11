@@ -57,10 +57,10 @@ def tones(tmp_path_factory):
 
 def make_theme(folder, names):
     theme = SimpleNamespace(id="t", name="t", groups={}, short_file_threshold=15.0,
-                            sonorium=SimpleNamespace(master_volume=1.0))
-    theme.instances = [m.recording.RecordingThemeInstance(m.recording.RecordingMetadata(folder / f"{n}.mp3", folder), theme)
+                            library=SimpleNamespace(master_volume=1.0))
+    theme.tracks = [m.recording.ThemeTrack(m.recording.AudioFile(folder / f"{n}.mp3", folder), theme)
                        for n in names]
-    theme.get_stream = lambda overrides=None: m.theme.ThemeStream(theme, overrides)
+    theme.new_mix = lambda overrides=None: m.theme.ThemeMix(theme, overrides)
     return theme
 
 
@@ -119,12 +119,12 @@ def test_preset_picked_by_hand_still_fades_tracks_over_three_seconds(tones):
 def test_ebb_and_flow_track_turned_on_again_restarts_from_its_beginning(tones):
     random.seed(3)
     theme = make_theme(tones, ["E"])
-    track = theme.instances[0]
+    track = theme.tracks[0]
     track.playback_mode = m.recording.PlaybackMode.PRESENCE
     track.presence = 0.0  # a short Duration: it comes back in quickly
     track.volume_low = track.volume  # both knobs together: a steady level
     channel = channel_on(theme, {})
-    assert isinstance(channel._theme_stream.recording_streams[0], m.recording.PresenceMixingStream)
+    assert isinstance(channel._theme_stream.sources[0], m.recording.PresenceMixingStream)
 
     playing = pull(channel, 12.0)  # past the file's first part
     full = envelope(playing, START_HZ)[:150].mean()
@@ -150,7 +150,7 @@ def test_ebb_and_flow_track_turned_on_again_restarts_from_its_beginning(tones):
 def test_ebb_and_flow_track_that_stays_on_is_not_restarted(tones):
     random.seed(3)
     theme = make_theme(tones, ["E", "A"])
-    track = theme.instances[0]
+    track = theme.tracks[0]
     track.playback_mode = m.recording.PlaybackMode.PRESENCE
     track.presence = 0.0  # a short Duration: it comes back in quickly
     track.volume_low = track.volume  # both knobs together: a steady level

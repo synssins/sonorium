@@ -62,17 +62,17 @@ def test_get_states_raises_on_error_reply(utils):
             utils.HomeAssistantClient(api_url="http://ha:8123/api", token="bad").get_states()
 
 
-def test_media_state_from_rest_state(utils):
-    """device.MediaState takes the REST state dicts as it took homeassistant_api's State models."""
-    # MediaState only needs dataclasses; read it out of device.py without the rest of Sonorium
+def test_media_player_from_rest_state(utils):
+    """device.HaMediaPlayer takes the REST state dicts as the states helper returns them."""
+    # HaMediaPlayer only needs typing; read it out of device.py without the rest of Sonorium
     source = (ADDON / "device.py").read_text(encoding="utf-8").replace("\r\n", "\n")
-    start = source.index("@dataclass\nclass MediaState")
-    end = source.index("@dataclass(kw_only=True)")
+    start = source.index("class HaMediaPlayer")
+    end = source.index("def _visible_folders")
     namespace = {}
-    exec("from dataclasses import dataclass, fields\nfrom typing import Self\n" + source[start:end], namespace)
-    MediaState = namespace["MediaState"]
+    exec("from typing import NamedTuple\n" + source[start:end], namespace)
+    HaMediaPlayer = namespace["HaMediaPlayer"]
 
-    players = [MediaState.from_state(s) for s in STATES if s.get("entity_id", "").startswith("media_player.")]
+    players = [HaMediaPlayer.from_ha(s) for s in STATES if s.get("entity_id", "").startswith("media_player.")]
     assert [(p.entity_id, p.state, p.friendly_name, p.supported_features) for p in players] == [
         ("media_player.nest_hub", "idle", "Nest Hub", 152463),
         ("media_player.no_name", "unavailable", "media_player.no_name", 0),

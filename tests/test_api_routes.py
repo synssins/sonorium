@@ -1,6 +1,6 @@
 """
-The web server after fmtr.tools' api.Base was replaced by sonorium/api_base.py:
-every route ApiSonorium and the v2 router had before is still there, in the
+The web app's routes (api.WebApp's table, registered through
+sonorium/web_server.py) and the v2 router's: every route is there, in the
 same order, with the same method, path and handler.
 
 APP_ROUTES and V2_ROUTES were recorded from origin/fixes (api.py on the real
@@ -216,14 +216,14 @@ def _exec(name, path):
 
 @pytest.fixture
 def m():
-    """api.py, api_base.py and web/api_v2.py with Sonorium's logger, themes and version stubbed."""
+    """api.py, web_server.py and web/api_v2.py with Sonorium's logger, themes and version stubbed."""
     package = types.ModuleType("sonorium")
     package.__path__ = [str(PACKAGE)]
     obs = types.ModuleType("sonorium.obs")
     obs.logger = logging.getLogger("sonorium-routes-test")
     obs.logger.instrument = lambda *a, **k: (lambda f: f)
     theme = types.ModuleType("sonorium.theme")
-    theme.ThemeDefinition = object
+    theme.LoadedTheme = object
     version = types.ModuleType("sonorium.version")
     version.__version__ = "test"
     logbuffer = types.ModuleType("sonorium.logbuffer")
@@ -248,25 +248,35 @@ def _rows(routes):
 
 
 def test_app_routes_unchanged(m):
-    app = m.api.ApiSonorium(MagicMock()).app
+    app = m.api.WebApp(MagicMock()).app
     assert _rows(app.routes) == APP_ROUTES
 
 
 def test_app_setup_unchanged(m):
-    api = m.api.ApiSonorium(MagicMock())
+    api = m.api.WebApp(MagicMock())
     app = api.app
     assert app.title == "Sonorium test Streaming API"
     assert app.docs_url == "/docs"
     assert app.swagger_ui_parameters == {"tryItOutEnabled": True}
-    assert api.HOST == "0.0.0.0"
-    assert api.PORT == (8008 if m.api.runtime.STANDALONE else 8080)
+    assert api.port == (8008 if m.api.runtime.STANDALONE else 8080)
     assert len(app.router.on_startup) == 1 and len(app.router.on_shutdown) == 1
     assert len(app.user_middleware) == 3  # cards CORS, legacy error statuses (web/legacy_errors.py), sign-in
-    config = api.config
-    assert (config.host, config.port, config.access_log) == (api.HOST, api.PORT, False)
+    config = api.main_listener()
+    assert (config.host, config.port, config.access_log, config.proxy_headers) == ("0.0.0.0", api.port, False, False)
     # Handler docstrings are the summaries in the API docs, as before
     route = next(r for r in app.routes if getattr(r, "path", None) == "/api/status")
     assert route.summary == route.description == ((api.status.__doc__ or "").strip() or None)
+
+
+def test_route_docs_unchanged(m):
+    """Every route's API docs entry: its handler's docstring as summary and description, in the untagged section."""
+    app = m.api.WebApp(MagicMock()).app
+    routes = [r for r in app.routes if type(r).__name__ == "APIRoute"]
+    assert len(routes) == sum(1 for row in APP_ROUTES if row[0] == "APIRoute")
+    for route in routes:
+        doc = (route.endpoint.__doc__ or "").strip() or None
+        assert route.summary == route.description == doc, route.path
+        assert route.tags == [None], route.path
 
 
 def test_v2_routes_unchanged(m):

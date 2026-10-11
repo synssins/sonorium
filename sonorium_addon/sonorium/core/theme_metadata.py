@@ -336,10 +336,10 @@ def _retire_intrusions(folder: Path, metadata: ThemeMetadata, doc: dict) -> bool
 def track_seconds(path: Path) -> Optional[float]:
     """A file's length in seconds, as playback reads it (None when playback can't be loaded)."""
     try:
-        from sonorium.recording import RecordingMetadata
+        from sonorium.recording import AudioFile
     except Exception:
         return None
-    return RecordingMetadata(Path(path)).duration_seconds
+    return AudioFile(Path(path)).duration_seconds
 
 
 def _track_file(folder: Path, metadata: ThemeMetadata, key: str, folder_for_id) -> Optional[Path]:
@@ -366,7 +366,7 @@ def _retire_auto(folder: Path, metadata: ThemeMetadata) -> bool:
     """
     "auto" is retired as a playback mode: once per theme, every track whose
     playback_mode is "auto" in metadata.json or in a preset gets the mode it
-    plays as (recording.RecordingThemeInstance._resolve_playback_mode): a
+    plays as (recording.ThemeTrack._resolve_playback_mode): a
     short file (under short_file_threshold) Intermittent ("sparse") when its
     presence is under 1, a long one Ebb & Flow ("presence"), else Background
     ("continuous"). Becoming Ebb & Flow, a track that plays its own mode (not

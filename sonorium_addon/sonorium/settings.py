@@ -1,23 +1,22 @@
 """
-Sonorium Settings - Configuration management.
-Standard pydantic settings.
+Sonorium's start-up settings, read once from the environment.
+
+The add-on's run.sh turns its options into SONORIUM__* variables; standalone,
+runtime.load_connection_into_env() does the same from the saved connection
+settings. Home Assistant's token comes from SUPERVISOR_TOKEN. Import
+`settings` from here; it is built when this module is first imported.
 """
-import asyncio
 import json
 import os
 import socket
 from pathlib import Path
-from typing import ClassVar
 
 import httpx
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings
 
 from sonorium import runtime
-from sonorium.client import ClientSonorium
-from sonorium.device import Sonorium
-from sonorium.paths import PackagePaths, paths
-from sonorium.utils import HomeAssistantClient
+from sonorium.paths import default_audio_dir
 
 
 # HA Constants
@@ -144,24 +143,31 @@ def apply_addon_env():
 
 
 class Settings(BaseSettings):
-    """Sonorium configuration settings."""
+    """What Sonorium starts with (see the module docstring). Field names are the variables' names after SONORIUM__."""
 
     model_config = {"env_prefix": "SONORIUM__", "env_nested_delimiter": "__"}
 
-    paths: ClassVar[PackagePaths] = paths
-
-    ha_core_api: str = Field(default=HA_URL_CORE_ADDON)
-    ha_supervisor_api: str = Field(default=HA_URL_SUPERVISOR_ADDON)
-
+    # Home Assistant's REST API and the Supervisor's (the add-on defaults), and the token for both
+    ha_core_api: str = HA_URL_CORE_ADDON
+    ha_supervisor_api: str = HA_URL_SUPERVISOR_ADDON
     token: str = Field(default="", alias=HA_SUPERVISOR_TOKEN_KEY)
 
+    # The address speakers fetch streams from ("auto": found by resolve_stream_url)
     stream_url: str = "auto"
-
-    # Default streaming port (matches config.yaml ports mapping)
+    # Port in that address when it is found automatically (config.yaml's port mapping)
     stream_port: int = 8008
 
-    # Maximum number of channels (1-10, configured in addon options)
+    # How many channels there are (1-10, an add-on option)
     max_channels: int = 6
+
+    # MQTT broker: "auto" (or none given) asks the Supervisor (client.find_mqtt_broker)
+    mqtt_host: str = "auto"
+    mqtt_port: int = 0  # 0: the broker's default
+    mqtt_username: str = ""
+    mqtt_password: SecretStr = SecretStr("")  # never printed or logged as text
+
+    # The folder of theme folders
+    path_audio: str = str(default_audio_dir())
 
     @model_validator(mode='after')
     def resolve_stream_url(self):
@@ -203,45 +209,14 @@ class Settings(BaseSettings):
 
         return self
 
-    name: str = Sonorium.__name__
 
-    # MQTT broker settings (auto-detect from Supervisor if not specified)
-    mqtt_host: str = "auto"
-    mqtt_port: int = 0  # 0 means auto-detect
-    mqtt_username: str = ""
-    # SecretStr ensures password is never logged/printed accidentally
-    mqtt_password: SecretStr = SecretStr("")
-
-    path_audio: str = str(paths.audio)
-
-    def run(self):
-        asyncio.run(self.run_async())
-
-    async def run_async(self):
-        from sonorium.obs import logger
-        from sonorium.paths import paths
-        from sonorium.version import __version__
-
-        logger.info(f'Launching sonorium {__version__=} from entrypoint.')
-        logger.debug(f'Stream URL: {self.stream_url}')
-        logger.debug(f'Max channels: {self.max_channels}')
-
-        logger.debug(f'Launching...')
-
-        client_ha = HomeAssistantClient(api_url=self.ha_core_api, token=self.token)
-        device = Sonorium(
-            client_ha=client_ha,
-            path_audio_str=self.path_audio,
-        )
-
-        client = ClientSonorium.from_supervisor(device=device)
-        await client.start()
+def load_settings() -> Settings:
+    """The environment first gets the add-on's options (or, standalone, the saved connection settings), then is read."""
+    if runtime.STANDALONE:
+        runtime.load_connection_into_env()
+    else:
+        apply_addon_env()
+    return Settings()
 
 
-# Apply addon options (or, in standalone mode, the saved connection settings)
-# as environment variables before settings are loaded
-if runtime.STANDALONE:
-    runtime.load_connection_into_env()
-else:
-    apply_addon_env()
-settings = Settings()
+settings = load_settings()

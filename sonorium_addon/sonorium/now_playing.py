@@ -23,7 +23,7 @@ from sonorium.recording import (
     CrossfadeRecordingStream,
     MerryGoRoundStream,
     PresenceMixingStream,
-    RecordingThemeStream,
+    HardLoopStream,
     SparsePlaybackStream,
 )
 
@@ -80,7 +80,7 @@ def section_of(stream) -> str | None:
         return "Intermittent"
     if isinstance(stream, PresenceMixingStream):
         return "Ebb & Flow"
-    if isinstance(stream, (CrossfadeRecordingStream, RecordingThemeStream, MerryGoRoundStream)):
+    if isinstance(stream, (CrossfadeRecordingStream, HardLoopStream, MerryGoRoundStream)):
         return "Background"
     return None
 
@@ -227,13 +227,13 @@ def _bed(bed: MerryGoRoundStream) -> dict:
 
 def mix_now(mix) -> list[dict]:
     """
-    A playing mix (theme.ThemeStream) as sections of rows, in the order of
+    A playing mix (theme.ThemeMix) as sections of rows, in the order of
     the Theme Editor: Background, Intermittent, Ebb & Flow; in each, the
     groups first, then the tracks outside groups. Empty sections are left out.
     """
     sections: dict[str, list] = {s: [] for s in SECTIONS}
     groups: dict[tuple, dict] = {}
-    for stream in list(getattr(mix, "recording_streams", ()) or ()):
+    for stream in list(getattr(mix, "sources", ()) or ()):
         section = section_of(stream)
         if section is None:
             continue

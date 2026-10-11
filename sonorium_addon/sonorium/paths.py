@@ -1,43 +1,13 @@
-"""
-Sonorium Paths - Path management for the addon.
-Package and data paths.
-"""
-from functools import cached_property
+"""Where Sonorium keeps things on disk when the settings don't say."""
 from pathlib import Path
 
-
-class PackagePaths:
-    """
-    Manages paths for the Sonorium package.
-    """
-
-    def __init__(self, name: str = "sonorium"):
-        self._name = name
-
-    @cached_property
-    def name_ns(self) -> str:
-        """Package namespace name."""
-        return self._name
-
-    @cached_property
-    def package(self) -> Path:
-        """Path to the package directory."""
-        return Path(__file__).parent
-
-    @cached_property
-    def data(self) -> Path:
-        """Path to the data directory."""
-        # In HA addon context, data is at /config/sonorium
-        # In development, use package/data
-        config_path = Path("/config/sonorium")
-        if config_path.exists():
-            return config_path
-        return self.package / "data"
-
-    @cached_property
-    def audio(self) -> Path:
-        """Path to audio files."""
-        return self.data / 'audio'
+PACKAGE_DIR = Path(__file__).parent
+# The add-on's share for Sonorium (Home Assistant's /config); in a development
+# checkout, which has none, a folder inside the package stands in for it
+ADDON_SHARE = Path("/config/sonorium")
 
 
-paths = PackagePaths()
+def default_audio_dir() -> Path:
+    """The folder of theme folders when SONORIUM__PATH_AUDIO names none."""
+    share = ADDON_SHARE if ADDON_SHARE.exists() else PACKAGE_DIR / "data"
+    return share / "audio"

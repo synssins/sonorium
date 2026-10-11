@@ -51,7 +51,7 @@ if TYPE_CHECKING:
     from sonorium.ha.media_controller import HAMediaController
     from sonorium.core.channel import ChannelManager, Channel
     from sonorium.core.theme_metadata import ThemeMetadataManager
-    from sonorium.theme import ThemeDefinition
+    from sonorium.theme import LoadedTheme
     from sonorium.utils import IndexList
 
 
@@ -70,7 +70,7 @@ class SessionManager:
         media_controller: HAMediaController = None,
         stream_base_url: str = None,
         channel_manager: ChannelManager = None,
-        themes: IndexList[ThemeDefinition] = None,
+        themes: IndexList[LoadedTheme] = None,
         theme_metadata_manager: ThemeMetadataManager = None,
     ):
         self.state = state_store
@@ -111,7 +111,7 @@ class SessionManager:
         """Set the stream base URL."""
         self.stream_base_url = url.rstrip("/")
     
-    def set_themes(self, themes: IndexList[ThemeDefinition]):
+    def set_themes(self, themes: IndexList[LoadedTheme]):
         """Update themes reference (called after theme refresh)."""
         self.themes = themes
         logger.info(f"  SessionManager: Updated themes reference ({len(themes)} themes)")
@@ -138,8 +138,8 @@ class SessionManager:
         import json
         if self.themes and len(self.themes) > 0:
             first_theme = self.themes[0]
-            if hasattr(first_theme, 'sonorium') and hasattr(first_theme.sonorium, 'path_audio'):
-                for folder in first_theme.sonorium.path_audio.iterdir():
+            if hasattr(first_theme, 'library') and hasattr(first_theme.library, 'audio_dir'):
+                for folder in first_theme.library.audio_dir.iterdir():
                     metadata_path = folder / "metadata.json"
                     if folder.is_dir() and metadata_path.exists():
                         try:
@@ -174,8 +174,8 @@ class SessionManager:
         import json
         if self.themes and len(self.themes) > 0:
             first_theme = self.themes[0]
-            if hasattr(first_theme, 'sonorium') and hasattr(first_theme.sonorium, 'path_audio'):
-                for folder in first_theme.sonorium.path_audio.iterdir():
+            if hasattr(first_theme, 'library') and hasattr(first_theme.library, 'audio_dir'):
+                for folder in first_theme.library.audio_dir.iterdir():
                     metadata_path = folder / "metadata.json"
                     if folder.is_dir() and metadata_path.exists():
                         try:
@@ -368,7 +368,7 @@ class SessionManager:
 
         # Apply preset settings to live theme instances
         applied_count = 0
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name in preset_tracks:
                 settings = preset_tracks[inst.name]
                 inst.volume = settings.get("volume", 1.0)
@@ -390,7 +390,7 @@ class SessionManager:
         logger.info(f"  Applied preset '{preset_id}' to theme '{theme.name}' ({applied_count} tracks)")
         return True
 
-    def get_theme(self, theme_id: str) -> Optional[ThemeDefinition]:
+    def get_theme(self, theme_id: str) -> Optional[LoadedTheme]:
         """Get a theme by ID, handling both UUID-based and folder-based IDs."""
         if not self.themes:
             return None
@@ -408,8 +408,8 @@ class SessionManager:
         if hasattr(self, 'themes') and self.themes and len(self.themes) > 0:
             # Get path from first theme's sonorium device
             first_theme = self.themes[0]
-            if hasattr(first_theme, 'sonorium') and hasattr(first_theme.sonorium, 'path_audio'):
-                audio_path = first_theme.sonorium.path_audio
+            if hasattr(first_theme, 'library') and hasattr(first_theme.library, 'audio_dir'):
+                audio_path = first_theme.library.audio_dir
             else:
                 return None
         else:
@@ -858,7 +858,7 @@ class SessionManager:
             group = getattr(instance.meta, "group", None)
             return bool(group) and group_mode(groups.get(group)) == GROUP_MODE_MERRY_GO_ROUND
 
-        return step_plans(list(theme.instances),
+        return step_plans(list(theme.tracks),
                           self.session_overrides(session, from_preset) if from_preset else {},
                           self.session_overrides(session, to_preset),
                           step_in, step_out, to_preset, from_preset or "",

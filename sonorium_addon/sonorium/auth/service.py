@@ -52,7 +52,7 @@ class AuthService:
         self.registry = P.PermissionRegistry()
         self.authenticators: dict[str, object] = {}
         self.ui_bundles: dict[str, dict] = {}
-        self.app = None                       # the FastAPI app (set by ApiSonorium)
+        self.app = None                       # the FastAPI app (set by api.WebApp)
         self._routers: set[str] = set()       # plugins whose routers are in the app
         self.ready = False                    # plugins loaded (or failed): see expected_providers
         self.expected_providers: set[str] = set()

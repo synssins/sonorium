@@ -12,7 +12,7 @@ from test_crossfade_loop import recording  # noqa: E402  (loads recording.py on 
 
 def theme_track(name="Rain", volume=1.0):
     meta = SimpleNamespace(name=name, is_short_file=lambda threshold: False)
-    track = recording.RecordingThemeInstance(meta)
+    track = recording.ThemeTrack(meta)
     track.volume = volume
     return track
 
@@ -80,14 +80,14 @@ def test_finished_mixes_are_not_kept(monkeypatch):
         "theme_under_test", Path(__file__).resolve().parents[1] / "sonorium_addon" / "sonorium" / "theme.py")
     theme_mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(theme_mod)
-    theme = theme_mod.ThemeDefinition.__new__(theme_mod.ThemeDefinition)
-    theme.name, theme.instances, theme.groups = "T", [], {}
-    theme.streams = __import__("weakref").WeakSet()
-    mix = theme.get_stream()
-    assert len(theme.streams) == 1
+    theme = theme_mod.LoadedTheme.__new__(theme_mod.LoadedTheme)
+    theme.name, theme.tracks, theme.groups = "T", [], {}
+    theme.live_mixes = __import__("weakref").WeakSet()
+    mix = theme.new_mix()
+    assert len(theme.live_mixes) == 1
     del mix
     gc.collect()
-    assert len(theme.streams) == 0  # a finished mix is freed, not kept forever
+    assert len(theme.live_mixes) == 0  # a finished mix is freed, not kept forever
 
 
 def test_a_preset_saves_and_plays_its_groups_gap():

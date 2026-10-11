@@ -41,15 +41,15 @@ def values():
 def theme_of(folder, tracks, groups=None):
     """A theme definition as refresh_themes builds one: tracks = [(file stem, group or None, settings)]."""
     theme = SimpleNamespace(name="Storm", groups=groups or {}, short_file_threshold=15.0,
-                            sonorium=SimpleNamespace(master_volume=1.0))
-    theme.instances = []
+                            library=SimpleNamespace(master_volume=1.0))
+    theme.tracks = []
     for stem, group, settings in tracks:
         path = folder / group / f"{stem}.mp3" if group else folder / f"{stem}.mp3"
-        meta = m.recording.RecordingMetadata(path, folder)
-        instance = m.recording.RecordingThemeInstance(meta, theme)
+        meta = m.recording.AudioFile(path, folder)
+        instance = m.recording.ThemeTrack(meta, theme)
         for key, value in settings.items():
             setattr(instance, key, value)
-        theme.instances.append(instance)
+        theme.tracks.append(instance)
     return theme
 
 
@@ -78,8 +78,8 @@ def test_an_intermittent_track_counts_down_to_its_next_play(tmp_path):
     folder.mkdir()
     tone_mp3(folder / "Owl.mp3", 2.0, 440)
     random.seed(5)
-    mix = m.theme.ThemeStream(theme_of(folder, [("Owl", None, {"playback_mode": m.recording.PlaybackMode.SPARSE})]))
-    chunks = mix.iter_chunks()
+    mix = m.theme.ThemeMix(theme_of(folder, [("Owl", None, {"playback_mode": m.recording.PlaybackMode.SPARSE})]))
+    chunks = mix.blocks()
     next(chunks)
 
     # The first wait (a random part of the 5 s wait): exact to the chunk
@@ -110,8 +110,8 @@ def test_a_group_counts_down_to_its_next_turn(tmp_path, monkeypatch):
     theme = theme_of(folder, [("Crack A", "Thunder", {}), ("Crack B", "Thunder", {}),
                               ("Crack C", "Thunder", {"is_enabled": False})],
                      groups={"Thunder": {"gap_min": 6, "gap_max": 6}})
-    mix = m.theme.ThemeStream(theme)
-    chunks = mix.iter_chunks()
+    mix = m.theme.ThemeMix(theme)
+    chunks = mix.blocks()
     next(chunks)
 
     group = rows(mix)["Thunder"]
@@ -146,8 +146,8 @@ def test_ebb_and_flow_shows_its_move_its_level_and_its_band(tmp_path):
     random.seed(2)
     settings = {"playback_mode": m.recording.PlaybackMode.PRESENCE, "presence": 0.0, "volume": 0.8,
                 "volume_low": 0.2}
-    mix = m.theme.ThemeStream(theme_of(folder, [("Wind", None, settings)]))
-    chunks = mix.iter_chunks()
+    mix = m.theme.ThemeMix(theme_of(folder, [("Wind", None, settings)]))
+    chunks = mix.blocks()
     next(chunks)
     row = rows(mix)["Wind"]
     assert (row["section"], row["mode"], row["state"]) == ("Ebb & Flow", "Ebb & Flow", "on")
@@ -170,8 +170,8 @@ def test_ebb_and_flow_with_pauses_counts_down_to_each_change(tmp_path):
     random.seed(4)
     settings = {"playback_mode": m.recording.PlaybackMode.PRESENCE, "presence": 0.0, "volume": 0.9,
                 "volume_low": 0.3, "pause_between": True, "pause_min": 3.0, "pause_max": 3.0}
-    mix = m.theme.ThemeStream(theme_of(folder, [("Gust", None, settings)]))
-    chunks = mix.iter_chunks()
+    mix = m.theme.ThemeMix(theme_of(folder, [("Gust", None, settings)]))
+    chunks = mix.blocks()
     next(chunks)
     seen = set()
     for _ in range(12):
@@ -190,13 +190,13 @@ def test_a_track_muted_mid_play_fades_then_shows_muted(tmp_path):
     folder.mkdir()
     tone_mp3(folder / "Rain.mp3", 20.0, 330)
     theme = theme_of(folder, [("Rain", None, {"volume": 0.5})])
-    mix = m.theme.ThemeStream(theme)
-    chunks = mix.iter_chunks()
+    mix = m.theme.ThemeMix(theme)
+    chunks = mix.blocks()
     next(chunks)
     row = rows(mix)["Rain"]
     assert (row["section"], row["mode"], row["state"], row["now"], row["level"]) == \
         ("Background", "Background", "on", "Playing", 0.5)
-    theme.instances[0].is_enabled = False
+    theme.tracks[0].is_enabled = False
     next(chunks)
     next(chunks)
     assert (rows(mix)["Rain"]["state"], rows(mix)["Rain"]["now"]) == ("fade", "Fading out")
@@ -239,12 +239,12 @@ def test_now_playing_lists_only_playing_channels(tmp_path):
         folder.mkdir()
         tone_mp3(folder / "Rain.mp3", 20.0, 330)
         theme = SimpleNamespace(name="Storm", groups={}, short_file_threshold=15.0,
-                                sonorium=SimpleNamespace(master_volume=1.0))
-        theme.instances = [mods.recording.RecordingThemeInstance(
-            mods.recording.RecordingMetadata(folder / "Rain.mp3", folder), theme)]
-        t.channel._theme_stream = mods.theme.ThemeStream(theme)
+                                library=SimpleNamespace(master_volume=1.0))
+        theme.tracks = [mods.recording.ThemeTrack(
+            mods.recording.AudioFile(folder / "Rain.mp3", folder), theme)]
+        t.channel._theme_stream = mods.theme.ThemeMix(theme)
         t.channel.current_theme_name = "Storm"
-        next(t.channel._theme_stream.iter_chunks())
+        next(t.channel._theme_stream.blocks())
 
         body = client.get("/api/now-playing").json()
         [channel] = body["channels"]

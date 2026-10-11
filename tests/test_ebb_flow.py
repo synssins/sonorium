@@ -54,7 +54,6 @@ def test_rise_shapes_the_way_up():
 
 class Ones:
     """A base stream of a steady tone level, so the output is the Ebb & Flow gain."""
-    CHUNK_SIZE = CHUNK
 
     def __init__(self, instance=None):
         self.instance = instance
@@ -131,7 +130,7 @@ def test_a_group_without_its_toggle_leaves_each_file_to_its_own():
 
 def test_track_view_in_an_ebb_flow_group():
     theme = SimpleNamespace(groups={"Waves": {"mode": "ebb_flow", "pause_between": True, "volume": 0.5}})
-    inst = recording.RecordingThemeInstance(SimpleNamespace(name="Waves/One", group="Waves", is_short_file=lambda t: True), theme)
+    inst = recording.ThemeTrack(SimpleNamespace(name="Waves/One", group="Waves", is_short_file=lambda t: True), theme)
     inst.volume_low = 0.4
     view = recording.TrackView(inst, {})
     assert view.playback_mode == recording.PlaybackMode.PRESENCE  # even a short file
@@ -164,7 +163,7 @@ def test_a_sudden_rise_goes_up_quicker_than_it_comes_down():
 
 def test_an_ebb_flow_group_can_set_one_rise_for_every_file():
     theme = SimpleNamespace(groups={"Wind": {"mode": "ebb_flow", "rise": 0.9}})
-    inst = recording.RecordingThemeInstance(SimpleNamespace(name="Wind/A", group="Wind", is_short_file=lambda t: False), theme)
+    inst = recording.ThemeTrack(SimpleNamespace(name="Wind/A", group="Wind", is_short_file=lambda t: False), theme)
     inst.rise = 0.1
     assert recording.TrackView(inst, {}).rise == 0.9
     theme.groups["Wind"].pop("rise")
@@ -172,7 +171,7 @@ def test_an_ebb_flow_group_can_set_one_rise_for_every_file():
 
 
 def test_an_unassigned_file_does_not_play():
-    inst = recording.RecordingThemeInstance(SimpleNamespace(name="New", group=None, is_short_file=lambda t: False))
+    inst = recording.ThemeTrack(SimpleNamespace(name="New", group=None, is_short_file=lambda t: False))
     inst.playback_mode = recording.PlaybackMode.UNASSIGNED
-    stream = inst.get_stream()
+    stream = inst.open_stream()
     assert isinstance(stream, recording.SilentTrackStream) and not next(stream).any()

@@ -66,7 +66,7 @@ def _run(tmp_path, monkeypatch, duration_error=0):
     monkeypatch.setattr(recording.av, "open", lambda *a, **k: opens.append(1) or real_open(*a, **k))
 
     stream = CrossfadeRecordingStream(instance)
-    chunks = int(LOOPS * (n - CROSSFADE_SAMPLES) / stream.CHUNK_SIZE)
+    chunks = int(LOOPS * (n - CROSSFADE_SAMPLES) / recording.BLOCK_SAMPLES)
     rms = np.array([np.sqrt(np.mean(next(stream).astype(np.float64) ** 2)) for _ in range(chunks)])
     return len(opens), rms
 

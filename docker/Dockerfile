@@ -8,9 +8,10 @@
 
 FROM python:3.12-slim
 
-# ffmpeg: audio decoding/encoding; util-linux: setpriv (drop to PUID/PGID)
+# util-linux: setpriv (drop to PUID/PGID). No ffmpeg package: PyAV's wheel
+# brings its own FFmpeg libraries for decoding and encoding audio.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg util-linux \
+    && apt-get install -y --no-install-recommends util-linux \
     && rm -rf /var/lib/apt/lists/*
 
 # Same Python dependencies and pins as the add-on (sonorium_addon/Dockerfile).
