@@ -9869,16 +9869,18 @@ const PAGE_HELP = {
         ${helpTerm('Theme', 'the sound the channel plays. Picking another theme also picks that theme\'s default preset, if it has one.')}
         ${helpTerm('Preset', 'a saved mix of the theme\'s tracks. Default settings plays the theme without a preset.')}
         ${helpTerm('Sequences', 'listed in the Preset menu after the presets, marked with the sequence icon. Picking one plays its presets in turn; the line under the field shows the preset playing now and when it changes. Picking a preset stops it.')}
-        ${helpTerm('Playlist', 'a channel can play a playlist instead of one theme: in Edit, choose Playlist. The card then shows the playlist and the entry playing now.')}
+        ${helpTerm('Playlist', 'a channel can play a playlist instead of one theme: press the playlist button right of the fields. The fields then show the playlist and the entry playing now.')}
         ${helpTerm('Theme or playlist', 'the two buttons right of the fields. The palette plays a theme (Theme and Preset); the playlist icon plays a playlist (Playlist and Playing).')}
-        ${helpTerm('Next', 'plays the playlist\'s next entry now.')}
+        ${helpTerm('Now', 'the line under the fields: the sequence step or playlist entry playing and when the next one starts.')}
+        ${helpTerm('Next', 'skips to the sequence\'s next step or the playlist\'s next entry now. It works while the speakers play or this device listens.')}
         ${helpTerm('Speakers', 'where the channel plays. Use Edit to change them.')}
-        ${helpTerm('Volume', 'the channel\'s volume. It is saved when you let go of the slider.')}
-        ${helpTerm('Play / Pause', 'starts or stops the channel on its speakers.')}
+        ${helpTerm('Volume', 'the speakers\' volume. It is saved when you let go of the slider.')}
+        ${helpTerm('Speaker button', 'left of the Volume slider. Mutes the speakers: the sound sent to them goes silent, on any kind of speaker. Red while muted; press it again to unmute. Speakers may take a few seconds to go quiet. This device keeps playing if it listens.')}
+        ${helpTerm('Headphones button', 'plays the channel on this device too, even while its speakers are stopped. Press it again to stop. The slider beside it sets the volume on this device only; the speakers keep theirs.')}
+        ${helpTerm('Play / Stop', 'starts or stops the channel on its speakers. Stop is red. This device keeps playing if it listens.')}
         ${helpTerm('Edit', 'changes the channel\'s name, theme or playlist, preset, volume and speakers.')}
         ${helpTerm('Delete', 'removes the channel. You confirm first.')}
-        ${helpTerm('Listen here', 'the headphones button plays the channel on this device too, even while its speakers are stopped. Press it again to stop. Play and Stop are for the speakers.')}
-        ${helpTerm('Recent changes', 'the channel\'s latest changes with their times: started, stopped, theme, preset, sequence step, playlist entry.')}
+        ${helpTerm('Recent changes', 'the channel\'s latest changes with their times: started, stopped, muted, theme, preset, sequence step, playlist entry.')}
         <h4>New channel</h4>
         ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it after the theme and speakers.')}
         ${helpTerm('Speakers', 'pick floors, areas or single speakers. Only speakers turned on under Settings › Speakers are listed.')}
@@ -9900,7 +9902,7 @@ const PAGE_HELP = {
         ${helpTerm('Fit sequences into the playlist time', 'a sequence entry plays for the playlist\'s time like any other entry, with its steps shortened or lengthened to fit.')}
         ${helpTerm('Reorder', 'drag an entry, or use its ⋯ menu.')}
         <h4>Playing one</h4>
-        ${helpTerm('Channel', 'in a channel\'s Edit, choose Playlist. Next on the channel card skips to the next entry.')}` },
+        ${helpTerm('Channel', 'on a channel\'s card, press the playlist button right of the fields and pick the playlist. Next on the card skips to the next entry.')}` },
 
     themes: { title: 'Themes', html: `
         <p>A theme is a set of tracks (sound files) mixed together. Every theme is listed here.</p>
