@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.9 (2026-10-11)
+
+### Features
+
+- **ambient-mixer**: Random channels' presence follows the global Wait between plays (3.1.2)
+  ([`2244e02`](https://github.com/synssins/sonorium/commit/2244e021ccbe6e3788c900b83cb3a427324e8173))
+
+- **playback**: Global playback values (Settings > Advanced) read live by the mixer
+  ([`6bf1b16`](https://github.com/synssins/sonorium/commit/6bf1b16a61e4acfbb7c76ab00ed4f4547fc9ad6e))
+
+- **ui**: Settings > Advanced shows the playback values, always in the menu
+  ([`b377acd`](https://github.com/synssins/sonorium/commit/b377acdd5e84af61a816b8836be51a741fc9bf10))
+
+### Testing
+
+- **playback**: Playback values' defaults, persistence, API checks and the mixer following a change
+  ([`b2ad55d`](https://github.com/synssins/sonorium/commit/b2ad55de102b28979fc7b565a6a5c881126dacba))
+
+
 ## v1.6.2-dev.8 (2026-10-11)
 
 ### Bug Fixes
