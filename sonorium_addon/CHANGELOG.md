@@ -2,6 +2,65 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.5 (2026-10-11)
+
+### Bug Fixes
+
+- **ambient-mixer**: Real playback modes, gapless loop and theme picked by id (3.1.0)
+  ([`407d9f4`](https://github.com/synssins/sonorium/commit/407d9f4f70e1a02cb88a6e0bc01bab47c14a8a40))
+
+- **plugins**: Find_theme compares ids and names only, so symlinked theme folders work
+  ([`4722c13`](https://github.com/synssins/sonorium/commit/4722c1354c18f913dcfa6b385aa34eb2db024863))
+
+- **plugins**: Mark the bundled plugins as built-in
+  ([`38baa61`](https://github.com/synssins/sonorium/commit/38baa614c235e075dd3ae9bf20f5a77bbb027245))
+
+### Chores
+
+- **ambient-mixer**: Add the package marker the downloadable zip has
+  ([`98f58e6`](https://github.com/synssins/sonorium/commit/98f58e67cf94c2cd35743c8bb3e6971dffe7f3f5))
+
+- **plugins**: Rebuild downloadable zips for Ambient Mixer 3.1.0 and Theme Merge 2.0.0
+  ([`9a1266e`](https://github.com/synssins/sonorium/commit/9a1266ebfabc6e08698c463a7f783ffcd64c5879))
+
+### Features
+
+- **api**: Rescan themes after a plugin action and call the theme hooks
+  ([`b4b03e6`](https://github.com/synssins/sonorium/commit/b4b03e6d6a760a193aa71bc7146a1df27a2fd057))
+
+- **plugins**: Documented settings schema with validation and defaults
+  ([`24e2497`](https://github.com/synssins/sonorium/commit/24e2497e3a27d0fa293d6e09166c0dd4f830bcc4))
+
+- **plugins**: Theme helper can add files that aren't tracks
+  ([`ee6ca24`](https://github.com/synssins/sonorium/commit/ee6ca2409a44f7fcd0ce2baee8dfbf9265d105da))
+
+- **plugins**: Theme helper so plugins never write theme JSON themselves
+  ([`90daa49`](https://github.com/synssins/sonorium/commit/90daa4951bb45af4361cbdd98abbd6104555f311))
+
+- **plugins**: Update bundled plugins when the bundled version is newer
+  ([`a0da8e0`](https://github.com/synssins/sonorium/commit/a0da8e0e390cdb3800697c96cdd98276f4b72b04))
+
+- **theme-merge**: Rewrite for Themes 2.0 (2.0.0)
+  ([`85d7cf1`](https://github.com/synssins/sonorium/commit/85d7cf1c94b27fc1f0f2453ac53ee42ce460ce07))
+
+### Testing
+
+- **ambient-mixer**: Mode mapping, seamless_loop and imports without network
+  ([`7de4850`](https://github.com/synssins/sonorium/commit/7de485033f5167e2c7ae462504fb68e56b9834a0))
+
+- **plugins**: Catalog zips match the bundled plugins
+  ([`be1c23e`](https://github.com/synssins/sonorium/commit/be1c23e67d41fb93a635f617f6c956b931a79563))
+
+- **plugins**: Settings schema, bundled updates, rescan after actions
+  ([`4b2926a`](https://github.com/synssins/sonorium/commit/4b2926a0d7edaccaf8099f2abe3fc1ed9427489d))
+
+- **plugins**: Theme helper writes clean 2.0 themes and rolls back
+  ([`ed785e3`](https://github.com/synssins/sonorium/commit/ed785e3c863686cc2dc74dec850188230468d3e1))
+
+- **theme-merge**: New theme, into either source, groups, links, presets
+  ([`594d77f`](https://github.com/synssins/sonorium/commit/594d77f33b3ec75ed5574dbc30085f37b76ba516))
+
+
 ## v1.6.2-dev.4 (2026-10-11)
 
 
