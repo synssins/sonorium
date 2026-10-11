@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.40 (2026-10-11)
+
+### Documentation
+
+- Ebb & Flow described as minimum/maximum volume with Duration and Rise; breeze and gust
+  screenshots; What's new without layout details
+  ([`f74a70c`](https://github.com/synssins/sonorium/commit/f74a70c8c44a3cbb205a0fc423834558527e2e43))
+
+
 ## v1.6.1-dev.39 (2026-10-11)
 
 ### Documentation
