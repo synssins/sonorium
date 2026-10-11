@@ -3740,7 +3740,7 @@ button.pk-row { cursor: pointer; }
 .ch-play { flex: 1; justify-content: center; min-height: 40px; gap: .375rem; }
 @media (max-width: 760px) {
     .session-grid.ch-grid { grid-template-columns: minmax(0, 1fr); }
-    .ch-card { height: 420px; }
+    .ch-card { height: 472px; }  /* the larger touch targets need room for three Recent changes lines */
     .ch-src { grid-template-columns: 56px minmax(0, 1fr) 44px; grid-template-rows: 44px 44px; }
     .ch-pick { min-height: 44px; height: 44px; }
     .ch-mode { width: 44px; height: 44px; }

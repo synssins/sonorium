@@ -65,8 +65,18 @@ exactly the same size (fixed height), three per row on desktop, one on a phone:
 - A "Now" line, always there: "Step 2 of 2: <b>OH S***</b> · next in 3:12" with a Next button
   for a sequence; "Entry 2 of 5 · next in 12:40" with Next for a playlist; otherwise
   "No sequence or playlist" (muted).
-- Volume slider and percentage.
-- "Recent changes": the channel's last events with their times (started, stopped, theme,
+- The sequence icon is the three shapes only (square, triangle, circle), no arrows.
+- Two volume rows, each with a 36×32 box on the left:
+  - **Speakers**: the speaker box is a mute button. Muted, it turns red (like Stop) and shows the speaker
+    icon with a line through it; the speakers' stream goes silent (Sonorium silences what network clients
+    get, so it works on any device), a browser listening keeps hearing it. Unmuted, it is accent while the
+    channel plays. The slider is the speakers' volume.
+  - **This device**: the headphones box is a button that starts and stops listening in this browser
+    (`POST`/`DELETE /api/sessions/{id}/listen`, then the channel stream with `?local=1`). Accent while
+    listening. The slider sets the volume on this device only (kept in the browser), not the speakers'.
+  - Listening and the speakers are independent: start on headphones, add speakers, press Play and they join
+    the same stream; Stop stops the speakers only. Next works while only a browser listens.
+- "Recent changes": the channel's last events with their times (started, stopped, muted, theme,
   preset, sequence step, playlist entry; not Ebb & Flow movement), in a fixed-height box.
 - A full-width Play button at the bottom, accent coloured; while playing it is Stop, highlighted
   in red (btn-danger), not grey. A playing block has an accent border.
