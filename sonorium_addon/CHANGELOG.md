@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.34 (2026-10-11)
+
+### Bug Fixes
+
+- **channels**: One browser leaving keeps the mix for others; volume ramps stay in range; matching
+  speaker and headphones boxes; listening fails quietly without audio
+  ([`b36d3c6`](https://github.com/synssins/sonorium/commit/b36d3c69c057db52ab1d252029dcc27ce254ee6f))
+
+
 ## v1.6.1-dev.33 (2026-10-11)
 
 ### Code Style
