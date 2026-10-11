@@ -2964,7 +2964,6 @@ function openThemeEditModal(themeId) {
         themeId, tracks: [], groups: [], groupsOk: true,
         icon: theme.icon ? resolveThemeIcon(theme.icon, themeId) : '',
         cats: [...(theme.categories || [])], catText: '', catHi: 0, catFocus: false,
-        threshold: theme.short_file_threshold ?? null,
         closed: {}, presets: [], sequences: [], seqDefaults: null, selPreset: '', mixDirty: false, mixSnap: null,
         upload: null, renaming: null, confirmDel: null, drag: null, pk: null,
     });
@@ -3069,7 +3068,6 @@ function teDetailsSnap() {
         te.icon,
         document.getElementById('te-desc').value.trim(),
         te.cats,
-        te.threshold,
     ]);
 }
 
@@ -3095,12 +3093,6 @@ function tePickIcon(icon) {
     te.icon = icon;
     teRenderIcon();
     teCloseMenu();
-    teDetailsChanged();
-}
-
-function teSetThreshold(input) {
-    const value = input.value === '' ? null : Math.max(0, parseFloat(input.value));
-    te.threshold = Number.isFinite(value) ? value : null;
     teDetailsChanged();
 }
 
@@ -3223,7 +3215,7 @@ function teCatKey(event) {
     }
 }
 
-// Save theme: name, icon, description, categories and the short file threshold
+// Save theme: name, icon, description and categories
 async function teSaveTheme(quiet = false) {
     const themeId = te.themeId;
     if (!themeId) return false;
@@ -3242,9 +3234,6 @@ async function teSaveTheme(quiet = false) {
             await api('PUT', `/themes/${themeId}/rename`, { name });
         }
         const body = { description, icon: te.icon || '' };
-        if (te.threshold !== null && te.threshold !== (theme?.short_file_threshold ?? null)) {
-            body.short_file_threshold = te.threshold;
-        }
         await api('PUT', `/themes/${themeId}/metadata`, body);
         await api('POST', `/themes/${themeId}/categories`, { categories: [...te.cats] });
         if (theme) {
@@ -3252,7 +3241,6 @@ async function teSaveTheme(quiet = false) {
             theme.description = description;
             theme.icon = te.icon || null;
             theme.categories = [...te.cats];
-            if (body.short_file_threshold !== undefined) theme.short_file_threshold = te.threshold;
         }
         document.getElementById('te-title-name').textContent = name;
         te.saved = teDetailsSnap();
@@ -4431,9 +4419,7 @@ function teMenuHtml(kind, arg) {
     switch (kind) {
         case 'theme':
             return { cls: 'menu', align: 'right', html: `
-                <div class="mi-row"><label for="te-short">Short file threshold</label>
-                    <input id="te-short" class="num" type="number" min="0" step="1" value="${teEsc(te.threshold)}" oninput="teSetThreshold(this)"><span>s</span></div>
-                ${sep}${mi('Export theme', 'teExportTheme()', { icon: TE_ICON_DOWNLOAD })}` };
+                ${mi('Export theme', 'teExportTheme()', { icon: TE_ICON_DOWNLOAD })}` };
         case 'icon': {
             const current = te.icon;
             return { cls: 'menu', align: 'left', html: `
