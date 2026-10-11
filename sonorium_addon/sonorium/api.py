@@ -98,6 +98,14 @@ class WebApp:
                     response.headers["Vary"] = "Origin"
             return response
 
+        # A channel's policy (Zones) refused a change: its status and message
+        from sonorium.core.channel_policy import ChannelRefused
+
+        @self.app.exception_handler(ChannelRefused)
+        async def channel_refused(request: Request, exc: ChannelRefused):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status)
+
         # Older theme, category and channel routes' 200 {"error"} answers get an error status (G10)
         from sonorium.web.legacy_errors import LegacyErrorStatus
         self.app.add_middleware(LegacyErrorStatus)
