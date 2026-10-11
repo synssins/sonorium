@@ -44,7 +44,7 @@ Installed with pip in both images (the packages named in the Dockerfiles, and wh
 | argon2-cffi-bindings | MIT (bundles the Argon2 reference library: CC0-1.0 or Apache-2.0) | https://github.com/hynek/argon2-cffi-bindings |
 | async-upnp-client | Apache-2.0 | https://github.com/StevenLooman/async_upnp_client |
 | attrs | MIT | https://github.com/python-attrs/attrs |
-| av (PyAV) | BSD-3-Clause (bundles FFmpeg and other libraries, see below) | https://github.com/PyAV-Org/PyAV |
+| av (PyAV) | BSD-3-Clause (built from source against Sonorium's own FFmpeg build, see below) | https://github.com/PyAV-Org/PyAV |
 | cachetools | MIT | https://github.com/tkem/cachetools |
 | casttube | MIT | https://github.com/ur1katz/casttube |
 | certifi | MPL-2.0 | https://github.com/certifi/python-certifi |
@@ -109,37 +109,29 @@ other version of zeroconf. Source: <https://github.com/python-zeroconf/python-ze
 
 ## Libraries bundled inside Python packages
 
-### PyAV (`av`): FFmpeg and the libraries it uses
+### PyAV (`av`): FFmpeg
 
-PyAV's binary wheels contain FFmpeg's libraries, built by the PyAV project, plus the
-libraries FFmpeg was built with. Sonorium uses them to decode and encode audio.
+PyAV's ready-made wheels are not used: they carry a full FFmpeg built with GPL video
+encoders (x264, x265) and TLS libraries. Both images build an audio-only FFmpeg from
+source instead, with nothing under the GPL, and build PyAV 19.0.1 from source against it
+([`sonorium_addon/ffmpeg/build.sh`](sonorium_addon/ffmpeg/build.sh), which holds the
+exact versions, checksums and `configure` options). FFmpeg reports this build's licence
+as *LGPL version 2.1 or later*.
 
 | Library | Licence | Source |
 |---|---|---|
-| FFmpeg (libavcodec, libavformat, libavutil, libavfilter, libavdevice, libswresample, libswscale) | **LGPL-3.0-or-later**, as FFmpeg reports for this build | https://ffmpeg.org/download.html |
-| x264 (libx264) | **GPL-2.0-or-later** | https://code.videolan.org/videolan/x264 |
-| x265 (libx265) | **GPL-2.0-or-later** | https://bitbucket.org/multicoreware/x265_git |
-| GnuTLS | **LGPL-2.1-or-later** | https://gnutls.org/ |
-| Nettle (libnettle, libhogweed) | **LGPL-3.0-or-later OR GPL-2.0-or-later** | https://www.lysator.liu.se/~nisse/nettle/ |
-| GMP | **LGPL-3.0-or-later OR GPL-2.0-or-later** | https://gmplib.org/ |
-| libunistring | **LGPL-3.0-or-later OR GPL-2.0-or-later** | https://www.gnu.org/software/libunistring/ |
-| alsa-lib (libasound) | **LGPL-2.1-or-later** | https://github.com/alsa-project/alsa-lib |
-| libstdc++, libgcc (musl wheels) | GPL-3.0-or-later WITH GCC-exception-3.1 | https://gcc.gnu.org/ |
-| dav1d | BSD-2-Clause | https://code.videolan.org/videolan/dav1d |
-| SVT-AV1 | BSD-3-Clause-Clear | https://gitlab.com/AOMediaCodec/SVT-AV1 |
-| Opus | BSD-3-Clause | https://opus-codec.org/ |
-| libvpx | BSD-3-Clause | https://chromium.googlesource.com/webm/libvpx |
-| libwebp, libwebpmux, libsharpyuv | BSD-3-Clause | https://chromium.googlesource.com/webm/libwebp |
-| libvmaf | BSD-2-Clause-Patent | https://github.com/Netflix/vmaf |
-| libvpl | MIT | https://github.com/intel/libvpl |
-| libdrm | MIT | https://gitlab.freedesktop.org/mesa/drm |
-| libxcb, libXau, libXdmcp | MIT | https://xcb.freedesktop.org/ |
-| libbsd, libmd (musl wheels) | BSD-3-Clause and similar permissive licences | https://libbsd.freedesktop.org/ |
-| bzip2 (musl wheels) | bzip2-1.0.6 | https://sourceware.org/bzip2/ |
+| FFmpeg 9.0.2 (libavcodec, libavformat, libavutil, libavfilter, libavdevice, libswresample, libswscale) | **LGPL-2.1-or-later** | https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz |
+| LAME (LAMER 3.101.0, the LAME tree PyAV builds its wheels with), linked into libavcodec | **LGPL-2.1-or-later** | https://github.com/basswood-io/lamer |
+| zlib (from Debian / Alpine, used by FFmpeg) | Zlib | https://zlib.net/ |
 
-PyAV's source, including the scripts that build these wheels, is at
-<https://github.com/PyAV-Org/PyAV>. The libraries are separate shared objects in the
-`av.libs` folder of the installed package.
+What the build includes: reading MP3, WAV, FLAC, Ogg (Vorbis, Opus) and M4A (AAC, ALAC)
+with FFmpeg's own decoders; writing MP3 (LAME) and 16-bit WAV; and converting sample rate,
+format and channels (libswresample). Everything else is left out (`--disable-everything`,
+`--disable-autodetect`, `--disable-gpl`, `--disable-nonfree`).
+
+The libraries are separate shared objects in `/opt/ffmpeg/lib` inside the image, and PyAV
+loads them from there: they can be replaced with another build of the same FFmpeg version.
+PyAV's source is at <https://github.com/PyAV-Org/PyAV>.
 
 ### NumPy
 
@@ -155,12 +147,13 @@ Sources: <https://github.com/numpy/numpy>, <https://github.com/OpenMathLib/OpenB
 
 | Image | Base | Packages Sonorium adds |
 |---|---|---|
-| Docker (`docker/Dockerfile`) | `python:3.12-slim` (Debian) | `ffmpeg`, `util-linux` (both from Debian) |
-| Home Assistant add-on (`sonorium_addon/Dockerfile`) | `ghcr.io/hassio-addons/base` (Alpine Linux) | `python3`, `py3-pip`, `py3-numpy`, `ffmpeg` (from Alpine) |
+| Docker (`docker/Dockerfile`) | `python:3.12-slim` (Debian) | `util-linux` (from Debian) |
+| Home Assistant add-on (`sonorium_addon/Dockerfile`) | `ghcr.io/hassio-addons/base` (Alpine Linux) | `python3`, `py3-pip`, `py3-numpy` (from Alpine) |
 
-These packages are installed unmodified from Debian and Alpine Linux. Debian's and Alpine's
-FFmpeg packages are built with GPL options and are under the **GPL-2.0-or-later**;
-util-linux is under GPL-2.0-or-later and other licences listed in its source. Their source
+These packages are installed unmodified from Debian and Alpine Linux. Neither image installs
+the distributions' FFmpeg packages (those are built with GPL options). util-linux (the
+`setpriv` program, run by the Docker image's start script) is under GPL-2.0-or-later and
+other licences listed in its source. Their source
 code is published by each distribution: <https://sources.debian.org/> and
 <https://gitlab.alpinelinux.org/alpine/aports>. Python itself is under the
 PSF-2.0 licence (<https://www.python.org/>).
