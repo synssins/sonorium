@@ -121,19 +121,19 @@ staff list instead of keeping its own.
 | Users, Read-only | User |
 | Switched off ("Can log in" off) or removed | Switched off: browsers signed out, phones refused (401 `{"pair": true}`), keys they made refused |
 
-- **Where the list comes from:** the Supervisor's auth API (`auth_api` in
-  the add-on's config), with the add-on's Supervisor token. Sonorium asks for
-  it at most once a minute, and at once when a Home Assistant user it hasn't
-  seen opens Sonorium in HA's sidebar. A role change in HA applies on the
-  user's next request after that, in the browser and on their phones. If the
-  Supervisor doesn't answer, Sonorium keeps the roles it last knew and
+- **Where the list comes from:** Home Assistant's own list of users
+  (`config/auth/list` on HA's WebSocket API, reached through the Supervisor
+  with the add-on's token; `homeassistant_api` in the add-on's config). HA's
+  system users, such as the Supervisor, are left out. Sonorium asks for it at
+  most once a minute, and at once when a Home Assistant user it hasn't seen
+  opens Sonorium in HA's sidebar. A role change in HA applies on the user's
+  next request after that, in the browser and on their phones. If Home
+  Assistant doesn't answer, Sonorium keeps the roles it last knew and
   switches nobody off.
-- **One Sonorium user per HA user,** found by HA's user id (from HA's
-  sidebar), never by name: renaming a user in HA keeps their Sonorium user,
-  phones and settings. The Supervisor's list has usernames but no ids, so
-  after a rename, the user's phones are refused until they open Sonorium in
-  HA's sidebar once (or until the list shows the new name, whichever comes
-  first).
+- **Checking a password:** the Supervisor's auth API (`POST /auth`;
+  `auth_api` in the add-on's config).
+- **One Sonorium user per HA user,** found by HA's user id, never by name:
+  renaming a user in HA keeps their Sonorium user, phones and settings.
 - **Sidebar:** every HA user sees Sonorium in HA's sidebar (`panel_admin:
   false`) and gets their role there.
 - **Phones:** Link App opened in HA's sidebar links the phone to that HA

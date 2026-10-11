@@ -7,7 +7,7 @@ folder, outside the plugin's own folder so updates and reinstalls keep it.
                     ha, ha_user_id, ha_username, disabled}}}
 
 Add-on: a Home Assistant user is a Sonorium user ("ha": true), one per HA
-user, found by HA's user id (from HA's sidebar). Its role follows HA (ha.py)
+user, found by HA's user id. Its role follows HA (ha.py)
 and it has no Sonorium password: it signs in with the HA username and
 password. A user switched off or removed in HA is "disabled": its browsers are
 signed out, its phones and the keys it made are refused. Accounts made in
@@ -232,64 +232,30 @@ class Accounts:
             name = f"{base}-{n}"
         return name
 
-    def _new_ha_user(self, ha_user_id: Optional[str], ha_username: str) -> str:
+    def _new_ha_user(self, ha_user_id: str, ha_username: str) -> str:
         """A Sonorium user for an HA user; its role comes from HA (Admin when Sonorium can't ask HA)."""
-        entry = self.ha.by_username(ha_username) if self.ha is not None else None
+        entry = self.ha.by_id(ha_user_id) if self.ha is not None else None
         role = "admin" if self.ha is None else (ha_mod().role_of(entry) if entry else "user")
-        name = self._free_name(ha_username)
+        name = self._free_name(ha_username or (entry or {}).get("username") or "")
         user_id = self.add(name, None, role, ha_user_id=ha_user_id, ha=True)
         self.users[user_id].update({"ha": True, "ha_username": ha_username or None, "disabled": False})
         logger.info(f"Users: Home Assistant user {ha_username or ha_user_id} is the Sonorium user {name} "
                     f"({ROLE_LABELS[role]})")
         return user_id
 
-    def _claim_ha_username(self, user_id: str, ha_username: str) -> None:
-        """This user is HA's ha_username now: any other HA user with that name was renamed or removed in HA."""
-        name = norm(ha_username)
-        for other_id, other in self.users.items():
-            if other_id != user_id and other.get("ha") and norm(other.get("ha_username")) == name:
-                other["ha_username"] = None
-
-    def ha_user(self, ha_user_id: str, ha_username: str) -> str:
-        """The Sonorium user of the HA user HA's sidebar names (by HA's user id, never by name)."""
+    def ha_user(self, ha_user_id: str, ha_username: str = "") -> str:
+        """The Sonorium user of an HA user, by HA's user id (never by name, so renames in HA are safe)."""
         for user_id, user in self.users.items():
             if user.get("ha_user_id") == ha_user_id:
-                if ha_username and user.get("ha_username") != ha_username:  # renamed in HA
-                    self._claim_ha_username(user_id, ha_username)
-                    user["ha_username"] = ha_username
-                    if self.ha is not None and self.ha.by_username(ha_username):  # else: the next list decides
-                        self.apply_ha(user_id)
-                    self.save()
                 return user_id
-        if ha_username:
-            # Signed in with HA's username and password before HA's sidebar showed the user's id
-            for user_id, user in self.users.items():
-                if user.get("ha") and not user.get("ha_user_id") and norm(user.get("ha_username")) == norm(ha_username):
-                    user["ha_user_id"] = ha_user_id
-                    self.save()
-                    return user_id
         user_id = self._new_ha_user(ha_user_id, ha_username)
-        self._claim_ha_username(user_id, ha_username)
-        self.save()
-        return user_id
-
-    def ha_login_user(self, entry: dict) -> str:
-        """The Sonorium user of an HA user who signed in with HA's username and password."""
-        if entry.get("id"):
-            for user_id, user in self.users.items():
-                if user.get("ha_user_id") == entry["id"]:
-                    return user_id
-        for user_id, user in self.users.items():
-            if user.get("ha") and norm(user.get("ha_username")) == norm(entry.get("username")):
-                return user_id
-        user_id = self._new_ha_user(entry.get("id"), entry["username"])
+        self.apply_ha(user_id)
         self.save()
         return user_id
 
     def ha_entry(self, user: dict) -> Optional[dict]:
-        """HA's record of a Sonorium user: by HA's user id when the list has ids, else by HA username."""
-        return self.ha.by_id(user.get("ha_user_id")) or (
-            None if self.ha.by_id_available() else self.ha.by_username(user.get("ha_username")))
+        """HA's record of a Sonorium user, by HA's user id."""
+        return self.ha.by_id(user.get("ha_user_id")) if self.ha is not None else None
 
     def apply_ha(self, user_id: str) -> bool:
         """Role and switched on/off from HA's list. True when something changed."""
@@ -303,7 +269,7 @@ class Accounts:
             if user.get("role") != role:
                 logger.info(f"Users: {user['username']} is {ROLE_LABELS[role]} (Home Assistant)")
                 user["role"], changed = role, True
-            if entry.get("id") and entry.get("username") != user.get("ha_username"):
+            if entry.get("username") and entry["username"] != user.get("ha_username"):
                 user["ha_username"], changed = entry["username"], True
             if user.get("disabled"):
                 logger.info(f"Users: {user['username']} is switched on again in Home Assistant")
@@ -346,8 +312,7 @@ class Accounts:
         count = 0
         for user in self.users.values():
             if user.get("ha_user_id") and not user.get("ha"):
-                user.update({"ha": True, "ha_username": user.get("ha_username") or user["username"],
-                             "password": None, "disabled": False})
+                user.update({"ha": True, "password": None, "disabled": False})
                 count += 1
         self.file.data["ha_users"] = 1
         self.save()

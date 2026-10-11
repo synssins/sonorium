@@ -61,6 +61,7 @@ class AuthService:
         self.plugin_state: dict[str, object] = {}  # a plugin's live objects, kept across reloads (e.g. Accounts)
         self.https_only = lambda request: None     # set by the core routes
         self.supervisor_transport = None           # tests: an httpx transport standing in for HA's Supervisor
+        self.supervisor_ws_connect = None          # tests: stands in for websockets.connect (HA's WebSocket API)
 
     # ------------------------------------------------------------ storage
 
