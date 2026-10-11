@@ -83,6 +83,7 @@ def add_app_routes(router, *, session_manager, ha_registry=None, speaker_live=No
         try:
             output, channel = session_manager.add_output(
                 session_id, data, device_id=getattr(principal, "device_id", None))
+            output.device_name = (getattr(principal, "extra", None) or {}).get("device_name") or None
         except KeyError:
             raise HTTPException(status_code=404, detail="Session not found")
         except OutputError as e:

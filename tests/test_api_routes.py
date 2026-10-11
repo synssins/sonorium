@@ -31,6 +31,7 @@ APP_ROUTES = [
     ('APIRoute', 'PUT', '/api/connection', 'put_connection'),
     ('APIRoute', 'DELETE', '/api/connection/ha', 'delete_connection_ha'),
     ('APIRoute', 'DELETE', '/api/connection/mqtt', 'delete_connection_mqtt'),
+    ('APIRoute', 'POST', '/api/connection/test', 'test_connection'),
     ('APIRoute', 'GET', '/api/ha-cards', 'get_ha_cards'),
     ('APIRoute', 'GET', '/api/ha-cards/download', 'download_ha_cards'),
     ('APIRoute', 'GET', '/v1', 'legacy_ui'),

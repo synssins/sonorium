@@ -109,6 +109,7 @@ def resolve(service: AuthService, scope, headers: dict) -> tuple[Principal, Opti
             if isinstance(result, Reject):
                 return Principal("anonymous", listener=listener, token_given=True), result
             principal = result or principal
+        principal.extra.setdefault("device_name", record.get("name") or "")  # e.g. "cast from Pixel 8"
         return principal, None
 
     for _, hook in service.provider("authenticate"):

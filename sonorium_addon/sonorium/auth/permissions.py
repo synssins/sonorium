@@ -138,6 +138,7 @@ GET     /api/connection                                 admin.connection
 PUT     /api/connection                                 admin.connection
 DELETE  /api/connection/ha                              admin.connection
 DELETE  /api/connection/mqtt                            admin.connection
+POST    /api/connection/test                            admin.connection
 GET     /api/ha-cards                                   st.view
 GET     /api/ha-cards/download                          st.view
 GET     /api/logs                                       st.view

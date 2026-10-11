@@ -155,6 +155,7 @@ class WebApp:
             Route("PUT", "/api/connection", self.put_connection),
             Route("DELETE", "/api/connection/ha", self.delete_connection_ha),
             Route("DELETE", "/api/connection/mqtt", self.delete_connection_mqtt),
+            Route("POST", "/api/connection/test", self.test_connection),
             # Home Assistant dashboard cards: status and the file (to add by hand)
             Route("GET", "/api/ha-cards", self.get_ha_cards),
             Route("GET", "/api/ha-cards/download", self.download_ha_cards),
@@ -878,6 +879,30 @@ class WebApp:
             "mqtt_connected": self.backend.mqtt_client.is_connected,
             "stream_url": conn.get("stream_url", ""),
         }
+
+    async def test_connection(self, request: Request):
+        """
+        Try Home Assistant or MQTT with the saved values and the form's (unsaved)
+        ones on top: {"kind": "ha"|"mqtt", "values": {...}}. Nothing is saved.
+        Answers {"success", "message"}.
+        """
+        from sonorium import runtime
+        if not runtime.features()["connection_settings"]["available"]:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        if not isinstance(body, dict) or body.get("kind") not in ("ha", "mqtt"):
+            raise HTTPException(status_code=400, detail="'kind' must be ha or mqtt")
+        values = {**runtime.load_connection(),
+                  **{k: v for k, v in (body.get("values") or {}).items()
+                     if k in runtime.CONNECTION_FIELDS and v not in (None, "")}}
+        from sonorium.connection_test import test_ha, test_mqtt
+        if body["kind"] == "ha":
+            return await test_ha(values.get("ha_url", ""), values.get("ha_token", ""))
+        return await test_mqtt(values.get("mqtt_host", ""), values.get("mqtt_port") or 1883,
+                               values.get("mqtt_username") or None, values.get("mqtt_password") or None)
 
     async def put_connection(self, request: Request):
         """
