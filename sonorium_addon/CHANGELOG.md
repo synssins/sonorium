@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.3 (2026-10-11)
+
+### Features
+
+- **ui**: A sequence step's dot also lights for While playing changes
+  ([`9986a37`](https://github.com/synssins/sonorium/commit/9986a3743124be2919b866c1863b4896de5133a3))
+
+
 ## v1.6.2-dev.2 (2026-10-11)
 
 ### Bug Fixes
