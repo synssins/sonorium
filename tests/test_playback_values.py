@@ -53,6 +53,8 @@ def test_defaults_without_a_store():
         "group_gap": 120.0, "loop_crossfade": 1.5, "group_crossfade_min": 1.0, "group_crossfade_max": 60.0,
         "track_fade": 6.0, "switch_fade": 3.0, "ebb_long_rest": 0.12, "ebb_turn": 0.35,
         "short_file_threshold": 15.0,
+        "sound_max_length": 60.0, "duck_amount": 15.0, "duck_attack": 0.5, "duck_release": 1.5,
+        "wake_wait": 20.0, "wake_lead": 1.0, "wake_tail": 1.0,
     }
     # the old constants are the defaults
     r = m.recording

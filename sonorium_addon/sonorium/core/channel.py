@@ -212,6 +212,11 @@ class Channel:
         """A preset glide is in progress."""
         return self._glide is not None
 
+    @property
+    def speaker_clients(self) -> int:
+        """Clients pulling the stream that aren't browsers listening here (speakers, outputs)."""
+        return max(0, self._client_count - self._local_count)
+
     def idle_seconds(self) -> float:
         """Seconds since any listener pulled audio from this playing channel."""
         if self.state != ChannelState.PLAYING:
