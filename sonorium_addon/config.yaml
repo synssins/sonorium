@@ -15,7 +15,9 @@ audio: false
 
 # Ingress - enables sidebar integration
 ingress: true
-ingress_port: 8080
+# HA's sidebar reaches Sonorium on its own port, never mapped outside: requests
+# there come from the Supervisor (172.30.32.2) after HA signed the user in
+ingress_port: 8099
 ingress_stream: true
 panel_icon: mdi:music-circle
 panel_title: Sonorium
@@ -34,8 +36,10 @@ map:
 
 ports:
   8080/tcp: 8008
+  8808/tcp: 8808
 ports_description:
-  8080/tcp: "Sonorium Web UI and streaming API (direct access)"
+  8080/tcp: "Web UI, API and streams (HTTP, direct access)"
+  8808/tcp: "Web UI and API over HTTPS (the Sonorium app; self-signed certificate)"
 
 options:
   log_level: info
@@ -46,6 +50,8 @@ options:
   sonorium__mqtt_port: 0
   sonorium__mqtt_username: ""
   sonorium__mqtt_password: ""
+  web_ui_only_through_ha: false
+  bypass_login: false
 
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)?
@@ -56,6 +62,8 @@ schema:
   sonorium__mqtt_port: int?
   sonorium__mqtt_username: str?
   sonorium__mqtt_password: str?
+  web_ui_only_through_ha: bool
+  bypass_login: bool
 
 startup: application
 stage: stable

@@ -28,6 +28,12 @@ RUN pip install --no-cache-dir \
 RUN pip install --no-cache-dir \
     aiohttp zeroconf async-upnp-client pyatv
 
+# Sign-in: the HTTPS certificate (cryptography), the Link App QR code (segno),
+# and password hashes for the built-in Users plugin (argon2-cffi, Argon2id).
+# Same as the add-on.
+RUN pip install --no-cache-dir \
+    cryptography segno argon2-cffi
+
 WORKDIR /app
 COPY sonorium_addon/sonorium/ /app/sonorium/
 COPY sonorium_addon/logo.png sonorium_addon/icon.png sonorium_addon/favicon.png sonorium_addon/display.png /app/
@@ -44,7 +50,9 @@ ENV PYTHONPATH=/app \
 
 # /config: settings, channels, plugins. /media/sonorium: themes and audio.
 VOLUME ["/config", "/media/sonorium"]
-EXPOSE 8008
+# 8008: web UI, API and streams (HTTP). 8808: web UI and API over HTTPS
+# (self-signed certificate; the Sonorium app pins it). SONORIUM_HTTPS_PORT changes it.
+EXPOSE 8008 8808
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8008/', timeout=4)"

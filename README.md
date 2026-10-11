@@ -291,6 +291,7 @@ services:
       - PUID=1000             # optional: owner of the files Sonorium writes
       - PGID=1000
       - TZ=Etc/UTC            # your time zone, for log times
+      - BYPASS_LOGIN=false   # Only for forgotten logins: set to true to get in and reset the admin account, then set it back to false
     volumes:
       - ./sonorium/config:/config          # settings and channels
       - ./sonorium/media:/media/sonorium   # themes and audio
