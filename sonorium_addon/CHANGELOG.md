@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.33 (2026-10-11)
+
+### Bug Fixes
+
+- **users**: Plugin 1.0.3, so installs pick up the Home Assistant user list from HA's WebSocket
+  ([`d211a54`](https://github.com/synssins/sonorium/commit/d211a545a322d88fbf03187d62534cdd4080571c))
+
+
 ## v1.6.2-dev.32 (2026-10-11)
 
 
