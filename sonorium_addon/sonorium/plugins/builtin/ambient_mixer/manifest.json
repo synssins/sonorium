@@ -6,6 +6,7 @@
   "author": "Sonorium",
   "entry_point": "plugin.py",
   "plugin_class": "AmbientMixerPlugin",
+  "builtin": true,
   "settings_schema": {
     "auto_create_metadata": {
       "type": "boolean",

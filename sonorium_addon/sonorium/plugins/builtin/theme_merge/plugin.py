@@ -25,7 +25,7 @@ class ThemeMergePlugin(BasePlugin):
     version = "1.0.0"
     description = "Merge two themes together - combines tracks and presets"
     author = "Sonorium"
-    builtin = False  # Allow users to delete this plugin
+    builtin = True  # Shipped with Sonorium
 
     def get_ui_schema(self) -> dict:
         """Return the UI schema for theme merge."""
