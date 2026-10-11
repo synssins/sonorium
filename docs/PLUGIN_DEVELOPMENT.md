@@ -605,7 +605,7 @@ The bundle's JavaScript runs before the app starts and calls
 |---|---|---|
 | `screens` | `{show(me)}`: return true to take over | A full-page screen instead of the app (sign-in, first run) |
 | `headerButtons` | `{view, html(me), when(me)}` | Left of a page's own header buttons (`view`: `sessions`, `themes`, `plugin-<id>`, ...) |
-| `settingsPages` | `{id, label, icon, title, perm, before, render(el, me), actions(me)}` | A Settings menu item and its page (`view-plugin-<id>`); `before` is a menu item's id (default: Advanced) |
+| `settingsPages` | `{id, label, icon, title, perm, before, help, render(el, me), actions(me)}` | A Settings menu item and its page (`view-plugin-<id>`); `before` is a menu item's id (default, or when it isn't there: Advanced); `help` is `{title, html}` for the page's help panel |
 | `banners` | `{html(me)}` | A strip above the page header |
 | `sidebar` | `{html(me)}` | Above the version line at the bottom of the menu |
 | `channelCard` | `{badges(session), strip(session)}` | Next to a channel's name, and under its now-playing line |
