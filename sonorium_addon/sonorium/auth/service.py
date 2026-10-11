@@ -171,6 +171,12 @@ class AuthService:
         if plugin_id in self.ui_bundles:
             self.ui_bundles[plugin_id]["active"] = False
 
+    def login_required(self) -> bool:
+        """A sign-in plugin requires login (the Users plugin's Require login), and the bypass is off."""
+        if config.bypass_login():
+            return False
+        return any(bool(getattr(a, "login_required", lambda: False)()) for a in list(self.authenticators.values()))
+
     def provider(self, method: str):
         """The registered authenticators that have `method`, in registration order."""
         return [(pid, getattr(a, method)) for pid, a in list(self.authenticators.items()) if hasattr(a, method)]

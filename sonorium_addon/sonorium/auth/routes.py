@@ -74,9 +74,7 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
         return https_host_port() if service.identity.tls_ready else 0
 
     def login_required() -> bool:
-        if config.bypass_login():
-            return False
-        return any(bool(getattr(a, "login_required", lambda: False)()) for a in service.authenticators.values())
+        return service.login_required()
 
     def link_hosts(host: str) -> list[str]:
         """For the QR code: the speakers' address first, the server's other LAN addresses, then sonorium.local."""
