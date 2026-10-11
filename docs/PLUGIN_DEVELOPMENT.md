@@ -4,8 +4,9 @@ A plugin adds a feature to Sonorium without changing Sonorium: a connector to an
 system, a scheduler, a chat bot, an importer. It is a folder with a Python file. Sonorium
 loads it, and through a set of services the plugin can follow what happens (events), act on
 channels (the actions API), run at set times (the scheduler), be called from other devices
-(webhook triggers), send messages (notifications) and add pages and settings to the web UI
-(extension points).
+(webhook triggers), raise notifications, add pages and settings to the web UI (extension
+points), play sounds over channels and ramp their volume, add audio outputs, take commands
+from remotes, use MQTT and Home Assistant, and bring the packages and programs it needs.
 
 Think of Sonorium as a phone and a plugin as an app: the app doesn't open the phone and
 rewire it, it asks the phone's services. Those services are documented here and keep working
@@ -53,8 +54,56 @@ class TriggerPlayChannel(BasePlugin):
     author = "Sonorium"
 ```
 
-Import only from `sonorium.plugins.*` (base, actions, events, scheduler). Everything else in
-Sonorium is internal and changes without notice.
+Import only from `sonorium.plugins.*` (base, actions, events, scheduler) and, for an output
+type, `sonorium.core.audio_outputs` (`OutputType`, `Sink`). Everything else in Sonorium is
+internal and changes without notice.
+
+More manifest keys (sections 15 to 22):
+
+| Key | Meaning |
+|---|---|
+| `api_version` | The plugin API it was written for, e.g. `"1.1"` (none: `"1.0"`) |
+| `requires` | Capabilities it can't work without, e.g. `["audio.sounds", "mqtt"]` |
+| `requirements` | Python packages from PyPI, e.g. `["pyserial==3.5"]` |
+| `binaries` | Programs it ships, per platform, with their SHA-256 |
+| `notification_sources`, `command_maps` | Declarations, if the class doesn't give them |
+
+## 1a. API versions and capabilities
+
+The plugin API has a version, MAJOR.MINOR (now **1.1**). Adding a service or a field raises
+the minor version; a plugin written for 1.0 keeps running on 1.1 and every later 1.x,
+because nothing it uses is renamed or removed. The major version goes up only for a change
+old plugins would notice; Sonorium then keeps the old facades next to the new ones for as
+long as it can.
+
+Sonorium reads `api_version` and `requires` before it loads any of the plugin's code. A
+plugin that needs a newer API, another major version, or a capability this install doesn't
+offer is refused with a sentence that says why, for example:
+
+> Remote needs plugin API 1.3; this Sonorium has 1.1. Update Sonorium to use it.
+
+A refused plugin is listed in Settings › Plugins with that sentence (`compatible: false`,
+`problem` in `GET /api/plugins`), the web UI shows an alert, and none of its code runs.
+
+| Capability | Since | What it is |
+|---|---|---|
+| `events`, `actions`, `scheduler`, `triggers`, `notifications`, `pages`, `connections` | 1.0 | Sections 4 to 10 |
+| `audio.sounds` | 1.1 | Sounds over channels, announcements (section 15) |
+| `audio.ramps` | 1.1 | Volume ramps (section 16) |
+| `audio.outputs` | 1.1 | Output types (section 17) |
+| `audio.tts` | 1.1 | Text to speech providers (section 15) |
+| `commands` | 1.1 | Command maps (section 18) |
+| `mqtt` | 1.1 | MQTT (section 19) |
+| `homeassistant` | 1.1 | Home Assistant's API (section 20) |
+| `packages.pip`, `packages.binaries` | 1.1 | Packages and programs (section 21) |
+
+`GET /api/plugin-framework` gives the version, every capability and the ones this install
+offers now.
+
+Each 1.1 service is a facade on the plugin: `self.audio`, `self.ramps`, `self.audio_outputs`,
+`self.commands`, `self.mqtt`, `self.homeassistant`. Every method that can fail raises
+`ActionError` (`code` `invalid`, `not_found`, `conflict` or `unavailable`), as `self.actions`
+does.
 
 ## 2. Lifecycle
 
@@ -65,9 +114,10 @@ Sonorium is internal and changes without notice.
 | `async on_disable()` | The user disabled it. Stop what you started. |
 | `async on_unload()` | Sonorium is unloading it. |
 
-When a plugin is disabled, Sonorium removes its event subscriptions and notifiers for it.
-When it is uninstalled, its scheduled jobs, trigger tokens and saved connection values go
-too. A plugin that fails in `on_enable` stays disabled.
+When a plugin is disabled, Sonorium removes its event subscriptions, notifiers, MQTT
+subscriptions, output types, text to speech providers and sound gates. When it is
+uninstalled, its scheduled jobs, trigger tokens, saved connection values, command maps and
+Python packages go too. A plugin that fails in `on_enable` stays disabled.
 
 Everything a plugin does runs on Sonorium's event loop: use `async` code, and run slow
 blocking work with `await asyncio.to_thread(...)` so playback controls stay responsive.
@@ -156,6 +206,10 @@ All events of a channel have `channel_id` and `name` (the channel's name).
 | `notification` | A message was sent with `notify()` | `title`, `body`, `level`, `data` |
 | `error` | Something failed that nobody was waiting for | `where` (`event_handler`, `schedule`, `trigger`, `notifier`, `channel.start`, a plugin method), `message`, `plugin_id` |
 
+| `sound.started` / `sound.ended` | A sound started or ended over a channel (section 15) | `sound_id`, `label`, `origin`; ended: `reason` (`finished`, `replaced`, `cancelled`, `stopped`, `error`), `capped`, `played` |
+| `ramp.started` / `ramp.finished` / `ramp.cancelled` | A channel's volume ramp (section 16) | `ramp_id`, `from`, `to`, `seconds`, `curve`, `then`; `level`; cancelled: `reason` |
+| `command.received` | An input plugin handed over a code (section 18) | `plugin_id`, `map_id`, `code`, `actions`, `learned` |
+
 `GET /api/events/catalogue` returns the same list.
 
 ### The event stream (outside programs)
@@ -213,6 +267,9 @@ with `code` `not_found`, `invalid`, `conflict` or `unavailable`, and a `message`
 | `next_step(id)` | Next playlist entry, or the sequence's next preset; returns `playlist`, `sequence` or `end` |
 | `list_themes()`, `list_presets(theme_id)`, `list_sequences(theme_id)`, `list_playlists()` | What there is to play |
 | `list_speakers()`, `list_speaker_groups()` | Speakers (`id`, `name`, `type`, `online`, `area_id`, `area_name`, `enabled`) and speaker groups |
+| `play_sound(channels, source, volume=100, duck=True, policy="queue", priority=0, start_stopped=False)` / `cancel_sound(sound_id)` | A sound over channels (`self.audio` has every option, section 15) |
+
+A channel also has `entity_slug`: the part of its Home Assistant entity ids after `sonorium_`.
 
 ```python
 channel = await self.actions.create_channel(theme_id="rain", speakers=["media_player.bedroom"],
@@ -357,21 +414,60 @@ is reported as an `error` event.
 
 ## 8. Notifications
 
-**Sending.** Any plugin can send a message:
+A notification is "something on the network needs your attention": the doorbell rang, a
+camera saw motion, a leak sensor is wet, dinner is ready. Its main job is to take over the
+audio: the user's rules **announce** it on channels (the channels duck, a chime plays and/or
+the message is spoken, then they come back), as an admin, over zones and quiet hours.
+Sending it to an outside notifier (Discord, a phone) is an optional extra on a rule.
+
+Sonorium's own problems are not notifications. A speaker going offline, a lost Home
+Assistant or MQTT connection, a plugin error, a channel stopping on its own, an import that
+failed, low disk space, sign-in events: these go to the log at their level, and the serious
+ones also show a small alert bar at the top of the web UI that links to the log. A plugin
+that fails is reported there for it; a plugin logs its own problems with the standard
+`logging` module (the logger `sonorium`).
+
+**Sources.** A plugin declares what it can notify about; the user picks from these when
+making a rule:
 
 ```python
-self.notify("Door open", "The back door opened while the alarm was on", level="warning")
+def get_notification_sources(self):
+    return [{"id": "doorbell", "title": "The doorbell rang"},
+            {"id": "motion", "title": "Motion at the front door"}]
+
+async def on_ring(self):
+    self.notify("Someone is at the door", source="doorbell")
 ```
 
-`level` is `info`, `warning` or `error`. The message becomes a `notification` event, and the
-user's **notification rules** decide where it goes, the same way as for any other event.
+Every webhook trigger (section 7) is a source too (`trigger:<plugin_id>/<trigger>`): a
+trigger called with `{"title": "..."}` or `{"message": "..."}` in its payload gives the
+notification its words. `self.emit("doorbell", {"title": ..., "body": ...})` works as well.
 
-**Delivering.** A notifier plugin delivers messages somewhere (Discord, a phone, e-mail). It
-declares its notifiers and delivers:
+`self.notify(title, body="", level="info", data=None, source=None)`; `level` is `info`,
+`warning` or `error`.
+
+**Rules** (Settings › Notifications, or the API):
+
+```
+PUT /api/notifications/rules/{rule_id}
+{"name": "Doorbell", "sources": ["plugin.ring.doorbell"],
+ "announce": {"channels": ["kitchen", "office"], "sound": "https://.../chime.mp3",
+              "text": "{title}", "volume": 90, "duck": {"db": 18}},
+ "notifiers": ["discord.main"], "enabled": true}
+```
+
+- `announce.sound`: a chime (an http(s) URL), played first. `announce.text`: spoken with a
+  text to speech provider (section 15); `{title}` and `{body}` are the notification's words.
+  Neither: the title is spoken. `duck`: true (the Advanced values) or `{db, attack, release}`.
+- A rule announces, sends to notifiers, or both.
+- Rules may also list raw event patterns in `events` (and a `min_level`), as before; the
+  web UI doesn't offer them.
+
+**Delivering.** A notifier plugin delivers messages somewhere (Discord, a phone, e-mail):
 
 ```python
 def get_notifiers(self):
-    return [{"id": "main", "title": "Discord #home"}]
+    return [{"id": "main", "title": "Family Discord", "kind": "Discord channel"}]
 
 async def deliver_notification(self, notifier_id, notification):
     # notification: title, body, level, time, origin, event (the event as a dict, or None)
@@ -379,30 +475,18 @@ async def deliver_notification(self, notifier_id, notification):
 ```
 
 Its notifiers are available as `<plugin_id>.<notifier_id>` while the plugin is enabled.
-
-**Rules** connect events to notifiers:
-
-```
-PUT /api/notifications/rules/{rule_id}
-{"name": "Problems", "events": ["error", "speaker.unavailable"], "notifiers": ["discord.main"],
- "min_level": "warning", "enabled": true}
-```
-
-`events` are patterns as in section 4. `min_level` skips quieter events: `error` events are
-`error`, `speaker.unavailable` and `speaker.removed` are `warning`, a `notification` has the
-level it was sent with, everything else is `info`. For an event, the message title is a short
-summary ("Kitchen started") and the body its description.
+Settings › Notifications shows each with Working or Not answering (its last delivery).
 
 | Endpoint | |
 |---|---|
-| `GET /api/notifications` | Notifiers, rules and levels |
+| `GET /api/notifications` | Sources, notifiers (with `kind`, `state`), rules |
 | `PUT /api/notifications/rules` `{"rules": [...]}` | Replace all rules |
 | `PUT` / `DELETE /api/notifications/rules/{rule_id}` | Add or change, or remove one rule |
+| `POST /api/notifications/rules/{rule_id}/test` | Do what the rule does with a test message |
 | `POST /api/notifications/test` `{"notifier": id}` | Send a test message; answers with the result |
 
-A notifier that fails (or takes over 30 s) is reported as an `error` event with
-`where: notifier`; that event is never routed to notifiers again, so a broken notifier can't
-start a loop.
+A notifier that fails (or takes over 30 s) is logged and reported as an `error` event with
+`where: notifier`; that event is never routed again, so a broken notifier can't start a loop.
 
 ## 9. Pages
 
@@ -418,6 +502,8 @@ def get_pages(self):
 async def get_page(self, page_id):
     return {
         "title": "Alarms",
+        "intro": "Plays a channel at set times.",    # optional: one line under the title
+        "actions": [{"action": "add", "label": "Add alarm", "style": "primary"}],   # header buttons
         "refresh": 30,                      # optional: reload every 30 s
         "sections": [{
             "id": "add", "title": "New alarm",
@@ -450,10 +536,16 @@ async def page_action(self, page_id, action, data):
 | `text` | `text` (plain text), `style`: `normal`, `muted`, `success`, `warning`, `error` |
 | `field` | `name`, `field` (section 3 field types), `value` (current value) |
 | `table` | `id`, `columns` (`key`, `label`, `format`: `text`, `number`, `boolean`, `datetime`, `status`), `rows` (each may have an `id`), `empty`, `row_actions` (`id`, `label`, `style`, `confirm`) |
+| `command_map` | `map`: one of the plugin's command maps (section 18), drawn as a list the user fills |
 | `button` | `action`, `label`, `style`: `primary`, `secondary`, `danger`, `confirm` (a question asked first) |
 | `status` | `state`: `ok`, `warning`, `error`, `off`, `unknown`; `text` |
 
-A button sends the values of all the page's fields. Sonorium checks them against the fields
+A `status` column takes a state (`ok`, `warning`, `error`, `off`, `unknown`) or
+`{"state": "ok", "text": "On"}` for a chip with its own words. On a phone the columns other
+than the first, status and ⋯ fold into a line under the first.
+
+The page opens from a **Plugins** section of the left menu (between Settings and System),
+with the plugin's name at the bottom ("From the plugin ..."). A button sends the values of all the page's fields. Sonorium checks them against the fields
 before calling `page_action` (and refuses actions the page doesn't show). An item it doesn't
 know is left out. A result may set `"refresh": false` to keep the page as it is.
 
@@ -462,8 +554,10 @@ scripts, event attributes, links or `foreignObject`; others are dropped).
 
 ## 10. Connections
 
-A plugin that talks to another system (SmartThings, Hubitat, openHAB, a Discord bot, Google
-Drive) adds a section to Settings > Connections for its address and credentials:
+A plugin that talks to another system (SmartThings, Hubitat, openHAB, Node-RED, a Discord
+bot, Google Drive) adds a row to Settings › Connection, next to Home Assistant and MQTT:
+its icon, name (marked Plugin), status, what it points at, Test, Edit (a dialog with the
+fields and its own Test) and Remove. Saving a plugin's connection needs no restart.
 
 ```python
 def get_connections(self):
@@ -509,7 +603,7 @@ owner-only file (section 11).
   answer. Tokens never appear in logs: `token=` in logged URLs is masked.
 - **Where things are kept**, next to `state.json` in `/config/sonorium/`:
   `plugin_framework.json` (jobs, notification rules, plain connection values, the scheduler
-  time zone) and `plugin_secrets.json` (token hashes, secret connection values; created
+  time zone, command maps, which channels are sent to which audio outputs) and `plugin_secrets.json` (token hashes, secret connection values; created
   readable by its owner only).
 - **The management endpoints** (making tokens, rules, jobs, connection values) are part of
   Sonorium's API and need an Admin: Home Assistant's sidebar, or a signed-in Admin on the
@@ -617,7 +711,7 @@ The bundle's JavaScript runs before the app starts and calls
 | `settingsPages` | `{id, label, icon, title, perm, before, help, render(el, me), actions(me)}` | A Settings menu item and its page (`view-plugin-<id>`); `before` is a menu item's id (default, or when it isn't there: Advanced); `help` is `{title, html}` for the page's help panel |
 | `banners` | `{html(me)}` | A strip above the page header |
 | `sidebar` | `{html(me)}` | Above the version line at the bottom of the menu |
-| `channelCard` | `{badges(session), strip(session)}` | Next to a channel's name, and under its now-playing line |
+| `channelCard` | `{badges(session), strip(session), top(session)}` | Next to a channel's name, under its now-playing line, and above its theme pickers |
 | `channelEditor` | `{render(session), save(sessionId, session)}` | Fields at the bottom of the channel editor; `save` runs after the channel is saved |
 
 `me` is `GET /api/auth/me`: `kind`, `user`, `perms`, `csrf`, plus the plugins' fields.
@@ -627,3 +721,318 @@ Helpers: `Sonorium.modal({id, title, body, footer, cls, onClose})`, `Sonorium.cl
 changes and reloads the page when the sign-in is lost.
 
 Follow `docs/UI_STYLE.md`; structural screens are drawn as boards and approved first.
+
+## 15. Sounds over channels and announcements
+
+A plugin can play a sound on one or more channels: it is mixed into each channel's stream,
+so every speaker, browser and cast device of the channel hears it. While it plays, the
+channel's own mix ducks (gets quieter) and comes back afterwards, the way a radio presenter
+talks over the music.
+
+```python
+await self.audio.play(["kitchen", "office"], "https://example.com/ghost.mp3",
+                      volume=90, duck={"db": 18, "attack": 0.3, "release": 2.0},
+                      policy="now", label="Ghost")
+```
+
+| Argument | |
+|---|---|
+| `channels` | Channel ids |
+| `source` | A file path, an http(s) URL, or the bytes of an audio file (anything FFmpeg reads) |
+| `samples`, `sample_rate` | Instead of `source`: a numpy array (mono `(n,)` or `(channels, n)`; float -1..1 or int16) |
+| `volume` | 0-200 (100: the file's own level) |
+| `duck` | `True` (Settings › Advanced › Duck amount, attack and release), `False`, or `{"db", "attack", "release"}` |
+| `policy` | `now`: plays at once, over anything playing (sound effects). `queue` (default): after the sounds playing now, higher `priority` first. `replace`: cuts what plays or waits with the same or a lower priority; a higher one keeps playing and this one waits |
+| `priority` | A whole number (announcements use 10) |
+| `max_seconds` | Cut it sooner than Settings › Advanced › Longest sound (default 60 s; 0 there is no limit) |
+| `start_stopped` | A stopped channel is started for the sound: its stream runs silent, its speakers are started, the sound plays once they are connected (at most Advanced › Wait for speakers, then Lead), and after it (and Tail) the speakers stop again. The channel never shows as playing. Default false: a stopped channel is skipped |
+| `override` | Skip gates (zones, quiet hours): admin-level. For announcements and alarms |
+| `label` | A name for it in events and lists |
+
+It returns `{"sound_id", "length", "capped", "channels": {id: {"state", "message"}}}`; a
+channel's state is `playing`, `queued`, `starting` or `skipped` (with the reason). A channel
+whose speakers are muted plays the sound to browsers only, and isn't started for one.
+`await self.audio.cancel(sound_id)` stops it; `await self.audio.sounds()` lists what plays.
+With nothing playing over a channel, the mixer skips this step.
+
+**Announcements** take one path, whoever sends them (a notification rule, Home Assistant,
+MQTT, `POST /api/announce`, a plugin):
+
+```python
+await self.audio.announce(["kids_room"], "Dinner is ready", sound="https://.../chime.mp3")
+```
+
+A chime and/or the text spoken, ducking, admin-level (override), starting stopped channels.
+
+**Text to speech.** A provider turns text into audio; the first one registered is the
+default. The built-in Announcements plugin provides Home Assistant's (`homeassistant`):
+
+```python
+self.audio.register_tts("piper", "Piper (local)", self.speak)
+
+async def speak(self, message, language=None, **options) -> bytes:
+    return wav_bytes
+```
+
+`await self.audio.tts("Hello")` gives the bytes; `self.audio.tts_providers()` lists them.
+
+**Gates.** A plugin that owns channels (zones) can refuse sounds that aren't admin-level:
+
+```python
+self.audio.add_gate(lambda channel, request: "Quiet hours" if self.quiet(channel.id) else None)
+```
+
+`request` has `sound_id`, `label`, `origin`, `priority`. A sound with `override=True` skips
+every gate.
+
+**Timing.** The sound is exact to the stream. Network speakers (Cast, Sonos, AirPlay)
+buffer a few seconds, so they play it that much later than it was sent: fine for an
+announcement, noticeable for a sound effect that has to match a motion sensor. Direct
+outputs (section 17) and browsers are close to instant.
+
+## 16. Volume ramps
+
+A ramp makes a channel louder or quieter gradually: an alarm that rises over 20 minutes, a
+sleep timer that fades out over an hour. The gain is worked out for every sample, so it is
+smooth rather than in steps. It applies to the channel's mix only: announcements still
+play at their own level, and the speakers' volume isn't touched (set it first with
+`set_volume`, then ramp within it).
+
+```python
+await self.ramps.start("bedroom", to=1.0, seconds=1200, from_level=0.0, curve="db", start=True)
+await self.ramps.start("bedroom", to=0.0, seconds=3600, then="stop")    # sleep timer
+await self.ramps.cancel("bedroom", reset=False)                          # hold where it is
+await self.ramps.status("bedroom")      # {"level", "ramp": {...} or None}
+```
+
+| Argument | |
+|---|---|
+| `to`, `from_level` | 0 (silent) to 1 (the mix as it is), up to 4 (+12 dB). No `from_level`: from where it is |
+| `seconds` | How long (0: at once) |
+| `curve` | `db` (default): even to the ear. `linear`: in a straight line. `ease`: slow, faster, slow. `exp`: slow at first, fast at the end |
+| `then` | `stop` or `pause` the channel when it ends |
+| `start` | Play the channel first if it isn't playing (the ramp starts with it) |
+
+A finished ramp holds its level until the channel stops or another ramp starts; one that
+ends at 1.0 costs nothing afterwards. Events: `ramp.started`, `ramp.finished`,
+`ramp.cancelled`. The API: `GET|POST|DELETE /api/sessions/{id}/ramp`.
+
+## 17. Audio outputs
+
+A channel normally goes to speakers that pull its stream over the network. An output type
+sends it somewhere else: the sound card of the machine Sonorium runs on, a Bluetooth
+speaker, a file. The plugin registers the type; Sonorium asks it for its devices, and for a
+sink when a channel is sent to one.
+
+```python
+from sonorium.core.audio_outputs import OutputType, Sink
+
+
+class HostAudio(OutputType):
+    id = "host_audio"
+    title = "This computer"
+
+    def available(self):
+        try:
+            import sounddevice
+            sounddevice.query_devices()
+            return True, ""
+        except Exception as e:
+            return False, f"No sound card here ({e})"
+
+    async def discover(self):
+        import sounddevice
+        return [{"id": str(i), "name": d["name"]} for i, d in enumerate(sounddevice.query_devices())
+                if d["max_output_channels"] > 0]
+
+    def open(self, device_id, sample_rate, options):
+        return HostSink(int(device_id), sample_rate)
+
+
+class HostSink(Sink):
+    latency = 0.1
+
+    def __init__(self, device, rate):
+        import sounddevice
+        self.stream = sounddevice.OutputStream(device=device, samplerate=rate, channels=1, dtype="int16")
+        self.stream.start()
+
+    def write(self, block):            # int16, shape (1, n), mono, at sample_rate
+        self.stream.write(block.reshape(-1, 1))     # may block: it runs in its own thread
+
+    def close(self):
+        self.stream.stop()
+        self.stream.close()
+
+
+class HostAudioPlugin(BasePlugin):
+    id = "host_audio"
+    ...
+    async def on_enable(self):
+        self.audio_outputs.register_type(HostAudio())
+```
+
+That is the first example, not part of Sonorium: `sounddevice` isn't in every install (the
+plugin brings it with `"requirements": ["sounddevice"]`, section 21). Where it can work:
+
+| Install | Host audio |
+|---|---|
+| Windows, Linux, macOS (native) | Yes |
+| Docker on Linux | With the sound device passed in (`/dev/snd`) or the host's sound server's socket |
+| Home Assistant app | Only with `audio: true` in the app's config (false today): the Supervisor's audio |
+
+Sending a channel to a device: `POST /api/sessions/{id}/audio-outputs {"type", "device"}`
+(the mix starts if it isn't running, as for Listen here), `DELETE .../{attachment_id}`. A
+channel's outputs are remembered and start again when it plays. Each one reads the
+channel's stream like a speaker: it keeps the channel from going idle, it hears the
+speakers-muted switch, and a slow sink only falls behind itself. A channel still needs a
+speaker for Play; one sent only to an output starts when it is sent there.
+`sonorium.core.audio_outputs.CaptureOutput` is a test double that keeps what it receives.
+
+## 18. Commands: remotes, MQTT topics, webhooks
+
+An input plugin turns what it receives (an IR code, a button on an RF remote, an MQTT
+message, a webhook call) into a **code**, and hands it over:
+
+```python
+def get_command_maps(self):
+    return [{"id": "remote", "title": "TV remote",
+             "codes": [{"code": "KEY_VOLUMEUP", "label": "Volume +"}]}]    # known codes, optional
+
+async def on_ir(self, code):
+    await self.commands.received("remote", code)
+```
+
+The user decides what each code does in a command map: a list of codes, each with an
+action, a channel and its arguments. The plugin shows it on its page with
+`{"type": "command_map", "map": "remote"}`; there **Learn** waits for the next code the
+plugin receives (press the button), and **Add** adds one by hand. The actions run through
+the plugin's actions API, so they behave like the same change in the UI:
+
+| Action | Arguments |
+|---|---|
+| `channel.play`, `channel.stop`, `channel.toggle`, `channel.next`, `channel.mute` | |
+| `channel.volume` | `volume` (or the number sent with the code: `received(map, code, value=42)`) |
+| `channel.volume_up`, `channel.volume_down` | `step` (default 5) |
+| `channel.theme`, `channel.preset`, `channel.sequence`, `channel.playlist` | the id |
+| `channel.sound` | `url`, `volume` |
+| `stop_all`, `nothing` | |
+
+`GET /api/command-actions` lists them; `GET /api/plugins/{id}/command-maps`,
+`PUT .../command-maps/{map}` `{"entries": [...]}`, `POST .../learn`, `POST .../test {"code"}`.
+Every code received publishes `command.received`.
+
+Network IR (a Broadlink, an ESP32 with an IR receiver sending MQTT or a webhook) works on
+every install. A USB IR receiver needs the device: native installs, or Docker on Linux with
+the device passed in; not the Home Assistant app.
+
+## 19. MQTT
+
+The broker Sonorium is connected to (the Mosquitto app on Home Assistant; the one set in
+Settings › Connection elsewhere):
+
+```python
+self.mqtt.subscribe("zigbee2mqtt/front_door", self.on_door)   # "+" and "#" wildcards
+await self.mqtt.publish("myplugin/state", {"armed": True}, retain=True)   # a dict is sent as JSON
+
+async def on_door(self, topic, payload):
+    ...
+```
+
+`self.mqtt.available` is false without a broker; publishing then does nothing, and
+subscriptions start when one is linked. `self.mqtt.prefix` is Sonorium's topic prefix
+(`sonorium`) and `self.mqtt.device_info` the "Sonorium" device, to put a plugin's Home
+Assistant entities next to Sonorium's. Messages reach Sonorium's own entities first, then
+plugins.
+
+## 20. Home Assistant
+
+Calls to Home Assistant's REST API through the connection Sonorium already has (the
+Supervisor on the Home Assistant app; the saved URL and token on Docker and Windows). The
+token never reaches the plugin, and only Home Assistant's `/api/...` paths are allowed:
+
+```python
+if self.homeassistant.available:
+    status, states = await self.homeassistant.request("GET", "/api/states")
+    audio = await self.homeassistant.tts("Dinner is ready", engine="tts.piper")
+```
+
+`tts()` asks Home Assistant's `tts_get_url` for the audio and fetches it through the same
+connection (its TTS proxy), so Home Assistant's own external URL doesn't matter.
+`tts_engines()` lists the `tts.*` entities.
+
+### Announcements from Home Assistant (built-in plugin)
+
+The Announcements plugin (on by default) gives each channel a notify entity over MQTT
+("Kitchen Announce"). In Home Assistant:
+
+```yaml
+action: notify.send_message
+target:
+  entity_id: notify.sonorium_kitchen_announce
+data:
+  message: Dinner is ready
+```
+
+The message is spoken on that channel with Home Assistant's text to speech: the channel
+ducks, the message plays, the channel comes back. A stopped channel is started for it and
+stopped again. An MQTT message to `sonorium/announce/set`
+
+```json
+{"channels": ["<channel id>"], "text": "Someone is at the door", "url": "https://.../chime.mp3", "volume": 80}
+```
+
+does the same for any channels (`"all"` for every one), with an optional chime first. Home
+Assistant and MQTT act as an admin: an announcement overrides a zone's owner and quiet
+hours. The plugin's settings pick the text to speech engine, the language, the volume, and
+whether stopped channels are started. It needs MQTT (for the entities) and Home Assistant
+(for the speech); a chime URL plays without Home Assistant.
+
+## 21. Packages and programs a plugin brings
+
+**Python packages.** `"requirements": ["pyserial==3.5"]` in the manifest: a package name
+with optional extras and version conditions (no URLs, paths or pip options).
+
+- Off until Settings › Advanced › **Plugin packages** is switched on (then restart). A
+  package comes from the internet and runs with Sonorium's rights, like the plugin. A
+  plugin that needs packages while the switch is off is refused with that sentence.
+- Installed with pip, wheels only (nothing is built and no setup script runs at install
+  time), into `<config>/plugin_packages/<plugin id>/`, once, and again when the
+  requirements or Python change. Removed with the plugin.
+- That folder is added to the **end** of Python's search path: Sonorium's own packages
+  always win, so a plugin can't replace them.
+
+**Programs.** A plugin may ship programs, such as ffmpeg for an audio editor:
+
+```json
+"binaries": {"ffmpeg": {
+    "linux-x86_64":  {"path": "bin/linux-x86_64/ffmpeg",  "sha256": "..."},
+    "linux-aarch64": {"path": "bin/linux-aarch64/ffmpeg", "sha256": "..."},
+    "windows-amd64": {"path": "bin/windows-amd64/ffmpeg.exe", "sha256": "..."}}}
+```
+
+Each file is checked when the plugin loads: it stays inside the plugin's folder (no
+links), and its SHA-256 matches. A mismatch refuses the plugin (it was changed or
+damaged). `self.binary("ffmpeg")` is the path for this platform, or None when there is none
+for it. Platforms: `linux-x86_64`, `linux-aarch64`, `windows-amd64`, `darwin-arm64`, ...
+
+| Install | Packages | Programs |
+|---|---|---|
+| Home Assistant app | When switched on: Alpine Linux, so musllinux wheels | Built for musl (or static) |
+| Docker | When switched on: Debian, manylinux wheels | Linux builds |
+| Windows, Linux, macOS | When switched on: the platform's wheels | The platform's builds |
+
+The config folder is kept across updates on every install, so packages are installed once.
+
+## 22. What the web UI draws for plugins
+
+| Part | Where | From |
+|---|---|---|
+| Pages | The Plugins section of the left menu | `get_pages()`, `get_page()` (section 9) |
+| Connections | A row each in Settings › Connection | `get_connections()` (section 10) |
+| Notifications | Settings › Notifications: rules and notifiers | sources and notifiers (section 8) |
+| Command maps | On the plugin's page | `{"type": "command_map"}` (section 18) |
+| Casting | A strip on a channel's card while a phone casts it | the app's outputs |
+| Alerts | A bar at the top when something has failed | errors, refused plugins |
+
+The renderers are one module each in `web/static/js/ext/`, styled in `web/static/css/ext.css`.

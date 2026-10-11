@@ -624,6 +624,7 @@ middleware refuses before the handler runs. The app reads its own list from
 | `ev.read` | The event stream and catalogue |
 | `pg.use` | Plugin list, plugin pages and actions |
 | `tr.run` | Plugin webhook triggers |
+| `an.send` | Announcements and sounds over channels (`/api/announce`, `/api/sounds`); Admins only by role |
 | `admin.plugins` | Install, enable, configure plugins; schedules; notifications |
 | `admin.connection` | Settings › Connection (HA URL and token, MQTT) |
 | `admin.users`, `admin.keys`, `self` | Users, keys, own devices: **never** on a phone |
@@ -636,7 +637,7 @@ A phone always gets its user's (or the open) abilities **minus**
 
 | Situation | Phone's abilities (verified) |
 |---|---|
-| Users plugin on, phone of an **Admin** | Everything except `admin.users`, `admin.keys`, `self`: `admin.connection admin.plugins ch.* device ev.read pg.use pl.* sp.* st.* th.* tr.run` |
+| Users plugin on, phone of an **Admin** | Everything except `admin.users`, `admin.keys`, `self`: `admin.connection admin.plugins an.send ch.* device ev.read pg.use pl.* sp.* st.* th.* tr.run` |
 | Users plugin on, phone of a **User** | `ch.add ch.change ch.play ch.speakers ch.view device ev.read pl.edit pl.run pl.view sp.mute sp.view th.view` |
 | Users plugin on, phone with no user, Require login **off** | As an Admin's phone (open access) |
 | Users plugin on, phone with no user, Require login **on** | Nothing: 401 `{"pair": true}` |
@@ -1012,11 +1013,14 @@ created_at, updated_at}`.
 {"values":   {"sparse_min_interval": 180.0, "sparse_max_interval": 1800.0, "sparse_interval_variance": 0.3,
               "group_gap": 120.0, "loop_crossfade": 1.5, "group_crossfade_min": 1.0, "group_crossfade_max": 60.0,
               "track_fade": 6.0, "switch_fade": 3.0, "ebb_long_rest": 0.12, "ebb_turn": 0.35,
-              "short_file_threshold": 15.0},
+              "short_file_threshold": 15.0,
+              "sound_max_length": 60.0, "duck_amount": 15.0, "duck_attack": 0.5, "duck_release": 1.5,
+              "wake_wait": 20.0, "wake_lead": 1.0, "wake_tail": 1.0},
  "defaults": { "...same keys..." }}
 ```
 
-Seconds, except chances and randomness as fractions (0.3 = 30 %). PUT takes
+Seconds, except chances and randomness as fractions (0.3 = 30 %) and
+`duck_amount` in decibels. `sound_max_length` 0 is no limit (7.10). PUT takes
 `{key: number | null}` (null = default); 400 for unknown keys, non-numbers,
 negatives, chances above 1, or min above max. Pro's on-phone mixer should
 read these from the server it downloaded themes from.
@@ -1025,7 +1029,8 @@ read these from the server it downloaded themes from.
 
 | Method, path | Perm | Answer |
 |---|---|---|
-| `GET /plugins` | pg.use or admin.plugins | `[{id, name, version, description, author, enabled, builtin, auth_provider, settings, ui_schema, settings_schema}]` |
+| `GET /plugins` | pg.use or admin.plugins | `[{id, name, version, description, author, enabled, builtin, auth_provider, settings, ui_schema, settings_schema, api_version, compatible, problem}]`: a plugin that can't run here has `compatible: false` and `problem` (why) |
+| `GET /plugin-framework` | pg.use or admin.plugins | `{"api_version": "1.1", "capabilities": {name: {since, description}}, "offered": [names], "tts_providers": [...]}` |
 | `GET /plugins/{id}` | pg.use or admin.plugins | one plugin |
 | `POST /plugins/{id}/action` | pg.use | `{"action": "import", "data": {...}}` → the plugin's result |
 | `GET /extensions` | pg.use | `{"pages": [...], "connections": [...]}` |
@@ -1035,6 +1040,40 @@ A User's phone has neither `pg.use` nor `admin.plugins`: hide Plugins. **Never
 offer switching off `users`** (`auth_provider: true`) from the app: it opens
 the server to the whole network. The app may simply not show plugins in the
 Free MVP.
+
+### 7.10 Announcements, sounds and ramps
+
+Sounds play over a channel's mix: the channel ducks (gets quieter), the
+sound plays, the channel comes back. Announcements are admin-level: they
+override a zone's owner and quiet hours, and start a stopped channel's
+speakers for their length (the channel doesn't show as playing).
+
+| Method, path | Perm | Body / answer |
+|---|---|---|
+| `POST /announce` | an.send | `{"channels": [id] or "all", "text": "Dinner is ready", "url": "https://.../chime.mp3", "volume": 0-200, "duck": true \| false \| {"db", "attack", "release"}, "provider", "language", "start_stopped": true}` → `{"chime": result or null, "speech": result or null}`. `text` needs a text to speech provider (the Announcements plugin gives Home Assistant's): 502 when it fails |
+| `GET /sounds` | ch.view | `{"sounds": [{sound_id, channel_id, name, state, priority, policy, length, position, volume, duck, capped, label, origin}]}` |
+| `POST /sounds` | an.send | `{"channels", "url", "volume", "duck", "policy": "now" \| "queue" \| "replace", "priority", "max_seconds", "start_stopped": false, "override": false, "label"}` → result |
+| `DELETE /sounds/{sound_id}` | an.send | `{"cancelled": true}`; 404 when it isn't playing or queued |
+| `GET /sessions/{id}/ramp` | ch.view | `{"channel_id", "level", "ramp": {id, level, from, to, curve, elapsed, seconds, then} or null}` |
+| `POST /sessions/{id}/ramp` | ch.change | `{"to": 0-4, "seconds", "from", "curve": "linear" \| "db" \| "ease" \| "exp", "then": "stop" \| "pause" \| null, "start": false}` → `{ramp_id, from, to, seconds, curve, then}` |
+| `DELETE /sessions/{id}/ramp?reset=false` | ch.change | `{"cancelled": bool, "level"}`: holds the level (reset: back to full) |
+| `GET /audio-outputs` | ch.view | `{"types": [{id, title, plugin_id, available, message}]}` (output types plugins register) |
+| `GET /audio-outputs/{type}/devices` | sp.view | `{"devices": [{id, name, ...}]}` |
+| `GET /sessions/{id}/audio-outputs` | ch.view | `{"attachments": [{attachment_id, channel_id, type, device, options, running, latency, error}]}` |
+| `POST /sessions/{id}/audio-outputs` | ch.speakers | `{"type", "device", "options"}` → attachment (201); the mix starts if it isn't running |
+| `DELETE /sessions/{id}/audio-outputs/{attachment_id}` | ch.speakers | `{"removed": true}` |
+
+A play result: `{"sound_id", "length" (s), "capped" (cut at the longest
+sound), "channels": {id: {"state": "playing" | "queued" | "starting" |
+"skipped", "message"}}}`. `starting`: a stopped channel is being started
+for it; `skipped` says why ("The channel is stopped", "Speakers muted",
+"The channel has no speakers", a zone's reason).
+
+A ramp is a gain on the channel's mix, smooth to the sample; the speakers'
+volume isn't touched. `db` sounds even to the ear (the default).
+
+Network speakers buffer a few seconds of audio: a sound reaches them that
+much later than the stream.
 
 ---
 
@@ -1110,6 +1149,9 @@ data: {"id": 11, "boot_id": "54615c1e5e5d4331a7b9cd713cd45918", "type": "channel
 | `theme.deleted` | `theme_id` | Remove it |
 | `plugin.enabled` / `plugin.disabled` | `plugin_id`, `name` | If `users`: refetch `/api/info` and `/api/auth/me` |
 | `schedule.fired`, `trigger.received`, `notification`, `error` | see PLUGIN_DEVELOPMENT.md | `notification` and `error` can be shown as in-app messages |
+| `sound.started` / `sound.ended` | `channel_id`, `name`, `sound_id`, `label`, `origin` (+ `reason`, `capped`, `played` on ended) | Show an "announcing" badge on the channel |
+| `ramp.started` / `ramp.finished` / `ramp.cancelled` | `channel_id`, `name`, `ramp_id`, levels and `seconds`, `curve`, `then`, `reason` | Optional: show a fade on the channel |
+| `command.received` | `plugin_id`, `map_id`, `code`, `actions`, `learned` | ignore |
 | `plugin.<id>.<name>` | the plugin's | ignore |
 
 Not announced as events (poll or refetch): playlist create/edit/delete, speaker group and floor/area changes, settings
@@ -1255,7 +1297,7 @@ connection has been gone `hold_seconds`.
 
 While an output is reported, the channel's mix runs with or without its
 speakers, and it isn't released when the phone's own listener goes. The web
-UI doesn't show outputs yet; the API and events do.
+UI shows each on the channel's card with Stop casting (DELETE below).
 
 `POST /api/sessions/{id}/outputs` · ch.play
 
@@ -1284,8 +1326,8 @@ Answer 201 (live capture):
  "stream_url": "http://192.168.1.25:8008/stream/channel1", "heartbeat_seconds": 60, "expire_seconds": 180}
 ```
 
-- `by_device_id`: the linked phone that reported it (null for a browser or
-  key). `expires_in`: seconds left without a heartbeat.
+- `by_device_id`, `by_device_name`: the linked phone that reported it and
+  its name (null for a browser or key). The web UI shows "cast from <name>". `expires_in`: seconds left without a heartbeat.
 - Errors: 404 `"Session not found"`; 400 a bad field, `"No theme selected"`,
   `"Theme not found"`; 409 `"No free channel"`.
 
