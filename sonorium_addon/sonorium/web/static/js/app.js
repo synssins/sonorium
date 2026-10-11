@@ -9882,7 +9882,7 @@ const PAGE_HELP = {
         ${helpTerm('Delete', 'removes the channel. You confirm first.')}
         ${helpTerm('Recent changes', 'the channel\'s latest changes with their times: started, stopped, muted, theme, preset, sequence step, playlist entry.')}
         <h4>New channel</h4>
-        ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it after the theme and speakers.')}
+        ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it Channel and a number, for example Channel 1.')}
         ${helpTerm('Speakers', 'pick floors, areas or single speakers. Only speakers turned on under Settings › Speakers are listed.')}
         ${helpTerm('Speaker group', 'picks a saved group instead of single speakers. Shown when you have speaker groups.')}
         ${helpTerm('Playing count', 'the number next to Channels in the menu is how many channels are playing.')}` },
