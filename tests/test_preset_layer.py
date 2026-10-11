@@ -80,7 +80,7 @@ def test_finished_mixes_are_not_kept(monkeypatch):
         "theme_under_test", Path(__file__).resolve().parents[1] / "sonorium_addon" / "sonorium" / "theme.py")
     theme_mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(theme_mod)
-    theme = theme_mod.Theme.__new__(theme_mod.Theme)
+    theme = theme_mod.LoadedTheme.__new__(theme_mod.LoadedTheme)
     theme.name, theme.tracks, theme.groups = "T", [], {}
     theme.live_mixes = __import__("weakref").WeakSet()
     mix = theme.new_mix()

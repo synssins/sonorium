@@ -1,7 +1,7 @@
 """
 The theme library: what Sonorium found in its audio folder at start-up.
 
-It owns the loaded themes (theme.Theme) and the audio files behind them,
+It owns the loaded themes (theme.LoadedTheme) and the audio files behind them,
 the master output level every mix reads, and the media players Home
 Assistant reported at start-up. Rescans (api.refresh_themes) replace its
 themes and file lists in place. MQTT entities live in ha/mqtt_entities.py.
@@ -26,10 +26,10 @@ PLACEHOLDER_THEMES = ('Theme A', 'Theme B')
 
 class HaMediaPlayer(NamedTuple):
     """A media_player entity as Home Assistant's states API reported it."""
-    entity_id: str
-    state: str
+    entity_id: str  # media_player.<name>
+    state: str  # playing, idle, off, unavailable...
     friendly_name: str
-    supported_features: int = 0
+    supported_features: int = 0  # Home Assistant's feature bits
 
     @classmethod
     def from_ha(cls, entity: dict) -> "HaMediaPlayer":
@@ -66,7 +66,7 @@ class Library:
         self.client_ha = client_ha
         self.master_volume = master_volume  # the output gain every mix reads (0-10)
         self.playback_state = 'stopped'
-        self.themes = IndexList()
+        self.themes: IndexList = IndexList()  # LoadedThemes, in folder order
         self.all_files = IndexList()  # every theme's files, in theme order
         self.files_by_theme: dict = {}  # theme name -> its AudioFiles
         self.media_players = IndexList()
@@ -113,7 +113,7 @@ class Library:
     # --- themes ---
 
     def _load_themes(self, folders: list[Path]) -> None:
-        from sonorium.theme import Theme
+        from sonorium.theme import LoadedTheme
         from sonorium.theme_files import theme_audio_files
 
         for folder in folders:
@@ -123,7 +123,7 @@ class Library:
                 logger.warning(f'Theme folder "{folder.name}" contains no audio files')
                 continue
             self.files_by_theme[folder.name] = IndexList(AudioFile(path, folder) for path in files)
-            self.themes.append(Theme(library=self, name=folder.name, theme_id=_saved_theme_id(folder)))
+            self.themes.append(LoadedTheme(library=self, name=folder.name, theme_id=_saved_theme_id(folder)))
             logger.debug(f'Loaded theme "{folder.name}" with {len(files)} audio files')
 
         for files in self.files_by_theme.values():
@@ -131,7 +131,7 @@ class Library:
 
         if not self.themes:
             logger.warning(f'No themes with audio files found in "{self.audio_dir}". Add audio files to theme folders.')
-            self.themes = IndexList(Theme(library=self, name=name) for name in PLACEHOLDER_THEMES)
+            self.themes = IndexList(LoadedTheme(library=self, name=name) for name in PLACEHOLDER_THEMES)
 
         self.themes.current = self.themes[0]
         logger.debug(f'Set default theme to: "{self.themes.current.name}"')

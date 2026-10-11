@@ -25,7 +25,7 @@ from sonorium.mp3_out import Mp3Encoder, RealtimePacer
 from sonorium.recording import SAMPLE_RATE, CROSSFADE_SAMPLES
 
 if TYPE_CHECKING:
-    from sonorium.theme import Theme, ThemeMix
+    from sonorium.theme import LoadedTheme, ThemeMix
 
 
 # Default length of a theme-to-theme crossfade and of a channel's start/stop
@@ -87,7 +87,7 @@ class Channel:
     name: str = ""
 
     # Current theme reference
-    _current_theme: Optional[Theme] = field(default=None, repr=False)
+    _current_theme: Optional[LoadedTheme] = field(default=None, repr=False)
 
     # Theme version - increments when theme changes
     _theme_version: int = 0
@@ -122,7 +122,7 @@ class Channel:
     _chunk_generator: Optional[Generator] = field(default=None, repr=False)
 
     # Pending theme change (for thread-safe crossfade), and its length in seconds
-    _pending_theme: Optional[Theme] = field(default=None, repr=False)
+    _pending_theme: Optional[LoadedTheme] = field(default=None, repr=False)
     _pending_crossfade: float = THEME_CROSSFADE_DURATION
 
     # This channel's preset layer for the theme it plays ({track: {field: value}},
@@ -167,7 +167,7 @@ class Channel:
         self._silence = np.zeros((1, CHUNK_SIZE), dtype=np.int16)
 
     @property
-    def current_theme(self) -> Optional[Theme]:
+    def current_theme(self) -> Optional[LoadedTheme]:
         """Get the current theme."""
         return self._current_theme
 
@@ -359,7 +359,7 @@ class Channel:
 
     # --- Theme ---
 
-    def set_theme(self, theme: Theme, overrides: dict | None = None,
+    def set_theme(self, theme: LoadedTheme, overrides: dict | None = None,
                   crossfade: float = THEME_CROSSFADE_DURATION, fade_in: float = 0.0) -> None:
         """
         Set or change the theme for this channel, with the channel's preset

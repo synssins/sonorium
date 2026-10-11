@@ -35,7 +35,7 @@ def m():
     obs = types.ModuleType("sonorium.obs")
     obs.logger = logging.getLogger("sonorium-mgr-api-test")
     theme = types.ModuleType("sonorium.theme")
-    theme.Theme = object
+    theme.LoadedTheme = object
     version = types.ModuleType("sonorium.version")
     version.__version__ = "test"
     logbuffer = types.ModuleType("sonorium.logbuffer")

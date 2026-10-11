@@ -1252,9 +1252,8 @@ class WebApp:
         if not channel:
             return HTMLResponse(content=f"Channel {channel_id} not found", status_code=404)
 
-        stream = channel.get_stream(local)
-        response = StreamingResponse(stream, media_type="audio/mpeg")
-        return response
+        # Every listener gets the channel's one broadcast, encoded for it alone
+        return StreamingResponse(channel.get_stream(local), media_type="audio/mpeg")
 
     def _find_theme_folder(self, theme_id: str) -> Path | None:
         """
@@ -1570,7 +1569,7 @@ class WebApp:
     async def refresh_themes(self):
         """Rescan theme folders and reload themes."""
         from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, reset_ebb_settings
-        from sonorium.theme import Theme
+        from sonorium.theme import LoadedTheme
         from sonorium.recording import AudioFile, PlaybackMode
         from sonorium.utils import IndexList
 
@@ -1612,7 +1611,7 @@ class WebApp:
                 theme_names_with_audio.append(theme_name)
                 logger.debug(f'Found theme "{theme_name}" with {len(audio_files)} audio files')
 
-        # Step 2: the library's file lists, which Theme() reads
+        # Step 2: the library's file lists, which LoadedTheme() reads
         device.files_by_theme = new_theme_metas
 
         # Rebuild metas list
@@ -1634,7 +1633,7 @@ class WebApp:
                 except Exception:
                     pass  # Fall back to sanitized folder name
 
-            theme_def = Theme(library=device, name=theme_name, theme_id=theme_id)
+            theme_def = LoadedTheme(library=device, name=theme_name, theme_id=theme_id)
             new_themes.append(theme_def)
             logger.debug(f'Created Theme "{theme_name}" with {len(theme_def.tracks)} instances')
 

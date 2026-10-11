@@ -310,9 +310,9 @@ class AudioReader:
     an Intermittent play (whole file at once) and the length check.
     """
 
-    def __init__(self, path):
-        self.path = path
-        self._file = av.open(path)
+    def __init__(self, source):
+        self.path = source
+        self._file = av.open(source)
         audio = self._file.streams.audio
         self._audio = audio[0] if len(audio) else None
         self._to_mixer_format = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
@@ -355,7 +355,7 @@ def decode_mono(path):
     reader = AudioReader(path)
     if not reader.has_audio:
         reader.close()
-        raise ValueError('No audio stream')
+        raise ValueError(f'No audio stream in {path}')
     return reader.blocks()
 
 
@@ -610,6 +610,7 @@ class ThemeTrack:
 
     @property
     def name(self):
+        """The track key, as its file has it."""
         return self.meta.name
 
 

@@ -1,7 +1,7 @@
 """
 Themes and their mixes.
 
-A Theme is a theme folder as Sonorium loaded it: its tracks (ThemeTrack,
+A LoadedTheme is a theme folder as Sonorium loaded it: its tracks (ThemeTrack,
 recording.py) with their settings, its groups and its id. A ThemeMix is one
 running mix of a theme for one channel (or one direct listener): it holds a
 player for each track, pulls a block from each, applies the on/off fades and
@@ -74,7 +74,7 @@ class _Transition:
         self.release = None  # {"at", "length", "from", "to" (a number, or None: what the channel plays now)}
 
 
-class Theme:
+class LoadedTheme:
     """
     One theme as loaded from its folder: its tracks in order (`tracks`, each
     a ThemeTrack) and its settings. `library` is the Sonorium device that
@@ -107,7 +107,7 @@ class Theme:
     def listen_url(self) -> str:
         """Where a speaker can play this theme on its own (outside any channel)."""
         from sonorium.settings import settings
-        return f'{settings.stream_url}/stream/{self.id}'
+        return "{}/stream/{}".format(settings.stream_url, self.id)
 
     @property
     def id(self):
@@ -132,7 +132,7 @@ class ThemeMix:
     it as MP3 for a listener (a theme's own /stream/{id}).
     """
 
-    def __init__(self, theme: Theme, overrides: dict | None = None):
+    def __init__(self, theme: LoadedTheme, overrides: dict | None = None):
         self.theme = theme
         # This stream's preset values; changed in place when the channel's preset changes
         self.overrides = overrides if overrides is not None else {}
@@ -317,7 +317,7 @@ class ThemeMix:
         self._ebbs = ebbs
         return sorted(names - before), sorted(before - names)
 
-    def adopt(self, theme: Theme):
+    def adopt(self, theme: LoadedTheme):
         """
         The theme was rescanned (a file uploaded, moved or deleted): follow the
         new definition without restarting. Tracks still there keep playing

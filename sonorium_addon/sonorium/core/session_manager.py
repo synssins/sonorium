@@ -49,7 +49,7 @@ if TYPE_CHECKING:
     from sonorium.ha.media_controller import HAMediaController
     from sonorium.core.channel import ChannelManager, Channel
     from sonorium.core.theme_metadata import ThemeMetadataManager
-    from sonorium.theme import Theme
+    from sonorium.theme import LoadedTheme
     from sonorium.utils import IndexList
 
 
@@ -68,7 +68,7 @@ class SessionManager:
         media_controller: HAMediaController = None,
         stream_base_url: str = None,
         channel_manager: ChannelManager = None,
-        themes: IndexList[Theme] = None,
+        themes: IndexList[LoadedTheme] = None,
         theme_metadata_manager: ThemeMetadataManager = None,
     ):
         self.state = state_store
@@ -103,7 +103,7 @@ class SessionManager:
         """Set the stream base URL."""
         self.stream_base_url = url.rstrip("/")
     
-    def set_themes(self, themes: IndexList[Theme]):
+    def set_themes(self, themes: IndexList[LoadedTheme]):
         """Update themes reference (called after theme refresh)."""
         self.themes = themes
         logger.info(f"  SessionManager: Updated themes reference ({len(themes)} themes)")
@@ -378,7 +378,7 @@ class SessionManager:
         logger.info(f"  Applied preset '{preset_id}' to theme '{theme.name}' ({applied_count} tracks)")
         return True
 
-    def get_theme(self, theme_id: str) -> Optional[Theme]:
+    def get_theme(self, theme_id: str) -> Optional[LoadedTheme]:
         """Get a theme by ID, handling both UUID-based and folder-based IDs."""
         if not self.themes:
             return None

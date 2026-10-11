@@ -18,6 +18,8 @@ from sonorium.device import Library
 from sonorium.obs import logger
 
 DEFAULT_MQTT_PORT = 1883
+# The Supervisor's record of the MQTT service (the Mosquitto add-on registers it)
+SUPERVISOR_MQTT_SERVICE = "/services/mqtt"
 # Shown when no broker is set and the Supervisor knows none
 NO_BROKER_HELP = (
     "MQTT host not configured. No MQTT broker is registered with the Supervisor. Either:\n"
@@ -206,7 +208,7 @@ def _configured_broker(settings) -> MqttBroker:
 def _supervisor_mqtt_service(settings) -> dict | None:
     """The Supervisor's MQTT service record (GET /services/mqtt), or None. Problems are logged, not raised."""
     request = urllib.request.Request(
-        f"{settings.ha_supervisor_api}/services/mqtt",
+        settings.ha_supervisor_api + SUPERVISOR_MQTT_SERVICE,
         headers={"Authorization": f"Bearer {settings.token}", "Content-Type": "application/json"},
     )
     try:
