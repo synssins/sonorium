@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.38 (2026-10-11)
+
+### Documentation
+
+- Phone screenshot of the Channels page
+  ([`18c4300`](https://github.com/synssins/sonorium/commit/18c4300619b48fb9d01db10715c5cbc1cb117746))
+
+- **ui**: Theme Editor help in tiers, in the order the editor shows things; release named 1.6.1
+  (refinements)
+  ([`3d150b6`](https://github.com/synssins/sonorium/commit/3d150b682c696bd99164cce51e9004973c9bc121))
+
+
 ## v1.6.1-dev.37 (2026-10-11)
 
 ### Documentation
