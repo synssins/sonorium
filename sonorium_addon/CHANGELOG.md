@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.11 (2026-10-11)
+
+### Features
+
+- **ha**: Install the dashboard cards when HA and MQTT are linked
+  ([`81ec261`](https://github.com/synssins/sonorium/commit/81ec261d39d9644fd91145fa5d6ce4d3e09ad104))
+
+- **mqtt**: What the dashboard cards need from Home Assistant entities
+  ([`5e46892`](https://github.com/synssins/sonorium/commit/5e46892b111ee4ccc4726b3b44a09e938ac38229))
+
+- **settings**: Dashboard cards status line under MQTT, Download when added by hand
+  ([`3c21ee9`](https://github.com/synssins/sonorium/commit/3c21ee989a37f2262cd25d311c60e0352a5b7345))
+
+### Testing
+
+- **ha-cards**: Entities, channels attribute, installer and a headless card check
+  ([`9035d4a`](https://github.com/synssins/sonorium/commit/9035d4a30b501c569d8acc0e0de3eab204421498))
+
+
 ## v1.6.2-dev.8 (2026-10-11)
 
 ### Bug Fixes
