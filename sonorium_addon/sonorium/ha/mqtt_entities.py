@@ -9,9 +9,14 @@ Creates and manages Home Assistant entities via MQTT Discovery:
 - select.sonorium_{session}_playlist - Playlist selector (None + all playlists)
 - button.sonorium_{session}_next - Next playlist entry (or next sequence step)
 - number.sonorium_{session}_volume - Volume control
-- sensor.sonorium_{session}_status - Current status
+- switch.sonorium_{session}_speakers_muted - The speakers' stream silenced (the card's speaker button)
+- sensor.sonorium_{session}_status - Current status (recent changes as attributes)
 - sensor.sonorium_{session}_step - Sequence step / playlist entry (details as attributes)
 - sensor.sonorium_{session}_speakers - Speaker info
+
+The global Active Sessions sensor lists every channel and its entity IDs in a
+"channels" attribute, for the Home Assistant dashboard cards
+(web/static/ha/sonorium-cards.js).
 """
 
 from __future__ import annotations
@@ -161,6 +166,32 @@ class SessionMQTTEntities:
         unique_id = self._get_unique_id(suffix)
         return f"{self.base_topic}/{component}/{unique_id}/config"
     
+    # The entities the dashboard cards use, by the name they know them by: suffix
+    CARD_ENTITIES = {
+        "play": ("switch", "play"),
+        "theme": ("select", "theme"),
+        "preset": ("select", "preset"),
+        "playlist": ("select", "playlist"),
+        "next": ("button", "next"),
+        "speakers_muted": ("switch", "speakers_muted"),
+        "volume": ("number", "volume"),
+        "status": ("sensor", "status"),
+        "step": ("sensor", "step"),
+        "speakers": ("sensor", "speakers"),
+    }
+
+    def entity_ids(self, registered: dict | None = None) -> dict:
+        """
+        The card entities' IDs: Home Assistant's own (`registered`, unique ID ->
+        entity ID, from its entity registry) where known, else the default
+        entity ID the discovery config asks for.
+        """
+        registered = registered or {}
+        return {
+            key: registered.get(self._get_unique_id(suffix), f"{component}.{self.prefix}_{self.slug}_{suffix}")
+            for key, (component, suffix) in self.CARD_ENTITIES.items()
+        }
+
     async def publish_discovery(self):
         """Publish MQTT discovery configs for all session entities."""
         import asyncio
@@ -177,6 +208,8 @@ class SessionMQTTEntities:
         await self._publish_playlist_select()
         await asyncio.sleep(0.05)
         await self._publish_next_button()
+        await asyncio.sleep(0.05)
+        await self._publish_mute_switch()
         await asyncio.sleep(0.05)
         await self._publish_volume_number()
         await asyncio.sleep(0.05)
@@ -195,6 +228,7 @@ class SessionMQTTEntities:
         ("select", "preset"),
         ("select", "playlist"),
         ("button", "next"),
+        ("switch", "speakers_muted"),
         ("number", "volume"),
         ("sensor", "status"),
         ("sensor", "step"),
@@ -274,7 +308,20 @@ class SessionMQTTEntities:
             status,
             retain=True,
         )
-    
+        # Recent changes (newest first, as on the channel's card in Sonorium)
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/status/attributes",
+            json.dumps(status_attributes(self.session)),
+            retain=True,
+        )
+
+        # Speakers muted switch
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/speakers_muted/state",
+            "ON" if getattr(self.session, "speakers_muted", False) else "OFF",
+            retain=True,
+        )
+
     def _get_theme_name(self, theme_id: str) -> str:
         """Get theme name from ID."""
         for theme in self.themes:
@@ -416,6 +463,21 @@ class SessionMQTTEntities:
         }
         await self.mqtt_publish(self._get_discovery_topic("button", "next"), json.dumps(config), retain=True)
 
+    async def _publish_mute_switch(self):
+        """Speakers muted: the speakers' stream is silenced (browsers listening still hear it)."""
+        config = {
+            "name": f"{self.session.name} Speakers muted",
+            "unique_id": self._get_unique_id("speakers_muted"),
+            "default_entity_id": f"switch.{self.prefix}_{self.slug}_speakers_muted",
+            "state_topic": f"{self.state_topic_base}/speakers_muted/state",
+            "command_topic": f"{self.state_topic_base}/speakers_muted/set",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "icon": "mdi:volume-off",
+            "device": self.device_info,
+        }
+        await self.mqtt_publish(self._get_discovery_topic("switch", "speakers_muted"), json.dumps(config), retain=True)
+
     async def _publish_step_sensor(self):
         """What the sequence and playlist are on now; the full status is in its attributes."""
         config = {
@@ -457,6 +519,7 @@ class SessionMQTTEntities:
             "unique_id": unique_id,
             "default_entity_id": f"sensor.{self.prefix}_{self.slug}_status",
             "state_topic": f"{self.state_topic_base}/status/state",
+            "json_attributes_topic": f"{self.state_topic_base}/status/attributes",
             "icon": "mdi:information-outline",
             "device": self.device_info,
         }
@@ -486,6 +549,13 @@ class SessionMQTTEntities:
             speaker_summary,
             retain=True,
         )
+
+
+def status_attributes(session) -> dict:
+    """The Status sensor's attributes: the channel's recent changes, newest first ({at, text})."""
+    recent = [{"at": e.get("at"), "text": e.get("text")} for e in (getattr(session, "recent", None) or [])
+              if isinstance(e, dict)]
+    return {"recent": list(reversed(recent))}
 
 
 def step_text(playback: dict) -> str:
@@ -525,6 +595,7 @@ class SonoriumMQTTManager:
         mqtt_client,  # paho or fmtr.tools mqtt client
         entity_prefix: str = "sonorium",
         theme_metadata_manager=None,
+        version: str = "",
     ):
         """
         Initialize the MQTT manager.
@@ -535,6 +606,8 @@ class SonoriumMQTTManager:
             mqtt_client: MQTT client for publishing
             entity_prefix: Prefix for entity IDs
             theme_metadata_manager: ThemeMetadataManager for preset access
+            version: Sonorium's version, in the channels attribute (the dashboard
+                cards compare it with their own)
         """
         self.state = state_store
         self.session_manager = session_manager
@@ -573,6 +646,16 @@ class SonoriumMQTTManager:
 
         # Set by remove_all_entities(): publishes nothing more after that
         self._removed = False
+
+        self.version = version
+        # Home Assistant's entity IDs by unique ID (from its entity registry,
+        # set by ha/cards.py); entities not in it go by their default IDs
+        self.registered_entity_ids: dict[str, str] = {}
+        # Called after a channel's entities are published or renamed, so the
+        # registered entity IDs can be read again (ha/cards.py)
+        self.on_discovery: Callable[[], None] | None = None
+        # The last channels attribute published (only changes are sent)
+        self._channels_payload: str | None = None
 
     # Global entities' discovery (component, object_id), see _publish_global_entities
     GLOBAL_ENTITIES = (
@@ -651,6 +734,51 @@ class SonoriumMQTTManager:
         except Exception as e:
             logger.warning(f"Failed to get sequences for theme {theme_id}: {e}")
             return []
+
+    def theme_icon(self, theme_id: str | None) -> str:
+        """A theme's icon as saved in its metadata (an emoji, an mdi: name, or "" for automatic)."""
+        if not theme_id or not self._theme_metadata_manager:
+            return ""
+        try:
+            folder = self._theme_metadata_manager.get_folder_for_id(theme_id)
+            metadata = self._theme_metadata_manager.get_metadata_by_folder(folder) if folder else None
+            return (getattr(metadata, "icon", "") or "") if metadata else ""
+        except Exception:
+            return ""
+
+    def channels_attribute(self) -> dict:
+        """
+        The Active Sessions sensor's attributes: Sonorium's version and every
+        channel with the entities the dashboard cards use.
+        """
+        channels = []
+        for session in self.state.sessions.values():
+            entities = self._session_entities.get(session.id)
+            if entities is None:
+                continue
+            channels.append({
+                "id": session.id,
+                "name": session.name,
+                "theme_id": session.theme_id,
+                "icon": self.theme_icon(session.theme_id),
+                "entities": entities.entity_ids(self.registered_entity_ids),
+            })
+        return {"sonorium_version": self.version, "channels": channels}
+
+    async def publish_channels(self, force: bool = False):
+        """Publish the channels attribute (when it changed, or `force`)."""
+        payload = json.dumps(self.channels_attribute())
+        if payload == self._channels_payload and not force:
+            return
+        self._channels_payload = payload
+        await self._mqtt_publish(f"{self.prefix}/active_sessions/attributes", payload, retain=True)
+
+    def _discovery_changed(self):
+        if self.on_discovery:
+            try:
+                self.on_discovery()
+            except Exception as e:
+                logger.warning(f"Could not look up the channels' entity IDs: {e}")
 
     def get_playlists(self) -> list[dict]:
         """All playlists ({id, name})."""
@@ -799,9 +927,11 @@ class SonoriumMQTTManager:
 
         self._session_entities[session.id] = entities
         await self._subscribe_commands()
-        
+
         # Update session selector options
         await self._update_session_selector_options()
+        await self.publish_channels()
+        self._discovery_changed()
     
     async def remove_session_entities(self, session_id: str):
         """Remove MQTT entities for a deleted session."""
@@ -810,6 +940,7 @@ class SonoriumMQTTManager:
         
         entities = self._session_entities.pop(session_id)
         await entities.remove_discovery()
+        await self.publish_channels()
         
         # If removed session was selected, clear selection
         if self._selected_session_id == session_id:
@@ -838,6 +969,7 @@ class SonoriumMQTTManager:
         # Update speakers sensor
         speaker_summary = self.session_manager.get_speaker_summary(session)
         await entities.update_speakers_sensor(speaker_summary)
+        await self.publish_channels()
 
     async def refresh_session_discovery(self, session: Session):
         """
@@ -857,6 +989,8 @@ class SonoriumMQTTManager:
 
         # Also update the session selector since it shows session names
         await self._update_session_selector_options()
+        await self.publish_channels()
+        self._discovery_changed()
 
         logger.info(f"  Refreshed MQTT discovery for session '{session.name}'")
 
@@ -1130,6 +1264,7 @@ class SonoriumMQTTManager:
             "unique_id": f"{self.prefix}_global_active_sessions",
             "default_entity_id": f"sensor.{self.prefix}_global_active_sessions",
             "state_topic": f"{self.prefix}/active_sessions/state",
+            "json_attributes_topic": f"{self.prefix}/active_sessions/attributes",
             "icon": "mdi:counter",
             "device": self.device_info,
         }
@@ -1143,8 +1278,9 @@ class SonoriumMQTTManager:
 
         logger.debug("  Global entities published: session, play, theme, preset, volume, status, speakers, stop_all, active_sessions")
 
-        # Update active sessions count (publishes initial state)
+        # Update active sessions count (publishes initial state) and the channels list
         await self._update_active_sessions_count()
+        await self.publish_channels(force=True)
         
         # Update global control states
         await self._update_global_control_states()
@@ -1320,6 +1456,7 @@ class SonoriumMQTTManager:
                 f"{self.prefix}/{slug}/preset/set",
                 f"{self.prefix}/{slug}/playlist/set",
                 f"{self.prefix}/{slug}/next/set",
+                f"{self.prefix}/{slug}/speakers_muted/set",
                 f"{self.prefix}/{slug}/volume/set",
             ])
 
@@ -1532,6 +1669,14 @@ class SonoriumMQTTManager:
                 await self._update_active_sessions_count()
                 if session_id == self._selected_session_id:
                     await self._update_global_control_states()
+                return
+
+            elif topic == f"{self.prefix}/{slug}/speakers_muted/set":
+                if not self.session_manager.set_speakers_muted(session_id, payload == "ON"):
+                    return
+                session = self.state.sessions.get(session_id)
+                if session:
+                    await self.update_session_state(session)
                 return
 
             elif topic == f"{self.prefix}/{slug}/volume/set":
