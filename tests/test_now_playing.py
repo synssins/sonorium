@@ -162,6 +162,29 @@ def test_ebb_and_flow_shows_its_move_its_level_and_its_band(tmp_path):
         assert 0.2 - 1e-3 <= level <= 0.8 + 1e-3
 
 
+def test_ebb_and_flow_with_pauses_counts_down_to_each_change(tmp_path):
+    """Moves, the fade-out at the file's end and the pause: each countdown ends when the next state begins."""
+    folder = tmp_path / "Storm"
+    folder.mkdir()
+    tone_mp3(folder / "Gust.mp3", 12.0, 250)
+    random.seed(4)
+    settings = {"playback_mode": m.recording.PlaybackMode.PRESENCE, "presence": 0.0, "volume": 0.9,
+                "volume_low": 0.3, "pause_between": True, "pause_min": 3.0, "pause_max": 3.0}
+    mix = m.theme.ThemeStream(theme_of(folder, [("Gust", None, settings)]))
+    chunks = mix.iter_chunks()
+    next(chunks)
+    seen = set()
+    for _ in range(12):
+        row = rows(mix)["Gust"]
+        if row["now"] == "Fading out":
+            pull_until(chunks, mix, lambda r: r["Gust"]["now"] != "Fading out")
+            continue
+        seen.add(row["now"])
+        took = pull_until(chunks, mix, lambda r: r["Gust"]["now"] != row["now"] or r["Gust"]["seconds"] > row["seconds"] + 1)
+        assert abs(took - row["seconds"]) <= 3 * CHUNK_SECONDS, (row, took)
+    assert "Paused, back in {t}" in seen and seen & {"Rising, {t}", "Falling, {t}", "Holding, {t}"}
+
+
 def test_a_track_muted_mid_play_fades_then_shows_muted(tmp_path):
     folder = tmp_path / "Storm"
     folder.mkdir()

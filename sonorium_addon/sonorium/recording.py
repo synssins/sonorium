@@ -1531,6 +1531,7 @@ class PresenceMixingStream:
         self.ebb_move = "hold"
         self.ebb_level = 0.0
         self.ebb_until = None
+        self.ebb_fade_at = None  # with Pause between plays: when the fade-out at the file's end starts
         self.turn_gain = 0.0
         self.turn_target = 0.0
         self.gen = self._gen()
@@ -1712,8 +1713,10 @@ class PresenceMixingStream:
             # Pause between plays: fade out to reach silence at the file's end
             length = int(getattr(self.instance.meta, "duration_samples", 0) or 0)
             pass_length = max(n, length - int(getattr(self.base_stream, "overlap", 0) or 0))
+            fade_at = None
             if state == "playing" and pauses() and length:
                 left = pass_length - played
+                fade_at = self.clock + n + max(0, left - min(end_fade, pass_length // 3))
                 if left <= min(end_fade, pass_length // 3):
                     if guarded() and not group.others_sounding(name):
                         pass  # the only one playing: it carries on into another pass
@@ -1747,7 +1750,7 @@ class PresenceMixingStream:
                 ramp = np.linspace(level, end, n, dtype=np.float32) if level != end else level
                 chunk = np.clip(chunk.astype(np.float32) * ramp, -32768, 32767).astype(np.int16)
             level = end
-            self.ebb_state, self.ebb_level = state, level
+            self.ebb_state, self.ebb_level, self.ebb_fade_at = state, level, fade_at
             if state == "ending" and not glide:
                 pause()
             yield chunk

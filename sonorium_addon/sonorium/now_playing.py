@@ -127,7 +127,10 @@ def _track(mix, stream, mode: str) -> dict:
                 return _row(key, name, "fade", mode, "Fading in" if target > g else "Fading out",
                             level=volume * gain * g)
             return _row(key, name, "on", mode, "Playing", level=volume * gain * g)
-        left = None if stream.ebb_until is None else _secs(stream.ebb_until - stream.clock)
+        until = stream.ebb_until
+        if stream.ebb_state == "playing" and stream.ebb_fade_at is not None:
+            until = stream.ebb_fade_at if until is None else min(until, stream.ebb_fade_at)  # the file ends first
+        left = None if until is None else _secs(until - stream.clock)
         if stream.ebb_state == "paused":
             return _row(key, name, "rest", mode, "Paused, back in {t}", seconds=left, band=band)
         level = volume * gain * stream.ebb_level
@@ -297,11 +300,18 @@ def channel_now(session_manager, session) -> dict | None:
     except Exception:
         playback = {}
     sequence = playback.get("sequence") or None
+    theme_name = None
+    try:
+        metadata = session_manager.theme_metadata_manager.get_metadata(session.theme_id)
+        theme_name = getattr(metadata, "name", None)
+    except Exception:
+        pass
     return {
         "id": session.id,
         "name": session.name,
         "theme_id": session.theme_id,
-        "theme_name": getattr(channel, "current_theme_name", None) or session.theme_id,
+        "theme_name": (theme_name if isinstance(theme_name, str) and theme_name else None)
+        or getattr(channel, "current_theme_name", None) or session.theme_id,
         "preset_name": session_manager.preset_name(session.theme_id, session.preset_id),
         "sequence": {"name": sequence.get("name"), "step": sequence.get("step"), "steps": sequence.get("steps")}
         if sequence else None,
