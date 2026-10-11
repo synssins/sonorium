@@ -11,7 +11,8 @@ arch:
 init: false
 homeassistant_api: true
 hassio_api: true
-# Home Assistant's users are Sonorium's users: their list and sign-in (Supervisor auth API)
+# Home Assistant's users are Sonorium's users: their passwords are checked by the Supervisor's auth API
+# (their list comes from Home Assistant's WebSocket API, through homeassistant_api)
 auth_api: true
 audio: false
 

@@ -73,6 +73,7 @@ class World:
         if ha is not None:
             import httpx
             s.supervisor_transport = httpx.MockTransport(ha.handler)
+            s.supervisor_ws_connect = ha.ws_connect
         self.app = app = FastAPI()
         s.app = app
         app.add_middleware(m.middleware.AuthMiddleware, service=s)
@@ -562,16 +563,45 @@ def test_info_is_public(w):
 
 # --- Home Assistant's users (add-on) ---------------------------------------------------
 
+class FakeWebSocket:
+    """HA's WebSocket API through the Supervisor: auth, then config/auth/list."""
+
+    def __init__(self, fake):
+        self.fake = fake
+        self.out = [{"type": "auth_required", "ha_version": "2026.10.0"}]
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def recv(self):
+        return json.dumps(self.out.pop(0))
+
+    async def send(self, text):
+        message = json.loads(text)
+        if message.get("type") == "auth":
+            ok = message.get("access_token") == FakeSupervisor.TOKEN
+            self.out.append({"type": "auth_ok" if ok else "auth_invalid"})
+        elif message.get("type") == "config/auth/list":
+            self.fake.lists += 1
+            self.out.append({"id": message["id"], "type": "event", "event": {}})  # not the answer
+            self.out.append({"id": message["id"], "type": "result", "success": True, "result": self.fake.users})
+
+
 class FakeSupervisor:
-    """GET /auth/list and POST /auth of Home Assistant's Supervisor (its list carries no user ids)."""
+    """Home Assistant through its Supervisor: config/auth/list (WebSocket) and POST /auth."""
     TOKEN = "supervisor-token"
 
     def __init__(self):
         self.users = [
-            {"username": "synthesis", "name": "Chris", "is_owner": True, "is_active": True, "local_only": False,
-             "group_ids": ["system-admin"]},
-            {"username": "kid", "name": "Kid", "is_owner": False, "is_active": True, "local_only": False,
-             "group_ids": ["system-users"]},
+            {"id": "ha-id-1", "username": "synthesis", "name": "Chris", "is_owner": True, "is_active": True,
+             "system_generated": False, "group_ids": ["system-admin"], "credentials": [{"type": "homeassistant"}]},
+            {"id": "ha-id-2", "username": "kid", "name": "Kid", "is_owner": False, "is_active": True,
+             "system_generated": False, "group_ids": ["system-users"], "credentials": [{"type": "homeassistant"}]},
+            {"id": "ha-id-sup", "username": None, "name": "Supervisor", "is_owner": False, "is_active": True,
+             "system_generated": True, "group_ids": ["system-admin"], "credentials": []},
         ]
         self.passwords = {"synthesis": "ha password 1", "kid": "ha password 2"}
         self.lists = 0
@@ -580,14 +610,19 @@ class FakeSupervisor:
     def entry(self, username):
         return next(u for u in self.users if u["username"] == username)
 
+    def ws_connect(self, url, **kw):
+        assert url == "ws://supervisor/core/websocket"
+        if self.down:
+            raise OSError("connection refused")
+        return FakeWebSocket(self)
+
     def handler(self, request):
         import httpx
         assert request.headers["authorization"] == f"Bearer {self.TOKEN}"
         if self.down:
             return httpx.Response(502)
         if request.method == "GET" and request.url.path == "/auth/list":
-            self.lists += 1
-            return httpx.Response(200, json={"result": "ok", "data": {"users": self.users}})
+            return httpx.Response(403)  # needs an admin hassio_role, which Sonorium doesn't have
         if request.method == "POST" and request.url.path == "/auth":
             body = json.loads(request.content)
             ok = body.get("username") in self.passwords and self.passwords[body["username"]] == body.get("password")
@@ -622,6 +657,8 @@ def test_ha_role_follows_home_assistant(ha_world, fake):
     _, _, me = sidebar(w, "synthesis")
     assert me["user"]["username"] == "synthesis" and me["user"]["role"] == "admin" and me["user"]["ha"] is True
     assert "admin.users" in me["perms"] and fake.lists == 1  # asked at once for an HA user Sonorium hadn't seen
+    known = w.service.plugin_state["users"].ha.users
+    assert [u["id"] for u in known] == ["ha-id-1", "ha-id-2"]  # not HA's system users (the Supervisor)
     kid, kid_h, me = sidebar(w, "kid")
     assert me["user"]["role"] == "user" and "admin.users" not in me["perms"]
     assert kid.get("/api/users", headers=kid_h).status_code == 403
@@ -648,14 +685,17 @@ def test_ha_role_follows_home_assistant(ha_world, fake):
 
 def test_ha_renamed_user_keeps_their_account(ha_world, fake, caplog):
     w = ha_world
-    _, _, me = sidebar(w, "kid")
+    kid, kid_h, me = sidebar(w, "kid")
+    link = kid.post("/api/link", headers=kid_h).json()
+    token = w.client(base_url="https://testserver").post("/api/pair", json={"code": link["code"]}).json()["token"]
     fake.entry("kid")["username"] = "kiddo"
     fake.passwords["kiddo"] = fake.passwords.pop("kid")
-    w.clock.now += 6
+    w.clock.now += 61
+    assert w.client().get("/api/sessions", headers=H(token)).status_code == 200  # by HA's user id, not the name
+    assert not any("switched off" in r.message for r in caplog.records)
     c = w.client(base_url="http://testserver:8099", client=("172.30.32.2", 1))
     me2 = c.get("/api/auth/me", headers={"X-Remote-User-Id": HA_IDS["kid"], "X-Remote-User-Name": "kiddo"}).json()
-    assert me2["user"]["id"] == me["user"]["id"]  # by HA's user id, not the name
-    assert not any("switched off" in r.message for r in caplog.records)
+    assert me2["user"]["id"] == me["user"]["id"]
     https = w.client(base_url="https://testserver")
     r = https.post("/api/pair/login", json={"username": "kiddo", "password": "ha password 2"})
     assert r.status_code == 200 and r.json()["user"]["id"] == me["user"]["id"]
@@ -701,6 +741,7 @@ def test_ha_removed_user_is_switched_off(ha_world, fake):
     link = kid.post("/api/link", headers=kid_h).json()
     token = w.client(base_url="https://testserver").post("/api/pair", json={"code": link["code"]}).json()["token"]
     fake.users = [u for u in fake.users if u["username"] != "kid"]
+    assert len(fake.users) == 2
     w.clock.now += 61
     r = w.client().get("/api/sessions", headers=H(token))
     assert r.status_code == 401 and r.json()["pair"] is True

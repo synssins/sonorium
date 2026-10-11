@@ -1,11 +1,15 @@
 """
-Home Assistant's users (add-on only), through the Supervisor's auth API
-(config.yaml: auth_api: true).
+Home Assistant's users (add-on only).
 
-    GET  http://supervisor/auth/list   HA's users: username, name, is_owner,
-                                       is_active, group_ids (no user id)
+    ws://supervisor/core/websocket     Home Assistant's WebSocket API through the
+      config/auth/list                 Supervisor (homeassistant_api: true): HA's
+                                       users with id, username, name, is_owner,
+                                       is_active, system_generated, group_ids.
+                                       (The Supervisor's GET /auth/list needs an
+                                       admin hassio_role, which Sonorium doesn't ask for.)
     POST http://supervisor/auth        {"username", "password"}: 200 when HA
                                        accepts them, 401 when it doesn't
+                                       (auth_api: true)
 
 The list is kept for a minute (REFRESH_SECONDS) and asked again sooner when a
 Home Assistant user Sonorium hasn't seen opens it from HA's sidebar. Passwords
@@ -17,12 +21,14 @@ everyone else (Users, Read-only) is a User.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from typing import Optional
 
 from sonorium.obs import logger
 
 SUPERVISOR = "http://supervisor"
+WEBSOCKET = "ws://supervisor/core/websocket"
 REFRESH_SECONDS = 60     # the list is asked again at most this often ...
 FORCED_SECONDS = 5       # ... or this often when an unknown HA user turns up
 TIMEOUT = 5.0
@@ -42,11 +48,12 @@ def norm(username: Optional[str]) -> str:
 
 
 class Supervisor:
-    """The two calls to the Supervisor's auth API."""
+    """HA's list of users, and HA's check of a username and password."""
 
-    def __init__(self, token: str, transport=None):
+    def __init__(self, token: str, transport=None, ws_connect=None):
         self.token = token
-        self.transport = transport
+        self.transport = transport     # tests: an httpx transport
+        self.ws_connect = ws_connect   # tests: stands in for websockets.connect
 
     def _client(self):
         import httpx
@@ -54,20 +61,38 @@ class Supervisor:
                                  headers={"Authorization": f"Bearer {self.token}"})
 
     async def list_users(self) -> list[dict]:
+        """HA's people (no system users): config/auth/list over HA's WebSocket API."""
+        connect = self.ws_connect
+        if connect is None:
+            try:
+                import websockets
+            except ImportError:
+                raise HAUnavailable("the websockets library is missing") from None
+            connect = websockets.connect
         try:
-            async with self._client() as client:
-                response = await client.get("/auth/list")
+            async with connect(WEBSOCKET, max_size=16 * 1024 * 1024) as ws:
+                hello = json.loads(await asyncio.wait_for(ws.recv(), timeout=TIMEOUT))
+                if hello.get("type") != "auth_required":
+                    raise HAUnavailable(f"unexpected {hello.get('type')}")
+                await ws.send(json.dumps({"type": "auth", "access_token": self.token}))
+                auth = json.loads(await asyncio.wait_for(ws.recv(), timeout=TIMEOUT))
+                if auth.get("type") != "auth_ok":
+                    raise HAUnavailable("Home Assistant refused the add-on's token")
+                await ws.send(json.dumps({"id": 1, "type": "config/auth/list"}))
+                while True:
+                    reply = json.loads(await asyncio.wait_for(ws.recv(), timeout=TIMEOUT))
+                    if reply.get("id") == 1 and reply.get("type") == "result":
+                        break
+        except HAUnavailable:
+            raise
         except Exception as e:
             raise HAUnavailable(f"no answer ({type(e).__name__})") from None
-        if response.status_code != 200:
-            raise HAUnavailable(f"HTTP {response.status_code}")
-        try:
-            users = (response.json().get("data") or {}).get("users")
-        except Exception:
-            users = None
+        if not reply.get("success"):
+            raise HAUnavailable((reply.get("error") or {}).get("message") or "config/auth/list failed")
+        users = reply.get("result")
         if not isinstance(users, list):
             raise HAUnavailable("an answer without users")
-        return [u for u in users if isinstance(u, dict) and u.get("username")]
+        return [u for u in users if isinstance(u, dict) and u.get("id") and not u.get("system_generated")]
 
     async def check_password(self, username: str, password: str) -> bool:
         try:
@@ -143,11 +168,7 @@ class HADirectory:
             return None
         return next((u for u in self.users if norm(u.get("username")) == name), None)
 
-    def by_id_available(self) -> bool:
-        return bool(self.users) and all(u.get("id") for u in self.users)
-
     def by_id(self, ha_user_id: Optional[str]) -> Optional[dict]:
-        """Only when the Supervisor's list carries ids (today it doesn't)."""
         if not ha_user_id or not self.users:
             return None
         return next((u for u in self.users if u.get("id") == ha_user_id), None)
@@ -162,4 +183,5 @@ def directory_for(service) -> Optional[HADirectory]:
     token = os.environ.get("SUPERVISOR_TOKEN")
     if not config.is_addon() or not token:
         return None
-    return HADirectory(Supervisor(token, getattr(service, "supervisor_transport", None)), service.clock)
+    return HADirectory(Supervisor(token, getattr(service, "supervisor_transport", None),
+                                  getattr(service, "supervisor_ws_connect", None)), service.clock)
