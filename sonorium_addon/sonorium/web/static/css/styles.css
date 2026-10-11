@@ -4180,3 +4180,31 @@ button.pk-row { cursor: pointer; }
     .ad .foot > .grow { display: none; }
     .ad .foot .btn { flex: 1; min-height: 44px; justify-content: center; }
 }
+
+/* ===== Sign-in core (slots.js): full-page screen, banners, Link App (boards: Auth_*.dc.html) ===== */
+body.screen-on .sidebar, body.screen-on .main-wrapper, body.screen-on .mobile-topbar, body.screen-on .sidebar-overlay { display: none !important; }
+.au-page { position: fixed; inset: 0; z-index: 50; overflow-y: auto; display: flex; align-items: center; justify-content: center; gap: 1.5rem; padding: 2rem; background: var(--bg-primary); }
+.au-card { width: 340px; box-sizing: border-box; display: flex; flex-direction: column; gap: .625rem; padding: 1.75rem 1.5rem 1.5rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .875rem; }
+.au-logo { height: 34px; align-self: center; margin-bottom: .5rem; }
+.au-card h1 { margin: 0; font-size: 1.125rem; font-weight: 600; color: var(--text-primary); text-align: center; }
+.au-card > p { margin: 0 0 .25rem; font-size: .8125rem; color: var(--text-secondary); text-align: center; line-height: 1.45; }
+.nav-sub-item.perm-hidden, .nav-section.perm-hidden { display: none !important; }
+.lk { width: 440px; min-width: 0; }
+.lk-body { display: flex; flex-direction: column; align-items: center; text-align: center; gap: .5rem; }
+.lk-qr { width: 280px; height: 280px; border-radius: .75rem; display: block; margin: .25rem 0 .5rem; }
+.lk-who { margin: 0; font-size: .9375rem; color: var(--text-primary); }
+.lk-how { margin: 0; font-size: .8125rem; color: var(--text-secondary); }
+.lk-exp { margin: .25rem 0 0; font-size: .75rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.lk-words { margin: 0; font-size: .75rem; color: var(--text-muted); letter-spacing: .02em; }
+.lk-expired .lk-qr { opacity: .25; }
+.by-banner { display: flex; align-items: center; gap: .75rem; padding: .75rem 1.5rem; background: rgba(239,83,80,.16); border-bottom: 1px solid rgba(239,83,80,.5); color: #ffb4b2; font-size: .875rem; line-height: 1.4; }
+.by-banner svg { flex: none; color: #ef5350; }
+.by-banner b { color: #fff; }
+.by-banner code { background: rgba(0,0,0,.25); padding: .05rem .35rem; border-radius: .25rem; color: #fff; }
+.ch-plugin-fields { padding: 0 1.5rem 1rem; }
+@media (max-width: 760px) {
+    .lk-btn { display: none; }
+    .au-page { padding: 1rem; }
+    .au-card { width: 100%; }
+    .by-banner { padding: .625rem 1rem; font-size: .8125rem; }
+}

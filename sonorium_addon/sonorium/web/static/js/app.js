@@ -30,7 +30,8 @@ async function init() {
     console.log('Sonorium init() starting...');
     console.log('BASE_PATH:', BASE_PATH);
     try {
-        await Promise.all([
+        // allSettled: a part this caller may not see (e.g. plugins for a User) leaves the rest working
+        await Promise.allSettled([
             loadSessions(),
             loadThemes(),
             loadCategories(),
@@ -386,7 +387,7 @@ function showView(viewName) {
     document.body.classList.toggle('tp-on', viewName === 'themes');
     if (viewName !== 'themes') tpCloseMenu();
     // Settings pages: fixed title bar, only the list scrolls, actions at the bottom of the column
-    document.body.classList.toggle('sp-on', SP_VIEWS.includes(viewName));
+    document.body.classList.toggle('sp-on', SP_VIEWS.includes(viewName) || Sonorium.isPage(viewName));
     spClosePop();
     // Persist view selection across page refreshes
     localStorage.setItem('sonorium_currentView', viewName);
@@ -473,7 +474,7 @@ function showView(viewName) {
         'settings-advanced': 'Advanced',
         status: 'Status'
     };
-    document.getElementById('view-title').textContent = titles[viewName] || viewName;
+    document.getElementById('view-title').textContent = titles[viewName] || Sonorium.page(viewName)?.title || viewName;
 
     // Update actions
     const actionsHtml = {
@@ -563,7 +564,9 @@ function showView(viewName) {
             <button class="btn btn-secondary sp-hbtn" aria-label="Refresh" title="Refresh" onclick="refreshStatus(this)">${SP_ICON_REFRESH}<span class="lbl">Refresh</span></button>
         `
     };
-    document.getElementById('view-actions').innerHTML = actionsHtml[viewName] || '';
+    // Plugins' buttons first, then the page's own (slots.js)
+    document.getElementById('view-actions').innerHTML = Sonorium.headerButtons(viewName)
+        + (actionsHtml[viewName] || (Sonorium.page(viewName)?.actions?.(Sonorium.me) ?? ''));
     if (viewName === 'settings-plugins') renderPluginUploadState();
     // Page actions (Save / Cancel, Restart now) sit in the top bar of their own page
     document.querySelectorAll('.main-header .hdr-pacts').forEach(el => {
@@ -597,6 +600,7 @@ function showView(viewName) {
         SonoriumLogs.mount(document.getElementById('settings-logs-root'), BASE_PATH);
     }
     if (viewName === 'status') renderStatus();
+    if (Sonorium.isPage(viewName)) Sonorium.renderPage(viewName);
 
     // Close mobile sidebar when navigating to a new view
     closeSidebar();
@@ -676,7 +680,7 @@ function renderSessionCard(session) {
         <div class="ch-card${isPlaying ? ' on' : ''}" data-session-id="${escapeHtml(id)}">
             <div class="ch-head">
                 <span class="ch-icon" aria-hidden="true">${themeIconOf(session.theme_id)}</span>
-                <div class="ch-title"><span class="ch-name">${name}</span><span class="ch-sub" title="Speakers">${escapeHtml(speakers)}</span></div>
+                <div class="ch-title"><span class="ch-name">${name}</span>${Sonorium.cardBadges(session)}<span class="ch-sub" title="Speakers">${escapeHtml(speakers)}</span></div>
                 <span class="ch-state${isPlaying ? ' on' : ''}">${isPlaying ? 'Playing' : 'Stopped'}</span>
                 <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
                 <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
@@ -689,6 +693,7 @@ function renderSessionCard(session) {
                 </div>
             </div>
             ${chNowHtml(session)}
+            ${Sonorium.cardStrips(session)}
             <div class="ch-vol" title="Volume on the speakers">
                 <button type="button" class="ch-vol-ic ch-mute${session.speakers_muted ? ' muted' : (isPlaying ? ' on' : '')}" aria-pressed="${!!session.speakers_muted}"
                         aria-label="${session.speakers_muted ? 'Unmute the speakers' : 'Mute the speakers'}" title="${session.speakers_muted ? 'Unmute the speakers' : 'Mute the speakers'}"
@@ -1348,6 +1353,7 @@ function openNewSessionModal() {
     renderThemeSelector();
     renderSpeakerTree();
     renderSpeakerGroupSelect();
+    Sonorium.channelEditorOpen(null);  // plugins' fields (slots.js)
 
     document.getElementById('session-modal').classList.add('active');
     scrollSelectedThemeIntoView();
@@ -1394,6 +1400,7 @@ function editSession(sessionId) {
     } else {
         document.getElementById('channel-preset-field').style.display = 'none';
     }
+    Sonorium.channelEditorOpen(session);  // plugins' fields (slots.js)
 
     document.getElementById('session-modal').classList.add('active');
     scrollSelectedThemeIntoView();
@@ -1465,6 +1472,7 @@ async function saveSession() {
         if (playlistMode && sessionId && chPlaylistId !== (session?.playlist_id || '')) {
             await api('PUT', `/sessions/${sessionId}/playlist`, { playlist_id: chPlaylistId });
         }
+        if (sessionId) await Sonorium.channelEditorSave(sessionId, session);  // plugins' fields
         showToast(editId ? 'Channel updated' : 'Channel created', 'success');
         closeSessionModal();
         await loadSessions();
@@ -7572,7 +7580,17 @@ function onPluginField(el) {
     });
 }
 
-async function togglePlugin(pluginId, enable) {
+async function togglePlugin(pluginId, enable, confirmed = false) {
+    // Switching off the plugin that guards sign-in (Users) asks first
+    const plugin = plugins.find(p => p.id === pluginId);
+    if (!enable && !confirmed && plugin && plugin.auth_provider) {
+        const toggle = document.activeElement;
+        if (toggle && toggle.type === 'checkbox') toggle.checked = true;
+        spConfirm(`plg-off:${pluginId}`, toggle && toggle.isConnected ? toggle : null,
+            { title: `Switch off “${plugin.name}”?`, sub: 'Sonorium will be open to anyone on your network.', ok: 'Switch off', danger: true },
+            () => togglePlugin(pluginId, false, true));
+        return;
+    }
     try {
         const endpoint = enable ? `/plugins/${pluginId}/enable` : `/plugins/${pluginId}/disable`;
         await api('PUT', endpoint);
@@ -7638,7 +7656,8 @@ function openPluginMenu(button, pluginId) {
 function askUninstallPlugin(pluginId) {
     const plugin = plugins.find(p => p.id === pluginId);
     const name = plugin ? plugin.name : pluginId;
-    spConfirm(`plg-del:${pluginId}`, spMenuAnchor(), { title: `Uninstall “${name}”?`, sub: 'Removes the plugin files.', ok: 'Uninstall', danger: true },
+    const sub = plugin && plugin.auth_provider ? 'Sonorium will be open to anyone on your network.' : 'Removes the plugin files.';
+    spConfirm(`plg-del:${pluginId}`, spMenuAnchor(), { title: `Uninstall “${name}”?`, sub, ok: 'Uninstall', danger: true },
         () => uninstallPlugin(pluginId, name));
 }
 
@@ -9947,7 +9966,8 @@ document.addEventListener('keydown', event => {
 }, true);
 
 // Start
-init();
+// Sign-in first (a plugin's screen may replace the app): slots.js
+Sonorium.start(init);
 
 // ---------- Theme Editor: Preview mix ----------
 // Plays the whole theme on this device through the browser, with the editor's

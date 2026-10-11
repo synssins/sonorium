@@ -218,6 +218,7 @@ class PluginResponse(BaseModel):
     author: str
     enabled: bool
     builtin: bool = False
+    auth_provider: bool = False  # the Users plugin: switching it off opens Sonorium
     settings: dict
     ui_schema: dict
     settings_schema: dict
