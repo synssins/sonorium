@@ -437,9 +437,9 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
             if not plugin.enabled:
                 continue
             try:
-                pages.extend(normalize_page_decls(plugin.get_pages(), plugin.id))
+                pages.extend({**p, "plugin_name": plugin.name} for p in normalize_page_decls(plugin.get_pages(), plugin.id))
                 for decl in normalize_connection_decls(plugin.get_connections(), plugin.id):
-                    connections.append({**decl, "status": _status(plugin, decl["id"]),
+                    connections.append({**decl, "plugin_name": plugin.name, "status": _status(plugin, decl["id"]),
                                         "values": host.connections.public(plugin.id, decl["id"], decl["fields"])})
             except Exception as e:
                 logger.warning(f"Plugin {plugin.id}: its extension points could not be read: {e}")

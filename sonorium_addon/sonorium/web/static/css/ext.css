@@ -1,0 +1,98 @@
+/* What plugins add to the web UI (static/js/ext/*.js). Proposed with the plugin screen
+ * boards (Plg_*, Conn_*): kept in this file so the look can be adjusted after review. */
+
+/* ---- shared ---- */
+.badge.sp-badge-plg { background: rgba(139, 92, 246, .2); color: #c4b5fd; }
+.sp-st-warn { background: rgba(245, 165, 36, .15); color: #f5a524; }
+.ext-chip { justify-self: start; white-space: nowrap; }
+.ext-svg { display: inline-flex; flex: none; }
+.ext-svg svg { width: 100%; height: 100%; }
+.pl-from { margin: .875rem 0 0; font-size: .75rem; color: var(--text-muted); }
+.pl-from b { color: var(--text-secondary); font-weight: 600; }
+.nf-sec { margin: 1.25rem 0 .5rem; font-size: .8125rem; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .05em; }
+.sp-wrap > .nf-sec:first-child, .pg-sec:first-child > .nf-sec:first-child { margin-top: 0; }
+.ext-bool { flex-direction: row; align-items: center; gap: .5rem; }
+.ext-multi { display: flex; flex-wrap: wrap; gap: .375rem .875rem; }
+.ext-opt { display: inline-flex; align-items: center; gap: .375rem; font-size: .8125rem; color: var(--text-primary); }
+.ext-ta { min-height: 2.25rem; resize: vertical; }
+
+/* ---- a plugin's page ---- */
+.pg-intro { margin: 0 0 1rem; font-size: .875rem; color: var(--text-secondary); max-width: 860px; }
+.pg-desc, .pg-text { margin: 0 0 .75rem; font-size: .8125rem; color: var(--text-secondary); }
+.pg-text.pg-muted { color: var(--text-muted); }
+.pg-text.pg-success { color: var(--accent-primary); }
+.pg-text.pg-warning { color: #f5a524; }
+.pg-text.pg-error { color: var(--accent-danger); }
+.pg-sec { margin-bottom: 1rem; }
+.pg-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: .875rem; margin-bottom: .75rem; max-width: 864px; }
+.pg-btn { margin: 0 .5rem .75rem 0; }
+.pg-status { margin-bottom: .75rem; }
+.pg-grid { display: grid; grid-template-columns: var(--pg-cols); column-gap: .875rem; align-items: center; }
+.pg-name { font-weight: 600; font-size: .875rem; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.pg-dim { font-size: .8125rem; color: var(--text-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pg-sub { display: none; }
+.pg-chipcell { min-width: 0; }
+
+/* ---- command map ---- */
+.cm-bar { display: flex; align-items: center; gap: .5rem; margin: 1rem 0 .5rem; }
+.cm-bar .nf-sec { margin: 0; }
+.cm-bar .grow { flex: 1; }
+.cm-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1fr) 110px 56px 36px; column-gap: .75rem; align-items: center; }
+.cm-grid .sp-inp { min-width: 0; }
+.cm-code { font-family: ui-monospace, monospace; }
+
+/* ---- Settings › Notifications ---- */
+.nf-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1.2fr) minmax(0, .8fr) 56px 36px; column-gap: .875rem; align-items: center; }
+.nf-ngrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) 130px 104px; column-gap: .875rem; align-items: center; }
+.nf-dlg { width: 560px; }
+.nf-grid > .toggle-switch, .cm-grid > .toggle-switch { justify-self: center; }
+.nf-num { width: 110px; flex: none; }
+
+/* ---- Settings › Connection: one row per connection ---- */
+.cn-grid { display: grid; grid-template-columns: 36px minmax(0, 1.1fr) 150px minmax(0, 1.4fr) auto auto 36px; column-gap: .875rem; align-items: center; }
+.cn-ic { width: 32px; height: 32px; border-radius: .5rem; display: flex; align-items: center; justify-content: center; background: var(--bg-secondary); border: 1px solid var(--border-color); color: var(--text-secondary); }
+.cn-ic .nav-icon { margin: 0; }
+.cn-name { display: flex; align-items: center; gap: .5rem; min-width: 0; font-weight: 600; font-size: .875rem; color: var(--text-primary); }
+.cn-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cn-sum { font-size: .8125rem; color: var(--text-secondary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cn-sum.none { color: var(--text-muted); }
+.cn-st { justify-self: start; }
+.cn-dlg { width: 520px; min-width: 0; max-width: 100%; }
+.cn-dlg .sp-fstack { display: flex; flex-direction: column; gap: .875rem; }
+.cn-dlg .sp-frow.cn-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .75rem; }
+.cn-dlg .sp-frow.cn-pair.cn-hostport { grid-template-columns: minmax(0, 1fr) 110px; }
+.cn-dlg .modal-footer .grow { flex: 1; }
+.cn-test { display: flex; align-items: center; gap: .625rem; margin-top: 1rem; font-size: .8125rem; color: var(--text-secondary); }
+.cn-test .ok { color: var(--accent-primary); }
+.cn-test .bad { color: var(--accent-danger); }
+#conn-rows .conn-cards { margin-top: .75rem; }
+
+/* ---- alert bar ---- */
+.by-banner.al-bar { padding: .375rem 1rem; gap: .5rem; font-size: .8125rem; }
+.al-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.al-more { opacity: .75; }
+.al-link { background: none; border: 0; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; font: inherit; }
+.al-bar .icon-btn.al-x { color: inherit; width: 24px; height: 24px; min-width: 24px; min-height: 24px; padding: 0; }
+.al-bar > svg { flex: none; }
+
+/* ---- a phone casting a channel ---- */
+.ch-out { display: flex; align-items: center; gap: .5rem; margin: -.125rem 0 0; padding: .375rem .625rem; border-radius: .5rem; background: rgba(6, 214, 160, .1); color: var(--accent-primary); font-size: .75rem; }
+.ch-out svg { flex: none; }
+.ch-out-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-out-txt b { font-weight: 500; }
+.ch-out-txt span { color: var(--text-secondary); }
+.ch-out .btn { flex: none; white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .pg-grid { grid-template-columns: minmax(0, 1fr) auto 36px; row-gap: .125rem; }
+  .pg-grid .pg-dim.d, .sp-lhead.pg-grid { display: none; }
+  .pg-sub { display: block; font-weight: 400; font-size: .75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .nf-grid { grid-template-columns: minmax(0, 1fr) 56px 36px; }
+  .nf-ngrid { grid-template-columns: minmax(0, 1fr) auto auto; }
+  .nf-grid .pg-dim.d, .nf-ngrid .pg-dim.d, .sp-lhead.nf-grid, .sp-lhead.nf-ngrid { display: none; }
+  .cn-grid { grid-template-columns: 32px minmax(0, 1fr) auto auto 36px; row-gap: .25rem; column-gap: .5rem; }
+  .cn-name { font-size: .8125rem; flex-wrap: wrap; }
+  .cn-grid .cn-sum, .sp-lhead.cn-grid, .cn-grid .cn-test-btn { display: none; }
+  .cm-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); row-gap: .375rem; }
+  .sp-lhead.cm-grid { display: none; }
+}
