@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.41 (2026-10-11)
+
+### Documentation
+
+- **ui**: Channels help: an unnamed channel is called Channel and a number
+  ([`1aaa787`](https://github.com/synssins/sonorium/commit/1aaa7874ec29742b1cd346fc11b7ad56b418a2c4))
+
+
 ## v1.6.1-dev.40 (2026-10-11)
 
 ### Documentation
