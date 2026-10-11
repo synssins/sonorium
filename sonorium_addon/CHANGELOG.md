@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.25 (2026-10-11)
+
+### Bug Fixes
+
+- **status**: Ebb & Flow counts down to the fade at the file's end; theme's own name
+  ([`cec35a9`](https://github.com/synssins/sonorium/commit/cec35a99cef8aaa8f9a837692d5c5d4f64287ada))
+
+### Documentation
+
+- APP_API.md, the API reference for the Android app
+  ([`e749dd2`](https://github.com/synssins/sonorium/commit/e749dd2f98b7b3912ac91639bf22c681c5deb7ec))
+
+- Now playing board and GET /api/now-playing
+  ([`e33c340`](https://github.com/synssins/sonorium/commit/e33c340dc4abe0eeaebddb77e7b6ee6938dbfd0f))
+
+### Features
+
+- **status**: GET /api/now-playing, the mixer's live track state
+  ([`0a1cbc6`](https://github.com/synssins/sonorium/commit/0a1cbc6bae6d5a8e01b96274e81beef72c10e12c))
+
+- **status**: Now playing on the Status page
+  ([`03fc89e`](https://github.com/synssins/sonorium/commit/03fc89e34c1b7651a449134afaa21a033b6dd96f))
+
+
 ## v1.6.2-dev.24 (2026-10-11)
 
 ### Bug Fixes
