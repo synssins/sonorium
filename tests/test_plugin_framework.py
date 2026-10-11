@@ -229,6 +229,17 @@ def test_bundled_plugin_version_from_plugin_py_and_skips(m, tmp_path):
     assert m.loader.plugin_version(plugins_dir / "demo") == "2.0.0"
 
 
+def test_removed_bundled_plugin_stays_removed(m, tmp_path):
+    bundled_dir = tmp_path / "bundled"
+    write_plugin(bundled_dir / "demo", version="9.0.0")
+    plugins_dir = tmp_path / "plugins"
+    plugins_dir.mkdir()
+    m.loader.BUILTIN_PLUGINS_DIR = bundled_dir
+
+    m.loader.copy_builtin_plugins(plugins_dir, skip_plugins=["demo"])
+    assert not (plugins_dir / "demo").exists()  # uninstalled by the user: not put back, even when newer
+
+
 def test_bundled_update_keeps_install_when_copy_fails(m, tmp_path, monkeypatch):
     bundled_dir = tmp_path / "bundled"
     write_plugin(bundled_dir / "demo", version="2.0.0")

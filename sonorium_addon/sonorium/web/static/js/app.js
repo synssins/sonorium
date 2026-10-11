@@ -7369,7 +7369,7 @@ async function executePluginAction(pluginId, actionId) {
 function openPluginMenu(button, pluginId) {
     const plugin = plugins.find(p => p.id === pluginId);
     if (!plugin) return;
-    spMenu(`plg:${pluginId}`, button, `<button type="button" class="mi danger" role="menuitem" ${plugin.builtin ? 'disabled' : ''} onclick="askUninstallPlugin(${spArg(pluginId)})">${SP_ICON_TRASH}Uninstall…${plugin.builtin ? '<span class="mi-note">Built-in</span>' : ''}</button>`);
+    spMenu(`plg:${pluginId}`, button, `<button type="button" class="mi danger" role="menuitem" onclick="askUninstallPlugin(${spArg(pluginId)})">${SP_ICON_TRASH}Uninstall…</button>`);
 }
 
 function askUninstallPlugin(pluginId) {
