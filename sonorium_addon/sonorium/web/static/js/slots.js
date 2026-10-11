@@ -267,19 +267,36 @@
     };
 
     // ---------- every change carries the CSRF token; a lost sign-in reloads the page ----------
+    // In the Sonorium app (window.SONORIUM_HOST, see api.js) calls to its base also carry
+    // the app's auth header, and a 401 {"pair": true} goes to the app instead.
+    const HOST = window.SONORIUM_HOST || null;
+    const hostOrigin = HOST && HOST.baseUrl ? new URL(HOST.baseUrl, window.location.href).origin : null;
     const nativeFetch = window.fetch.bind(window);
     let reloading = false;
+    let unlinked = false;
     window.fetch = function (input, init) {
         init = init || {};
         const method = String(init.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
         const url = new URL(input instanceof Request ? input.url : String(input), window.location.href);
         const same = url.origin === window.location.origin;
-        if (same && !SAFE.includes(method) && S.me && S.me.csrf) {
+        const toServer = same || (hostOrigin !== null && url.origin === hostOrigin);
+        const extra = HOST && toServer && typeof HOST.authHeader === 'function' ? HOST.authHeader() : null;
+        if ((same && !SAFE.includes(method) && S.me && S.me.csrf) || extra) {
             const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined));
-            headers.set('X-CSRF-Token', S.me.csrf);
+            if (same && !SAFE.includes(method) && S.me && S.me.csrf) headers.set('X-CSRF-Token', S.me.csrf);
+            Object.entries(extra || {}).forEach(([name, value]) => headers.set(name, value));
             init = { ...init, headers };
         }
         return nativeFetch(input, init).then(response => {
+            if (HOST && toServer && response.status === 401 && typeof HOST.unlinked === 'function') {
+                response.clone().json().then(body => {
+                    if (body && body.pair && !unlinked) {
+                        unlinked = true;
+                        HOST.unlinked(body);
+                    }
+                }).catch(() => {});
+                return response;
+            }
             if (same && S.started && response.status === 401 && !reloading) {
                 response.clone().json().then(body => {
                     if (body && (body.login || body.setup) && !reloading) {

@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Iterable, Optional, Union
 
+from sonorium import runtime
 from sonorium.obs import logger
 
 CATALOGUE_VERSION = 1
@@ -72,6 +73,28 @@ CATALOGUE: dict[str, dict] = {
                    "changes": "Changed fields, any of: theme_id, preset_id, sequence_id, playlist_id, "
                               "volume, speakers_muted, name, speakers"},
         "summary": "{name} changed",
+    },
+    "channel.listening": {
+        "description": "Someone started or stopped listening to a channel on their device (Listen here, the "
+                       "app). While someone listens the channel's mix runs, with or without its speakers.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name",
+                   "listening": "True when the first listener came, false when the last one left"},
+        "summary": "{name}: listening {listening}",
+    },
+    "channel.output_added": {
+        "description": "The app reported a device (e.g. a Cast device) playing a channel's stream. While it is "
+                       "reported the channel's mix runs, with or without its speakers.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "output_id": "Output id",
+                   "kind": "cast, ...", "output_name": "The device's name", "address": "Its address, or null"},
+        "summary": "{name}: playing on {output_name}",
+    },
+    "channel.output_removed": {
+        "description": "A reported device no longer plays a channel.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "output_id": "Output id",
+                   "kind": "cast, ...", "output_name": "The device's name", "address": "Its address, or null",
+                   "reason": "removed (by the app), expired (no heartbeat), replaced (reported again), stopped, "
+                             "paused, idle (it pulled no audio), deleted (the channel)"},
+        "summary": "{name}: stopped on {output_name}",
     },
     "sequence.step": {
         "description": "A channel's sequence moved to a step (also its first step when it starts).",
@@ -164,6 +187,31 @@ CATALOGUE: dict[str, dict] = {
     },
 }
 
+# This run of Sonorium: event ids start again at 1 when it restarts, so the
+# event stream sends "<boot_id>:<n>" as its ids (GET /api/info has it too)
+BOOT_ID = runtime.BOOT_ID
+
+
+def stream_id(event: "Event") -> str:
+    """An event's id on the event stream: "<boot_id>:<n>"."""
+    return f"{BOOT_ID}:{event.id}"
+
+
+def replay_after(last_event_id: Optional[str]) -> Optional[int]:
+    """
+    Where a reconnecting stream picks up from its Last-Event-ID: "<boot_id>:<n>"
+    of this run, or a bare "<n>" (older clients) -> n; an id from an earlier
+    run -> 0 (everything still held of this run); none or unreadable -> None.
+    """
+    text = (last_event_id or "").strip()
+    boot, sep, number = text.rpartition(":")
+    if not number.isdigit():
+        return None
+    if sep and boot != BOOT_ID:
+        return 0
+    return int(number)
+
+
 PLUGIN_EVENT_PREFIX = "plugin."
 _NAME = re.compile(r"^[a-z0-9_][a-z0-9_.-]{0,63}$")
 _PATTERN = re.compile(r"\*|[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*(\.\*)?")
@@ -232,7 +280,8 @@ class Event:
     origin: str = "sonorium"
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "type": self.type, "time": self.time, "origin": self.origin, "data": self.data}
+        return {"id": self.id, "boot_id": BOOT_ID, "type": self.type, "time": self.time, "origin": self.origin,
+                "data": self.data}
 
 
 Handler = Callable[[Event], Union[None, Awaitable[None]]]

@@ -473,5 +473,17 @@ def test_event_stream_needs_a_token_and_replays(w):
     frames = [json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")]
     assert [f["type"] for f in frames] == ["theme.changed", "theme.deleted"]
     assert c.get("/api/events/stream?types=bad!", headers={"Authorization": f"Bearer {token}"}).status_code == 400
+
+    # G4: ids are "<boot_id>:<n>"; the same form replays, an id from an earlier run replays all of this one
+    boot = frames[0]["boot_id"]
+    ids = [line[4:] for line in text.splitlines() if line.startswith("id: ")]
+    assert ids == [f"{boot}:{f['id']}" for f in frames]
+
+    def replay(last):
+        with c.stream("GET", "/api/events/stream?types=theme.*&max_events=1",
+                      headers={"Authorization": f"Bearer {token}", "Last-Event-ID": last}) as r:
+            return [json.loads(line[6:]) for line in "".join(r.iter_text()).splitlines() if line.startswith("data: ")]
+    assert [f["type"] for f in replay(f"{boot}:{first.id}")] == ["theme.deleted"]
+    assert replay(f"0123abcd:{first.id + 50}")[0]["id"] == first.id  # another run: from the start of this one
     c.delete("/api/events/token")
     assert c.get("/api/events/stream", headers={"Authorization": f"Bearer {token}"}).status_code == 401

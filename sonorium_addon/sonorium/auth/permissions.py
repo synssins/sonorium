@@ -126,7 +126,11 @@ GET     /plugin-ui/{plugin_id}/{path:path}              public
 POST    /api/link                                       self
 POST    /api/pair                                       public
 GET     /api/devices                                    self
-DELETE  /api/devices/{device_id}                        self
+GET     /api/devices/self                               device
+PUT     /api/devices/self                               device
+DELETE  /api/devices/self                               device
+# a phone may remove only itself (checked by the route); "self" also matches this template
+DELETE  /api/devices/{device_id}                        self|device
 GET     /api/stream/url                                 ch.view
 
 GET     /api/connection                                 admin.connection
@@ -214,6 +218,10 @@ DELETE  /api/sessions/{session_id}/sequence             pl.run
 PUT     /api/sessions/{session_id}/playlist             pl.run
 DELETE  /api/sessions/{session_id}/playlist             pl.run
 POST    /api/sessions/{session_id}/next                 pl.run
+GET     /api/sessions/{session_id}/outputs              ch.view
+POST    /api/sessions/{session_id}/outputs              ch.play
+PUT     /api/sessions/{session_id}/outputs/{output_id}  ch.play
+DELETE  /api/sessions/{session_id}/outputs/{output_id}  ch.play
 
 GET     /api/themes/{theme_id}/sequences                pl.view
 POST    /api/themes/{theme_id}/sequences                pl.edit
@@ -247,6 +255,8 @@ POST    /api/network-speakers/refresh                   sp.view
 GET     /api/speakers/{speaker_id}/settings             sp.view
 PUT     /api/speakers/{speaker_id}/settings             sp.set
 POST    /api/speakers/{speaker_id}/test                 sp.set
+PUT     /api/speakers/{speaker_id}/volume               sp.mute
+PUT     /api/speakers/{speaker_id}/muted                sp.mute
 POST    /api/speakers/manual/check                      sp.set
 POST    /api/speakers/manual                            sp.set
 DELETE  /api/speakers/manual/{speaker_id}               sp.set

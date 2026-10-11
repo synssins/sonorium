@@ -173,6 +173,12 @@ class AuthService:
         if plugin_id in self.ui_bundles:
             self.ui_bundles[plugin_id]["active"] = False
 
+    def login_required(self) -> bool:
+        """A sign-in plugin requires login (the Users plugin's Require login), and the bypass is off."""
+        if config.bypass_login():
+            return False
+        return any(bool(getattr(a, "login_required", lambda: False)()) for a in list(self.authenticators.values()))
+
     def provider(self, method: str):
         """The registered authenticators that have `method`, in registration order."""
         return [(pid, getattr(a, method)) for pid, a in list(self.authenticators.items()) if hasattr(a, method)]
@@ -236,15 +242,32 @@ class AuthService:
         return self.tokens.issue("device", prefix=DEVICE_PREFIX, user_id=user_id, name=name,
                                  data={"platform": (platform or "").strip()[:30], "model": (model or "").strip()[:60]})
 
+    @staticmethod
+    def _device_row(device_id: str, r: dict) -> dict:
+        return {"id": device_id, "name": r.get("name") or "Phone", "user_id": r.get("user_id"),
+                "platform": (r.get("data") or {}).get("platform", ""),
+                "model": (r.get("data") or {}).get("model", ""),
+                "created": r.get("created"), "last_seen": r.get("last_used") or r.get("created")}
+
     def devices(self, user_id=...) -> list[dict]:
-        rows = []
-        for device_id, r in self.tokens.list("device", None if user_id is ... else user_id):
-            rows.append({"id": device_id, "name": r.get("name") or "Phone", "user_id": r.get("user_id"),
-                         "platform": (r.get("data") or {}).get("platform", ""),
-                         "model": (r.get("data") or {}).get("model", ""),
-                         "created": r.get("created"), "last_seen": r.get("last_used") or r.get("created")})
+        rows = [self._device_row(device_id, r)
+                for device_id, r in self.tokens.list("device", None if user_id is ... else user_id)]
         rows.sort(key=lambda d: d.get("created") or "")
         return rows
+
+    def device(self, device_id: Optional[str]) -> Optional[dict]:
+        """One linked phone's row (as in devices()), or None."""
+        record = self.tokens.get(device_id) if device_id else None
+        if record is None or record.get("kind") != "device":
+            return None
+        return self._device_row(device_id, record)
+
+    def rename_device(self, device_id: str, name: str) -> Optional[dict]:
+        """A phone's new name (trimmed to 60 characters). None: no such phone."""
+        if self.device(device_id) is None:
+            return None
+        self.tokens.update(device_id, name=(name or "").strip()[:60] or "Phone")
+        return self.device(device_id)
 
     def remove_device(self, device_id: str) -> Optional[dict]:
         record = self.tokens.get(device_id)

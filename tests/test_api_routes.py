@@ -196,6 +196,13 @@ V2_ROUTES = [
     ('APIRoute', 'POST', '/api/plugins/reload', 'reload_plugins'),
     ('APIRoute', 'POST', '/api/plugins/upload', 'upload_plugin'),
     ('APIRoute', 'DELETE', '/api/plugins/{plugin_id}', 'uninstall_plugin'),
+    # The app's routes (web/app_routes.py)
+    ('APIRoute', 'GET', '/api/sessions/{session_id}/outputs', 'list_session_outputs'),
+    ('APIRoute', 'POST', '/api/sessions/{session_id}/outputs', 'add_session_output'),
+    ('APIRoute', 'PUT', '/api/sessions/{session_id}/outputs/{output_id}', 'heartbeat_session_output'),
+    ('APIRoute', 'DELETE', '/api/sessions/{session_id}/outputs/{output_id}', 'remove_session_output'),
+    ('APIRoute', 'PUT', '/api/speakers/{speaker_id}/volume', 'set_speaker_volume'),
+    ('APIRoute', 'PUT', '/api/speakers/{speaker_id}/muted', 'set_speaker_muted'),
 ]
 
 
@@ -254,7 +261,7 @@ def test_app_setup_unchanged(m):
     assert api.HOST == "0.0.0.0"
     assert api.PORT == (8008 if m.api.runtime.STANDALONE else 8080)
     assert len(app.router.on_startup) == 1 and len(app.router.on_shutdown) == 1
-    assert len(app.user_middleware) == 2  # cards CORS, sign-in (sonorium/auth)
+    assert len(app.user_middleware) == 3  # cards CORS, legacy error statuses (web/legacy_errors.py), sign-in
     config = api.config
     assert (config.host, config.port, config.access_log) == (api.HOST, api.PORT, False)
     # Handler docstrings are the summaries in the API docs, as before

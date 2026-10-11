@@ -244,7 +244,8 @@ Docker (host networking) and the native installs announce on mDNS:
   `sonorium-2.local`, then `sonorium-3.local` and so on (up to
   `sonorium-9.local`), and the log says which name it got.
 - **`_sonorium._tcp`**, with TXT `id`, `name`, `api`, `http`, `https`,
-  `pair`, `version`, `url` and `host` (the name above).
+  `pair` (`1` while Require login is on), `version`, `url` and `host` (the
+  name above).
 
 It's a hint only: anyone on the network could announce a server, so the app
 trusts a server only after linking. The add-on isn't on the host network, so
@@ -276,11 +277,12 @@ Core:
 
 | Route | Who |
 |---|---|
-| `GET /api/info` | anyone: server id, name, version, `api`, install type, features, ports, `host` (the speakers' address), `hostname` (the mDNS name, or null), `login_required`, fingerprint |
+| `GET /api/info` | anyone: server id, name, version, `api`, install type, features, ports, `host` (the speakers' address), `hostname` (the mDNS name, or null), `login_required`, fingerprint, `boot_id` (new at every start), `ui` (the web UI's version and hook version) |
 | `GET /api/auth/me` | anyone: who you are, your permissions, CSRF token, bypass |
 | `POST /api/link` | signed in (or open access): a Link App code and QR |
 | `POST /api/pair` | anyone, HTTPS: code → phone token |
-| `GET /api/devices`, `DELETE /api/devices/{id}` | your phones; an Admin: everyone's |
+| `GET /api/devices`, `DELETE /api/devices/{id}` | your phones; an Admin: everyone's (a phone: only itself) |
+| `GET`, `PUT`, `DELETE /api/devices/self` | a linked phone: its own record, a new name, unlinking itself |
 | `GET /api/stream/url` | the stream URLs on the direct port |
 
 Users plugin: `POST /api/auth/setup`, `/api/auth/login`, `/api/auth/logout`,
