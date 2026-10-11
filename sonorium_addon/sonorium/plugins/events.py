@@ -174,6 +174,47 @@ CATALOGUE: dict[str, dict] = {
         "fields": {"link_id": "Link id", "name": "Link name"},
         "summary": "Unlinked: {name}",
     },
+    # --- Sounds over a channel and volume ramps (framework services) ---
+    "sound.started": {
+        "description": "A sound (announcement, alert, effect) started playing over a channel's mix.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "sound_id": "Sound id (the same on "
+                   "every channel it plays on)", "label": "What the sender called it", "origin": "Who sent it"},
+        "summary": "{name}: sound started",
+    },
+    "sound.ended": {
+        "description": "A sound over a channel's mix ended.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "sound_id": "Sound id",
+                   "label": "What the sender called it", "origin": "Who sent it",
+                   "reason": "finished, replaced, cancelled, stopped (the channel stopped), error",
+                   "capped": "True if it was cut at the longest sound allowed",
+                   "played": "Seconds of it that played"},
+        "summary": "{name}: sound ended",
+    },
+    "ramp.started": {
+        "description": "A channel's volume ramp started.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "ramp_id": "Ramp id",
+                   "from": "Level it starts at (0-1)", "to": "Level it ends at", "seconds": "How long it takes",
+                   "curve": "linear, db, ease or exp", "then": "stop, pause or null: what happens at the end"},
+        "summary": "{name}: volume ramp started",
+    },
+    "ramp.finished": {
+        "description": "A channel's volume ramp reached its end.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "ramp_id": "Ramp id",
+                   "level": "The level it ended at", "then": "stop, pause or null"},
+        "summary": "{name}: volume ramp finished",
+    },
+    "ramp.cancelled": {
+        "description": "A channel's volume ramp was stopped before its end.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "ramp_id": "Ramp id",
+                   "reason": "cancelled or replaced (another ramp started)", "level": "The level it got to"},
+        "summary": "{name}: volume ramp cancelled",
+    },
+    "command.received": {
+        "description": "An input plugin (remote, MQTT, webhook) handed over a code for one of its command maps.",
+        "fields": {"plugin_id": "Plugin id", "map_id": "Command map id", "code": "The code",
+                   "actions": "Actions it ran", "learned": "True if the map was learning it"},
+        "summary": "Command {code}",
+    },
     # --- Speakers ---
     "speaker.added": {
         "description": "A speaker appeared (Home Assistant, the network or added by address).",

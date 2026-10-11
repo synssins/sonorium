@@ -11,6 +11,17 @@ The plugin host: the services Sonorium gives every plugin, in one place.
                    register who is calling, their routes and their web UI there
     session_manager  the channels (built-in plugins: Zones sets its policy,
                    core/channel_policy.py)
+    overlay        sounds over channels (core/overlay_service.py)   } set by
+    ramps          volume ramps (core/ramp_service.py)              } set_audio()
+    outputs        audio output types (core/audio_outputs.py)       }
+    tts            text to speech providers (tts.py)
+    commands       command maps (commands.py)
+    mqtt           the MQTT broker for plugins (mqtt.py)
+    homeassistant  Home Assistant's API (homeassistant.py), when configured
+    packages       plugins' Python packages (packages.py)
+
+Plugins reach these through versioned facades (services.py): self.audio,
+self.ramps, self.audio_outputs, self.commands, self.mqtt, self.homeassistant.
 
 The plugin manager hands the host to each plugin (BasePlugin uses it for
 self.actions, self.subscribe(), self.schedule(), ...) and tells it when a
@@ -28,6 +39,10 @@ from typing import Callable, Optional
 from sonorium.obs import logger
 from sonorium.plugins import events
 from sonorium.plugins.actions import Actions
+from sonorium.plugins.commands import CommandMaps
+from sonorium.plugins.mqtt import MqttRouter
+from sonorium.plugins.packages import Packages
+from sonorium.plugins.tts import TtsProviders
 from sonorium.plugins.extensions import ConnectionValues, normalize_connection_decls
 from sonorium.plugins.notifications import NOTIFIER_ID, Notifications
 from sonorium.plugins.scheduler import Scheduler
@@ -54,6 +69,18 @@ class PluginHost:
                                    publish=self.bus.publish, now=now)
         self.auth = auth  # sonorium.auth.service.AuthService (None in tests without the web app)
         self.session_manager = session_manager
+        self.overlay = None
+        self.ramps = None
+        self.outputs = None
+        self.tts = TtsProviders()
+        self.commands = CommandMaps(self.store, self.bus.publish)
+        self.mqtt = MqttRouter()
+        self.homeassistant = None
+        # Settings > Advanced > Plugin packages (api.py points this at the setting)
+        self.packages_allowed: Callable[[], bool] = lambda: False
+        self.packages = Packages(self.store.folder / "plugin_packages", allowed=lambda: self.packages_allowed())
+        self.notifications.source_provider = self.notification_sources
+        self.notifications.announcer = self._announce_notification
         self.manager = None  # the PluginManager, set by it
         self.on_change: Optional[Callable] = None  # async callback(session): Home Assistant entities
         self._job_callbacks: dict[tuple, Callable] = {}
@@ -63,6 +90,63 @@ class PluginHost:
     async def _changed(self, session) -> None:
         if self.on_change is not None:
             await self.on_change(session)
+
+    def set_audio(self, overlay=None, ramps=None, outputs=None) -> None:
+        """The audio services (made by the app once playback is set up)."""
+        self.overlay, self.ramps, self.outputs = overlay, ramps, outputs
+        self.actions.overlay = overlay
+
+    def capabilities(self) -> set:
+        """What this Sonorium offers plugins now (compat.CAPABILITIES names)."""
+        have = {"events", "actions", "scheduler", "triggers", "notifications", "pages", "connections",
+                "commands", "mqtt", "homeassistant", "audio.tts", "packages.pip", "packages.binaries"}
+        if self.overlay is not None:
+            have.add("audio.sounds")
+        if self.ramps is not None:
+            have.add("audio.ramps")
+        if self.outputs is not None:
+            have.add("audio.outputs")
+        return have
+
+    # --- Notifications: where they come from, and announcing them ---
+
+    def notification_sources(self) -> list[dict]:
+        """Every enabled plugin's declared notification sources and webhook triggers."""
+        result = []
+        plugins = self.manager.plugins.values() if self.manager is not None else []
+        for plugin in plugins:
+            if not plugin.enabled:
+                continue
+            try:
+                declared = plugin.get_notification_sources() or []
+            except Exception as e:
+                logger.warning(f"Plugin {plugin.id}: get_notification_sources failed: {e}")
+                declared = []
+            for decl in declared:
+                if isinstance(decl, dict) and events._NAME.match(str(decl.get("id", ""))):
+                    result.append({"id": f"plugin.{plugin.id}.{decl['id']}", "title": str(decl.get("title") or decl["id"]),
+                                   "description": str(decl.get("description") or ""), "plugin_id": plugin.id,
+                                   "plugin_name": plugin.name, "kind": "source"})
+            for trigger in self.triggers.declared(plugin):
+                result.append({"id": f"trigger:{plugin.id}/{trigger['id']}", "title": trigger["title"],
+                               "description": trigger["description"], "plugin_id": plugin.id,
+                               "plugin_name": plugin.name, "kind": "trigger"})
+        return result
+
+    async def _announce_notification(self, spec: dict, message: dict) -> None:
+        from sonorium.core.announce import announce
+        fields = {"title": message.get("title", ""), "body": message.get("body", "")}
+        text = spec.get("text")
+        if text:
+            try:
+                text = text.format_map(fields)
+            except (KeyError, ValueError, IndexError):
+                pass
+        elif not spec.get("sound"):
+            text = fields["title"]
+        await announce(self.overlay, self.tts, spec["channels"], text=text or None, sound=spec.get("sound"),
+                       volume=spec.get("volume", 100), duck=spec.get("duck", True), origin="notification",
+                       label=fields["title"][:80])
 
     def actions_for(self, plugin_id: str) -> Actions:
         return self.actions.for_plugin(plugin_id)
@@ -81,8 +165,19 @@ class PluginHost:
         self.bus.bind_loop()
         if self._router is None:
             self._router = self.bus.subscribe("*", self.notifications.route, owner=None, queue_size=1024)
+        if getattr(self, "_alerting", None) is None:
+            self._alerting = self.bus.subscribe("error", self._alert, owner=None)
         await self.scheduler.start()
         self._started = True
+
+    @staticmethod
+    def _alert(event) -> None:
+        """A failure nobody was waiting for (already logged): the web UI's alert bar."""
+        from sonorium import alerts
+        data = event.data or {}
+        who = f"Plugin {data['plugin_id']}: " if data.get("plugin_id") else ""
+        alerts.report(f"{who}{data.get('where', 'error')} failed: {data.get('message', '')}",
+                      str(data.get("where") or ""), log=False)
 
     async def stop(self) -> None:
         await self.scheduler.stop()
@@ -100,7 +195,8 @@ class PluginHost:
             async def deliver(message, _plugin=plugin, _id=decl["id"]):
                 await _plugin.deliver_notification(_id, message)
             try:
-                self.notifications.register(notifier_id, decl.get("title") or decl["id"], deliver, owner=plugin.id)
+                self.notifications.register(notifier_id, decl.get("title") or decl["id"], deliver, owner=plugin.id,
+                                            kind=decl.get("kind") or "")
             except ValueError as e:
                 logger.warning(f"Plugin {plugin.id}: notifier not registered: {e}")
         self.bus.publish("plugin.enabled", {"plugin_id": plugin.id, "name": plugin.name})
@@ -110,14 +206,28 @@ class PluginHost:
             self.auth.unregister(plugin.id)  # its sign-in, routes and web UI go with it
         self.bus.unsubscribe_owner(plugin.id)
         self.notifications.unregister_owner(plugin.id)
+        self._release_services(plugin.id)
         for key in [k for k in self._job_callbacks if k[0] == plugin.id]:
             self._job_callbacks.pop(key, None)
         self.bus.publish("plugin.disabled", {"plugin_id": plugin.id, "name": plugin.name})
 
+    def _release_services(self, plugin_id: str) -> None:
+        """What a plugin registered with the services while it ran: its MQTT subscriptions, output types, ..."""
+        self.mqtt.unsubscribe_owner(plugin_id)
+        self.tts.unregister_owner(plugin_id)
+        self.commands.stop_learning(plugin_id)
+        if self.outputs is not None:
+            self.outputs.unregister_owner(plugin_id)
+        if self.overlay is not None:
+            self.overlay.remove_gate(plugin_id)
+
     def plugin_removed(self, plugin_id: str) -> None:
-        """The plugin was uninstalled: its jobs, tokens and saved connection values go too."""
+        """The plugin was uninstalled: its jobs, tokens, connection values, command maps and packages go too."""
         self.bus.unsubscribe_owner(plugin_id)
         self.notifications.unregister_owner(plugin_id)
+        self._release_services(plugin_id)
+        self.commands.forget_plugin(plugin_id)
+        self.packages.remove(plugin_id)
         self.scheduler.remove_plugin(plugin_id)
         self.tokens.revoke(f"plugin:{plugin_id}")
         self.tokens.revoke_prefix(f"trigger:{plugin_id}/")

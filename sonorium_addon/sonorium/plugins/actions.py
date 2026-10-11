@@ -47,9 +47,12 @@ class Actions:
         self._registry = registry
         self._on_change = on_change
         self.origin = origin
+        self.overlay = None  # core/overlay_service.py, set by the plugin host
 
     def for_plugin(self, plugin_id: str) -> "Actions":
-        return Actions(self._sessions, self._state, self._registry, self._on_change, f"plugin:{plugin_id}")
+        actions = Actions(self._sessions, self._state, self._registry, self._on_change, f"plugin:{plugin_id}")
+        actions.overlay = self.overlay
+        return actions
 
     @contextlib.contextmanager
     def _as_origin(self):
@@ -97,6 +100,7 @@ class Actions:
             "speakers_muted": bool(session.speakers_muted),
             "speakers": list(speakers),
             "speaker_group_id": session.speaker_group_id,
+            "entity_slug": session.get_entity_slug() if hasattr(session, "get_entity_slug") else None,
         }
 
     # --- Reading ---
@@ -323,3 +327,23 @@ class Actions:
             raise ActionError("conflict", "No playlist or sequence is running")
         await self._changed(session)
         return result
+
+    # --- Sounds over channels (self.audio has every option) ---
+
+    async def play_sound(self, channels, source, volume: float = 100, duck=True, policy: str = "queue",
+                         priority: int = 0, start_stopped: bool = False) -> dict:
+        """Play a sound file or URL over channels (ducking their mix). Returns what each channel did."""
+        if self.overlay is None:
+            raise ActionError("unavailable", "Playing sounds isn't available yet")
+        from sonorium.core.decode import DecodeError
+        from sonorium.core.overlay import OverlayError
+        try:
+            return await self.overlay.play(channels, source, volume=volume, duck=duck, policy=policy,
+                                           priority=priority, start_stopped=start_stopped, origin=self.origin)
+        except (OverlayError, DecodeError) as e:
+            raise ActionError("invalid", str(e))
+
+    async def cancel_sound(self, sound_id: str) -> bool:
+        if self.overlay is None:
+            raise ActionError("unavailable", "Playing sounds isn't available yet")
+        return self.overlay.cancel(sound_id)

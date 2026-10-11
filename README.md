@@ -185,6 +185,7 @@ Fine-tune how each audio file plays within a theme:
 - **Human-Readable Names** - Theme and preset dropdowns show names instead of UUIDs
 - **Status Sensors** - See playback status and assigned speakers from your dashboard
 - **Automation Support** - Use HA automations to trigger soundscapes (morning alarms, schedules, etc.)
+- **Announcements** - Each channel has a notify entity (`notify.sonorium_<channel>_announce`): `notify.send_message` speaks the message on that channel with Home Assistant's text to speech. The channel gets quieter, the message plays, the channel comes back; a stopped channel is started for it. The MQTT topic `sonorium/announce/set` takes `{"channels": [...] or "all", "text": "...", "url": "<chime>"}`. Announcements override zones and quiet hours. Details: [docs/PLUGIN_DEVELOPMENT.md, section 20](docs/PLUGIN_DEVELOPMENT.md#20-home-assistant)
 
 #### Modern Web Interface
 - **Responsive Design**: Works on desktop and mobile; on a phone the menu opens from a top bar that's always there

@@ -301,9 +301,22 @@ class BasePlugin(ABC):
 
     # Notifications
 
-    def notify(self, title: str, body: str = "", level: str = "info", data: Optional[dict] = None):
-        """Send a message (level info, warning or error); notification rules deliver it."""
-        return self.host.notifications.notify(title, body, level, data, origin=f"plugin:{self.id}")
+    def notify(self, title: str, body: str = "", level: str = "info", data: Optional[dict] = None,
+               source: Optional[str] = None):
+        """
+        Raise a notification: source is one of get_notification_sources()' ids
+        (the rules the user made for it announce it and/or send it on).
+        """
+        full = f"plugin.{self.id}.{source}" if source else None
+        return self.host.notifications.notify(title, body, level, data, origin=f"plugin:{self.id}", source=full)
+
+    def get_notification_sources(self) -> list[dict]:
+        """
+        What this plugin can notify about, for the user's rules: [{"id",
+        "title", "description"}] (e.g. {"id": "doorbell", "title": "The
+        doorbell rang"}). Default: the manifest's "notification_sources".
+        """
+        return list((getattr(self, "_manifest", None) or {}).get("notification_sources") or [])
 
     def get_notifiers(self) -> list[dict]:
         """Notifiers this plugin delivers to: [{"id", "title"}]. Default: the manifest's "notifiers"."""
@@ -349,6 +362,59 @@ class BasePlugin(ABC):
         """The connection's saved values, secrets included (KeyError for an unknown connection)."""
         return self.host.connection_values(self, connection_id)
 
+    # --- Plugin API 1.1 services (plugins/services.py); manifest "api_version": "1.1" ---
+
+    def _service(self, name: str):
+        from sonorium.plugins import compat
+        from sonorium.plugins.services import facade
+        cache = self.__dict__.setdefault("_facades", {})
+        if name not in cache:
+            major = (compat.parse((getattr(self, "_manifest", None) or {}).get("api_version")) or (1, 0))[0]
+            cache[name] = facade(self.host, self.id, name, major)
+        return cache[name]
+
+    @property
+    def audio(self):
+        """Sounds over channels, announcements, text to speech (AudioV1)."""
+        return self._service("audio")
+
+    @property
+    def ramps(self):
+        """Gradual volume ramps on channels (RampsV1)."""
+        return self._service("ramps")
+
+    @property
+    def audio_outputs(self):
+        """Register audio output types; send channels to their devices (OutputsV1)."""
+        return self._service("audio_outputs")
+
+    @property
+    def commands(self):
+        """Hand over codes from remotes and other inputs to the user's command maps (CommandsV1)."""
+        return self._service("commands")
+
+    @property
+    def mqtt(self):
+        """Publish and subscribe on Sonorium's MQTT broker (MqttV1)."""
+        return self._service("mqtt")
+
+    @property
+    def homeassistant(self):
+        """Home Assistant's API through Sonorium's connection (HomeAssistantV1)."""
+        return self._service("homeassistant")
+
+    def get_command_maps(self) -> list[dict]:
+        """
+        The plugin's command maps, for the user to fill: [{"id", "title",
+        "codes": [{"code", "label"}] (known codes, optional)}]. Default: the
+        manifest's "command_maps".
+        """
+        return list((getattr(self, "_manifest", None) or {}).get("command_maps") or [])
+
+    def binary(self, name: str) -> Optional[Path]:
+        """A program the plugin ships (manifest "binaries"), for this platform; None if it has none for it."""
+        return (getattr(self, "_binaries", None) or {}).get(name)
+
     # Utility methods
 
     def get_setting(self, key: str, default: Any = None) -> Any:
@@ -381,4 +447,6 @@ class BasePlugin(ABC):
             "settings": self.settings,
             "ui_schema": self.get_ui_schema(),
             "settings_schema": self.settings_schema(),
+            "api_version": str((self._manifest or {}).get("api_version") or "1.0"),
+            "compatible": True,
         }

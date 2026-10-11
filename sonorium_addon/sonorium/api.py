@@ -163,6 +163,7 @@ class WebApp:
             Route("PUT", "/api/connection", self.put_connection),
             Route("DELETE", "/api/connection/ha", self.delete_connection_ha),
             Route("DELETE", "/api/connection/mqtt", self.delete_connection_mqtt),
+            Route("POST", "/api/connection/test", self.test_connection),
             # Home Assistant dashboard cards: status and the file (to add by hand)
             Route("GET", "/api/ha-cards", self.get_ha_cards),
             Route("GET", "/api/ha-cards/download", self.download_ha_cards),
@@ -388,6 +389,10 @@ class WebApp:
                 logger.warning(f"  Plugin framework unavailable: {e}")
                 self._plugin_host = None
 
+            # The framework's audio and connection services (each one failing only disables itself)
+            if self._plugin_host:
+                self._init_framework_services()
+
             # Initialize plugin manager
             try:
                 from sonorium.plugins.manager import PluginManager
@@ -421,8 +426,12 @@ class WebApp:
                 themes = [{"id": t.id, "name": t.name} for t in self.backend.device.themes]
                 self._mqtt_manager.set_themes(themes)
 
-                # Wire up message handler for incoming MQTT commands
-                self.backend.mqtt_client.set_message_handler(self._mqtt_manager.handle_command)
+                # Incoming MQTT messages: the entity manager's commands, then plugins' subscriptions
+                if self._plugin_host:
+                    self._plugin_host.mqtt.prefix = self._mqtt_manager.prefix
+                    self._plugin_host.mqtt.bind(self.backend.mqtt_client, self._mqtt_manager.handle_command)
+                else:
+                    self.backend.mqtt_client.set_message_handler(self._mqtt_manager.handle_command)
 
                 await self._mqtt_manager.initialize()
                 logger.debug(f"  MQTT entity manager: {len(self._state_store.sessions)} session entities published")
@@ -501,6 +510,38 @@ class WebApp:
             # Plugins are loaded (or failed): sign-in decides from here (auth/service.py)
             self.auth.mark_ready()
     
+    def _init_framework_services(self):
+        """
+        Sounds over channels, volume ramps, audio outputs, Home Assistant for
+        plugins and the Plugin packages switch (docs/PLUGIN_DEVELOPMENT.md).
+        """
+        host = self._plugin_host
+        try:
+            from sonorium.core.audio_outputs import AudioOutputs
+            from sonorium.core.overlay_service import OverlayService
+            from sonorium.core.ramp_service import RampService
+            from sonorium.recording import SAMPLE_RATE
+            publish = host.bus.publish
+            outputs = AudioOutputs(self._session_manager, host.store, rate=SAMPLE_RATE)
+            host.set_audio(OverlayService(self._session_manager, publish, rate=SAMPLE_RATE),
+                           RampService(self._session_manager, publish, rate=SAMPLE_RATE,
+                                       on_change=lambda s: host._changed(s)),
+                           outputs)
+            # A channel sent to an audio output is sent there again when it starts
+            host.bus.subscribe("channel.started", lambda e: outputs.channel_started(e.data.get("channel_id")),
+                               owner=None)
+        except Exception as e:
+            logger.warning(f"  Sounds, ramps and audio outputs unavailable: {e}")
+        try:
+            from sonorium.plugins.homeassistant import HomeAssistant
+            from sonorium.settings import settings
+            host.homeassistant = HomeAssistant(lambda: (settings.ha_core_api, settings.token),
+                                               configured=runtime.ha_configured)
+        except Exception as e:
+            logger.warning(f"  Home Assistant for plugins unavailable: {e}")
+        host.packages_allowed = lambda: runtime.feature_enabled(
+            "plugin_packages", self._state_store.settings.feature_overrides if self._state_store else None)
+
     def _migrate_cycling(self):
         """Turn channels' theme cycling into playlists, once (core/playlists.migrate_cycling)."""
         from sonorium.core.playlists import migrate_cycling
@@ -846,6 +887,30 @@ class WebApp:
             "mqtt_connected": self.backend.mqtt_client.is_connected,
             "stream_url": conn.get("stream_url", ""),
         }
+
+    async def test_connection(self, request: Request):
+        """
+        Try Home Assistant or MQTT with the saved values and the form's (unsaved)
+        ones on top: {"kind": "ha"|"mqtt", "values": {...}}. Nothing is saved.
+        Answers {"success", "message"}.
+        """
+        from sonorium import runtime
+        if not runtime.features()["connection_settings"]["available"]:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        if not isinstance(body, dict) or body.get("kind") not in ("ha", "mqtt"):
+            raise HTTPException(status_code=400, detail="'kind' must be ha or mqtt")
+        values = {**runtime.load_connection(),
+                  **{k: v for k, v in (body.get("values") or {}).items()
+                     if k in runtime.CONNECTION_FIELDS and v not in (None, "")}}
+        from sonorium.connection_test import test_ha, test_mqtt
+        if body["kind"] == "ha":
+            return await test_ha(values.get("ha_url", ""), values.get("ha_token", ""))
+        return await test_mqtt(values.get("mqtt_host", ""), values.get("mqtt_port") or 1883,
+                               values.get("mqtt_username") or None, values.get("mqtt_password") or None)
 
     async def put_connection(self, request: Request):
         """

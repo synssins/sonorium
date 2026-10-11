@@ -34,6 +34,14 @@ DEFAULTS: dict[str, float] = {
     "ebb_long_rest": 0.12,              # Ebb & Flow: Long pause chance
     "ebb_turn": 0.35,                   # Ebb & Flow: Turn chance
     "short_file_threshold": 15.0,       # New themes: Short file threshold
+    # Sounds played over a channel: announcements, alerts, effects (core/overlay_service.py)
+    "sound_max_length": 60.0,           # Longest sound (0: no limit)
+    "duck_amount": 15.0,                # How much quieter the mix gets under a sound (dB)
+    "duck_attack": 0.5,                 # ... how long it takes to get there
+    "duck_release": 1.5,                # ... and to come back afterwards
+    "wake_wait": 20.0,                  # A stopped channel: longest wait for its speakers to connect
+    "wake_lead": 1.0,                   # ... then this long before the sound
+    "wake_tail": 1.0,                   # ... and this long after it before they stop
 }
 
 # (min key, max key): the min may not be above the max

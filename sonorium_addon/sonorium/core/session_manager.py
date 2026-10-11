@@ -103,6 +103,10 @@ class SessionManager:
         from sonorium.core.outputs import OutputRegistry
         self.outputs = OutputRegistry()
 
+        # The framework's audio services (sounds on a stopped channel, audio
+        # outputs): predicates that keep a channel's mix running (add_mix_hold)
+        self._mix_holds: list = []
+
         # Sequence and playlist timers
         from sonorium.core.playback_runner import PlaybackRunner
         self.runner = PlaybackRunner(self)
@@ -368,8 +372,53 @@ class SessionManager:
         return session.is_playing or session.id in self._listening or self.outputs.held(session.id)
 
     def _kept(self, session_id: str) -> bool:
-        """Something other than the speakers keeps the channel's mix: a browser listening, or a reported output."""
-        return session_id in self._listening or self.outputs.held(session_id)
+        """Something other than the speakers keeps the channel's mix: a browser listening, a reported output, a hook."""
+        return session_id in self._listening or self.outputs.held(session_id) or self._held_by_hooks(session_id)
+
+    # --- Hooks for the framework's audio services (core/overlay_service.py,
+    # core/audio_outputs.py): they reach a channel's Channel and keep its mix
+    # running through these, never through the session manager's internals ---
+
+    def add_mix_hold(self, predicate) -> None:
+        """predicate(session_id) -> True keeps the channel's mix running (like a browser listening)."""
+        self._mix_holds.append(predicate)
+
+    def _held_by_hooks(self, session_id: str) -> bool:
+        for predicate in self._mix_holds:
+            try:
+                if predicate(session_id):
+                    return True
+            except Exception:
+                pass
+        return False
+
+    def channel_of(self, session_id: str):
+        """The Channel a channel's mix runs on now, or None."""
+        channel_id = self._session_channels.get(session_id)
+        return self.channel_manager.get_channel(channel_id) if channel_id and self.channel_manager else None
+
+    def claim_channel(self, session_id: str):
+        """A Channel for the channel's mix (the one it has, else a free one; None when none is free)."""
+        session = self.state.sessions.get(session_id)
+        return self._assign_channel(session) if session is not None else None
+
+    def run_mix(self, session_id: str):
+        """
+        Run the channel's theme mix without its speakers (like Listen here), for
+        an output that isn't a speaker. Returns the Channel, None when none is
+        free. ValueError: no theme, or it isn't found.
+        """
+        session = self.state.sessions.get(session_id)
+        if session is None:
+            return None
+        channel, fresh_start = self._run_mix(session)
+        if channel is not None and fresh_start:
+            self.runner.after_play(session)
+        return channel
+
+    async def release_unused(self, session_id: str, why: str) -> None:
+        """Nothing holds the channel's mix any more: fade out and free its Channel (if it isn't playing)."""
+        await self._release_unused(session_id, why)
 
     def _channel_for(self, session: Session):
         channel_id = self._session_channels.get(session.id)

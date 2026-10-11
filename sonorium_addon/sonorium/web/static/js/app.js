@@ -52,7 +52,7 @@ async function init() {
 
         // Restore saved view or default to sessions
         let savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
-        if (savedView === 'settings-connection' && !connectionSettings) savedView = 'sessions';
+        if (savedView === 'settings-connection' && !connectionSettings && !SonoriumExt.connections.hasPlugins()) savedView = 'sessions';
         // A page this caller can't open (another user's last page, an uninstalled plugin's page)
         if (!/^[a-z0-9-]+$/.test(savedView)) savedView = 'sessions';
         const savedNav = document.querySelector(`[onclick="showView('${savedView}')"]`);
@@ -202,7 +202,7 @@ function showView(viewName) {
     // Keep Settings menu expanded when on any settings page
     const settingsSection = document.getElementById('settings-nav-section');
     if (settingsSection) {
-        if (viewName.startsWith('settings') || Sonorium.isPage(viewName)) {
+        if (viewName.startsWith('settings') || Sonorium.isSettingsPage(viewName)) {
             settingsSection.classList.add('expanded');
             const header = settingsSection.querySelector('.nav-section-header');
             if (header) {
@@ -471,6 +471,7 @@ function renderSessionCard(session) {
                 <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
                 <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
             </div>
+            ${Sonorium.cardPickers(session)}
             <div class="ch-src">
                 ${playlistMode ? chPlaylistPickers(session) : chThemePickers(session)}
                 <div class="ch-modes" role="group" aria-label="What ${name} plays">
@@ -5396,6 +5397,10 @@ const ADVANCED_FEATURES = {
     network_speakers: {
         label: 'Network speakers',
         hint: 'Add speakers by IP address, outside Home Assistant'
+    },
+    plugin_packages: {
+        label: 'Plugin packages',
+        hint: "Plugins may install Python packages from the internet. Packages run with Sonorium's rights: allow only for plugins you trust."
     }
 };
 
@@ -5532,6 +5537,22 @@ const PV_SECTIONS = [
         { name: 'Short file threshold', keys: ['short_file_threshold'], unit: 's', usual: [3, 60],
           desc: 'Files shorter than this start as Intermittent in a new theme.' },
     ] },
+    { title: 'Announcements and sounds', rows: [
+        { name: 'Longest sound', keys: ['sound_max_length'], unit: 's', usual: [5, 600],
+          desc: 'Announcements and sounds longer than this are cut. 0 is no limit.' },
+        { name: 'Duck amount', keys: ['duck_amount'], unit: 'dB', usual: [6, 30],
+          desc: 'How much quieter a channel gets while a sound plays over it, unless the sound sets its own.' },
+        { name: 'Duck attack', keys: ['duck_attack'], unit: 's', usual: [0.1, 3],
+          desc: 'How long the channel takes to get quieter. The sound starts once it has.' },
+        { name: 'Duck release', keys: ['duck_release'], unit: 's', usual: [0.2, 5],
+          desc: 'How long the channel takes to come back after the sound.' },
+        { name: 'Wait for speakers', keys: ['wake_wait'], unit: 's', usual: [5, 60],
+          desc: "A stopped channel's speakers are started for an announcement: the longest wait for them to connect." },
+        { name: 'Lead', keys: ['wake_lead'], unit: 's', usual: [0, 5],
+          desc: 'Then this long before the announcement plays.' },
+        { name: 'Tail', keys: ['wake_tail'], unit: 's', usual: [0, 5],
+          desc: 'After it, this long before the speakers stop.' },
+    ] },
 ];
 
 async function loadPlaybackValues() {
@@ -5582,7 +5603,38 @@ function pvRender() {
     head.style.display = playbackValues ? '' : 'none';
     // Plugins' sections first (slots.js: advanced), then the playback values
     form.innerHTML = (playbackValues ? Sonorium.advancedHtml() : '') + (playbackValues ? PV_SECTIONS.map(section =>
-        `<h3 class="spv-sec">${escapeHtml(section.title)}</h3><div class="sp-lbody">${section.rows.map(pvRow).join('')}</div>`).join('') : '');
+        `<h3 class="spv-sec">${escapeHtml(section.title)}</h3><div class="sp-lbody">${section.rows.map(pvRow).join('')}</div>`).join('') : '')
+        + pvNetworkSection();
+}
+
+// Network: the stream URL speakers are given (Docker/Windows; the Home Assistant app sets it in
+// its own options). Kept in connection.json; changing it restarts Sonorium.
+function pvNetworkSection() {
+    if (!connectionSettings) return '';
+    const value = connectionSettings.stream_url || '';
+    return `<h3 class="spv-sec">Network</h3><div class="sp-lbody"><div class="sp-lrow spv-grid${value ? ' changed' : ''}">
+        <span class="spv-name">Stream URL</span><span class="spv-desc">The address speakers are given to reach Sonorium.</span><span class="spv-def">Automatic</span>
+        <span class="spv-val"><input class="sp-inp spv-url" type="url" id="pv-stream-url" aria-label="Stream URL" placeholder="Automatic" value="${escapeHtml(value)}" onchange="pvStreamUrlChanged(this)"></span>
+        <button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="Stream URL: back to the default"${value ? '' : ' disabled'} onclick="pvStreamUrlChanged(null, this)">${SP_ICON_RESET}</button></div></div>`;
+}
+
+function pvStreamUrlChanged(input, resetButton) {
+    const value = input ? input.value.trim() : '';
+    if (value && !/^https?:\/\/\S+$/i.test(value)) {
+        input.classList.add('bad');
+        showToast('Must start with http:// or https://', 'error');
+        return;
+    }
+    if (input) input.classList.remove('bad');
+    spConfirm('pv-stream', input || resetButton, { title: 'Restart Sonorium?', sub: 'Playing channels stop for a few seconds.', ok: 'Restart' }, async () => {
+        try {
+            await api('PUT', '/connection', { stream_url: value });
+            showToast('Restarting Sonorium...', 'success');
+            await spWaitForRestart();
+        } catch (error) {
+            showToast(error.message || 'Not saved', 'error');
+        }
+    });
 }
 
 function pvRowOf(key) {
@@ -5641,79 +5693,13 @@ async function loadConnectionSettings() {
         connectionSettings = null;
     }
     const nav = document.getElementById('nav-settings-connection');
-    if (nav) nav.style.display = connectionSettings ? '' : 'none';
+    if (nav) nav.style.display = (connectionSettings || SonoriumExt.connections.hasPlugins()) ? '' : 'none';
 }
 
-// --- Settings > Connection: edits are a draft until Save and restart; Cancel drops them ---
-const CONN_FIELDS = ['ha_url', 'ha_token', 'mqtt_host', 'mqtt_port', 'mqtt_username', 'mqtt_password', 'stream_url'];
-const CONN_SECRET_SAVED = { ha_token: 'ha_token_set', mqtt_password: 'mqtt_password_set' };
-const CONN_GROUPS = {
-    ha: ['ha_url', 'ha_token'],
-    mqtt: ['mqtt_host', 'mqtt_port', 'mqtt_username', 'mqtt_password']
-};
-let connDraft = null;
-let connTried = false;   // after a Save attempt, mark the fields that need fixing
-let connBusy = false;    // restarting
-
-function connFromSaved(c) {
-    return {
-        ha_url: c.ha_url || '', ha_token: '',
-        mqtt_host: c.mqtt_host || '', mqtt_port: String(c.mqtt_port || 1883),
-        mqtt_username: c.mqtt_username || '', mqtt_password: '',
-        stream_url: c.stream_url || ''
-    };
-}
-
-// The same checks the server makes on PUT /api/connection
-function connErrors(d) {
-    const urlErr = v => (v.trim() && !/^https?:\/\//i.test(v.trim())) ? 'Must start with http:// or https://' : '';
-    const portErr = v => {
-        const t = String(v).trim();
-        if (!t) return '';
-        const n = Number(t);
-        return (Number.isInteger(n) && n >= 1 && n <= 65535) ? '' : 'Port must be 1–65535';
-    };
-    return { ha_url: urlErr(d.ha_url), stream_url: urlErr(d.stream_url), mqtt_port: portErr(d.mqtt_port) };
-}
-
-function connDirty() {
-    if (!connectionSettings || !connDraft) return false;
-    const saved = connFromSaved(connectionSettings);
-    return CONN_FIELDS.some(k => connDraft[k] !== saved[k]);
-}
-
-function connConfigured(kind) {
-    const c = connectionSettings || {};
-    return kind === 'ha' ? !!(c.ha_url || c.ha_token_set) : !!c.mqtt_host;
-}
-
-function setConnectionStatus(kind, configured, connected, problem) {
-    const badge = document.getElementById(`conn-${kind}-status`);
-    const note = document.getElementById(`conn-${kind}-note`);
-    if (!badge) return;
-    const state = !configured ? ['sp-st-off', 'Not configured', 'Optional']
-        : connected ? ['sp-st-ok', 'Connected', 'Connected']
-        : ['sp-st-bad', 'Not connected', problem];
-    badge.className = `badge sp-st ${state[0]}`;
-    badge.title = state[2];
-    badge.lastElementChild.textContent = state[1];
-    note.textContent = configured && !connected ? problem : '';
-    note.hidden = !(configured && !connected);
-}
-
+// --- Settings > Connection: one row per connection (Home Assistant, MQTT and plugins'),
+// each edited in its own dialog (static/js/ext/connections.js) ---
 function renderConnectionSettings() {
-    const c = connectionSettings;
-    if (!c) return;
-    if (!connDraft) connDraft = connFromSaved(c);
-    document.querySelectorAll('#view-settings-connection [data-conn]').forEach(input => {
-        input.value = connDraft[input.dataset.conn] ?? '';
-    });
-    document.getElementById('conn-ha-token').placeholder = c.ha_token_set ? 'Saved (hidden)' : 'Paste a long-lived access token';
-    document.getElementById('conn-mqtt-pass').placeholder = c.mqtt_password_set ? 'Saved (hidden)' : '';
-    setConnectionStatus('ha', !!c.ha_url, c.ha_connected, 'Check the address and token');
-    setConnectionStatus('mqtt', !!c.mqtt_host, c.mqtt_connected, 'Check the broker address and login');
-    updateConnectionState();
-    renderDashboardCardsStatus();
+    SonoriumExt.connections.render();
 }
 
 // The Home Assistant dashboard cards: one line under MQTT, with Download when they're added by hand
@@ -5735,119 +5721,6 @@ async function renderDashboardCardsStatus() {
     download.onclick = () => !hostDownload(download.href, 'sonorium-cards.js');  // the Sonorium app saves it
     download.hidden = status.state !== 'by_hand';
     row.hidden = false;
-}
-
-function updateConnectionState() {
-    const c = connectionSettings;
-    if (!c || !connDraft) return;
-    const errors = connErrors(connDraft);
-    const view = document.getElementById('view-settings-connection');
-    view.querySelectorAll('[data-conn]').forEach(input => {
-        const key = input.dataset.conn;
-        const err = connTried ? (errors[key] || '') : '';
-        input.classList.toggle('bad', !!err);
-        input.disabled = connBusy;
-        const errEl = view.querySelector(`[data-err="${key}"]`);
-        if (errEl) {
-            errEl.textContent = err;
-            errEl.hidden = !err;
-        }
-    });
-    view.querySelectorAll('[data-saved]').forEach(chip => {
-        const key = chip.dataset.saved;
-        chip.hidden = !(c[CONN_SECRET_SAVED[key]] && !connDraft[key]);
-    });
-    const dirty = connDirty();
-    const state = document.getElementById('conn-state');
-    if (connBusy) {
-        state.innerHTML = `${SP_ICON_SPIN}Restarting…`;
-        state.hidden = false;
-    } else if (dirty) {
-        state.innerHTML = '<span class="sp-mod-dot"></span>Unsaved changes';
-        state.hidden = false;
-    } else {
-        state.hidden = true;
-    }
-    document.getElementById('conn-save-btn').disabled = connBusy || !dirty;
-    document.getElementById('conn-cancel-btn').disabled = connBusy || !dirty;
-    document.getElementById('conn-ha-remove').disabled = connBusy || !connConfigured('ha');
-    document.getElementById('conn-mqtt-remove').disabled = connBusy || !connConfigured('mqtt');
-}
-
-function onConnectionInput(input) {
-    connDraft[input.dataset.conn] = input.value;
-    updateConnectionState();
-}
-
-function askSaveConnection(button) {
-    connTried = true;
-    if (Object.values(connErrors(connDraft)).some(Boolean)) {
-        updateConnectionState();
-        showToast('Fix the marked fields', 'error');
-        return;
-    }
-    updateConnectionState();
-    spConfirm('conn-save', button, { title: 'Restart Sonorium?', sub: 'Playing channels stop for a few seconds.', ok: 'Restart' }, saveConnectionSettings);
-}
-
-async function saveConnectionSettings() {
-    const d = connDraft;
-    const settings = {
-        ha_url: d.ha_url.trim(),
-        mqtt_host: d.mqtt_host.trim(),
-        mqtt_port: String(d.mqtt_port).trim() || 1883,
-        mqtt_username: d.mqtt_username.trim(),
-        stream_url: d.stream_url.trim()
-    };
-    // Secrets are only sent when typed; blank keeps the saved value
-    if (d.ha_token.trim()) settings.ha_token = d.ha_token.trim();
-    if (d.mqtt_password) settings.mqtt_password = d.mqtt_password;
-
-    connBusy = true;
-    updateConnectionState();
-    try {
-        await api('PUT', '/connection', settings);
-        await spWaitForRestart();
-    } catch (error) {
-        showToast(error.message || 'Failed to save connection settings', 'error');
-    }
-    connBusy = false;
-    updateConnectionState();
-}
-
-function cancelConnectionEdits() {
-    if (!connectionSettings) return;
-    connDraft = connFromSaved(connectionSettings);
-    connTried = false;
-    renderConnectionSettings();
-}
-
-function askRemoveConnection(kind, button) {
-    spConfirm(`conn-rm-${kind}`, button, {
-        title: kind === 'ha' ? 'Remove Home Assistant?' : 'Remove MQTT?',
-        ok: 'Remove',
-        danger: true
-    }, () => removeConnection(kind));
-}
-
-// Removing a connection takes effect at once (no restart). Removing Home
-// Assistant drops its floors, areas and speakers from every list.
-async function removeConnection(kind) {
-    try {
-        const result = await api('DELETE', `/connection/${kind}`);
-        connectionSettings = result.connection || await api('GET', '/connection');
-        const fresh = connFromSaved(connectionSettings);
-        CONN_GROUPS[kind].forEach(key => { connDraft[key] = fresh[key]; });
-        if (kind === 'ha') await afterHomeAssistantRemoved();
-        renderConnectionSettings();
-        if (result.restart_required) {
-            showToast('MQTT removed. Restart Sonorium to finish.', 'success');
-        } else {
-            showToast(kind === 'ha' ? 'Home Assistant removed' : 'MQTT removed', 'success');
-        }
-    } catch (error) {
-        showToast(error.message || 'Could not remove the connection', 'error');
-    }
 }
 
 async function afterHomeAssistantRemoved() {
@@ -9966,22 +9839,13 @@ const PAGE_HELP = {
         ${helpTerm('Advanced', 'features that are off by default. Shown on installs that have them.')}` },
 
     'settings-connection': { title: 'Connection', html: `
-        <p>How Sonorium connects to Home Assistant, your MQTT broker and your speakers. Changes are saved with a restart.</p>
-        <h4>Home Assistant</h4>
-        ${helpTerm('URL', 'the address of Home Assistant, for example http://homeassistant.local:8123. Optional.')}
-        ${helpTerm('Access token', 'a long-lived access token from your Home Assistant profile (Security tab). A saved token stays hidden. Leave the field blank to keep it.')}
+        <p>Every system Sonorium connects to: Home Assistant and your MQTT broker, and the ones plugins add (marked Plugin).</p>
         ${helpTerm('Status', 'Connected, Not connected or Not configured.')}
-        ${helpTerm('Trash', 'removes Home Assistant right away, without a restart. Its floors, areas and speakers leave every list. You confirm first.')}
-        <h4>MQTT</h4>
-        ${helpTerm('Broker, Port', 'the host name or IP address of your MQTT broker, and its port (1883 if blank). Optional.')}
-        ${helpTerm('Username, Password', 'leave Username blank for anonymous. A blank password keeps the saved one.')}
-        ${helpTerm('Trash', 'removes MQTT. If Sonorium needs a restart to finish, a message says so. You confirm first.')}
-        <h4>Streaming</h4>
-        ${helpTerm('Stream URL', 'the address speakers use to reach Sonorium (port 8008).')}
-        <h4>Top bar</h4>
-        ${helpTerm('Save and restart', 'saves the changes and restarts Sonorium. Playing channels stop for a few seconds. You confirm first.')}
-        ${helpTerm('Cancel', 'puts back the saved values.')}
-        ${helpTerm('Red fields', 'fix these before saving. An address starts with http:// or https://, and a port is 1 to 65535.')}` },
+        ${helpTerm('Points at', 'the address it uses.')}
+        ${helpTerm('Test', 'tries the saved values.')}
+        ${helpTerm('Edit', 'opens its values. Test there tries what you typed before it is saved. A saved token or password stays hidden: leave the field blank to keep it.')}
+        ${helpTerm('Save', 'Home Assistant and MQTT restart Sonorium to use the new values (you confirm first; playing channels stop for a few seconds). A plugin connection is saved at once.')}
+        ${helpTerm('⋯ › Remove', 'removes the connection and its saved values. Removing Home Assistant takes its floors, areas and speakers out of every list.')}` },
 
     'settings-audio': { title: 'Audio Settings', html: `
         <p>Sound settings for all of Sonorium. Move a slider, then Save settings.</p>
@@ -10077,11 +9941,15 @@ const PAGE_HELP = {
         ${helpTerm('Default', 'the setting out of the box.')}
         ${helpTerm('Restart to apply', 'marks a feature changed since the last restart.')}
         ${helpTerm('Network speakers', 'adds speakers by IP address, outside Home Assistant.')}
+        ${helpTerm('Plugin packages', 'lets plugins install the Python packages they ask for. Packages come from the internet and run with the same rights as Sonorium.')}
         <h4>Playback values</h4>
         ${helpTerm('Value', 'used by every theme, unless a track or group sets its own. Saved as you change it; playing channels follow.')}
         ${helpTerm('Default', 'the value out of the box. The arrow puts it back.')}
         ${helpTerm('Green', 'changed from the default.')}
         ${helpTerm('Amber', 'far outside the usual range. Allowed, but it may not sound right.')}
+        ${helpTerm('Announcements and sounds', 'how announcements, alerts and sound effects play over a channel: the channel gets quieter (ducks), the sound plays, the channel comes back. A stopped channel is started for an announcement and stopped after it.')}
+        <h4>Network</h4>
+        ${helpTerm('Stream URL', 'the address speakers are given to reach Sonorium (port 8008). Automatic works out the address itself. A change restarts Sonorium; you confirm first.')}
         <h4>Top bar</h4>
         ${helpTerm('Badge', 'the install type.')}
         ${helpTerm('Restart now', 'restarts Sonorium to apply the changes. Shown after a change. You confirm first.')}` },

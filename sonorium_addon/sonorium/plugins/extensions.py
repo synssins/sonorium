@@ -35,6 +35,12 @@ ITEM is one of:
     {"type": "button", "action": "add", "label": "Add", "style": "primary|secondary|danger",
      "confirm": "optional question"}
     {"type": "status", "state": "ok|warning|error|off|unknown", "text": "Connected"}
+    {"type": "command_map", "map": "remote"}     the plugin's command map (get_command_maps()),
+                                                 drawn as a table the user fills (learn, action, channel)
+A page may also have "intro" (one line under the title) and "actions"
+(buttons in the page's header, e.g. {"action": "add", "label": "Add schedule",
+"style": "primary"}). A table's "status" column takes a state, or
+{"state", "text"} for a chip with its own words ("On", "Off").
 A button (or a row action) calls page_action(page_id, action, {"values": {field
 values of the page}, "row": row id or null}).
 """
@@ -218,11 +224,17 @@ def _normalize_table(item: dict) -> Optional[dict]:
     if not columns:
         return None
     keys = {c["key"] for c in columns} | {"id"}
+    status_keys = {c["key"] for c in columns if c["format"] == "status"}
+
+    def cell(key, value):
+        if key in status_keys and isinstance(value, dict):  # {"state", "text"}: a chip
+            state = value.get("state") if value.get("state") in STATUS_STATES else "unknown"
+            return {"state": state, "text": _text(value.get("text"), 60)}
+        return value if isinstance(value, (int, float, bool)) or value is None else _text(value, 500)
     rows = []
     for row in (item.get("rows") or [])[:MAX_ROWS]:
         if isinstance(row, dict):
-            rows.append({k: (v if isinstance(v, (int, float, bool)) or v is None else _text(v, 500))
-                         for k, v in row.items() if k in keys})
+            rows.append({k: cell(k, v) for k, v in row.items() if k in keys})
     row_actions = [a for a in (_normalize_button(a, row=True) for a in (item.get("row_actions") or [])) if a]
     return {"type": "table", "id": item["id"], "columns": columns, "rows": rows,
             "empty": _text(item.get("empty"), 200), "row_actions": row_actions}
@@ -252,6 +264,11 @@ def _normalize_item(item: Any, owner: str) -> Optional[dict]:
     if kind == "status":
         state = item.get("state") if item.get("state") in STATUS_STATES else "unknown"
         return {"type": "status", "state": state, "text": _text(item.get("text"), 200)}
+    if kind == "command_map":
+        map_id = item.get("map")
+        if not isinstance(map_id, str) or not EXTENSION_ID.match(map_id):
+            return None
+        return {"type": "command_map", "map": map_id}
     logger.debug(f"{owner}: page item type {kind!r} is not known, ignored")
     return None
 
@@ -270,7 +287,10 @@ def normalize_page(page: Any, owner: str = "") -> dict:
     refresh = page.get("refresh")
     if isinstance(refresh, bool) or not isinstance(refresh, (int, float)) or refresh < 5:
         refresh = None
-    return {"title": _text(page.get("title"), 120), "refresh": refresh, "sections": sections}
+    # Buttons in the page's header (e.g. "Add schedule"), and a line under the title
+    actions = [b for b in (_normalize_button(a) for a in (page.get("actions") or [])[:4]) if b]
+    return {"title": _text(page.get("title"), 120), "intro": _text(page.get("intro"), 300), "refresh": refresh,
+            "actions": actions, "sections": sections}
 
 
 def page_fields(page: dict) -> dict:
@@ -281,7 +301,7 @@ def page_fields(page: dict) -> dict:
 
 def page_actions(page: dict) -> set:
     """Every action a (normalized) page offers: buttons and row actions."""
-    actions = set()
+    actions = {b["action"] for b in page.get("actions") or []}
     for section in page["sections"]:
         for item in section["items"]:
             if item["type"] == "button":

@@ -87,4 +87,7 @@ def test_install_type_and_features_docker(monkeypatch, tmp_path):
     monkeypatch.setenv("container", "docker")
     runtime = load_runtime(monkeypatch, tmp_path)
     assert (runtime.INSTALL, runtime.INSTALL_LABEL) == ("docker", "Docker")
-    assert all(f == {"available": True, "enabled": True, "overridable": False} for f in runtime.features().values())
+    features = runtime.features()
+    # Plugin packages: off on every install until switched on in Settings > Advanced
+    assert features.pop("plugin_packages") == {"available": True, "enabled": False, "overridable": True}
+    assert all(f == {"available": True, "enabled": True, "overridable": False} for f in features.values())

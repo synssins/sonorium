@@ -150,7 +150,7 @@
                         </svg>
                         <span>Plugins</span>
                     </div>
-                    <div class="nav-sub-item" onclick="showView('settings-logs')">
+                    <div class="nav-sub-item" id="nav-settings-logs" onclick="showView('settings-logs')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
                             <polyline points="14 2 14 8 20 8"/>
@@ -203,11 +203,6 @@
                 <h2 id="view-title">Channels</h2>
             </div>
             <!-- Page actions (shown on their own page): Primary · Secondary · Cancel -->
-            <div class="header-actions hdr-pacts" data-view="settings-connection">
-                <span id="conn-state" class="sp-foot-state" hidden></span>
-                <button type="button" id="conn-save-btn" class="btn btn-primary" aria-haspopup="dialog" disabled onclick="askSaveConnection(this)">Save and restart</button>
-                <button type="button" id="conn-cancel-btn" class="btn btn-secondary" disabled onclick="cancelConnectionEdits()">Cancel</button>
-            </div>
             <div class="header-actions hdr-pacts" data-view="settings-audio">
                 <span id="audio-state" class="sp-foot-state" hidden><span class="sp-mod-dot"></span>Unsaved changes</span>
                 <button type="button" id="audio-save-btn" class="btn btn-primary" disabled onclick="saveAudioSettings()">Save settings</button>
@@ -666,64 +661,11 @@ Example:
                 </div>
             </div>
 
-            <!-- Connection (standalone/Docker only): identical cards, Save and restart / Cancel in the top bar -->
+            <!-- Connection: one row per connection (Home Assistant and MQTT on Docker/Windows, and plugins'),
+                 each edited in a dialog (static/js/ext/connections.js) -->
             <div id="view-settings-connection" class="view sp sp-ui">
                 <div class="sp-scroll">
-                    <div class="sp-wrap sp-cards">
-                        <section class="sp-card" aria-labelledby="conn-ha-h">
-                            <div class="sp-head">
-                                <h3 id="conn-ha-h">Home Assistant</h3>
-                                <span id="conn-ha-status" class="badge sp-st sp-st-off"><i></i><span>Not configured</span></span>
-                                <span id="conn-ha-note" class="sp-note" hidden></span>
-                                <span class="grow"></span>
-                                <button type="button" class="icon-btn sm" id="conn-ha-remove" aria-label="Remove Home Assistant" title="Remove" aria-haspopup="dialog" onclick="askRemoveConnection('ha', this)">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                                </button>
-                            </div>
-                            <div class="sp-fstack">
-                                <label class="sp-fld"><span class="sp-flab">URL<span class="sp-tip" title="Optional · e.g. http://homeassistant.local:8123" aria-label="Optional · e.g. http://homeassistant.local:8123"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span></span>
-                                    <input class="sp-inp" type="url" id="conn-ha-url" data-conn="ha_url" placeholder="http://homeassistant.local:8123" aria-label="URL" oninput="onConnectionInput(this)">
-                                    <span class="sp-ferr" data-err="ha_url" hidden></span></label>
-                                <label class="sp-fld"><span class="sp-flab">Access token<span class="sp-tip" title="Profile › Security › Long-lived access tokens" aria-label="Profile › Security › Long-lived access tokens"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span><span class="sp-saved" data-saved="ha_token" hidden>· saved</span></span>
-                                    <input class="sp-inp" type="password" id="conn-ha-token" data-conn="ha_token" autocomplete="off" aria-label="Access token" oninput="onConnectionInput(this)"></label>
-                            </div>
-                        </section>
-                        <section class="sp-card" aria-labelledby="conn-mqtt-h">
-                            <div class="sp-head">
-                                <h3 id="conn-mqtt-h">MQTT</h3>
-                                <span id="conn-mqtt-status" class="badge sp-st sp-st-off"><i></i><span>Not configured</span></span>
-                                <span id="conn-mqtt-note" class="sp-note" hidden></span>
-                                <span class="grow"></span>
-                                <button type="button" class="icon-btn sm" id="conn-mqtt-remove" aria-label="Remove MQTT" title="Remove" aria-haspopup="dialog" onclick="askRemoveConnection('mqtt', this)">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
-                                </button>
-                            </div>
-                            <div class="sp-fstack">
-                                <div class="sp-frow">
-                                    <label class="sp-fld sp-fill"><span class="sp-flab">Broker<span class="sp-tip" title="Optional · host name or IP of your broker" aria-label="Optional · host name or IP of your broker"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span></span>
-                                        <input class="sp-inp" type="text" id="conn-mqtt-host" data-conn="mqtt_host" placeholder="192.168.1.10" aria-label="Broker" oninput="onConnectionInput(this)"></label>
-                                    <label class="sp-fld sp-port"><span class="sp-flab">Port</span>
-                                        <input class="sp-inp" type="number" id="conn-mqtt-port" data-conn="mqtt_port" min="1" max="65535" placeholder="1883" aria-label="Port" oninput="onConnectionInput(this)">
-                                        <span class="sp-ferr" data-err="mqtt_port" hidden></span></label>
-                                </div>
-                                <div class="sp-frow">
-                                    <label class="sp-fld sp-fill"><span class="sp-flab">Username<span class="sp-tip" title="Blank for anonymous" aria-label="Blank for anonymous"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span></span>
-                                        <input class="sp-inp" type="text" id="conn-mqtt-user" data-conn="mqtt_username" autocomplete="off" placeholder="Anonymous" aria-label="Username" oninput="onConnectionInput(this)"></label>
-                                    <label class="sp-fld sp-fill"><span class="sp-flab">Password<span class="sp-tip" title="Blank keeps the saved password" aria-label="Blank keeps the saved password"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span><span class="sp-saved" data-saved="mqtt_password" hidden>· saved</span></span>
-                                        <input class="sp-inp" type="password" id="conn-mqtt-pass" data-conn="mqtt_password" autocomplete="off" aria-label="Password" oninput="onConnectionInput(this)"></label>
-                                </div>
-                                <div class="conn-cards" id="conn-cards" hidden><span class="sp-note" id="conn-cards-line"></span><a class="btn btn-secondary btn-sm" id="conn-cards-dl" download="sonorium-cards.js" hidden>Download</a></div>
-                            </div>
-                        </section>
-                        <section class="sp-card" aria-labelledby="conn-st-h">
-                            <div class="sp-head"><h3 id="conn-st-h">Streaming</h3></div>
-                            <div class="sp-fstack">
-                                <label class="sp-fld"><span class="sp-flab">Stream URL<span class="sp-tip" title="The address speakers use to reach Sonorium (port 8008)" aria-label="The address speakers use to reach Sonorium (port 8008)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg></span></span>
-                                    <input class="sp-inp" type="url" id="conn-stream-url" data-conn="stream_url" placeholder="http://192.168.1.20:8008" aria-label="Stream URL" oninput="onConnectionInput(this)">
-                                    <span class="sp-ferr" data-err="stream_url" hidden></span></label>
-                            </div>
-                        </section>
-                    </div>
+                    <div class="sp-wrap" id="conn-rows"></div>
                 </div>
             </div>
 

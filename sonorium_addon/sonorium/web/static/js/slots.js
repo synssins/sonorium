@@ -17,6 +17,11 @@
  *   channelEditor  [{render(session) -> html, save(sessionId, session), top(session), speakers(session),
  *                    speakerNote(session, speakerId) -> {busy}|{note}|null}]
  *   advanced       [{html(me)}]                       sections at the top of Settings › Advanced's values
+ *   channelCard pickers(session)                      above a card's theme pickers
+ * Pages in the left menu (plugin pages, ext/pages.js): Sonorium.registerMenuPage({view, title,
+ *   render(el), actions()}).
+ * The framework's own renderers (static/js/ext/: plugin pages, Connection, Notifications, the
+ * alert bar, casting) load after the bundles and before app.js.
  * Helpers: Sonorium.modal({...}), closeModal(id), showScreen(html), hideScreen(),
  *   api(method, path, body), esc(text), toast(message, type), can(perm).
  */
@@ -40,6 +45,11 @@
         slots: { headerButtons: [], screens: [], settingsPages: [], banners: [], sidebar: [], channelCard: [],
                  channelsTop: [], channelEditor: [], advanced: [] },
         editing: null,  // the channel open in the channel editor (null: a new one)
+        menuPages: [],
+
+        registerMenuPage(def) {
+            S.menuPages = S.menuPages.filter(p => p.view !== def.view).concat([def]);
+        },
 
         register(pluginId, def) {
             Object.keys(S.slots).forEach(slot => {
@@ -60,6 +70,7 @@
         async boot() {
             await S.loadMe();
             await S.loadBundles();
+            await S.loadCore();
             await new Promise((resolve, reject) => {
                 const script = document.createElement('script');
                 script.src = BASE + '/static/js/app.js';
@@ -107,6 +118,25 @@
             }
         },
 
+        // The framework's renderers (static/js/ext/), in order
+        CORE: ['core', 'pages', 'commandmaps', 'connections', 'notifications', 'alerts', 'outputs'],
+
+        async loadCore() {
+            const link = document.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = BASE + '/static/css/ext.css';
+            document.head.appendChild(link);
+            for (const name of S.CORE) {
+                await new Promise(resolve => {
+                    const script = document.createElement('script');
+                    script.src = `${BASE}/static/js/ext/${name}.js`;
+                    script.onload = resolve;
+                    script.onerror = () => { console.error('Failed to load ext/' + name); resolve(); };
+                    document.body.appendChild(script);
+                });
+            }
+        },
+
         async start(init) {
             if (S.me && S.me.closed) {
                 S.showScreen(`<div class="au-card"><img class="au-logo" src="${BASE}/logo.png" alt="Sonorium">
@@ -119,6 +149,9 @@
                     if (await screen.show(S.me)) return;  // a plugin's screen took over (sign-in, first run)
                 } catch (e) { console.error(e); }
             }
+            try {
+                if (window.SonoriumExt) await window.SonoriumExt.start(S.me);
+            } catch (e) { console.error(e); }
             S.applyPerms();
             S.installSettingsPages();
             S.renderSidebar();
@@ -205,6 +238,9 @@
         cardBadges(session) {
             return S.slots.channelCard.map(c => (c.badges ? c.badges(session) : '') || '').join('');
         },
+        cardPickers(session) {
+            return S.slots.channelCard.map(c => (c.pickers ? c.pickers(session) : '') || '').join('');
+        },
         cardStrips(session) {
             return S.slots.channelCard.map(c => (c.strip ? c.strip(session) : '') || '').join('');
         },
@@ -255,9 +291,10 @@
 
         // ---------- Settings pages ----------
         page(view) {
-            return S.slots.settingsPages.find(p => 'plugin-' + p.id === view);
+            return S.slots.settingsPages.find(p => 'plugin-' + p.id === view) || S.menuPages.find(p => p.view === view);
         },
         isPage(view) { return !!S.page(view); },
+        isSettingsPage(view) { return S.slots.settingsPages.some(p => 'plugin-' + p.id === view); },
         installSettingsPages() {
             const nav = document.querySelector('#settings-nav-section .nav-sub-items');
             const main = document.querySelector('.main-content');

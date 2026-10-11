@@ -56,6 +56,10 @@
 
 - **users**: Zones, Kid mode, speaker homes and links
   ([`0ebf819`](https://github.com/synssins/sonorium/commit/0ebf819ee3042ae721d9ff351e32da6dab0eddaf))
+## v1.6.2-dev.44 (2026-10-11)
+
+
+## v1.6.2-dev.40 (2026-10-11)
 
 
 ## v1.6.2-dev.35 (2026-10-11)

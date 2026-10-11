@@ -70,6 +70,7 @@ class Output:
     address: Optional[str] = None
     receiver_id: Optional[str] = None
     device_id: Optional[str] = None
+    device_name: Optional[str] = None  # the linked phone that reported it ("cast from Pixel 8")
     since: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     last_seen: float = 0.0  # the registry's clock
 
@@ -82,6 +83,7 @@ class Output:
     def to_dict(self, now: float) -> dict:
         return {"output_id": self.output_id, "kind": self.kind, "name": self.name, "address": self.address,
                 "receiver_id": self.receiver_id, "since": self.since, "by_device_id": self.device_id,
+                "by_device_name": self.device_name,
                 "expires_in": max(0, int(round(self.last_seen + EXPIRE_SECONDS - now)))}
 
 

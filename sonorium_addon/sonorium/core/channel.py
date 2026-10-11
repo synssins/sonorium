@@ -161,6 +161,12 @@ class Channel:
     # Silence chunk
     _silence: np.ndarray = field(default=None, repr=False)
 
+    # After the start/stop fade: a volume ramp (core/ramps.py), then sounds
+    # played over the mix with their duck (core/overlay.py). Set by the
+    # framework's services; None (or idle) costs nothing.
+    ramp: Optional[object] = field(default=None, repr=False)
+    overlay: Optional[object] = field(default=None, repr=False)
+
     def __post_init__(self):
         if not self.name:
             self.name = f"Channel {self.id}"
@@ -205,6 +211,11 @@ class Channel:
     def is_gliding(self) -> bool:
         """A preset glide is in progress."""
         return self._glide is not None
+
+    @property
+    def speaker_clients(self) -> int:
+        """Clients pulling the stream that aren't browsers listening here (speakers, outputs)."""
+        return max(0, self._client_count - self._local_count)
 
     def idle_seconds(self) -> float:
         """Seconds since any listener pulled audio from this playing channel."""
@@ -521,7 +532,31 @@ class Channel:
                     chunk = self._silence
             if self._xfade_old is not None:
                 chunk = self._crossfade_step(chunk)
-            return self._apply_output_fade(chunk)
+            chunk = self._apply_output_fade(chunk)
+        ramp, overlay = self.ramp, self.overlay
+        if ramp is not None and not ramp.idle:
+            chunk = ramp.apply(chunk)
+        if overlay is not None and overlay.busy:
+            chunk = overlay.mix(chunk)
+        return chunk
+
+    def run_silent(self) -> None:
+        """
+        Run the channel's stream without a theme (silence), for sounds played on
+        a channel that is stopped (core/overlay_service.py). A theme set later
+        fades in over it as usual.
+        """
+        with self._lock:
+            if self._generator_running or self.state == ChannelState.PLAYING:
+                return
+            self.state = ChannelState.PLAYING
+            self._current_theme = None
+            self._theme_stream = None
+            self._chunk_generator = None
+            self._last_listener_time = time.monotonic()
+            # Faded out: a theme starting now fades in from silence (Channel.fade_in)
+            self._out_level, self._out_target, self._out_rate = 0.0, 0.0, 0.0
+            self._ensure_generator_running()
 
     def _add_to_buffer(self, chunk: np.ndarray):
         """Add a chunk to the broadcast buffer and notify waiting clients."""
@@ -577,10 +612,14 @@ class Channel:
             self.state = ChannelState.IDLE
             self.speakers_muted = False
             self._broadcast_buffer.clear()
-
-            # Wake up any waiting clients
-            with self._data_available:
-                self._data_available.notify_all()
+            ramp, overlay = self.ramp, self.overlay
+        if ramp is not None:
+            ramp.reset()
+        if overlay is not None:
+            overlay.clear("stopped")
+        # Wake up any waiting clients
+        with self._data_available:
+            self._data_available.notify_all()
 
     def client_connected(self, local: bool = False) -> None:
         """Track a new client connection (local: a browser listening here)."""

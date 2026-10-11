@@ -54,6 +54,7 @@ AREAS = [
     ]),
     ("Triggers", None, [("tr.run", "Run triggers", "Run triggers")]),
     ("Events", None, [("ev.read", "Read events", "Read events")]),
+    ("Announcements", None, [("an.send", "Make announcements", "Make announcements")]),
     ("Plugins", None, [("pg.use", "Use plugin pages and buttons", "Use plugin pages and buttons")]),
     ("Settings", "Settings", [
         ("st.view", "View", "view"),
@@ -137,6 +138,7 @@ GET     /api/connection                                 admin.connection
 PUT     /api/connection                                 admin.connection
 DELETE  /api/connection/ha                              admin.connection
 DELETE  /api/connection/mqtt                            admin.connection
+POST    /api/connection/test                            admin.connection
 GET     /api/ha-cards                                   st.view
 GET     /api/ha-cards/download                          st.view
 GET     /api/logs                                       st.view
@@ -328,6 +330,29 @@ POST    /api/plugins/{plugin_id}/pages/{page_id}/actions/{action}   pg.use
 GET     /api/plugins/{plugin_id}/connections/{connection_id}        admin.plugins
 PUT     /api/plugins/{plugin_id}/connections/{connection_id}        admin.plugins
 POST    /api/plugins/{plugin_id}/connections/{connection_id}/test   admin.plugins
+POST    /api/notifications/rules/{rule_id}/test         admin.plugins
+
+GET     /api/plugin-framework                           pg.use|admin.plugins
+GET     /api/plugins/{plugin_id}/packages               admin.plugins
+GET     /api/alerts                                     st.view
+POST    /api/alerts/{alert_id}/dismiss                  st.view
+POST    /api/announce                                   an.send
+GET     /api/sounds                                     ch.view
+POST    /api/sounds                                     an.send
+DELETE  /api/sounds/{sound_id}                          an.send
+GET     /api/sessions/{session_id}/ramp                 ch.view
+POST    /api/sessions/{session_id}/ramp                 ch.change
+DELETE  /api/sessions/{session_id}/ramp                 ch.change
+GET     /api/audio-outputs                              ch.view
+GET     /api/audio-outputs/{type_id}/devices            sp.view
+GET     /api/sessions/{session_id}/audio-outputs        ch.view
+POST    /api/sessions/{session_id}/audio-outputs        ch.speakers
+DELETE  /api/sessions/{session_id}/audio-outputs/{attachment_id}    ch.speakers
+GET     /api/command-actions                            admin.plugins
+GET     /api/plugins/{plugin_id}/command-maps           admin.plugins
+PUT     /api/plugins/{plugin_id}/command-maps/{map_id}  admin.plugins
+POST    /api/plugins/{plugin_id}/command-maps/{map_id}/learn    admin.plugins
+POST    /api/plugins/{plugin_id}/command-maps/{map_id}/test     admin.plugins
 """
 
 

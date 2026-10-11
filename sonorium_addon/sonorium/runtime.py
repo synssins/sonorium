@@ -44,6 +44,8 @@ FEATURES = {
     # Adding, renaming and deleting floors and areas; the HA app shows
     # Home Assistant's, which stays in charge of them
     "space_editing": {"addon": "hidden", "default": "on"},
+    # Plugins may install Python packages from the internet (plugins/packages.py)
+    "plugin_packages": {"default": "off"},
 }
 
 
