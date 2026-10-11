@@ -670,7 +670,7 @@ Sonorium is a fork of [Amniotic](https://github.com/fmtr/amniotic) by [fmtr](htt
 
 ## License
 
-See LICENSE file for details.
+Sonorium is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE.md): free to use, change and share for noncommercial purposes. Commercial use needs a separate license. Copyright 2026 Chris Kliewer. Third-party components keep their own licenses: see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 The components Sonorium is built on, and their licences, are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
