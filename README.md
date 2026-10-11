@@ -452,16 +452,16 @@ Full history: [sonorium_addon/CHANGELOG.md](sonorium_addon/CHANGELOG.md).
 
 These are the same words as the **?** help in the Theme Editor.
 
-A theme is a set of tracks (sound files) mixed together. Tracks sit in sections by how they play. This help follows the editor from top to bottom.
+A theme is a set of tracks (sound files) mixed together. This help follows the editor from top to bottom.
 
 
 **Tracks**
 
-- **Sequences:** lists this theme's sequences. Pick one to edit it, or Add sequence to make one. See Sequences below.
-- **Preview mix:** plays the theme on this device. Changes are heard as you make them.
-- **Upload:** adds sound files. They start in Unassigned, or in the group you pick.
-- **Add from another theme:** links a file from another theme. See Files from another theme below.
-- **Reset all:** puts every track and group back to its defaults. You confirm first.
+- **Sequences:** Lists this theme's sequences. Pick one to edit it, or Add sequence.
+- **Preview mix:** Plays the mix in this browser.
+- **Upload:** Uploads to Unassigned, or to the group you pick.
+- **Add from another theme:** Links files from another theme.
+- **Reset all:** Resets every track and group to defaults.
 
 **Sections**
 
@@ -477,36 +477,29 @@ A theme is a set of tracks (sound files) mixed together. Tracks sit in sections 
 
 - **Background:** plays all the time, looping smoothly. Rain, wind, a fire.
 - ***Track***
-  - **Mode:** the section the track plays in. Changing it moves the track there.
-  - **Volume:** how loud the track plays.
-  - **Mute:** turns the track off. It fades out and back in.
+  - **Gapless:** in the track's ⋯ menu, outside groups. Loops without a crossfade.
 - ***Merry-go-round group***
   - **Merry-go-round:** one file plays, then crossfades into another picked at random, never the same one twice in a row. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.
-  - **Crossfade:** under the group's name: how long one file overlaps the next (seconds).
-  - **Volume, Mute:** scale every track in the group.
+  - **Crossfade:** under the group's name. Overlap between files (seconds).
+  - **Volume, Mute:** apply to every track in the group.
 
 **Intermittent**
 
 - **Intermittent:** plays once, then goes quiet before playing again. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.
 - ***Track***
-  - **Mode:** the section the track plays in. Changing it moves the track there.
-  - **Volume:** how loud the track plays.
-  - **Interval:** sets the wait between plays. In a group: how fast the track's weight wears off. Higher comes back sooner; lower plays less often.
-  - **Mute:** turns the track off.
+  - **Interval:** the wait between plays. In a group, how fast its weight wears off. Higher comes back sooner; lower plays less often.
 - ***Intermittent group***
   - **Take turns:** only one track plays at a time, never overlapping. On its turn, a track plays its whole file once, start to finish, then hands over. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
   - **Gap:** under the group's name: after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other. Presets keep their own Gap.
   - **Weight:** each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.
-  - **Volume, Interval, Mute:** scale every track in the group.
+  - **Volume, Interval, Mute:** apply to every track in the group.
 
 **Ebb & Flow**
 
 - **Ebb & Flow:** always heard, but never at one level: it rises and falls, gliding from one level to the next, never the same way twice. Wind, surf, rain that gusts.
 - ***Track***
-  - **Mode:** the section the track plays in. Changing it moves the track there.
-  - **Volume:** two knobs: the track rises and falls between them.
-  - **Duration:** how long each rise and fall takes, from shorter to longer.
-  - **Mute:** turns the track off.
+  - **Volume:** two knobs. The level rises and falls between them.
+  - **Duration:** length of each rise and fall, shorter to longer.
   - *Its ⋯ menu*
     - **Rise:** how fast it rises. Gradual rises as smoothly as it falls. Sudden jumps up quickly and eases back down, like gusts of wind or waves on rocks.
     - **Pause between plays:** off, the file loops and is always heard, rising and falling. On, it plays once from start to finish, still rising and falling, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.
@@ -514,22 +507,20 @@ A theme is a set of tracks (sound files) mixed together. Tracks sit in sections 
 - ***Ebb & Flow group***
   - **Ebb & Flow group:** every file plays at once, each rising and falling on its own. Each file keeps its own settings; the group's Volume and Duration scale them down.
   - **Pause between plays:** under the group's name. On, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its own Pause between plays.
-  - **Volume, Duration, Mute:** scale every track in the group.
+  - **Volume, Duration, Mute:** apply to every track in the group.
   - *Its ⋯ menu*
-    - **Same Rise for every file:** one Rise for every file in the group, instead of each file's own.
+    - **Same Rise for every file:** one Rise for the whole group instead of each file's own.
 
 **A track's ⋯ menu**
 
 - **Fade in / Fade out:** for a file that starts or ends abruptly. Set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.
-- **Gapless:** Background tracks outside a group: loops without a crossfade, for files made to loop.
-- **Move to:** Unassigned, or one of the groups.
-- **New group:** makes a group in the track's section and moves the track into it.
-- **Reset track:** puts the track's settings back to defaults.
+- **Move to:** Unassigned, or a group.
+- **New group:** Creates a group in this section with the track in it.
+- **Reset track:** Resets the track to defaults.
 
 **A group's ⋯ menu**
 
-- **Rename:** or double-click the group's name.
-- **Upload into:** adds files straight into the group.
+- **Rename:** also by double-clicking the group name.
 - **Delete group:** keeps its files; they move back into its section.
 
 **Files from another theme**
@@ -576,7 +567,7 @@ A theme is a set of tracks (sound files) mixed together. Tracks sit in sections 
 **Presets and saving**
 
 - **Live:** changes are heard on speakers playing this theme, and on this device with Preview mix.
-- **Preset:** the preset you're editing. Current settings is the theme without a preset.
+- **Preset:** the loaded preset. Current settings is the theme without one.
 - **New:** makes a new preset from the current mix.
 - **Save Preset:** Saves loaded preset
 - **Save Theme:** Saves theme with all changes (presets, name, etc) Required after saving a preset.

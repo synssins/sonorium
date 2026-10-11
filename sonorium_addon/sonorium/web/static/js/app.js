@@ -9871,13 +9871,13 @@ const PAGE_HELP = {
         ${helpTerm('Sequences', 'listed in the Preset menu after the presets, marked with the sequence icon. Picking one plays its presets in turn; the line under the field shows the preset playing now and when it changes. Picking a preset stops it.')}
         ${helpTerm('Playlist', 'a channel can play a playlist instead of one theme: press the playlist button right of the fields. The fields then show the playlist and the entry playing now.')}
         ${helpTerm('Theme or playlist', 'the two buttons right of the fields. The palette plays a theme (Theme and Preset); the playlist icon plays a playlist (Playlist and Playing).')}
-        ${helpTerm('Now', 'the line under the fields: the sequence step or playlist entry playing and when the next one starts.')}
-        ${helpTerm('Next', 'skips to the sequence\'s next step or the playlist\'s next entry now. It works while the speakers play or this device listens.')}
+        ${helpTerm('Now', 'the sequence step or playlist entry playing, and when the next one starts.')}
+        ${helpTerm('Next', 'skips to the next step or entry.')}
         ${helpTerm('Speakers', 'where the channel plays. Use Edit to change them.')}
-        ${helpTerm('Volume', 'the speakers\' volume. It is saved when you let go of the slider.')}
-        ${helpTerm('Speaker button', 'left of the Volume slider. Mutes the speakers: the sound sent to them goes silent, on any kind of speaker. Red while muted; press it again to unmute. Speakers may take a few seconds to go quiet. This device keeps playing if it listens.')}
-        ${helpTerm('Headphones button', 'plays the channel on this device too, even while its speakers are stopped. Press it again to stop. The slider beside it sets the volume on this device only; the speakers keep theirs.')}
-        ${helpTerm('Play / Stop', 'starts or stops the channel on its speakers. Stop is red. This device keeps playing if it listens.')}
+        ${helpTerm('Volume', 'the speakers. Saved when you let go of the slider.')}
+        ${helpTerm('Speaker button', 'mutes the speakers. Red while muted. Speakers may take a few seconds to go quiet.')}
+        ${helpTerm('Headphones button', 'plays the channel in this browser, even while the speakers are stopped. Its slider is this browser\'s volume only.')}
+        ${helpTerm('Play / Stop', 'starts or stops the speakers. The browser keeps playing if it listens.')}
         ${helpTerm('Edit', 'changes the channel\'s name, theme or playlist, preset, volume and speakers.')}
         ${helpTerm('Delete', 'removes the channel. You confirm first.')}
         ${helpTerm('Recent changes', 'the channel\'s latest changes with their times: started, stopped, muted, theme, preset, sequence step, playlist entry.')}
