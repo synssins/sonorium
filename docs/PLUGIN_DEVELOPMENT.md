@@ -181,6 +181,12 @@ every 15 s to keep the connection open. After a reconnect, the `Last-Event-ID` h
 curl -N -H "Authorization: Bearer $TOKEN" "http://sonorium.local:8008/api/events/stream?types=channel.*"
 ```
 
+`sonorium.local` is the name Docker (host networking) and the native installs announce on
+mDNS (`sonorium-2.local` and so on when another device has it; the log says which). The Home
+Assistant app doesn't announce it: use the Home Assistant machine's address there. The Link
+App QR code (`https://sonorium.app/link#...`, or the older `sonorium://pair?...`) lists every
+address the server can be reached on; docs/AUTH.md describes it.
+
 ## 5. Actions API
 
 `self.actions` is what a plugin may do with Sonorium. Every method is `async`, returns plain

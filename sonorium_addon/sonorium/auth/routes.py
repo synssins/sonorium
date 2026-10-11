@@ -1,7 +1,7 @@
 """
 The core's sign-in routes (they work with or without the sign-in plugins).
 
-    GET    /api/info                     public: server id, version, ports, login required
+    GET    /api/info                     public: server id, version, ports, login required, mDNS name
     GET    /api/auth/me                  public: who you are, CSRF token, bypass, plugins' fields
     GET    /api/ui/plugins               public: the built-in plugins' web UI bundles
     GET    /plugin-ui/{plugin_id}/{path} public: a file of such a bundle
@@ -12,7 +12,8 @@ The core's sign-in routes (they work with or without the sign-in plugins).
 """
 from __future__ import annotations
 
-from typing import Callable
+import asyncio
+from typing import Callable, Optional
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
@@ -56,7 +57,8 @@ def limited(limiter: RateLimiter, key: str, spend: bool) -> None:
 
 def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], str],
                             features: Callable[[], dict], version: str,
-                            https_host_port: Callable[[], int]) -> APIRouter:
+                            https_host_port: Callable[[], int],
+                            mdns_host: Callable[[], Optional[str]] = lambda: None) -> APIRouter:
     router = APIRouter(tags=["auth"])
     pair_limiter = RateLimiter(PAIR_RATE, PAIR_BURST)
 
@@ -72,6 +74,15 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
             return False
         return any(bool(getattr(a, "login_required", lambda: False)()) for a in service.authenticators.values())
 
+    def link_hosts(host: str) -> list[str]:
+        """For the QR code: the speakers' address first, the server's other LAN addresses, then sonorium.local."""
+        from sonorium.auth.announce import lan_addresses
+        hosts = lan_addresses(host)
+        name = mdns_host()
+        if name and name not in hosts:
+            hosts.append(name)
+        return hosts
+
     service.https_only = lambda request: _https_only(service, request, https_port)
     service.link_address = link_address
 
@@ -83,7 +94,7 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
         return {
             "id": identity.server_id, "name": "Sonorium", "version": version, "api": API_VERSION,
             "install": runtime.INSTALL, "features": features(),
-            "ports": {"http": http, "https": https_port() or None}, "host": host,
+            "ports": {"http": http, "https": https_port() or None}, "host": host, "hostname": mdns_host() or None,
             "login_required": login_required(), "pair": True, "fingerprint": identity.fingerprint,
             "plugins": sorted(service.authenticators),
         }
@@ -140,13 +151,14 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
         identity = service.identity
         code, expires = service.new_pair_code(p.user_id if user else None)
         host, http = link_address()
-        uri = pair_uri(server_id=identity.server_id, name="Sonorium", hosts=[host] if host else [],
+        hosts = await asyncio.to_thread(link_hosts, host)
+        uri = pair_uri(server_id=identity.server_id, name="Sonorium", hosts=hosts,
                        http_port=http, https_port=https_port(), fingerprint=identity.fingerprint or "",
                        code=code, username=user["username"] if user else None)
         logger.info(f"Link App: a code{' for ' + user['username'] if user else ''} (works once, for 5 minutes)")
         return {"uri": uri, "qr_svg": qr_svg(uri), "code": code, "username": user["username"] if user else None,
                 "expires_in": int(expires - service.clock()), "words": identity.words,
-                "host": host, "http_port": http, "https_port": https_port() or None}
+                "host": host, "hosts": hosts, "http_port": http, "https_port": https_port() or None}
 
     @router.post("/api/pair")
     async def pair(request: Request):
