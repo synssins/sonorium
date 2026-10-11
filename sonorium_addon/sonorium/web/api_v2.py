@@ -86,6 +86,7 @@ class SessionResponse(BaseModel):
     playlist: Optional[dict] = None  # Playlist status: name, entry, theme, next change
     speakers_muted: bool = False  # the speakers' stream is silenced
     listening: bool = False  # a browser listens (its mix runs even with the speakers stopped)
+    outputs: list[dict] = Field(default_factory=list)  # devices the app reports playing it (core/outputs.py)
     recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
     created_at: str
     last_played_at: Optional[str]
@@ -255,6 +256,15 @@ def _preset_choice(session) -> Optional[str]:
     return choice_id(sequence_id) if sequence_id else getattr(session, 'preset_id', None)
 
 
+def _outputs_of(session, session_manager) -> list[dict]:
+    outputs = getattr(session_manager, "outputs", None)
+    try:
+        described = outputs.describe(session.id) if outputs is not None else []
+        return described if isinstance(described, list) else []
+    except Exception:
+        return []
+
+
 def _session_to_response(session, session_manager) -> SessionResponse:
     """Convert a Session to SessionResponse."""
     try:
@@ -282,6 +292,7 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         playlist=playback.get("playlist"),
         speakers_muted=session.speakers_muted,
         listening=session_manager.is_listened(session),
+        outputs=_outputs_of(session, session_manager),
         recent=list(reversed(session.recent)),
         created_at=session.created_at,
         last_played_at=session.last_played_at,
@@ -3011,5 +3022,9 @@ def create_api_router(
         except Exception as e:
             logger.error(f"Failed to uninstall plugin {plugin_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to uninstall plugin: {str(e)}")
+
+    # The Sonorium app's routes (docs/APP_API.md section 13)
+    from sonorium.web.app_routes import add_app_routes
+    add_app_routes(router, session_manager=session_manager)
 
     return router

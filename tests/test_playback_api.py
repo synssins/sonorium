@@ -196,6 +196,34 @@ def test_listen_here_starts_and_ends_a_browser_listener(api):
     assert c.delete("/api/sessions/nope/listen").status_code == 404
 
 
+def test_reported_outputs(api):
+    """G2: POST/PUT/DELETE /api/sessions/{id}/outputs, and the channel lists them."""
+    c = api.client
+    sid = api.session.id
+    r = c.post(f"/api/sessions/{sid}/outputs", json={"kind": "cast", "name": "Office display",
+                                                     "address": "192.168.10.249", "receiver_id": "a944"})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    oid = body["output_id"]
+    assert body["channel_id"] == 1 and body["stream_path"] == "/stream/channel1"
+    assert body["stream_url"] == "http://test/stream/channel1"  # the plain stream: speakers-muted applies
+    assert body["heartbeat_seconds"] == 60 and body["expire_seconds"] == 180 and body["expires_in"] == 180
+    assert body["by_device_id"] is None and body["since"]
+    channel = c.get(f"/api/sessions/{sid}").json()
+    assert channel["outputs"][0]["output_id"] == oid and channel["outputs"][0]["name"] == "Office display"
+    assert channel["is_playing"] is False and channel["listening"] is False
+    assert c.get(f"/api/sessions/{sid}/outputs").json()["outputs"][0]["kind"] == "cast"
+    assert c.put(f"/api/sessions/{sid}/outputs/{oid}").json()["output_id"] == oid  # heartbeat
+    assert c.put(f"/api/sessions/{sid}/outputs/o_nope").status_code == 404
+    assert c.delete(f"/api/sessions/{sid}/outputs/{oid}").json() == {"removed": True}
+    assert c.delete(f"/api/sessions/{sid}/outputs/{oid}").status_code == 404
+    assert c.get(f"/api/sessions/{sid}").json()["outputs"] == []
+    assert c.post(f"/api/sessions/{sid}/outputs", json={"kind": "??"}).status_code == 400
+    assert c.post(f"/api/sessions/{sid}/outputs", content="nope").status_code == 400
+    assert c.post("/api/sessions/nope/outputs", json={}).status_code == 404
+    assert c.get("/api/sessions/nope/outputs").status_code == 404
+
+
 def test_listen_hold_seconds(api):
     """G3: {"hold_seconds": 0-300} in the body or the query."""
     c = api.client

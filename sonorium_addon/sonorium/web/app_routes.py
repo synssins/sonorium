@@ -27,6 +27,81 @@ async def _json_or_empty(request: Request) -> dict:
     return data
 
 
+def add_app_routes(router, *, session_manager) -> None:
+    """The app's routes, on create_api_router()'s /api router."""
+
+    def session_or_404(session_id: str):
+        session = session_manager.get(session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Session not found")
+        return session
+
+    # --- Outputs: "Cast device X plays channel N" (G2, core/outputs.py) ---
+
+    def output_answer(output, channel_id) -> dict:
+        from sonorium.core.outputs import EXPIRE_SECONDS, HEARTBEAT_SECONDS
+        body = output.to_dict(session_manager.outputs.clock())
+        if channel_id is not None:
+            path = f"/stream/channel{channel_id}"
+            base = (getattr(session_manager, "stream_base_url", "") or "").rstrip("/")
+            body.update(channel_id=channel_id, stream_path=path, stream_url=f"{base}{path}")
+        body.update(heartbeat_seconds=HEARTBEAT_SECONDS, expire_seconds=EXPIRE_SECONDS)
+        return body
+
+    @router.get("/sessions/{session_id}/outputs")
+    async def list_session_outputs(session_id: str) -> dict:
+        """The devices the app reports playing this channel."""
+        session_or_404(session_id)
+        return {"outputs": session_manager.outputs.describe(session_id)}
+
+    @router.post("/sessions/{session_id}/outputs", status_code=201)
+    async def add_session_output(session_id: str, request: Request) -> dict:
+        """
+        The app tells Sonorium a device (a Cast device) plays this channel's
+        stream: {"kind": "cast", "name", "address", "receiver_id"}. The mix runs
+        while the output is reported (heartbeat: PUT .../outputs/{output_id}).
+        Give the device stream_url as it is: the plain stream follows the
+        channel's speakers-muted switch (?local=1 would not).
+        """
+        from sonorium.auth.middleware import principal_of
+        from sonorium.core.outputs import OutputError
+        data = await _json_or_empty(request)
+        session_or_404(session_id)
+        try:
+            principal = principal_of(request)
+        except Exception:
+            principal = None
+        try:
+            output, channel = session_manager.add_output(
+                session_id, data, device_id=getattr(principal, "device_id", None))
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Session not found")
+        except OutputError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except ValueError as e:  # no theme, or it isn't found
+            raise HTTPException(status_code=400, detail=str(e))
+        if channel is None:
+            raise HTTPException(status_code=409, detail="No free channel")
+        return output_answer(output, channel.id)
+
+    @router.put("/sessions/{session_id}/outputs/{output_id}")
+    async def heartbeat_session_output(session_id: str, output_id: str) -> dict:
+        """Heartbeat: the device still plays the channel. 404: it was dropped (report it again)."""
+        session_or_404(session_id)
+        output = session_manager.touch_output(session_id, output_id)
+        if output is None:
+            raise HTTPException(status_code=404, detail="Output not found")
+        return output_answer(output, session_manager.get_session_channel(session_id))
+
+    @router.delete("/sessions/{session_id}/outputs/{output_id}")
+    async def remove_session_output(session_id: str, output_id: str) -> dict:
+        """The device stopped playing the channel (the mix stops too when nothing else keeps it)."""
+        session_or_404(session_id)
+        if session_manager.remove_output(session_id, output_id) is None:
+            raise HTTPException(status_code=404, detail="Output not found")
+        return {"removed": True}
+
+
 async def hold_seconds_of(request: Request) -> Optional[float]:
     """
     POST /sessions/{id}/listen's optional hold: {"hold_seconds": n} or

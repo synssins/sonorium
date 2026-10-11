@@ -195,6 +195,11 @@ V2_ROUTES = [
     ('APIRoute', 'POST', '/api/plugins/reload', 'reload_plugins'),
     ('APIRoute', 'POST', '/api/plugins/upload', 'upload_plugin'),
     ('APIRoute', 'DELETE', '/api/plugins/{plugin_id}', 'uninstall_plugin'),
+    # The app's routes (web/app_routes.py)
+    ('APIRoute', 'GET', '/api/sessions/{session_id}/outputs', 'list_session_outputs'),
+    ('APIRoute', 'POST', '/api/sessions/{session_id}/outputs', 'add_session_output'),
+    ('APIRoute', 'PUT', '/api/sessions/{session_id}/outputs/{output_id}', 'heartbeat_session_output'),
+    ('APIRoute', 'DELETE', '/api/sessions/{session_id}/outputs/{output_id}', 'remove_session_output'),
 ]
 
 

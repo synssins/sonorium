@@ -21,7 +21,7 @@ m = SimpleNamespace()
 @pytest.fixture(autouse=True, scope="module")
 def modules():
     with addon_modules("sonorium.core.session_manager", "sonorium.core.state", "sonorium.core.playback_runner",
-                       "sonorium.core.sequences", "sonorium.core.playlists") as mods:
+                       "sonorium.core.sequences", "sonorium.core.playlists", "sonorium.core.outputs") as mods:
         m.__dict__.update(mods.__dict__)
         yield
 
@@ -729,6 +729,99 @@ def test_listen_hold_seconds_bounds_and_the_longest_counts(tmp_path):
         run(t.manager.unlisten(sid))
     assert released(t) and t.manager.listen_hold(sid) == 15
     assert [e[1]["listening"] for e in events if e[0] == "channel.listening"] == [True, False]
+
+
+# --- Outputs the app reports (G2: a Cast device playing a channel) ---
+
+CAST = {"kind": "cast", "name": "Office display", "address": "192.168.10.249", "receiver_id": "a944ea78"}
+
+
+def test_a_reported_output_keeps_the_mix_after_the_phone_stops_listening(tmp_path):
+    t = build(tmp_path)
+    sid = t.session.id
+    events = recorded_events(t)
+    t.manager.listen(sid)  # the phone listens first, then casts
+    output, channel = t.manager.add_output(sid, CAST, device_id="t_phone")
+    assert channel is t.channel and output.output_id.startswith("o_") and output.device_id == "t_phone"
+    assert not t.session.is_playing and not t.controller.play_media_multi.called  # the speakers stay off
+    t.channel.local_idle = 60  # the phone's own stream is long gone
+    t.manager.release_idle_sessions()
+    assert not t.manager.is_listened(t.session) and not released(t)  # the Cast device keeps the mix
+    run(t.manager.unlisten(sid))
+    assert not released(t)
+    assert t.manager.remove_output(sid, output.output_id) is output
+    assert released(t) and t.manager.get_session_channel(sid) is None
+    assert t.manager.remove_output(sid, output.output_id) is None
+    added = [d for e, d in events if e == "channel.output_added"]
+    removed = [d for e, d in events if e == "channel.output_removed"]
+    assert added == [{"output_id": output.output_id, "kind": "cast", "output_name": "Office display",
+                      "address": "192.168.10.249"}]
+    assert removed[0]["reason"] == "removed"
+
+
+def test_an_output_starts_the_mix_and_expires_without_heartbeats(tmp_path):
+    t = build(tmp_path)
+    sid = t.session.id
+    clock = FakeClock(5000.0)
+    t.manager.outputs.clock = clock
+    events = recorded_events(t)
+    output, _ = t.manager.add_output(sid, {"name": "Den"})  # kind defaults to cast
+    assert output.kind == "cast" and [c[0] for c in t.channel.calls][:2] == ["set_theme", "fade_in"]
+    assert t.manager.outputs.describe(sid)[0]["expires_in"] == 180
+    clock.now += 170
+    assert t.manager.touch_output(sid, output.output_id) is output  # a heartbeat
+    clock.now += 170
+    t.manager.release_idle_sessions()
+    assert not released(t)
+    clock.now += 11  # 181 s since the last heartbeat
+    t.manager.release_idle_sessions()
+    assert released(t) and not t.manager.outputs.held(sid)
+    assert [d["reason"] for e, d in events if e == "channel.output_removed"] == ["expired"]
+    assert t.manager.touch_output(sid, output.output_id) is None  # the app reports it again
+
+
+def test_stopping_the_channel_drops_its_outputs(tmp_path):
+    t = build(tmp_path)
+    sid = t.session.id
+    events = recorded_events(t)
+    run(t.manager.play(sid))
+    t.manager.add_output(sid, CAST)
+    run(t.manager.stop(sid))
+    assert released(t) and t.manager.outputs.of(sid) == []
+    assert [d["reason"] for e, d in events if e == "channel.output_removed"] == ["stopped"]
+    t.manager.add_output(sid, CAST)
+    t.manager.delete(sid)
+    assert [d["reason"] for e, d in events if e == "channel.output_removed"] == ["stopped", "deleted"]
+
+
+def test_the_same_device_reported_again_replaces_its_report(tmp_path):
+    t = build(tmp_path)
+    sid = t.session.id
+    events = recorded_events(t)
+    first, _ = t.manager.add_output(sid, CAST)
+    second, _ = t.manager.add_output(sid, {**CAST, "name": "Office"})
+    assert [o.output_id for o in t.manager.outputs.of(sid)] == [second.output_id]
+    assert [d["reason"] for e, d in events if e == "channel.output_removed"] == ["replaced"]
+    assert not released(t)
+    by_address, _ = t.manager.add_output(sid, {"kind": "cast", "name": "Kitchen", "address": "10.0.0.9"})
+    assert len(t.manager.outputs.of(sid)) == 2
+    t.manager.add_output(sid, {"kind": "cast", "name": "Kitchen", "address": "10.0.0.9"})
+    assert len(t.manager.outputs.of(sid)) == 2 and by_address not in t.manager.outputs.of(sid)
+
+
+def test_bad_output_reports_are_refused(tmp_path):
+    t = build(tmp_path)
+    sid = t.session.id
+    for bad in ({"kind": "Cast Device!"}, {"kind": 3}, {"name": 5}, {"address": "x" * 101}, {"receiver_id": []}):
+        with pytest.raises(m.outputs.OutputError):
+            t.manager.add_output(sid, bad)
+    with pytest.raises(KeyError):
+        t.manager.add_output("nope", CAST)
+    assert not t.manager.outputs.held(sid) and not released(t) and t.channel.calls == []
+    for i in range(m.outputs.MAX_PER_CHANNEL):
+        t.manager.add_output(sid, {"name": f"D{i}", "receiver_id": str(i)})
+    with pytest.raises(m.outputs.OutputError):
+        t.manager.add_output(sid, {"name": "One more", "receiver_id": "x"})
 
 
 def test_speakers_keep_playing_when_the_browser_goes(tmp_path):

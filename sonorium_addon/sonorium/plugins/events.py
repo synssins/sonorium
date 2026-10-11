@@ -81,6 +81,21 @@ CATALOGUE: dict[str, dict] = {
                    "listening": "True when the first listener came, false when the last one left"},
         "summary": "{name}: listening {listening}",
     },
+    "channel.output_added": {
+        "description": "The app reported a device (e.g. a Cast device) playing a channel's stream. While it is "
+                       "reported the channel's mix runs, with or without its speakers.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "output_id": "Output id",
+                   "kind": "cast, ...", "output_name": "The device's name", "address": "Its address, or null"},
+        "summary": "{name}: playing on {output_name}",
+    },
+    "channel.output_removed": {
+        "description": "A reported device no longer plays a channel.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "output_id": "Output id",
+                   "kind": "cast, ...", "output_name": "The device's name", "address": "Its address, or null",
+                   "reason": "removed (by the app), expired (no heartbeat), replaced (reported again), stopped, "
+                             "paused, idle (it pulled no audio), deleted (the channel)"},
+        "summary": "{name}: stopped on {output_name}",
+    },
     "sequence.step": {
         "description": "A channel's sequence moved to a step (also its first step when it starts).",
         "fields": {"channel_id": "Channel id", "name": "Channel name", "theme_id": "Theme id",
