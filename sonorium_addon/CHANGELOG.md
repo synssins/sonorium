@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.36 (2026-10-11)
+
+### Documentation
+
+- **ui**: Help for the speaker and headphones buttons, Now and Next; Theme Editor help without Auto
+  or intrusion groups, with Rise
+  ([`d5ff290`](https://github.com/synssins/sonorium/commit/d5ff2905ed9012906b9491ee1c63beed29454190))
+
+
 ## v1.6.1-dev.35 (2026-10-11)
 
 ### Features
