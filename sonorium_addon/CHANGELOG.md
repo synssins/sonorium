@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.29 (2026-10-11)
+
+### Bug Fixes
+
+- **plugins**: An uninstalled built-in can be installed again from the Catalog; Update only for a
+  newer version
+  ([`768803b`](https://github.com/synssins/sonorium/commit/768803b1593ab9a68923f54b74534f3703e5343b))
+
+
 ## v1.6.2-dev.28 (2026-10-11)
 
 
