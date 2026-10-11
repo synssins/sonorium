@@ -259,17 +259,35 @@ All theme management is done through the Sonorium web interface:
 
 #### Sign-in
 
-Home Assistant's sidebar opens Sonorium without a second sign-in: Home Assistant already
-signed you in, and your Home Assistant user gets a Sonorium account. The direct ports are
-open on your network until you choose otherwise:
+Home Assistant's users are Sonorium's users. Each person who signs in to Home Assistant
+gets Sonorium with the role their Home Assistant account has:
 
-1. **Settings › Users & devices**: give your account a password (⋯ › Reset password…).
-2. Turn on **Require login**. From then on port 8008 (HTTP) and 8808 (HTTPS) need a
-   sign-in, a linked phone or a key.
+| Home Assistant | Sonorium |
+|---|---|
+| Owner or Administrator | Admin: everything, including settings and users |
+| User, Read-only | User: plays channels, playlists and sequences; sees themes and speakers |
 
-**The Sonorium app** links with **Link App** on the Channels page (a QR code), or signs in
-with a Sonorium username and password. It talks to port 8808 (HTTPS, self-signed; the app
-checks the certificate), never to HA's sidebar address. Speakers keep using port 8008.
+- **HA's sidebar** opens Sonorium without a second sign-in, for every Home Assistant user.
+- **Role changes** made in Home Assistant apply within a minute, on phones too.
+- **Switching a user off or removing them** in Home Assistant signs them out of Sonorium,
+  and their phones stop working.
+- **Passwords** stay in Home Assistant. Sonorium has none to set for these users: Users &
+  devices shows them with a **Home Assistant** label.
+
+The direct ports are open on your network until you choose otherwise: in **Settings ›
+Users & devices**, turn on **Require login**. From then on port 8008 (HTTP) and 8808
+(HTTPS) need a sign-in with your Home Assistant username and password, a linked phone or
+a key.
+
+**The Sonorium app** links with **Link App** on the Channels page (a QR code; the phone
+acts as you), or signs in with your Home Assistant username and password. It talks to port
+8808 (HTTPS, self-signed; the app checks the certificate), never to HA's sidebar address.
+Speakers keep using port 8008.
+
+**Updating from an earlier version:** the accounts Sonorium made for Home Assistant users
+now follow Home Assistant. Owners and administrators stay Admin; everyone else becomes a
+User. A Sonorium password set on one of these accounts no longer works: use the Home
+Assistant password.
 
 **Forgotten password:** set `bypass_login` to `true` on the Configuration tab and restart.
 Reset the account under **Settings › Users & devices**, then set it back to `false` and restart.
@@ -342,6 +360,7 @@ automations that use the entity first.
 - **Link App.** The button on the **Channels** page shows a QR code that links a phone to your account. Each code works once, for 5 minutes.
 - **HTTPS.** Port 8808 serves the web UI and the API over HTTPS, with a certificate Sonorium makes itself. Port 8008 is unchanged; speakers keep using it.
 - **sonorium.local.** The Docker version announces itself on your network: `http://sonorium.local:8008`.
+- **Home Assistant's users** (Home Assistant app). Everyone who signs in to Home Assistant gets Sonorium with the role their Home Assistant account has: owners and administrators are Admins, everyone else is a User. Phones and the app's sign-in use the Home Assistant username and password; switching a user off in Home Assistant switches them off in Sonorium.
 - **Forgotten password.** `BYPASS_LOGIN=true` (Docker) or `bypass_login` (Home Assistant app) opens the web UI without a sign-in, to reset the account.
 
 **Plugins**

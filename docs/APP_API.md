@@ -185,6 +185,13 @@ If the host's address changes, the add-on can't be re-found by mDNS: the app
 tries the stored addresses, then asks the user to scan a new code. The stored
 token stays valid (the server ID and certificate don't change).
 
+On the add-on, Home Assistant's users are Sonorium's users. A phone linked
+from HA's sidebar, or signed in with an HA username and password (4.4), acts
+as that HA user, with the role HA gives them: HA's owner and Administrators
+are Admins, everyone else is a User. A change of role in HA applies on the
+phone's next request (within a minute). A user switched off or removed in HA
+gets 401 `{"pair": true}` (4.6).
+
 ---
 
 ## 2. Trust
@@ -448,9 +455,15 @@ Response 200: as `/api/pair` plus `words`:
 
 Errors: 401 `{"detail": "Wrong username or password."}` (usernames are
 case-insensitive); 403 HTTP port; 429 after 5 failures a minute from one
-address (`Retry-After`). Works whether or not Require login is on. A Home
-Assistant user (made automatically from HA's sidebar) has no password until
-an admin sets one, so can't use this.
+address (`Retry-After`). Works whether or not Require login is on.
+
+**Add-on:** the username and password are a Home Assistant user's. Sonorium
+passes them to Home Assistant (the Supervisor) to check and keeps neither.
+The phone then acts as that HA user, with their HA role (`user.ha` is
+`true`). When Home Assistant doesn't answer: 503 `{"detail": "Home Assistant
+didn't answer. Try again in a moment."}`. A user made in Sonorium (with a
+Sonorium password) also works, unless an HA user has the same username: then
+the HA user is the one signed in.
 
 ### 4.5 Using the token
 
@@ -466,7 +479,7 @@ an admin sets one, so can't use this.
 ```json
 {
   "kind": "device",
-  "user": {"id": "u_02433556b13baea2", "username": "member", "role": "user", "role_label": "User"},
+  "user": {"id": "u_02433556b13baea2", "username": "member", "role": "user", "role_label": "User", "ha": false},
   "csrf": null, "reset": false,
   "perms": ["ch.add", "ch.change", "ch.play", "ch.speakers", "ch.view", "device", "ev.read",
             "pl.edit", "pl.run", "pl.view", "sp.mute", "sp.view", "th.view"],
@@ -474,12 +487,13 @@ an admin sets one, so can't use this.
   "words": ["forest", "candy", "award", "fancy"],
   "plugins": ["integration", "users"],
   "starting": false, "closed": false,
-  "require_login": true, "has_users": true, "needs_setup": false
+  "require_login": true, "has_users": true, "needs_setup": false, "ha_users": false
 }
 ```
 
-`require_login`, `has_users` and `needs_setup` are there only while the Users
-plugin is on. Call `/api/auth/me` after linking, on every app start, and
+`require_login`, `has_users`, `needs_setup` and `ha_users` are there only
+while the Users plugin is on. `ha_users` is `true` on the add-on, where
+Home Assistant's users sign in; `user.ha` is `true` for one of them. Call `/api/auth/me` after linking, on every app start, and
 and after an unexpected 403 (an admin may have changed the user's role).
 
 ### 4.6 The 401 `{"pair": true}` rule
@@ -490,7 +504,7 @@ unlinked from Sonorium. Link it again." Bodies seen:
 
 | Body | When |
 |---|---|
-| `{"detail": "This phone is not linked to Sonorium. Link it again.", "pair": true}` | Unknown or removed `sd_` token, or its user was deleted |
+| `{"detail": "This phone is not linked to Sonorium. Link it again.", "pair": true}` | Unknown or removed `sd_` token, its user was deleted, or (add-on) its Home Assistant user is switched off or removed in HA |
 | `{"detail": "Link this phone again to sign it in.", "pair": true}` | A phone linked while nobody was signed in, after Require login was turned on |
 | `{"detail": "A valid key or linked phone is needed", "pair": true}` | A token of no known kind |
 
@@ -545,6 +559,8 @@ Response 200:
   `Retry-After`).
 - 403 `{"detail": "Only a phone linked to a user can show a sign-in code"}`:
   the phone has no user (linked while nobody was signed in).
+- 409 `{"detail": "Set in Home Assistant"}`: the user is a Home Assistant
+  user (add-on), whose password is changed in Home Assistant.
 
 The user then opens the web UI: **Forgot password?** › **Sign in with a
 code**, types the username and the code (`POST /api/auth/code-login`), and
@@ -1251,6 +1267,7 @@ Flags the sign-in layer adds to error bodies:
 | 403 | `{"detail": "Not allowed"}` | Never allowed for a phone (e.g. `/api/devices`), or an unknown `/api/...` route (the server refuses API routes it has no permission for, rather than 404) |
 | 403 | `"reset": true` | (Browsers only) choose a new password first |
 | 503 | `{"detail": "Sonorium is starting", "starting": true}` | Retry in a few seconds |
+| 503 | `{"detail": "Home Assistant didn't answer. Try again in a moment."}` | (Add-on) sign-in with an HA username: HA couldn't check the password |
 | 503 | `{"detail": "The sign-in plugin didn't start. See Logs.", "closed": true}` | Server misconfigured; show the message |
 | 404 | `{"detail": "Not Found"}` | Route of a plugin that's off (e.g. `/api/pair/login` without Users) |
 
