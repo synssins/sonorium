@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.37 (2026-10-11)
+
+### Documentation
+
+- 1.7.0 what's new and announcement, new screenshots, help copied into the READMEs; Channels board
+  with mute and headphones rows; phone channel blocks fit three recent changes
+  ([`2783d88`](https://github.com/synssins/sonorium/commit/2783d88a34cc1bf9b25a05d3771eb372f462ec87))
+
+
 ## v1.6.1-dev.36 (2026-10-11)
 
 ### Documentation
