@@ -169,6 +169,9 @@ GET  /api/events/stream?types=channel.*,error
      Authorization: Bearer <token>        (or X-Sonorium-Token, or ?token=)
 ```
 
+A key from **Settings › Keys** with **Read events** works in place of the token, and so does
+a linked phone or a signed-in browser (docs/AUTH.md).
+
 Each event arrives as `id: <n>`, `event: <type>`, `data: <JSON>`. A comment line is sent
 every 15 s to keep the connection open. After a reconnect, the `Last-Event-ID` header (or
 `?last_event_id=`) replays the events since then that Sonorium still holds (the last 200).
@@ -293,6 +296,10 @@ GET    /api/plugins/{id}/triggers                             triggers, URLs, wh
 ```
 
 A token is shown once, when it is made; making a new one replaces the old one.
+
+A key from **Settings › Keys** with **Run triggers** opens every trigger of every plugin, and
+is the simpler choice for a device you also want to do other things with. Triggers always
+need a token or a key, even while sign-in is off.
 
 | Answer | Why |
 |---|---|
@@ -496,10 +503,12 @@ owner-only file (section 11).
   time zone) and `plugin_secrets.json` (token hashes, secret connection values; created
   readable by its owner only).
 - **The management endpoints** (making tokens, rules, jobs, connection values) are part of
-  Sonorium's API and are protected the same way as the rest of it: Home Assistant's sidebar
-  link needs a Home Assistant login, while port 8008 has no login of its own. Keep port 8008
-  on a network you trust. The trigger and event stream endpoints are the ones meant for
-  other devices, and they need a token on every call.
+  Sonorium's API and need an Admin: Home Assistant's sidebar, or a signed-in Admin on the
+  direct ports once the Users plugin's Require login is on (docs/AUTH.md). The trigger and
+  event stream endpoints are the ones meant for other devices, and they need a token or a
+  key on every call.
+- **Every API route has a permission.** A plugin's own HTTP routes (built-in plugins only,
+  see section 14) list theirs; the server refuses an API route that has none.
 - **Plugins run inside Sonorium** with its rights. Install plugins you trust, as you would an
   add-on.
 - A plugin never logs secrets or tokens itself; `connection_values()` is for the plugin's use only.
@@ -531,3 +540,81 @@ Run the suite with `python -m pytest -q tests`.
   `{"id", "name", "description", "version", "author", "category", "zip_file"}`.
   Raise `version` for every release: Sonorium offers an update when the catalog's version
   differs from the installed one.
+
+## 14. Built-in plugins: sign-in hooks and web UI slots
+
+Built-in plugins (shipped in `sonorium/plugins/builtin/`, like **Users** and
+**Integration**) can go further than the schema-rendered pages above: they can recognise
+callers, add HTTP routes and draw parts of the web UI. Third-party plugins keep the
+schema-rendered pages, triggers, events and actions.
+
+A built-in plugin is copied to the config folder's `plugins/` and replaced only when the
+bundled `version` in `manifest.json` is newer: **raise it with every change**.
+
+### Manifest fields
+
+| Field | Meaning |
+|---|---|
+| `"builtin": true` | Shipped with Sonorium |
+| `"enabled_by_default": true` | Switched on the first time Sonorium sees it, never again after the user switches it off |
+| `"auth_provider": true` | Guards sign-in (Users). While it's switched on but hasn't started, only streams and public routes answer; switching it off or uninstalling it asks first |
+
+### The sign-in service (`self._host.auth`)
+
+The core's `AuthService` (`sonorium/auth/service.py`). In `on_enable`:
+
+```python
+service = self._host.auth
+service.add_routes(self.id, create_router(service), PERMISSIONS)       # APIRouter + a permission per route
+service.register_ui(self.id, self.plugin_dir / "web", js="x.js", css="x.css", version=self.version)
+service.register_authenticator(self.id, MyAuth(), provider=False)
+```
+
+and `service.unregister(self.id)` in `on_disable` (the host does it too). While the plugin is
+off, its routes answer 404.
+
+`PERMISSIONS` lists every route, one per line: `METHOD  /api/path/{param}  permission`.
+A permission is `public`, an ability (`ch.view`, `th.edit`, ... see
+`sonorium/auth/permissions.py`), or `a|b` for either. `add_routes` refuses a router with an
+unlisted route.
+
+An authenticator may have any of these methods (`sonorium/auth/principal.py`):
+
+| Method | Called for | Returns |
+|---|---|---|
+| `authenticate(ctx)` | every request not from HA's sidebar or a linked phone | a `Principal`, a `Reject(status, body)`, or `None` |
+| `fallback(ctx)` | nobody recognised | a `Principal` (e.g. open access) or `None` |
+| `ingress(ctx, principal)` | HA's sidebar | the principal, e.g. with the HA user's account |
+| `device(ctx, principal, record)` | a linked phone | the principal it acts as, or a `Reject` |
+| `me(ctx, principal)` | `GET /api/auth/me` | extra fields |
+| `user(user_id)` | showing a user | `{"username", "role", "role_label"}` |
+
+`ctx` has `headers`, `token` (bearer, `X-Sonorium-Token` or `?token=`), `cookie(name)`,
+`listener` (`http`, `https`, `ingress`), `client` and `web_ok` (false on the direct ports
+with `web_ui_only_through_ha`). A principal with a `csrf` value is a browser: its changes
+must carry that value as `X-CSRF-Token`. The service also gives `tokens` (issue, verify,
+update, revoke hashed tokens with expiry and an idle timeout), `sign(purpose)` (an HMAC with
+the server's secret), `devices()`, `add_device()` and `remove_devices_of()`.
+
+### Web UI slots (`static/js/slots.js`)
+
+The bundle's JavaScript runs before the app starts and calls
+`Sonorium.register("<plugin id>", {...})` with any of:
+
+| Slot | Items | Shown |
+|---|---|---|
+| `screens` | `{show(me)}`: return true to take over | A full-page screen instead of the app (sign-in, first run) |
+| `headerButtons` | `{view, html(me), when(me)}` | Left of a page's own header buttons (`view`: `sessions`, `themes`, `plugin-<id>`, ...) |
+| `settingsPages` | `{id, label, icon, title, perm, before, render(el, me), actions(me)}` | A Settings menu item and its page (`view-plugin-<id>`); `before` is a menu item's id (default: Advanced) |
+| `banners` | `{html(me)}` | A strip above the page header |
+| `sidebar` | `{html(me)}` | Above the version line at the bottom of the menu |
+| `channelCard` | `{badges(session), strip(session)}` | Next to a channel's name, and under its now-playing line |
+| `channelEditor` | `{render(session), save(sessionId, session)}` | Fields at the bottom of the channel editor; `save` runs after the channel is saved |
+
+`me` is `GET /api/auth/me`: `kind`, `user`, `perms`, `csrf`, plus the plugins' fields.
+Helpers: `Sonorium.modal({id, title, body, footer, cls, onClose})`, `Sonorium.closeModal(id)`,
+`Sonorium.showScreen(html)`, `Sonorium.api(method, path, body)`, `Sonorium.esc(text)`,
+`Sonorium.toast(message, type)`, `Sonorium.can(perm)`. `fetch` already adds the CSRF token to
+changes and reloads the page when the sign-in is lost.
+
+Follow `docs/UI_STYLE.md`; structural screens are drawn as boards and approved first.
