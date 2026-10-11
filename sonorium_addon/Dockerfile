@@ -14,27 +14,28 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 # Install Python dependencies
-# Note: numpy installed via apk above, av installed via fmtr.tools[av] below
+# Note: numpy installed via apk above, av installed below
+# uvicorn[standard]: the web server with uvloop and httptools.
+# httpx-retries: retries for Home Assistant registry requests.
 RUN pip3 install --no-cache-dir --break-system-packages \
     pyyaml \
     appdirs \
     cachetools \
     fastapi \
-    uvicorn \
+    'uvicorn[standard]' \
     pydantic \
     httpx \
-    homeassistant_api \
+    httpx-retries \
     websockets \
     python-multipart \
     soco
 
-# Install fmtr.tools (for API layer), paho-mqtt (for HA entities), pydantic-settings, pychromecast
+# numpy, av (audio decoding), paho-mqtt (for HA entities), pydantic-settings, pychromecast
 # numpy<2.4: pip replaces Alpine's numpy here, and numpy 2.4+ wheels require
 # x86-64-v2 CPUs, which crashes on VMs with a basic virtual CPU (issues #18, #39).
 # av 19.x: the audio decoder version playback is tested with; unpinned, it
 # changed major version between two builds.
 RUN pip3 install --no-cache-dir --break-system-packages \
-    'fmtr.tools[version.dev,logging,sets,yaml,debug,caching,api,path.app,tabular,av,ha.api,http]' \
     'numpy<2.4' \
     'av>=19,<20' \
     paho-mqtt \
