@@ -641,6 +641,17 @@ def test_listen_then_play_then_stop_then_unlisten(tmp_path):
     assert released(t) and t.manager.get_session_channel(sid) is None
 
 
+def test_one_browser_leaving_keeps_the_mix_for_another(tmp_path):
+    t = build(tmp_path)
+    sid = t.session.id
+    t.manager.listen(sid)
+    t.manager.listen(sid)  # a second browser (another tab or device)
+    run(t.manager.unlisten(sid))
+    assert not released(t) and t.manager.is_listened(t.session)
+    run(t.manager.unlisten(sid))
+    assert released(t) and not t.manager.is_listened(t.session)
+
+
 def test_play_then_listen_then_stop_then_unlisten(tmp_path):
     t = build(tmp_path)
     sid = t.session.id

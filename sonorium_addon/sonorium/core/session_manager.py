@@ -89,6 +89,7 @@ class SessionManager:
         # Sessions a browser listens to (Listen here): their mix runs whether
         # or not their speakers play, until no browser listens
         self._listening: set[str] = set()
+        self._listeners: dict[str, int] = {}  # how many browsers listen to each
 
         # Sequence and playlist timers
         from sonorium.core.playback_runner import PlaybackRunner
@@ -947,6 +948,7 @@ class SessionManager:
         self.runner.forget(session_id)
         self._fading.pop(session_id, None)
         self._listening.discard(session_id)
+        self._listeners.pop(session_id, None)
 
         session = self.state.sessions.pop(session_id)
         self.state.save()
@@ -1283,13 +1285,19 @@ class SessionManager:
             channel.fade_in(fade)
         channel.expect_local_listener()
         self._listening.add(session_id)
+        self._listeners[session_id] = self._listeners.get(session_id, 0) + 1
         if fresh_start:
             self.runner.after_play(session)  # its timers run while the browser listens
         logger.info(f"  '{session.name}': a browser listens on channel {channel.id}")
         return channel
 
     async def unlisten(self, session_id: str) -> None:
-        """The browser stopped listening: the mix stops too unless the speakers play."""
+        """The browser stopped listening: the mix stops too unless the speakers play or another browser listens."""
+        left = self._listeners.get(session_id, 0) - 1
+        if left > 0:
+            self._listeners[session_id] = left
+            return
+        self._listeners.pop(session_id, None)
         self._listening.discard(session_id)
         session = self.state.sessions.get(session_id)
         if session and not session.is_playing and session_id not in self._listening:
@@ -1331,6 +1339,7 @@ class SessionManager:
             if channel and channel.local_idle_seconds() < LISTEN_RELEASE_SECONDS:
                 continue
             self._listening.discard(session_id)
+            self._listeners.pop(session_id, None)
             session = self.state.sessions.get(session_id)
             if session and not session.is_playing:
                 logger.info(f"  '{session.name}': no browser listens any more, channel released")

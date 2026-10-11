@@ -656,7 +656,7 @@ const CH_ICON_THEME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="non
 const CH_ICON_VOLUME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
 const CH_ICON_PLAY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 const CH_ICON_STOP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
-const CH_ICON_LISTEN = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>';
+const CH_ICON_LISTEN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>';
 
 // Channels switched to playlist mode on their card, until a playlist is picked
 const chPlaylistMode = new Set();
@@ -686,7 +686,7 @@ function renderSessionCard(session) {
             </div>
             ${chNowHtml(session)}
             <div class="ch-vol" title="Volume on the speakers">
-                <span class="ch-vol-ic" aria-hidden="true">${CH_ICON_VOLUME}</span>
+                <span class="ch-vol-ic${isPlaying ? ' on' : ''}" aria-hidden="true">${CH_ICON_VOLUME}</span>
                 <input type="range" class="track-slider" min="0" max="100" value="${session.volume}" aria-label="Volume: ${name}"
                        oninput="updateSessionVolumeDisplay(${spArg(id)}, this.value)"
                        onchange="updateSessionVolume(${spArg(id)}, this.value)">
@@ -811,6 +811,7 @@ function chMenu(button, sessionId) {
 const chListen = { id: null, audio: null };
 
 async function chToggleListen(sessionId) {
+    if (typeof Audio === 'undefined') return;
     const again = chListen.id === sessionId;
     await chStopListening();
     if (again) return;
@@ -827,8 +828,9 @@ async function chToggleListen(sessionId) {
         renderSessions();
         await audio.play();
     } catch (error) {
+        // No audio output, or a browser that can't play the stream: the button just stays off
+        console.warn('Listen on this device:', error);
         await chStopListening();
-        showToast(error.message, 'error');
     }
 }
 
@@ -3647,8 +3649,9 @@ function previewRampVolume(audio, target, ms = 250) {
     cancelAnimationFrame(audio._volRamp || 0);
     const from = audio.volume, t0 = performance.now();
     const tick = now => {
-        const k = Math.min(1, (now - t0) / ms);
-        audio.volume = from + (target - from) * k;
+        // A frame can start before t0: keep k (and the volume) in range, or setting it throws
+        const k = Math.max(0, Math.min(1, (now - t0) / ms));
+        audio.volume = Math.max(0, Math.min(1, from + (target - from) * k));
         if (k < 1) audio._volRamp = requestAnimationFrame(tick);
     };
     audio._volRamp = requestAnimationFrame(tick);

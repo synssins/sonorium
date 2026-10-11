@@ -3723,10 +3723,11 @@ button.pk-row { cursor: pointer; }
 .ch-next svg { margin-right: .25rem; }
 .ch-next[disabled] { opacity: .4; cursor: default; transform: none; }
 .ch-vol { display: grid; grid-template-columns: 56px minmax(0, 1fr) 40px; align-items: center; column-gap: .5rem; }
-.ch-vol-ic { display: flex; justify-content: center; width: 36px; color: var(--text-muted); }
-/* Listen on this device: the headphones button starts and stops the browser's stream */
-.ch-vol-ic.ch-listen { align-items: center; justify-content: center; width: 36px; height: 32px; padding: 0; border: 1px solid var(--border-color); border-radius: .375rem; background: var(--bg-secondary); cursor: pointer; }
-.ch-vol-ic.ch-listen:hover { color: var(--text-primary); border-color: var(--accent-secondary); }
+/* Speakers (shows they play) and headphones (a button: this device listens), the same box */
+.ch-vol-ic { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 36px; height: 32px; padding: 0; border: 1px solid var(--border-color); border-radius: .375rem; background: var(--bg-secondary); color: var(--text-muted); }
+.ch-vol-ic.on { background: rgba(6, 214, 160, .16); border-color: rgba(6, 214, 160, .6); color: var(--accent-primary); }
+.ch-vol-ic.ch-listen { cursor: pointer; }
+.ch-vol-ic.ch-listen:not(.on):hover { color: var(--text-primary); border-color: var(--accent-secondary); }
 .ch-vol-val { font-size: .75rem; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
 .ch-recent { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: .25rem; padding: .5rem .625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; overflow: hidden; }
 .ch-recent-hd { font-size: .6875rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
