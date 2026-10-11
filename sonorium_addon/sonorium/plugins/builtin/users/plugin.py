@@ -100,14 +100,23 @@ class UsersAuth:
         return self.accounts.disabled(user_id)
 
     async def prepare(self, listener: str, headers: dict) -> None:
-        """Add-on: HA's list of users when it's a minute old, or at once for an HA user Sonorium hasn't seen."""
+        """
+        Add-on: HA's list of users when it's a minute old, or at once when HA's sidebar brings an HA user
+        Sonorium hasn't seen (or one renamed in HA).
+        """
         directory = self.accounts.ha
         if directory is None:
             return
         ha_user_id = headers.get("x-remote-user-id") if listener == "ingress" else None
-        unknown = bool(ha_user_id) and not any(u.get("ha_user_id") == ha_user_id
-                                               for u in self.accounts.users.values())
-        await directory.refresh(force=unknown)
+        news = False
+        if ha_user_id:
+            name = accounts_mod.norm(headers.get("x-remote-user-name"))
+            known = [u for u in self.accounts.users.values() if u.get("ha_user_id") == ha_user_id]
+            renamed = bool(known and name and accounts_mod.norm(known[0].get("ha_username")) != name)
+            if renamed:  # the new name first, so the new list doesn't take the user for removed
+                self.accounts.ha_user(ha_user_id, headers.get("x-remote-user-name") or "")
+            news = not known or renamed
+        await directory.refresh(force=news)
 
     def authenticate(self, ctx) -> Optional[Principal]:
         if not ctx.web_ok:

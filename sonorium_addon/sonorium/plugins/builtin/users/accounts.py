@@ -257,7 +257,8 @@ class Accounts:
                 if ha_username and user.get("ha_username") != ha_username:  # renamed in HA
                     self._claim_ha_username(user_id, ha_username)
                     user["ha_username"] = ha_username
-                    self.apply_ha(user_id)
+                    if self.ha is not None and self.ha.by_username(ha_username):  # else: the next list decides
+                        self.apply_ha(user_id)
                     self.save()
                 return user_id
         if ha_username:
