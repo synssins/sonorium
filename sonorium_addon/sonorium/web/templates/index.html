@@ -156,7 +156,7 @@
                         <span>Logs</span>
                     </div>
                     <!-- Shown when this install has features that can be switched on -->
-                    <div class="nav-sub-item" id="nav-settings-advanced" style="display: none;" onclick="showView('settings-advanced')">
+                    <div class="nav-sub-item" id="nav-settings-advanced" onclick="showView('settings-advanced')">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <line x1="4" y1="21" x2="4" y2="14"/>
                             <line x1="4" y1="10" x2="4" y2="3"/>
@@ -814,12 +814,15 @@ Example:
                 </div>
             </div>
 
-            <!-- Advanced: features this install has off by default; Restart now in the top bar after a change -->
+            <!-- Advanced: features this install has off by default (Restart now in the top bar after a change),
+                 then the playback values (global; saved as they're changed) -->
             <div id="view-settings-advanced" class="view sp sp-ui">
                 <div class="sp-scroll">
                     <div class="sp-wrap">
-                        <div class="sp-lhead spa-grid"><span>Feature</span><span>Description</span><span class="c">Default</span><span></span><span class="c">On</span></div>
+                        <div class="sp-lhead spa-grid" id="advanced-features-head"><span>Feature</span><span>Description</span><span class="c">Default</span><span></span><span class="c">On</span></div>
                         <div class="sp-lbody" id="advanced-settings-form"></div>
+                        <div class="sp-lhead spv-grid" id="advanced-values-head"><span>Setting</span><span>Description</span><span>Default</span><span>Value</span><span></span></div>
+                        <div id="advanced-values-form"></div>
                     </div>
                 </div>
             </div>
