@@ -2413,6 +2413,28 @@ def create_api_router(
 
     # --- Plugin Endpoints ---
 
+    def _plugin_dir(plugin_id) -> Path:
+        """
+        The folder of a plugin id inside the plugins folder. 400 for an id
+        that isn't letters, digits, "_" and "-" or that would lead anywhere
+        else (an id is never a path: "%2E%2E" arrives as "..").
+        """
+        import re
+        if not isinstance(plugin_id, str) or not re.fullmatch(r'[A-Za-z0-9_-]+', plugin_id):
+            raise HTTPException(status_code=400, detail="Invalid plugin id")
+        plugins_dir = Path(plugin_manager.plugins_dir)
+        folder = plugins_dir / plugin_id
+        if folder.resolve().parent != plugins_dir.resolve():
+            raise HTTPException(status_code=400, detail="Invalid plugin id")
+        return folder
+
+    def _inside(folder: Path, path: Path) -> Path:
+        """path, if it is inside folder (a zip member can't write anywhere else); 400 if not."""
+        resolved = path.resolve()
+        if resolved != folder.resolve() and folder.resolve() not in resolved.parents:
+            raise HTTPException(status_code=400, detail=f"Invalid path in zip: {path.name}")
+        return path
+
     @router.get("/plugins", response_model=list[PluginResponse])
     async def list_plugins():
         """List all available plugins."""
@@ -2543,7 +2565,10 @@ def create_api_router(
                 plugin_py = plugin_py_paths[0]
                 plugin_dir_name = plugin_py.rsplit('/', 1)[0] if '/' in plugin_py else ''
                 target_name = plugin_dir_name.split('/')[0] if plugin_dir_name else plugin_id
-                target_dir = plugin_manager.plugins_dir / target_name
+                target_dir = _plugin_dir(target_name)
+                for member in zf.namelist():
+                    if member.startswith('/') or '..' in member.replace('\\', '/').split('/'):
+                        raise HTTPException(status_code=400, detail=f'Invalid path in zip: {member}')
 
                 if target_dir.exists():
                     shutil.rmtree(target_dir)
@@ -2556,6 +2581,7 @@ def create_api_router(
                         continue
                     else:
                         target_path = target_dir / member
+                    _inside(target_dir, target_path)
 
                     if member.endswith('/'):
                         target_path.mkdir(parents=True, exist_ok=True)
@@ -2586,6 +2612,8 @@ def create_api_router(
                 'message': f'Plugin "{plugin_info.get("name", plugin_id)}" installed successfully'
             }
 
+        except HTTPException:
+            raise
         except zipfile.BadZipFile:
             raise HTTPException(status_code=400, detail='Invalid ZIP file from catalog')
         except Exception as e:
@@ -2771,7 +2799,7 @@ def create_api_router(
                     plugin_id = 'imported_plugin'
 
                 # Check if plugin already exists
-                target_dir = plugin_manager.plugins_dir / plugin_id
+                target_dir = _plugin_dir(plugin_id)
                 if target_dir.exists():
                     # Remove old version
                     shutil.rmtree(target_dir)
@@ -2835,6 +2863,8 @@ def create_api_router(
                     "plugin_id": plugin_id
                 }
 
+        except HTTPException:
+            raise
         except zipfile.BadZipFile:
             raise HTTPException(status_code=400, detail="Invalid or corrupted ZIP file")
         except Exception as e:
@@ -2859,8 +2889,8 @@ def create_api_router(
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
 
+        plugin_dir = _plugin_dir(plugin_id)
         plugin = plugin_manager.get_plugin(plugin_id)
-        plugin_dir = plugin_manager.plugins_dir / plugin_id
 
         # Check if plugin exists (either loaded or as directory)
         if not plugin and not plugin_dir.exists():

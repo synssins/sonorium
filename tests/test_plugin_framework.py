@@ -347,6 +347,23 @@ def test_action_succeeds_when_its_rescan_is_replaced(api):
     assert r.json()["success"] is True and r.json()["themes_changed"] is True
 
 
+@pytest.mark.parametrize("bad_id", ["%2E%2E", "..", "%2E", "a.b", "a%2Fb", "%2E%2E%5Cx"])
+def test_uninstall_only_deletes_inside_the_plugins_folder(api, tmp_path, bad_id):
+    plugins_dir = api.manager.plugins_dir
+    (tmp_path / "keep.txt").write_text("x")
+    before = sorted(p.name for p in tmp_path.iterdir())
+    r = api.client.delete(f"/api/plugins/{bad_id}")
+    assert r.status_code in (400, 404, 405), r.text
+    assert sorted(p.name for p in tmp_path.iterdir()) == before
+    assert (plugins_dir / "demo" / "plugin.py").exists()
+
+
+def test_uninstall_a_plugin(api):
+    r = api.client.delete("/api/plugins/demo")
+    assert r.status_code == 200, r.text
+    assert not (api.manager.plugins_dir / "demo").exists()
+
+
 def test_action_without_theme_changes_does_not_rescan(api):
     plugin = api.manager.get_plugin("demo")
     plugin.on_theme_created = AsyncMock()
