@@ -30,6 +30,7 @@ from sonorium.auth.service import AuthService
 from sonorium.obs import logger
 
 API_VERSION = 1
+UI_HOST_API = 1  # the web UI's window.SONORIUM_HOST contract (static/js/api.js SONORIUM_HOST_API)
 PAIR_RATE, PAIR_BURST = 5 / 60, 5  # pairing: 5 attempts a minute per address
 
 
@@ -101,6 +102,8 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
             "login_required": login_required(), "pair": True, "fingerprint": identity.fingerprint,
             "plugins": sorted(service.authenticators),
             "boot_id": runtime.BOOT_ID,  # new at every start; the event stream's ids are "<boot_id>:<n>"
+            # the web UI's version, and of its window.SONORIUM_HOST hooks for the app (static/js/api.js)
+            "ui": {"version": version, "host_api": UI_HOST_API},
         }
 
     @router.get("/api/auth/me")

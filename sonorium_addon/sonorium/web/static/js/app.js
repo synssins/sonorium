@@ -79,6 +79,7 @@ async function init() {
 
         // Channels running a sequence or playlist: keep their cards current
         startPlaybackPolling();
+        chHostEvents();  // only in the Sonorium app
 
         console.log('Sonorium init() complete');
     } catch (error) {
@@ -329,7 +330,7 @@ function showView(viewName) {
                 </svg>
                 <span>Copy</span>
             </button>
-            <a class="btn btn-primary" href="${BASE_PATH}/api/logs/download">
+            <a class="btn btn-primary" href="${BASE_PATH}/api/logs/download" onclick="return !hostDownload(this.href, '')">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/>
@@ -600,13 +601,24 @@ function chMenu(button, sessionId) {
 const chListen = { id: null, audio: null };
 
 async function chToggleListen(sessionId) {
-    if (typeof Audio === 'undefined') return;
+    const native = hostHas('listen');  // the Sonorium app plays it with its own player
+    if (typeof Audio === 'undefined' && !native) return;
     const again = chListen.id === sessionId;
     await chStopListening();
     if (again) return;
     try {
         const result = await api('POST', `/sessions/${sessionId}/listen`);
-        const audio = new Audio(`${BASE_PATH}${result.stream_path}?local=1`);
+        const url = `${hostStreamUrl(result.stream_path)}?local=1`;
+        if (native) {
+            const session = sessions.find(s => s.id === sessionId) || {};
+            const theme = themes.find(t => t.id === session.theme_id) || {};
+            chListen.id = sessionId;
+            renderSessions();
+            sonoriumHost.listen(sessionId, url, { name: session.name || '', themeName: theme.name || '',
+                                                  channelId: result.channel_id, volume: chLocalVolume() });
+            return;
+        }
+        const audio = new Audio(url);
         audio.volume = chLocalVolume() / 100;
         chListen.id = sessionId;
         chListen.audio = audio;
@@ -653,6 +665,7 @@ function chSetLocalVolume(input) {
     const value = Math.max(0, Math.min(100, parseInt(input.value, 10) || 0));
     input.closest('.ch-vol').querySelector('.ch-vol-val').textContent = `${value}%`;
     if (chListen.audio) previewRampVolume(chListen.audio, value / 100);
+    else if (chListen.id && hostHas('setListenVolume')) sonoriumHost.setListenVolume(chListen.id, value);
     try { localStorage.setItem('sonorium.listenVolume', String(value)); } catch (error) { /* not kept: fine */ }
 }
 
@@ -661,13 +674,38 @@ async function chStopListening() {
     if (!id) return;
     chListen.id = null;
     chListen.audio = null;
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();  // closes the stream
+    if (audio) {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();  // closes the stream
+    } else if (hostHas('stopListening')) {
+        sonoriumHost.stopListening(id);  // the app's own player
+    }
     renderSessions();
     try {
         await api('DELETE', `/sessions/${id}/listen`);
     } catch (error) { /* the server releases it once no browser listens */ }
+}
+
+// The Sonorium app tells the page about its player and asks it to refresh (docs/APP_API.md 12.5).
+// Its player stopping by itself (the lock screen) is the app's to tell the server.
+function chHostEvents() {
+    if (!hostHas('on')) return;
+    sonoriumHost.on('listening', data => {
+        const { sessionId, playing } = data || {};
+        if (playing && chListen.id !== sessionId) chListen.id = sessionId;
+        else if (!playing && chListen.id === sessionId) chListen.id = null;
+        else return;
+        chListen.audio = null;
+        renderSessions();
+    });
+    sonoriumHost.on('refresh', async () => {
+        try {
+            await loadSessions();
+            renderSessions();
+            updatePlayingBadge();
+        } catch (error) { console.warn('Refresh:', error); }
+    });
 }
 
 // The mode buttons: back to a theme stops the playlist (the channel keeps its theme);
@@ -4875,7 +4913,7 @@ function startThemePreview(themeId, themeName) {
     currentPreviewThemeId = themeId;
 
     // Get the stream URL for this theme
-    const streamUrl = `${BASE_PATH}/stream/${encodeURIComponent(themeId)}`;
+    const streamUrl = hostStreamUrl(`/stream/${encodeURIComponent(themeId)}`);
 
     themePreviewAudio = new Audio(streamUrl);
     themePreviewAudio.volume = document.getElementById('preview-volume').value / 100;
@@ -4988,6 +5026,8 @@ async function exportThemeZip(themeId = document.getElementById('theme-edit-id')
     try {
         showToast('Preparing export...', 'info');
 
+        // In the Sonorium app the app saves the file (its name comes with it)
+        if (hostDownload(`${BASE_PATH}/api/themes/${themeId}/export`, '')) return;
         const response = await fetch(`${BASE_PATH}/api/themes/${themeId}/export`);
         if (!response.ok) {
             const error = await response.json();
@@ -5678,6 +5718,7 @@ async function renderDashboardCardsStatus() {
     line.title = status.reason || '';
     const download = document.getElementById('conn-cards-dl');
     download.href = `${BASE_PATH}/api/ha-cards/download`;
+    download.onclick = () => !hostDownload(download.href, 'sonorium-cards.js');  // the Sonorium app saves it
     download.hidden = status.state !== 'by_hand';
     row.hidden = false;
 }
@@ -9489,7 +9530,7 @@ Sonorium.start(init);
 let teMixAudio = null;
 
 function teMixUrl() {
-    return `${BASE_PATH}/stream/${encodeURIComponent(te.themeId)}?preview=${Date.now()}`;
+    return hostStreamUrl(`/stream/${encodeURIComponent(te.themeId)}?preview=${Date.now()}`);
 }
 
 function teRenderMixButton() {

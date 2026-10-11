@@ -581,3 +581,4 @@ def test_info_is_public(w):
     assert info["api"] == 1 and info["ports"] == {"http": 8008, "https": 8808} and len(info["fingerprint"]) == 64
     assert info["login_required"] is True and set(info["plugins"]) == {"users", "integration"}
     assert info["boot_id"] == m.runtime.BOOT_ID and len(info["boot_id"]) == 32  # G4: new at every start
+    assert info["ui"] == {"version": "test", "host_api": 1}  # G14
