@@ -201,6 +201,23 @@ class BasePlugin(ABC):
         """
         pass
 
+    # Theme files (see theme_api.py): never write metadata.json/presets.json yourself
+
+    def list_themes(self) -> list[dict]:
+        """The themes in audio_path for a theme picker: [{"id", "name", "folder", "track_count", "preset_count"}]."""
+        from sonorium.plugins.theme_api import list_themes
+        return list_themes(self.audio_path)
+
+    def new_theme(self, name: str, **kwargs):
+        """A ThemeEdit for a new theme (description, icon, attribution, categories); written by its commit()."""
+        from sonorium.plugins.theme_api import ThemeEdit
+        return ThemeEdit.new(self.audio_path, name, **kwargs)
+
+    def open_theme(self, theme_id: str):
+        """A ThemeEdit for an existing theme (by id or folder name); ThemeEditError if not found or broken."""
+        from sonorium.plugins.theme_api import ThemeEdit
+        return ThemeEdit.open(self.audio_path, theme_id)
+
     # Utility methods
 
     def get_setting(self, key: str, default: Any = None) -> Any:
