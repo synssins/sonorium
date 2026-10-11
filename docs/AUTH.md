@@ -160,6 +160,44 @@ User. A Sonorium password one of them had set is dropped: like everyone
 else, they sign in on the direct port with their Home Assistant password.
 One password per person, kept by HA.
 
+## Zones (Users plugin)
+
+Off by default: Settings › Advanced › **Zones** (an admin). With it off, every
+channel is open, as above. Think of each channel as a room's radio.
+
+- **Open zone:** a channel with no owner. Anyone who may play channels may
+  change it. Channels that existed before Zones were turned on stay open until
+  an admin gives them an owner (the channel editor's **Owner**).
+- **A user's zone:** only its owner and admins change it (what it plays, its
+  volume, its speakers, play and stop, delete). Other users can see it.
+- **Kid mode** (per zone, by an admin): only an admin changes its speakers.
+  Its **Hours** (also the admin's): outside them the owner can't play it or
+  change what it plays; stopping always works. At the end of the hours, what
+  the owner started fades out over 30 seconds and stops; what an admin started
+  plays on.
+- **A speaker plays for one channel at a time.** A speaker in use by a playing
+  channel can't be added to another channel, and another channel that has it
+  plays on its other speakers. Its **home** is the channel it was added to
+  first: the home can take it back even while the other channel plays (that
+  one keeps playing on the rest). When the home is deleted, the next channel
+  that has the speaker becomes its home. An admin can choose another home
+  (`PUT /api/zones/homes/{speaker_id}`).
+- **Admins override all of this** (alarms, announcements). Home Assistant
+  (MQTT), plugins and Sonorium's timers act as an admin; so do keys and open
+  access (Require login off, nobody signed in).
+- **Links:** an admin links channels (**Link channels** on Channels) to play
+  one theme and preset, or one playlist, in all of them. Each keeps its own
+  volume. **Unlink** puts each channel back to what it played (and stopped, if
+  it was stopped). While linked, a user can't change what a linked channel
+  plays. **Leave** takes a channel out (back to what it played) and
+  **Rejoin** brings it back: its owner may if an admin turned on **Can leave a
+  link** for them (Users & devices, ⋯); an admin always may, and can pull a
+  channel back in.
+
+Who is calling comes from the request (`current_caller()`); the Users
+plugin's `zones.py` is the session manager's policy
+(`sonorium/core/channel_policy.py`) while Zones are on. Kept in `zones.json`.
+
 ## Linking a phone (core)
 
 **Link App** (top right of Channels, on a desktop-width screen) shows a QR code:
@@ -263,7 +301,8 @@ without the extra names: the app checks the fingerprint, not the names.
 | File | What's in it |
 |---|---|
 | `security.json` (0600) | The signing secret (CSRF) and every token's SHA-256: phones, browser sessions, keys |
-| `users.json` (0600) | Accounts (Argon2id hashes; none for Home Assistant's users), Require login |
+| `users.json` (0600) | Accounts (Argon2id hashes; none for Home Assistant's users), Require login, Can leave a link |
+| `zones.json` | Zones: on or off, owners, Kid mode and hours, speaker homes, links |
 | `server.json` | The server ID |
 | `tls/cert.pem`, `tls/key.pem` (0600) | The HTTPS certificate (ECDSA P-256, 20 years) |
 | `plugin_secrets.json` (0600) | The plugin framework's older trigger and event-stream tokens (hashes) |
@@ -290,6 +329,19 @@ Users plugin: `POST /api/auth/setup`, `/api/auth/login`, `/api/auth/logout`,
 `POST /api/pair/login`, `POST /api/devices/recovery-code`, `GET|POST /api/users`,
 `PUT|DELETE /api/users/{id}`, `POST /api/users/{id}/password`, `POST /api/users/{id}/sign-out`,
 `DELETE /api/users/{id}/sessions/{session_id}` (signs one browser out).
+`PUT /api/users/{id}` also takes `{"can_leave_link": bool}`.
+
+Zones (Users plugin): `GET /api/zones` (anyone who sees channels: on or off,
+owners, Kid mode, each speaker's home and the channel using it, links; for an
+admin also the users), `PUT /api/zones/switch` `{"on"}`, `PUT /api/zones/{channel_id}`
+`{"owner", "kid_mode", "schedule": {"start": "HH:MM", "end": "HH:MM"}}`,
+`PUT /api/zones/homes/{speaker_id}` `{"channel_id"}`, `POST /api/links`
+`{"name", "channels", "theme_id", "preset_id"}` or `{..., "playlist_id"}`,
+`PUT|DELETE /api/links/{link_id}` (settings changes: Settings › Change),
+`POST /api/links/{link_id}/leave` and `/rejoin` `{"channel_id"}` (Play and stop,
+then the owner's Can leave a link, or an admin). A refused change to a channel
+answers 403 (not yours, Kid mode, outside the hours) or 409 (a speaker in use,
+a linked channel) with the reason in `detail`.
 
 Integration plugin: `GET|POST /api/keys`, `PUT|DELETE /api/keys/{id}`.
 

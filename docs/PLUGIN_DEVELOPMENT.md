@@ -139,10 +139,18 @@ All events of a channel have `channel_id` and `name` (the channel's name).
 | `channel.created` | A channel was added | `channel_id`, `name`, `theme_id` |
 | `channel.deleted` | A channel was deleted | `channel_id`, `name` |
 | `channel.started` | A channel started playing on its speakers | `theme_id`, `preset_id`, `volume`, `speakers` |
-| `channel.stopped` | A channel stopped | `reason`: `stopped`, `paused`, `idle` (no speaker pulled audio for 90 s) or `ended` (a playlist without repeat finished) |
+| `channel.stopped` | A channel stopped | `reason`: `stopped`, `paused`, `idle` (no speaker pulled audio for 90 s), `ended` (a playlist without repeat finished) or `schedule` (Kid mode's hours ended) |
 | `channel.changed` | A channel's settings changed | `changes`: only what changed, any of `theme_id`, `preset_id`, `sequence_id`, `playlist_id`, `volume`, `speakers_muted`, `name`, `speakers` |
 | `sequence.step` | A sequence moved to a step (also step 1 when it starts) | `theme_id`, `sequence_id`, `step`, `steps`, `preset_id` |
 | `playlist.entry` | A playlist moved to an entry | `playlist_id`, `position`, `entries`, `theme_id` |
+| `zone.switched` | Zones were switched on or off (Settings › Advanced) | `on` |
+| `zone.changed` | A channel's owner, Kid mode or hours changed | `channel_id`, `name`, `changes`: any of `owner`, `kid_mode`, `schedule` |
+| `zone.speaker_taken` | A channel took a speaker another one was playing on (its home, or an admin) | `channel_id`, `name`, `speaker_id`, `from_channel_id`, `by`: `home` or `admin` |
+| `zone.home_changed` | A speaker has a new home channel | `speaker_id`, `channel_id`, `name`, `reason`: `deleted`, `removed` or `admin` |
+| `zone.schedule_ended` | Kid mode's hours ended: what the user started fades out | `channel_id`, `name` |
+| `link.created` / `link.removed` | An admin linked channels, or unlinked them | `link_id`, `name` (created: also `channels`, `theme_id`, `preset_id`, `playlist_id`) |
+| `link.changed` | A link's name, channels or what it plays changed | `link_id`, `name`, `changes` |
+| `link.left` / `link.rejoined` | A channel left a link, or joined it again | `link_id`, `name`, `channel_id` (rejoined: also `by`: `owner` or `admin`) |
 | `speaker.added` | A speaker appeared | `speaker_id`, `name`, `type` |
 | `speaker.removed` | A speaker is no longer known | `speaker_id`, `name` |
 | `speaker.unavailable` | A speaker went offline | `speaker_id`, `name` |
@@ -580,7 +588,16 @@ service.register_authenticator(self.id, MyAuth(), provider=False)
 ```
 
 and `service.unregister(self.id)` in `on_disable` (the host does it too). While the plugin is
-off, its routes answer 404.
+off, its routes answer 404. A plugin may register more than one UI bundle under ids of its
+own (the Users plugin: `users` and `users-zones`).
+
+### Channel policy (`self._host.session_manager.policy`)
+
+A built-in plugin may decide who changes a channel and which speakers it plays on (Zones in
+the Users plugin): see `sonorium/core/channel_policy.py`. Its `check(action, session,
+**details)` raises `ChannelRefused(message, status)` to refuse; the API answers with that
+status. `sonorium.auth.principal.current_caller()` is who is calling (None for MQTT,
+timers and plugins). No policy: every channel is open, as before.
 
 `PERMISSIONS` lists every route, one per line: `METHOD  /api/path/{param}  permission`.
 A permission is `public`, an ability (`ch.view`, `th.edit`, ... see
@@ -617,8 +634,10 @@ The bundle's JavaScript runs before the app starts and calls
 | `settingsPages` | `{id, label, icon, title, perm, before, help, render(el, me), actions(me)}` | A Settings menu item and its page (`view-plugin-<id>`); `before` is a menu item's id (default, or when it isn't there: Advanced); `help` is `{title, html}` for the page's help panel |
 | `banners` | `{html(me)}` | A strip above the page header |
 | `sidebar` | `{html(me)}` | Above the version line at the bottom of the menu |
-| `channelCard` | `{badges(session), strip(session)}` | Next to a channel's name, and under its now-playing line |
-| `channelEditor` | `{render(session), save(sessionId, session)}` | Fields at the bottom of the channel editor; `save` runs after the channel is saved |
+| `channelCard` | `{badges(session), strip(session), top(session), sub(session), cls(session)}` | Next to a channel's name, under its now-playing line, above its head, after its speakers, and extra classes of the card |
+| `channelsTop` | `{html(me)}` | Above the channel cards |
+| `channelEditor` | `{render(session), save(sessionId, session), top(session), speakers(session), speakerNote(session, speakerId)}` | Fields at the bottom of the channel editor, above Plays, above the speaker picker; a speaker's note in the picker (`{busy: text}`: can't be picked, or `{note: text}`); `save` runs after the channel is saved |
+| `advanced` | `{html(me)}` | Sections at the top of Settings › Advanced's values |
 
 `me` is `GET /api/auth/me`: `kind`, `user`, `perms`, `csrf`, plus the plugins' fields.
 Helpers: `Sonorium.modal({id, title, body, footer, cls, onClose})`, `Sonorium.closeModal(id)`,
