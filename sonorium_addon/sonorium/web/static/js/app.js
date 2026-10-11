@@ -414,6 +414,8 @@ function renderSessions() {
     const container = document.getElementById('sessions-container');
     pselOpenId = null;  // the cards are rebuilt: any open preset list goes with them
     spSetTitle('sessions', 'Channels', sessions.length);
+    const top = document.getElementById('plugin-channels-top');
+    if (top) top.innerHTML = Sonorium.channelsTop();  // plugins' bars above the cards (slots.js)
 
     if (sessions.length === 0) {
         container.innerHTML = `
@@ -454,10 +456,11 @@ function renderSessionCard(session) {
     const speakers = session.speaker_summary || (session.speakers?.length === 0 ? 'No speakers selected' : `${session.speakers?.length || 0} speaker${(session.speakers?.length || 0) !== 1 ? 's' : ''}`);
 
     return `
-        <div class="ch-card${isPlaying ? ' on' : ''}" data-session-id="${escapeHtml(id)}">
+        <div class="ch-card${isPlaying ? ' on' : ''}${Sonorium.cardCls(session)}" data-session-id="${escapeHtml(id)}">
+            ${Sonorium.cardTop(session)}
             <div class="ch-head">
                 <span class="ch-icon" aria-hidden="true">${themeIconOf(session.theme_id)}</span>
-                <div class="ch-title"><span class="ch-name">${name}</span>${Sonorium.cardBadges(session)}<span class="ch-sub" title="Speakers">${escapeHtml(speakers)}</span></div>
+                <div class="ch-title"><span class="ch-name">${name}</span>${Sonorium.cardBadges(session)}<span class="ch-sub" title="Speakers">${escapeHtml(speakers)}${Sonorium.cardSub(session)}</span></div>
                 <span class="ch-state${isPlaying ? ' on' : ''}">${isPlaying ? 'Playing' : 'Stopped'}</span>
                 <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
                 <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
@@ -1691,12 +1694,18 @@ function pickerMatches(speaker, query) {
 }
 
 function renderPickerSpeaker(speaker, selected) {
+    // A plugin's note (slots.js): in use by another channel (can't be picked), or its home channel
+    const note = Sonorium.speakerNote(speaker.entity_id);
+    const busy = !!(note && note.busy) && !selected.has(speaker.entity_id);
+    const box = pickerCheckbox(selected.has(speaker.entity_id) ? 'all' : 'none', 'speaker', speaker.entity_id, speaker.name);
     return `
-        <label class="p-row p-speaker">
-            ${pickerCheckbox(selected.has(speaker.entity_id) ? 'all' : 'none', 'speaker', speaker.entity_id, speaker.name)}
+        <label class="p-row p-speaker${busy ? ' busy' : ''}">
+            ${busy ? box.replace('<input ', '<input disabled ') : box}
             ${onlineDot(speaker)}
             <span class="p-name">${escapeHtml(speaker.name)}</span>
-            <span class="badges">${speakerBadges(speaker)}</span>
+            ${busy ? `<span class="p-busy">${escapeHtml(note.busy)}</span>`
+                : note && note.note ? `<span class="zn-home">${escapeHtml(note.note)}</span>`
+                : `<span class="badges">${speakerBadges(speaker)}</span>`}
         </label>`;
 }
 
@@ -5565,8 +5574,9 @@ function pvRender() {
     const head = document.getElementById('advanced-values-head');
     if (!form || !head) return;
     head.style.display = playbackValues ? '' : 'none';
-    form.innerHTML = playbackValues ? PV_SECTIONS.map(section =>
-        `<h3 class="spv-sec">${escapeHtml(section.title)}</h3><div class="sp-lbody">${section.rows.map(pvRow).join('')}</div>`).join('') : '';
+    // Plugins' sections first (slots.js: advanced), then the playback values
+    form.innerHTML = (playbackValues ? Sonorium.advancedHtml() : '') + (playbackValues ? PV_SECTIONS.map(section =>
+        `<h3 class="spv-sec">${escapeHtml(section.title)}</h3><div class="sp-lbody">${section.rows.map(pvRow).join('')}</div>`).join('') : '');
 }
 
 function pvRowOf(key) {

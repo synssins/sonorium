@@ -12,8 +12,11 @@
  *   settingsPages  [{id, label, icon, title, perm, before, help, render(el, me), actions(me)}]
  *   banners        [{html(me)}]                       strips above the page header
  *   sidebar        [{html(me)}]                       above the menu's version line
- *   channelCard    [{badges(session), strip(session)}]
- *   channelEditor  [{render(session) -> html, save(sessionId, session)}]
+ *   channelCard    [{badges(session), strip(session), top(session), sub(session), cls(session)}]
+ *   channelsTop    [{html(me)}]                       above the channel cards
+ *   channelEditor  [{render(session) -> html, save(sessionId, session), top(session), speakers(session),
+ *                    speakerNote(session, speakerId) -> {busy}|{note}|null}]
+ *   advanced       [{html(me)}]                       sections at the top of Settings › Advanced's values
  * Helpers: Sonorium.modal({...}), closeModal(id), showScreen(html), hideScreen(),
  *   api(method, path, body), esc(text), toast(message, type), can(perm).
  */
@@ -34,7 +37,9 @@
     const S = window.Sonorium = {
         me: null,
         started: false,
-        slots: { headerButtons: [], screens: [], settingsPages: [], banners: [], sidebar: [], channelCard: [], channelEditor: [] },
+        slots: { headerButtons: [], screens: [], settingsPages: [], banners: [], sidebar: [], channelCard: [],
+                 channelsTop: [], channelEditor: [], advanced: [] },
+        editing: null,  // the channel open in the channel editor (null: a new one)
 
         register(pluginId, def) {
             Object.keys(S.slots).forEach(slot => {
@@ -203,12 +208,44 @@
         cardStrips(session) {
             return S.slots.channelCard.map(c => (c.strip ? c.strip(session) : '') || '').join('');
         },
+        // Above a card's head, after its speakers, and extra classes of the card
+        cardTop(session) {
+            return S.slots.channelCard.map(c => (c.top ? c.top(session) : '') || '').join('');
+        },
+        cardSub(session) {
+            return S.slots.channelCard.map(c => (c.sub ? c.sub(session) : '') || '').join('');
+        },
+        cardCls(session) {
+            return S.slots.channelCard.map(c => (c.cls ? c.cls(session) : '') || '').filter(Boolean).map(c => ' ' + c).join('');
+        },
+        channelsTop() {
+            return S.slots.channelsTop.map(b => { try { return b.html(S.me) || ''; } catch (e) { return ''; } }).join('');
+        },
+        advancedHtml() {
+            return S.slots.advanced.map(b => { try { return b.html(S.me) || ''; } catch (e) { return ''; } }).join('');
+        },
+        // A speaker in the channel editor's picker: {busy: "In use by …"} or {note: "Home: …"}
+        speakerNote(speakerId) {
+            for (const f of S.slots.channelEditor) {
+                const note = f.speakerNote ? f.speakerNote(S.editing, speakerId) : null;
+                if (note) return note;
+            }
+            return null;
+        },
         channelEditorOpen(session) {
-            const el = document.getElementById('ch-plugin-fields');
-            if (!el) return;
-            const html = S.slots.channelEditor.map(f => f.render(session) || '').join('');
-            el.innerHTML = html;
-            el.hidden = !html;
+            S.editing = session || null;
+            const fill = (id, part) => {
+                const el = document.getElementById(id);
+                if (!el) return;
+                const html = S.slots.channelEditor.map(f => (f[part] ? f[part](session) : '') || '').join('');
+                el.innerHTML = html;
+                el.hidden = !html;
+            };
+            fill('ch-plugin-fields', 'render');
+            fill('ch-plugin-top', 'top');
+            fill('ch-plugin-speakers', 'speakers');
+            // The picker was drawn before: again, with the plugins' notes for this channel
+            if (S.slots.channelEditor.some(f => f.speakerNote) && typeof renderSpeakerTree === 'function') renderSpeakerTree();
         },
         async channelEditorSave(sessionId, session) {
             for (const f of S.slots.channelEditor) {
