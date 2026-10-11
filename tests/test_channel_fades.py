@@ -273,3 +273,22 @@ def test_muting_the_speakers_silences_their_stream_but_not_a_browsers():
     channel.stop()
     assert channel.speakers_muted is False
 
+def test_a_track_given_a_mode_while_playing_starts_playing(tones):
+    """A file added to a playing theme joins as Unassigned (silent); picking its Mode in the editor makes it play."""
+    theme = make_theme(tones, ["A", "B"], "ab")
+    for inst in theme.instances:
+        inst.playback_mode = m.recording.PlaybackMode.CONTINUOUS
+    b = theme.instances[1]
+    b.playback_mode = m.recording.PlaybackMode.UNASSIGNED
+    channel = channel_without_thread()
+    channel.set_theme(theme, {})
+    before = pull(channel, 1.0)
+    a_full = envelope(before, A_HZ)[-5:].mean()
+    assert envelope(before, B_HZ).max() < 0.02 * a_full  # Unassigned: not played
+    b.playback_mode = m.recording.PlaybackMode.CONTINUOUS  # the editor's Mode menu
+    after = envelope(pull(channel, 4.0), B_HZ)
+    assert after[0] < 0.1 * a_full  # fades in, no jump
+    assert after[-10:].mean() > 0.8 * a_full  # then plays like A
+    b.playback_mode = m.recording.PlaybackMode.UNASSIGNED  # moved back to Unassigned
+    assert envelope(pull(channel, 1.0), B_HZ)[-5:].max() < 0.02 * a_full
+

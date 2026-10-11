@@ -207,6 +207,7 @@ class ThemeStream:
             self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap, clock=lambda: self.audio_seconds)
         coordinator = self.exclusion_coordinators.get(group) if group else None
         stream = track.get_stream(exclusion_coordinator=coordinator)
+        stream.built_as = self._build_key(track)
         ebb = getattr(track, "ebb_group_name", None)
         if ebb and hasattr(stream, "ebb_group"):
             from sonorium.recording import EbbGroup, group_pauses
@@ -216,6 +217,26 @@ class ThemeStream:
             self.ebb_groups[ebb].register(track.name, track)
             stream.ebb_group = self.ebb_groups[ebb]
         return stream
+
+    @staticmethod
+    def _build_key(track):
+        """What a track's stream was built for: its mode and, for a loop, Gapless. A change needs a new stream."""
+        from sonorium.recording import PlaybackMode
+        try:
+            mode = track._resolve_playback_mode()
+        except Exception:
+            return None
+        looped = mode in (PlaybackMode.CONTINUOUS, PlaybackMode.PRESENCE)
+        return mode, bool(getattr(track, "crossfade_enabled", True)) if looped else None
+
+    def _rebuilt_tracks(self) -> list:
+        """Tracks whose mode (or Gapless) changed since their stream was built (the editor, a preset)."""
+        out = []
+        for stream in list(self.recording_streams):
+            built = getattr(stream, "built_as", None)
+            if built is not None and built != self._build_key(stream.instance):
+                out.append(stream.instance.name)
+        return out
 
     def _bed_groups(self, theme_def=None) -> tuple:
         """The groups set to Merry-go-round now."""
@@ -295,6 +316,9 @@ class ThemeStream:
             stream = old_tracks.pop(instance.name, None)
             if group in switched:
                 stream = None
+            elif stream is not None and getattr(stream, "built_as", None) not in (None, self._build_key(view)):
+                stream = None  # its mode or Gapless changed: a new stream, faded in like a track turned on
+                self._toggle_gain[instance.name] = 0.0
             streams.append(stream if stream is not None else self._new_stream(view))
         names = {instance.name for instance in theme_def.instances}
         for name in [n for n in list(self._views) if n not in names]:
@@ -319,7 +343,17 @@ class ThemeStream:
             logger.info(f'ThemeStream "{theme_def.name}": {len(added)} track(s) joined, {len(left)} left')
 
     def _follow_group_modes(self):
-        """A group switched between Intermittent, Merry-go-round, Ebb & Flow and Intrusion: rebuild its streams."""
+        """
+        A group switched between Intermittent, Merry-go-round, Ebb & Flow and
+        Intrusion, or a track's mode (or Gapless) changed: rebuild those streams.
+        """
+        changed = self._rebuilt_tracks()
+        if changed:
+            with self._lock:
+                changed = self._rebuilt_tracks()
+                if changed:
+                    self._build(self.theme_def)
+                    logger.info(f'ThemeStream "{self.theme_def.name}": {", ".join(changed)} now play(s) as set')
         if (self._bed_groups() == self._beds and self._intrusion_groups() == self._intrusions
                 and self._ebb_groups_now() == self._ebbs):
             return
