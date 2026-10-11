@@ -12,7 +12,8 @@ presets.json, see docs/THEME_FORMAT.md).
     edit.add_file(Path("/tmp/door.wav"), group="Doors", settings={"playback_mode": "sparse", "presence": 0.4})
     edit.set_group("Doors", {"volume": 0.8})
     edit.add_preset("Quiet night", {fire: {"volume": 0.5}})
-    result = edit.commit()   # {"theme_id", "folder", "name", "is_new", "added"}
+    edit.add_extra_file("ATTRIBUTION.md", "...")   # never replaces a file the theme has
+    result = edit.commit()  # {"theme_id", "folder", "name", "is_new", "added"}
 
 Nothing is written before commit(). commit() writes the audio files first,
 then presets.json and metadata.json. A new theme is built in a hidden
@@ -263,6 +264,7 @@ class ThemeEdit:
         self.metadata = metadata
         self.is_new = is_new
         self._files: list[tuple[Optional[str], str, Source]] = []  # (group, file name, source)
+        self._extras: list[tuple[str, bytes]] = []  # other files at the top of the theme folder
         self._added: list[str] = []
         self._presets_before = set(metadata.presets)
         self._new_presets: dict[str, bool] = {}  # preset id -> mute the tracks it doesn't name
@@ -378,6 +380,21 @@ class ThemeEdit:
         self._added.append(key)
         self.metadata.tracks[key] = TrackSettings(**fields)
         return key
+
+    def add_extra_file(self, filename: str, content: Union[str, bytes]) -> None:
+        """
+        A file that isn't a track (e.g. MANIFEST.json, ATTRIBUTION.md) at the
+        top of the theme folder. It never replaces a file the theme has.
+        """
+        self._check_open()
+        try:
+            filename = theme_groups.safe_upload_name(filename)
+        except theme_groups.GroupError as e:
+            raise ThemeEditError(f"{filename!r}: {e}") from e
+        if Path(filename).suffix.lower() in AUDIO_EXTENSIONS or filename in (METADATA_FILE, PRESETS_FILE):
+            raise ThemeEditError(f"{filename}: use add_file for audio; the theme's JSON files are written by commit")
+        data = content.encode("utf-8") if isinstance(content, str) else bytes(content)
+        self._extras = [(n, d) for n, d in self._extras if n != filename] + [(filename, data)]
 
     def add_link(self, theme_id: str, track: str, group: Optional[str] = None,
                  settings: Optional[dict] = None) -> str:
@@ -532,6 +549,8 @@ class ThemeEdit:
                 target_dir = staging / group if group else staging
                 target_dir.mkdir(exist_ok=True)
                 self._write(source, target_dir / filename)
+            for filename, data in self._extras:
+                (staging / filename).write_bytes(data)
             if not save_theme_folder(staging, self.metadata):
                 raise ThemeEditError("The theme files couldn't be saved")
             final = self._unique_folder()
@@ -559,6 +578,12 @@ class ThemeEdit:
                 temp = target_dir / f"{PARTIAL_PREFIX}{uuid.uuid4().hex[:12]}{Path(filename).suffix}"
                 partial.append((temp, target_dir / filename))
                 self._write(source, temp)
+            for filename, data in self._extras:
+                if (folder / filename).exists():
+                    continue  # never replaced
+                temp = folder / f"{PARTIAL_PREFIX}{uuid.uuid4().hex[:12]}"
+                partial.append((temp, folder / filename))
+                temp.write_bytes(data)
             for temp, final in partial:
                 if final.exists():
                     raise ThemeEditError(f"'{final.name}' appeared in the theme folder meanwhile")
