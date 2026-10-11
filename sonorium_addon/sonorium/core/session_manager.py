@@ -26,7 +26,6 @@ from sonorium.core.state import (
     NameSource,
     StateStore,
 )
-from sonorium.core.channel_policy import ChannelRefused
 from sonorium.obs import logger
 
 # Stop a sessiononce its channel has had no listeners this long. Long enough
@@ -65,7 +64,9 @@ class SessionManager:
     Each session represents one theme playing to one set of speakers.
     Multiple sessions can run simultaneously on different channels.
     """
-    
+
+    policy = None  # core/channel_policy.py (Zones); None: every channel open
+
     def __init__(
         self,
         state_store: StateStore,
@@ -119,6 +120,9 @@ class SessionManager:
             check(action, session, **details)
 
     def allowed(self, action: str, session: Session, **details) -> bool:
+        if self.policy is None:
+            return True
+        from sonorium.core.channel_policy import ChannelRefused
         try:
             self.guard(action, session, **details)
         except ChannelRefused:
@@ -685,6 +689,7 @@ class SessionManager:
         self.state.save()
         
         logger.info(f"  Created session '{session.name}' ({session_id})")
+        self._tell("created", session)
         self.publish("channel.created", session, theme_id=session.theme_id)
         return session
     
@@ -1183,12 +1188,14 @@ class SessionManager:
             return False
 
         logger.info(f"Playing session '{session.name}'...")
-        try:
-            self.guard("play", session)  # Zones: may refuse, and picks the speakers it may use
-        except ChannelRefused as e:
-            logger.warning(f"  '{session.name}' not started: {e}")
-            self._start_failed(session, str(e))
-            return False
+        if self.policy is not None:  # Zones: may refuse, and picks the speakers it may use
+            from sonorium.core.channel_policy import ChannelRefused
+            try:
+                self.guard("play", session)
+            except ChannelRefused as e:
+                logger.warning(f"  '{session.name}' not started: {e}")
+                self._start_failed(session, str(e))
+                return False
         self._fading.pop(session_id, None)# cancels a stop or pause still fading out
 
         # Not playing yet as far as the runner is concerned, so this only sets

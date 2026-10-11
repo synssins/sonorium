@@ -15,6 +15,7 @@ object with some of these methods (all optional):
     speakers(session, speaker_ids)      the speakers the channel plays on now,
                                         from the ones it has (e.g. without the
                                         ones another channel uses)
+    created(session)                    a new channel
     changed(session)                    its speakers changed (after update)
     released(session)                   it stopped or paused
     deleted(session)                    it was deleted
