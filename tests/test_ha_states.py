@@ -9,8 +9,9 @@ import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import httpx
 import pytest
+
+httpx = pytest.importorskip("httpx")
 
 ADDON = Path(__file__).resolve().parent.parent / "sonorium_addon" / "sonorium"
 

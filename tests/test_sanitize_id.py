@@ -124,9 +124,13 @@ def sanitize_id():
     """utils.py on its own (stub logger), so the test needs nothing else of Sonorium."""
     obs = types.ModuleType("sonorium.obs")
     obs.logger = types.SimpleNamespace(info=print, warning=print, error=print, debug=print)
-    saved = {k: sys.modules.get(k) for k in ("sonorium", "sonorium.obs")}
+    saved = {k: sys.modules.get(k) for k in ("sonorium", "sonorium.obs", "httpx")}
     sys.modules.setdefault("sonorium", types.ModuleType("sonorium"))
     sys.modules["sonorium.obs"] = obs
+    try:
+        import httpx  # noqa: F401 - utils imports it; the CI runner may not have it
+    except ImportError:
+        sys.modules["httpx"] = types.ModuleType("httpx")
     try:
         spec = importlib.util.spec_from_file_location("_sonorium_utils_under_test", ADDON / "utils.py")
         module = importlib.util.module_from_spec(spec)

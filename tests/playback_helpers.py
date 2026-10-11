@@ -1,7 +1,7 @@
 """
 Shared set-up for the playback tests (fades, glides, sequences, playlists).
 
-Loads the add-on's own modules without fmtr, Home Assistant or MQTT: bare
+Loads the add-on's own modules without Home Assistant or MQTT: bare
 packages (their __init__ files import everything) plus stubs for obs, and
 for utils when httpx isn't installed (the CI runner installs only pytest,
 numpy and av).
@@ -22,7 +22,7 @@ CHUNK = 1024
 
 
 def _ours(name):
-    return name == "sonorium" or name.startswith("sonorium.") or name == "fmtr" or name.startswith("fmtr.")
+    return name == "sonorium" or name.startswith("sonorium.")
 
 
 def _package(name, path):

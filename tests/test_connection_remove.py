@@ -27,7 +27,7 @@ def _exec(name, relative):
 
 @pytest.fixture
 def app(monkeypatch, tmp_path):
-    """Standalone runtime, the HA registry and ApiSonorium, without fmtr, HA, MQTT or the audio engine."""
+    """Standalone runtime, the HA registry and ApiSonorium, without HA, MQTT or the audio engine."""
     monkeypatch.setenv("SONORIUM_STANDALONE", "1")
     monkeypatch.setenv("SONORIUM_CONNECTION_FILE", str(tmp_path / "sonorium" / "connection.json"))
     monkeypatch.setenv("SONORIUM__HA_CORE_API", "http://ha.invalid:8123/api")
@@ -44,14 +44,11 @@ def app(monkeypatch, tmp_path):
     version = types.ModuleType("sonorium.version")
     version.__version__ = "test"
     logbuffer = types.ModuleType("sonorium.logbuffer")
-    fmtr = types.ModuleType("fmtr")
-    fmtr_tools = types.ModuleType("fmtr.tools")
-    fmtr_tools.http = MagicMock()
-    fmtr_tools.api = SimpleNamespace(Base=object, Endpoint=MagicMock())
-    fmtr.tools = fmtr_tools
+    http_client = types.ModuleType("sonorium.http_client")
+    http_client.Client = MagicMock()
     stubs = {
         "sonorium": package, "sonorium.obs": obs, "sonorium.theme": theme, "sonorium.version": version,
-        "sonorium.logbuffer": logbuffer, "fmtr": fmtr, "fmtr.tools": fmtr_tools,
+        "sonorium.logbuffer": logbuffer, "sonorium.http_client": http_client,
     }
     with patch.dict(sys.modules, stubs):
         runtime = _exec("sonorium.runtime", "runtime.py")

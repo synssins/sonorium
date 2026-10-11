@@ -14,7 +14,6 @@ import types
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -31,23 +30,14 @@ m = SimpleNamespace()
 
 @pytest.fixture(autouse=True, scope="module")
 def addon_package():
-    """The add-on's sonorium package (api.py with fmtr stubbed), for these tests only."""
+    """The add-on's sonorium package, for these tests only."""
     saved = {k: v for k, v in sys.modules.items()
-             if k in ("sonorium", "fmtr") or k.startswith(("sonorium.", "fmtr."))}
+             if k == "sonorium" or k.startswith("sonorium.")}
     for k in saved:
         del sys.modules[k]
     sys.path.insert(0, ADDON)
     try:
         utils = pytest.importorskip("sonorium.utils")
-        fmtr = types.ModuleType("fmtr")
-        tools = types.ModuleType("fmtr.tools")
-        tools.api = SimpleNamespace(Base=object, Endpoint=MagicMock())
-        tools.http = MagicMock()
-        iterator_tools = types.ModuleType("fmtr.tools.iterator_tools")
-        iterator_tools.IndexList = utils.IndexList
-        tools.iterator_tools = iterator_tools
-        fmtr.tools = tools
-        sys.modules.update({"fmtr": fmtr, "fmtr.tools": tools, "fmtr.tools.iterator_tools": iterator_tools})
         import sonorium.api
         import sonorium.core.intrusions
         import sonorium.core.theme_metadata
@@ -63,7 +53,7 @@ def addon_package():
     finally:
         sys.path.remove(ADDON)
         for k in [k for k in sys.modules
-                  if k in ("sonorium", "fmtr") or k.startswith(("sonorium.", "fmtr."))]:
+                  if k == "sonorium" or k.startswith("sonorium.")]:
             del sys.modules[k]
         sys.modules.update(saved)
 
