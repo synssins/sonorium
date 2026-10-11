@@ -326,6 +326,10 @@ def create_api_router(
         Configured APIRouter
     """
     router = APIRouter(prefix="/api", tags=["api"])
+
+    # Settings > Advanced's playback values: the mixer reads them from this store
+    from sonorium import playback_values
+    playback_values.set_source(lambda: state_store.settings.playback_values)
     
     # --- Debug Endpoint ---
     
@@ -1716,6 +1720,41 @@ def create_api_router(
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
         )
+
+    # --- Settings > Advanced: playback values ---
+
+    def _playback_values_response() -> dict:
+        return {"values": playback_values.values(), "defaults": dict(playback_values.DEFAULTS)}
+
+    @router.get("/settings/playback-values")
+    async def get_playback_values() -> dict:
+        """
+        The global playback values ("values", seconds; chances and randomness
+        as fractions, 0.3 = 30%) and their defaults.
+        """
+        return _playback_values_response()
+
+    @router.put("/settings/playback-values")
+    async def update_playback_values(request: Request) -> dict:
+        """
+        Change some playback values: {key: number, or null for the default}.
+        Unknown keys, non-numbers, negative values, chances above 1 and a range
+        whose min is above its max are 400. Playing channels follow at once
+        where they can, otherwise on the next play or loop.
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        settings = state_store.settings
+        try:
+            stored = playback_values.validate(body, settings.playback_values)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+        settings.playback_values = stored
+        state_store.save()
+        logger.info(f"Settings: playback values changed: {body}")
+        return _playback_values_response()
 
     # --- Speaker Settings Endpoints ---
 

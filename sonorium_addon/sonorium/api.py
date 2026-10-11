@@ -216,6 +216,9 @@ class ApiSonorium(api.Base):
             # Initialize state store
             self._state_store = StateStore()
             self._state_store.load()
+            # Settings > Advanced's playback values: the mixer reads them from the store
+            from sonorium import playback_values
+            playback_values.set_source(lambda: self._state_store.settings.playback_values)
             logger.debug(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
 
             # Initialize theme metadata manager
@@ -2147,13 +2150,13 @@ class ApiSonorium(api.Base):
         Change a group's master settings. Body: any of presence, volume (0-1,
         multiplying each track's own value), muted, gap_min, gap_max (seconds
         between plays), mode ("intermittent", "merry_go_round" or "ebb_flow";
-        "intrusion" is retired: 400), crossfade (seconds, 1-60, for a
+        "intrusion" is retired: 400), crossfade (seconds, within Settings > Advanced's range, by default 1-60, for a
         merry-go-round), pause_between and rise (Ebb & Flow). null removes a
         setting (back to 100% / no mute / default gap / Intermittent / 10 s
         crossfade). A group's linked files stay in it whatever its mode.
         "remove_links" (from when intrusion groups held them) is accepted and ignored.
         """
-        from sonorium.recording import GROUP_MODE_INTRUSION, GROUP_MODES, MAX_GROUP_CROSSFADE, MIN_GROUP_CROSSFADE
+        from sonorium.recording import GROUP_MODE_INTRUSION, GROUP_MODES, group_crossfade_range
         theme, metadata, members = self._theme_groups(theme_id)
         if group not in members:
             raise HTTPException(status_code=404, detail="Group not found")
@@ -2194,7 +2197,8 @@ class ApiSonorium(api.Base):
                     value = float(value)
                     if value != value:  # NaN
                         raise ValueError(value)
-                    value = max(MIN_GROUP_CROSSFADE, min(MAX_GROUP_CROSSFADE, value))
+                    low, high = group_crossfade_range()  # Settings > Advanced, by default 1-60
+                    value = max(low, min(high, value))
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"Invalid value for '{key}'")
             settings[key] = value

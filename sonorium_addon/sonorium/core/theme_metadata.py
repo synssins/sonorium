@@ -29,6 +29,15 @@ from sonorium.core.theme_presets import (
 )
 from sonorium.obs import logger
 
+
+def default_short_file_threshold() -> float:
+    """A new theme's short file threshold: Settings > Advanced (15 s out of the box)."""
+    try:
+        from sonorium import playback_values
+    except ImportError:
+        return 15.0
+    return playback_values.get("short_file_threshold")
+
 AUDIO_EXTENSIONS = ('.mp3', '.wav', '.flac', '.ogg')
 
 # Name of the group that 1.0 "exclusive" tracks belong to after conversion
@@ -103,7 +112,8 @@ class ThemeMetadata:
     categories: list[str] = field(default_factory=list)
 
     # Audio settings
-    short_file_threshold: float = 15.0
+    # (a theme's own; a new theme starts with Settings > Advanced's Short file threshold)
+    short_file_threshold: float = field(default_factory=default_short_file_threshold)
 
     # Per-track settings (keyed by filename)
     tracks: dict[str, TrackSettings] = field(default_factory=dict)
@@ -393,7 +403,7 @@ def _retire_auto(folder: Path, metadata: ThemeMetadata) -> bool:
     try:
         threshold = float(metadata.short_file_threshold)
     except (TypeError, ValueError):
-        threshold = 15.0  # recording.SHORT_FILE_THRESHOLD_SECONDS
+        threshold = default_short_file_threshold()
 
     def resolve(key, presence) -> Optional[str]:
         if seconds.get(key) is None:

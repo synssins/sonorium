@@ -8,6 +8,29 @@ import numpy as np
 from sonorium.obs import logger
 import av
 
+
+def _load_playback_values():
+    """Settings > Advanced's playback values (sonorium/playback_values.py), also when this file is loaded on its own."""
+    try:
+        from sonorium import playback_values as module
+        return module
+    except ImportError:
+        import importlib.util
+        import sys
+        from pathlib import Path
+        module = sys.modules.get("sonorium.playback_values")
+        if module is None:
+            spec = importlib.util.spec_from_file_location(
+                "sonorium.playback_values", Path(__file__).with_name("playback_values.py"))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            sys.modules["sonorium.playback_values"] = module
+        return module
+
+
+# The global playback values (Settings > Advanced); the constants below are their defaults
+playback_values = _load_playback_values()
+
 LOG_THRESHOLD = 500
 EBB_DEFAULT_LOW = 0.2  # Ebb & Flow's lower Volume knob, until a track sets one
 DEFAULT_PAUSE = (30.0, 300.0)  # Ebb & Flow's Pause between plays, seconds, until a track sets its own
@@ -34,7 +57,8 @@ class ExclusionGroupCoordinator:
     One coordinator per group per ThemeStream.
     """
 
-    # Gap after a track finishes when the group doesn't set one (seconds)
+    # Gap after a track finishes when the group doesn't set one (seconds): the
+    # default of Settings > Advanced's "Gap after a group's track" (group_gap())
     MIN_GAP_AFTER_EXCLUSIVE = 120.0
     # Nothing in a group plays this long after the stream starts
     INITIAL_DELAY = 60.0
@@ -54,11 +78,16 @@ class ExclusionGroupCoordinator:
         gap = self._range()
         if gap:
             return random.uniform(*gap)
-        return self.MIN_GAP_AFTER_EXCLUSIVE
+        return self.group_gap()
+
+    @staticmethod
+    def group_gap() -> float:
+        """The gap when the group sets none: Settings > Advanced (seconds)."""
+        return playback_values.get("group_gap")
 
     def __init__(self, gap_range=None, clock=None):
         # The group's gap between plays (seconds, random in the range each time);
-        # MIN_GAP_AFTER_EXCLUSIVE when the group doesn't set one
+        # group_gap() (Settings > Advanced) when the group doesn't set one
         self._gap_range = gap_range
         # Seconds of audio the theme has played (ThemeStream.audio_seconds), so a
         # stalled stream delays every track alike and turns can't overlap;
@@ -178,7 +207,7 @@ class ExclusionGroupCoordinator:
             if self._playing_track is not None:
                 remaining = self._play_end_time - now
                 if remaining > 0:
-                    return remaining + ((self._range() or (self.MIN_GAP_AFTER_EXCLUSIVE,))[0])
+                    return remaining + ((self._range() or (self.group_gap(),))[0])
             if now < self._cooldown_until:
                 return self._cooldown_until - now
             if self._picked is None and self._collect_from is not None:
@@ -234,6 +263,8 @@ class PlaybackMode(str, Enum):
     AUTO = "auto"
     UNASSIGNED = "unassigned"  # uploaded or linked, not placed in a section yet: not played
 
+# The defaults of Settings > Advanced's playback values (playback_values.DEFAULTS);
+# the mixer reads the values themselves through playback_values.get()
 # Threshold for "short" audio files that get sparse playback
 SHORT_FILE_THRESHOLD_SECONDS = 15.0
 # Sparse playback interval range (seconds between plays)
@@ -252,6 +283,16 @@ SAMPLE_RATE = 44100
 # Calculated sample counts
 CROSSFADE_SAMPLES = int(LOOP_CROSSFADE_DURATION * SAMPLE_RATE)
 TRACK_FADE_SAMPLES = int(TRACK_FADE_DURATION * SAMPLE_RATE)
+
+
+def loop_crossfade_samples() -> int:
+    """A loop's crossfade into itself now (Settings > Advanced), in samples (at least one)."""
+    return max(1, int(playback_values.get("loop_crossfade") * SAMPLE_RATE))
+
+
+def track_fade_samples() -> int:
+    """A track fading in or out of the mix now (Settings > Advanced), in samples (at least one)."""
+    return max(1, int(playback_values.get("track_fade") * SAMPLE_RATE))
 
 
 def decode_mono(path):
@@ -459,8 +500,10 @@ class RecordingMetadata:
         """Get total duration in seconds"""
         return self.duration_samples / SAMPLE_RATE
 
-    def is_short_file(self, threshold: float = SHORT_FILE_THRESHOLD_SECONDS) -> bool:
-        """Check if this is a short audio file that should use sparse playback"""
+    def is_short_file(self, threshold: float | None = None) -> bool:
+        """Check if this is a short audio file that should use sparse playback (default: Settings > Advanced)"""
+        if threshold is None:
+            threshold = playback_values.get("short_file_threshold")
         return self.duration_seconds < threshold
     
     def _count_samples(self):
@@ -504,7 +547,7 @@ class RecordingThemeInstance:
         """Get the short file threshold from theme, or use default"""
         if self.theme is not None:
             return self.theme.short_file_threshold
-        return SHORT_FILE_THRESHOLD_SECONDS
+        return playback_values.get("short_file_threshold")
 
     def _resolve_playback_mode(self) -> PlaybackMode:
         """Resolve AUTO mode to an actual playback mode based on file characteristics."""
@@ -610,8 +653,13 @@ def group_mode(group_settings: dict | None) -> str:
     return mode if mode in GROUP_MODES else GROUP_MODE_INTERMITTENT
 
 
+def group_crossfade_range() -> tuple[float, float]:
+    """The shortest and longest crossfade a merry-go-round group can have (Settings > Advanced)."""
+    return playback_values.get("group_crossfade_min"), playback_values.get("group_crossfade_max")
+
+
 def group_crossfade(group_settings: dict | None) -> float:
-    """A merry-go-round group's crossfade in seconds (default 10, kept within 1-60)."""
+    """A merry-go-round group's crossfade in seconds (default 10, kept within the range, by default 1-60)."""
     value = (group_settings or {}).get("crossfade")
     try:
         value = DEFAULT_GROUP_CROSSFADE if value is None else float(value)
@@ -619,7 +667,8 @@ def group_crossfade(group_settings: dict | None) -> float:
         value = DEFAULT_GROUP_CROSSFADE
     if value != value:  # NaN
         value = DEFAULT_GROUP_CROSSFADE
-    return max(MIN_GROUP_CROSSFADE, min(MAX_GROUP_CROSSFADE, value))
+    low, high = group_crossfade_range()
+    return max(low, min(high, value))
 
 # Track settings a preset can set, as RecordingThemeInstance attribute names
 PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive",
@@ -911,10 +960,26 @@ class CrossfadeRecordingStream:
         # The file's own fades: the loop's overlap is as long as the longer
         # one, and a side with its own fade isn't faded again (its fade does
         # it). Without fades, the usual equal-power crossfade.
+        # Without them, the Loop crossfade (Settings > Advanced), read again at each loop.
         self._fades = fade_in_n, fade_out_n = file_fade_samples(self.instance)
-        CROSSFADE_SAMPLES = max(fade_in_n, fade_out_n) or globals()["CROSSFADE_SAMPLES"]
-        if track_duration:
-            CROSSFADE_SAMPLES = max(self.CHUNK_SIZE, min(CROSSFADE_SAMPLES, track_duration // 2))
+
+        def overlap_now(track_duration):
+            overlap = max(fade_in_n, fade_out_n) or loop_crossfade_samples()
+            if track_duration:
+                overlap = max(self.CHUNK_SIZE, min(overlap, track_duration // 2))
+            return overlap
+
+        def curves(overlap):
+            """The crossfade curves (equal power; a side with the file's own fade stays at full)."""
+            fade_out = np.cos(np.linspace(0, np.pi/2, overlap)).astype(np.float32)
+            fade_in = np.sin(np.linspace(0, np.pi/2, overlap)).astype(np.float32)
+            if fade_out_n:
+                fade_out = np.ones(overlap, dtype=np.float32)  # the file's end fades by itself
+            if fade_in_n:
+                fade_in = np.ones(overlap, dtype=np.float32)  # the file's start rises by itself
+            return fade_out, fade_in
+
+        CROSSFADE_SAMPLES = overlap_now(track_duration)
         self.overlap = CROSSFADE_SAMPLES
         crossfade_start = max(0, track_duration - CROSSFADE_SAMPLES)
         
@@ -931,12 +996,7 @@ class CrossfadeRecordingStream:
         crossfade_position = 0
         
         # Pre-generate crossfade curves (equal-power)
-        fade_out = np.cos(np.linspace(0, np.pi/2, CROSSFADE_SAMPLES)).astype(np.float32)
-        fade_in = np.sin(np.linspace(0, np.pi/2, CROSSFADE_SAMPLES)).astype(np.float32)
-        if fade_out_n:
-            fade_out = np.ones(CROSSFADE_SAMPLES, dtype=np.float32)  # the file's end fades by itself
-        if fade_in_n:
-            fade_in = np.ones(CROSSFADE_SAMPLES, dtype=np.float32)  # the file's start rises by itself
+        fade_out, fade_in = curves(CROSSFADE_SAMPLES)
         
         next_buffer = np.empty(0, dtype=np.float32)
         current_done = False
@@ -1023,6 +1083,12 @@ class CrossfadeRecordingStream:
                     samples_played = crossfade_position  # We're this far into the new track
                     in_crossfade = False
                     crossfade_position = 0
+                    # The next loop's crossfade: the Loop crossfade now
+                    overlap = overlap_now(track_duration)
+                    if overlap != CROSSFADE_SAMPLES:
+                        CROSSFADE_SAMPLES = self.overlap = overlap
+                        fade_out, fade_in = curves(overlap)
+                        crossfade_start = max(0, track_duration - CROSSFADE_SAMPLES)
             
             # The track's volume, read as each chunk goes out and eased; int16 for output
             output_chunk, self._volume = apply_volume(output_chunk, eases_from(self.instance, self._volume), self.instance.volume)
@@ -1091,17 +1157,18 @@ class SparsePlaybackStream:
         logger.debug(f'SparsePlaybackStream: {self.instance.name} - short file ({file_duration_seconds:.1f}s), using sparse playback' +
                     (', exclusive=True' if self.instance.exclusive else ''))
 
-        # Pre-generate fade curves for the short file
-        # Use shorter fade for very short files
-        fade_duration = min(TRACK_FADE_DURATION, file_duration_seconds / 3)
         grouped = bool(getattr(self.instance, "exclusion_group", None)) and self.exclusion_coordinator is not None
-        if grouped:
-            # A group's tracks just play, start to finish (a thunder crack keeps
-            # its attack, a song its first notes): only a click-free edge
-            fade_duration = min(GROUP_EDGE_FADE_SECONDS, file_duration_seconds / 3)
-        fade_samples = int(fade_duration * SAMPLE_RATE)
-        fade_in_curve = np.sin(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
-        fade_out_curve = np.cos(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
+
+        def fade_curves():
+            """Fade in and out curves for a play (the Track fade now; shorter for very short files)."""
+            fade_duration = min(playback_values.get("track_fade"), file_duration_seconds / 3)
+            if grouped:
+                # A group's tracks just play, start to finish (a thunder crack keeps
+                # its attack, a song its first notes): only a click-free edge
+                fade_duration = min(GROUP_EDGE_FADE_SECONDS, file_duration_seconds / 3)
+            fade_samples = int(fade_duration * SAMPLE_RATE)
+            return (np.sin(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32),
+                    np.cos(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32))
 
         def get_silent_interval():
             """
@@ -1111,14 +1178,13 @@ class SparsePlaybackStream:
             - presence=0.5 (50%): ~16.5 min gaps (±30% = 11.5-21.5 min)
             - presence=0.1 (10%): ~27 min gaps (±30% = 18.9-35.1 min)
             """
-            # Invert presence: low presence = long interval, high presence = short interval
-            factor = 1.0 - presence
-            base_interval = SPARSE_MIN_INTERVAL + (SPARSE_MAX_INTERVAL - SPARSE_MIN_INTERVAL) * factor
+            # Invert presence: low presence = long interval, high presence = short
+            # interval, within Wait between plays (Settings > Advanced)
+            base_interval = playback_values.base_wait(presence)
 
-            # Apply randomization (±30% variance)
-            variance_min = 1.0 - SPARSE_INTERVAL_VARIANCE
-            variance_max = 1.0 + SPARSE_INTERVAL_VARIANCE
-            variation = random.uniform(variance_min, variance_max)
+            # Apply randomization (Wait randomness, by default ±30%)
+            variance = playback_values.get("sparse_interval_variance")
+            variation = random.uniform(max(0.0, 1.0 - variance), 1.0 + variance)
             final_interval = base_interval * variation
 
             logger.debug(f'SparsePlaybackStream: {self.instance.name} next interval: {final_interval/60:.1f} min (presence={presence:.0%})')
@@ -1239,6 +1305,7 @@ class SparsePlaybackStream:
                 logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} plays '
                             f'(Intermittent{", group " + group if group else ""}, {len(audio_data) / SAMPLE_RATE:.1f}s)')
                 self.playing = True
+                fade_in_curve, fade_out_curve = fade_curves()
 
                 # Apply fade in at start
                 if len(fade_in_curve) <= len(audio_data):
@@ -1280,21 +1347,24 @@ class SparsePlaybackStream:
 
             logger.debug(f'SparsePlaybackStream: {self.instance.name} entering silence for {silent_samples/SAMPLE_RATE:.1f}s ({silent_chunks} chunks)')
 
-            # While a transition moves the interval (Build / Thin out), the wait
-            # left is stretched or shortened as it moves
+            # While a transition moves the interval (Build / Thin out), or Wait
+            # between plays is changed (Settings > Advanced), the wait left is
+            # stretched or shortened as it moves
             waited_at = presence
+            waited_range = playback_values.wait_range()
             remaining = float(silent_chunks)
             while remaining >= 1.0:
                 chunk_count += 1
                 remaining -= 1.0
                 yield silence_chunk
-                if getattr(self.instance, "interval_live", False):
-                    now = self.instance.presence
-                    if abs(now - waited_at) > 0.005:
-                        old_base = SPARSE_MIN_INTERVAL + (SPARSE_MAX_INTERVAL - SPARSE_MIN_INTERVAL) * (1.0 - waited_at)
-                        new_base = SPARSE_MIN_INTERVAL + (SPARSE_MAX_INTERVAL - SPARSE_MIN_INTERVAL) * (1.0 - now)
-                        remaining *= new_base / old_base
-                        waited_at = presence = now
+                now = self.instance.presence if getattr(self.instance, "interval_live", False) else waited_at
+                now_range = playback_values.wait_range()
+                if abs(now - waited_at) > 0.005 or now_range != waited_range:
+                    old_base = waited_range[0] + (waited_range[1] - waited_range[0]) * (1.0 - waited_at)
+                    new_base = now_range[0] + (now_range[1] - now_range[0]) * (1.0 - now)
+                    remaining = remaining * new_base / old_base if old_base > 0 else new_base * SAMPLE_RATE / self.CHUNK_SIZE
+                    waited_at = presence = now
+                    waited_range = now_range
 
     def __iter__(self):
         return self
@@ -1312,6 +1382,7 @@ class SparsePlaybackStream:
 # eases back down slower (gusts of wind, waves on rocks).
 EBB_GLIDE_SHORT, EBB_GLIDE_LONG = (2.0, 6.0), (15.0, 40.0)
 EBB_HOLD_SHORT, EBB_HOLD_LONG = (2.0, 10.0), (20.0, 60.0)
+# (defaults; Settings > Advanced's Long pause chance and Turn chance are read through playback_values)
 EBB_LONG_REST = 0.12  # the chance a hold lasts 2 to 4 times longer: uneven, not metronomic
 EBB_TURN = 0.35  # the chance a move changes direction: it drifts more than it seesaws
 
@@ -1337,7 +1408,7 @@ def ebb_step(low: float, current, direction: int, duration: float, rng=random) -
     if current is None:
         return low + span * rng.random(), rng.choice((-1, 1))
     d = min(1.0, max(0.0, float(duration)))
-    if rng.random() < EBB_TURN:
+    if rng.random() < playback_values.get("ebb_turn"):
         direction = -direction
     size = span * rng.uniform(0.12, 0.3 + 0.4 * d)
     level = current + direction * size
@@ -1428,7 +1499,7 @@ class PresenceMixingStream:
 
     def _log_fade(self, direction: str):
         logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} Ebb & Flow '
-                    f'fading {direction} over {TRACK_FADE_DURATION:g}s')
+                    f'fading {direction} over {playback_values.get("track_fade"):g}s')
 
     def _log_move(self, level: float, seconds: float):
         logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} Ebb & Flow '
@@ -1509,7 +1580,7 @@ class PresenceMixingStream:
 
         def next_hold() -> int:
             seconds = random.uniform(*ebb_timing(duration())[1])
-            if random.random() < EBB_LONG_REST:
+            if random.random() < playback_values.get("ebb_long_rest"):
                 seconds *= random.uniform(2.0, 4.0)
             return int(seconds * rate)
 
@@ -1746,7 +1817,7 @@ class PresenceMixingStream:
                     active_samples = get_next_duration(presence, True)
                     # Held through the fade-out too, with room to spare: the turn is
                     # handed back by finish_playing once the fade has finished
-                    seconds = 1e9 if active_samples == float('inf') else (active_samples + 2 * TRACK_FADE_SAMPLES) / SAMPLE_RATE + 1.0
+                    seconds = 1e9 if active_samples == float('inf') else (active_samples + 2 * track_fade_samples()) / SAMPLE_RATE + 1.0
                     if coordinator.try_start_playing(self.instance.name, seconds, presence):
                         is_active, target_gain, fade_position = True, 1.0, 0
                         samples_until_change = active_samples
@@ -1774,7 +1845,7 @@ class PresenceMixingStream:
             # Apply fade if current_gain != target_gain
             if current_gain != target_gain:
                 # Calculate fade progress
-                fade_progress = fade_position / TRACK_FADE_SAMPLES
+                fade_progress = fade_position / track_fade_samples()
                 fade_progress = min(1.0, fade_progress)
 
                 if target_gain > current_gain:
