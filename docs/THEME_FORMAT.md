@@ -424,8 +424,11 @@ gap_chunks   = gap_samples // 1024
 
 For a grouped track, `presence` here is the effective value (track x group master).
 
-Constants: `SPARSE_MIN_INTERVAL = 180`, `SPARSE_MAX_INTERVAL = 1800`,
-`SPARSE_INTERVAL_VARIANCE = 0.30` (`recording.py:189-192`).
+Defaults: `SPARSE_MIN_INTERVAL = 180`, `SPARSE_MAX_INTERVAL = 1800`,
+`SPARSE_INTERVAL_VARIANCE = 0.30` (`recording.py:189-192`). They are global settings
+(Settings > Advanced: Wait between plays, Wait randomness; `playback_values.py`), so 180,
+1800 and 0.7-1.3 above are the values out of the box. The Gap after a group's track
+(120 s) is one too.
 
 **Loop of one sparse stream** (`recording.py:830-911`):
 
