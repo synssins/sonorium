@@ -41,8 +41,10 @@ DEFAULT_CROSSFADE_SECONDS = 3.0
 RECENT_EVENTS = 20
 
 # Listen here: a channel's mix kept running for browsers alone is released
-# once no browser has listened for this long
+# once no browser has listened for this long (POST .../listen can ask for
+# longer, up to LISTEN_HOLD_MAX_SECONDS, e.g. a phone on flaky Wi-Fi)
 LISTEN_RELEASE_SECONDS = 15
+LISTEN_HOLD_MAX_SECONDS = 300
 
 if TYPE_CHECKING:
     from sonorium.ha.registry import HARegistry
@@ -90,6 +92,7 @@ class SessionManager:
         # or not their speakers play, until no browser listens
         self._listening: set[str] = set()
         self._listeners: dict[str, int] = {}  # how many browsers listen to each
+        self._listen_hold: dict[str, float] = {}  # seconds a mix waits for its browsers to come back
 
         # Sequence and playlist timers
         from sonorium.core.playback_runner import PlaybackRunner
@@ -997,6 +1000,7 @@ class SessionManager:
         self._fading.pop(session_id, None)
         self._listening.discard(session_id)
         self._listeners.pop(session_id, None)
+        self._listen_hold.pop(session_id, None)
 
         session = self.state.sessions.pop(session_id)
         self.state.save()
@@ -1328,13 +1332,32 @@ class SessionManager:
     
     # --- Listen here (a browser plays the channel's stream) ---
 
-    def listen(self, session_id: str) -> Optional[Channel]:
+    def listen_hold(self, session_id: str) -> float:
+        """Seconds the channel's mix waits for its browsers to come back after the last one left."""
+        return self._listen_hold.get(session_id, LISTEN_RELEASE_SECONDS)
+
+    def _listening_changed(self, session_id: str, listening: bool) -> None:
+        if not listening:
+            self._listen_hold.pop(session_id, None)
+        session = self.state.sessions.get(session_id)
+        if session is not None:
+            self.publish("channel.listening", session, listening=listening)
+
+    def listen(self, session_id: str, hold_seconds: Optional[float] = None) -> Optional[Channel]:
         """
         A browser listens to the channel: its mix runs (started without the
         speakers if they don't play) until no browser listens. Returns the
         channel, None if none is free. KeyError: no such session;
         ValueError: no theme, or it isn't found.
+
+        hold_seconds (0..LISTEN_HOLD_MAX_SECONDS, default LISTEN_RELEASE_SECONDS):
+        how long the mix waits for a browser whose stream dropped to come
+        back. With several browsers the longest asked for counts.
         """
+        if hold_seconds is not None:
+            hold_seconds = float(hold_seconds)
+            if not 0 <= hold_seconds <= LISTEN_HOLD_MAX_SECONDS:
+                raise ValueError(f"hold_seconds must be between 0 and {LISTEN_HOLD_MAX_SECONDS}")
         session = self.state.sessions.get(session_id)
         if not session:
             raise KeyError(session_id)
@@ -1356,10 +1379,16 @@ class SessionManager:
             channel.set_theme(theme, self.session_overrides(session), crossfade=fade, fade_in=fade)
             channel.fade_in(fade)
         channel.expect_local_listener()
+        was_listening = session_id in self._listening
+        if hold_seconds is not None:
+            held = self._listen_hold.get(session_id, 0.0) if was_listening else 0.0
+            self._listen_hold[session_id] = max(held, hold_seconds)
         self._listening.add(session_id)
         self._listeners[session_id] = self._listeners.get(session_id, 0) + 1
         if fresh_start:
             self.runner.after_play(session)  # its timers run while the browser listens
+        if not was_listening:
+            self._listening_changed(session_id, True)
         logger.info(f"  '{session.name}': a browser listens on channel {channel.id}")
         return channel
 
@@ -1370,7 +1399,9 @@ class SessionManager:
             self._listeners[session_id] = left
             return
         self._listeners.pop(session_id, None)
-        self._listening.discard(session_id)
+        if session_id in self._listening:
+            self._listening.discard(session_id)
+            self._listening_changed(session_id, False)
         session = self.state.sessions.get(session_id)
         if session and not session.is_playing and session_id not in self._listening:
             self.runner.on_stop(session_id)  # nothing plays it now: its sequence or playlist pauses
@@ -1408,10 +1439,11 @@ class SessionManager:
         # Listen here: no browser for a while (closed without unlistening)
         for session_id in list(self._listening):
             channel = self.channel_manager.get_channel(self._session_channels.get(session_id) or 0)
-            if channel and channel.local_idle_seconds() < LISTEN_RELEASE_SECONDS:
+            if channel and channel.local_idle_seconds() < self.listen_hold(session_id):
                 continue
             self._listening.discard(session_id)
             self._listeners.pop(session_id, None)
+            self._listening_changed(session_id, False)
             session = self.state.sessions.get(session_id)
             if session and not session.is_playing:
                 logger.info(f"  '{session.name}': no browser listens any more, channel released")

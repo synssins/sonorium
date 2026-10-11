@@ -74,6 +74,13 @@ CATALOGUE: dict[str, dict] = {
                               "volume, speakers_muted, name, speakers"},
         "summary": "{name} changed",
     },
+    "channel.listening": {
+        "description": "Someone started or stopped listening to a channel on their device (Listen here, the "
+                       "app). While someone listens the channel's mix runs, with or without its speakers.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name",
+                   "listening": "True when the first listener came, false when the last one left"},
+        "summary": "{name}: listening {listening}",
+    },
     "sequence.step": {
         "description": "A channel's sequence moved to a step (also its first step when it starts).",
         "fields": {"channel_id": "Channel id", "name": "Channel name", "theme_id": "Theme id",

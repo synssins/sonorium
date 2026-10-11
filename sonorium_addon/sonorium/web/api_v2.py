@@ -607,21 +607,26 @@ def create_api_router(
         return {"speakers_muted": muted}
 
     @router.post("/sessions/{session_id}/listen")
-    async def listen_session(session_id: str) -> dict:
+    async def listen_session(session_id: str, request: Request) -> dict:
         """
         Listen here: this browser plays the channel's stream (GET stream_path
         with ?local=1). The mix starts without the speakers if they don't play,
         and runs until no browser listens. Play and Stop stay the speakers'.
+        Optional {"hold_seconds": 0-300} (or ?hold_seconds=): how long the mix
+        waits for a dropped stream to come back (default 15).
         """
+        from sonorium.web.app_routes import hold_seconds_of
+        hold = await hold_seconds_of(request)
         try:
-            channel = session_manager.listen(session_id)
+            channel = session_manager.listen(session_id, hold)
         except KeyError:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         if channel is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No free channel")
-        return {"channel_id": channel.id, "stream_path": channel.stream_path}
+        return {"channel_id": channel.id, "stream_path": channel.stream_path,
+                "hold_seconds": session_manager.listen_hold(session_id)}
 
     @router.delete("/sessions/{session_id}/listen")
     async def unlisten_session(session_id: str) -> dict:

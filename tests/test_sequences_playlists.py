@@ -686,6 +686,51 @@ def test_a_mix_kept_for_browsers_is_released_when_none_listens(tmp_path):
     assert released(t) and "Stopped" not in recent_texts(t)
 
 
+def recorded_events(t):
+    events = []
+    t.manager.publish = lambda event_type, session, **data: events.append((event_type, data))
+    return events
+
+
+def test_listen_hold_seconds_keeps_the_mix_through_a_dropout(tmp_path):
+    """G3: a phone asks the mix to wait longer than 15 s for its stream to come back."""
+    t = build(tmp_path)
+    sid = t.session.id
+    events = recorded_events(t)
+    t.manager.listen(sid, hold_seconds=120)
+    assert t.manager.listen_hold(sid) == 120
+    t.channel.local_idle = 60  # the phone's Wi-Fi dropped a minute ago
+    t.manager.release_idle_sessions()
+    assert not released(t) and t.manager.is_listened(t.session)
+    t.channel.local_idle = 121
+    t.manager.release_idle_sessions()
+    assert released(t) and not t.manager.is_listened(t.session)
+    assert t.manager.listen_hold(sid) == m.session_manager.LISTEN_RELEASE_SECONDS  # back to the default
+    assert [e for e in events if e[0] == "channel.listening"] == [
+        ("channel.listening", {"listening": True}), ("channel.listening", {"listening": False})]
+
+
+def test_listen_hold_seconds_bounds_and_the_longest_counts(tmp_path):
+    t = build(tmp_path)
+    sid = t.session.id
+    for bad in (-1, 301):
+        with pytest.raises(ValueError):
+            t.manager.listen(sid, hold_seconds=bad)
+    assert not t.manager.is_listened(t.session)
+    events = recorded_events(t)
+    t.manager.listen(sid)  # a browser: today's 15 s
+    assert t.manager.listen_hold(sid) == 15
+    t.manager.listen(sid, hold_seconds=0)
+    assert t.manager.listen_hold(sid) == 0
+    t.manager.listen(sid, hold_seconds=200)
+    t.manager.listen(sid, hold_seconds=30)  # the longest asked for counts
+    assert t.manager.listen_hold(sid) == 200
+    for _ in range(4):
+        run(t.manager.unlisten(sid))
+    assert released(t) and t.manager.listen_hold(sid) == 15
+    assert [e[1]["listening"] for e in events if e[0] == "channel.listening"] == [True, False]
+
+
 def test_speakers_keep_playing_when_the_browser_goes(tmp_path):
     t = build(tmp_path)
     run(t.manager.play(t.session.id))
