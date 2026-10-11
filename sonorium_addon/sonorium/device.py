@@ -9,12 +9,10 @@ from functools import cached_property
 from pathlib import Path
 from typing import Self, TYPE_CHECKING
 
-import homeassistant_api
-
 from sonorium import runtime
 from sonorium.obs import logger
 from sonorium.recording import RecordingMetadata
-from sonorium.utils import IndexList
+from sonorium.utils import HomeAssistantClient, IndexList
 
 if TYPE_CHECKING:
     from sonorium.theme import ThemeDefinition
@@ -28,9 +26,9 @@ class MediaState:
     supported_features: int = 0
 
     @classmethod
-    def from_state(cls, state) -> Self:
-        data = state.model_dump()
-        data |= data.pop('attributes', {})
+    def from_state(cls, state: dict) -> Self:
+        data = dict(state)
+        data |= data.pop('attributes', None) or {}
         allowed = {f.name for f in fields(cls)}
         filtered = {k: v for k, v in data.items() if k in allowed}
         if 'friendly_name' not in filtered or filtered['friendly_name'] is None:
@@ -51,7 +49,7 @@ class Sonorium:
     metas: IndexList = field(default_factory=IndexList, metadata=dict(exclude=True))
     theme_metas: dict = field(default_factory=dict, metadata=dict(exclude=True))
 
-    client_ha: homeassistant_api.Client | None = field(default=None, metadata=dict(exclude=True))
+    client_ha: HomeAssistantClient | None = field(default=None, metadata=dict(exclude=True))
 
     path_audio_str: str = field(metadata=dict(exclude=True))
 
@@ -160,14 +158,14 @@ class Sonorium:
             return
 
         try:
-            media_players_data = [state for state in self.client_ha.get_states() if state.entity_id.startswith("media_player.")]
+            media_players_data = [state for state in self.client_ha.get_states() if state.get("entity_id", "").startswith("media_player.")]
             self.media_player_states = IndexList()
             for data in media_players_data:
                 try:
                     media_state = MediaState.from_state(data)
                     self.media_player_states.append(media_state)
                 except Exception as e:
-                    logger.warning(f'Could not parse media player {data.entity_id}: {e}')
+                    logger.warning(f'Could not parse media player {data.get("entity_id")}: {e}')
             logger.debug(f'Found {len(self.media_player_states)} media players')
             if self.media_player_states:
                 self.media_player_states.current = self.media_player_states[0]

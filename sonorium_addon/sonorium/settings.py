@@ -9,7 +9,6 @@ import socket
 from pathlib import Path
 from typing import ClassVar
 
-import homeassistant_api
 import httpx
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings
@@ -18,6 +17,7 @@ from sonorium import runtime
 from sonorium.client import ClientSonorium
 from sonorium.device import Sonorium
 from sonorium.paths import PackagePaths, paths
+from sonorium.utils import HomeAssistantClient
 
 
 # HA Constants (replaces fmtr.tools.ha.constants)
@@ -229,7 +229,7 @@ class Settings(BaseSettings):
 
         logger.debug(f'Launching...')
 
-        client_ha = homeassistant_api.Client(api_url=self.ha_core_api, token=self.token)
+        client_ha = HomeAssistantClient(api_url=self.ha_core_api, token=self.token)
         device = Sonorium(
             client_ha=client_ha,
             path_audio_str=self.path_audio,
