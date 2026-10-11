@@ -1,6 +1,7 @@
 """
-Sonorium Logging - Simple logging wrapper.
-Standard Python logging.
+Sonorium's log: one logger ("sonorium") writing to stdout, which the add-on
+log and `docker logs` show, and to the buffer behind the web UI's Logs page.
+The level comes from SONORIUM_LOG_LEVEL.
 """
 import functools
 import logging
@@ -8,8 +9,6 @@ import os
 import re
 import sys
 
-from sonorium.paths import paths
-from sonorium.version import __version__
 
 
 class InstrumentedLogger(logging.Logger):
@@ -98,8 +97,8 @@ def log_level_from_env() -> int:
     return logging.getLevelName(name) if isinstance(logging.getLevelName(name), int) else logging.INFO
 
 
-def get_logger(name: str, version: str = "") -> InstrumentedLogger:
-    """Create an instrumented logger."""
+def get_logger(name: str) -> InstrumentedLogger:
+    """The named logger, set up on first use (handler, filter, level, Logs page buffer)."""
     # Set custom logger class
     logging.setLoggerClass(InstrumentedLogger)
 
@@ -122,8 +121,4 @@ def get_logger(name: str, version: str = "") -> InstrumentedLogger:
     return logger
 
 
-# Create the main logger
-logger = get_logger(
-    name=paths.name_ns,
-    version=__version__,
-)
+logger = get_logger("sonorium")
