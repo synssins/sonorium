@@ -28,8 +28,9 @@ def _unavailable(what: str) -> ActionError:
     return ActionError("unavailable", f"{what} isn't available in this Sonorium")
 
 
-async def _call(coro):
-    """Run a core call, its errors as ActionError."""
+async def _call(work):
+    """Run a core call (a coroutine, or a function, sync or async), its errors as ActionError."""
+    import inspect
     from sonorium.core.audio_outputs import OutputError
     from sonorium.core.decode import DecodeError
     from sonorium.core.overlay import OverlayError
@@ -38,7 +39,8 @@ async def _call(coro):
     from sonorium.plugins.homeassistant import HomeAssistantError
     from sonorium.plugins.tts import TtsError
     try:
-        return await coro
+        result = work() if callable(work) else work
+        return (await result) if inspect.isawaitable(result) else result
     except ActionError:
         raise
     except LookupError as e:
@@ -47,10 +49,6 @@ async def _call(coro):
         raise ActionError("invalid", str(e))
     except (HomeAssistantError, TtsError) as e:
         raise ActionError("unavailable", str(e))
-
-
-async def _value(result):
-    return result
 
 
 class AudioV1:
@@ -132,10 +130,10 @@ class RampsV1:
                                              start=start, origin=f"plugin:{self._id}"))
 
     async def cancel(self, channel: str, reset: bool = False) -> Optional[dict]:
-        return await _call(_value(self._svc().cancel(channel, reset)))
+        return await _call(lambda: (self._svc().cancel(channel, reset)))
 
     async def status(self, channel: str) -> dict:
-        return await _call(_value(self._svc().status(channel)))
+        return await _call(lambda: (self._svc().status(channel)))
 
 
 class OutputsV1:
@@ -164,7 +162,7 @@ class OutputsV1:
         return await _call(self._svc().discover(type_id))
 
     async def attach(self, channel: str, type_id: str, device_id: str, options: Optional[dict] = None) -> dict:
-        return await _call(_value(self._svc().attach(channel, type_id, device_id, options)))
+        return await _call(lambda: (self._svc().attach(channel, type_id, device_id, options)))
 
     async def detach(self, channel: str, attachment_id: str) -> bool:
         return await _call(self._svc().detach(channel, attachment_id))
@@ -185,7 +183,7 @@ class CommandsV1:
         return self._host.commands.entries(self._id, map_id)
 
     async def set_entries(self, map_id: str, entries: list) -> list[dict]:
-        return await _call(_value(self._host.commands.set_entries(self._id, map_id, entries)))
+        return await _call(lambda: (self._host.commands.set_entries(self._id, map_id, entries)))
 
 
 class MqttV1:

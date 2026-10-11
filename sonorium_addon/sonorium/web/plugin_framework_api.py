@@ -574,18 +574,18 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             raise HTTPException(status_code=400, detail=f"'{key}' must be a number")
         return value
 
-    async def _guard(coro):
+    async def _guard(work):
+        """Run a coroutine (or a function, sync or async), its errors as HTTP answers."""
+        import inspect
         try:
-            return await coro
+            result = work() if callable(work) else work
+            return (await result) if inspect.isawaitable(result) else result
         except LookupError as e:
             raise HTTPException(status_code=404, detail=str(e).strip("'\""))
         except (OverlayError, DecodeError, RampError, OutputError, cmd.CommandError) as e:
             raise HTTPException(status_code=400, detail=str(e))
         except TtsError as e:
             raise HTTPException(status_code=502, detail=str(e))
-
-    async def _done(value):
-        return value
 
     # --- Framework ---
 
@@ -679,7 +679,7 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
 
     @router.get("/sessions/{session_id}/ramp")
     async def ramp_status(session_id: str):
-        return await _guard(_done(_svc("ramps", "Volume ramps").status(session_id)))
+        return await _guard(lambda: (_svc("ramps", "Volume ramps").status(session_id)))
 
     @router.post("/sessions/{session_id}/ramp")
     async def ramp_start(session_id: str, request: Request):
@@ -692,7 +692,7 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
 
     @router.delete("/sessions/{session_id}/ramp")
     async def ramp_cancel(session_id: str, reset: bool = False):
-        result = await _guard(_done(_svc("ramps", "Volume ramps").cancel(session_id, reset)))
+        result = await _guard(lambda: (_svc("ramps", "Volume ramps").cancel(session_id, reset)))
         return {"cancelled": result is not None, **(result or {})}
 
     # --- Audio outputs ---
@@ -713,7 +713,7 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
     async def attach_output(session_id: str, request: Request):
         """{"type", "device", "options"}: send the channel there (its mix starts if needed)."""
         body = await _json(request)
-        return await _guard(_done(_svc("outputs", "Audio outputs").attach(
+        return await _guard(lambda: (_svc("outputs", "Audio outputs").attach(
             session_id, body.get("type"), body.get("device"), body.get("options"))))
 
     @router.delete("/sessions/{session_id}/audio-outputs/{attachment_id}")
@@ -752,7 +752,7 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
         plugin = _plugin(plugin_id)
         _map_decl(plugin, map_id)
         body = await _json(request)
-        return {"entries": await _guard(_done(host.commands.set_entries(plugin.id, map_id, body.get("entries"))))}
+        return {"entries": await _guard(lambda: (host.commands.set_entries(plugin.id, map_id, body.get("entries"))))}
 
     @router.post("/plugins/{plugin_id}/command-maps/{map_id}/learn")
     async def learn_command(plugin_id: str, map_id: str, seconds: float = 20.0):
