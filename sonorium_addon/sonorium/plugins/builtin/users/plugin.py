@@ -12,11 +12,14 @@ themes and speakers, their own phones). A linked phone acts as its user.
 
 Add-on: Home Assistant's users are Sonorium's users, with their role from HA
 (ha.py), and sign in with their HA username and password.
-Later in this plugin: zones (ownership, Kid mode, speaker homes).
+
+Zones (zones.py, Settings > Advanced > Zones, off by default): channels owned
+by a user, Kid mode, speaker homes and linked channels.
 """
 from __future__ import annotations
 
 import asyncio
+import functools
 import importlib.util
 import sys
 from pathlib import Path
@@ -29,6 +32,7 @@ from sonorium.auth import config, permissions as P
 from sonorium.auth.principal import Principal, Reject
 from sonorium.auth.ratelimit import RateLimiter
 from sonorium.auth.routes import client_of, json_body, limited
+from sonorium.core.channel_policy import ChannelRefused
 from sonorium.obs import logger
 from sonorium.plugins.base import BasePlugin
 
@@ -48,9 +52,12 @@ def _sibling(name: str):
 passwords = _sibling("passwords")
 ha_mod = _sibling("ha")
 accounts_mod = _sibling("accounts")
+zones_mod = _sibling("zones")
 Accounts, AuthError = accounts_mod.Accounts, accounts_mod.AuthError
+Zones, Actor = zones_mod.Zones, zones_mod.Actor
 
 PLUGIN_ID = "users"
+ZONES_STATE = "users.zones"   # service.plugin_state key of the Zones object
 SESSION_COOKIE = "sonorium_session"
 LOGIN_RATE, LOGIN_BURST = 5 / 60, 5   # 5 failed sign-ins a minute per address
 CODE_RATE, CODE_BURST = 1 / 60, 3     # sign-in codes a phone may ask for
@@ -71,6 +78,15 @@ POST    /api/users/{user_id}/password   admin.users
 POST    /api/users/{user_id}/sign-out   admin.users
 DELETE  /api/users/{user_id}/sessions/{session_id}  admin.users
 DELETE  /api/users/{user_id}            admin.users
+GET     /api/zones                      ch.view
+PUT     /api/zones/switch               st.change
+PUT     /api/zones/homes/{speaker_id}   st.change
+PUT     /api/zones/{channel_id}         st.change
+POST    /api/links                      st.change
+PUT     /api/links/{link_id}            st.change
+DELETE  /api/links/{link_id}            st.change
+POST    /api/links/{link_id}/leave      ch.play
+POST    /api/links/{link_id}/rejoin     ch.play
 """
 
 
@@ -87,8 +103,9 @@ def browser_name(user_agent: str) -> str:
 class UsersAuth:
     """The core's authenticator hooks (sonorium/auth/principal.py)."""
 
-    def __init__(self, accounts: Accounts):
+    def __init__(self, accounts: Accounts, zones=None):
         self.accounts = accounts
+        self.zones = zones
 
     def login_required(self) -> bool:
         return self.accounts.require_login
@@ -157,6 +174,7 @@ class UsersAuth:
     def me(self, ctx, principal: Principal) -> dict:
         a = self.accounts
         return {"require_login": a.require_login, "has_users": a.has_users(), "ha_users": a.ha is not None,
+                "zones": bool(self.zones is not None and self.zones.enabled),
                 "needs_setup": (principal.kind == "anonymous" and not a.has_users() and a.require_login
                                 and principal.listener != "ingress" and not config.is_addon())}
 
@@ -385,6 +403,7 @@ def create_router(service) -> APIRouter:
                           "role_label": accounts_mod.ROLE_LABELS.get(u["role"], u["role"]), "you": user_id == p.user_id,
                           "has_password": bool(u.get("password")), "ha": bool(u.get("ha")),
                           "disabled": bool(u.get("disabled")),
+                          "can_leave_link": u["role"] == "admin" or bool(u.get("can_leave_link")),
                           "devices": devices, "last_seen": seen, "created": u.get("created")})
         users.sort(key=lambda u: (not u["you"], u["username"].lower()))
         unbound = [d for d in service.devices(None)]
@@ -409,10 +428,16 @@ def create_router(service) -> APIRouter:
         try:
             if "role" in data:
                 accounts().set_role(user_id, str(data["role"]))
+                logger.info(f"Users: {accounts().user(user_id)['username']} is now {accounts().user(user_id)['role']}")
+            if "can_leave_link" in data:
+                accounts().set_can_leave_link(user_id, bool(data["can_leave_link"]))
+                logger.info(f"Users: {accounts().user(user_id)['username']} "
+                            f"{'can' if data['can_leave_link'] else 'can not'} leave a link")
         except AuthError as e:
             fail(e)
-        logger.info(f"Users: {accounts().user(user_id)['username']} is now {accounts().user(user_id)['role']}")
-        return {"user": accounts().brief(user_id)}
+        brief = accounts().brief(user_id)
+        brief["can_leave_link"] = brief["role"] == "admin" or bool(accounts().user(user_id).get("can_leave_link"))
+        return {"user": brief}
 
     @router.post("/users/{user_id}/password")
     async def reset_password(user_id: str, request: Request):
@@ -467,16 +492,114 @@ def create_router(service) -> APIRouter:
             accounts().remove(user_id)
         except AuthError as e:
             fail(e)
+        zones_state = service.plugin_state.get(ZONES_STATE)
+        if zones_state is not None:
+            zones_state.forget_user(user_id)
         logger.info(f"Users: {user['username']} removed")
         return {"removed": True}
 
+    # ------------------------------------------------------------ Zones (zones.py)
+
+    def refusals(handler):
+        """A refusal from zones (ChannelRefused) answers with its status and message."""
+        @functools.wraps(handler)
+        async def run(*args, **kwargs):
+            try:
+                return await handler(*args, **kwargs)
+            except ChannelRefused as e:
+                raise HTTPException(e.status, e.detail)
+        return run
+
+    def zones():
+        current = service.plugin_state.get(ZONES_STATE)
+        if current is None:
+            raise HTTPException(404, "Not Found")
+        return current
+
+    def zones_on():
+        z = zones()
+        if not z.enabled:
+            raise HTTPException(409, "Zones are off (Settings > Advanced).")
+        if z.sm is None:
+            raise HTTPException(503, "Channels aren't ready yet.")
+        return z
+
+    @router.get("/zones")
+    async def zones_view(request: Request):
+        """Zones: on or off, each channel's owner and Kid mode, speaker homes and use, links."""
+        return zones().view(Actor.current())
+
+    @router.put("/zones/switch")
+    async def zones_switch(request: Request):
+        data = await json_body(request)
+        zones().set_enabled(bool(data.get("on")))
+        return zones().view(Actor.current())
+
+    @router.put("/zones/homes/{speaker_id}")
+    @refusals
+    async def zones_home(speaker_id: str, request: Request):
+        """An admin chooses a speaker's home channel ({"channel_id"})."""
+        data = await json_body(request)
+        zones_on().set_home(speaker_id, str(data.get("channel_id") or ""))
+        return zones().view(Actor.current())
+
+    @router.put("/zones/{channel_id}")
+    @refusals
+    async def zones_set(channel_id: str, request: Request):
+        """An admin sets a channel's owner ({"owner": user id or null}), Kid mode and its hours."""
+        data = await json_body(request)
+        z = zones_on()
+        session = z.sm.get(channel_id)
+        if session is None:
+            raise HTTPException(404, "Channel not found")
+        done = z.set_zone(channel_id, {k: data[k] for k in ("owner", "kid_mode", "schedule") if k in data})
+        if done:
+            logger.info(f"Zones: {session.name}: {', '.join(f'{k} {v}' for k, v in done.items())}")
+            zones_mod.publish("zone.changed", {"channel_id": channel_id, "name": session.name, "changes": done})
+        return z.view(Actor.current())
+
+    @router.post("/links")
+    @refusals
+    async def link_create(request: Request):
+        """Link channels: {"name", "channels": [ids], "theme_id", "preset_id"} or {..., "playlist_id"}; they play."""
+        return await zones_on().create_link(await json_body(request))
+
+    @router.put("/links/{link_id}")
+    @refusals
+    async def link_change(link_id: str, request: Request):
+        return await zones_on().change_link(link_id, await json_body(request))
+
+    @router.delete("/links/{link_id}")
+    @refusals
+    async def link_remove(link_id: str, request: Request):
+        """Unlink: each channel plays again what it played before."""
+        await zones_on().remove_link(link_id)
+        return {"removed": True}
+
+    @router.post("/links/{link_id}/leave")
+    @refusals
+    async def link_leave(link_id: str, request: Request):
+        """{"channel_id"}: it plays again what it played before (its owner, if allowed to leave; an admin)."""
+        data = await json_body(request)
+        return await zones_on().leave(link_id, str(data.get("channel_id") or ""), Actor.current())
+
+    @router.post("/links/{link_id}/rejoin")
+    @refusals
+    async def link_rejoin(link_id: str, request: Request):
+        """{"channel_id"}: back in the link (its owner, if allowed to leave; an admin pulls it back)."""
+        data = await json_body(request)
+        return await zones_on().rejoin(link_id, str(data.get("channel_id") or ""), Actor.current())
+
     return router
+
+
+ZONES_UI = "users-zones"  # the zones' own web UI bundle (zones.js, zones.css)
 
 
 class UsersPlugin(BasePlugin):
     id = PLUGIN_ID
     name = "Users"
-    version = "1.0.3"
+    version = "1.1.0"
     description = "Accounts, sign-in and roles for Sonorium"
     author = "Sonorium"
     builtin = True
@@ -500,13 +623,27 @@ class UsersPlugin(BasePlugin):
                 accounts.ha.on_change = accounts.sync_ha
                 accounts.migrate_ha()
                 logger.info("Users: Home Assistant's users are Sonorium's users, with their role from Home Assistant")
+        zones = service.plugin_state.get(ZONES_STATE)
+        if zones is None:
+            zones = Zones(accounts)
+            service.plugin_state[ZONES_STATE] = zones
+        host = self._host
+        zones.attach(getattr(host, "session_manager", None), on_change=getattr(host, "_changed", None))
+        if zones.sm is not None and getattr(host, "bus", None) is not None:
+            zones.start()  # Kid mode's hours (with Sonorium's plugin host; not in tests)
         service.add_routes(PLUGIN_ID, create_router(service), PERMISSIONS)
         service.register_ui(PLUGIN_ID, self.plugin_dir / "web", js="users.js", css="users.css", version=self.version)
-        service.register_authenticator(PLUGIN_ID, UsersAuth(accounts), provider=True)
-        logger.info("Users: sign-in is on" + ("" if accounts.require_login else " (Require login is off)"))
+        service.register_ui(ZONES_UI, self.plugin_dir / "web", js="zones.js", css="zones.css", version=self.version)
+        service.register_authenticator(PLUGIN_ID, UsersAuth(accounts, zones), provider=True)
+        logger.info("Users: sign-in is on" + ("" if accounts.require_login else " (Require login is off)")
+                    + ("; zones are on" if zones.enabled else ""))
 
     async def on_disable(self) -> None:
         service = self._auth()
         if service is not None:
+            zones = service.plugin_state.get(ZONES_STATE)
+            if zones is not None:
+                zones.detach()  # channels are open again
+            service.unregister(ZONES_UI)
             service.unregister(PLUGIN_ID)
             logger.warning("Users: switched off. Sonorium is open to anyone on your network.")

@@ -34,7 +34,7 @@ from urllib.parse import parse_qs, urlsplit
 from starlette.responses import JSONResponse, PlainTextResponse
 
 from sonorium.auth import config, permissions as P
-from sonorium.auth.principal import Principal, Reject, RequestContext
+from sonorium.auth.principal import CALLER, Principal, Reject, RequestContext
 from sonorium.auth.service import DEVICE_PREFIX, AuthService
 from sonorium.obs import logger
 
@@ -171,6 +171,14 @@ class AuthMiddleware:
                 logger.warning(f"Sign-in: plugin {plugin_id} could not get ready for a request: {e}")
         principal, reject = resolve(service, scope, headers)
         scope.setdefault("state", {})["auth"] = principal
+        caller = CALLER.set(principal)  # current_caller() for the route and the tasks it starts
+        try:
+            return await self._checked(scope, receive, send, principal, reject, headers, method, path, listener, answer)
+        finally:
+            CALLER.reset(caller)
+
+    async def _checked(self, scope, receive, send, principal, reject, headers, method, path, listener, answer):
+        service = self.service
 
         matches = service.registry.match(method, path)
         if not matches:

@@ -578,7 +578,8 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No theme selected")
         if not session_manager.get_theme(session.theme_id):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Theme not found")
-        
+        session_manager.guard("play", session)  # Zones: may refuse (ChannelRefused)
+
         speakers = session_manager.get_resolved_speakers(session)
         if not speakers:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No speakers selected")
@@ -612,6 +613,7 @@ def create_api_router(
         session = session_manager.get(session_id)
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        session_manager.guard("stop", session)
         session.is_playing = False
         state_store.save()
         _in_background(session_manager.pause(session_id), f"pausing '{session.name}'")
@@ -623,6 +625,7 @@ def create_api_router(
         session = session_manager.get(session_id)
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        session_manager.guard("stop", session)
         session.is_playing = False
         state_store.save()
         _in_background(session_manager.stop(session_id), f"stopping '{session.name}'")

@@ -251,6 +251,8 @@
         <main class="main-content">
             <!-- Channels View -->
             <div id="view-sessions" class="view active">
+                <!-- Built-in plugins' bars above the cards (slots.js: channelsTop) -->
+                <div id="plugin-channels-top"></div>
                 <div id="sessions-container" class="session-grid ch-grid">
                     <div class="loading">
                         <div class="spinner"></div>
@@ -874,6 +876,8 @@ Example:
                         <input type="text" id="session-name" placeholder="Leave empty to auto-generate from selection">
                     </div>
 
+                    <!-- Built-in plugins' fields above Plays (slots.js: channelEditor top) -->
+                    <div id="ch-plugin-top" hidden></div>
                     <div class="session-field ch-plays">
                         <label id="ch-plays-lbl">Plays</label>
                         <div class="seg" role="group" aria-labelledby="ch-plays-lbl">
@@ -934,6 +938,7 @@ Example:
                                 <!-- Groups loaded dynamically -->
                             </select>
                         </div>
+                        <div id="ch-plugin-speakers" hidden></div>
                         <div class="picker" id="manual-speaker-selection">
                             <div class="picker-head">
                                 <input type="search" id="speaker-search" class="picker-search" placeholder="Search speakers" aria-label="Search speakers" oninput="renderSpeakerTree()">

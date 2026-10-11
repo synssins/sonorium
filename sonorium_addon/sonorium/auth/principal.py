@@ -21,9 +21,15 @@ optional; the core calls them in this order for each request:
 
 With no authenticator registered, a request nobody recognised is "local":
 full access, which is Sonorium's behaviour without accounts.
+
+current_caller() is the Principal of the request being handled (set by the
+middleware for the request and the tasks it starts), or None for what no
+request started: MQTT, timers, plugins' own tasks. Zones (the Users plugin)
+read it to know who changes a channel.
 """
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -75,3 +81,11 @@ class RequestContext:
             if k == name:
                 return v.strip() or None
         return None
+
+
+# Who is calling right now (see the module's docstring)
+CALLER: ContextVar[Optional[Principal]] = ContextVar("sonorium_caller", default=None)
+
+
+def current_caller() -> Optional[Principal]:
+    return CALLER.get()

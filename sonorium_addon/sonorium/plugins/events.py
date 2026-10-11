@@ -64,7 +64,8 @@ CATALOGUE: dict[str, dict] = {
     "channel.stopped": {
         "description": "A channel stopped playing on its speakers.",
         "fields": {"channel_id": "Channel id", "name": "Channel name",
-                   "reason": "stopped, paused, idle (no listener pulled audio) or ended (playlist finished)"},
+                   "reason": "stopped, paused, idle (no listener pulled audio), ended (playlist finished) or "
+                             "schedule (Kid mode's hours ended)"},
         "summary": "{name} stopped",
     },
     "channel.changed": {
@@ -109,6 +110,69 @@ CATALOGUE: dict[str, dict] = {
                    "position": "Position in this round (1-based)", "entries": "Number of entries",
                    "theme_id": "The entry's theme id"},
         "summary": "{name}: entry {position} of {entries}",
+    },
+    # --- Zones and links (the Users plugin; Settings > Advanced > Zones) ---
+    "zone.switched": {
+        "description": "Zones were switched on or off (Settings > Advanced).",
+        "fields": {"on": "True when zones are on"},
+        "summary": "Zones: {on}",
+    },
+    "zone.changed": {
+        "description": "A channel's owner, Kid mode or Kid mode hours changed. Only the fields that changed are "
+                       "in 'changes'.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name",
+                   "changes": "Changed fields, any of: owner (user id or null), kid_mode, schedule ({start, end} "
+                              "or null)"},
+        "summary": "{name}: zone changed",
+    },
+    "zone.speaker_taken": {
+        "description": "A channel took a speaker another channel was playing on: its home channel taking it back, "
+                       "or an admin. The other channel keeps playing on its other speakers.",
+        "fields": {"channel_id": "The channel that took it", "name": "Its name", "speaker_id": "Speaker id",
+                   "from_channel_id": "The channel that had it", "by": "home or admin"},
+        "summary": "{name} took {speaker_id}",
+    },
+    "zone.home_changed": {
+        "description": "A speaker has a new home channel (the one it was added to first).",
+        "fields": {"speaker_id": "Speaker id", "channel_id": "The new home channel, or null",
+                   "name": "Its name, or null",
+                   "reason": "deleted (the old home was deleted), removed (the speaker was taken out of the old "
+                             "home) or admin (an admin chose it)"},
+        "summary": "{speaker_id}: home is {name}",
+    },
+    "zone.schedule_ended": {
+        "description": "A channel in Kid mode reached the end of its hours: what its user started fades out.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name"},
+        "summary": "{name}: hours ended",
+    },
+    "link.created": {
+        "description": "An admin linked channels to play one thing in all of them.",
+        "fields": {"link_id": "Link id", "name": "Link name", "channels": "Channel ids",
+                   "theme_id": "Theme id or null", "preset_id": "Preset id or null",
+                   "playlist_id": "Playlist id or null"},
+        "summary": "Linked: {name}",
+    },
+    "link.changed": {
+        "description": "A link's name, channels or what it plays changed.",
+        "fields": {"link_id": "Link id", "name": "Link name", "changes": "Changed fields, any of: name, channels, "
+                   "theme_id, preset_id, playlist_id"},
+        "summary": "Link changed: {name}",
+    },
+    "link.left": {
+        "description": "A channel left a link: it plays again what it played before.",
+        "fields": {"link_id": "Link id", "name": "Link name", "channel_id": "Channel id"},
+        "summary": "{name}: a channel left",
+    },
+    "link.rejoined": {
+        "description": "A channel that left a link joined it again (its owner, or an admin pulling it back).",
+        "fields": {"link_id": "Link id", "name": "Link name", "channel_id": "Channel id",
+                   "by": "owner or admin"},
+        "summary": "{name}: a channel rejoined",
+    },
+    "link.removed": {
+        "description": "A link was undone: each channel plays again what it played before.",
+        "fields": {"link_id": "Link id", "name": "Link name"},
+        "summary": "Unlinked: {name}",
     },
     # --- Speakers ---
     "speaker.added": {

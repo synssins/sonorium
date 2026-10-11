@@ -9,6 +9,8 @@ The plugin host: the services Sonorium gives every plugin, in one place.
     connections    saved connection values, secrets apart (extensions.py)
     auth           sign-in (sonorium/auth/service.py): built-in sign-in plugins
                    register who is calling, their routes and their web UI there
+    session_manager  the channels (built-in plugins: Zones sets its policy,
+                   core/channel_policy.py)
 
 The plugin manager hands the host to each plugin (BasePlugin uses it for
 self.actions, self.subscribe(), self.schedule(), ...) and tells it when a
@@ -51,6 +53,7 @@ class PluginHost:
         self.scheduler = Scheduler(self.store, dispatch=self._run_job, is_enabled=self._is_enabled,
                                    publish=self.bus.publish, now=now)
         self.auth = auth  # sonorium.auth.service.AuthService (None in tests without the web app)
+        self.session_manager = session_manager
         self.manager = None  # the PluginManager, set by it
         self.on_change: Optional[Callable] = None  # async callback(session): Home Assistant entities
         self._job_callbacks: dict[tuple, Callable] = {}

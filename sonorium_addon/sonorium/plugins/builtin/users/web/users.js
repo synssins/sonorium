@@ -278,6 +278,7 @@
             const note = u.ha ? 'Set in Home Assistant' : lastAdmin ? 'Sonorium needs at least one admin.' : u.you ? 'You can’t remove your own account.' : '';
             spMenu('us-' + id, button, `
                 <button type="button" class="mi"${lastAdmin || u.ha ? ' disabled' : ''} onclick="UsersUI.setRole(${arg(id)}, '${u.role === 'admin' ? 'user' : 'admin'}')">${u.role === 'admin' ? 'Make User' : 'Make Admin'}</button>
+                ${S.me && S.me.zones ? `<button type="button" class="mi" role="menuitemcheckbox" aria-checked="${!!u.can_leave_link}"${u.role === 'admin' ? ' disabled' : ''} onclick="UsersUI.setLeave(${arg(id)}, ${!u.can_leave_link})">Can leave a link<span class="sw${u.can_leave_link ? ' on' : ''}"></span></button>` : ''}
                 <button type="button" class="mi"${u.ha ? ' disabled' : ''} onclick="UsersUI.resetPassword(${arg(id)})">Reset password…</button>
                 <button type="button" class="mi" onclick="UsersUI.signOutAll(${arg(id)})">Sign out of every device</button>
                 <div class="msep"></div>
@@ -296,6 +297,18 @@
             }
             if (u && u.you) window.location.reload();  // what you may do changed
             else loadUsers();
+        },
+
+        // Zones: may the user take their zone out of a link (admins always may)
+        async setLeave(id, value) {
+            spClosePop();
+            try {
+                await S.api('PUT', `/users/${encodeURIComponent(id)}`, { can_leave_link: value });
+            } catch (e) {
+                S.toast(e.message, 'error');
+                return;
+            }
+            loadUsers();
         },
 
         resetPassword(id) {
@@ -390,6 +403,7 @@
         ${term('Last seen', 'when the user last used Sonorium.')}
         ${term('Arrow', 'shows the user\'s phones and browsers.')}
         ${term('⋯ › Make Admin, Make User', 'changes the role. Sonorium always keeps one admin.')}
+        ${term('⋯ › Can leave a link', 'with Zones on: the user may take their channel out of a link and back in. An admin always may.')}
         ${term('⋯ › Reset password', 'sets a new password. The user\'s browsers are signed out. Linked phones stay linked.')}
         ${term('⋯ › Sign out of every device', 'signs out every browser and unlinks every phone. You confirm first.')}
         ${term('⋯ › Remove user', 'removes the account and signs out its devices. You confirm first. You can\'t remove your own account.')}
