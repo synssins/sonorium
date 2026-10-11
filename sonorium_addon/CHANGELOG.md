@@ -2,6 +2,29 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.7 (2026-10-11)
+
+### Bug Fixes
+
+- **ambient-mixer**: An edit saved during the download is no longer lost
+  ([`87565d0`](https://github.com/synssins/sonorium/commit/87565d015bfa8038e773891f8fa1cb09c13a82e4))
+
+- **api**: A replaced theme rescan no longer fails the plugin action
+  ([`22f6551`](https://github.com/synssins/sonorium/commit/22f65512d429b1eb3c3ea9e651b16b97156be7ed))
+
+- **api**: Plugin ids can't reach outside the plugins folder
+  ([`0a83f71`](https://github.com/synssins/sonorium/commit/0a83f71d5219ddaafbec34d733ba5187c016407c))
+
+- **plugins**: Built-in plugins can be uninstalled like any other
+  ([`bd6a645`](https://github.com/synssins/sonorium/commit/bd6a645d8aa4de553a75647ff5d8530fb3a42fc7))
+
+- **plugins**: Replace an installed built-in only when both versions are semver
+  ([`af76e31`](https://github.com/synssins/sonorium/commit/af76e31efe45df4043c2c2eebc96260569cd33c2))
+
+- **themes**: Hidden folders are never themes; leftovers of a crash are removed
+  ([`debf12a`](https://github.com/synssins/sonorium/commit/debf12ac50e248aac11f7d931ad4b6f170a9d2be))
+
+
 ## v1.6.2-dev.5 (2026-10-11)
 
 ### Bug Fixes
