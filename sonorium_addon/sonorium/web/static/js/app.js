@@ -10481,7 +10481,7 @@ const PAGE_HELP = {
         <h4>Installed</h4>
         ${helpTerm('On', 'turns a plugin on or off.')}
         ${helpTerm('Arrow', 'shows the plugin\'s fields and buttons. Only for a plugin that is on and has options.')}
-        ${helpTerm('Built-in', 'comes with Sonorium and can\'t be uninstalled.')}
+        ${helpTerm('Built-in', 'comes with Sonorium. If you uninstall it, the Catalog can install it again.')}
         ${helpTerm('⋯ › Uninstall', 'removes the plugin files. You confirm first.')}
         <h4>Catalog</h4>
         ${helpTerm('Install', 'downloads the plugin from the catalog and installs it.')}

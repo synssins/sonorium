@@ -2537,6 +2537,38 @@ def create_api_router(
     _catalog_cache: dict = {'data': None, 'timestamp': 0}
     CATALOG_CACHE_TTL = 3600  # 1 hour
 
+    from sonorium.plugins import loader
+
+    def _bundled_manifests() -> list:
+        """The manifests of the plugins that come with Sonorium."""
+        import json as _json
+        out = []
+        base = loader.BUILTIN_PLUGINS_DIR
+        if base is None or not base.exists():
+            return out
+        for item in sorted(base.iterdir()):
+            manifest = item / 'manifest.json'
+            if item.is_dir() and not item.name.startswith('_') and (item / 'plugin.py').exists() and manifest.exists():
+                try:
+                    data = _json.loads(manifest.read_text(encoding='utf-8'))
+                except (OSError, ValueError):
+                    continue
+                if data.get('id') == item.name:
+                    out.append(data)
+        return out
+
+    async def _install_bundled(plugin_id: str, manifest: dict):
+        """Install a built-in plugin again from the copy that comes with Sonorium."""
+        deleted = plugin_manager.state_store.settings.deleted_builtin_plugins
+        if plugin_id in deleted:
+            deleted.remove(plugin_id)
+            plugin_manager.state_store.save()
+        loader.copy_builtin_plugins(plugin_manager.plugins_dir, skip_plugins=list(deleted))
+        await plugin_manager.reload_plugins()
+        logger.info(f"Installed the built-in plugin {manifest.get('name', plugin_id)} again")
+        return {'status': 'ok', 'plugin_id': plugin_id, 'name': manifest.get('name', plugin_id),
+                'version': manifest.get('version')}
+
     @router.get("/plugins/catalog")
     async def get_plugin_catalog():
         """Fetch available plugins from the GitHub catalog."""
@@ -2577,12 +2609,28 @@ def create_api_router(
             if pid in installed_plugins:
                 plugin_copy['installed'] = True
                 plugin_copy['installed_version'] = installed_plugins[pid]
-                plugin_copy['update_available'] = plugin.get('version') != installed_plugins[pid]
+                newer = loader.parse_version(plugin.get('version'))
+                have = loader.parse_version(installed_plugins[pid])
+                plugin_copy['update_available'] = bool(newer and have and newer > have)
             else:
                 plugin_copy['installed'] = False
                 plugin_copy['installed_version'] = None
                 plugin_copy['update_available'] = False
             enriched_plugins.append(plugin_copy)
+
+        # Built-in plugins come with Sonorium: one that was uninstalled can be installed again
+        listed = {p.get('id') for p in enriched_plugins}
+        for manifest in _bundled_manifests():
+            pid = manifest.get('id')
+            if pid in listed:
+                continue
+            enriched_plugins.append({
+                'id': pid, 'name': manifest.get('name', pid), 'version': manifest.get('version'),
+                'description': manifest.get('description', ''), 'author': manifest.get('author', ''),
+                'category': 'Built-in', 'bundled': True,
+                'installed': pid in installed_plugins, 'installed_version': installed_plugins.get(pid),
+                'update_available': False,
+            })
 
         return {
             'version': catalog.get('version', 1),
@@ -2605,6 +2653,10 @@ def create_api_router(
         plugin_id = body.get('plugin_id')
         if not plugin_id:
             raise HTTPException(status_code=400, detail='plugin_id is required')
+
+        bundled = next((m for m in _bundled_manifests() if m.get('id') == plugin_id), None)
+        if bundled is not None and plugin_id not in plugin_manager.plugins:
+            return await _install_bundled(plugin_id, bundled)
 
         # Fetch catalog
         catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium/main/plugins/catalog.json'
