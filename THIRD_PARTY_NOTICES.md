@@ -1,0 +1,233 @@
+# Third-party notices
+
+Sonorium is built on software and content made by other people. This file lists what is
+shipped with Sonorium (the Docker image, the Home Assistant add-on and the Windows app)
+and the licence each part is under.
+
+The versions below are the ones installed by the Dockerfiles
+([`docker/Dockerfile`](docker/Dockerfile), [`sonorium_addon/Dockerfile`](sonorium_addon/Dockerfile))
+at the time of writing; pip resolves the newest versions allowed when an image is built.
+Each package's own licence file is installed with it, in its `*.dist-info` folder inside the
+image.
+
+---
+
+## Source code for LGPL and GPL components
+
+Some components below are under the GNU Lesser General Public License (LGPL) or the GNU
+General Public License (GPL). Sonorium uses them unmodified, as published by their projects,
+and as separate shared libraries or programs: they can be replaced with other builds of the
+same libraries inside the image.
+
+The complete corresponding source code of each of these components is available from the
+project links below. In addition, for at least three years after the last release that
+included a given component, the Sonorium maintainers will provide a copy of that
+component's corresponding source code, for no more than the cost of providing it, to anyone
+who asks. Ask by opening an issue at <https://github.com/synssins/sonorium/issues>.
+
+---
+
+## Python packages
+
+Installed with pip in both images (the packages named in the Dockerfiles, and what they need).
+
+| Package | Licence | Project |
+|---|---|---|
+| aiohappyeyeballs | PSF-2.0 | https://github.com/aio-libs/aiohappyeyeballs |
+| aiohttp | Apache-2.0 AND MIT | https://github.com/aio-libs/aiohttp |
+| aiosignal | Apache-2.0 | https://github.com/aio-libs/aiosignal |
+| annotated-doc | MIT | https://github.com/fastapi/annotated-doc |
+| annotated-types | MIT | https://github.com/annotated-types/annotated-types |
+| anyio | MIT | https://github.com/agronholm/anyio |
+| appdirs | MIT | https://github.com/ActiveState/appdirs |
+| argon2-cffi | MIT | https://github.com/hynek/argon2-cffi |
+| argon2-cffi-bindings | MIT (bundles the Argon2 reference library: CC0-1.0 or Apache-2.0) | https://github.com/hynek/argon2-cffi-bindings |
+| async-upnp-client | Apache-2.0 | https://github.com/StevenLooman/async_upnp_client |
+| attrs | MIT | https://github.com/python-attrs/attrs |
+| av (PyAV) | BSD-3-Clause (bundles FFmpeg and other libraries, see below) | https://github.com/PyAV-Org/PyAV |
+| cachetools | MIT | https://github.com/tkem/cachetools |
+| casttube | MIT | https://github.com/ur1katz/casttube |
+| certifi | MPL-2.0 | https://github.com/certifi/python-certifi |
+| cffi | MIT-0 | https://github.com/python-cffi/cffi |
+| chacha20poly1305-reuseable | Apache-2.0 OR BSD-3-Clause | https://github.com/bdraco/chacha20poly1305-reuseable |
+| charset-normalizer | MIT | https://github.com/jawah/charset_normalizer |
+| click | BSD-3-Clause | https://github.com/pallets/click |
+| cryptography | Apache-2.0 OR BSD-3-Clause (wheels include OpenSSL, Apache-2.0) | https://github.com/pyca/cryptography |
+| defusedxml | PSF-2.0 | https://github.com/tiran/defusedxml |
+| fastapi | MIT | https://github.com/fastapi/fastapi |
+| frozenlist | Apache-2.0 | https://github.com/aio-libs/frozenlist |
+| h11 | MIT | https://github.com/python-hyper/h11 |
+| httpcore | BSD-3-Clause | https://github.com/encode/httpcore |
+| httptools | MIT | https://github.com/MagicStack/httptools |
+| httpx | BSD-3-Clause | https://github.com/encode/httpx |
+| httpx-retries | MIT | https://github.com/will-ockmore/httpx-retries |
+| idna | BSD-3-Clause | https://github.com/kjd/idna |
+| ifaddr | MIT | https://github.com/pydron/ifaddr |
+| lxml | BSD-3-Clause (bundles libxml2 and libxslt, MIT) | https://lxml.de/ |
+| miniaudio | MIT | https://github.com/irmen/pyminiaudio |
+| multidict | Apache-2.0 | https://github.com/aio-libs/multidict |
+| numpy | BSD-3-Clause (bundles OpenBLAS and other libraries, see below) | https://numpy.org |
+| opentelemetry-api | Apache-2.0 | https://github.com/open-telemetry/opentelemetry-python |
+| paho-mqtt | EPL-2.0 OR BSD-3-Clause (EDL-1.0) | https://github.com/eclipse-paho/paho.mqtt.python |
+| propcache | Apache-2.0 | https://github.com/aio-libs/propcache |
+| protobuf | BSD-3-Clause | https://github.com/protocolbuffers/protobuf |
+| pyatv | MIT | https://github.com/postlund/pyatv |
+| PyChromecast | MIT | https://github.com/home-assistant-libs/pychromecast |
+| pycparser | BSD-3-Clause | https://github.com/eliben/pycparser |
+| pydantic | MIT | https://github.com/pydantic/pydantic |
+| pydantic-core | MIT | https://github.com/pydantic/pydantic |
+| pydantic-settings | MIT | https://github.com/pydantic/pydantic-settings |
+| python-didl-lite | Apache-2.0 | https://github.com/StevenLooman/python-didl-lite |
+| python-dotenv | BSD-3-Clause | https://github.com/theskumar/python-dotenv |
+| python-multipart | Apache-2.0 | https://github.com/Kludex/python-multipart |
+| PyYAML | MIT | https://pyyaml.org/ |
+| requests | Apache-2.0 | https://github.com/psf/requests |
+| segno | BSD-3-Clause | https://github.com/heuer/segno |
+| six | MIT | https://github.com/benjaminp/six |
+| soco | MIT | https://github.com/SoCo/SoCo |
+| srptools | BSD-3-Clause | https://github.com/idlesign/srptools |
+| starlette | BSD-3-Clause | https://github.com/Kludex/starlette |
+| tabulate | MIT | https://github.com/astanin/python-tabulate |
+| tinytag | MIT | https://github.com/tinytag/tinytag |
+| typing-extensions | PSF-2.0 | https://github.com/python/typing_extensions |
+| typing-inspection | MIT | https://github.com/pydantic/typing-inspection |
+| urllib3 | MIT | https://github.com/urllib3/urllib3 |
+| uvicorn | BSD-3-Clause | https://github.com/Kludex/uvicorn |
+| uvloop | MIT OR Apache-2.0 | https://github.com/MagicStack/uvloop |
+| voluptuous | BSD-3-Clause | https://github.com/alecthomas/voluptuous |
+| watchfiles | MIT | https://github.com/samuelcolvin/watchfiles |
+| websockets | BSD-3-Clause | https://github.com/python-websockets/websockets |
+| xmltodict | MIT | https://github.com/martinblech/xmltodict |
+| yarl | Apache-2.0 | https://github.com/aio-libs/yarl |
+| zeroconf | **LGPL-2.1-or-later** | https://github.com/python-zeroconf/python-zeroconf |
+
+**zeroconf** (mDNS: finding speakers, and announcing `sonorium.local`) is under the LGPL.
+Sonorium uses it unmodified, as an installed Python package that can be replaced with any
+other version of zeroconf. Source: <https://github.com/python-zeroconf/python-zeroconf>.
+
+---
+
+## Libraries bundled inside Python packages
+
+### PyAV (`av`): FFmpeg and the libraries it uses
+
+PyAV's binary wheels contain FFmpeg's libraries, built by the PyAV project, plus the
+libraries FFmpeg was built with. Sonorium uses them to decode and encode audio.
+
+| Library | Licence | Source |
+|---|---|---|
+| FFmpeg (libavcodec, libavformat, libavutil, libavfilter, libavdevice, libswresample, libswscale) | **LGPL-3.0-or-later**, as FFmpeg reports for this build | https://ffmpeg.org/download.html |
+| x264 (libx264) | **GPL-2.0-or-later** | https://code.videolan.org/videolan/x264 |
+| x265 (libx265) | **GPL-2.0-or-later** | https://bitbucket.org/multicoreware/x265_git |
+| GnuTLS | **LGPL-2.1-or-later** | https://gnutls.org/ |
+| Nettle (libnettle, libhogweed) | **LGPL-3.0-or-later OR GPL-2.0-or-later** | https://www.lysator.liu.se/~nisse/nettle/ |
+| GMP | **LGPL-3.0-or-later OR GPL-2.0-or-later** | https://gmplib.org/ |
+| libunistring | **LGPL-3.0-or-later OR GPL-2.0-or-later** | https://www.gnu.org/software/libunistring/ |
+| alsa-lib (libasound) | **LGPL-2.1-or-later** | https://github.com/alsa-project/alsa-lib |
+| libstdc++, libgcc (musl wheels) | GPL-3.0-or-later WITH GCC-exception-3.1 | https://gcc.gnu.org/ |
+| dav1d | BSD-2-Clause | https://code.videolan.org/videolan/dav1d |
+| SVT-AV1 | BSD-3-Clause-Clear | https://gitlab.com/AOMediaCodec/SVT-AV1 |
+| Opus | BSD-3-Clause | https://opus-codec.org/ |
+| libvpx | BSD-3-Clause | https://chromium.googlesource.com/webm/libvpx |
+| libwebp, libwebpmux, libsharpyuv | BSD-3-Clause | https://chromium.googlesource.com/webm/libwebp |
+| libvmaf | BSD-2-Clause-Patent | https://github.com/Netflix/vmaf |
+| libvpl | MIT | https://github.com/intel/libvpl |
+| libdrm | MIT | https://gitlab.freedesktop.org/mesa/drm |
+| libxcb, libXau, libXdmcp | MIT | https://xcb.freedesktop.org/ |
+| libbsd, libmd (musl wheels) | BSD-3-Clause and similar permissive licences | https://libbsd.freedesktop.org/ |
+| bzip2 (musl wheels) | bzip2-1.0.6 | https://sourceware.org/bzip2/ |
+
+PyAV's source, including the scripts that build these wheels, is at
+<https://github.com/PyAV-Org/PyAV>. The libraries are separate shared objects in the
+`av.libs` folder of the installed package.
+
+### NumPy
+
+NumPy's binary wheels contain OpenBLAS (BSD-3-Clause), LAPACK (BSD-3-Clause-Open-MPI),
+the GCC Fortran runtime (libgfortran: GPL-3.0-or-later WITH GCC-exception-3.1) and
+libquadmath (**LGPL-2.1-or-later**). The full list is in NumPy's installed `LICENSE.txt`.
+Sources: <https://github.com/numpy/numpy>, <https://github.com/OpenMathLib/OpenBLAS>,
+<https://gcc.gnu.org/>.
+
+---
+
+## Operating system packages
+
+| Image | Base | Packages Sonorium adds |
+|---|---|---|
+| Docker (`docker/Dockerfile`) | `python:3.12-slim` (Debian) | `ffmpeg`, `util-linux` (both from Debian) |
+| Home Assistant add-on (`sonorium_addon/Dockerfile`) | `ghcr.io/hassio-addons/base` (Alpine Linux) | `python3`, `py3-pip`, `py3-numpy`, `ffmpeg` (from Alpine) |
+
+These packages are installed unmodified from Debian and Alpine Linux. Debian's and Alpine's
+FFmpeg packages are built with GPL options and are under the **GPL-2.0-or-later**;
+util-linux is under GPL-2.0-or-later and other licences listed in its source. Their source
+code is published by each distribution: <https://sources.debian.org/> and
+<https://gitlab.alpinelinux.org/alpine/aports>. Python itself is under the
+PSF-2.0 licence (<https://www.python.org/>).
+
+---
+
+## Web interface
+
+Many of the icons in the web interface and the Home Assistant dashboard cards are drawn
+from **Feather** (<https://feathericons.com>, <https://github.com/feathericons/feather>),
+included inline as SVG; the rest are drawn for Sonorium in the same style. Feather is under
+the MIT licence:
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2013-2017 Cole Bemis
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+The web interface loads nothing from other websites: no fonts, scripts or stylesheets.
+
+---
+
+## Bundled themes
+
+The themes in [`sonorium_addon/themes`](sonorium_addon/themes) ("A Rainy Day... Or is it?",
+Sleigh Ride, Tavern) contain recordings from Ambient-Mixer.com under the Creative Commons
+Sampling Plus 1.0 licence (<https://creativecommons.org/licenses/sampling+/1.0/>). Each
+theme folder has an `ATTRIBUTION.md` listing its source and files.
+
+---
+
+## Windows app
+
+The Windows app (`app/windows/Sonorium.exe`) is built with PyInstaller and ships an
+embedded Python with the packages in [`app/core/requirements.txt`](app/core/requirements.txt).
+In addition to the packages above, it contains:
+
+| Component | Licence | Source |
+|---|---|---|
+| Python (embedded) | PSF-2.0 | https://www.python.org/ |
+| PyInstaller bootloader | GPL-2.0-or-later WITH Bootloader exception | https://github.com/pyinstaller/pyinstaller |
+| PyQt6 (the launcher window) | **GPL-3.0-only** (or a commercial licence from Riverbank Computing) | https://www.riverbankcomputing.com/software/pyqt/ |
+| Qt 6 (used by PyQt6) | **LGPL-3.0-only** | https://www.qt.io/download-open-source |
+| sounddevice | MIT (bundles PortAudio, MIT) | https://github.com/spatialaudio/python-sounddevice |
+| aiofiles | Apache-2.0 | https://github.com/Tinche/aiofiles |
+
+---
+
+## Upstream project
+
+Sonorium is a fork of [Amniotic](https://github.com/fmtr/amniotic) by fmtr.
