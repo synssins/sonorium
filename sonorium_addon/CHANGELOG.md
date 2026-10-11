@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.35 (2026-10-11)
+
+### Features
+
+- **channels**: The speaker button mutes the speakers' stream (red, muted icon); browsers listening
+  keep hearing it
+  ([`8a2300f`](https://github.com/synssins/sonorium/commit/8a2300f15d7e5da1fa0fbcd673b10b9ff00600e4))
+
+
 ## v1.6.1-dev.34 (2026-10-11)
 
 ### Bug Fixes
