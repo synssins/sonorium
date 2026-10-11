@@ -2,6 +2,56 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.31 (2026-10-11)
+
+### Bug Fixes
+
+- **api**: Legacy error statuses also when the answer comes in parts (G10)
+  ([`b586c87`](https://github.com/synssins/sonorium/commit/b586c877120c9245f0bacf84df85843b7455c194))
+
+- **api**: Older theme, category and channel routes answer errors with a status (G10)
+  ([`8ebd58e`](https://github.com/synssins/sonorium/commit/8ebd58e65c495e0cce41e5db7437a737ec8b5c59))
+
+- **mdns**: TXT pair follows Require login (G7)
+  ([`bfee39c`](https://github.com/synssins/sonorium/commit/bfee39c57e4f30c2aa05a818c5978167d01a3956))
+
+- **web**: Remove the web UI's calls to routes that no longer exist (G13)
+  ([`4ef2f0c`](https://github.com/synssins/sonorium/commit/4ef2f0c59527fc08ef638677b60afb35ef732917))
+
+### Documentation
+
+- APP_API.md and AUTH.md for the built app gaps (G1-G4, G6, G7, G10, G13, G14)
+  ([`11ab388`](https://github.com/synssins/sonorium/commit/11ab388e51273434c69778d45f7b85eb50f840b9))
+
+- APP_API.md, the API reference for the Android app
+  ([`e749dd2`](https://github.com/synssins/sonorium/commit/e749dd2f98b7b3912ac91639bf22c681c5deb7ec))
+
+### Features
+
+- **auth**: A linked phone sees, renames and unlinks itself (G1)
+  ([`1adfa1c`](https://github.com/synssins/sonorium/commit/1adfa1c6b3c1b61c5f0f95ab057e42c5f9f423e2))
+
+- **events**: Boot_id in /api/info and in event stream ids (G4)
+  ([`4e7f272`](https://github.com/synssins/sonorium/commit/4e7f2722f40f73bdfed50e6a37fa5910fe92b970))
+
+- **listen**: Hold_seconds on POST /listen and a channel.listening event (G3)
+  ([`44f3755`](https://github.com/synssins/sonorium/commit/44f3755214241e71e119b7dcc68c3d511f0d294b))
+
+- **outputs**: The app reports a Cast device playing a channel (G2)
+  ([`5376730`](https://github.com/synssins/sonorium/commit/5376730cef0c01717999b65356bfaf73123a45c2))
+
+- **speakers**: Live per-speaker volume and mute (G6)
+  ([`d7cf29e`](https://github.com/synssins/sonorium/commit/d7cf29e4fedcab3788fd5b893df232e08072cca5))
+
+- **web**: Window.SONORIUM_HOST hooks for the app, and ui in /api/info (G14)
+  ([`6275eb1`](https://github.com/synssins/sonorium/commit/6275eb1364fa4420d630b947296aee5ece73d271))
+
+### Testing
+
+- **web**: Every API call of the web UI is to a route the server has (G13)
+  ([`79c203b`](https://github.com/synssins/sonorium/commit/79c203b20c1fcf2c975e4b633e757f10f251d510))
+
+
 ## v1.6.2-dev.24 (2026-10-11)
 
 ### Bug Fixes
