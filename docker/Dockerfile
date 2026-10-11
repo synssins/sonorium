@@ -17,9 +17,8 @@ RUN apt-get update \
 # numpy<2.4: 2.4+ wheels need x86-64-v2 CPUs (issues #18, #39).
 # av 19.x: the audio decoder version playback is tested with.
 RUN pip install --no-cache-dir \
-    pyyaml appdirs cachetools fastapi uvicorn pydantic httpx homeassistant_api \
+    pyyaml appdirs cachetools fastapi 'uvicorn[standard]' pydantic httpx httpx-retries \
     websockets python-multipart soco \
-    'fmtr.tools[version.dev,logging,sets,yaml,debug,caching,api,path.app,tabular,av,ha.api,http]' \
     'numpy<2.4' \
     'av>=19,<20' \
     paho-mqtt pydantic-settings pychromecast

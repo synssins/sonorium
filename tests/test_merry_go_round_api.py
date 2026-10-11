@@ -29,7 +29,7 @@ def _exec(name, relative):
 
 @pytest.fixture
 def m():
-    """api.py and theme_metadata.py without fmtr, HA, MQTT or the web app."""
+    """api.py and theme_metadata.py without HA, MQTT or the web app."""
     package = types.ModuleType("sonorium")
     package.__path__ = [str(PACKAGE)]
     obs = types.ModuleType("sonorium.obs")
@@ -39,16 +39,13 @@ def m():
     version = types.ModuleType("sonorium.version")
     version.__version__ = "test"
     logbuffer = types.ModuleType("sonorium.logbuffer")
-    fmtr = types.ModuleType("fmtr")
-    fmtr_tools = types.ModuleType("fmtr.tools")
-    fmtr_tools.http = MagicMock()
-    fmtr_tools.api = SimpleNamespace(Base=object, Endpoint=MagicMock())
-    fmtr.tools = fmtr_tools
+    http_client = types.ModuleType("sonorium.http_client")
+    http_client.Client = MagicMock()
     core = types.ModuleType("sonorium.core")
     core.__path__ = [str(PACKAGE / "core")]
     stubs = {
         "sonorium": package, "sonorium.obs": obs, "sonorium.theme": theme, "sonorium.version": version,
-        "sonorium.logbuffer": logbuffer, "fmtr": fmtr, "fmtr.tools": fmtr_tools, "sonorium.core": core,
+        "sonorium.logbuffer": logbuffer, "sonorium.http_client": http_client, "sonorium.core": core,
     }
     with patch.dict(sys.modules, stubs):
         package.runtime = _exec("sonorium.runtime", "runtime.py")

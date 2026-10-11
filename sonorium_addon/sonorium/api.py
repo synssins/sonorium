@@ -10,7 +10,7 @@ from sonorium import runtime
 from sonorium.version import __version__
 from sonorium.obs import logger
 from sonorium import logbuffer
-from fmtr.tools import api
+from sonorium.api_base import Base, Endpoint
 
 # Import ClientSonorium for type hints (replaces mqtt.Client)
 from typing import TYPE_CHECKING
@@ -54,7 +54,7 @@ class RevalidatingStaticFiles(StaticFiles):
         return response
 
 
-class ApiSonorium(api.Base):
+class ApiSonorium(Base):
     TITLE = f'Sonorium {__version__} Streaming API'
     # Standalone listens on 8008 directly (one port for UI and streams); the
     # add-on keeps 8080, which HA ingress and its 8008 port mapping point at.
@@ -121,95 +121,95 @@ class ApiSonorium(api.Base):
         # /stream/channel{n} must be registered before /stream/{id}
         endpoints = [
             # Web UI
-            api.Endpoint(method_http=self.app.get, path='/', method=self.web_ui),
+            Endpoint(method_http=self.app.get, path='/', method=self.web_ui),
 
             # Standalone connection settings (404 in the HA add-on)
-            api.Endpoint(method_http=self.app.get, path='/api/connection', method=self.get_connection),
-            api.Endpoint(method_http=self.app.put, path='/api/connection', method=self.put_connection),
-            api.Endpoint(method_http=self.app.delete, path='/api/connection/ha', method=self.delete_connection_ha),
-            api.Endpoint(method_http=self.app.delete, path='/api/connection/mqtt', method=self.delete_connection_mqtt),
+            Endpoint(method_http=self.app.get, path='/api/connection', method=self.get_connection),
+            Endpoint(method_http=self.app.put, path='/api/connection', method=self.put_connection),
+            Endpoint(method_http=self.app.delete, path='/api/connection/ha', method=self.delete_connection_ha),
+            Endpoint(method_http=self.app.delete, path='/api/connection/mqtt', method=self.delete_connection_mqtt),
             # Home Assistant dashboard cards: status and the file (to add by hand)
-            api.Endpoint(method_http=self.app.get, path='/api/ha-cards', method=self.get_ha_cards),
-            api.Endpoint(method_http=self.app.get, path='/api/ha-cards/download', method=self.download_ha_cards),
-            api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
-            api.Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
-            api.Endpoint(method_http=self.app.get, path='/display.png', method=self.serve_display_image),
-            api.Endpoint(method_http=self.app.get, path='/favicon.png', method=self.serve_favicon),
+            Endpoint(method_http=self.app.get, path='/api/ha-cards', method=self.get_ha_cards),
+            Endpoint(method_http=self.app.get, path='/api/ha-cards/download', method=self.download_ha_cards),
+            Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
+            Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
+            Endpoint(method_http=self.app.get, path='/display.png', method=self.serve_display_image),
+            Endpoint(method_http=self.app.get, path='/favicon.png', method=self.serve_favicon),
 
             # Logs: kept apart from the v2 API so they work when it fails to start
-            api.Endpoint(method_http=self.app.get, path='/logs', method=self.logs_page),
-            api.Endpoint(method_http=self.app.get, path='/api/logs', method=self.get_logs),
-            api.Endpoint(method_http=self.app.get, path='/api/logs/download', method=self.download_logs),
+            Endpoint(method_http=self.app.get, path='/logs', method=self.logs_page),
+            Endpoint(method_http=self.app.get, path='/api/logs', method=self.get_logs),
+            Endpoint(method_http=self.app.get, path='/api/logs/download', method=self.download_logs),
 
             # Install type and the features it shows (Settings > Advanced)
-            api.Endpoint(method_http=self.app.get, path='/api/install', method=self.get_install),
-            api.Endpoint(method_http=self.app.put, path='/api/install/features', method=self.put_install_features),
+            Endpoint(method_http=self.app.get, path='/api/install', method=self.get_install),
+            Endpoint(method_http=self.app.put, path='/api/install/features', method=self.put_install_features),
             
             # Streaming - channel-based (new) - MUST come before theme-based!
-            api.Endpoint(method_http=self.app.get, path='/stream/channel{channel_id:int}', method=self.stream_channel),
+            Endpoint(method_http=self.app.get, path='/stream/channel{channel_id:int}', method=self.stream_channel),
             
             # Streaming - theme-based (legacy, still supported)
-            api.Endpoint(method_http=self.app.get, path='/stream/{id}', method=self.stream),
+            Endpoint(method_http=self.app.get, path='/stream/{id}', method=self.stream),
             
             # Theme API
-            api.Endpoint(method_http=self.app.get, path='/api/themes', method=self.list_themes),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/refresh', method=self.refresh_themes),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/favorite', method=self.toggle_favorite),
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}', method=self.get_theme),
+            Endpoint(method_http=self.app.get, path='/api/themes', method=self.list_themes),
+            Endpoint(method_http=self.app.post, path='/api/themes/refresh', method=self.refresh_themes),
+            Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/favorite', method=self.toggle_favorite),
+            Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}', method=self.get_theme),
 
             # Track Mixer API
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks', method=self.get_theme_tracks),
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks/{track_name:path}/audio', method=self.get_track_audio),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/presence', method=self.set_track_presence),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/muted', method=self.set_track_muted),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/volume', method=self.set_track_volume),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/playback_mode', method=self.set_track_playback_mode),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/seamless_loop', method=self.set_track_seamless_loop),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/fades', method=self.set_track_fades),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/ebb', method=self.set_track_ebb),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/exclusive', method=self.set_track_exclusive),
+            Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks', method=self.get_theme_tracks),
+            Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks/{track_name:path}/audio', method=self.get_track_audio),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/presence', method=self.set_track_presence),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/muted', method=self.set_track_muted),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/volume', method=self.set_track_volume),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/playback_mode', method=self.set_track_playback_mode),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/seamless_loop', method=self.set_track_seamless_loop),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/fades', method=self.set_track_fades),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/ebb', method=self.set_track_ebb),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/exclusive', method=self.set_track_exclusive),
 
             # Groups (subfolders of a theme, Themes 2.0)
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/groups', method=self.list_groups),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/groups/{group}', method=self.update_group),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/groups', method=self.create_group_folder),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/groups/{group}/rename', method=self.rename_group_folder),
-            api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/groups/{group}', method=self.delete_group_folder),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/{track_name:path}/move', method=self.move_track_to_group),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
+            Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/groups', method=self.list_groups),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/groups/{group}', method=self.update_group),
+            Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/groups', method=self.create_group_folder),
+            Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/groups/{group}/rename', method=self.rename_group_folder),
+            Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/groups/{group}', method=self.delete_group_folder),
+            Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/{track_name:path}/move', method=self.move_track_to_group),
+            Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
 
             # Linked files from other themes (docs/THEME_FORMAT.md 2.6)
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/links/source/{source_id}', method=self.list_link_source_tracks),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/links', method=self.add_links),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/links/{key:path}/copy-in', method=self.copy_link_in),
-            api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/links/{key:path}', method=self.delete_link),
+            Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/links/source/{source_id}', method=self.list_link_source_tracks),
+            Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/links', method=self.add_links),
+            Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/links/{key:path}/copy-in', method=self.copy_link_in),
+            Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/links/{key:path}', method=self.delete_link),
 
             # Theme rename
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/rename', method=self.rename_theme),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/rename', method=self.rename_theme),
 
             # Preset API
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets', method=self.list_presets),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets', method=self.create_preset),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/{preset_id}/load', method=self.load_preset),
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.get_preset),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.update_preset),
-            api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.delete_preset),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/default', method=self.set_default_preset),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/rename', method=self.rename_preset),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/import', method=self.import_preset),
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets/{preset_id}/export', method=self.export_preset),
+            Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets', method=self.list_presets),
+            Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets', method=self.create_preset),
+            Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/{preset_id}/load', method=self.load_preset),
+            Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.get_preset),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.update_preset),
+            Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.delete_preset),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/default', method=self.set_default_preset),
+            Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/rename', method=self.rename_preset),
+            Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/import', method=self.import_preset),
+            Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets/{preset_id}/export', method=self.export_preset),
 
             # Category API
-            api.Endpoint(method_http=self.app.get, path='/api/categories', method=self.list_categories),
-            api.Endpoint(method_http=self.app.post, path='/api/categories', method=self.create_category),
-            api.Endpoint(method_http=self.app.delete, path='/api/categories/{category_name}', method=self.delete_category),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/categories', method=self.set_theme_categories),
+            Endpoint(method_http=self.app.get, path='/api/categories', method=self.list_categories),
+            Endpoint(method_http=self.app.post, path='/api/categories', method=self.create_category),
+            Endpoint(method_http=self.app.delete, path='/api/categories/{category_name}', method=self.delete_category),
+            Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/categories', method=self.set_theme_categories),
 
-            api.Endpoint(method_http=self.app.get, path='/api/status', method=self.status),
+            Endpoint(method_http=self.app.get, path='/api/status', method=self.status),
             
             # Channel API
-            api.Endpoint(method_http=self.app.get, path='/api/channels', method=self.list_channels),
-            api.Endpoint(method_http=self.app.get, path='/api/channels/{channel_id}', method=self.get_channel),
+            Endpoint(method_http=self.app.get, path='/api/channels', method=self.list_channels),
+            Endpoint(method_http=self.app.get, path='/api/channels/{channel_id}', method=self.get_channel),
         ]
         return endpoints
     
@@ -1403,7 +1403,7 @@ class ApiSonorium(api.Base):
         from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, reset_ebb_settings
         from sonorium.theme import ThemeDefinition
         from sonorium.recording import RecordingMetadata, PlaybackMode
-        from fmtr.tools.iterator_tools import IndexList
+        from sonorium.utils import IndexList
 
         device = self.client.device
         path_audio = device.path_audio

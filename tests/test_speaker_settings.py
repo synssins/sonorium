@@ -35,10 +35,10 @@ def _package(name, path):
 @pytest.fixture(scope="module", autouse=True)
 def addon_modules():
     """
-    The add-on's modules without fmtr, HA or MQTT: bare packages (their
-    __init__ files import everything) plus stubs for obs, runtime and fmtr.
+    The add-on's modules without HA or MQTT: bare packages (their
+    __init__ files import everything) plus stubs for obs, runtime and the HTTP client.
     """
-    saved = {name: module for name, module in sys.modules.items() if _is_sonorium(name) or name.startswith("fmtr")}
+    saved = {name: module for name, module in sys.modules.items() if _is_sonorium(name)}
     for name in saved:
         del sys.modules[name]
 
@@ -48,10 +48,8 @@ def addon_modules():
     runtime = types.ModuleType("sonorium.runtime")
     runtime.ha_configured = lambda: True
     runtime.ha_websocket_url = lambda url: url
-    fmtr = types.ModuleType("fmtr")
-    fmtr_tools = types.ModuleType("fmtr.tools")
-    fmtr_tools.http = MagicMock()
-    fmtr.tools = fmtr_tools
+    http_client = types.ModuleType("sonorium.http_client")
+    http_client.Client = MagicMock()
     sys.modules.update({
         "sonorium": _package("sonorium", PACKAGE),
         "sonorium.core": _package("sonorium.core", PACKAGE / "core"),
@@ -59,8 +57,7 @@ def addon_modules():
         "sonorium.web": _package("sonorium.web", PACKAGE / "web"),
         "sonorium.obs": obs,
         "sonorium.runtime": runtime,
-        "fmtr": fmtr,
-        "fmtr.tools": fmtr_tools,
+        "sonorium.http_client": http_client,
     })
     g = globals()
     g["registry_mod"] = importlib.import_module("sonorium.ha.registry")
@@ -73,7 +70,7 @@ def addon_modules():
     try:
         yield
     finally:
-        for name in [n for n in sys.modules if _is_sonorium(n) or n.startswith("fmtr")]:
+        for name in [n for n in sys.modules if _is_sonorium(n)]:
             del sys.modules[name]
         sys.modules.update(saved)
 

@@ -1,8 +1,7 @@
 """
 Sonorium MQTT Client - paho-mqtt based client for Home Assistant integration.
 
-Replaces the HACO-based client with a simpler paho-mqtt implementation
-that integrates with SonoriumMQTTManager for HA entity management.
+A paho-mqtt client that integrates with SonoriumMQTTManager for HA entity management.
 """
 import asyncio
 from typing import Callable, Awaitable
@@ -174,8 +173,6 @@ class MQTTClient:
 class ClientSonorium:
     """
     Sonorium client that manages MQTT connection and API server.
-
-    Replaces the HACO-based ClientHaco with a simpler paho-mqtt implementation.
     """
 
     API_CLASS = ApiSonorium

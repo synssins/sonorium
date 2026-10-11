@@ -50,7 +50,7 @@ if TYPE_CHECKING:
     from sonorium.core.channel import ChannelManager, Channel
     from sonorium.core.theme_metadata import ThemeMetadataManager
     from sonorium.theme import ThemeDefinition
-    from fmtr.tools.iterator_tools import IndexList
+    from sonorium.utils import IndexList
 
 
 class SessionManager:

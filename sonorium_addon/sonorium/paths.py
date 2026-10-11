@@ -1,6 +1,6 @@
 """
 Sonorium Paths - Path management for the addon.
-Replaces fmtr.tools.PackagePaths with a simple implementation.
+Package and data paths.
 """
 from functools import cached_property
 from pathlib import Path
@@ -38,14 +38,6 @@ class PackagePaths:
     def audio(self) -> Path:
         """Path to audio files."""
         return self.data / 'audio'
-
-    @cached_property
-    def example_700KB(self) -> Path:
-        return self.audio / 'file_example_MP3_700KB.mp3'
-
-    @cached_property
-    def gambling(self) -> Path:
-        return self.audio / 'A Good Bass for Gambling.mp3'
 
 
 paths = PackagePaths()

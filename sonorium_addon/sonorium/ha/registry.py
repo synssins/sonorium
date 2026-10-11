@@ -15,7 +15,7 @@ import json
 from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
-from fmtr.tools import http
+from sonorium import http_client as http
 from sonorium.obs import logger
 
 # Try to import websockets, fall back gracefully if not available

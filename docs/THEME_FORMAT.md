@@ -586,9 +586,9 @@ the same theme changes the override values in place, gliding volume and presence
 8. Clip to [-32768, 32767], cast to int16 with truncation (`mixing.py:72`).
 
 **Output gain** is `device.master_volume`, default **6.0** (`device.py:59`, `theme.py:23`, `:150`).
-The HA "Master Volume" number maps 0-100 % to 0-10 (`controls.py:62-68`), so the default is 60 %.
-Settings > Audio Settings > **Master output gain** (`master_gain`, 0-100 %, default 60) sets it on the
-same scale when the add-on starts and whenever it is saved (`api.py` `_apply_master_gain`).
+Settings > Audio Settings > **Master output gain** (`master_gain`, 0-100 %, default 60) maps 0-100 % to
+0-10 and sets it when the add-on starts and whenever it is saved (`api.py` `_apply_master_gain`), so the
+default is 60 %.
 With one track sounding, any sample above `22936.9 / 6 = 3823` (about -18.7 dBFS) reaches the limiter.
 
 ### 3.9 Theme-to-theme crossfade on a channel (built)

@@ -14,27 +14,28 @@ RUN apk add --no-cache \
 WORKDIR /app
 
 # Install Python dependencies
-# Note: numpy installed via apk above, av installed via fmtr.tools[av] below
+# Note: numpy installed via apk above, av installed below
+# uvicorn[standard]: the web server with uvloop and httptools.
+# httpx-retries: retries for Home Assistant registry requests.
 RUN pip3 install --no-cache-dir --break-system-packages \
     pyyaml \
     appdirs \
     cachetools \
     fastapi \
-    uvicorn \
+    'uvicorn[standard]' \
     pydantic \
     httpx \
-    homeassistant_api \
+    httpx-retries \
     websockets \
     python-multipart \
     soco
 
-# Install fmtr.tools (for API layer), paho-mqtt (for HA entities), pydantic-settings, pychromecast
+# numpy, av (audio decoding), paho-mqtt (for HA entities), pydantic-settings, pychromecast
 # numpy<2.4: pip replaces Alpine's numpy here, and numpy 2.4+ wheels require
 # x86-64-v2 CPUs, which crashes on VMs with a basic virtual CPU (issues #18, #39).
 # av 19.x: the audio decoder version playback is tested with; unpinned, it
 # changed major version between two builds.
 RUN pip3 install --no-cache-dir --break-system-packages \
-    'fmtr.tools[version.dev,logging,sets,yaml,debug,caching,api,path.app,tabular,av,ha.api,http]' \
     'numpy<2.4' \
     'av>=19,<20' \
     paho-mqtt \
@@ -48,7 +49,7 @@ RUN pip3 install --no-cache-dir --break-system-packages \
 
 # Copy local sonorium source code
 COPY sonorium/ /app/sonorium/
-COPY setup.py pyproject.toml README.md /app/
+COPY README.md /app/
 
 # Copy logo and icon
 COPY logo.png icon.png favicon.png display.png /app/
@@ -74,6 +75,6 @@ RUN chmod a+x /run.sh
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.6.2-dev.12}"
+LABEL io.hass.version="${ADDON_VERSION:-1.6.2-dev.13}"
 
 CMD [ "/run.sh" ]

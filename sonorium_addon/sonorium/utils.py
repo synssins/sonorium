@@ -12,7 +12,6 @@ from sonorium.obs import logger
 class IndexList(list):
     """
     Simple list subclass that supports attribute-based indexing.
-    Replaces fmtr.tools.iterator_tools.IndexList.
     """
 
     def __init__(self, iterable=None):
@@ -41,6 +40,42 @@ def sanitize(text: str) -> str:
     text = re.sub(r'_+', '_', text)
     # Strip leading/trailing underscores
     return text.strip('_')
+
+
+_ID_SEPARATORS = re.compile(r'[\s\-_]+')
+
+
+def sanitize_id(*strings: str, sep: str = '-') -> str:
+    """
+    A theme folder name as the dashed ID older themes were known by
+    ("Rain & Thunder" -> "rain-thunder"). Keeps letters and digits (any
+    script), lowercased, and turns each run of spaces, dashes and underscores
+    into one `sep`. Gives exactly what Amniotic-era Sonorium gave, so those IDs
+    keep matching (tests/test_sanitize_id.py).
+    """
+    text = ' '.join(string for string in strings if string)
+    text = ''.join(c.lower() for c in text if c.isalnum() or c == ' ')
+    return _ID_SEPARATORS.sub(sep, text).strip()
+
+
+class HomeAssistantClient:
+    """Home Assistant's REST API: the entity states (GET /api/states)."""
+
+    TIMEOUT = 10.0
+
+    def __init__(self, api_url: str, token: str | None):
+        self.api_url = api_url.rstrip('/')
+        self.token = token
+
+    def get_states(self) -> list[dict]:
+        """Every entity's state, as Home Assistant returns it (entity_id, state, attributes, ...)."""
+        response = httpx.get(
+            f"{self.api_url}/states",
+            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
+            timeout=self.TIMEOUT,
+        )
+        response.raise_for_status()
+        return response.json()
 
 
 def call_ha_service(domain: str, service: str, service_data: dict):
