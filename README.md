@@ -6,9 +6,9 @@
 
 ## Announcements
 
-> ## ⭐ 1.7.0: Sequences, Playlists and a new Channels page
+> ## ⭐ 1.6.1: Refinements
 >
-> A channel can now **change over time**. A **sequence** walks through a theme's presets, gliding from one to the next (a mild summer storm that becomes a heavy one), and a **playlist** plays themes one after another. **Ebb & Flow** sounds now rise and fall instead of coming and going. The **Theme Editor** sorts tracks into sections by how they play, and the **Channels** page is rebuilt: every channel is a block of the same size, with **Next**, **Recent changes**, a speaker **mute**, and a **headphones** button to listen in your browser.
+> Refinements across Sonorium, with the **Theme Editor** and **Channels** page restructured. A channel can now **change over time**. A **sequence** walks through a theme's presets, gliding from one to the next (a mild summer storm that becomes a heavy one), and a **playlist** plays themes one after another. **Ebb & Flow** sounds now rise and fall instead of coming and going. The Theme Editor sorts tracks into sections by how they play, and the Channels page is rebuilt: every channel is a block of the same size, with **Next**, **Recent changes**, a speaker **mute**, and a **headphones** button to listen in your browser.
 >
 > Your themes are converted the first time this version starts: Auto tracks and Intrusion groups are retired, and each theme keeps backups of its old settings files (`*.pre-auto.bak`, `*.pre-links.bak`, `*.pre-duration.bak`).
 
@@ -308,7 +308,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 
 ## What's new
 
-#### 1.7.0
+#### 1.6.1
 
 **Channels page**
 - **Every channel is a block of the same size.** Its theme's icon, name and speakers at the top, with Edit (✎) and ⋯ (Delete and more).
@@ -452,94 +452,135 @@ Full history: [sonorium_addon/CHANGELOG.md](sonorium_addon/CHANGELOG.md).
 
 These are the same words as the **?** help in the Theme Editor.
 
-A theme is a set of tracks (sound files) mixed together. Each track has a **mode**, a **volume** and an **interval**.
+A theme is a set of tracks (sound files) mixed together. Tracks sit in sections by how they play. This help follows the editor from top to bottom.
 
+
+**Tracks**
+
+- **Sequences:** lists this theme's sequences. Pick one to edit it, or Add sequence to make one. See Sequences below.
+- **Preview mix:** plays the theme on this device. Changes are heard as you make them.
+- **Upload:** adds sound files. They start in Unassigned, or in the group you pick.
+- **Add from another theme:** links a file from another theme. See Files from another theme below.
+- **Reset all:** puts every track and group back to its defaults. You confirm first.
 
 **Sections**
 
 - **Sections:** tracks sit in sections by how they play: Background, Intermittent and Ebb & Flow. Every section is always there, even empty. Change a track's Mode, or drag it to another section or into a group in one, and it moves there and plays that way. A track in a group plays its group's way: drag it out to change it.
-- **Unassigned:** uploads and files added from another theme start here. Nothing here plays. Pick each file's Mode, or drag it into a section or a group.
 - **Groups:** a group belongs to its section and plays that section's way: Background groups are Merry-go-round, Intermittent groups take turns, Ebb & Flow groups play every file at once. Make one with the section's New group.
-- **Files from another theme:** a linked file goes anywhere your own files can. A preset that turns one on shows ⚭.
+- **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
 
-**Modes**
+**Unassigned**
+
+- **Unassigned:** uploads and files added from another theme start here. Nothing here plays. Pick each file's Mode, or drag it into a section or a group.
+
+**Background**
 
 - **Background:** plays all the time, looping smoothly. Rain, wind, a fire.
-- **Intermittent:** plays once, then goes quiet before playing again. *Interval* sets the wait. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.
-- **Ebb & Flow:** always heard, but never at one level: it rises and falls between the two knobs of its Volume slider, gliding from one level to the next, never the same way twice. *Duration* sets how long each rise and fall takes, from shorter to longer. Wind, surf, rain that gusts.
-- **Rise:** in an Ebb & Flow track's ⋯ menu: how fast it rises. Gradual rises as smoothly as it falls. Sudden jumps up quickly and eases back down, like gusts of wind or waves on rocks. A group can set the same Rise for every file.
-- **Pause between plays:** in an Ebb & Flow track's ⋯ menu. Off, the file loops and is always heard, rising and falling. On, it plays once from start to finish, still rising and falling, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.
-- **Pause:** how long it stays quiet, in seconds, picked at random between the two numbers each time (600 is 10 minutes). It also staggers when tracks first start, so they don't all begin together.
-- **Fade in / Fade out:** for a file that starts or ends abruptly. In the track's ⋯ menu, set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.
+- ***Track***
+  - **Mode:** the section the track plays in. Changing it moves the track there.
+  - **Volume:** how loud the track plays.
+  - **Mute:** turns the track off. It fades out and back in.
+- ***Merry-go-round group***
+  - **Merry-go-round:** one file plays, then crossfades into another picked at random, never the same one twice in a row. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.
+  - **Crossfade:** under the group's name: how long one file overlaps the next (seconds).
+  - **Volume, Mute:** scale every track in the group.
 
-**Groups**
+**Intermittent**
 
-- **Take turns:** a group is a folder of tracks. In an Intermittent group only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
-- **Group mode:** Intermittent plays one track at a time with a gap; Merry-go-round makes a continuous bed; Ebb & Flow plays every file at once, each rising and falling.
-- **Gap:** after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.
-- **Intermittent group:** on its turn, a track plays its whole file once, start to finish, then hands over. Background and Ebb & Flow are for the ambience outside Intermittent groups.
-- **Merry-go-round:** one file plays, then crossfades into another picked at random, never the same one twice in a row. Crossfade sets the overlap. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.
-- **Ebb & Flow group:** every file plays at once, each rising and falling on its own. Each file keeps its own settings; the group's Volume and *Duration* scale them down. With the group's Pause between plays on, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its own Pause between plays.
-- **Weight:** each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.
-- **Interval:** how fast a track's weight wears off. Higher comes back sooner; lower plays less often.
-- **Group volume, interval, mute:** scale every track in the group.
-- **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
-- **Deleting a group:** keeps its files; they move back into its section.
+- **Intermittent:** plays once, then goes quiet before playing again. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.
+- ***Track***
+  - **Mode:** the section the track plays in. Changing it moves the track there.
+  - **Volume:** how loud the track plays.
+  - **Interval:** sets the wait between plays. In a group: how fast the track's weight wears off. Higher comes back sooner; lower plays less often.
+  - **Mute:** turns the track off.
+- ***Intermittent group***
+  - **Take turns:** only one track plays at a time, never overlapping. On its turn, a track plays its whole file once, start to finish, then hands over. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
+  - **Gap:** under the group's name: after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other. Presets keep their own Gap.
+  - **Weight:** each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.
+  - **Volume, Interval, Mute:** scale every track in the group.
+
+**Ebb & Flow**
+
+- **Ebb & Flow:** always heard, but never at one level: it rises and falls, gliding from one level to the next, never the same way twice. Wind, surf, rain that gusts.
+- ***Track***
+  - **Mode:** the section the track plays in. Changing it moves the track there.
+  - **Volume:** two knobs: the track rises and falls between them.
+  - **Duration:** how long each rise and fall takes, from shorter to longer.
+  - **Mute:** turns the track off.
+  - *Its ⋯ menu*
+    - **Rise:** how fast it rises. Gradual rises as smoothly as it falls. Sudden jumps up quickly and eases back down, like gusts of wind or waves on rocks.
+    - **Pause between plays:** off, the file loops and is always heard, rising and falling. On, it plays once from start to finish, still rising and falling, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.
+    - **Pause:** how long it stays quiet, in seconds, picked at random between the two numbers each time (600 is 10 minutes). It also staggers when tracks first start, so they don't all begin together.
+- ***Ebb & Flow group***
+  - **Ebb & Flow group:** every file plays at once, each rising and falling on its own. Each file keeps its own settings; the group's Volume and Duration scale them down.
+  - **Pause between plays:** under the group's name. On, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its own Pause between plays.
+  - **Volume, Duration, Mute:** scale every track in the group.
+  - *Its ⋯ menu*
+    - **Same Rise for every file:** one Rise for every file in the group, instead of each file's own.
+
+**A track's ⋯ menu**
+
+- **Fade in / Fade out:** for a file that starts or ends abruptly. Set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.
+- **Gapless:** Background tracks outside a group: loops without a crossfade, for files made to loop.
+- **Move to:** Unassigned, or one of the groups.
+- **New group:** makes a group in the track's section and moves the track into it.
+- **Reset track:** puts the track's settings back to defaults.
+
+**A group's ⋯ menu**
+
+- **Rename:** or double-click the group's name.
+- **Upload into:** adds files straight into the group.
+- **Delete group:** keeps its files; they move back into its section.
 
 **Files from another theme**
 
-- **Linked file:** plays here but stays in its own theme. Add one with Add from another theme above the list; it starts in Unassigned. If the file is gone, it shows Missing.
+- **Linked file:** plays here but stays in its own theme. Add one with Add from another theme above the list; it starts in Unassigned, and can go anywhere your own files can. If the file is gone, it shows Missing.
 - **Presets:** turn linked files on and other tracks off, like rain that mutes the crickets. A preset that turns a linked file on shows ⚭.
+- **Remove link:** in a linked file's ⋯ menu. The file stays in its own theme.
 
 **Sequences**
 
 - **Sequence:** plays presets of this theme in the order you choose, gliding from one to the next. Marked with the sequence icon (square, triangle, circle).
-- **Sequences menu:** lists this theme's sequences. Pick one to edit it, or Add sequence to make one.
-- **Time on each preset:** each preset plays for a random time in this range (minutes), drawn fresh each time.
-- **Ramp:** how long the glide to the next preset takes (seconds).
-- **At the end:** Reverse plays the list backwards, Start again goes back to the first preset, Stop stays on the last one.
-- **Theme defaults:** empty fields use the theme's time and ramp, set at the bottom of the Sequences menu.
-- **Order:** drag a preset, or use its ⋯ menu.
-- **Save:** saves the sequence at once. Every channel playing this theme can pick it.
 - **Picking one:** preset lists show the sequences after the presets. Picking a preset by hand stops a running sequence.
 - **Edit:** pick a sequence in the preset field below, then Edit.
+- ***Edit sequence***
+  - **Time on each preset:** each preset plays for a random time in this range (minutes), drawn fresh each time.
+  - **Ramp:** how long the glide to the next preset takes (seconds).
+  - **At the end:** Reverse plays the list backwards, Start again goes back to the first preset, Stop stays on the last one.
+  - **Order:** drag a preset, or use its ⋯ menu.
+  - **Theme defaults:** empty fields use the theme's time and ramp, set at the bottom of the Sequences menu.
+  - **Save:** saves the sequence at once. Every channel playing this theme can pick it.
+- ***A step: ⋯ › Advanced***
+  - **While playing:** changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green; anything you don't change follows the preset.
+  - **Revert changes:** puts back the settings as they were when Save was last pressed.
+  - **Coming in / Leaving:** tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.
+  - *Coming in and Leaving*
+    - **Smooth:** no button on. The track follows the sequence's ramp.
+    - **Buttons:** click to turn a style on, click again to turn it off. Each style that's on shows its own setting under Setting.
+    - **Pre-fade:** starts the change this many seconds before the step.
+    - **Gusts / Gusts dying down:** rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.
+    - **Swell / Smooth fade:** one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.
+    - **Build / Thin out:** Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.
+    - **Distance / Recede:** starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.
+    - **Start fresh / Finish then stop:** plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.
+    - **Preview:** ▶ plays that track's change on this device and follows your edits.
+    - **File fades:** a file's own Fade in and Fade out apply on top of every style.
+    - **Combining styles:** several styles can be on together. They all work over the same fade time (pre-fade plus ramp). For example:
+      - **Gusts + Distance:** wind starts far off and muffled, and surges unevenly as it comes closer.
+      - **Gusts + Swell:** the surges ride on one curved rise instead of a steady one.
+      - **Gusts + Start fresh:** the file plays from its start and rises in uneven surges.
+      - **Build + Distance:** thunder comes more often and louder as it moves from far off to close.
+      - **Thin out + Recede:** thunder comes less often and quieter as it drifts away.
+      - **Smooth fade + Finish then stop:** fades out over the fade time; if the current play ends first, it stops there with a short fade.
 
-**In a sequence step**
-
-- **While playing:** changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green; anything you don't change follows the preset.
-- **Revert changes:** puts back the settings as they were when Save was last pressed: for one track or group in its ⋯ menu, or for everything at the top of the list. A value set back to the preset's follows the preset again.
-- **Coming in / Leaving:** how tracks change as the step starts and ends (see Advanced transitions).
-- **Rise:** in an Ebb & Flow track's ⋯ menu: how fast it rises. Gradual rises as smoothly as it falls. Sudden jumps up quickly and eases back down, like gusts of wind or waves on rocks. *Duration* sets how long each rise and fall takes. A group can set the same Rise for every file.
-
-**Advanced transitions**
-
-- **Advanced:** in a sequence, a preset's ⋯ › Advanced sets how each track comes in, and how it leaves.
-- **Coming in / Leaving:** tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.
-- **Smooth:** no button on. The track follows the sequence's ramp.
-- **Buttons:** click to turn a style on, click again to turn it off. Each style that's on shows its own setting under Setting.
-- **Pre-fade:** starts the change this many seconds before the step.
-- **Gusts / Gusts dying down:** rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.
-- **Swell / Smooth fade:** one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.
-- **Build / Thin out:** Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.
-- **Distance / Recede:** starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.
-- **Start fresh / Finish then stop:** plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.
-- **Preview:** ▶ plays that track's change on this device and follows your edits.
-- **File fades:** a file's own Fade in and Fade out (Theme Editor, the track's ⋯ menu) apply on top of every style.
-- **Combining styles:** several styles can be on together. They all work over the same fade time (pre-fade plus ramp). For example:
-  - **Gusts + Distance:** wind starts far off and muffled, and surges unevenly as it comes closer.
-  - **Gusts + Swell:** the surges ride on one curved rise instead of a steady one.
-  - **Gusts + Start fresh:** the file plays from its start and rises in uneven surges.
-  - **Build + Distance:** thunder comes more often and louder as it moves from far off to close.
-  - **Thin out + Recede:** thunder comes less often and quieter as it drifts away.
-  - **Smooth fade + Finish then stop:** fades out over the fade time; if the current play ends first, it stops there with a short fade.
-
-**Saving**
+**Presets and saving**
 
 - **Live:** changes are heard on speakers playing this theme, and on this device with Preview mix.
-- **Cancel:** Reverts unsaved changes.
+- **Preset:** the preset you're editing. Current settings is the theme without a preset.
+- **New:** makes a new preset from the current mix.
 - **Save Preset:** Saves loaded preset
 - **Save Theme:** Saves theme with all changes (presets, name, etc) Required after saving a preset.
-- **New:** makes a new preset from the current mix.
+- **Cancel:** Reverts unsaved changes.
 
 ## API Reference
 
