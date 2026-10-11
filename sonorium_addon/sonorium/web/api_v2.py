@@ -14,7 +14,7 @@ from dataclasses import asdict
 from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Request, UploadFile, File, Response
 from pydantic import BaseModel, Field
 
-from sonorium.core.state import SpeakerSelection, CycleConfig, NameSource
+from sonorium.core.state import SpeakerSelection, NameSource
 from sonorium.obs import logger
 
 
@@ -38,41 +38,6 @@ class SpeakerSelectionModel(BaseModel):
         )
 
 
-class CycleConfigModel(BaseModel):
-    """Theme cycling configuration."""
-    enabled: bool = False
-    interval_minutes: int = Field(default=60, ge=1, le=1440)  # 1 min to 24 hours
-    randomize: bool = False
-    theme_ids: list[str] = Field(default_factory=list)  # Empty = all themes
-    
-    def to_config(self) -> CycleConfig:
-        return CycleConfig(
-            enabled=self.enabled,
-            interval_minutes=self.interval_minutes,
-            randomize=self.randomize,
-            theme_ids=self.theme_ids,
-        )
-
-
-class CycleConfigResponse(BaseModel):
-    """Theme cycling configuration response."""
-    enabled: bool
-    interval_minutes: int
-    randomize: bool
-    theme_ids: list[str]
-
-
-class CycleStatusResponse(BaseModel):
-    """Current cycling status for a session."""
-    enabled: bool
-    interval_minutes: int
-    randomize: bool
-    theme_ids: list[str]
-    next_change: Optional[str] = None  # ISO timestamp
-    seconds_until_change: Optional[int] = None
-    themes_in_rotation: int = 0
-
-
 class SpaceRequest(BaseModel):
     """Add or change a floor or area (Settings > Floors & Areas)."""
     name: Optional[str] = None
@@ -82,31 +47,21 @@ class SpaceRequest(BaseModel):
 class CreateSessionRequest(BaseModel):
     """Request to create a new session."""
     theme_id: Optional[str] = None
-    preset_id: Optional[str] = None
+    preset_id: Optional[str] = None  # A preset id, "" for none, or "seq:<sequence_id>" to run a sequence
     speaker_group_id: Optional[str] = None
     adhoc_selection: Optional[SpeakerSelectionModel] = None
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
-    cycle_config: Optional[CycleConfigModel] = None
 
 
 class UpdateSessionRequest(BaseModel):
     """Request to update an existing session."""
     theme_id: Optional[str] = None
-    preset_id: Optional[str] = None
+    preset_id: Optional[str] = None  # A preset id, "" for none, or "seq:<sequence_id>" to run a sequence
     speaker_group_id: Optional[str] = None
     adhoc_selection: Optional[SpeakerSelectionModel] = None
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
-    cycle_config: Optional[CycleConfigModel] = None
-
-
-class UpdateCycleRequest(BaseModel):
-    """Request to update cycling configuration."""
-    enabled: Optional[bool] = None
-    interval_minutes: Optional[int] = Field(default=None, ge=1, le=1440)
-    randomize: Optional[bool] = None
-    theme_ids: Optional[list[str]] = None
 
 
 class SessionResponse(BaseModel):
@@ -123,7 +78,14 @@ class SessionResponse(BaseModel):
     speakers: list[str]  # Resolved speaker list
     speaker_summary: str  # Human-readable summary
     channel_id: Optional[int] = None  # Assigned channel (if playing)
-    cycle_config: CycleConfigResponse
+    sequence_id: Optional[str] = None  # The sequence it runs (of its theme)
+    preset_choice: Optional[str] = None  # What its preset menu shows: "seq:<id>" while a sequence runs, else preset_id
+    playlist_id: Optional[str] = None  # The playlist it plays
+    sequence: Optional[dict] = None  # Sequence status: name, step, current preset, next change
+    playlist: Optional[dict] = None  # Playlist status: name, entry, theme, next change
+    speakers_muted: bool = False  # the speakers' stream is silenced
+    listening: bool = False  # a browser listens (its mix runs even with the speakers stopped)
+    recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
     created_at: str
     last_played_at: Optional[str]
 
@@ -181,8 +143,6 @@ class SettingsResponse(BaseModel):
     show_in_sidebar: bool
     auto_create_quick_play: bool
     master_gain: int
-    default_cycle_interval: int
-    default_cycle_randomize: bool
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -194,8 +154,6 @@ class UpdateSettingsRequest(BaseModel):
     show_in_sidebar: Optional[bool] = None
     auto_create_quick_play: Optional[bool] = None
     master_gain: Optional[int] = Field(default=None, ge=0, le=100)
-    default_cycle_interval: Optional[int] = Field(default=None, ge=1, le=1440)
-    default_cycle_randomize: Optional[bool] = None
 
 
 class SpeakerSettingsResponse(BaseModel):
@@ -287,9 +245,20 @@ class ChannelResponse(BaseModel):
 
 # --- Helper Functions ---
 
+def _preset_choice(session) -> Optional[str]:
+    """The channel's choice in a preset menu: its sequence ("seq:<id>") while it has one, else its preset."""
+    from sonorium.core.sequences import choice_id
+    sequence_id = getattr(session, 'sequence_id', None)
+    return choice_id(sequence_id) if sequence_id else getattr(session, 'preset_id', None)
+
+
 def _session_to_response(session, session_manager) -> SessionResponse:
     """Convert a Session to SessionResponse."""
-    cycle_config = session.cycle_config or CycleConfig()
+    try:
+        playback = session_manager.playback_status(session)
+    except Exception as e:
+        logger.warning(f"Could not read the playback status of '{session.name}': {e}")
+        playback = {}
     return SessionResponse(
         id=session.id,
         name=session.name,
@@ -303,12 +272,14 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         speakers=session_manager.get_resolved_speakers(session),
         speaker_summary=session_manager.get_speaker_summary(session),
         channel_id=session_manager.get_session_channel(session.id),
-        cycle_config=CycleConfigResponse(
-            enabled=cycle_config.enabled,
-            interval_minutes=cycle_config.interval_minutes,
-            randomize=cycle_config.randomize,
-            theme_ids=cycle_config.theme_ids,
-        ),
+        sequence_id=getattr(session, 'sequence_id', None),
+        preset_choice=_preset_choice(session),
+        playlist_id=getattr(session, 'playlist_id', None),
+        sequence=playback.get("sequence"),
+        playlist=playback.get("playlist"),
+        speakers_muted=session.speakers_muted,
+        listening=session_manager.is_listened(session),
+        recent=list(reversed(session.recent)),
         created_at=session.created_at,
         last_played_at=session.last_played_at,
     )
@@ -328,6 +299,7 @@ def create_api_router(
     mqtt_manager=None,
     on_themes_changed=None,
     network_service=None,
+    on_master_gain=None,
 ) -> APIRouter:
     """
     Create the API router with all endpoints.
@@ -339,12 +311,14 @@ def create_api_router(
         state_store: StateStore instance
         theme_manager: Optional theme manager for theme endpoints
         channel_manager: Optional ChannelManager for channel-based streaming
-        cycle_manager: Optional CycleManager for theme cycling
+        cycle_manager: Unused (theme cycling became playlists), kept for old callers
         plugin_manager: Optional PluginManager for plugin endpoints
         mqtt_manager: Optional MQTT manager for HA entity updates
         on_themes_changed: Optional callback after themes are added to or deleted,
             so the theme list (and MQTT theme selects) gets rescanned
         network_service: Optional NetworkSpeakerService (standalone mode only)
+        on_master_gain: Optional callback after Master output gain is changed,
+            so the mix's output gain follows
 
     Returns:
         Configured APIRouter
@@ -452,8 +426,9 @@ def create_api_router(
                 adhoc_selection=request.adhoc_selection.to_selection() if request.adhoc_selection else None,
                 custom_name=request.custom_name,
                 volume=request.volume,
-                cycle_config=request.cycle_config.to_config() if request.cycle_config else None,
             )
+        except LookupError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e).strip("'\""))
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
@@ -481,16 +456,20 @@ def create_api_router(
         old_session = session_manager.get(session_id)
         old_name = old_session.name if old_session else None
 
-        session, added_speakers, removed_speakers = session_manager.update(
-            session_id=session_id,
-            theme_id=request.theme_id,
-            preset_id=request.preset_id,
-            speaker_group_id=request.speaker_group_id,
-            adhoc_selection=request.adhoc_selection.to_selection() if request.adhoc_selection else None,
-            custom_name=request.custom_name,
-            volume=request.volume,
-            cycle_config=request.cycle_config.to_config() if request.cycle_config else None,
-        )
+        try:
+            session, added_speakers, removed_speakers = session_manager.update(
+                session_id=session_id,
+                theme_id=request.theme_id,
+                preset_id=request.preset_id,
+                speaker_group_id=request.speaker_group_id,
+                adhoc_selection=request.adhoc_selection.to_selection() if request.adhoc_selection else None,
+                custom_name=request.custom_name,
+                volume=request.volume,
+            )
+        except LookupError as e:  # preset_id "seq:<id>" names no sequence of the theme
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e).strip("'\""))
+        except ValueError as e:  # that sequence has no presets left
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
@@ -553,25 +532,40 @@ def create_api_router(
         asyncio.create_task(session_manager.play(session_id))
         
         return {
-            "status": "playing", 
+            "status": "playing",
             "channel_id": session_manager.get_session_channel(session_id),
-            "cycling": session.cycle_config.enabled if session.cycle_config else False,
+            "sequence_id": session.sequence_id,
+            "playlist_id": session.playlist_id,
         }
-    
+
+    def _in_background(coro, what: str):
+        async def run():
+            try:
+                await coro
+            except Exception as e:
+                logger.error(f"Error while {what}: {e}")
+        return asyncio.create_task(run())
+
     @router.post("/sessions/{session_id}/pause")
     async def pause_session(session_id: str) -> dict:
-        """Pause playback for a session."""
-        success = await session_manager.pause(session_id)
-        if not success:
+        """Pause playback for a session (the mix fades out first; this returns at once)."""
+        session = session_manager.get(session_id)
+        if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        session.is_playing = False
+        state_store.save()
+        _in_background(session_manager.pause(session_id), f"pausing '{session.name}'")
         return {"status": "paused"}
-    
+
     @router.post("/sessions/{session_id}/stop")
     async def stop_session(session_id: str) -> dict:
-        """Stop playback for a session."""
-        success = await session_manager.stop(session_id)
-        if not success:
+        """Stop playback for a session (the mix fades out first; this returns at once)."""
+        session = session_manager.get(session_id)
+        if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        session.is_playing = False
+        state_store.save()
+        _in_background(session_manager.stop(session_id), f"stopping '{session.name}'")
         return {"status": "stopped"}
     
     @router.post("/sessions/{session_id}/volume")
@@ -582,89 +576,483 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         return {"volume": request.volume}
     
+    @router.put("/sessions/{session_id}/speakers-muted")
+    async def mute_session_speakers(session_id: str, request: dict) -> dict:
+        """Silence (or not) what the speakers get; a browser listening keeps hearing it."""
+        muted = bool(request.get("muted"))
+        if not session_manager.set_speakers_muted(session_id, muted):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        return {"speakers_muted": muted}
+
+    @router.post("/sessions/{session_id}/listen")
+    async def listen_session(session_id: str) -> dict:
+        """
+        Listen here: this browser plays the channel's stream (GET stream_path
+        with ?local=1). The mix starts without the speakers if they don't play,
+        and runs until no browser listens. Play and Stop stay the speakers'.
+        """
+        try:
+            channel = session_manager.listen(session_id)
+        except KeyError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        if channel is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No free channel")
+        return {"channel_id": channel.id, "stream_path": channel.stream_path}
+
+    @router.delete("/sessions/{session_id}/listen")
+    async def unlisten_session(session_id: str) -> dict:
+        """This browser stopped listening (the mix stops too unless the speakers play; returns at once)."""
+        session = _session_or_404(session_id)
+        _in_background(session_manager.unlisten(session_id), f"releasing '{session.name}' after listening")
+        return {"status": "ok"}
+
     @router.post("/sessions/stop-all")
     async def stop_all_sessions() -> dict:
         """Stop all playing sessions."""
         count = await session_manager.stop_all()
         return {"stopped": count}
     
-    # --- Theme Cycling Endpoints ---
-    
-    @router.get("/sessions/{session_id}/cycle")
-    async def get_cycle_status(session_id: str) -> CycleStatusResponse:
-        """Get cycling status for a session."""
+    # --- Sequences and playlists on a channel (docs/PLAYBACK.md) ---
+
+    async def _json_body(request: Request) -> dict:
+        try:
+            data = await request.json()
+        except Exception:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid JSON body")
+        if not isinstance(data, dict):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Expected a JSON object")
+        return data
+
+    def _session_or_404(session_id: str):
         session = session_manager.get(session_id)
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-        
-        cycle_config = session.cycle_config or CycleConfig()
-        
-        # Get runtime status from cycle manager
-        status_data = None
-        if cycle_manager and session.is_playing:
-            status_data = cycle_manager.get_cycle_status(session_id)
-        
-        return CycleStatusResponse(
-            enabled=cycle_config.enabled,
-            interval_minutes=cycle_config.interval_minutes,
-            randomize=cycle_config.randomize,
-            theme_ids=cycle_config.theme_ids,
-            next_change=status_data.get("next_change") if status_data else None,
-            seconds_until_change=status_data.get("seconds_until_change") if status_data else None,
-            themes_in_rotation=status_data.get("themes_in_rotation", 0) if status_data else 0,
-        )
-    
-    @router.put("/sessions/{session_id}/cycle")
-    async def update_cycle_config(session_id: str, request: UpdateCycleRequest) -> CycleStatusResponse:
-        """Update cycling configuration for a session."""
-        session = session_manager.update_cycle_config(
-            session_id=session_id,
-            enabled=request.enabled,
-            interval_minutes=request.interval_minutes,
-            randomize=request.randomize,
-            theme_ids=request.theme_ids,
-        )
-        if not session:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-        
-        cycle_config = session.cycle_config
-        
-        # Get runtime status from cycle manager
-        status_data = None
-        if cycle_manager and session.is_playing:
-            status_data = cycle_manager.get_cycle_status(session_id)
-        
-        return CycleStatusResponse(
-            enabled=cycle_config.enabled,
-            interval_minutes=cycle_config.interval_minutes,
-            randomize=cycle_config.randomize,
-            theme_ids=cycle_config.theme_ids,
-            next_change=status_data.get("next_change") if status_data else None,
-            seconds_until_change=status_data.get("seconds_until_change") if status_data else None,
-            themes_in_rotation=status_data.get("themes_in_rotation", 0) if status_data else 0,
-        )
-    
-    @router.post("/sessions/{session_id}/cycle/skip")
-    async def skip_to_next_theme(session_id: str) -> dict:
-        """Skip to the next theme in the cycle."""
-        session = session_manager.get(session_id)
-        if not session:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
-        
-        if not session.is_playing:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Session is not playing")
-        
-        if not cycle_manager:
-            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Cycling not available")
-        
-        # Manually trigger a cycle
-        await cycle_manager._cycle_theme(session)
-        
+        return session
+
+    def _playback(session) -> dict:
         return {
-            "status": "skipped",
-            "new_theme_id": session.theme_id,
+            "session_id": session.id,
+            "sequence_id": session.sequence_id,
+            "preset_choice": _preset_choice(session),
+            "playlist_id": session.playlist_id,
+            **session_manager.playback_status(session),
         }
-    
+
+    async def _sync_mqtt(session=None, playlists=False, theme_id=None):
+        """Bring the Home Assistant entities up to date after a change here."""
+        if not mqtt_manager:
+            return
+        try:
+            if playlists:
+                await mqtt_manager.refresh_playlists()
+            if theme_id:
+                await mqtt_manager.refresh_sequences(theme_id)
+            if session is not None:
+                await mqtt_manager.update_session_state(session)
+        except Exception as e:
+            logger.warning(f"Failed to update MQTT entities: {e}")
+
+    @router.get("/sessions/{session_id}/playback")
+    async def get_session_playback(session_id: str) -> dict:
+        """The channel's sequence and playlist: what runs, the current step or entry, and when it changes."""
+        return _playback(_session_or_404(session_id))
+
+    @router.post("/sessions/{session_id}/sequence")
+    async def start_session_sequence(session_id: str, request: Request) -> dict:
+        """Run a sequence of the channel's theme ({"sequence_id": ...}) from its first preset."""
+        data = await _json_body(request)
+        sequence_id = data.get("sequence_id")
+        if not isinstance(sequence_id, str) or not sequence_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="sequence_id is required")
+        session = _session_or_404(session_id)
+        try:
+            session_manager.start_sequence(session_id, sequence_id)
+        except LookupError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e).strip("'\""))
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        await _sync_mqtt(session)
+        return _playback(session)
+
+    @router.delete("/sessions/{session_id}/sequence")
+    async def stop_session_sequence(session_id: str) -> dict:
+        """Stop the channel's sequence; it stays on its current preset."""
+        session = _session_or_404(session_id)
+        session_manager.stop_sequence(session_id)
+        await _sync_mqtt(session)
+        return _playback(session)
+
+    @router.put("/sessions/{session_id}/playlist")
+    async def set_session_playlist(session_id: str, request: Request) -> dict:
+        """Play a playlist on the channel ({"playlist_id": ...}) from its first entry."""
+        data = await _json_body(request)
+        playlist_id = data.get("playlist_id")
+        if not isinstance(playlist_id, str) or not playlist_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="playlist_id is required")
+        session = _session_or_404(session_id)
+        try:
+            session_manager.set_playlist(session_id, playlist_id)
+        except LookupError as e:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e).strip("'\""))
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+        await _sync_mqtt(session)
+        return _playback(session)
+
+    @router.delete("/sessions/{session_id}/playlist")
+    async def clear_session_playlist(session_id: str) -> dict:
+        """Stop the channel's playlist; the channel keeps playing its current theme."""
+        session = _session_or_404(session_id)
+        session_manager.clear_playlist(session_id)
+        await _sync_mqtt(session)
+        return _playback(session)
+
+    @router.post("/sessions/{session_id}/next")
+    async def skip_session(session_id: str) -> dict:
+        """Next playlist entry now (or, with no playlist, the sequence's next preset)."""
+        session = _session_or_404(session_id)
+        if not (session.is_playing or session_manager.is_listened(session)):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The channel is not playing")
+        result = await session_manager.skip(session_id)
+        if result is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No playlist or sequence is running")
+        await _sync_mqtt(session)
+        return {"skipped": result, **_playback(session)}
+
+    # --- Sequences of a theme (stored in its presets.json) ---
+
+    def _theme_folder_or_404(theme_id: str):
+        folder = session_manager.theme_folder(theme_id)
+        if folder is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Theme not found")
+        return folder
+
+    def _same_name(items: dict, name: str, except_id: Optional[str] = None) -> bool:
+        wanted = name.strip().lower()
+        return any(item_id != except_id and str((item or {}).get("name", "")).strip().lower() == wanted
+                   for item_id, item in items.items())
+
+    @router.get("/themes/{theme_id}/sequences")
+    async def list_theme_sequences(theme_id: str) -> dict:
+        """A theme's sequences and its sequence_defaults."""
+        from sonorium.core import sequences as seq
+        folder = _theme_folder_or_404(theme_id)
+        defaults = seq.load_defaults(folder)
+        return {
+            "theme_id": theme_id,
+            "sequence_defaults": defaults,
+            "sequences": [seq.to_response(sid, data, defaults) for sid, data in seq.load_sequences(folder).items()],
+        }
+
+    @router.post("/themes/{theme_id}/sequences", status_code=status.HTTP_201_CREATED)
+    async def create_theme_sequence(theme_id: str, request: Request) -> dict:
+        """New sequence: {"name", "presets": [ids], "at_end", "hold_min", "hold_max", "ramp"} (timing null = theme default)."""
+        from sonorium.core import sequences as seq
+        folder = _theme_folder_or_404(theme_id)
+        data = await _json_body(request)
+        defaults = seq.load_defaults(folder)
+        existing = seq.load_sequences(folder)
+        try:
+            cleaned = seq.clean_sequence(data, session_manager._theme_presets(theme_id).keys())
+            seq.check_timing(cleaned, defaults)
+        except seq.SequenceError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        if _same_name(existing, cleaned["name"]):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This theme already has a sequence with that name")
+        sequence_id = seq.new_sequence_id(cleaned["name"], existing)
+        existing[sequence_id] = cleaned
+        try:
+            seq.save_sequences(folder, existing)
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        await _sync_mqtt(theme_id=theme_id)
+        return seq.to_response(sequence_id, cleaned, defaults)
+
+    @router.get("/themes/{theme_id}/sequences/{sequence_id}")
+    async def get_theme_sequence(theme_id: str, sequence_id: str) -> dict:
+        from sonorium.core import sequences as seq
+        folder = _theme_folder_or_404(theme_id)
+        existing = seq.load_sequences(folder)
+        if sequence_id not in existing:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found")
+        return seq.to_response(sequence_id, existing[sequence_id], seq.load_defaults(folder))
+
+    @router.put("/themes/{theme_id}/sequences/{sequence_id}")
+    async def update_theme_sequence(theme_id: str, sequence_id: str, request: Request) -> dict:
+        """Change a sequence: only the fields sent change. A channel running it uses the new version from its next step."""
+        from sonorium.core import sequences as seq
+        folder = _theme_folder_or_404(theme_id)
+        data = await _json_body(request)
+        existing = seq.load_sequences(folder)
+        if sequence_id not in existing:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found")
+        defaults = seq.load_defaults(folder)
+        try:
+            cleaned = seq.clean_sequence(data, session_manager._theme_presets(theme_id).keys(), existing[sequence_id])
+            seq.check_timing(cleaned, defaults)
+        except seq.SequenceError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        if _same_name(existing, cleaned["name"], except_id=sequence_id):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This theme already has a sequence with that name")
+        existing[sequence_id] = cleaned
+        try:
+            seq.save_sequences(folder, existing)
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        await _sync_mqtt(theme_id=theme_id)
+        return seq.to_response(sequence_id, cleaned, defaults)
+
+    @router.delete("/themes/{theme_id}/sequences/{sequence_id}")
+    async def delete_theme_sequence(theme_id: str, sequence_id: str) -> dict:
+        """Delete a sequence; channels running it stop it (they stay on their current preset)."""
+        from sonorium.core import sequences as seq
+        folder = _theme_folder_or_404(theme_id)
+        existing = seq.load_sequences(folder)
+        if sequence_id not in existing:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found")
+        del existing[sequence_id]
+        try:
+            seq.save_sequences(folder, existing)
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        stopped = session_manager.forget_sequence(theme_id, sequence_id)
+        await _sync_mqtt(theme_id=theme_id)
+        return {"status": "ok", "sequence_id": sequence_id, "stopped_on": [s.id for s in stopped]}
+
+    @router.get("/themes/{theme_id}/sequence_defaults")
+    async def get_sequence_defaults(theme_id: str) -> dict:
+        """The theme's default hold time range and ramp time (seconds) for its sequences."""
+        from sonorium.core import sequences as seq
+        return {"theme_id": theme_id, **seq.load_defaults(_theme_folder_or_404(theme_id))}
+
+    @router.put("/themes/{theme_id}/sequence_defaults")
+    async def update_sequence_defaults(theme_id: str, request: Request) -> dict:
+        """Change the theme's sequence defaults: any of hold_min, hold_max, ramp (seconds)."""
+        from sonorium.core import sequences as seq
+        folder = _theme_folder_or_404(theme_id)
+        data = await _json_body(request)
+        unknown = set(data) - set(seq.TIMING_FIELDS)
+        if unknown:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unknown field(s): {', '.join(sorted(unknown))}")
+        try:
+            defaults = seq.save_defaults(folder, data)
+        except seq.SequenceError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        return {"theme_id": theme_id, **defaults}
+
+    # --- Advanced transitions of a sequence's presets (core/transitions.py) ---
+
+    def _sequence_or_404(folder, sequence_id: str):
+        from sonorium.core import sequences as seq
+        existing = seq.load_sequences(folder)
+        if sequence_id not in existing:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found")
+        return existing
+
+    @router.get("/themes/{theme_id}/sequences/{sequence_id}/transitions/{preset_id}")
+    async def get_step_transitions(theme_id: str, sequence_id: str, preset_id: str) -> dict:
+        """A preset's advanced transitions in a sequence: {"in": {track: {...}}, "out": {...}} (missing = Smooth)."""
+        from sonorium.core import sequences as seq
+        existing = _sequence_or_404(_theme_folder_or_404(theme_id), sequence_id)
+        if preset_id not in (existing[sequence_id].get("presets") or []):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="That preset is not in the sequence")
+        return {"theme_id": theme_id, "sequence_id": sequence_id, "preset_id": preset_id,
+                **seq.step_transitions(existing[sequence_id], preset_id)}
+
+    @router.put("/themes/{theme_id}/sequences/{sequence_id}/transitions/{preset_id}")
+    async def set_step_transitions(theme_id: str, sequence_id: str, preset_id: str, request: Request) -> dict:
+        """Replace a preset's advanced transitions ({"in": {...}, "out": {...}}; empty = all Smooth)."""
+        from sonorium.core import sequences as seq
+        folder = _theme_folder_or_404(theme_id)
+        data = await _json_body(request)
+        existing = _sequence_or_404(folder, sequence_id)
+        if preset_id not in (existing[sequence_id].get("presets") or []):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="That preset is not in the sequence")
+        try:
+            existing[sequence_id] = seq.set_step_transitions(existing[sequence_id], preset_id, data)
+        except seq.SequenceError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        try:
+            seq.save_sequences(folder, existing)
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        return {"theme_id": theme_id, "sequence_id": sequence_id, "preset_id": preset_id,
+                **seq.step_transitions(existing[sequence_id], preset_id)}
+
+    # --- A sequence step's While playing layer (core/sequences.STEP_*_FIELDS) ---
+
+    @router.get("/themes/{theme_id}/sequences/{sequence_id}/while/{preset_id}")
+    async def get_step_while(theme_id: str, sequence_id: str, preset_id: str) -> dict:
+        """A preset's While playing layer in a sequence: {"tracks": {key: {...}}, "groups": {...}}, null = the preset's."""
+        from sonorium.core import sequences as seq
+        existing = _sequence_or_404(_theme_folder_or_404(theme_id), sequence_id)
+        if preset_id not in (existing[sequence_id].get("presets") or []):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="That preset is not in the sequence")
+        return {"theme_id": theme_id, "sequence_id": sequence_id, "preset_id": preset_id,
+                **seq.step_while(existing[sequence_id], preset_id)}
+
+    @router.put("/themes/{theme_id}/sequences/{sequence_id}/while/{preset_id}")
+    async def set_step_while(theme_id: str, sequence_id: str, preset_id: str, request: Request) -> dict:
+        """Replace a preset's While playing layer. Channels on that step glide to it."""
+        from sonorium.core import sequences as seq
+        folder = _theme_folder_or_404(theme_id)
+        data = await _json_body(request)
+        existing = _sequence_or_404(folder, sequence_id)
+        if preset_id not in (existing[sequence_id].get("presets") or []):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="That preset is not in the sequence")
+        try:
+            existing[sequence_id] = seq.set_step_while(existing[sequence_id], preset_id, data)
+        except seq.SequenceError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        try:
+            seq.save_sequences(folder, existing)
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        if session_manager is not None:
+            try:
+                session_manager.step_saved({theme_id}, sequence_id, preset_id)
+            except Exception as e:
+                logger.warning(f"While playing for '{preset_id}' saved, but playing channels could not follow it: {e}")
+        return {"theme_id": theme_id, "sequence_id": sequence_id, "preset_id": preset_id,
+                **seq.step_while(existing[sequence_id], preset_id)}
+
+    @router.get("/themes/{theme_id}/transition_tracks")
+    async def get_transition_tracks(theme_id: str, preset: str, prev: Optional[str] = None,
+                                    next: Optional[str] = None) -> dict:
+        """
+        The tracks a sequence step changes, for the Advanced dialog: "in", the
+        tracks `preset` turns on or makes louder after `prev`; "out", the tracks
+        `next` turns off or makes quieter after `preset`. Volumes and intervals
+        are 0..1 (volume 0 = off). Merry-go-round tracks are left out (their
+        group's bed plays them).
+        """
+        from sonorium.core.transitions import EPS, track_level
+        from sonorium.recording import GROUP_MODE_MERRY_GO_ROUND, PlaybackMode, TrackView, group_mode
+        theme = session_manager.get_theme(theme_id)
+        if theme is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Theme not found")
+        presets = session_manager._theme_presets(theme_id)
+        for value in (preset, prev, next):
+            if value and value not in presets:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Preset '{value}' not found")
+        groups = getattr(theme, "groups", None) or {}
+        labels = {PlaybackMode.SPARSE: "Intermittent", PlaybackMode.PRESENCE: "Ebb & Flow",
+                  PlaybackMode.CONTINUOUS: "Background"}
+
+        def rows(before_id, after_id, side):
+            if not before_id or not after_id:
+                return []
+            before = session_manager.preset_overrides(theme_id, before_id)
+            after = session_manager.preset_overrides(theme_id, after_id)
+            result = []
+            for instance in list(theme.instances):
+                group = getattr(instance.meta, "group", None)
+                if group and group_mode(groups.get(group)) == GROUP_MODE_MERRY_GO_ROUND:
+                    continue
+                va, vb = TrackView(instance, before), TrackView(instance, after)
+                la, lb = track_level(va), track_level(vb)
+                if (side == "in" and lb > la + EPS) or (side == "out" and lb < la - EPS):
+                    view = vb if side == "in" else va
+                    try:
+                        mode = labels.get(view._resolve_playback_mode(), "Background")
+                    except Exception:
+                        mode = "Background"
+                    try:
+                        duration = round(float(instance.meta.duration_seconds), 1)
+                    except Exception:
+                        duration = 0.0
+                    result.append({
+                        "key": instance.name,
+                        "name": instance.name.split("/", 1)[-1],
+                        "group": group,
+                        "mode": mode,
+                        "from": round(la, 4), "to": round(lb, 4),
+                        "presence_from": round(float(va.presence), 4), "presence_to": round(float(vb.presence), 4),
+                        "duration_seconds": duration,
+                    })
+            return result
+
+        return {"theme_id": theme_id, "preset": preset, "prev": prev, "next": next,
+                "in": rows(prev, preset, "in"), "out": rows(preset, next, "out")}
+
+    # --- Playlists (global, stored in state.json) ---
+
+    def _playlist_lookups():
+        def theme_exists(theme_id):
+            return session_manager.get_theme(theme_id) is not None or session_manager.theme_folder(theme_id) is not None
+
+        def theme_presets(theme_id):
+            return set(session_manager._theme_presets(theme_id))
+
+        def theme_sequences(theme_id):
+            return set(session_manager.theme_sequences(theme_id)[0])
+        return theme_exists, theme_presets, theme_sequences
+
+    def _playlist_or_404(playlist_id: str) -> dict:
+        playlist = state_store.playlists.get(playlist_id)
+        if playlist is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Playlist not found")
+        return playlist
+
+    @router.get("/playlists")
+    async def list_playlists() -> dict:
+        from sonorium.core.playlists import to_response
+        return {"playlists": [to_response(pid, p) for pid, p in state_store.playlists.items()]}
+
+    @router.post("/playlists", status_code=status.HTTP_201_CREATED)
+    async def create_playlist(request: Request) -> dict:
+        """New playlist: {"name", "entries": [{"theme_id", "preset_id", "sequence_id"}], "order", "repeat", "play_min", "play_max"}."""
+        from sonorium.core.playlists import PlaylistError, clean_playlist, new_playlist_id, to_response
+        data = await _json_body(request)
+        try:
+            cleaned = clean_playlist(data, *_playlist_lookups())
+        except PlaylistError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        if _same_name(state_store.playlists, cleaned["name"]):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A playlist with that name already exists")
+        playlist_id = new_playlist_id(state_store.playlists)
+        state_store.playlists[playlist_id] = cleaned
+        state_store.save()
+        await _sync_mqtt(playlists=True)
+        return to_response(playlist_id, cleaned)
+
+    @router.get("/playlists/{playlist_id}")
+    async def get_playlist(playlist_id: str) -> dict:
+        from sonorium.core.playlists import to_response
+        return to_response(playlist_id, _playlist_or_404(playlist_id))
+
+    @router.put("/playlists/{playlist_id}")
+    async def update_playlist(playlist_id: str, request: Request) -> dict:
+        """Change a playlist: only the fields sent change. Channels playing it carry on with the new version."""
+        from sonorium.core.playlists import PlaylistError, clean_playlist, to_response
+        current = _playlist_or_404(playlist_id)
+        data = await _json_body(request)
+        try:
+            cleaned = clean_playlist(data, *_playlist_lookups(), current=current)
+        except PlaylistError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        if _same_name(state_store.playlists, cleaned["name"], except_id=playlist_id):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A playlist with that name already exists")
+        state_store.playlists[playlist_id] = cleaned
+        session_manager.runner.playlist_changed(playlist_id)
+        state_store.save()
+        await _sync_mqtt(playlists=True)
+        return to_response(playlist_id, cleaned)
+
+    @router.delete("/playlists/{playlist_id}")
+    async def delete_playlist(playlist_id: str) -> dict:
+        """Delete a playlist; channels playing it stop playing it (they keep their current theme)."""
+        _playlist_or_404(playlist_id)
+        del state_store.playlists[playlist_id]
+        cleared = session_manager.forget_playlist(playlist_id)
+        state_store.save()
+        await _sync_mqtt(playlists=True)
+        return {"status": "ok", "playlist_id": playlist_id, "stopped_on": [s.id for s in cleared]}
+
     # --- Channel Endpoints ---
     
     @router.get("/channels")
@@ -1291,8 +1679,6 @@ def create_api_router(
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
-            default_cycle_interval=settings.default_cycle_interval,
-            default_cycle_randomize=settings.default_cycle_randomize,
         )
 
     @router.put("/settings")
@@ -1314,10 +1700,8 @@ def create_api_router(
             settings.auto_create_quick_play = request.auto_create_quick_play
         if request.master_gain is not None:
             settings.master_gain = request.master_gain
-        if request.default_cycle_interval is not None:
-            settings.default_cycle_interval = request.default_cycle_interval
-        if request.default_cycle_randomize is not None:
-            settings.default_cycle_randomize = request.default_cycle_randomize
+            if on_master_gain:
+                on_master_gain()
 
         state_store.save()
 
@@ -1329,8 +1713,6 @@ def create_api_router(
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
-            default_cycle_interval=settings.default_cycle_interval,
-            default_cycle_randomize=settings.default_cycle_randomize,
         )
 
     # --- Speaker Settings Endpoints ---
@@ -1578,6 +1960,8 @@ def create_api_router(
         """
         Upload an audio file to a theme folder. An optional "group" (form field
         or query parameter) puts it in that group's folder, created if missing.
+        A new track starts Unassigned (playback_mode "unassigned": not played
+        until it is placed); a file uploaded over one keeps its settings.
         """
         from sonorium.core import theme_groups
 
@@ -1612,12 +1996,31 @@ def create_api_router(
             except theme_groups.GroupError as e:
                 raise HTTPException(status_code=e.status, detail=str(e))
             target_folder = file_path.parent
+            group_name = target_folder.name if target_folder != theme_path else None
+
+            # A linked file's name there is taken: " (2)" etc. instead
+            metadata = _cached_metadata(theme_id, theme_path)
+            if metadata is not None and metadata.links:
+                from sonorium.core.intrusions import link_names
+                reserved = link_names(metadata, group_name)
+                if file_path.stem.casefold() in {n.casefold() for n in reserved}:
+                    file_path = target_folder / theme_groups.free_file_name(target_folder, file_path.name, reserved=reserved)
+                    filename = file_path.name
+            key = f"{group_name}/{file_path.stem}" if group_name else file_path.stem
+            is_new = not file_path.exists()
 
             # Read and write the file content
             content = await file.read()
             file_path.write_bytes(content)
+            if is_new:
+                from sonorium.core.theme_metadata import add_unassigned_track
+                manager = getattr(session_manager, "theme_metadata_manager", None) if session_manager else None
+                try:
+                    add_unassigned_track(theme_path, key, metadata, manager)
+                except OSError as e:
+                    # The file is there and plays as a track without settings would
+                    logger.warning(f"Theme '{theme_id}': '{key}' uploaded, but it couldn't be made Unassigned ({e})")
 
-            group_name = target_folder.name if target_folder != theme_path else None
             where = f" in group '{group_name}'" if group_name else ""
             logger.info(f"Uploaded file to theme '{theme_id}'{where}: {filename} ({len(content)} bytes)")
             if on_themes_changed:
@@ -1629,7 +2032,7 @@ def create_api_router(
                 "size": len(content),
                 "theme_id": theme_id,
                 "group": group_name,
-                "track": f"{group_name}/{file_path.stem}" if group_name else file_path.stem,
+                "track": key,
             }
 
         except HTTPException:
@@ -1637,6 +2040,13 @@ def create_api_router(
         except Exception as e:
             logger.error(f"Failed to upload file: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+    def _cached_metadata(theme_id: str, theme_path):
+        """The theme's loaded metadata (the metadata manager's), or None."""
+        manager = getattr(session_manager, "theme_metadata_manager", None) if session_manager else None
+        if manager is None:
+            return None
+        return manager.get_metadata(theme_id) or manager.get_metadata_by_folder(theme_path)
 
     def _find_theme_folder(theme_id: str):
         """Find theme folder by ID, handling sanitized names and UUID-based IDs."""
@@ -1804,9 +2214,10 @@ def create_api_router(
                 # Always the 2.0 layout: metadata.json without presets, plus presets.json
                 metadata_doc, presets_doc = theme_documents_for_export(theme_path)
 
-                # Self-contained: an intrusion group's linked files (they live in
-                # other themes' folders) go in as normal files of their group,
-                # the links are dropped and their settings kept under the same keys
+                # Self-contained: the linked files (they live in other themes'
+                # folders) go in as normal files where they sit (the theme folder
+                # or their group's), the links are dropped and their settings kept
+                # under the same keys
                 from sonorium.core.intrusions import export_entries
                 for relative, source in export_entries(theme_path, metadata_doc):
                     zip_file.write(source, f"{theme_name}/{relative}")

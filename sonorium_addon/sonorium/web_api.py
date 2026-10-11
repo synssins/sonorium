@@ -2189,8 +2189,6 @@ def create_app(app_instance: 'SonoriumApp', channel_manager: ChannelManager | No
             'show_in_sidebar': True,
             'auto_create_quick_play': True,
             'master_gain': int(config.master_volume * 100),
-            'default_cycle_interval': 60,
-            'default_cycle_randomize': False,
             'audio_path': config.audio_path
         }
 

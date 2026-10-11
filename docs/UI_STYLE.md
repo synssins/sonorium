@@ -62,8 +62,9 @@ Editor design "C — Aligned table".
 
 ## Actions
 - **Footer:** on the left, the selector the actions depend on (e.g. the preset
-  field with Load / New and a small ⋯); on the right **Primary · Secondary ·
-  Cancel** (e.g. Save theme · Save preset · Cancel).
+  field with Load / New and a small ⋯); on the right **Secondary · Primary ·
+  Cancel**, so the primary action (the one that saves and closes) sits next to
+  Cancel (e.g. Save preset · Save theme · Cancel).
 - **Saving a part saves the whole** where losing work is possible (saving a
   preset saves the theme first).
 - **Destructive or bulk actions ask first** with a small "Are you sure?"

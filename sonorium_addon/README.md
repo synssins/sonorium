@@ -4,6 +4,17 @@
 
 ## Announcements
 
+> ## ⭐ 1.6.1: Refinements
+>
+> Refinements across Sonorium, with the Theme Editor and Channels page restructured.
+>
+> - **Sequences** play a theme's presets one after another, gliding from one to the next: a mild summer storm that becomes a heavy one.
+> - **Playlists** play several themes one after another on a channel.
+> - **Ebb & Flow:** tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time.
+> - **Listen in your browser:** the headphones button on a channel plays it on the device you're using.
+>
+> Your themes are converted the first time this version starts: Auto tracks and Intrusion groups are retired. Each theme keeps backups of its old settings files (`*.pre-auto.bak`, `*.pre-links.bak`, `*.pre-duration.bak`).
+
 > ## ⭐ 1.6.0: Merry-go-round and Intrusions
 >
 > Groups now have three modes. **Merry-go-round** turns a few recordings of the same scene into one continuous bed that crossfades from file to file and never repeats the same way. **Intrusion** lets a preset bring in sounds from another theme, like rain over a campsite, without copying any files. Tracks now fade in and out over 3 seconds when a preset turns them on or off.
@@ -43,7 +54,7 @@ Ambient soundscapes aren't just background noise—they're a powerful tool for m
 ### Screenshots
 
 #### Channels
-Each channel plays its own theme on its own speakers.
+Each channel plays a theme or a playlist on its own speakers, and can be heard in your browser too.
 
 ![Channels](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channels.png)
 
@@ -58,14 +69,40 @@ Search, filter by category, and switch between cards and a list.
 ![Themes](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Themes.png)
 
 #### Edit Theme
-Tracks in one table, with groups, presets and a live preview.
+Tracks in sections by how they play: Unassigned, Background, Intermittent and Ebb & Flow, each with its own groups.
 
 ![Edit Theme](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Theme_Editor.png)
 
+#### Ebb & Flow
+An Ebb & Flow group, and a track's ⋯ menu with Fade in and Fade out, Rise, and Pause between plays.
+
+![Ebb & Flow](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Ebb_Flow.png)
+
+A steady breeze and gusts of wind, from the same wind recording: a narrow volume range with a longer Duration and a Gradual Rise, and a wide range with a shorter Duration and a Sudden Rise.
+
+![A breeze, configured](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Ebb_Flow_Breeze.png)
+
+![A gust, configured](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Ebb_Flow_Gust.png)
+
 #### Theme Editor help
-The **?** button explains modes, groups and saving.
+The **?** button explains sections, modes, groups, sequences and saving.
 
 ![Theme Editor help](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Theme_Editor_Help.png)
+
+#### Edit sequence
+A theme's presets in the order you choose, with the time on each and the ramp between them.
+
+![Edit sequence](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Sequence_Editor.png)
+
+#### A sequence step: While playing
+Changes for one step of a sequence. Anything you don't change follows the preset.
+
+![A sequence step: While playing](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Step_While_Playing.png)
+
+#### Playlists
+Themes that play one after another on a channel.
+
+![Playlists](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Playlists.png)
 
 #### Settings → Connection
 Home Assistant, MQTT and Streaming, each with its status (Docker).
@@ -97,24 +134,10 @@ The **?** in the top bar explains the page you're on.
 
 ![Help on every page](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Page_Help.png)
 
-#### Intrusions (mockup)
-An Intrusion group with files linked from another theme, and presets marked ★ and ⚭.
-
-![Intrusions in the Theme Editor](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/mockups/Intrusions_Editor.png)
-
-#### Add from another theme (mockup)
-Pick a theme, preview its files, tick the ones to link.
-
-![Add from another theme](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/mockups/Intrusions_Picker.png)
-
-#### Preset marks on a channel (mockup)
-
-![Preset marks on a channel](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/mockups/Intrusions_Channel.png)
-
 #### On a phone
 The menu opens from the top bar.
 
-<img src="https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Phone_Themes.png" width="260" alt="Themes on a phone"> <img src="https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Phone_Menu.png" width="260" alt="Menu on a phone">
+<img src="https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Phone_Channels.png" width="260" alt="Channels on a phone"> <img src="https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Phone_Themes.png" width="260" alt="Themes on a phone"> <img src="https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Phone_Menu.png" width="260" alt="Menu on a phone">
 
 ## Features
 
@@ -145,16 +168,18 @@ The menu opens from the top bar.
 #### Track Mixer
 Fine-tune how each audio file plays within a theme:
 
+- **Sections** - Tracks sit in sections by how they play (Unassigned, Background, Intermittent, Ebb & Flow); change a track's Mode or drag it, and it moves there
 - **Interval** - Set how often each track is heard in the mix (0-100%)
-- **Per-Track Volume** - Adjust the amplitude of individual tracks independent of interval.
-- **Playback Modes** - Choose how each track behaves:
-  - **Auto** - Picks for you: sounds under 15 seconds play Intermittent and longer ones play Ebb & Flow; at 100% "interval", either plays as Background
+- **Per-Track Volume** - Adjust amplitude independent of interval
+- **Playback Modes**:
   - **Background** - Plays all the time, looping with a smooth crossfade (rain, wind, a crackling fire)
   - **Intermittent** - Plays once, then goes quiet for a while before playing again; "interval" sets the wait (bird calls, thunder claps, a door creaking)
-  - **Ebb & Flow** - Fades in, plays for a while, fades out, then stays quiet before coming back; "interval" sets how much of the time it's heard (distant traffic, a passing crowd)
-- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in an Intermittent group (the default) plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside groups. Deleting a group keeps its files.
-- **Merry-go-round groups** - A group set to Merry-go-round makes a continuous bed instead: one file plays, then crossfades into another picked at random, never the same one twice in a row. Each group sets its own crossfade (seconds). A single file crossfades into itself.
-- **Intrusion groups** - A group set to Intrusion is a layer a preset turns on, like rain over a campsite: its tracks keep their own mode and settings, and it can hold files linked from other themes without copying them.
+  - **Ebb & Flow** - Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. Duration increases or decreases the amount of time the track is at a value, while the Rise increases or decreases the speed at which the track reaches that value. With Pause between plays it plays the file once, then pauses for a while (wind, surf, rain on a tin roof)
+  - **Unassigned** - Not played: where uploads land until you pick a mode
+- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in an Intermittent group (the default) plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside Intermittent groups. Deleting a group keeps its files.
+- **Ebb & Flow groups** - A group in the Ebb & Flow section plays every file at once, each between its own minimum and maximum volume. With the group's Pause between plays on, the files pause at staggered times and at least one is always playing.
+- **Merry-go-round groups** - A Background group is Merry-go-round, a continuous bed: one file plays, then crossfades into another picked at random, never the same one twice in a row. Each group sets its own crossfade (seconds). A single file crossfades into itself.
+- **Files from another theme** - Link a file from another theme without copying it; it can sit in any section or group, and a preset turns it on.
 
 #### Home Assistant Dashboard Integration
 - **MQTT Entities** - Full dashboard control via MQTT (session select, theme/preset dropdowns, play/stop, volume)
@@ -285,6 +310,42 @@ automations that use the entity first.
 
 ## What's new
 
+### 1.6.1
+
+**Channels**
+- **Theme or playlist.** The two buttons to the right of a channel's fields choose whether it plays one theme or a playlist.
+- **Speaker mute.** The speaker button next to a channel's volume silences its speakers. It works on every kind of speaker. Speakers can take a few seconds to go quiet.
+- **Listen in your browser.** The headphones button plays the channel on the device you're using, with its own volume, even while the speakers are stopped. Start listening on headphones, add speakers, then press Play: the speakers join the same stream without a break. Stop stops the speakers only.
+
+**Theme Editor**
+- **Sections.** Tracks are listed by how they play: **Unassigned**, **Background**, **Intermittent** and **Ebb & Flow**. Changing a track's Mode, or dragging it to another section, moves it there.
+- **Unassigned.** Uploads and files added from another theme start here, and don't play until you give them a Mode.
+- **Groups belong to a section.** A Background group is a Merry-go-round, an Intermittent group takes turns, an Ebb & Flow group plays every file at once.
+- **Files from another theme** can go in any section or group. Intrusion groups are retired.
+- **Auto is retired.** Each Auto track keeps playing the way it did.
+
+**Sequences and playlists**
+- **Sequences.** A sequence plays some of a theme's presets in the order you choose, each for a random time in a range, gliding from one to the next. At the end it plays the list backwards, starts again or stops. For example, a mild summer storm that becomes a heavy one. Make them from **Sequences** in the Theme Editor; pick them from a channel's Preset menu. In Home Assistant they are options of the channel's Preset select, as "*name* (sequence)".
+- **While playing.** In a sequence, a preset's ⋯ › Advanced… has a **While playing** tab: the Theme Editor's controls, for that step only. Anything you don't change follows the preset.
+- **Advanced transitions.** The same window sets how each track comes in and leaves at a step: Gusts, Swell, Build, Distance or Start fresh (and Gusts dying down, Smooth fade, Thin out, Recede or Finish then stop), in any combination, starting up to 90 seconds before the step.
+- **Playlists.** The new **Playlists** page holds themes that play one after another on a channel, each with a preset or sequence if you want one, in order or shuffled, for a random time in the playlist's range, once or on repeat. Home Assistant gets a Playlist select, a Next button and a Step sensor for each channel.
+- **Theme cycling became playlists.** A channel's theme cycling is turned into a playlist the first time this version starts.
+
+**Playback**
+- **Ebb & Flow.** Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. This interval is controlled by the Duration and Rise sliders. Duration increases or decreases the amount of time the track is at a value, while the Rise increases or decreases the speed at which the track reaches that value.
+- **Pause between plays.** An Ebb & Flow track can play its file once, fade out at the end and stay quiet for a random time before it comes back. In an Ebb & Flow group, this keeps at least one file playing at all times.
+- **File fades.** **Fade in** and **Fade out** in a track's ⋯ menu soften a file that starts or ends abruptly, every time it starts or ends. Leave them empty for sounds that should hit hard, like a thunder crack.
+- **Gaps in presets.** An Intermittent group's **Gap** is saved in presets, so one preset can bring the thunder more often than another.
+- **Channels fade in and out** when they start and stop, instead of cutting (#34).
+- **Preset glides.** Picking a preset glides the mix to it over 3 seconds; a sequence glides over its ramp time.
+- **Smooth volume changes.** Volume sliders ease to the new level instead of jumping.
+- An exported theme keeps all of its settings, presets and sequences.
+
+**Fixes**
+- Saving a preset now changes channels that are playing it.
+- **Crossfade** and **Master output gain** on **Settings → Audio Settings** now change the sound in the Home Assistant app. Crossfade also sets how long a channel fades in and out.
+- After a confirmation on a settings page, an empty box could stay on the screen.
+
 ### 1.6.0
 
 **Themes and playback**
@@ -373,42 +434,126 @@ automations that use the entity first.
 
 These are the same words as the **?** help in the Theme Editor.
 
-A theme is a set of tracks (sound files) mixed together. Each track has a **mode**, a **volume** and an **interval**.
+A theme is a set of tracks (sound files) mixed together. This help follows the editor from top to bottom.
 
 
-**Modes**
+**Tracks**
+
+- **Sequences:** Lists this theme's sequences. Pick one to edit it, or Add sequence.
+- **Preview mix:** Plays the mix in this browser.
+- **Upload:** Uploads to Unassigned, or to the group you pick.
+- **Add from another theme:** Links files from another theme.
+- **Reset all:** Resets every track and group to defaults.
+
+**Sections**
+
+- **Sections:** tracks sit in sections by how they play: Background, Intermittent and Ebb & Flow. Every section is always there, even empty. Change a track's Mode, or drag it to another section or into a group in one, and it moves there and plays that way. A track in a group plays its group's way: drag it out to change it.
+- **Groups:** a group belongs to its section and plays that section's way: Background groups are Merry-go-round, Intermittent groups take turns, Ebb & Flow groups play every file at once. Make one with the section's New group.
+- **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
+
+**Unassigned**
+
+- **Unassigned:** uploads and files added from another theme start here. Nothing here plays. Pick each file's Mode, or drag it into a section or a group.
+
+**Background**
 
 - **Background:** plays all the time, looping smoothly. Rain, wind, a fire.
-- **Intermittent:** plays once, then goes quiet before playing again. *Interval* sets the wait. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.
-- **Ebb & Flow:** fades in, plays a while, fades out, then stays quiet before coming back. *Interval* sets how much of the time it's heard. Distant traffic, a passing crowd.
-- **Auto:** picks for you. Under 15 seconds plays Intermittent, longer plays Ebb & Flow. At 100% *interval*, either plays as Background.
+- ***Track***
+  - **Gapless:** in the track's ⋯ menu, outside groups. Loops without a crossfade.
+- ***Merry-go-round group***
+  - **Merry-go-round:** one file plays, then crossfades into another picked at random, never the same one twice in a row. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.
+  - **Crossfade:** under the group's name. Overlap between files (seconds).
+  - **Volume, Mute:** apply to every track in the group.
 
-**Groups**
+**Intermittent**
 
-- **Take turns:** a group is a folder of tracks. In an Intermittent group only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
-- **Group mode:** Intermittent plays one track at a time with a gap; Merry-go-round makes a continuous bed.
-- **Gap:** after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.
-- **Intermittent group:** on its turn, a track plays its whole file once, start to finish, then hands over. Background and Ebb & Flow are for the ambience outside groups.
-- **Merry-go-round:** one file plays, then crossfades into another picked at random, never the same one twice in a row. Crossfade sets the overlap. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.
-- **Weight:** each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.
-- **Interval:** how fast a track's weight wears off. Higher comes back sooner; lower plays less often.
-- **Group volume, interval, mute:** scale every track in the group.
-- **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
-- **Deleting a group:** keeps its files; they move back into the theme.
+- **Intermittent:** plays once, then goes quiet before playing again. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.
+- ***Track***
+  - **Interval:** the wait between plays. In a group, how fast its weight wears off. Higher comes back sooner; lower plays less often.
+- ***Intermittent group***
+  - **Take turns:** only one track plays at a time, never overlapping. On its turn, a track plays its whole file once, start to finish, then hands over. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
+  - **Gap:** under the group's name: after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other. Presets keep their own Gap.
+  - **Weight:** each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.
+  - **Volume, Interval, Mute:** apply to every track in the group.
 
-**Intrusions**
+**Ebb & Flow**
 
-- **Intrusion group:** a group in Intrusion mode, marked 🔗. Its tracks keep their own mode and settings, and it can hold files linked from other themes.
-- **Linked file:** plays here but stays in its own theme. Add one with the group's ⋯ › Add from another theme. New links start muted. If the file is gone, it shows Missing.
-- **Presets:** turn intrusion tracks on and other tracks off, like rain that mutes the crickets. A preset that turns intrusion tracks on shows ⚭.
+- **Ebb & Flow:** Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. Wind, surf, rain that gusts.
+- ***Track***
+  - **Volume:** minimum and maximum volume.
+  - **Duration:** increases or decreases the amount of time the track is at a value.
+  - *Its ⋯ menu*
+    - **Rise:** increases or decreases the speed at which the track reaches that value.
+    - **Pause between plays:** off, the file loops and is always heard. On, it plays once from start to finish, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.
+    - **Pause:** how long it stays quiet, in seconds, picked at random between the two numbers each time (600 is 10 minutes). It also staggers when tracks first start, so they don't all begin together.
+- ***Ebb & Flow group***
+  - **Ebb & Flow group:** every file plays at once, each between its own minimum and maximum volume. Each file keeps its own settings; the group's Volume and Duration scale them down.
+  - **Pause between plays:** under the group's name. On, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its own Pause between plays.
+  - **Volume, Duration, Mute:** apply to every track in the group.
+  - *Its ⋯ menu*
+    - **Same Rise for every file:** one Rise for the whole group instead of each file's own.
 
-**Saving**
+**A track's ⋯ menu**
+
+- **Fade in / Fade out:** for a file that starts or ends abruptly. Set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.
+- **Move to:** Unassigned, or a group.
+- **New group:** Creates a group in this section with the track in it.
+- **Reset track:** Resets the track to defaults.
+
+**A group's ⋯ menu**
+
+- **Rename:** also by double-clicking the group name.
+- **Delete group:** keeps its files; they move back into its section.
+
+**Files from another theme**
+
+- **Linked file:** plays here but stays in its own theme. Add one with Add from another theme above the list; it starts in Unassigned, and can go anywhere your own files can. If the file is gone, it shows Missing.
+- **Presets:** turn linked files on and other tracks off, like rain that mutes the crickets. A preset that turns a linked file on shows ⚭.
+- **Remove link:** in a linked file's ⋯ menu. The file stays in its own theme.
+
+**Sequences**
+
+- **Sequence:** plays presets of this theme in the order you choose, gliding from one to the next. Marked with the sequence icon (square, triangle, circle).
+- **Picking one:** preset lists show the sequences after the presets. Picking a preset by hand stops a running sequence.
+- **Edit:** pick a sequence in the preset field below, then Edit.
+- ***Edit sequence***
+  - **Time on each preset:** each preset plays for a random time in this range (minutes), drawn fresh each time.
+  - **Ramp:** how long the glide to the next preset takes (seconds).
+  - **At the end:** Reverse plays the list backwards, Start again goes back to the first preset, Stop stays on the last one.
+  - **Order:** drag a preset, or use its ⋯ menu.
+  - **Theme defaults:** empty fields use the theme's time and ramp, set at the bottom of the Sequences menu.
+  - **Save:** saves the sequence at once. Every channel playing this theme can pick it.
+- ***A step: ⋯ › Advanced***
+  - **While playing:** changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green; anything you don't change follows the preset.
+  - **Revert changes:** puts back the settings as they were when Save was last pressed.
+  - **Coming in / Leaving:** tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.
+  - *Coming in and Leaving*
+    - **Smooth:** no button on. The track follows the sequence's ramp.
+    - **Buttons:** click to turn a style on, click again to turn it off. Each style that's on shows its own setting under Setting.
+    - **Pre-fade:** starts the change this many seconds before the step.
+    - **Gusts / Gusts dying down:** rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.
+    - **Swell / Smooth fade:** one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.
+    - **Build / Thin out:** Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.
+    - **Distance / Recede:** starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.
+    - **Start fresh / Finish then stop:** plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.
+    - **Preview:** ▶ plays that track's change on this device and follows your edits.
+    - **File fades:** a file's own Fade in and Fade out apply on top of every style.
+    - **Combining styles:** several styles can be on together. They all work over the same fade time (pre-fade plus ramp). For example:
+      - **Gusts + Distance:** wind starts far off and muffled, and surges unevenly as it comes closer.
+      - **Gusts + Swell:** the surges ride on one curved rise instead of a steady one.
+      - **Gusts + Start fresh:** the file plays from its start and rises in uneven surges.
+      - **Build + Distance:** thunder comes more often and louder as it moves from far off to close.
+      - **Thin out + Recede:** thunder comes less often and quieter as it drifts away.
+      - **Smooth fade + Finish then stop:** fades out over the fade time; if the current play ends first, it stops there with a short fade.
+
+**Presets and saving**
 
 - **Live:** changes are heard on speakers playing this theme, and on this device with Preview mix.
-- **Cancel:** Reverts unsaved changes.
+- **Preset:** the loaded preset. Current settings is the theme without one.
+- **New:** makes a new preset from the current mix.
 - **Save Preset:** Saves loaded preset
 - **Save Theme:** Saves theme with all changes (presets, name, etc) Required after saving a preset.
-- **New:** makes a new preset from the current mix.
+- **Cancel:** Reverts unsaved changes.
 
 ## API Reference
 
@@ -424,11 +569,19 @@ Sonorium provides a REST API for integration and automation:
 - `POST /api/sessions/{id}/play` - Start playback
 - `POST /api/sessions/{id}/stop` - Stop playback
 - `POST /api/sessions/{id}/volume` - Set volume
+- `POST /api/sessions/{id}/next` - Skip to the sequence's next step or the playlist's next entry
+- `PUT /api/sessions/{id}/speakers-muted` - Mute or unmute the speakers (`{"muted": true}`)
+- `POST /api/sessions/{id}/listen` / `DELETE` - Start or stop listening in a browser (the stream is `stream_path` with `?local=1`)
 
 #### Themes
 - `GET /api/themes` - List all themes
 - `POST /api/themes/create` - Create a new theme
 - `POST /api/themes/{id}/upload` - Upload audio file
+- `GET /api/themes/{id}/sequences` - A theme's sequences
+
+#### Playlists
+- `GET /api/playlists` - List playlists
+- `POST /api/playlists` - Create a playlist
 
 #### Status
 - `GET /api/status` - Current system status

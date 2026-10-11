@@ -21,6 +21,10 @@ let currentView = 'sessions';
 let sessionPresetsCache = {};
 // theme_id -> true when the theme's own settings (no preset) turn intrusion tracks on
 let sessionDefaultIntrusion = {};
+// theme_id -> its sequences (picked like presets: "seq:<id>")
+let sessionSequencesCache = {};
+// Every playlist (GET /playlists)
+let playlists = [];
 
 async function init() {
     console.log('Sonorium init() starting...');
@@ -39,7 +43,8 @@ async function init() {
             loadPlugins(),
             loadConnectionSettings(),
             loadNetworkInfo(),
-            loadInstallInfo()
+            loadInstallInfo(),
+            loadPlaylists()
         ]);
         console.log('Data loaded, rendering...');
 
@@ -73,6 +78,8 @@ async function init() {
 
         // Start heartbeat to track browser connection
         startHeartbeat();
+        // Channels running a sequence or playlist: keep their cards current
+        startPlaybackPolling();
 
         console.log('Sonorium init() complete');
     } catch (error) {
@@ -452,6 +459,7 @@ function showView(viewName) {
     // Update header
     const titles = {
         sessions: 'Channels',
+        playlists: 'Playlists',
         speakers: 'Speakers',
         themes: 'Themes',
         settings: 'Settings',
@@ -477,6 +485,9 @@ function showView(viewName) {
                 </svg>
                 New Channel
             </button>
+        `,
+        playlists: `
+            <button class="btn btn-primary sp-hbtn" aria-label="Add playlist" title="Add playlist" aria-haspopup="dialog" onclick="plOpen()">${SP_ICON_PLUS}<span class="lbl">Add playlist</span></button>
         `,
         speakers: `
             <button class="btn btn-secondary" onclick="refreshSpeakers()">
@@ -531,6 +542,7 @@ function showView(viewName) {
             <button class="icon-btn" aria-label="More" aria-haspopup="menu" onclick="openPluginsPageMenu(this)">${SP_ICON_MORE}</button>
         `,
         'settings-logs': `
+            <button class="btn btn-secondary sp-hbtn log-pause-btn" aria-pressed="${window.SonoriumLogs?.isPaused?.() ? 'true' : 'false'}" aria-label="${window.SonoriumLogs?.isPaused?.() ? 'Resume' : 'Pause'}" title="Stop the list moving; new lines wait until Resume" onclick="SonoriumLogs.togglePause(this)">${window.SonoriumLogs?.pauseButtonHtml?.() || '<span class="lbl">Pause</span>'}</button>
             <button class="btn btn-secondary" onclick="SonoriumLogs.copy(this)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <rect x="9" y="9" width="13" height="13" rx="2"/>
@@ -561,7 +573,9 @@ function showView(viewName) {
     setPageHelp(viewName);
 
     // Load view-specific data
+    if (viewName === 'sessions') renderSessions();
     if (viewName === 'speakers') renderSpeakersList();
+    if (viewName === 'playlists') renderPlaylistsPage();
     if (viewName === 'themes') renderThemesBrowser();
     if (viewName === 'settings') {
         renderSettingsSpeakerTree();
@@ -615,6 +629,7 @@ function toggleCollapsibleSection(sectionId) {
 function renderSessions() {
     const container = document.getElementById('sessions-container');
     pselOpenId = null;  // the cards are rebuilt: any open preset list goes with them
+    spSetTitle('sessions', 'Channels', sessions.length);
 
     if (sessions.length === 0) {
         container.innerHTML = `
@@ -635,77 +650,257 @@ function renderSessions() {
     updatePlayingBadge();
 }
 
-function renderSessionCard(session) {
-    const icon = getThemeIcon(session.theme_id);
-    const isPlaying = session.is_playing;
+// ---------- Channel cards (docs/design/Channels_Blocks.dc.html): every block the same size ----------
+const CH_ICON_EDIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>';
+const CH_ICON_THEME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a10 10 0 0 0 0 20c1.1 0 1.8-.9 1.8-1.9 0-.5-.2-.9-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a5 5 0 0 0 5-5C22 6 17.5 2 12 2z"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="6.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="7" r="1.2" fill="currentColor"/></svg>';
+const CH_ICON_MUTED = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><line x1="3" y1="3" x2="21" y2="21"/></svg>';
+const CH_ICON_VOLUME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+const CH_ICON_PLAY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const CH_ICON_STOP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
+const CH_ICON_LISTEN = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>';
 
-    // Get presets for this session's theme (cached or empty)
-    const sessionPresets = sessionPresetsCache[session.theme_id] || [];
-    const hasPresets = sessionPresets.length > 0;
+// Channels switched to playlist mode on their card, until a playlist is picked
+const chPlaylistMode = new Set();
+
+function renderSessionCard(session) {
+    const id = session.id;
+    const isPlaying = session.is_playing;
+    const playlistMode = !!session.playlist_id || chPlaylistMode.has(id);
+    const name = escapeHtml(session.name);
+    const speakers = session.speaker_summary || (session.speakers?.length === 0 ? 'No speakers selected' : `${session.speakers?.length || 0} speaker${(session.speakers?.length || 0) !== 1 ? 's' : ''}`);
 
     return `
-        <div class="session-card ${isPlaying ? 'playing' : ''}" data-session-id="${session.id}">
-            <div class="session-header">
-                <div class="session-title">
-                    <span class="session-icon">${icon}</span>
-                    <span class="session-name">${escapeHtml(session.name)}</span>
-                </div>
-                <span class="session-status ${isPlaying ? 'playing' : ''}">
-                    ${isPlaying ? '● Playing' : 'Stopped'}
-                </span>
+        <div class="ch-card${isPlaying ? ' on' : ''}" data-session-id="${escapeHtml(id)}">
+            <div class="ch-head">
+                <span class="ch-icon" aria-hidden="true">${themeIconOf(session.theme_id)}</span>
+                <div class="ch-title"><span class="ch-name">${name}</span><span class="ch-sub" title="Speakers">${escapeHtml(speakers)}</span></div>
+                <span class="ch-state${isPlaying ? ' on' : ''}">${isPlaying ? 'Playing' : 'Stopped'}</span>
+                <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
+                <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
             </div>
-
-            <div class="session-field">
-                <label>Theme</label>
-                <select onchange="updateSessionTheme('${session.id}', this.value)">
-                    <option value="">Select theme...</option>
-                    ${themes.map(t => `
-                        <option value="${t.id}" ${session.theme_id === t.id ? 'selected' : ''}>
-                            ${escapeHtml(t.name)}
-                        </option>
-                    `).join('')}
-                </select>
-            </div>
-
-            <div class="session-field session-preset-field" data-session-id="${session.id}" style="${session.theme_id ? '' : 'display:none;'}">
-                <label id="psel-lbl-${session.id}">Preset</label>
-                ${pselFieldHtml(session, hasPresets)}
-            </div>
-
-            <div class="session-field">
-                <label>Speakers</label>
-                <div class="speaker-summary">
-                    ${session.speaker_summary || (session.speakers?.length === 0 ? 'No speakers selected' : `${session.speakers?.length || 0} speaker${(session.speakers?.length || 0) !== 1 ? 's' : ''}`)}
+            <div class="ch-src">
+                ${playlistMode ? chPlaylistPickers(session) : chThemePickers(session)}
+                <div class="ch-modes" role="group" aria-label="What ${name} plays">
+                    <button type="button" class="ch-mode${playlistMode ? '' : ' on'}" aria-pressed="${!playlistMode}" title="Play a theme" aria-label="Play a theme" onclick="chSetCardMode(${spArg(id)}, 'theme')">${CH_ICON_THEME}</button>
+                    <button type="button" class="ch-mode${playlistMode ? ' on' : ''}" aria-pressed="${playlistMode}" title="Play a playlist" aria-label="Play a playlist" onclick="chSetCardMode(${spArg(id)}, 'playlist')">${ICON_PLAYLIST}</button>
                 </div>
             </div>
-
-            <div class="volume-control">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-                    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-                </svg>
-                <input type="range" class="volume-slider" min="0" max="100"
-                       value="${session.volume}"
-                       oninput="updateSessionVolumeDisplay('${session.id}', this.value)"
-                       onchange="updateSessionVolume('${session.id}', this.value)">
-                <span class="volume-value">${session.volume}%</span>
+            ${chNowHtml(session)}
+            <div class="ch-vol" title="Volume on the speakers">
+                <button type="button" class="ch-vol-ic ch-mute${session.speakers_muted ? ' muted' : (isPlaying ? ' on' : '')}" aria-pressed="${!!session.speakers_muted}"
+                        aria-label="${session.speakers_muted ? 'Unmute the speakers' : 'Mute the speakers'}" title="${session.speakers_muted ? 'Unmute the speakers' : 'Mute the speakers'}"
+                        onclick="chToggleSpeakersMuted(${spArg(id)})">${session.speakers_muted ? CH_ICON_MUTED : CH_ICON_VOLUME}</button>
+                <input type="range" class="track-slider" min="0" max="100" value="${session.volume}" aria-label="Volume: ${name}"
+                       oninput="updateSessionVolumeDisplay(${spArg(id)}, this.value)"
+                       onchange="updateSessionVolume(${spArg(id)}, this.value)">
+                <span class="ch-vol-val">${session.volume}%</span>
             </div>
-
-            <button class="btn btn-play ${isPlaying ? 'playing' : ''}"
-                    onclick="togglePlayback('${session.id}')">
-                ${isPlaying ? '⏸ Pause' : '▶ Play'}
-            </button>
-
-            <div class="session-actions">
-                <button class="btn btn-secondary" onclick="editSession('${session.id}')">
-                    Edit
-                </button>
-                <button class="btn btn-secondary" onclick="deleteSession('${session.id}')">
-                    Delete
-                </button>
+            <div class="ch-vol ch-local">
+                <button type="button" class="ch-vol-ic ch-listen${chListen.id === id ? ' on' : ''}" aria-pressed="${chListen.id === id}" aria-label="Listen on this device" title="Listen on this device" onclick="chToggleListen(${spArg(id)})">${CH_ICON_LISTEN}</button>
+                <input type="range" class="track-slider" min="0" max="100" value="${chLocalVolume()}" aria-label="Volume on this device: ${name}" title="Volume on this device"
+                       oninput="chSetLocalVolume(this)">
+                <span class="ch-vol-val">${chLocalVolume()}%</span>
+            </div>
+            ${chRecentHtml(session)}
+            <div class="ch-foot">
+                <button type="button" class="btn ${isPlaying ? 'btn-danger' : 'btn-primary'} ch-play" onclick="togglePlayback(${spArg(id)})">${isPlaying ? `${CH_ICON_STOP}Stop` : `${CH_ICON_PLAY}Play`}</button>
             </div>
         </div>
     `;
+}
+
+// Theme mode: the Theme and Preset fields
+function chThemePickers(session) {
+    const id = session.id;
+    const key = `cth:${id}`;
+    XSEL[key] = {
+        options: () => themes.map(t => ({ id: t.id, html: `<span class="nm">${escapeHtml(t.name)}</span>` })),
+        current: () => sessions.find(s => s.id === id)?.theme_id || '',
+        pick: themeId => updateSessionTheme(id, themeId),
+    };
+    const theme = themeById(session.theme_id);
+    const hasPresets = (sessionPresetsCache[session.theme_id] || []).length > 0;
+    return `
+                <span class="ch-lbl" id="xsel-lbl-${escapeHtml(key)}">Theme</span>
+                ${xselHtml(key, `xsel-lbl-${escapeHtml(key)}`, theme ? `<span class="nm">${escapeHtml(theme.name)}</span>` : '<span class="nm none">Choose a theme</span>', themes.length === 0, 'ch-pick')}
+                <span class="ch-lbl" id="psel-lbl-${escapeHtml(id)}">Preset</span>
+                ${pselFieldHtml(session, hasPresets)}`;
+}
+
+// Playlist mode: the Playlist field and the entry playing (Next moves on; it can't be picked)
+function chPlaylistPickers(session) {
+    const id = session.id;
+    const key = `cpl:${id}`;
+    XSEL[key] = {
+        options: () => playlistOptions(false),
+        current: () => sessions.find(s => s.id === id)?.playlist_id || '',
+        pick: playlistId => plCardPick(id, playlistId),
+    };
+    const playlist = playlistById(session.playlist_id);
+    const status = session.playlist || {};
+    const name = status.name || playlist?.name;
+    const inner = name
+        ? `<span class="nm">${escapeHtml(name)}</span>`
+        : `<span class="nm none">${playlists.length ? 'Choose a playlist' : 'No playlists yet'}</span>`;
+    const entry = playlist && status.entry_index !== null && status.entry_index !== undefined ? playlist.entries[status.entry_index] : null;
+    const themeId = status.theme_id || session.theme_id;
+    const theme = themeById(themeId);
+    const what = entry ? plWhatHtml(themeId, entry.preset_id, entry.sequence_id) : plWhatHtml(themeId, session.preset_id, session.sequence_id);
+    return `
+                <span class="ch-lbl" id="xsel-lbl-${escapeHtml(key)}">Playlist</span>
+                ${xselHtml(key, `xsel-lbl-${escapeHtml(key)}`, inner, playlists.length === 0, 'ch-pick')}
+                <span class="ch-lbl">Playing</span>
+                <div class="psel-btn ch-pick ro"><span class="nm">${escapeHtml(theme ? theme.name : (themeId || ''))}</span><span class="ch-sep">·</span>${what}</div>`;
+}
+
+// The "Now" line: the sequence step or playlist entry, when it changes, and Next
+function chNowHtml(session) {
+    const playlist = session.playlist_id ? session.playlist : null;
+    const sequence = session.playlist_id ? null : session.sequence;
+    let text = '';
+    if (playlist) {
+        text = `Entry ${(playlist.position ?? 0) + 1} of ${playlist.entries ?? 0}${playlist.running ? chNextIn(playlist) : ''}`;
+    } else if (sequence) {
+        text = `Step ${sequence.step ?? 1} of ${sequence.steps}: <b>${escapeHtml(sequence.current_preset_name || 'Default settings')}</b>${sequence.running ? chNextIn(sequence) : ''}`;
+    }
+    if (!text) return '<div class="ch-now"><span class="ch-now-txt"><span class="ch-none">No sequence or playlist</span></span></div>';
+    const title = session.is_playing ? (playlist ? 'Next entry' : 'Next step') : 'Play the channel first';
+    return `<div class="ch-now"><span class="ch-now-txt">${text}</span><button type="button" class="btn btn-sm btn-secondary ch-next" title="${title}"
+                    ${session.is_playing || session.listening ? '' : 'disabled'} onclick="chNext(${spArg(session.id)})">${ICON_NEXT}Next</button></div>`;
+}
+
+// " · next in m:ss" (counted down by chTick), or nothing
+function chNextIn(status) {
+    const at = Date.parse(status.next_change_at || '');
+    if (Number.isNaN(at)) return '';
+    return ` · next in <span class="ch-cd" data-at="${at}">${chClock((at - Date.now()) / 1000)}</span>`;
+}
+
+// Seconds as m:ss (h:mm:ss from an hour)
+function chClock(seconds) {
+    const s = Math.max(0, Math.round(seconds));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+function chRecentHtml(session) {
+    const items = (session.recent || []).map(e =>
+        `<li><time datetime="${escapeHtml(e.at)}">${chWhen(e.at)}</time><span title="${escapeHtml(e.text)}">${escapeHtml(e.text)}</span></li>`).join('');
+    return `<div class="ch-recent"><div class="ch-recent-hd">Recent changes</div><ul>${items}</ul></div>`;
+}
+
+// An event's time: HH:MM today, "Yesterday HH:MM", else a short date
+function chWhen(iso) {
+    const at = new Date(iso);
+    if (Number.isNaN(at.getTime())) return '';
+    const hm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+    const day = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+    const days = Math.round((day(new Date()) - day(at)) / 86400000);
+    if (days <= 0) return hm;
+    if (days === 1) return `Yesterday ${hm}`;
+    return at.toLocaleDateString([], { day: 'numeric', month: 'short' });
+}
+
+function chMenu(button, sessionId) {
+    xMenu(`ch:${sessionId}`, button,
+        xMenuItem('Delete…', `spClosePop(); deleteSession(${spArg(sessionId)})`, { icon: SP_ICON_TRASH, cls: 'danger' }),
+        { cls: 'menu sp-menu x-menu' });
+}
+
+// Listen here: this browser plays the channel's own stream (one channel at a time). The server
+// runs the mix for it even while the speakers are stopped; Play and Stop stay the speakers'.
+const chListen = { id: null, audio: null };
+
+async function chToggleListen(sessionId) {
+    if (typeof Audio === 'undefined') return;
+    const again = chListen.id === sessionId;
+    await chStopListening();
+    if (again) return;
+    try {
+        const result = await api('POST', `/sessions/${sessionId}/listen`);
+        const audio = new Audio(`${BASE_PATH}${result.stream_path}?local=1`);
+        audio.volume = chLocalVolume() / 100;
+        chListen.id = sessionId;
+        chListen.audio = audio;
+        // The stream ends when the channel goes (deleted, or released on the server)
+        const ended = () => { if (chListen.audio === audio) { chListen.id = null; chListen.audio = null; renderSessions(); } };
+        audio.addEventListener('ended', ended);
+        audio.addEventListener('error', ended);
+        renderSessions();
+        await audio.play();
+    } catch (error) {
+        // No audio output, or a browser that can't play the stream: the button just stays off
+        console.warn('Listen on this device:', error);
+        await chStopListening();
+    }
+}
+
+// Mute the speakers: their stream goes silent (a browser listening keeps it); Play and Stop are unchanged
+async function chToggleSpeakersMuted(sessionId) {
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    const muted = !session.speakers_muted;
+    session.speakers_muted = muted;
+    renderSessions();
+    try {
+        await api('PUT', `/sessions/${sessionId}/speakers-muted`, { muted });
+    } catch (error) {
+        session.speakers_muted = !muted;
+        renderSessions();
+        showToast(error.message, 'error');
+    }
+}
+
+// The volume on this device while listening (the speakers keep theirs), remembered here
+function chLocalVolume() {
+    try {
+        const value = parseInt(localStorage.getItem('sonorium.listenVolume'), 10);
+        return Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : 100;
+    } catch (error) {
+        return 100;
+    }
+}
+
+function chSetLocalVolume(input) {
+    const value = Math.max(0, Math.min(100, parseInt(input.value, 10) || 0));
+    input.closest('.ch-vol').querySelector('.ch-vol-val').textContent = `${value}%`;
+    if (chListen.audio) previewRampVolume(chListen.audio, value / 100);
+    try { localStorage.setItem('sonorium.listenVolume', String(value)); } catch (error) { /* not kept: fine */ }
+}
+
+async function chStopListening() {
+    const { id, audio } = chListen;
+    if (!id) return;
+    chListen.id = null;
+    chListen.audio = null;
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();  // closes the stream
+    renderSessions();
+    try {
+        await api('DELETE', `/sessions/${id}/listen`);
+    } catch (error) { /* the server releases it once no browser listens */ }
+}
+
+// The mode buttons: back to a theme stops the playlist (the channel keeps its theme);
+// playlist mode waits for a playlist to be picked
+function chSetCardMode(sessionId, mode) {
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    if (mode === 'theme') {
+        chPlaylistMode.delete(sessionId);
+        if (session.playlist_id) {
+            plCardPick(sessionId, '');
+            return;
+        }
+        renderSessions();
+    } else if (!session.playlist_id && !chPlaylistMode.has(sessionId)) {
+        chPlaylistMode.add(sessionId);
+        renderSessions();
+        xselOpen(`cpl:${sessionId}`);
+    }
 }
 
 function updatePlayingBadge() {
@@ -888,13 +1083,15 @@ async function updateSessionTheme(sessionId, themeId) {
 
 async function updateSessionPreset(sessionId, presetId) {
     try {
-        await api('PUT', `/sessions/${sessionId}`, { preset_id: presetId || '' });  // '' = no preset
+        await api('PUT', `/sessions/${sessionId}`, { preset_id: presetId || '' });  // '' = no preset; "seq:<id>" runs a sequence
         // Update local session state
         const session = sessions.find(s => s.id === sessionId);
         if (session) {
-            session.preset_id = presetId || null;
+            const isSeq = (presetId || '').startsWith('seq:');
+            if (!isSeq) session.preset_id = presetId || null;
+            session.preset_choice = presetId || null;
         }
-        showToast(presetId ? 'Preset applied' : 'Using default settings', 'success');
+        showToast((presetId || '').startsWith('seq:') ? 'Sequence started' : (presetId ? 'Preset applied' : 'Using default settings'), 'success');
     } catch (error) {
         showToast(error.message, 'error');
     }
@@ -905,17 +1102,21 @@ async function loadPresetsForTheme(themeId) {
     try {
         const result = await api('GET', `/themes/${themeId}/presets`);
         sessionPresetsCache[themeId] = result.presets || [];
+        sessionSequencesCache[themeId] = result.sequences || [];
         sessionDefaultIntrusion[themeId] = !!result.default_has_intrusion;
     } catch (error) {
         console.error(`Failed to load presets for theme ${themeId}:`, error);
         sessionPresetsCache[themeId] = [];
+        sessionSequencesCache[themeId] = [];
     }
 }
 
 // A theme's presets changed (Theme Editor closed): reload them for the channel cards
 async function refreshSessionPresets(themeId) {
-    if (!themeId || !sessions.some(s => s.theme_id === themeId)) return;
+    if (!themeId) return;
     delete sessionPresetsCache[themeId];
+    delete sessionSequencesCache[themeId];
+    if (!sessions.some(s => s.theme_id === themeId)) return;
     await loadPresetsForTheme(themeId);
     renderSessions();
 }
@@ -933,22 +1134,29 @@ function presetMarks(isDefault, hasIntrusion) {
 
 function pselOptions(session) {
     const presets = sessionPresetsCache[session.theme_id] || [];
+    const seqs = sessionSequencesCache[session.theme_id] || [];
     return [
         { id: '', name: 'Default settings', dflt: true, def: false, int: !!sessionDefaultIntrusion[session.theme_id] },
         ...presets.map(p => ({ id: p.id, name: p.name, dflt: false, def: !!p.is_default, int: !!p.has_intrusion })),
+        ...seqs.map((q, i) => ({ id: `seq:${q.id}`, name: q.name, dflt: false, def: false, int: !!q.has_intrusion, seq: true, sep: i === 0 })),
     ];
+}
+
+// A preset option's marks: ★, ⚭, then the sequence mark
+function optionMarks(o) {
+    return presetMarks(o.def, o.int) + (o.seq ? seqMark() : '');
 }
 
 function pselFieldHtml(session, hasPresets) {
     const id = session.id;
     const options = hasPresets ? pselOptions(session) : [];
-    const sel = options.find(o => o.id === (session.preset_id || '')) || options[0];
+    const sel = options.find(o => o.id === sessionChoice(session)) || options[0];
     return `
                 <div class="psel">
-                    <button type="button" class="psel-btn" id="psel-btn-${id}" aria-haspopup="listbox" aria-expanded="false"
+                    <button type="button" class="psel-btn ch-pick" id="psel-btn-${id}" aria-haspopup="listbox" aria-expanded="false"
                             aria-labelledby="psel-lbl-${id} psel-btn-${id}" ${hasPresets ? '' : 'disabled'}
                             onclick="pselToggle('${id}')" onkeydown="pselButtonKey(event, '${id}')">
-                        <span class="nm">${hasPresets ? escapeHtml(sel.name) : 'No presets available'}</span>${hasPresets ? presetMarks(sel.def, sel.int) : ''}
+                        <span class="nm">${hasPresets ? escapeHtml(sel.name) : 'No presets available'}</span>${hasPresets ? optionMarks(sel) : ''}
                         <span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></span>
                     </button>
                     <div class="psel-list" id="psel-list-${id}" role="listbox" tabindex="-1" aria-labelledby="psel-lbl-${id}" hidden
@@ -961,13 +1169,13 @@ function pselRenderList(id) {
     const list = document.getElementById(`psel-list-${id}`);
     if (!session || !list) return;
     const options = pselOptions(session);
-    const current = session.preset_id || '';
+    const current = sessionChoice(session);
     list.innerHTML = options.map((o, i) => {
         const cur = o.id === current;
-        return `<div class="popt${cur ? ' cur' : ''}${o.dflt ? ' dflt' : ''}${i === pselActive ? ' hi' : ''}" role="option" id="psel-${id}-${i}"
+        return `${o.sep ? '<div class="psep" role="separator"></div>' : ''}<div class="popt${cur ? ' cur' : ''}${o.dflt ? ' dflt' : ''}${i === pselActive ? ' hi' : ''}" role="option" id="psel-${id}-${i}"
                      aria-selected="${cur}" onmousedown="event.preventDefault()" onclick="pselPick('${id}', ${i})" onmouseenter="pselHover('${id}', ${i})">
                     <span class="ck">${cur ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>' : ''}</span>
-                    <span class="nm">${escapeHtml(o.name)}</span>${presetMarks(o.def, o.int)}
+                    <span class="nm">${escapeHtml(o.name)}</span>${optionMarks(o)}
                 </div>`;
     }).join('');
     list.setAttribute('aria-activedescendant', `psel-${id}-${pselActive}`);
@@ -981,10 +1189,9 @@ function pselOpen(id) {
     const list = document.getElementById(`psel-list-${id}`);
     if (!session || !button || !list || button.disabled) return;
     pselOpenId = id;
-    pselActive = Math.max(0, pselOptions(session).findIndex(o => o.id === (session.preset_id || '')));
+    pselActive = Math.max(0, pselOptions(session).findIndex(o => o.id === sessionChoice(session)));
     list.hidden = false;
     button.setAttribute('aria-expanded', 'true');
-    button.closest('.session-field')?.classList.add('open');
     pselRenderList(id);
     list.focus();
 }
@@ -998,7 +1205,6 @@ function pselClose(focusButton = false) {
     if (list) { list.hidden = true; list.innerHTML = ''; }
     if (button) {
         button.setAttribute('aria-expanded', 'false');
-        button.closest('.session-field')?.classList.remove('open');
         if (focusButton) button.focus();
     }
 }
@@ -1019,11 +1225,12 @@ async function pselPick(id, index) {
     if (!session) return;
     const option = pselOptions(session)[index];
     pselClose();
-    if (!option || option.id === (session.preset_id || '')) {
+    if (!option || option.id === sessionChoice(session)) {
         document.getElementById(`psel-btn-${id}`)?.focus();
         return;
     }
     await updateSessionPreset(id, option.id);  // applies it live, as the select did
+    try { await loadSessions(); } catch (error) { /* keep what we have */ }
     renderSessions();
     document.getElementById(`psel-btn-${id}`)?.focus();
 }
@@ -1088,9 +1295,9 @@ function updateSessionVolumeDisplay(sessionId, value) {
     // Update the volume display span in real-time while dragging
     // Use CSS.escape for safe attribute selector with any session ID format
     const escapedId = CSS.escape(sessionId);
-    const card = document.querySelector(`.session-card[data-session-id="${escapedId}"]`);
+    const card = document.querySelector(`.ch-card[data-session-id="${escapedId}"]`);
     if (card) {
-        const valueSpan = card.querySelector('.volume-value');
+        const valueSpan = card.querySelector('.ch-vol-val');
         if (valueSpan) {
             valueSpan.textContent = `${value}%`;
         }
@@ -1129,8 +1336,10 @@ function openNewSessionModal() {
 
     // Reset preset selection
     channelPresets = [];
+    channelSequences = [];
     selectedChannelPreset = '';
     document.getElementById('channel-preset-field').style.display = 'none';
+    chSetup(null);
 
     resetChannelEditorSearch();
     renderThemeSelector();
@@ -1155,8 +1364,9 @@ function editSession(sessionId) {
     selectedTheme = session.theme_id;
     selectedSpeakerGroupId = session.speaker_group_id || null;
 
-    // Store the session's preset to restore after loading presets
-    selectedChannelPreset = session.preset_id || '';
+    // Store the session's preset (or running sequence) to restore after loading presets
+    selectedChannelPreset = sessionChoice(session);
+    chSetup(session);
 
     if (session.adhoc_selection) {
         selectedSpeakers = {
@@ -1207,12 +1417,19 @@ async function saveSession() {
     const editId = document.getElementById('edit-session-id').value;
     const customName = document.getElementById('session-name').value.trim();
     const volume = parseInt(document.getElementById('session-volume').value);
+    const session = editId ? sessions.find(s => s.id === editId) : null;
+    const playlistMode = chMode === 'playlist';
+    if (playlistMode && !chPlaylistId) {
+        showToast('Choose a playlist', 'error');
+        return;
+    }
 
-    const data = {
-        theme_id: selectedTheme,
-        volume: volume,
-        preset_id: selectedChannelPreset || ''  // '' = no preset
-    };
+    const data = { volume: volume };
+    if (!playlistMode) {
+        data.theme_id = selectedTheme;
+        // Only a preset picked here: saving must not restart a running sequence
+        if (!editId || chPresetTouched) data.preset_id = selectedChannelPreset || '';  // '' = no preset
+    }
 
     // Use speaker group OR adhoc selection, not both
     if (selectedSpeakerGroupId) {
@@ -1233,13 +1450,19 @@ async function saveSession() {
     if (customName) data.custom_name = customName;
 
     try {
+        let sessionId = editId;
         if (editId) {
+            // Back to a theme: the playlist stops first (the channel keeps playing)
+            if (!playlistMode && session?.playlist_id) await api('DELETE', `/sessions/${editId}/playlist`);
             await api('PUT', `/sessions/${editId}`, data);
-            showToast('Channel updated', 'success');
         } else {
-            await api('POST', '/sessions', data);
-            showToast('Channel created', 'success');
+            const created = await api('POST', '/sessions', data);
+            sessionId = created?.id;
         }
+        if (playlistMode && sessionId && chPlaylistId !== (session?.playlist_id || '')) {
+            await api('PUT', `/sessions/${sessionId}/playlist`, { playlist_id: chPlaylistId });
+        }
+        showToast(editId ? 'Channel updated' : 'Channel created', 'success');
         closeSessionModal();
         await loadSessions();
         renderSessions();
@@ -1269,6 +1492,11 @@ function renderThemeSelector() {
 }
 
 function selectTheme(themeId) {
+    if (themeId !== selectedTheme) {
+        // Another theme: its default preset, as the server picks it
+        selectedChannelPreset = '';
+        chPresetTouched = false;
+    }
     selectedTheme = themeId;
     renderThemeSelector();
     loadChannelPresets(themeId);
@@ -1287,6 +1515,7 @@ function scrollSelectedThemeIntoView() {
 
 // Channel Preset Functions
 let channelPresets = [];
+let channelSequences = [];
 let selectedChannelPreset = '';
 let channelDefaultIntrusion = false;
 let dpselActive = 0;
@@ -1298,6 +1527,7 @@ async function loadChannelPresets(themeId) {
     if (!themeId) {
         presetField.style.display = 'none';
         channelPresets = [];
+        channelSequences = [];
         selectedChannelPreset = '';
         return;
     }
@@ -1305,12 +1535,14 @@ async function loadChannelPresets(themeId) {
     try {
         const result = await api('GET', `/themes/${themeId}/presets`);
         channelPresets = result.presets || [];
+        channelSequences = result.sequences || [];
         channelDefaultIntrusion = !!result.default_has_intrusion;
         updateChannelPresetDropdown();
         presetField.style.display = 'block';
     } catch (error) {
         console.error('Failed to load channel presets:', error);
         channelPresets = [];
+        channelSequences = [];
         updateChannelPresetDropdown();
         presetField.style.display = 'block';
     }
@@ -1332,6 +1564,13 @@ function updateChannelPresetDropdown() {
             option.textContent = preset.name;
             select.appendChild(option);
         });
+        // The theme's sequences, after the presets
+        channelSequences.forEach(seq => {
+            const option = document.createElement('option');
+            option.value = `seq:${seq.id}`;
+            option.textContent = seq.name;
+            select.appendChild(option);
+        });
 
         // Auto-select default preset if one exists
         const defaultPreset = channelPresets.find(p => p.is_default);
@@ -1348,6 +1587,7 @@ function updateChannelPresetDropdown() {
 function onChannelPresetChange() {
     const select = document.getElementById('channel-preset-select');
     selectedChannelPreset = select.value;
+    chPresetTouched = true;
     dpselRender();
 }
 
@@ -1356,10 +1596,14 @@ function onChannelPresetChange() {
 // Enter or Space picks, Esc closes.
 function dpselOptions() {
     const select = document.getElementById('channel-preset-select');
+    let firstSeq = true;
     return [...(select?.options || [])].map(o => {
         const preset = channelPresets.find(p => p.id === o.value);
-        return { id: o.value, name: o.value ? o.textContent : 'Default settings', disabled: o.disabled,
-                 def: !!preset?.is_default, int: preset ? !!preset.has_intrusion : (!o.disabled && channelDefaultIntrusion) };
+        const seq = o.value.startsWith('seq:') ? channelSequences.find(q => `seq:${q.id}` === o.value) : null;
+        const sep = !!seq && firstSeq;
+        if (seq) firstSeq = false;
+        return { id: o.value, name: o.value ? o.textContent : 'Default settings', disabled: o.disabled, seq: !!seq, sep,
+                 def: !!preset?.is_default, int: seq ? !!seq.has_intrusion : preset ? !!preset.has_intrusion : (!o.disabled && channelDefaultIntrusion) };
     });
 }
 
@@ -1375,7 +1619,7 @@ function dpselRender() {
         <button type="button" class="psel-btn" id="channel-preset-btn" aria-haspopup="listbox" aria-expanded="false"
                 aria-labelledby="channel-preset-lbl channel-preset-btn" ${empty ? 'disabled' : ''}
                 onclick="dpselToggle()" onkeydown="dpselButtonKey(event)">
-            <span class="nm">${empty ? 'No presets yet' : escapeHtml(sel.name)}</span>${empty ? '' : presetMarks(sel.def, sel.int)}
+            <span class="nm">${empty ? 'No presets yet' : escapeHtml(sel.name)}</span>${empty ? '' : optionMarks(sel)}
             <span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></span>
         </button>
         <div class="psel-list" id="channel-preset-list" role="listbox" tabindex="-1" aria-labelledby="channel-preset-lbl" hidden
@@ -1389,10 +1633,10 @@ function dpselRenderList() {
     if (!list || !select) return;
     list.innerHTML = dpselOptions().map((o, i) => {
         const cur = o.id === select.value;
-        return `<div class="popt${cur ? ' cur' : ''}${o.id ? '' : ' dflt'}${i === dpselActive ? ' hi' : ''}" role="option" id="dpsel-${i}"
+        return `${o.sep ? '<div class="psep" role="separator"></div>' : ''}<div class="popt${cur ? ' cur' : ''}${o.id ? '' : ' dflt'}${i === dpselActive ? ' hi' : ''}" role="option" id="dpsel-${i}"
                      aria-selected="${cur}" onmousedown="event.preventDefault()" onclick="dpselPick(${i})" onmouseenter="dpselActive = ${i}; dpselRenderList()">
                     <span class="ck">${cur ? '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>' : ''}</span>
-                    <span class="nm">${escapeHtml(o.name)}</span>${presetMarks(o.def, o.int)}
+                    <span class="nm">${escapeHtml(o.name)}</span>${optionMarks(o)}
                 </div>`;
     }).join('');
     list.setAttribute('aria-activedescendant', `dpsel-${dpselActive}`);
@@ -2553,10 +2797,11 @@ const TE_ICON_X = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" s
 const TE_ICON_GRIP = '<svg width="12" height="16" viewBox="0 0 12 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="3" r="1.5"/><circle cx="9" cy="3" r="1.5"/><circle cx="3" cy="8" r="1.5"/><circle cx="9" cy="8" r="1.5"/><circle cx="3" cy="13" r="1.5"/><circle cx="9" cy="13" r="1.5"/></svg>';
 const TE_ICON_CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
 const TE_ICON_CHEV_UP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="18 15 12 9 6 15"/></svg>';
+const TE_ICON_FOLDER_PLUS = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>';
 const TE_ICON_FOLDER_LG = '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/></svg>';
 const TE_ICON_PLAY = '<svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 const TE_ICON_STOP = '<svg class="stop-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
-// Intrusion groups and linked files: a link marker
+// Files linked from another theme: a link marker
 const TE_ICON_LINK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>';
 const TE_ICON_LINK_SM = TE_ICON_LINK.replace('width="14" height="14"', 'width="12" height="12"');
 const TE_ICON_UNLINK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18.84 12.25l1.72-1.71a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M5.17 11.75l-1.71 1.71a5 5 0 0 0 7.07 7.07l1.71-1.71"/><line x1="8" y1="2" x2="8" y2="5"/><line x1="2" y1="8" x2="5" y2="8"/><line x1="16" y1="19" x2="16" y2="22"/><line x1="19" y1="16" x2="22" y2="16"/></svg>';
@@ -2567,10 +2812,23 @@ function intrusionMark() {
     return `<span class="int-ic" title="Turns on intrusion tracks" role="img" aria-label="Turns on intrusion tracks">${ICON_INTRUSION}</span>`;
 }
 
-const TE_MODES = [['auto', 'Auto'], ['continuous', 'Background'], ['sparse', 'Intermittent'], ['presence', 'Ebb & Flow']];
-// A group's mode: one track at a time with a gap, a continuous bed crossfading file to file,
-// or Intrusion (each track plays by its own mode; it can hold files linked from other themes)
-const TE_GROUP_MODES = [['intermittent', 'Intermittent'], ['merry_go_round', 'Merry-go-round'], ['intrusion', 'Intrusion']];
+// The track list's sections, in order, one per playback mode. A section's groups play its way
+// (group: the group mode; groupLabel: shown as the mode of the group and its tracks); pres is the
+// heading of its second slider (none: no slider).
+const TE_SECTIONS = [
+    { mode: 'unassigned', label: 'Unassigned', desc: 'Not played. Pick a Mode, or drag files into a section or a group.',
+        empty: 'Uploads and files from another theme start here' },
+    { mode: 'continuous', label: 'Background', desc: 'Plays all the time, looping smoothly. Groups here are Merry-go-round.',
+        group: 'merry_go_round', groupLabel: 'Merry-go-round', groupTip: 'A Merry-go-round group: one file crossfades into the next' },
+    { mode: 'sparse', label: 'Intermittent', desc: 'Plays now and then. Groups here take turns, one track at a time with a gap.', pres: 'Interval',
+        group: 'intermittent', groupLabel: 'Intermittent', groupTip: 'A group whose tracks take turns, with a gap between them' },
+    { mode: 'presence', label: 'Ebb & Flow', desc: 'Always heard, rising and falling. Groups here play every file at once.', pres: 'Duration',
+        group: 'ebb_flow', groupLabel: 'Ebb & Flow', groupTip: 'A group whose files all play at once, each rising and falling' },
+];
+const TE_MODES = TE_SECTIONS.map(s => [s.mode, s.label]);
+// Ebb & Flow settings of a track (saved with PUT …/ebb), and their defaults
+const TE_EBB_FIELDS = ['volume_low', 'pause_between', 'pause_min', 'pause_max', 'rise'];
+const TE_EBB_DEFAULTS = { volume_low: 0.2, pause_between: false, pause_min: 30, pause_max: 300, rise: 0 };
 const TE_GROUP_CROSSFADE = 10;  // seconds, when the group sets none
 // The server rebuilds its theme list about 2 s after files move, rename or upload
 const TE_REBUILD_WAIT_MS = 2600;
@@ -2598,7 +2856,6 @@ const te = {
     confirmDel: null,      // group waiting for delete confirmation
     drag: null,            // track key being dragged
     pk: null,              // "Add from another theme" picker state (null = closed)
-    pickAfter: null,       // a new intrusion group: open the picker once its name is set
     msgTimer: null,
     loadSeq: 0,
 };
@@ -2621,16 +2878,40 @@ function jsArg(text) {
 
 function teGroupMode(group) {
     const mode = group?.settings?.mode;
-    return mode === 'merry_go_round' || mode === 'intrusion' ? mode : 'intermittent';
+    return mode === 'merry_go_round' || mode === 'intrusion' || mode === 'ebb_flow' ? mode : 'intermittent';
 }
 
-function teIsIntrusion(group) {
-    return !!group && teGroupMode(group) === 'intrusion';
+// The section a group belongs to (an older group without a mode takes turns: Intermittent)
+function teGroupSection(group) {
+    return TE_SECTIONS.find(s => s.group === teGroupMode(group)) || null;
 }
 
-// The linked files of a group (tracks from other themes)
-function teGroupLinks(name) {
-    return te.tracks.filter(t => t.linked && trackGroupOf(t.name) === name);
+// The group a track plays in: null when ungrouped, or in an Intrusion group (until the server retires
+// them, those tracks play by their own mode and show as ungrouped)
+function teTrackGroup(track) {
+    const group = trackGroupOf(track.name) ? teGroup(trackGroupOf(track.name)) : null;
+    return group && teGroupMode(group) !== 'intrusion' ? group : null;
+}
+
+// The groups shown in the sections (not Intrusion groups)
+function teListedGroups() {
+    return te.groups.filter(g => teGroupMode(g) !== 'intrusion');
+}
+
+// The section a track sits in (a playback mode): its group's, or its own. Auto shows where it
+// resolves to: a short file Intermittent, a long one Ebb & Flow, either Background at 100% interval.
+function teSectionOf(track) {
+    const group = teTrackGroup(track);
+    if (group) return teGroupSection(group).mode;
+    const mode = track.playback_mode || 'auto';
+    if (TE_SECTIONS.some(s => s.mode === mode)) return mode;
+    if ((track.presence ?? 1) >= 1) return 'continuous';
+    return track.is_short_file ? 'sparse' : 'presence';
+}
+
+// The track plays as Ebb & Flow: its own mode, or an Ebb & Flow group
+function teIsEbb(track) {
+    return teSectionOf(track) === 'presence';
 }
 
 function groupMaster(group, key) {
@@ -2684,8 +2965,8 @@ function openThemeEditModal(themeId) {
         icon: theme.icon ? resolveThemeIcon(theme.icon, themeId) : '',
         cats: [...(theme.categories || [])], catText: '', catHi: 0, catFocus: false,
         threshold: theme.short_file_threshold ?? null,
-        closed: {}, presets: [], selPreset: '', mixDirty: false, mixSnap: null,
-        upload: null, renaming: null, confirmDel: null, drag: null, pk: null, pickAfter: null,
+        closed: {}, presets: [], sequences: [], seqDefaults: null, selPreset: '', mixDirty: false, mixSnap: null,
+        upload: null, renaming: null, confirmDel: null, drag: null, pk: null,
     });
     currentTrackMixerThemeId = themeId;
 
@@ -2718,8 +2999,9 @@ function openThemeEditModal(themeId) {
 // values from when the window opened (or from the last save). Uploads, moving
 // tracks between groups, creating/deleting groups and saved presets stay.
 
-const TE_TRACK_FIELDS = ['volume', 'presence', 'muted', 'playback_mode', 'seamless_loop', 'exclusive'];
-const TE_GROUP_FIELDS = ['volume', 'presence', 'muted', 'gap_min', 'gap_max', 'mode', 'crossfade'];
+const TE_TRACK_FIELDS = ['volume', 'presence', 'muted', 'playback_mode', 'seamless_loop', 'exclusive', 'fade_in', 'fade_out',
+    ...TE_EBB_FIELDS];
+const TE_GROUP_FIELDS = ['volume', 'presence', 'muted', 'gap_min', 'gap_max', 'mode', 'crossfade', 'pause_between', 'rise'];
 
 function teMixSnapshot() {
     const tracks = {};
@@ -2738,7 +3020,8 @@ async function teRestoreMix() {
         if (!before) continue;  // moved or uploaded since: nothing to put back
         for (const f of TE_TRACK_FIELDS) {
             if (before[f] !== undefined && before[f] !== t[f]) {
-                calls.push(api('PUT', teTrackUrl(t.name, f), { [f]: before[f] }));
+                const url = f.startsWith('fade_') ? 'fades' : TE_EBB_FIELDS.includes(f) ? 'ebb' : f;
+                calls.push(api('PUT', teTrackUrl(t.name, url), { [f]: before[f] }));
             }
         }
     }
@@ -2767,6 +3050,7 @@ async function teSaveAndClose() {
 
 function closeThemeEditModal() {
     const themeId = te.themeId;
+    sqClose();
     pkClose();
     teCloseMenu();
     teCloseHelp();
@@ -3040,11 +3324,9 @@ function refreshTrackMixer(afterFileChange = false) {
     return teLoadTracks(afterFileChange);
 }
 
-function teModeOptions(track, inGroup) {
-    const modes = TE_MODES;
-    let current = track.playback_mode || 'auto';
-    if (!modes.some(([v]) => v === current)) current = 'auto';
-    return modes.map(([v, label]) => `<option value="${v}"${v === current ? ' selected' : ''}>${label}</option>`).join('');
+function teModeOptions(track) {
+    const current = teSectionOf(track);
+    return TE_MODES.map(([v, label]) => `<option value="${v}"${v === current ? ' selected' : ''}>${escapeHtml(label)}</option>`).join('');
 }
 
 function teGaplessAllowed(track) {
@@ -3052,84 +3334,199 @@ function teGaplessAllowed(track) {
     return mode === 'continuous' || (mode === 'auto' && !track.is_short_file);
 }
 
-function teSliderCell(kind, label, percent, attrs, hint) {
+// A slider with its value and a hint under it. Ebb & Flow's Duration shows no value:
+// "Shorter" and "Longer" sit under its ends instead (ends = true). ovr: ' ovr' when a
+// sequence step changes it (shown green).
+function teSliderCell(kind, label, percent, attrs, hint, ends = false, ovr = '') {
     return `
-        <div class="mx" data-kind="${kind}">
+        <div class="mx${ovr}" data-kind="${kind}">
             <span class="c-lbl">${label}</span>
             <div class="mx-ctl">
                 <div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="100" value="${percent}" ${attrs}></div>
                 <span class="track-slider-value">${percent}%</span>
             </div>
-            <span class="mx-hint">${hint || ''}</span>
+            ${ends ? '<span class="mx-hint dur-ends"><span>Shorter</span><span>Longer</span></span>' : `<span class="mx-hint">${hint || ''}</span>`}
         </div>`;
 }
 
-function teRenderRow(track, group) {
+// Ebb & Flow's Volume: two knobs, the lowest and the highest level it moves between
+function teDualCell(track, k, label, vol, master, off, view = TE_VIEW) {
+    const low = Math.min(vol, Math.round((track.volume_low ?? TE_EBB_DEFAULTS.volume_low) * 100));
+    return `
+        <div class="mx${view.ovr('tracks', track.name, ['volume', 'volume_low'])}" data-kind="volume">
+            <span class="c-lbl">Volume</span>
+            <div class="mx-ctl">
+                <div class="track-slider-wrapper"><div class="dual" data-master="${master}" title="Rises and falls between these two levels">
+                    <span class="dual-track"></span><span class="dual-fill" style="left: ${low}%; width: ${vol - low}%"></span>
+                    <input type="range" min="0" max="100" value="${low}" data-knob="low" aria-label="Lowest volume: ${label}"
+                           oninput="teDualInput(this)" onchange="${view.on.ebb}(${k}, { volume_low: this.value / 100 })"${off}>
+                    <input type="range" min="0" max="100" value="${vol}" data-knob="high" aria-label="Highest volume: ${label}"
+                           oninput="teDualInput(this)" onchange="${view.on.value}(${k}, 'volume', this.value)"${off}>
+                </div></div>
+                <span class="track-slider-value">${low}–${vol}%</span>
+            </div>
+            <span class="mx-hint">${teDualHint(low, vol, master)}</span>
+        </div>`;
+}
+
+function teDualHint(low, high, master) {
+    return master >= 0.999 ? '' : `plays at ${Math.round(low * master)}–${Math.round(high * master)}%`;
+}
+
+// A knob moves: it can't pass the other one; the label, the fill and the preview follow
+function teDualInput(input) {
+    const box = input.closest('.dual');
+    const lowInput = box.querySelector('[data-knob="low"]');
+    const highInput = box.querySelector('[data-knob="high"]');
+    if (+lowInput.value > +highInput.value) {
+        if (input === lowInput) lowInput.value = highInput.value; else highInput.value = lowInput.value;
+    }
+    const low = +lowInput.value, high = +highInput.value;
+    const fill = box.querySelector('.dual-fill');
+    fill.style.left = `${low}%`;
+    fill.style.width = `${high - low}%`;
+    const cell = box.closest('.mx');
+    cell.querySelector('.track-slider-value').textContent = `${low}–${high}%`;
+    cell.querySelector('.mx-hint').textContent = teDualHint(low, high, parseFloat(box.dataset.master || '1'));
+    const row = box.closest('.trow');
+    if (input === highInput && row && trackPreviewAudio && row.dataset.track === currentPreviewTrack) {
+        previewRampVolume(trackPreviewAudio, (high / 100) * parseFloat(box.dataset.master || '1'));
+    }
+}
+
+// Ebb & Flow settings of a track: { volume_low, pause_between, pause_min, pause_max } (any of them)
+async function teSetEbb(key, values, render = false) {
+    try {
+        const result = await api('PUT', teTrackUrl(key, 'ebb'), values);
+        const track = teTrack(key);
+        if (track) TE_EBB_FIELDS.forEach(f => { if (result && f in result) track[f] = result[f]; });
+        teMarkMixChanged();
+    } catch (error) {
+        showToast(error.message || 'Failed to save', 'error');
+        render = true;
+    }
+    if (render) teRenderTracks();
+}
+
+function teToggleEbbPause(key) {
+    const track = teTrack(key);
+    teCloseMenu();
+    if (track) teSetEbb(key, { pause_between: !track.pause_between }, true);
+}
+
+// The Pause range (seconds) in a track's menu, from either of its fields: { pause_min, pause_max }
+function teEbbPauseValues(input) {
+    const row = input.closest('.mi-row');
+    const read = which => Math.max(0, parseFloat(row.querySelector(`[data-pause="${which}"]`).value) || 0);
+    let low = read('min'), high = read('max');
+    if (high < low) [low, high] = [high, low];
+    return { pause_min: low, pause_max: high };
+}
+
+// The Pause range: saved when a field is left
+function teSetEbbPause(key, input) {
+    teSetEbb(key, teEbbPauseValues(input), true);
+}
+
+// ---------- The track list's views ----------
+// Sections, groups and rows are drawn for two views: the Theme Editor's (TE_VIEW, values saved as
+// they change) and a sequence step's While playing (twView(), the step's values over the preset).
+// A view gives the tracks and groups to show (closed: collapsed groups), ovr(part, name, fields):
+// ' ovr' where the step changes the preset's value (shown green), advOn(track, group, ebb): the
+// dot on a row's ⋯, and on: the functions its controls call. edit: the Theme Editor's own
+// controls (drag, the Mode menu, rename and delete, New group, Crossfade, the Unassigned section).
+const TE_VIEW = {
+    edit: true,
+    get tracks() { return te.tracks; },
+    get groups() { return te.groups; },
+    get closed() { return te.closed; },
+    ovr: () => '',
+    advOn: (track, group, ebb) => (!group && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive
+        || !!track.fade_in || !!track.fade_out || (ebb && (!!track.pause_between || !!track.rise)),
+    on: { value: 'teSetTrackValue', ebb: 'teSetEbb', mute: 'teToggleTrackMute', ebbPause: 'teToggleEbbPause', pause: 'teSetEbbPause',
+          group: 'teSetGroupValue', gap: 'teSetGroupGap', groupRise: 'teToggleGroupRise', fold: 'teToggleGroup', menu: 'teMenu' },
+};
+
+// A track's row in its section (group: the group it plays in, or null). Unassigned rows show the
+// file's length instead of the sliders and mute.
+function teRenderRow(track, group, view = TE_VIEW) {
     const key = track.name;
     const k = jsArg(key);
+    const on = view.on;
+    const ovr = fields => view.ovr('tracks', key, fields);
     const name = trackDisplayName(key);
+    const section = TE_SECTIONS.find(s => s.mode === teSectionOf(track));
     const vol = Math.round((track.volume ?? 1) * 100);
     const pres = Math.round((track.presence ?? 1) * 100);
     const volMaster = group ? groupMaster(group, 'volume') : 1;
     const presMaster = group ? groupMaster(group, 'presence') : 1;
     const playing = currentPreviewTrack === key && trackPreviewAudio && !trackPreviewAudio.paused;
-    // Ungrouped tracks and an Intrusion group's tracks keep their own mode and settings
-    const own = !group || teIsIntrusion(group);
     const link = track.linked || null;  // a file linked from another theme
     const missing = !!link?.missing;    // its source is gone: shown greyed, only ⋯ works
     const off = missing ? ' disabled' : '';
-    const advOn = (own && track.seamless_loop && teGaplessAllowed(track)) || !!track.exclusive;
+    const ebb = section.mode === 'presence';
+    const advOn = view.advOn(track, group, ebb);
     const muted = track.muted || (group && group.settings?.muted);
-    const cls = ['trow', 'tgrid', group ? 'in-grp' : '', muted ? 'muted' : '', link ? 'linked' : '', missing ? 'missing' : '',
+    const cls = ['trow', 'tgrid2', group ? 'in-grp' : '', muted ? 'muted' : '', link ? 'linked' : '', missing ? 'missing' : '',
         playing ? 'previewing' : ''].filter(Boolean).join(' ');
     const label = escapeHtml(name);
-    let nameCell = `<span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>`;
+    let from = '';
     if (link) {
         const source = escapeHtml(link.theme_name || 'another theme');
-        nameCell = `<div class="lk-cell">${nameCell}
-            <span class="lk-from" title="Linked from ${source}">${missing
-                ? '<span class="badge badge-missing">Missing</span>'
-                : `<span class="lk-ic">${TE_ICON_LINK_SM}</span>`}<span class="lk-src">from ${source}</span></span></div>`;
+        from = `<span class="lk-from" title="Linked from ${source}">${missing
+            ? '<span class="badge badge-missing">Missing</span>'
+            : `<span class="lk-ic">${TE_ICON_LINK_SM}</span>`}<span class="lk-src">from ${source}</span></span>`;
     }
+    let controls;
+    if (section.mode === 'unassigned') {
+        controls = `<span class="un-note">${missing ? '' : pkFormatLength(track.duration_seconds)}</span>`;
+    } else {
+        const presCell = !section.pres ? '<span class="no-pres"></span>' : teSliderCell('presence', section.pres, pres,
+            `aria-label="${section.pres}: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="${on.value}(${k}, 'presence', this.value)"${off}`,
+            playsAtHint(pres / 100, presMaster), ebb, ovr(['presence']));
+        controls = `
+        ${ebb ? teDualCell(track, k, label, vol, volMaster, off, view) : teSliderCell('volume', 'Volume', vol,
+            `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="${on.value}(${k}, 'volume', this.value)"${off}`,
+            playsAtHint(vol / 100, volMaster), false, ovr(['volume']))}
+        ${presCell}
+        <button class="track-mute-btn${track.muted ? ' muted' : ''}${ovr(['muted'])}" title="${track.muted ? 'Unmute' : 'Mute'}"
+                aria-label="${track.muted ? 'Unmute' : 'Mute'}: ${label}" aria-pressed="${!!track.muted}"
+                onclick="${on.mute}(${k})"${off}>${track.muted ? '🔇' : '🔊'}</button>`;
+    }
+    // A sequence step doesn't change a track's mode: shown as text there
+    const mode = group
+        ? `<span class="te-mode-fixed" title="Set by its group">${escapeHtml(section.groupLabel)}</span>`
+        : view.edit ? `<select class="track-mode-select" aria-label="Mode: ${label}" title="Moves the track to that section"
+                    onchange="teSetMode(${k}, this.value)"${off}>${teModeOptions(track)}</select>`
+        : `<span class="te-mode-fixed">${escapeHtml(section.label)}</span>`;
     return `
     <div class="${cls}" data-track="${escapeHtml(key)}">
-        ${te.groupsOk ? `<span class="drag-handle" draggable="true" title="Drag to another section" aria-label="Drag ${label}"
+        ${view.edit && te.groupsOk ? `<span class="drag-handle" draggable="true" title="Drag to another section or group" aria-label="Drag ${label}"
               ondragstart="teDragStart(event, ${k})" ondragend="teDragEnd()">${TE_ICON_GRIP}</span>` : '<span></span>'}
         <button class="track-preview-btn${playing ? ' playing' : ''}" title="${missing ? 'File missing' : playing ? 'Stop preview' : 'Preview'}"
                 aria-label="Preview: ${label}" onclick="toggleTrackPreview(${k})"${off}>
             ${TE_ICON_PLAY.replace('<svg', `<svg style="display:${playing ? 'none' : 'block'}"`)}
             ${TE_ICON_STOP.replace('<svg', `<svg style="display:${playing ? 'block' : 'none'}"`)}
         </button>
-        ${nameCell}
+        <div class="nm-cell"><span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>${from}</div>
         <div class="c-mode">
             <span class="c-lbl">Mode</span>
-            ${!own
-                ? (teGroupMode(group) === 'merry_go_round'
-                    ? `<span class="te-mode-fixed" title="The group crossfades from one file to the next">Merry-go-round</span>`
-                    : `<span class="te-mode-fixed" title="In a group, each track plays once on its turn">Intermittent</span>`)
-                : `<select class="track-mode-select" aria-label="Mode: ${label}" onchange="teSetMode(${k}, this.value)"${off}
-                    title="Auto picks by file length. Background plays all the time. Intermittent plays now and then. Ebb &amp; Flow fades in, plays a while, fades out.">${teModeOptions(track, false)}</select>`}
+            ${mode}
         </div>
-        ${teSliderCell('volume', 'Volume', vol,
-            `aria-label="Volume: ${label}" data-master="${volMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'volume', this.value)"${off}`,
-            playsAtHint(vol / 100, volMaster))}
-        ${teSliderCell('presence', 'Interval', pres,
-            `aria-label="Interval: ${label}" data-master="${presMaster}" oninput="teSliderInput(this)" onchange="teSetTrackValue(${k}, 'presence', this.value)"${off}`,
-            playsAtHint(pres / 100, presMaster))}
-        <button class="track-mute-btn${track.muted ? ' muted' : ''}" title="${track.muted ? 'Unmute' : 'Mute'}"
-                aria-label="${track.muted ? 'Unmute' : 'Mute'}: ${label}" aria-pressed="${!!track.muted}"
-                onclick="teToggleTrackMute(${k})"${off}>${track.muted ? '🔇' : '🔊'}</button>
+        ${controls}
         <button class="icon-btn sm more-btn" aria-label="More for ${label}" aria-haspopup="menu"
-                onclick="teMenu('${link ? 'link' : 'track'}', this, ${k})">${TE_ICON_MORE}${advOn ? '<span class="adv-dot"></span>' : ''}</button>
+                onclick="${on.menu}('${link ? 'link' : 'track'}', this, ${k})">${TE_ICON_MORE}${advOn ? '<span class="adv-dot"></span>' : ''}</button>
     </div>`;
 }
 
-function teRenderGroup(group) {
+function teRenderGroup(group, view = TE_VIEW) {
     const name = group.name;
     const n = jsArg(name);
+    const on = view.on;
+    const ovr = fields => view.ovr('groups', name, fields);
     const label = escapeHtml(name);
-    const tracks = te.tracks.filter(t => trackGroupOf(t.name) === name);
-    const open = !te.closed[name];
+    const tracks = view.tracks.filter(t => trackGroupOf(t.name) === name);
+    const open = !view.closed[name];
     const s = group.settings || {};
     const muted = !!s.muted;
     const vol = Math.round(groupMaster(group, 'volume') * 100);
@@ -3137,32 +3534,33 @@ function teRenderGroup(group) {
     const gapMin = s.gap_min != null ? Math.round(s.gap_min / 6) / 10 : '';
     const gapMax = s.gap_max != null ? Math.round(s.gap_max / 6) / 10 : '';
     const mode = teGroupMode(group);
-    const renaming = te.renaming === name;
-    const confirming = te.confirmDel === name;
+    const renaming = view.edit && te.renaming === name;
+    const confirming = view.edit && te.confirmDel === name;
     const count = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
+    // Under the group's name: Gap (Intermittent), Crossfade (Merry-go-round, not in a sequence step) or the
+    // Pause between plays switch (Ebb & Flow). On a phone, Gap and Crossfade get their own line in the header (.gap-row).
     const gap = (cls) => `
-        <div class="${cls}">
-            <span class="${cls === 'gap-row' ? 'c-lbl' : 'gap-word'}">Gap</span>
+        <div class="${cls}${ovr(['gap_min', 'gap_max'])}">
+            <span class="gap-word">Gap</span>
             <input class="num" type="number" min="0" step="0.5" placeholder="2" value="${teEsc(gapMin)}" aria-label="${label} minimum gap, minutes"
-                   data-gap="min" onchange="teSetGroupGap(${n}, this)">
+                   data-gap="min" onchange="${on.gap}(${n}, this)">
             <span>–</span>
             <input class="num" type="number" min="0" step="0.5" placeholder="2" value="${teEsc(gapMax)}" aria-label="${label} maximum gap, minutes"
-                   data-gap="max" onchange="teSetGroupGap(${n}, this)">
+                   data-gap="max" onchange="${on.gap}(${n}, this)">
             <span>min</span>
         </div>`;
     const crossfade = (cls) => `
         <div class="${cls}">
-            <span class="${cls === 'gap-row' ? 'c-lbl' : 'gap-word'}">Crossfade</span>
+            <span class="gap-word">Crossfade</span>
             <input class="num" type="number" min="1" max="60" step="1" placeholder="${TE_GROUP_CROSSFADE}" value="${teEsc(s.crossfade ?? '')}"
                    aria-label="${label} crossfade, seconds" onchange="teSetGroupCrossfade(${n}, this)">
             <span>s</span>
         </div>`;
-    const isInt = mode === 'intrusion';
-    // An Intrusion group's tracks play by their own settings: no gap, no crossfade
-    const timing = isInt ? () => '' : mode === 'merry_go_round' ? crossfade : gap;
-    const modeSelect = `<select class="track-mode-select" aria-label="${label} group mode" onchange="teSetGroupMode(${n}, this.value, this)"
-            title="Intermittent plays one track at a time with a gap. Merry-go-round makes a continuous bed. Intrusion: each track plays by its own mode.">${
-            TE_GROUP_MODES.map(([v, text]) => `<option value="${v}"${v === mode ? ' selected' : ''}>${text}</option>`).join('')}</select>`;
+    const pauseSwitch = `
+        <button type="button" class="gsw${ovr(['pause_between'])}" role="switch" aria-checked="${!!s.pause_between}" aria-label="${label} pause between plays"
+                title="Every file pauses between plays, at staggered times, so one is always playing"
+                onclick="${on.group}(${n}, 'pause_between', ${!s.pause_between})"><span class="gap-word">Pause between plays</span><span class="sw${s.pause_between ? ' on' : ''}"></span></button>`;
+    const timing = mode === 'intermittent' ? gap : mode === 'merry_go_round' && view.edit ? crossfade : null;
     let nameCell;
     if (renaming) {
         nameCell = `<input class="inp sm grp-rename" type="text" maxlength="60" enterkeyhint="done" aria-label="Group name" value="${label}"
@@ -3174,44 +3572,58 @@ function teRenderGroup(group) {
                         <button class="btn btn-sm btn-secondary" onclick="teCancelDelete()">Cancel</button>
                     </span>`;
     } else {
-        nameCell = `<button class="gname" title="Double-click to rename" ondblclick="teStartRename(${n})">${label}</button>
-                    ${isInt ? `<span class="int-ic" title="Intrusion group" role="img" aria-label="Intrusion group">${TE_ICON_LINK}</span>` : ''}
+        nameCell = `${view.edit ? `<button class="gname" title="Double-click to rename" ondblclick="teStartRename(${n})">${label}</button>`
+                                : `<span class="gname">${label}</span>`}
                     <span class="badge badge-type">${count}</span>`;
     }
-    const masterSlider = (kind, text, value) => teSliderCell(kind, text, value,
-        `aria-label="${label} group ${text.toLowerCase()}" oninput="teGroupSliderInput(this, ${n})" onchange="teSetGroupValue(${n}, '${kind}', this.value)"`, '');
+    const section = teGroupSection(group);
+    const masterSlider = (kind, text, value, ends = false) => teSliderCell(kind, text, value,
+        `aria-label="${label} group ${text.toLowerCase()}" oninput="teGroupSliderInput(this, ${n})" onchange="${on.group}(${n}, '${kind}', this.value)"`, '', ends, ovr([kind]));
+    const drop = view.edit ? ` ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, ${n})"` : '';
     return `
-    <div class="sec grp-sec${open ? ' open-sec' : ''}${muted ? ' gmuted' : ''}${isInt ? ' int-sec' : ''}" data-group="${label}"
-         ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, ${n})">
-        <div class="ghead tgrid${muted ? ' muted' : ''}">
+    <div class="sec grp-sec${open ? ' open-sec' : ''}${muted ? ' gmuted' : ''}" data-group="${label}"${drop}>
+        <div class="ghead tgrid2${muted ? ' muted' : ''}">
             <button class="chev-btn${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${label}"
-                    onclick="teToggleGroup(${n})">${TE_ICON_CHEV}</button>
+                    onclick="${on.fold}(${n})">${TE_ICON_CHEV}</button>
             <span class="folder">${TE_ICON_FOLDER_LG}</span>
             <div class="gname-cell${confirming ? ' wide' : ''}">
                 ${nameCell}
-                <span class="drop-note">Drop to add</span>
-                ${confirming ? '' : timing('gap-ctl')}
+                ${view.edit ? '<span class="drop-note">Drop to add</span>' : ''}
+                ${confirming ? '' : timing ? timing('gap-ctl') : mode === 'ebb_flow' ? pauseSwitch : ''}
             </div>
-            ${confirming ? '' : `<div class="c-mode gmode">${modeSelect}</div>`}
+            ${confirming || !timing ? '' : timing('gap-ctl gap-row')}
+            ${confirming ? '' : `<div class="c-mode gmode"><span class="te-mode-fixed" title="Set by the section">${escapeHtml(section.groupLabel)}</span></div>`}
             <div class="master">${masterSlider('volume', 'Volume', vol)}</div>
-            <div class="master">${masterSlider('presence', 'Interval', pres)}</div>
-            <button class="track-mute-btn${muted ? ' muted' : ''}" title="${muted ? 'Unmute group' : 'Mute group'}"
+            ${section.pres ? `<div class="master">${masterSlider('presence', section.pres, pres, mode === 'ebb_flow')}</div>` : '<span class="no-pres"></span>'}
+            <button class="track-mute-btn${muted ? ' muted' : ''}${ovr(['muted'])}" title="${muted ? 'Unmute group' : 'Mute group'}"
                     aria-label="${muted ? 'Unmute group' : 'Mute group'}: ${label}" aria-pressed="${muted}"
-                    onclick="teSetGroupValue(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
-            <button class="icon-btn sm" aria-label="More for group ${label}" aria-haspopup="menu" onclick="teMenu('group', this, ${n})">${TE_ICON_MORE}</button>
+                    onclick="${on.group}(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
+            <button class="icon-btn sm" aria-label="More for group ${label}" aria-haspopup="menu" onclick="${on.menu}('group', this, ${n})">${TE_ICON_MORE}</button>
         </div>
         ${open ? `
-        <div class="pg-master">
-            <span class="mlabel">Group</span>
-            <div class="c-mode"><span class="c-lbl">Mode</span>${modeSelect}</div>
-            ${masterSlider('volume', 'Volume', vol)}
-            ${masterSlider('presence', 'Interval', pres)}
-            ${timing('gap-row')}
-        </div>
-        ${tracks.map(t => teRenderRow(t, group)).join('')}
-        ${tracks.length ? '' : isInt
-            ? `<div class="empty-row"><button class="link-btn" onclick="pkOpen(${n})">${TE_ICON_LINK}Add from another theme</button></div>`
-            : `<div class="empty-row">Drag tracks here or use ⋯ › Move to group</div>`}` : ''}
+        ${tracks.map(t => teRenderRow(t, group, view)).join('')}
+        ${tracks.length || !view.edit ? '' : '<div class="empty-row">Drag files here</div>'}` : ''}
+    </div>`;
+}
+
+// One section of the track list: its header, column headings, groups, then its ungrouped tracks
+function teRenderSection(section, view = TE_VIEW) {
+    const tracks = view.tracks.filter(t => teSectionOf(t) === section.mode);
+    const groups = te.groupsOk && section.group ? view.groups.filter(g => teGroupMode(g) === section.group) : [];
+    const ungrouped = tracks.filter(t => !teTrackGroup(t));
+    const unassigned = section.mode === 'unassigned';
+    const drop = view.edit ? ` ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDropSection(event, '${section.mode}')"` : '';
+    return `
+    <div class="cat cat-${unassigned ? 'unassigned' : section.mode}" data-section="${section.mode}"${drop}>
+        <div class="cat-head"><span class="cat-title">${escapeHtml(section.label)}</span><span class="badge badge-type">${tracks.length}</span>
+            <span class="cat-desc">${escapeHtml(section.desc)}</span><span class="grow"></span>
+            ${section.group && te.groupsOk && view.edit ? `<button class="btn btn-sm btn-secondary" title="${escapeHtml(section.groupTip)}"
+                onclick="teNewGroup('${section.group}')">${TE_ICON_FOLDER_PLUS}New group</button>` : ''}</div>
+        ${!unassigned && tracks.length ? `<div class="thead tgrid2 cat-thead"><span></span><span></span><span>Name</span><span>Mode</span>
+            <span>Volume</span><span>${section.pres || ''}</span><span class="c">Mute</span><span></span></div>` : ''}
+        ${groups.map(g => teRenderGroup(g, view)).join('')}
+        ${ungrouped.map(t => teRenderRow(t, null, view)).join('')}
+        ${groups.length || ungrouped.length || !view.edit ? '' : `<div class="empty-row">${escapeHtml(section.empty || 'Drag files here, or make a group')}</div>`}
     </div>`;
 }
 
@@ -3219,25 +3631,8 @@ function teRenderTracks() {
     const list = document.getElementById('te-tracks');
     if (!list || !te.themeId) return;
     document.getElementById('te-track-count').textContent = te.tracks.length;
-    document.getElementById('te-newgroup-btn').hidden = !te.groupsOk;
-    document.getElementById('te-intrusion-btn').hidden = !te.groupsOk;
-    const ungrouped = te.tracks.filter(t => !te.groupsOk || !trackGroupOf(t.name));
-    const groupsHtml = te.groupsOk ? te.groups.map(teRenderGroup).join('') : '';
-    let themeHtml;
-    if (!te.tracks.length && !te.groups.length) {
-        themeHtml = '<div class="empty-row">No audio files in this theme. Use Upload to add some.</div>';
-    } else {
-        themeHtml = `
-        <div class="sec theme-sec" ondragover="teDragOver(event, this)" ondragleave="teDragLeave(event, this)" ondrop="teDrop(event, null)">
-            <div class="slabel"><span>${te.groups.length ? 'Theme (no group)' : 'Tracks'}</span>
-                <span class="badge badge-type">${ungrouped.length} track${ungrouped.length === 1 ? '' : 's'}</span>
-                <span class="drop-note">Drop to move out of group</span></div>
-            ${ungrouped.map(t => teRenderRow(t, null)).join('')}
-            ${ungrouped.length ? '' : '<div class="empty-row">All tracks are in groups</div>'}
-        </div>`;
-    }
     const scroll = list.scrollTop;
-    list.innerHTML = `<section aria-label="Tracks">${groupsHtml}${themeHtml}</section>`;
+    list.innerHTML = `<section aria-label="Tracks">${TE_SECTIONS.map(s => teRenderSection(s)).join('')}</section>`;
     list.scrollTop = scroll;
     teUpdateMarquees();
     const rename = list.querySelector('.grp-rename');
@@ -3265,15 +3660,31 @@ window.addEventListener('resize', () => {
     }, 150);
 });
 
+// A preview's volume moves to a new value over a quarter second instead of jumping
+// (a slider drag keeps restarting the ramp from wherever it has got to)
+function previewRampVolume(audio, target, ms = 250) {
+    if (!audio) return;
+    target = Math.max(0, Math.min(1, target));
+    cancelAnimationFrame(audio._volRamp || 0);
+    const from = audio.volume, t0 = performance.now();
+    const tick = now => {
+        // A frame can start before t0: keep k (and the volume) in range, or setting it throws
+        const k = Math.max(0, Math.min(1, (now - t0) / ms));
+        audio.volume = Math.max(0, Math.min(1, from + (target - from) * k));
+        if (k < 1) audio._volRamp = requestAnimationFrame(tick);
+    };
+    audio._volRamp = requestAnimationFrame(tick);
+}
+
 function teSliderInput(slider) {
     const cell = slider.closest('.mx');
     cell.querySelector('.track-slider-value').textContent = slider.value + '%';
     // The file being previewed follows its Volume slider as it moves
     const row = slider.closest('.trow');
     if (row && cell.dataset.kind === 'volume' && trackPreviewAudio && row.dataset.track === currentPreviewTrack) {
-        trackPreviewAudio.volume = Math.max(0, Math.min(1, (slider.value / 100) * parseFloat(slider.dataset.master || '1')));
+        previewRampVolume(trackPreviewAudio, (slider.value / 100) * parseFloat(slider.dataset.master || '1'));
     }
-    const hint = cell.querySelector('.mx-hint');
+    const hint = cell.querySelector('.mx-hint:not(.dur-ends)');
     if (hint) hint.textContent = playsAtHint(slider.value / 100, parseFloat(slider.dataset.master || '1'));
 }
 
@@ -3283,14 +3694,16 @@ function teGroupSliderInput(slider, name) {
     const kind = slider.closest('.mx').dataset.kind;
     const section = slider.closest('.grp-sec');
     if (!section) return;
-    // Keep the desktop header and the phone master block in step
-    section.querySelectorAll(`.master .mx[data-kind="${kind}"] .track-slider, .pg-master .mx[data-kind="${kind}"] .track-slider`).forEach(other => {
-        if (other !== slider) { other.value = slider.value; teSliderInput(other); }
-    });
     section.querySelectorAll(`.trow .mx[data-kind="${kind}"] .track-slider`).forEach(trackSlider => {
         trackSlider.dataset.master = slider.value / 100;
         teSliderInput(trackSlider);
     });
+    if (kind === 'volume') {
+        section.querySelectorAll('.trow .dual').forEach(box => {
+            box.dataset.master = slider.value / 100;
+            teDualInput(box.querySelector('[data-knob="high"]'));
+        });
+    }
 }
 
 function teMarkMixChanged() {
@@ -3340,6 +3753,23 @@ function teToggleGapless(key) {
     if (track) teSetTrackFlag(key, 'seamless_loop', !track.seamless_loop);
 }
 
+// A file's own Fade in / Fade out (seconds, empty = off), saved when the field is left
+async function teSetFade(key, field, input) {
+    const raw = input.value.trim();
+    const seconds = raw === '' ? 0 : Math.min(30, Math.max(0, parseFloat(raw) || 0));
+    input.value = seconds ? String(seconds) : '';
+    const track = teTrack(key);
+    if (!track || (track[field] || 0) === seconds) return;
+    try {
+        await api('PUT', teTrackUrl(key, 'fades'), { [field]: seconds });
+        track[field] = seconds;
+        teMarkMixChanged();
+    } catch (error) {
+        showToast(error.message || 'Failed to save', 'error');
+    }
+    teRenderTracks();
+}
+
 function teToggleExclusive(key) {
     const track = teTrack(key);
     teCloseMenu();
@@ -3356,6 +3786,14 @@ async function teResetTrack(key) {
         for (const [field, value] of changes) {
             await api('PUT', teTrackUrl(key, field), { [field]: value });
             track[field] = value;
+        }
+        if (track.fade_in || track.fade_out) {
+            await api('PUT', teTrackUrl(key, 'fades'), { fade_in: 0, fade_out: 0 });
+            track.fade_in = track.fade_out = 0;
+        }
+        if (TE_EBB_FIELDS.some(f => track[f] !== undefined && track[f] !== TE_EBB_DEFAULTS[f])) {
+            await api('PUT', teTrackUrl(key, 'ebb'), TE_EBB_DEFAULTS);
+            Object.assign(track, TE_EBB_DEFAULTS);
         }
         teMarkMixChanged();
         teFlash(`Reset ${trackDisplayName(key)}`);
@@ -3404,7 +3842,8 @@ async function teSetGroupValue(name, key, value) {
     teRenderTracks();
 }
 
-async function teSetGroupGap(name, input) {
+// A group's Gap (minutes in the fields, seconds saved), from either field: { gap_min, gap_max }
+function teGapValues(input) {
     const box = input.parentElement;
     const read = which => {
         const raw = box.querySelector(`[data-gap="${which}"]`).value;
@@ -3414,10 +3853,15 @@ async function teSetGroupGap(name, input) {
     let low = read('min');
     let high = read('max');
     if (low != null && high != null && high < low) [low, high] = [high, low];
+    return { gap_min: low, gap_max: high };
+}
+
+async function teSetGroupGap(name, input) {
+    const gap = teGapValues(input);
     try {
-        const result = await api('PUT', teGroupUrl(name), { gap_min: low, gap_max: high });
+        const result = await api('PUT', teGroupUrl(name), gap);
         const group = teGroup(name);
-        if (group) group.settings = result?.settings || { ...(group.settings || {}), gap_min: low, gap_max: high };
+        if (group) group.settings = result?.settings || { ...(group.settings || {}), ...gap };
         teMarkMixChanged();
     } catch (error) {
         showToast(error.message || 'Failed to save gap', 'error');
@@ -3425,40 +3869,20 @@ async function teSetGroupGap(name, input) {
     teRenderTracks();
 }
 
-// Mode: Intermittent, Merry-go-round or Intrusion. Playing channels follow at once; the preview restarts.
-// Leaving Intrusion removes the group's linked files, so that asks first.
-async function teSetGroupMode(name, mode, select = null) {
-    const group = teGroup(name);
-    const wasInt = teIsIntrusion(group);
-    if (wasInt && mode !== 'intrusion' && teGroupLinks(name).length) {
-        if (select) select.value = 'intrusion';
-        teMenu('intoff', select || teMenuAnchor(), JSON.stringify([name, mode]));
-        return;
-    }
-    setTimeout(teRestartMixPreview, 300);
-    await teSetGroupValue(name, 'mode', mode);
-    if (wasInt !== (mode === 'intrusion')) teLoadPresets(false);  // which presets turn intrusion tracks on
-}
-
-// "Are you sure?" said yes: remove the group's linked files and change its mode
-async function teConfirmIntrusionOff(arg) {
-    const [name, mode] = JSON.parse(arg);
-    teCloseMenu();
-    try {
-        await api('PUT', teGroupUrl(name), { mode, remove_links: true });
-        teFlash(`${name} is ${TE_GROUP_MODES.find(([v]) => v === mode)?.[1] || mode}`);
-        teMarkMixChanged();
-    } catch (error) {
-        showToast(error.message || 'Failed to change the group', 'error');
-    }
-    await teLoadTracks(true, false);  // the server rebuilt the theme before answering
-    teLoadPresets(false);
-}
-
 async function teSetGroupCrossfade(name, input) {
     const seconds = parseFloat(input.value);
     const value = input.value === '' || !Number.isFinite(seconds) ? null : Math.min(60, Math.max(1, seconds));
     await teSetGroupValue(name, 'crossfade', value);
+}
+
+// Same Rise for every file (Ebb & Flow group): on sets the group's Rise, off removes it so each
+// file uses its own. The menu stays open, now with or without the group's Rise slider.
+async function teToggleGroupRise(name) {
+    const on = teGroup(name)?.settings?.rise != null;
+    await teSetGroupValue(name, 'rise', on ? null : 0.5);
+    const button = document.querySelector(`#te-tracks .grp-sec[data-group="${CSS.escape(name)}"] .ghead [aria-haspopup="menu"]`);
+    if (button) teMenu('group', button, name, true);
+    else teCloseMenu();
 }
 
 function teUniqueGroupName(base = 'New group') {
@@ -3468,49 +3892,29 @@ function teUniqueGroupName(base = 'New group') {
     return name;
 }
 
-// Add intrusion: a new group in Intrusion mode; name it, then pick files from another theme
-async function teAddIntrusion() {
-    teCloseMenu();
-    if (!te.groupsOk || !te.themeId) return;
-    const wanted = teUniqueGroupName('Intrusion');
-    try {
-        const result = await api('POST', `/themes/${te.themeId}/groups`, { name: wanted });
-        const name = result?.name || wanted;
-        const changed = await api('PUT', teGroupUrl(name), { mode: 'intrusion' });
-        delete te.closed[name];
-        let group = teGroup(name);
-        if (!group) {
-            group = { name, settings: {}, tracks: [], links: [] };
-            te.groups.push(group);
-            te.groups.sort((a, b) => a.name.localeCompare(b.name));
-        }
-        group.settings = changed?.settings || { ...(group.settings || {}), mode: 'intrusion' };
-        te.renaming = name;
-        te.pickAfter = name;
-        teRenderTracks();
-    } catch (error) {
-        showToast(error.message || 'Failed to create group', 'error');
-    }
-}
-
-async function teNewGroup(moveKey = null) {
+// A section's New group (mode: the section's group mode), or a track's ⋯ › New group (moveKey: the
+// track goes into it). Named inline next.
+async function teNewGroup(mode, moveKey = null) {
     teCloseMenu();
     if (!te.groupsOk || !te.themeId) return;
     const wanted = teUniqueGroupName();
     try {
         const result = await api('POST', `/themes/${te.themeId}/groups`, { name: wanted });
         const name = result?.name || wanted;
+        const changed = await api('PUT', teGroupUrl(name), { mode });
         delete te.closed[name];
+        te.renaming = name;
         if (moveKey) {
             await api('POST', teTrackUrl(moveKey, 'move'), { group: name });
-            te.renaming = name;
             await teLoadTracks(true, false);
         } else {
-            if (!teGroup(name)) {
-                te.groups.push({ name, settings: {}, tracks: [] });
+            let group = teGroup(name);
+            if (!group) {
+                group = { name, settings: {}, tracks: [] };
+                te.groups.push(group);
                 te.groups.sort((a, b) => a.name.localeCompare(b.name));
             }
-            te.renaming = name;
+            group.settings = changed?.settings || { ...(group.settings || {}), mode };
             teRenderTracks();
         }
     } catch (error) {
@@ -3534,30 +3938,18 @@ function teRenameKey(event, name) {
         event.stopPropagation();
         te.renaming = null;
         teRenderTracks();
-        if (te.pickAfter === name) {  // a new intrusion group keeps its name; on to its files
-            te.pickAfter = null;
-            pkOpen(name);
-        }
     }
 }
 
 async function teCommitRename(name, value) {
     if (te.renaming !== name) return;
-    const pick = te.pickAfter === name;
-    te.pickAfter = null;
-    const finalName = await teRenameGroup(name, value);
-    if (pick && finalName && teGroup(finalName)) pkOpen(finalName);
-}
-
-// Rename a group; returns the name it has afterwards
-async function teRenameGroup(name, value) {
     te.renaming = null;
     const newName = (value || '').trim();
-    if (!newName || newName === name) { teRenderTracks(); return name; }
+    if (!newName || newName === name) { teRenderTracks(); return; }
     if (te.groups.some(g => g.name !== name && g.name.toLowerCase() === newName.toLowerCase())) {
         showToast('A group with that name exists', 'warning');
         teRenderTracks();
-        return name;
+        return;
     }
     try {
         const result = await api('POST', teGroupUrl(name, '/rename'), { name: newName });
@@ -3571,11 +3963,9 @@ async function teRenameGroup(name, value) {
         teSetUpload(te.upload);
         teRenderTracks();
         await teLoadTracks(true, false);
-        return finalName;
     } catch (error) {
         showToast(error.message || 'Failed to rename group', 'error');
         teRenderTracks();
-        return name;
     }
 }
 
@@ -3604,17 +3994,11 @@ async function teDeleteGroup(name) {
     }
 }
 
-async function teMoveTrack(key, group, anchor = null) {
-    if ((trackGroupOf(key) || null) === (group || null)) { teCloseMenu(); return; }
-    // A linked file moves between Intrusion groups; anywhere else it is copied in (asked first)
-    const linked = teTrack(key)?.linked;
-    if (linked && !teIsIntrusion(group ? teGroup(group) : null)) {
-        const button = anchor || te.menuBtn
-            || document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(key)}"] .more-btn`);
-        teMenu('copyin', button, JSON.stringify([key, group || null]));
-        return;
-    }
+// Into a group (or, with null, out of one). A file dragged into a group plays its way: its own
+// mode follows the group's section, so it stays there if it is dragged out again.
+async function teMoveTrack(key, group) {
     teCloseMenu();
+    if ((trackGroupOf(key) || null) === (group || null)) return;
     // Move the row now; the server's answer (and any rename on a name clash) follows
     const track = te.tracks.find(t => t.name === key);
     if (track) {
@@ -3622,7 +4006,12 @@ async function teMoveTrack(key, group, anchor = null) {
         teRenderTracks();
     }
     try {
-        await api('POST', teTrackUrl(key, 'move'), { group: group || null });
+        const result = await api('POST', teTrackUrl(key, 'move'), { group: group || null });
+        const section = group ? teGroupSection(teGroup(group)) : null;
+        if (section && track && track.playback_mode !== section.mode) {
+            await api('PUT', teTrackUrl(result?.track || track.name, 'playback_mode'), { playback_mode: section.mode });
+            teMarkMixChanged();
+        }
         teFlash(`Moved ${trackDisplayName(key)} to ${group || 'theme'}`);
         await teLoadTracks(true, false);  // the server rebuilt the theme before answering
     } catch (error) {
@@ -3631,20 +4020,24 @@ async function teMoveTrack(key, group, anchor = null) {
     }
 }
 
-// A linked file copied into this theme (its group's folder or the theme folder): the link goes,
-// the track keeps its settings and preset values under its new name
-async function teCopyIn(arg) {
-    const [key, group] = JSON.parse(arg);
+// Into a section, ungrouped: out of its group first, then that section's mode
+async function teMoveToSection(key, mode) {
     teCloseMenu();
-    if (currentPreviewTrack === key) stopTrackPreview();
+    const track = teTrack(key);
+    if (!track) return;
+    if (!teTrackGroup(track)) {
+        if (teSectionOf(track) !== mode) teSetMode(key, mode);
+        return;
+    }
     try {
-        await api('POST', `/themes/${te.themeId}/links/${encodeURIComponent(key)}/copy-in`, { group });
-        teFlash(`Copied ${trackDisplayName(key)} to ${group || 'theme'}`);
+        const result = await api('POST', teTrackUrl(key, 'move'), { group: null });
+        await api('PUT', teTrackUrl(result?.track || trackDisplayName(key), 'playback_mode'), { playback_mode: mode });
+        teMarkMixChanged();
+        setTimeout(teRestartMixPreview, 300);
     } catch (error) {
-        showToast(error.message || 'Failed to copy the file', 'error');
+        showToast(error.message || 'Failed to move track', 'error');
     }
     await teLoadTracks(true, false);  // the server rebuilt the theme before answering
-    teLoadPresets(false);
 }
 
 async function teRemoveLink(key) {
@@ -3660,7 +4053,7 @@ async function teRemoveLink(key) {
     teLoadPresets(false);
 }
 
-// Drag & drop (desktop): drag a track by its handle onto a group or the theme section
+// Drag & drop (desktop): drag a track by its handle onto a group or a section
 function teDragStart(event, key) {
     te.drag = key;
     teCloseMenu();
@@ -3679,28 +4072,44 @@ function teDragEnd() {
     document.querySelectorAll('#te-tracks .dragging, #te-tracks .drop').forEach(el => el.classList.remove('dragging', 'drop'));
 }
 
-function teDragOver(event, section) {
+// Over a group (data-group) or a section (data-section, a mode). A group sits inside its section,
+// so it takes the drag and the section doesn't light up behind it.
+function teDragOver(event, target) {
     if (!te.drag) return;
-    const from = trackGroupOf(te.drag);
-    const to = section.dataset.group || null;
-    if ((from || null) === (to || null)) return;
-    // A missing linked file can't be copied in: it only moves between Intrusion groups
-    if (teTrack(te.drag)?.linked?.missing && !teIsIntrusion(to ? teGroup(to) : null)) return;
+    const track = teTrack(te.drag);
+    if (!track) return;
+    const group = target.dataset.group;
+    if (group !== undefined) {
+        event.stopPropagation();
+        target.closest('.cat')?.classList.remove('drop');
+        if ((trackGroupOf(te.drag) || null) === group) return;
+    } else if (!teTrackGroup(track) && teSectionOf(track) === target.dataset.section) {
+        return;
+    }
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
-    section.classList.add('drop');
+    target.classList.add('drop');
 }
 
-function teDragLeave(event, section) {
-    if (!section.contains(event.relatedTarget)) section.classList.remove('drop');
+function teDragLeave(event, target) {
+    if (!target.contains(event.relatedTarget)) target.classList.remove('drop');
 }
 
 function teDrop(event, group) {
     if (!te.drag) return;
     event.preventDefault();
+    event.stopPropagation();
     const key = te.drag;
     teDragEnd();
     teMoveTrack(key, group);
+}
+
+function teDropSection(event, mode) {
+    if (!te.drag) return;
+    event.preventDefault();
+    const key = te.drag;
+    teDragEnd();
+    teMoveToSection(key, mode);
 }
 
 // Upload
@@ -3763,17 +4172,24 @@ async function teLoadPresets(selectDefault = false) {
     const themeId = te.themeId;
     if (!themeId) return;
     try {
-        const result = await api('GET', `/themes/${themeId}/presets`);
+        const [result, defaults] = await Promise.all([
+            api('GET', `/themes/${themeId}/presets`),
+            api('GET', `/themes/${themeId}/sequence_defaults`).catch(() => null),
+        ]);
         if (te.themeId !== themeId) return;
         te.presets = result.presets || [];
+        te.sequences = result.sequences || [];
+        if (defaults) te.seqDefaults = { hold_min: defaults.hold_min, hold_max: defaults.hold_max, ramp: defaults.ramp };
     } catch (error) {
         console.error('Failed to load presets:', error);
         te.presets = [];
+        te.sequences = [];
     }
     // Opens with no preset selected: a preset only changes when it's picked
     // on purpose and Save preset is pressed
     if (selectDefault) te.selPreset = '';
-    if (te.selPreset && !te.presets.some(p => p.id === te.selPreset)) te.selPreset = '';
+    if (te.selPreset && !te.presets.some(p => p.id === te.selPreset) && !teSelectedSeq()) te.selPreset = '';
+    teRenderSeqCount();
     teRenderPresetField();
 }
 
@@ -3790,12 +4206,18 @@ function teRenderPresetField() {
     const btn = document.getElementById('te-preset-btn');
     if (!btn) return;
     const preset = teSelectedPreset();
-    btn.classList.toggle('is-cur', !preset);
-    btn.setAttribute('aria-label', `Preset: ${preset ? preset.name : 'Current settings'}`);
-    btn.innerHTML = `<span class="pdd-name">${preset ? escapeHtml(preset.name) : '— Current settings —'}</span>${
-        preset?.is_default ? '<span class="def-star" title="Default">★</span>' : ''}${preset?.has_intrusion ? intrusionMark() : ''}
+    const seq = teSelectedSeq();  // a sequence: Load becomes Edit
+    btn.classList.toggle('is-cur', !preset && !seq);
+    btn.setAttribute('aria-label', `Preset: ${preset ? preset.name : seq ? seq.name : 'Current settings'}`);
+    btn.innerHTML = `<span class="pdd-name">${preset ? escapeHtml(preset.name) : seq ? escapeHtml(seq.name) : '— Current settings —'}</span>${
+        preset?.is_default ? '<span class="def-star" title="Default">★</span>' : ''}${(preset || seq)?.has_intrusion ? intrusionMark() : ''}${seq ? seqMark() : ''}
         ${preset && te.mixDirty ? '<span class="dirty dot-only" title="Mix changed"><i></i></span>' : ''}<span class="grow"></span>${TE_ICON_CHEV_UP}`;
-    document.getElementById('te-load-btn').disabled = !preset;
+    // Picking a preset loads it, so the button is only there to open a sequence
+    // (Edit) or to put a preset back after changing the mix (Reload)
+    const load = document.getElementById('te-load-btn');
+    load.hidden = !(seq || (preset && te.mixDirty));
+    load.disabled = false;
+    load.textContent = seq ? 'Edit' : 'Reload';
     document.getElementById('te-savepreset-btn').disabled = !preset;
     document.getElementById('te-dirty').hidden = !(preset && te.mixDirty);
 }
@@ -3804,9 +4226,12 @@ function teChoosePreset(id) {
     te.selPreset = id;
     teCloseMenu();
     teRenderPresetField();
+    if (teSelectedPreset()) teLoadPreset();  // picking a preset loads it; a sequence just selects it (Edit opens it)
 }
 
 async function teLoadPreset() {
+    const seq = teSelectedSeq();
+    if (seq) { teOpenSequence(seq.id); return; }
     const preset = teSelectedPreset();
     if (!preset || !te.themeId) return;
     teCloseMenu();
@@ -3926,18 +4351,83 @@ function teExportTheme() {
     exportThemeZip();
 }
 
-function teComingSoon() {
-    teCloseMenu();
-    teFlash('Sequences: coming soon');
-}
-
 // ---------- Menus and popovers (one floating element) ----------
 
-function teMenuHtml(kind, arg) {
-    const mi = (label, action, opts = {}) => `<button type="button" class="mi${opts.cls ? ' ' + opts.cls : ''}" role="menuitem"
+const TE_MENU_SEP = '<div class="msep"></div>';
+
+function teMenuItem(label, action, opts = {}) {
+    return `<button type="button" class="mi${opts.cls ? ' ' + opts.cls : ''}" role="menuitem"
         ${opts.disabled ? 'disabled' : ''} ${opts.title ? `title="${escapeHtml(opts.title)}"` : ''} onclick="${action}">${opts.icon || ''}${label}${opts.after || ''}</button>`;
-    const sep = '<div class="msep"></div>';
+}
+
+// A Rise slider, Gradual … Sudden (0..1 stored as 0..100); ovr: ' ovr' when a sequence step changes it
+function teRiseRow(id, value, title, action, disabled, ovr = '') {
+    return `
+        <div class="mi-row msl${ovr}" title="${escapeHtml(title)}"><label for="${id}">Rise</label><span class="msl-end">Gradual</span>
+            <input id="${id}" type="range" class="track-slider" min="0" max="100" value="${Math.round((value ?? 0) * 100)}"
+                   onchange="${action}"${disabled ? ' disabled' : ''}><span class="msl-end">Sudden</span></div>`;
+}
+
+// An Ebb & Flow track's menu rows (group: the group it plays in, or null): Rise and Pause between plays
+// (the group's, when it sets them, override) and the Pause range
+function teEbbRows(track, group, k, disabled, view = TE_VIEW) {
+    const byGroup = !!(group && teGroupMode(group) === 'ebb_flow' && group.settings?.pause_between);
+    const riseByGroup = !!(group && teGroupMode(group) === 'ebb_flow' && group.settings?.rise != null);
+    const on = byGroup || !!track.pause_between;
+    const low = track.pause_min ?? TE_EBB_DEFAULTS.pause_min, high = track.pause_max ?? TE_EBB_DEFAULTS.pause_max;
+    return teRiseRow('te-rise', riseByGroup ? group.settings.rise : track.rise,
+            'How fast it rises: gradual, as smoothly as it falls, or sudden, jumping up and easing back down',
+            `${view.on.ebb}(${k}, { rise: this.value / 100 })`, disabled || riseByGroup, view.ovr('tracks', track.name, ['rise']))
+        + (riseByGroup ? '<div class="msl-note">set by group</div>' : '') + TE_MENU_SEP
+        + teMenuItem('Pause between plays', `${view.on.ebbPause}(${k})`, {
+            disabled: disabled || byGroup,
+            title: byGroup ? "The group's Pause between plays is on" : 'Plays to the end of the file, then pauses',
+            after: `${byGroup ? '<span class="mi-note">set by group</span>' : ''}<span class="sw${on ? ' on' : ''}"></span>` })
+        + `<div class="mi-row dgrid"><label for="te-pause-min" title="Stays quiet this long, in seconds, picked at random each time">Pause</label>
+            <input id="te-pause-min" class="num" type="number" min="0" step="1" inputmode="numeric" data-pause="min" value="${teEsc(low)}"
+                   aria-label="Shortest pause, seconds" onchange="${view.on.pause}(${k}, this)"${disabled ? ' disabled' : ''}>
+            <span>–</span>
+            <input class="num" type="number" min="0" step="1" inputmode="numeric" data-pause="max" value="${teEsc(high)}"
+                   aria-label="Longest pause, seconds" onchange="${view.on.pause}(${k}, this)"${disabled ? ' disabled' : ''}>
+            <span>s</span></div>`;
+}
+
+// An Ebb & Flow group's menu rows: one Rise for every file (stored on the group; off, each file's own).
+// locked: the switch can't be turned off (a sequence step can't take away the preset's Rise).
+function teGroupRiseRows(group, n, view = TE_VIEW, locked = false) {
+    if (teGroupMode(group) !== 'ebb_flow') return '';
+    const rise = group.settings?.rise;
+    return teMenuItem('Same Rise for every file', `${view.on.groupRise}(${n})`, {
+            disabled: locked, title: "Off: each file's own Rise", after: `<span class="sw${rise != null ? ' on' : ''}"></span>` })
+        + (rise != null ? teRiseRow('te-grise', rise, 'How fast every file rises', `${view.on.group}(${n}, 'rise', this.value / 100)`,
+            false, view.ovr('groups', group.name, ['rise'])) : '') + TE_MENU_SEP;
+}
+
+function teMenuHtml(kind, arg) {
+    const mi = teMenuItem;
+    const sep = TE_MENU_SEP;
     const preset = teSelectedPreset();
+    const ebbRows = (track, k, disabled) => teEbbRows(track, teTrackGroup(track), k, disabled);
+    // Move to: Unassigned (out of its group, not played), or into a group
+    const moveRows = (track, k, disabled) => {
+        const here = teTrackGroup(track)?.name || null;
+        const unassigned = !here && teSectionOf(track) === 'unassigned';
+        return '<div class="mhead">Move to</div>'
+            + mi('Unassigned', `teMoveToSection(${k}, 'unassigned')`, {
+                cls: unassigned ? 'cur' : '', disabled: unassigned || disabled, icon: TE_ICON_FOLDER,
+                after: unassigned ? '<span class="mi-note">here</span>' : '' })
+            + teListedGroups().map(g => {
+                const cur = g.name === here;
+                return mi(escapeHtml(g.name), `teMoveTrack(${k}, ${jsArg(g.name)})`, {
+                    cls: cur ? 'cur' : '', disabled: cur || disabled, icon: TE_ICON_FOLDER, after: cur ? '<span class="mi-note">here</span>' : '' });
+            }).join('');
+    };
+    // A file's own fades, at the top of a track's menu
+    const fadeRows = (track, k, disabled) => [['fade_in', 'Fade in', 'Seconds it fades in each time the file starts'],
+        ['fade_out', 'Fade out', 'Seconds it fades out each time the file ends']].map(([f, label, tip]) => `
+        <div class="mi-row"><label for="te-${f.replace('_', '-')}">${label}</label>
+            <input id="te-${f.replace('_', '-')}" class="num" type="number" min="0" max="30" step="0.5" placeholder="Off" title="${tip}"
+                value="${track[f] ? teEsc(track[f]) : ''}" onchange="teSetFade(${k}, '${f}', this)"${disabled ? ' disabled' : ''}><span>s</span></div>`).join('');
     switch (kind) {
         case 'theme':
             return { cls: 'menu', align: 'right', html: `
@@ -3952,15 +4442,11 @@ function teMenuHtml(kind, arg) {
                 ${sep}${mi('Auto', "tePickIcon('')", { cls: current ? '' : 'cur', after: '<span class="mi-note">from theme</span>' })}` };
         }
         case 'seq':
-            return { cls: 'menu seq-menu', align: 'left', html: `
-                <div class="mhead">Theme sequences<span class="badge badge-soon">Coming soon</span></div>
-                ${mi('+ New sequence', 'teComingSoon()', { cls: 'add' })}
-                ${sep}<div class="mhead">My sequences</div>
-                ${mi('+ New sequence', 'teComingSoon()', { cls: 'add' })}` };
+            return { cls: 'menu seq-menu', align: 'left', focusButton: true, html: teSeqMenuHtml() };
         case 'upload':
             return { cls: 'menu', align: 'right', html: `<div class="mhead">Upload to</div>
-                ${mi('Theme (no group)', "tePickUpload('')", { cls: te.upload === '' ? 'cur' : '' })}
-                ${te.groups.map(g => mi(escapeHtml(g.name), `tePickUpload(${jsArg(g.name)})`, { cls: te.upload === g.name ? 'cur' : '', icon: TE_ICON_FOLDER })).join('')}` };
+                ${mi('Unassigned', "tePickUpload('')", { cls: te.upload === '' ? 'cur' : '' })}
+                ${teListedGroups().map(g => mi(escapeHtml(g.name), `tePickUpload(${jsArg(g.name)})`, { cls: te.upload === g.name ? 'cur' : '', icon: TE_ICON_FOLDER })).join('')}` };
         case 'reset':
             return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
                 <span class="pop-title">Reset all tracks and groups to defaults?</span>
@@ -3970,12 +4456,13 @@ function teMenuHtml(kind, arg) {
             const track = teTrack(arg);
             if (!track) return null;
             const k = jsArg(arg);
-            const inGroup = trackGroupOf(arg);
             const gaplessOk = teGaplessAllowed(track);
-            let html = '';
-            if (!inGroup || teIsIntrusion(teGroup(inGroup))) {
-                html += mi('Gapless', `teToggleGapless(${k})`, {
-                    disabled: !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Background only',
+            const section = TE_SECTIONS.find(s => s.mode === teSectionOf(track));
+            let html = fadeRows(track, k, false);
+            if (teIsEbb(track)) html += sep + ebbRows(track, k, false);
+            if (!teTrackGroup(track) && gaplessOk) {
+                html += sep + mi('Gapless', `teToggleGapless(${k})`, {
+                    title: 'Loop without a crossfade',
                     after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
             }
             if (track.exclusive) {
@@ -3985,13 +4472,9 @@ function teMenuHtml(kind, arg) {
             }
             if (te.groupsOk) {
                 if (html) html += sep;
-                html += '<div class="mhead">Move to group</div>';
-                html += [{ name: null, label: 'Theme (no group)' }, ...te.groups.map(g => ({ name: g.name, label: g.name }))].map(m => {
-                    const here = (m.name || null) === (inGroup || null);
-                    return mi(escapeHtml(m.label), `teMoveTrack(${k}, ${m.name === null ? 'null' : jsArg(m.name)})`, {
-                        cls: here ? 'cur' : '', disabled: here, icon: TE_ICON_FOLDER, after: here ? '<span class="mi-note">here</span>' : '' });
-                }).join('');
-                html += mi('New group', `teNewGroup(${k})`, { icon: TE_ICON_PLUS });
+                html += moveRows(track, k, false);
+                // A new group in the track's section (Unassigned has none)
+                if (section.group) html += mi('New group', `teNewGroup('${section.group}', ${k})`, { icon: TE_ICON_PLUS });
             }
             html += (html ? sep : '') + mi('Reset track', `teResetTrack(${k})`, { icon: TE_ICON_RESET });
             return { cls: 'menu', align: 'right', html };
@@ -4001,22 +4484,16 @@ function teMenuHtml(kind, arg) {
             const track = teTrack(arg);
             if (!track?.linked) return null;
             const k = jsArg(arg);
-            const inGroup = trackGroupOf(arg);
             const missing = !!track.linked.missing;
             const gaplessOk = teGaplessAllowed(track);
-            let html = mi('Gapless', `teToggleGapless(${k})`, {
-                disabled: missing || !gaplessOk, title: gaplessOk ? 'Loop without a crossfade' : 'Background only',
-                after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
-            if (te.groupsOk) {
-                html += sep + '<div class="mhead">Move to group</div>';
-                html += [{ name: null, label: 'Theme (no group)' }, ...te.groups.map(g => ({ name: g.name, label: g.name }))].map(m => {
-                    const here = (m.name || null) === (inGroup || null);
-                    const copy = !teIsIntrusion(m.name ? teGroup(m.name) : null);  // copied in, asked first
-                    return mi(escapeHtml(m.label), `teMoveTrack(${k}, ${m.name === null ? 'null' : jsArg(m.name)})`, {
-                        cls: here ? 'cur' : '', disabled: here || (copy && missing), icon: TE_ICON_FOLDER,
-                        after: here ? '<span class="mi-note">here</span>' : '' });
-                }).join('');
+            let html = fadeRows(track, k, missing);
+            if (teIsEbb(track)) html += sep + ebbRows(track, k, missing);
+            if (gaplessOk) {
+                html += sep + mi('Gapless', `teToggleGapless(${k})`, {
+                    disabled: missing, title: 'Loop without a crossfade',
+                    after: `<span class="sw${track.seamless_loop ? ' on' : ''}"></span>` });
             }
+            if (te.groupsOk) html += sep + moveRows(track, k, missing);
             html += sep + mi('Reset track', `teResetTrack(${k})`, { icon: TE_ICON_RESET, disabled: missing });
             html += sep + mi('Remove link…', `teMenu('lnkdel', te.menuBtn, ${k})`, { icon: TE_ICON_UNLINK, cls: 'danger' });
             return { cls: 'menu', align: 'right', html };
@@ -4027,29 +4504,14 @@ function teMenuHtml(kind, arg) {
                 <span class="pop-title">Remove link to ${escapeHtml(trackDisplayName(arg))}?</span>
                 <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
                     <button type="button" class="btn btn-sm btn-danger" onclick="teRemoveLink(${jsArg(arg)})">Remove</button></div>` };
-        case 'copyin': {
-            const [key] = JSON.parse(arg);
-            const source = teTrack(key)?.linked?.theme_name || 'another theme';
-            return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
-                <span class="pop-title">This will copy the file from ${escapeHtml(source)} to this theme. Are you sure?</span>
-                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
-                    <button type="button" class="btn btn-sm btn-primary" onclick="teCopyIn(${jsArg(arg)})">Copy</button></div>` };
-        }
-        case 'intoff': {
-            const [name, mode] = JSON.parse(arg);
-            const count = teGroupLinks(name).length;
-            const label = TE_GROUP_MODES.find(([v]) => v === mode)?.[1] || mode;
-            return { cls: 'pop confirm', align: 'right', role: 'alertdialog', html: `
-                <span class="pop-title">Change ${escapeHtml(name)} to ${escapeHtml(label)}? ${count} linked file${count === 1 ? ' is' : 's are'} removed.</span>
-                <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="teCloseMenu()">Cancel</button>
-                    <button type="button" class="btn btn-sm btn-danger" onclick="teConfirmIntrusionOff(${jsArg(arg)})">Change</button></div>` };
-        }
         case 'group': {
+            const group = teGroup(arg);
+            if (!group) return null;
             const n = jsArg(arg);
             return { cls: 'menu', align: 'right', html: `
+                ${teGroupRiseRows(group, n)}
                 ${mi('Rename…', `teStartRename(${n})`)}
                 ${mi(`Upload into ${escapeHtml(arg)}`, `tePickUpload(${n})`)}
-                ${teIsIntrusion(teGroup(arg)) ? mi('Add from another theme…', `pkOpen(${n})`, { icon: TE_ICON_LINK }) : ''}
                 ${sep}${mi('Delete group…', `teAskDelete(${n})`, { cls: 'danger' })}` };
         }
         case 'presets': {
@@ -4060,6 +4522,11 @@ function teMenuHtml(kind, arg) {
                     ${p.id && !p.is_default ? `<button type="button" class="star-btn" title="Set as default"
                             aria-label="Set as default: ${escapeHtml(p.name)}"
                             onclick="teStarPreset(${jsArg(p.id)})">☆</button>` : '<span class="star-gap"></span>'}
+                </div>`).join('') + (te.sequences.length ? '<div class="msep"></div>' : '') + te.sequences.map(q => `
+                <div class="prow">
+                    <button type="button" class="mi${`seq:${q.id}` === te.selPreset ? ' cur' : ''}" role="option"
+                            aria-selected="${`seq:${q.id}` === te.selPreset}" onclick="teChoosePreset(${jsArg(`seq:${q.id}`)})"><span class="nm">${escapeHtml(q.name)}</span>${q.has_intrusion ? intrusionMark() : ''}${seqMark()}</button>
+                    <span class="star-gap"></span>
                 </div>`).join('');
             return { cls: 'menu preset-list', align: 'left', dir: 'up', role: 'listbox', html: rows };
         }
@@ -4112,7 +4579,7 @@ function teMenu(kind, button, arg = null, keepOpen = false) {
     te.menuBtn = button;
     button.setAttribute('aria-expanded', 'true');
     tePlaceMenu(pop, button, spec.align || 'right', spec.dir || 'down');
-    const focus = pop.querySelector('input') || (keepOpen ? null : pop.querySelector('button:not([disabled])'));
+    const focus = (spec.focusButton ? null : pop.querySelector('input')) || (keepOpen ? null : pop.querySelector('button:not([disabled])'));
     if (focus) { focus.focus(); if (focus.select && focus.value) focus.select(); }
 }
 
@@ -4156,7 +4623,7 @@ document.addEventListener('mousedown', event => {
 }, true);
 
 document.addEventListener('keydown', event => {
-    if (event.key !== 'Escape' || !te.themeId) return;
+    if (event.key !== 'Escape' || !te.themeId || sqIsOpen()) return;
     if (document.getElementById('theme-edit-modal').style.display !== 'flex') return;
     // Another dialog (import/export preset) open on top: leave it alone
     const onTop = ['preset-import-modal', 'preset-export-modal'].some(id => document.getElementById(id)?.style.display === 'flex');
@@ -4180,7 +4647,7 @@ document.addEventListener('keydown', event => {
 });
 
 // ============================================
-// Add from another theme: link files into an intrusion group (#te-pk)
+// Add from another theme: link files into this theme (#te-pk); they start in Unassigned
 // Step 1: pick a theme. Step 2: that theme's tracks, read-only, to tick.
 // ============================================
 
@@ -4190,12 +4657,10 @@ function pkFormatLength(seconds) {
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 }
 
-function pkOpen(target) {
+function pkOpen() {
     teCloseMenu();
-    if (!te.themeId || !teGroup(target)) return;
-    if (te.closed[target]) { delete te.closed[target]; teRenderTracks(); }
-    te.pk = { target, step: 1, q: '', sourceId: null, source: null, tracks: [], checked: {}, loading: false, error: '', busy: false, seq: 0 };
-    document.getElementById('pk-target').textContent = `to ${target}`;
+    if (!te.themeId) return;
+    te.pk = { step: 1, q: '', sourceId: null, source: null, tracks: [], checked: {}, loading: false, error: '', busy: false, seq: 0 };
     document.getElementById('te-pk').style.display = 'flex';
     pkRender(true);
     document.getElementById('pk-q')?.focus();
@@ -4216,11 +4681,10 @@ function pkThemes() {
         .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
 }
 
-// Already linked into this group: shown ticked and disabled
+// Already linked into this theme: shown ticked and disabled
 function pkAdded(track) {
     const pk = te.pk;
-    return te.tracks.some(t => t.linked && trackGroupOf(t.name) === pk.target
-        && t.linked.theme_id === pk.source?.id && t.linked.track === track.id);
+    return te.tracks.some(t => t.linked && t.linked.theme_id === pk.source?.id && t.linked.track === track.id);
 }
 
 function pkFree() {
@@ -4386,10 +4850,8 @@ async function pkAdd() {
     pk.busy = true;
     pkRenderFoot();
     try {
-        await api('POST', `/themes/${te.themeId}/links`, { theme: pk.source?.id || pk.sourceId, tracks: keys, group: pk.target });
-        const target = pk.target;
+        await api('POST', `/themes/${te.themeId}/links`, { theme: pk.source?.id || pk.sourceId, tracks: keys, group: null });
         pkClose();
-        delete te.closed[target];
         teFlash(`Added ${keys.length} linked file${keys.length === 1 ? '' : 's'}`);
         await teLoadTracks(true, false);  // the server rebuilt the theme before answering
         teLoadPresets(false);
@@ -4522,7 +4984,7 @@ function toggleTrackPreview(trackName, url = null) {
 
     trackPreviewAudio = new Audio(audioUrl);
     // At the track's volume (and its group's), even when it's muted, so you hear the level it would play at
-    const row = document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(trackName)}"] .mx[data-kind="volume"] .track-slider`);
+    const row = trackPreviewRow(trackName)?.querySelector('.mx[data-kind="volume"] .track-slider');
     trackPreviewAudio.volume = row
         ? Math.max(0, Math.min(1, (row.value / 100) * parseFloat(row.dataset.master || '1')))
         : 0.8;
@@ -4579,8 +5041,14 @@ function stopTrackPreview() {
     }
 }
 
+// A track's row in the list on screen: a sequence step's While playing when it's shown, else the Theme Editor's
+function trackPreviewRow(trackName) {
+    const row = `.trow[data-track="${CSS.escape(trackName)}"]`;
+    return (twIsShown() && document.querySelector(`#tw-tracks ${row}`)) || document.querySelector(`#te-tracks ${row}`);
+}
+
 function updatePreviewButtonState(trackName, isPlaying) {
-    const trackItem = document.querySelector(`#te-tracks .trow[data-track="${CSS.escape(trackName)}"]`)
+    const trackItem = trackPreviewRow(trackName)
         || document.querySelector(`#te-pk .pk-row[data-pv="${CSS.escape(trackName)}"]`);
     if (!trackItem) return;
     trackItem.classList.toggle(trackItem.classList.contains('pk-row') ? 'pv' : 'previewing', !!isPlaying);
@@ -4705,7 +5173,7 @@ function closeThemePreview() {
 
 function setThemePreviewVolume(value) {
     if (themePreviewAudio) {
-        themePreviewAudio.volume = value / 100;
+        previewRampVolume(themePreviewAudio, value / 100);
     }
     const volumeLabel = document.getElementById('preview-volume-value');
     if (volumeLabel) {
@@ -7021,7 +7489,7 @@ async function uninstallPlugin(pluginId, pluginName) {
 // ============================================
 
 // Pages with the fixed title bar, scrolling list and bottom action row
-const SP_VIEWS = ['settings-connection', 'settings-audio', 'settings-speakers', 'settings-groups', 'settings-plugins', 'settings-advanced', 'status'];
+const SP_VIEWS = ['playlists', 'settings-connection', 'settings-audio', 'settings-speakers', 'settings-groups', 'settings-plugins', 'settings-advanced', 'status'];
 // Pages whose title row lines up with the settings column (Logs keeps the full width)
 const SP_COL_VIEWS = SP_VIEWS.concat(['settings-spaces']);
 const SP_PHONE = window.matchMedia('(max-width: 760px)');
@@ -7116,6 +7584,7 @@ function spClosePop() {
     if (pop && !pop.hidden) {
         pop.hidden = true;
         pop.innerHTML = '';
+        pop.style.width = '';  // a list as wide as its field
     }
     if (spm.btn) spm.btn.removeAttribute('aria-expanded');
     spm.id = null;
@@ -7201,6 +7670,2016 @@ function escapeHtml(text) {
     // Quotes too, so the result is also safe inside attribute values
     return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+
+// ============================================
+// Sequences and playlists (docs/PLAYBACK.md)
+// A sequence is picked like a preset ("seq:<id>"); a playlist plays themes one
+// after another on a channel. The Theme Editor edits a theme's sequences
+// (sq*), the Playlists page and its editor edit playlists (pl*).
+// ============================================
+
+const ICON_SEQ = '<svg class="seqsh" width="21" height="12" viewBox="0 0 28 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"/><path d="M10.5 9.5 14 2.5 17.5 9.5Z"/><circle cx="23" cy="6" r="3.5"/></svg>';
+const ICON_PLAYLIST = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="15" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="10" y2="18"/><path d="M21 16V5l-4 1"/><circle cx="18" cy="16" r="3"/></svg>';
+const ICON_CHECK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+const ICON_CHEV_DOWN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+const ICON_ARROW = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>';
+const ICON_UP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>';
+const ICON_DOWN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>';
+const ICON_COPY = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const ICON_NEXT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="13 17 18 12 13 7"/><polyline points="6 17 11 12 6 7"/></svg>';
+const ICON_REPEAT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>';
+const ICON_IN_ORDER = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><polyline points="3 5 4 6 3 7"/><polyline points="3 11 4 12 3 13"/><polyline points="3 17 4 18 3 19"/></svg>';
+const ICON_SHUFFLE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>';
+const ICON_END = {
+    reverse: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" aria-hidden="true"><polyline points="9 14 4 9 9 4"/><path d="M20 20v-7a4 4 0 0 0-4-4H4"/></svg>',
+    restart: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>',
+    stop: '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>',
+};
+const SEQ_END_LABELS = { reverse: 'reverse', restart: 'start again', stop: 'stop' };
+
+// The sequence mark: square › triangle › circle, after ★ and ⚭
+function seqMark() {
+    return `<span class="seq-ic" title="Sequence" role="img" aria-label="Sequence">${ICON_SEQ}</span>`;
+}
+
+// What a channel's preset menu shows: its sequence ("seq:<id>") while one runs, else its preset ('' = none)
+function sessionChoice(session) {
+    const choice = session.preset_choice !== undefined && session.preset_choice !== null ? session.preset_choice : session.preset_id;
+    return choice || '';
+}
+
+// Seconds as minutes for a field: whole minutes, or one decimal
+function seqMinutes(seconds) {
+    if (seconds === null || seconds === undefined || seconds === '') return '';
+    const m = Number(seconds) / 60;
+    return Number.isInteger(m) ? String(m) : String(+m.toFixed(1));
+}
+
+// A length in minutes: "45 min", "1 h 30 min", "2 h"
+function plDuration(minutes) {
+    const m = Math.round(minutes);
+    if (m < 60) return `${m} min`;
+    return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${m / 60} h`;
+}
+
+function themeById(themeId) {
+    return themes.find(t => t.id === themeId) || null;
+}
+
+function themeIconOf(themeId) {
+    return resolveThemeIcon(themeById(themeId)?.icon, themeId);
+}
+
+// The preset or sequence an entry (or a channel) plays, with its marks: "Default settings" when neither
+function plWhatHtml(themeId, presetId, sequenceId) {
+    if (sequenceId) {
+        const seq = (sessionSequencesCache[themeId] || []).find(q => q.id === sequenceId);
+        return `<span class="wl">${escapeHtml(seq ? seq.name : sequenceId)}</span>${seq?.has_intrusion ? intrusionMark() : ''}${seqMark()}`;
+    }
+    if (presetId) {
+        const preset = (sessionPresetsCache[themeId] || []).find(p => p.id === presetId);
+        return `<span class="wl">${escapeHtml(preset ? preset.name : presetId)}</span>${presetMarks(!!preset?.is_default, !!preset?.has_intrusion)}`;
+    }
+    return '<span class="wl dflt">Default settings</span>';
+}
+
+async function loadPlaylists() {
+    try {
+        const result = await api('GET', '/playlists');
+        playlists = result?.playlists || [];
+    } catch (error) {
+        console.error('Failed to load playlists:', error);
+        playlists = [];
+    }
+}
+
+function playlistById(playlistId) {
+    return playlists.find(p => p.id === playlistId) || null;
+}
+
+// Presets and sequences of every theme the playlists use (for their names and marks)
+async function plLoadThemePresets(list = playlists) {
+    const ids = new Set();
+    list.forEach(p => (p.entries || []).forEach(e => { if (e.theme_id && themeById(e.theme_id)) ids.add(e.theme_id); }));
+    await Promise.all([...ids].map(loadPresetsForTheme));
+}
+
+// ---------- A small listbox like the channel card's preset field (card and Edit dialog playlist lists) ----------
+// XSEL[key] = { options(): [{ id, html, dflt, note, sep }], current(): id, pick(id) }
+const XSEL = {};
+const xs = { key: null, active: 0 };
+
+function xselHtml(key, labelId, innerHtml, disabled = false, cls = '') {
+    const k = escapeHtml(key);
+    return `
+                <div class="psel xsel">
+                    <button type="button" class="psel-btn${cls ? ' ' + cls : ''}" id="xsel-btn-${k}" aria-haspopup="listbox" aria-expanded="false"
+                            aria-labelledby="${labelId} xsel-btn-${k}" ${disabled ? 'disabled' : ''}
+                            onclick="xselToggle(${spArg(key)})" onkeydown="xselButtonKey(event, ${spArg(key)})">
+                        ${innerHtml}<span class="chev">${ICON_CHEV_DOWN}</span>
+                    </button>
+                    <div class="psel-list" id="xsel-list-${k}" role="listbox" tabindex="-1" aria-labelledby="${labelId}" hidden
+                         onkeydown="xselListKey(event)"></div>
+                </div>`;
+}
+
+function xselRenderList() {
+    const spec = XSEL[xs.key];
+    const list = document.getElementById(`xsel-list-${xs.key}`);
+    if (!spec || !list) return;
+    const current = spec.current() || '';
+    list.innerHTML = spec.options().map((o, i) => {
+        const cur = o.id === current;
+        return `${o.sep ? '<div class="psep" role="separator"></div>' : ''}<div class="popt${cur ? ' cur' : ''}${o.dflt ? ' dflt' : ''}${i === xs.active ? ' hi' : ''}" role="option" id="xsel-${escapeHtml(xs.key)}-${i}"
+                     aria-selected="${cur}" onmousedown="event.preventDefault()" onclick="xselPick(${i})" onmouseenter="xselHover(${i})">
+                    <span class="ck">${cur ? ICON_CHECK : ''}</span>${o.html}${o.note ? `<span class="popt-note">${escapeHtml(o.note)}</span>` : ''}
+                </div>`;
+    }).join('');
+    list.setAttribute('aria-activedescendant', `xsel-${xs.key}-${xs.active}`);
+    list.querySelector('.popt.hi')?.scrollIntoView({ block: 'nearest' });
+}
+
+function xselOpen(key) {
+    xselClose();
+    pselClose();
+    const spec = XSEL[key];
+    const button = document.getElementById(`xsel-btn-${key}`);
+    const list = document.getElementById(`xsel-list-${key}`);
+    if (!spec || !button || !list || button.disabled) return;
+    xs.key = key;
+    xs.active = Math.max(0, spec.options().findIndex(o => o.id === (spec.current() || '')));
+    list.hidden = false;
+    button.setAttribute('aria-expanded', 'true');
+    button.closest('.session-field')?.classList.add('open');
+    xselRenderList();
+    // Open upward when there's no room below the field
+    const bottom = button.closest('.modal-body, .modal')?.getBoundingClientRect().bottom ?? window.innerHeight;
+    list.classList.toggle('up', Math.min(bottom, window.innerHeight) - button.getBoundingClientRect().bottom < Math.min(list.scrollHeight, 280) + 8);
+    list.focus();
+}
+
+function xselClose(focusButton = false) {
+    const key = xs.key;
+    xs.key = null;
+    if (!key) return;
+    const button = document.getElementById(`xsel-btn-${key}`);
+    const list = document.getElementById(`xsel-list-${key}`);
+    if (list) { list.hidden = true; list.innerHTML = ''; }
+    if (button) {
+        button.setAttribute('aria-expanded', 'false');
+        button.closest('.session-field')?.classList.remove('open');
+        if (focusButton) button.focus();
+    }
+}
+
+function xselToggle(key) {
+    if (xs.key === key) xselClose(true);
+    else xselOpen(key);
+}
+
+function xselHover(index) {
+    if (xs.active === index) return;
+    xs.active = index;
+    xselRenderList();
+}
+
+function xselPick(index) {
+    const key = xs.key;
+    const spec = XSEL[key];
+    const option = spec?.options()[index];
+    xselClose(true);
+    if (!option) return;
+    if (option.id === (spec.current() || '')) return;
+    spec.pick(option.id);
+}
+
+function xselButtonKey(event, key) {
+    if (['ArrowDown', 'ArrowUp'].includes(event.key)) { event.preventDefault(); xselOpen(key); }
+}
+
+function xselListKey(event) {
+    const spec = XSEL[xs.key];
+    if (!spec) return;
+    const count = spec.options().length;
+    if (event.key === 'ArrowDown') xs.active = Math.min(count - 1, xs.active + 1);
+    else if (event.key === 'ArrowUp') xs.active = Math.max(0, xs.active - 1);
+    else if (event.key === 'Home') xs.active = 0;
+    else if (event.key === 'End') xs.active = count - 1;
+    else if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); xselPick(xs.active); return; }
+    else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); xselClose(true); return; }
+    else if (event.key === 'Tab') { xselClose(); return; }
+    else return;
+    event.preventDefault();
+    xselRenderList();
+}
+
+document.addEventListener('pointerdown', event => {
+    if (!xs.key) return;
+    const field = document.getElementById(`xsel-btn-${xs.key}`)?.closest('.xsel');
+    if (field && field.contains(event.target)) return;
+    xselClose();
+}, true);
+
+function playlistOptions(withNone) {
+    const none = withNone ? [{ id: '', html: '<span class="nm">(None)</span>', dflt: true }] : [];
+    return none.concat(playlists.map(p => ({
+        id: p.id, html: `<span class="pl-ic">${ICON_PLAYLIST}</span><span class="nm">${escapeHtml(p.name)}</span>`,
+        note: `${p.entries.length} ${p.entries.length === 1 ? 'entry' : 'entries'}`
+    })));
+}
+
+// ---------- Channel cards: a playlist, Next ----------
+
+async function plCardPick(sessionId, playlistId) {
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    try {
+        if (playlistId) {
+            await api('PUT', `/sessions/${sessionId}/playlist`, { playlist_id: playlistId });
+            chPlaylistMode.delete(sessionId);
+            showToast(`Playing “${playlistById(playlistId)?.name || 'playlist'}”`, 'success');
+        } else {
+            await api('DELETE', `/sessions/${sessionId}/playlist`);
+            showToast('Playlist stopped', 'success');
+        }
+        await loadSessions();
+        renderSessions();
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// Next: the playlist's next entry, or the sequence's next step
+async function chNext(sessionId) {
+    try {
+        const result = await api('POST', `/sessions/${sessionId}/next`);
+        await loadSessions();
+        renderSessions();
+        showToast(result?.skipped === 'sequence' ? 'Next step' : 'Next entry', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// The Channels page follows sequences and playlists: reload the channels every 15 s while it's shown,
+// and count "next in" down every second
+let playbackPoll = null;
+let chDueAt = 0;
+
+function startPlaybackPolling() {
+    if (playbackPoll) return;
+    playbackPoll = setInterval(refreshPlayback, 15000);
+    setInterval(chTick, 1000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshPlayback(); });
+}
+
+function chTick() {
+    if (currentView !== 'sessions' || document.hidden) return;
+    let due = false;
+    document.querySelectorAll('#sessions-container .ch-cd').forEach(el => {
+        const left = (Number(el.dataset.at) - Date.now()) / 1000;
+        el.textContent = chClock(left);
+        if (left <= 0) due = true;
+    });
+    // A change is due: reload (at most every 5 s until the server has moved on)
+    if (due && Date.now() - chDueAt > 5000) {
+        chDueAt = Date.now();
+        refreshPlayback();
+    }
+}
+
+function playbackBusy() {
+    // A list or menu open, or a slider in use on a card: don't rebuild the cards under it
+    return !!pselOpenId || !!xs.key || !!spm.id || !!document.activeElement?.closest?.('#sessions-container input');
+}
+
+async function refreshPlayback() {
+    if (currentView !== 'sessions' || document.hidden || playbackBusy()) return;
+    try {
+        await loadSessions();
+    } catch (error) {
+        return;
+    }
+    if (currentView === 'sessions' && !playbackBusy()) renderSessions();
+}
+
+// ---------- Channel Edit dialog: Theme or Playlist ----------
+let chMode = 'theme';
+let chPlaylistId = '';
+let chPresetTouched = false;   // only a preset picked here is sent (saving mustn't restart a sequence)
+
+function chSetup(session) {
+    chPresetTouched = false;
+    chPlaylistId = session?.playlist_id || '';
+    chSetMode(chPlaylistId ? 'playlist' : 'theme');
+}
+
+function chSetMode(mode) {
+    chMode = mode;
+    const isPl = mode === 'playlist';
+    document.getElementById('ch-mode-theme')?.setAttribute('aria-pressed', String(!isPl));
+    document.getElementById('ch-mode-playlist')?.setAttribute('aria-pressed', String(isPl));
+    document.querySelector('#session-modal .channel-editor')?.classList.toggle('pl-mode', isPl);
+    document.getElementById('ch-playlist-field').hidden = !isPl;
+    document.getElementById('ch-playlist-fill').hidden = !isPl;
+    if (isPl) chRenderPlaylist();
+    else scrollSelectedThemeIntoView();
+}
+
+function chRenderPlaylist() {
+    XSEL.chpl = {
+        options: () => playlistOptions(false),
+        current: () => chPlaylistId,
+        pick: playlistId => { chPlaylistId = playlistId; chRenderPlaylist(); },
+    };
+    const playlist = playlistById(chPlaylistId);
+    const inner = playlist
+        ? `<span class="pl-ic">${ICON_PLAYLIST}</span><span class="nm">${escapeHtml(playlist.name)}</span>`
+        : `<span class="nm none">${playlists.length ? 'Choose a playlist' : 'No playlists yet'}</span>`;
+    document.getElementById('ch-playlist-picker').innerHTML = xselHtml('chpl', 'ch-playlist-lbl', inner, playlists.length === 0);
+    const sum = document.getElementById('ch-playlist-sum');
+    sum.textContent = playlist ? plSummaryText(playlist) : '';
+    sum.hidden = !playlist;
+}
+
+function plSummaryText(p) {
+    const n = p.entries.length;
+    return `${n} ${n === 1 ? 'entry' : 'entries'} · ${p.order === 'shuffle' ? 'Shuffle' : 'In order'} · ${seqMinutes(p.play_min)}–${seqMinutes(p.play_max)} min each${p.repeat ? ' · Repeat' : ''}`;
+}
+
+// ---------- Floating menus over the dialogs (#sp-menu, placed under their button) ----------
+
+function xMenuItem(label, action, opts = {}) {
+    return `<button type="button" class="mi${opts.cls ? ' ' + opts.cls : ''}" role="${opts.role || 'menuitem'}" ${opts.disabled ? 'disabled' : ''}
+        ${opts.title ? `title="${escapeHtml(opts.title)}"` : ''} onclick="${action}">${opts.check !== undefined ? `<span class="ck">${opts.check ? ICON_CHECK : ''}</span>` : ''}${opts.icon || ''}<span class="mi-lbl">${label}</span>${opts.after || ''}${opts.note ? `<span class="mi-note">${escapeHtml(opts.note)}</span>` : ''}</button>`;
+}
+
+const X_SEP = '<div class="msep"></div>';
+
+// align: 'right' (right edges level), 'left', or 'field' (as wide as the button)
+function xMenu(id, button, html, { cls = 'menu sp-menu', role = 'menu', align = 'right' } = {}) {
+    const pop = spOpenPop(id, button, cls, html, role);
+    if (!pop) return null;
+    if (align !== 'right') xPlaceMenu(pop, button, align);
+    (pop.querySelector('.mi.cur') || pop.querySelector('button:not([disabled])'))?.focus();
+    return pop;
+}
+
+function xPlaceMenu(pop, button, align) {
+    const r = button.getBoundingClientRect();
+    const vw = document.documentElement.clientWidth;
+    const vh = window.innerHeight;
+    pop.style.left = '0px';
+    pop.style.top = '0px';
+    pop.style.maxHeight = '';
+    if (align === 'field') pop.style.width = `${Math.round(r.width)}px`;
+    const w = pop.offsetWidth;
+    let h = pop.offsetHeight;
+    const left = Math.max(8, Math.min(r.left, vw - w - 8));
+    const below = vh - r.bottom - 8;
+    const above = r.top - 8;
+    const up = h > below && above > below;
+    const room = (up ? above : below) - 4;
+    if (h > room) { pop.style.maxHeight = room + 'px'; h = room; }
+    pop.style.left = left + 'px';
+    pop.style.top = Math.max(8, up ? r.top - 4 - h : r.bottom + 4) + 'px';
+}
+
+// Drag and drop for the rows of both editors: one row at a time
+const rowDrag = { list: null, from: null };
+
+function rowDragStart(event, list, index) {
+    rowDrag.list = list;
+    rowDrag.from = index;
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', String(index));
+    spClosePop();
+    requestAnimationFrame(() => event.target.closest('[data-i]')?.classList.add('dragging'));
+}
+
+function rowDragOver(event, list, index) {
+    if (rowDrag.list !== list || rowDrag.from === null) return;
+    event.preventDefault();
+    const row = event.currentTarget;
+    row.parentElement.querySelectorAll('.over, .over-after').forEach(el => { if (el !== row) el.classList.remove('over', 'over-after'); });
+    if (index !== rowDrag.from) row.classList.add(rowDrag.from < index ? 'over-after' : 'over');
+}
+
+function rowDragLeave(event) {
+    if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.classList.remove('over', 'over-after');
+}
+
+function rowDrop(event, list, index) {
+    if (rowDrag.list !== list || rowDrag.from === null) return;
+    event.preventDefault();
+    const from = rowDrag.from;
+    rowDragEnd();
+    if (list === 'sq') sqMove(from, index);
+    else plMove(from, index);
+}
+
+function rowDragEnd() {
+    rowDrag.list = null;
+    rowDrag.from = null;
+    document.querySelectorAll('.dragging, .over, .over-after').forEach(el => el.classList.remove('dragging', 'over', 'over-after'));
+}
+
+function moveItem(list, from, to) {
+    if (to < 0 || to >= list.length || from === to) return false;
+    const [item] = list.splice(from, 1);
+    list.splice(to, 0, item);
+    return true;
+}
+
+// ---------- Theme Editor: the theme's sequences ----------
+
+function teSelectedSeq() {
+    if (!te.selPreset || !te.selPreset.startsWith('seq:')) return null;
+    return te.sequences.find(q => `seq:${q.id}` === te.selPreset) || null;
+}
+
+function teSeqDefaults() {
+    return te.seqDefaults || { hold_min: 300, hold_max: 900, ramp: 30 };
+}
+
+function teRenderSeqCount() {
+    const badge = document.getElementById('te-seq-n');
+    if (badge) badge.textContent = String(te.sequences.length);
+}
+
+function teSeqMenuHtml() {
+    const d = teSeqDefaults();
+    const rows = te.sequences.map(q => xMenuItem(escapeHtml(q.name), `teOpenSequence(${jsArg(q.id)})`, {
+        after: `${q.has_intrusion ? intrusionMark() : ''}${seqMark()}`, note: spPlural(q.presets.length, 'preset') })).join('');
+    return `<div class="mhead">Sequences</div>${rows}
+        ${xMenuItem('Add sequence…', 'teOpenSequence(null)', { cls: 'add', icon: TE_ICON_PLUS })}
+        ${X_SEP}<div class="mhead">Theme defaults</div>
+        <div class="mi-row dgrid"><label for="te-sd-min">Time on each preset</label>
+            <input id="te-sd-min" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Default minimum minutes on each preset" value="${seqMinutes(d.hold_min)}" onchange="teSetSeqDefaults()">
+            <span>–</span>
+            <input id="te-sd-max" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Default maximum minutes on each preset" value="${seqMinutes(d.hold_max)}" onchange="teSetSeqDefaults()">
+            <span class="u">min</span></div>
+        <div class="mi-row dgrid"><label for="te-sd-ramp">Ramp</label><span></span><span></span>
+            <input id="te-sd-ramp" class="num" type="number" min="0" step="5" inputmode="numeric" aria-label="Default ramp seconds" value="${teEsc(d.ramp)}" onchange="teSetSeqDefaults()">
+            <span class="u">s</span></div>`;
+}
+
+async function teSetSeqDefaults() {
+    if (!te.themeId) return;
+    const get = id => document.getElementById(id);
+    const min = parseFloat(get('te-sd-min')?.value);
+    const max = parseFloat(get('te-sd-max')?.value);
+    const ramp = parseFloat(get('te-sd-ramp')?.value);
+    ['te-sd-min', 'te-sd-max', 'te-sd-ramp'].forEach(id => get(id)?.classList.remove('err'));
+    if (!(min > 0) || !(max > 0) || min > max) {
+        get('te-sd-min')?.classList.add('err');
+        get('te-sd-max')?.classList.add('err');
+        showToast(min > max ? 'Minimum is more than maximum' : 'Enter the time on each preset', 'error');
+        return;
+    }
+    if (!(ramp >= 0)) {
+        get('te-sd-ramp')?.classList.add('err');
+        showToast('Enter the ramp in seconds', 'error');
+        return;
+    }
+    try {
+        const result = await api('PUT', `/themes/${te.themeId}/sequence_defaults`, { hold_min: Math.round(min * 60), hold_max: Math.round(max * 60), ramp: Math.round(ramp) });
+        te.seqDefaults = { hold_min: result.hold_min, hold_max: result.hold_max, ramp: result.ramp };
+        teFlash('Theme defaults saved');
+        teLoadPresets(false);  // the sequences' times follow
+    } catch (error) {
+        showToast(error.message || 'Failed to save the defaults', 'error');
+    }
+}
+
+function teOpenSequence(id) {
+    teCloseMenu();
+    sqOpen(id);
+}
+
+// ---------- Sequence editor (#sq-modal) ----------
+const sq = { id: null, presets: [], end: 'reverse', transitions: {}, layers: {} };  // layers: While playing, not put yet
+
+function sqIsOpen() {
+    return !!document.getElementById('sq-modal')?.classList.contains('active');
+}
+
+function sqOpen(id) {
+    const seq = id ? te.sequences.find(q => q.id === id) : null;
+    if (id && !seq) { showToast('Sequence not found', 'error'); return; }
+    spClosePop();
+    sq.id = seq ? seq.id : null;
+    sq.presets = seq ? seq.presets.filter(p => te.presets.some(x => x.id === p)) : [];
+    sq.end = seq?.at_end || 'reverse';
+    sq.transitions = JSON.parse(JSON.stringify(seq?.transitions || {}));
+    sq.layers = {};
+    const d = teSeqDefaults();
+    const set = (fieldId, value, placeholder) => {
+        const input = document.getElementById(fieldId);
+        input.value = value;
+        input.placeholder = placeholder;
+        input.classList.remove('err');
+    };
+    set('sq-min', seq && seq.hold_min !== null ? seqMinutes(seq.hold_min) : '', seqMinutes(d.hold_min));
+    set('sq-max', seq && seq.hold_max !== null ? seqMinutes(seq.hold_max) : '', seqMinutes(d.hold_max));
+    set('sq-ramp', seq && seq.ramp !== null ? String(seq.ramp) : '', String(d.ramp));
+    const name = document.getElementById('sq-name');
+    name.value = seq ? seq.name : '';
+    name.classList.remove('err');
+    sqRenderHead();
+    sqRender();
+    document.getElementById('sq-modal').classList.add('active');
+    document.querySelector('#sq-modal .sq-list').scrollTop = 0;
+    if (!seq) setTimeout(() => name.focus(), 50);
+}
+
+function sqRenderHead() {
+    document.getElementById('sq-title-text').textContent = sq.id ? 'Edit sequence' : 'Add sequence';
+    document.getElementById('sq-sub').textContent = document.getElementById('te-name').value.trim() || document.getElementById('te-title-name').textContent;
+    document.getElementById('sq-more-btn').hidden = !sq.id;
+}
+
+function sqClose() {
+    if (txIsOpen()) txClose();
+    spClosePop();
+    rowDragEnd();
+    document.getElementById('sq-modal')?.classList.remove('active');
+}
+
+function sqPreset(id) {
+    return te.presets.find(p => p.id === id) || null;
+}
+
+function sqTimingValues() {
+    const d = teSeqDefaults();
+    const raw = id => document.getElementById(id).value.trim();
+    const min = raw('sq-min'), max = raw('sq-max'), ramp = raw('sq-ramp');
+    return {
+        raw: { min, max, ramp },
+        min: min === '' ? d.hold_min / 60 : parseFloat(min),
+        max: max === '' ? d.hold_max / 60 : parseFloat(max),
+        ramp: ramp === '' ? d.ramp : parseFloat(ramp),
+    };
+}
+
+function sqTiming() {
+    ['sq-min', 'sq-max', 'sq-ramp'].forEach(id => document.getElementById(id).classList.remove('err'));
+    sqRenderSum();
+}
+
+function sqSetEnd(value) {
+    sq.end = value;
+    sqRender();
+}
+
+function sqRenderSum() {
+    const n = sq.presets.length;
+    const t = sqTimingValues();
+    const num = v => (Number.isFinite(v) ? +v.toFixed(1) : '?');
+    document.getElementById('sq-sum').textContent = n
+        ? `${spPlural(n, 'preset')} · ${num(t.min)}–${num(t.max)} min each · ${num(t.ramp)} s ramp`
+        : 'Add at least 2 presets';
+}
+
+function sqRender() {
+    document.querySelectorAll('#sq-modal .f-end .seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.end === sq.end)));
+    const n = sq.presets.length;
+    const flow = document.getElementById('sq-flow');
+    flow.hidden = n === 0;
+    flow.innerHTML = sq.presets.map(id => {
+        const p = sqPreset(id);
+        return `<span class="fstep"><span class="fchip">${escapeHtml(p ? p.name : id)}${presetMarks(!!p?.is_default, !!p?.has_intrusion)}</span><span class="farr">${ICON_ARROW}</span></span>`;
+    }).join('') + `<span class="fend${sq.end === 'stop' ? ' stop' : ''}">${ICON_END[sq.end] || ''}${SEQ_END_LABELS[sq.end] || ''}</span>`;
+    document.getElementById('sq-count').textContent = String(n);
+    const rows = document.getElementById('sq-rows');
+    rows.innerHTML = n ? sq.presets.map((id, i) => {
+        const p = sqPreset(id);
+        const name = escapeHtml(p ? p.name : id);
+        return `
+            <div class="sq-r sgrid" data-i="${i}" ondragover="rowDragOver(event, 'sq', ${i})" ondragleave="rowDragLeave(event)" ondrop="rowDrop(event, 'sq', ${i})">
+                <span class="drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag ${name}" ondragstart="rowDragStart(event, 'sq', ${i})" ondragend="rowDragEnd()">${TE_ICON_GRIP}</span>
+                <span class="sq-n">${i + 1}</span>
+                <span class="sq-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${presetMarks(!!p?.is_default, !!p?.has_intrusion)}</span>
+                <button type="button" class="icon-btn sm more-btn" aria-label="More for ${name}" aria-haspopup="menu" onclick="sqMenu('row', this, ${i})">${TE_ICON_MORE}${txStepHasSet(sq.transitions[id]) ? '<span class="adv-dot" title="Advanced transition set"></span>' : ''}</button>
+            </div>`;
+    }).join('') : `<div class="sq-empty"><button type="button" class="link-btn" onclick="sqMenu('add', this)">${TE_ICON_PLUS}Add preset</button></div>`;
+    spUpdateMarquees(rows);
+    sqRenderSum();
+}
+
+function sqMove(from, to) {
+    spClosePop();
+    if (moveItem(sq.presets, from, to)) sqRender();
+}
+
+function sqRemove(index) {
+    spClosePop();
+    sq.presets.splice(index, 1);
+    sqRender();
+}
+
+function sqAdd(id) {
+    spClosePop();
+    if (!sq.presets.includes(id)) sq.presets.push(id);
+    sqRender();
+}
+
+function sqMenu(kind, button, arg = null) {
+    if (kind === 'add') {
+        const items = te.presets.map(p => {
+            const added = sq.presets.includes(p.id);
+            return xMenuItem(escapeHtml(p.name), `sqAdd(${jsArg(p.id)})`, {
+                disabled: added, after: presetMarks(!!p.is_default, !!p.has_intrusion), note: added ? 'added' : '' });
+        }).join('');
+        xMenu('sq-add', button, `<div class="mhead">Add preset</div>${items || '<div class="mhead">No presets yet</div>'}`, { cls: 'menu sp-menu x-menu' });
+    } else if (kind === 'row') {
+        const n = sq.presets.length;
+        xMenu(`sq-row:${arg}`, button, `
+            ${xMenuItem('Move up', `sqMove(${arg}, ${arg - 1})`, { icon: ICON_UP, disabled: arg === 0 })}
+            ${xMenuItem('Move down', `sqMove(${arg}, ${arg + 1})`, { icon: ICON_DOWN, disabled: arg === n - 1 })}
+            ${X_SEP}${xMenuItem('Advanced…', `txOpen(${arg})`, { icon: TX_ICON_ADV, note: txStepHasSet(sq.transitions[sq.presets[arg]]) ? 'On' : '' })}
+            ${X_SEP}${xMenuItem('Remove', `sqRemove(${arg})`, { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
+    } else if (kind === 'more') {
+        xMenu('sq-more', button, `
+            ${xMenuItem('Duplicate', 'sqDuplicate()', { icon: ICON_COPY })}
+            ${X_SEP}${xMenuItem('Delete sequence…', 'sqAskDelete()', { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
+    }
+}
+
+function sqDuplicate() {
+    spClosePop();
+    const name = document.getElementById('sq-name');
+    sq.id = null;
+    name.value = `${name.value.trim()} (copy)`;
+    sqRenderHead();
+    name.focus();
+}
+
+function sqAskDelete() {
+    const seq = te.sequences.find(q => q.id === sq.id);
+    if (!seq) return;
+    spConfirm('sq-del', spMenuAnchor() || document.getElementById('sq-more-btn'), { title: `Delete “${seq.name}”?`, ok: 'Delete', danger: true }, sqDelete);
+}
+
+async function sqDelete() {
+    const seq = te.sequences.find(q => q.id === sq.id);
+    if (!seq || !te.themeId) return;
+    try {
+        await api('DELETE', `/themes/${te.themeId}/sequences/${encodeURIComponent(seq.id)}`);
+        if (te.selPreset === `seq:${seq.id}`) te.selPreset = '';
+        sqClose();
+        teFlash(`Deleted “${seq.name}”`);
+        await teLoadPresets(false);
+    } catch (error) {
+        showToast(error.message || 'Failed to delete the sequence', 'error');
+    }
+}
+
+// keepOpen: saved from the Advanced dialog (the editor stays open); returns true when saved
+async function sqSave({ keepOpen = false, quiet = false } = {}) {
+    if (!te.themeId) return false;
+    const nameInput = document.getElementById('sq-name');
+    const name = nameInput.value.trim();
+    if (!name) {
+        nameInput.classList.add('err');
+        nameInput.focus();
+        showToast('Enter a name', 'error');
+        return false;
+    }
+    if (te.sequences.some(q => q.id !== sq.id && q.name.toLowerCase() === name.toLowerCase())) {
+        nameInput.classList.add('err');
+        showToast('A sequence with that name exists', 'error');
+        return false;
+    }
+    const t = sqTimingValues();
+    if (!(t.min > 0) || !(t.max > 0) || t.min > t.max) {
+        ['sq-min', 'sq-max'].forEach(id => document.getElementById(id).classList.add('err'));
+        showToast(t.min > t.max ? 'Minimum is more than maximum' : 'Enter the time on each preset', 'error');
+        return false;
+    }
+    if (!(t.ramp >= 0)) {
+        document.getElementById('sq-ramp').classList.add('err');
+        showToast('Enter the ramp in seconds', 'error');
+        return false;
+    }
+    if (sq.presets.length < 2) {
+        showToast('Add at least 2 presets', 'error');
+        return false;
+    }
+    const body = {
+        name, presets: [...sq.presets], at_end: sq.end,
+        hold_min: t.raw.min === '' ? null : Math.round(t.min * 60),
+        hold_max: t.raw.max === '' ? null : Math.round(t.max * 60),
+        ramp: t.raw.ramp === '' ? null : Math.round(t.ramp),
+        // Advanced transitions of the presets still in it
+        transitions: Object.fromEntries(Object.entries(sq.transitions || {}).filter(([p]) => sq.presets.includes(p))),
+    };
+    try {
+        const saved = sq.id ? await api('PUT', `/themes/${te.themeId}/sequences/${encodeURIComponent(sq.id)}`, body)
+                            : await api('POST', `/themes/${te.themeId}/sequences`, body);
+        // Steps' While playing layers from the Advanced dialog, for the presets still in it
+        const id = saved?.id || sq.id;
+        for (const [preset, layer] of Object.entries(sq.layers)) {
+            if (sq.presets.includes(preset)) {
+                await api('PUT', `/themes/${te.themeId}/sequences/${encodeURIComponent(id)}/while/${encodeURIComponent(preset)}`, layer);
+            }
+            delete sq.layers[preset];
+        }
+        if (keepOpen) {
+            sq.id = saved?.id || sq.id;
+            sq.transitions = JSON.parse(JSON.stringify(saved?.transitions || body.transitions));
+            sqRenderHead();
+            sqRender();
+            if (!quiet) teFlash(`Saved “${name}”`);
+        } else {
+            sqClose();
+            teFlash(`Saved “${name}”`);
+        }
+        await teLoadPresets(false);
+        return true;
+    } catch (error) {
+        showToast(error.message || 'Failed to save the sequence', 'error');
+        return false;
+    }
+}
+
+// ---------- Sequence step: Advanced transitions (#tx-modal) ----------
+// A preset's ⋯ › Advanced… in the sequence editor: how each track comes in at
+// this step, and how it leaves at the next one. Saved in the sequence
+// ("transitions", core/transitions.py); ▶ previews one track's change here.
+
+// --- transition envelope (mirrors core/transitions.py) ---
+const TX_STYLES = ['gusts', 'swell', 'build', 'dist', 'fresh'];
+const TX_DEFAULTS = { gusts: 50, swell: 20, build: 60, dist: 50 };
+const TX_MIN_WINDOW = 0.05, TX_FRESH_FADE = 1.0, TX_EDGE = 0.1, TX_EPS = 0.002;
+
+function txFnv1a(text) {
+    let h = 0x811C9DC5;
+    for (const byte of new TextEncoder().encode(text)) {
+        h ^= byte;
+        h = Math.imul(h, 0x01000193) >>> 0;
+    }
+    return h >>> 0;
+}
+
+function txMulberry32(seed) {
+    let a = seed >>> 0;
+    return () => {
+        a = (a + 0x6D2B79F5) >>> 0;
+        let t = Math.imul(a ^ (a >>> 15), a | 1) >>> 0;
+        t = (((t + (Math.imul(t ^ (t >>> 7), t | 61) >>> 0)) >>> 0) ^ t) >>> 0;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+}
+
+function txSwellCurve(x) {
+    x = Math.min(1, Math.max(0, x));
+    return 0.5 - 0.5 * Math.cos(Math.PI * x);
+}
+
+function txEnvelope(side, styles, values, a, b, window, maxVolume, seed, pa = 1, pb = 1) {
+    const st = new Set(styles || []);
+    const v = { ...TX_DEFAULTS, ...(values || {}) };
+    const e = { side, styles: st };
+    a = Math.max(0, +a); b = Math.max(0, +b);
+    const w = Math.max(TX_MIN_WINDOW, +window);
+    e.window = w;
+    const swell = Math.min(Math.max(+v.swell, Math.min(5, w)), w);
+    const amount = st.has('build') ? v.build / 100 : 0;
+    e.amount = amount;
+    let start = a, end = b;
+    if (side === 'in' && amount) start = Math.max(a, b * (1 - 0.7 * amount));
+    if (side === 'out' && amount) end = Math.max(b, a * (1 - 0.7 * amount));
+    const tail = (side === 'out' && amount && b <= TX_EPS) ? Math.min(2, TX_EDGE * w) : 0;
+    const gusts = st.has('gusts') ? v.gusts / 100 : 0;
+    const rate = 0.15 + 0.45 * gusts;
+    const knots = [];
+    if (gusts) {
+        const rng = txMulberry32(seed);
+        const count = Math.ceil(Math.max(w, TX_MIN_WINDOW) * rate) + 2;
+        for (let i = 0; i < count; i++) knots.push(2 * rng() - 1);
+    } else {
+        knots.push(0);
+    }
+    const top = Math.max(a, b);
+    const cap = maxVolume !== null && maxVolume !== undefined ? Math.min(top, +maxVolume) : top;
+    const far = st.has('dist') ? v.dist / 100 : null;
+    e.far = far;
+    const fresh = st.has('fresh');
+    const holds = side === 'out' && st.size === 1 && fresh;
+    e.holds = holds;
+    const others = [...st].some(s => s !== 'fresh');
+    const noise = t => {
+        const x = Math.max(0, t) * rate;
+        const i = Math.floor(x);
+        const f = x - i;
+        const last = knots.length - 1;
+        const k0 = knots[Math.min(i, last)], k1 = knots[Math.min(i + 1, last)];
+        return k0 + (k1 - k0) * (1 - Math.cos(Math.PI * f)) / 2;
+    };
+    const shape = t => {
+        if (st.has('swell')) return txSwellCurve(t / swell);
+        if (far !== null && !st.has('gusts') && !st.has('build')) {
+            if (side === 'in' && start <= TX_EPS) return Math.min(1, t / (TX_EDGE * w));
+            if (side === 'out' && end <= TX_EPS) return Math.min(1, Math.max(0, (t - (1 - TX_EDGE) * w) / (TX_EDGE * w)));
+        }
+        if (fresh && side === 'in' && !others) return Math.min(1, t / Math.min(TX_FRESH_FADE, w));
+        if (fresh && side === 'out' && !others) return 0;
+        const span = w - tail;
+        return span > 0 ? Math.min(1, Math.max(0, t / span)) : 1;
+    };
+    e.distance = t => {
+        if (far === null) return 0;
+        const u = Math.min(1, Math.max(0, t / w));
+        if (side === 'in') return a <= TX_EPS ? 1 - u : (1 - u) * Math.min(1, u / 0.15);
+        return b <= TX_EPS ? u : u * Math.min(1, (1 - u) / 0.15);
+    };
+    e.cutoff = t => {
+        const d = e.distance(t);
+        if (d < 0.002) return null;
+        const farHz = 250 * 8 ** (1 - far);
+        return 18000 * (farHz / 18000) ** d;
+    };
+    e.level = t => {
+        t = Math.max(0, t);
+        if (holds) return start;
+        let base = start + (end - start) * shape(t);
+        if (tail && t > w - tail) base *= Math.max(0, (w - t) / tail);
+        let level = base;
+        if (far !== null) level *= 10 ** (-(6 + 24 * far) * e.distance(t) / 20);
+        if (gusts) {
+            const u = Math.min(1, t / w);
+            const swing = 1 + 0.9 * gusts * Math.sin(Math.PI * u) * noise(t);
+            const gusty = level * swing;
+            level = Math.min(gusty, Math.max(cap, level));
+        }
+        if (t >= w) return !tail ? end : b;
+        return Math.max(0, level);
+    };
+    e.presence = t => {
+        if (!amount) return null;
+        const u = Math.min(1, Math.max(0, t / w));
+        if (side === 'in') {
+            const low = Math.max(0.01, pb * (1 - amount));
+            return low + (pb - low) * u;
+        }
+        const low = Math.max(0.01, pa * (1 - amount));
+        return pa + (low - pa) * u;
+    };
+    return e;
+}
+// --- end transition envelope ---
+
+const TX_NAMES = {
+    in: { gusts: 'Gusts', swell: 'Swell', build: 'Build', dist: 'Distance', fresh: 'Start fresh' },
+    out: { gusts: 'Gusts dying down', swell: 'Smooth fade', build: 'Thin out', dist: 'Recede', fresh: 'Finish then stop' },
+};
+const TX_TIPS = {
+    in: { gusts: 'Gusts: comes in with uneven surges', swell: 'Swell: one curved rise',
+          build: 'Build: plays more often and louder over the fade (Intermittent tracks)',
+          dist: 'Distance: starts faint and muffled, ends clear at the preset volume',
+          fresh: 'Start fresh: plays from the start of the file, with a short fade' },
+    out: { gusts: 'Gusts dying down: falls away in uneven surges', swell: 'Smooth fade: one curved fade out',
+           build: 'Thin out: plays less often and quieter over the fade (Intermittent tracks)',
+           dist: 'Recede: drifts into the distance, fainter and muffled',
+           fresh: 'Finish then stop: lets the current play finish, then stops' },
+};
+const TX_SLIDER = { gusts: 'Intensity', swell: 'Speed', build: 'Amount', dist: 'How far' };
+const TX_ICONS = {
+    gusts: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 13c1.5-3 2.5-3 4 0s2.5 4 4 0 2-6 4-2 2 5 4 1 2-3 4-1"/></svg>',
+    swell: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 19h4c5 0 5-14 10-14h6"/></svg>',
+    build: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="5" y1="20" x2="5" y2="16"/><line x1="10" y1="20" x2="10" y2="12"/><line x1="15" y1="20" x2="15" y2="8"/><line x1="20" y1="20" x2="20" y2="4"/></svg>',
+    dist: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="3.5" cy="12" r="1" fill="currentColor"/><path d="M7 10.5a2 2 0 0 1 0 3"/><path d="M11 8a5.5 5.5 0 0 1 0 8"/><path d="M15.5 5a10 10 0 0 1 0 14"/></svg>',
+    fresh: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="19 20 9 12 19 4 19 20" fill="currentColor"/><line x1="5" y1="19" x2="5" y2="5"/></svg>',
+};
+const TX_ICON_ADV = '<span class="adv-ic"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg></span>';
+const TX_ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+const TX_ICON_STOP = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
+const TX_ICON_ARROW = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="13 6 19 12 13 18"/></svg>';
+
+const tx = { open: false, step: null, index: 0, name: '', prev: null, next: null, tab: 'while', rows: { in: [], out: [] }, keep: {}, loading: false };
+
+function txIsOpen() {
+    return !!document.getElementById('tx-modal')?.classList.contains('active');
+}
+
+// A step's saved transitions in the sequence being edited
+function txStepHasSet(step) {
+    return !!step && ['in', 'out'].some(side => Object.keys(step[side] || {}).length > 0);
+}
+
+function txRamp() {
+    const r = sqTimingValues().ramp;
+    return Number.isFinite(r) && r >= 0 ? Math.round(r) : teSeqDefaults().ramp;
+}
+
+function txNeighbours(index) {
+    const p = sq.presets, n = p.length;
+    const prev = index > 0 ? p[index - 1] : (sq.end === 'restart' && n > 1 ? p[n - 1] : sq.end === 'reverse' && n > 1 ? p[1] : null);
+    const next = index < n - 1 ? p[index + 1] : (sq.end === 'restart' && n > 1 ? p[0] : sq.end === 'reverse' && n > 1 ? p[n - 2] : null);
+    return { prev, next };
+}
+
+function txRowFrom(track, side, saved) {
+    const cfg = (saved || {})[track.key] || {};
+    const on = {};
+    TX_STYLES.forEach(k => { on[k] = (cfg.styles || []).includes(k); });
+    const cap = Math.round((side === 'in' ? track.to : track.from) * 100);
+    const values = { ...TX_DEFAULTS, ...(cfg.values || {}) };
+    return {
+        ...track, on, v: values, cap,
+        maxVol: cfg.max_volume !== undefined && cfg.max_volume !== null ? Math.min(cap, Math.round(cfg.max_volume * 100)) : cap,
+        pre: Math.round(cfg.pre_fade || 0),
+    };
+}
+
+function txRowSet(r) {
+    return r.pre > 0 || TX_STYLES.some(k => r.on[k]);
+}
+
+function txRowConfig(r) {
+    if (!txRowSet(r)) return null;
+    const styles = TX_STYLES.filter(k => r.on[k] && !(k === 'build' && r.mode !== 'Intermittent'));
+    const values = {};
+    styles.forEach(k => { if (k !== 'fresh') values[k] = r.v[k]; });
+    const cfg = { styles, values, pre_fade: r.pre };
+    if (r.on.gusts && r.maxVol < r.cap) cfg.max_volume = Math.round(r.maxVol) / 100;
+    return cfg;
+}
+
+async function txOpen(index) {
+    spClosePop();
+    const step = sq.presets[index];
+    if (!step || !te.themeId) return;
+    const { prev, next } = txNeighbours(index);
+    const name = id => sqPreset(id)?.name || id;
+    Object.assign(tx, { step, index, name: name(step), prev, next, prevName: prev ? name(prev) : '', nextName: next ? name(next) : '',
+                        tab: 'while', rows: { in: [], out: [] }, loading: true });
+    tw.vals = null;
+    txHelp.close();
+    txStopPreview();
+    document.getElementById('tx-modal').classList.add('active');
+    txRender();
+    try {
+        const q = new URLSearchParams({ preset: step });
+        if (prev) q.set('prev', prev);
+        if (next) q.set('next', next);
+        const [result, preset, layer] = await Promise.all([
+            api('GET', `/themes/${te.themeId}/transition_tracks?${q}`),
+            api('GET', `/themes/${te.themeId}/presets/${encodeURIComponent(step)}`),
+            twSavedLayer(step),
+        ]);
+        if (tx.step !== step) return;
+        twStart(preset, layer);
+        const saved = (sq.transitions || {})[step] || {};
+        tx.rows = { in: (result.in || []).map(t => txRowFrom(t, 'in', saved.in)), out: (result.out || []).map(t => txRowFrom(t, 'out', saved.out)) };
+        // Saved settings for tracks not listed here (they don't change at this step in this order) are kept
+        const listed = side => new Set(tx.rows[side].map(r => r.key));
+        tx.keep = {
+            in: Object.fromEntries(Object.entries(saved.in || {}).filter(([k]) => !listed('in').has(k))),
+            out: Object.fromEntries(Object.entries(saved.out || {}).filter(([k]) => !listed('out').has(k))),
+        };
+    } catch (error) {
+        showToast(error.message || 'Failed to load the tracks', 'error');
+    }
+    tx.loading = false;
+    txRender();
+    document.querySelector('#tx-modal .ad-list').scrollTop = 0;
+    document.getElementById('tw-tracks').scrollTop = 0;
+}
+
+function txClose() {
+    txStopPreview();
+    stopTrackPreview();  // a file playing from While playing
+    txHelp.close();
+    spClosePop();
+    tx.step = null;
+    document.getElementById('tx-modal')?.classList.remove('active');
+}
+
+function txCancel() {
+    txClose();
+}
+
+function txSetTab(tab) {
+    if (tx.tab === tab) return;
+    txStopPreview();
+    stopTrackPreview();
+    tx.tab = tab;
+    txRender();
+    document.querySelector('#tx-modal .ad-list').scrollTop = 0;
+}
+
+function txPct(v) {
+    return v > 0 ? `${Math.round(v * 100)}%` : 'off';
+}
+
+// One style's setting: its slider's range, value and text
+function txSliderState(r, k, ramp) {
+    const win = r.pre + ramp;
+    let min = 0, max = 100, value = r.v[k];
+    let text = `${Math.round(value)}%`;
+    if (k === 'swell') {
+        min = Math.min(5, win);
+        max = Math.max(min, win);
+        value = Math.max(min, Math.min(max, r.v.swell));
+        text = `${Math.round(value)} s of ${win} s`;
+    }
+    return { min, max, value, text };
+}
+
+// The styles that are on and apply to this track, in button order
+function txActive(r) {
+    return TX_STYLES.filter(k => r.on[k] && !(k === 'build' && r.mode !== 'Intermittent'));
+}
+
+function txHints(r) {
+    const amt = r.v.build / 100;
+    const out = tx.tab === 'out';
+    const iv = Math.round((out ? r.presence_from : r.presence_to) * 100);
+    const vol = Math.round((out ? r.from : r.to) * 100);
+    const ivA = Math.max(1, Math.round(iv * (1 - amt))), volA = Math.round(vol * (1 - amt * 0.7));
+    return out ? [`Interval ${iv}% → ${ivA}%`, `Volume ${vol}% → ${volA}%`] : [`Interval ${ivA}% → ${iv}%`, `Volume ${volA}% → ${vol}%`];
+}
+
+function txRowHtml(r, i, ramp) {
+    const side = tx.tab, out = side === 'out';
+    const name = escapeHtml(r.name);
+    const playing = txp.key === `${side}:${i}`;
+    const intermittent = r.mode === 'Intermittent';
+    const btns = TX_STYLES.map(k => {
+        const dis = k === 'build' && !intermittent;
+        const label = TX_NAMES[side][k];
+        return `<button type="button" class="ad-tg${out ? ' x' : ''}${r.on[k] && !dis ? ' on' : ''}" title="${escapeHtml(dis ? `${label}: Intermittent tracks only` : TX_TIPS[side][k])}" aria-label="${escapeHtml(label)}" aria-pressed="${r.on[k] && !dis}" ${dis ? 'disabled' : ''} onclick="txPress(${i}, '${k}')">${TX_ICONS[k]}</button>`;
+    }).join('');
+    const maxVol = Math.min(r.maxVol, r.cap);
+    const active = txActive(r);
+    // One block per style that's on, each with its own setting; Smooth when none is
+    const blocks = active.length ? active.map(k => {
+        const icon = `<span class="ad-sl-ic${out ? ' x' : ''}" title="${escapeHtml(TX_NAMES[side][k])}">${TX_ICONS[k]}</span>`;
+        if (k === 'fresh') {
+            return `<div class="ad-sl"><div class="ad-sl-hd"><span class="ad-sl-lbl">${icon}${escapeHtml(TX_NAMES[side].fresh)}</span><span class="ad-sl-val">${out ? 'no new play' : 'from the file start'}</span></div></div>`;
+        }
+        const sl = txSliderState(r, k, ramp);
+        const hints = k === 'build' ? txHints(r) : null;
+        return `<div class="ad-sl" data-k="${k}">
+                <div class="ad-sl-hd"><span class="ad-sl-lbl">${icon}${TX_SLIDER[k]}</span><span class="ad-sl-val">${escapeHtml(sl.text)}</span></div>
+                <input type="range" class="track-slider" min="${sl.min}" max="${sl.max}" step="1" value="${sl.value}" aria-label="${escapeHtml(TX_NAMES[side][k])}, ${TX_SLIDER[k]}: ${name}" oninput="txSlide(${i}, '${k}', this)">
+                ${hints ? `<span class="ad-hint">${hints[0]}</span><span class="ad-hint">${hints[1]}</span>` : ''}
+                ${k === 'gusts' ? `<div class="ad-sl-hd sub"><span class="ad-sl-lbl" title="Capped at the track's volume in this preset">Max volume</span><span class="ad-sl-val ad-max-val">${maxVol}% of ${r.cap}%</span></div>
+                <input type="range" class="track-slider" min="0" max="${r.cap}" step="1" value="${maxVol}" aria-label="Max volume: ${name}" oninput="txMax(${i}, this)">` : ''}
+            </div>`;
+    }).join('') : `<div class="ad-sl off">
+                <div class="ad-sl-hd"><span class="ad-sl-lbl">Smooth</span><span class="ad-sl-val">ramp ${ramp} s</span></div>
+                <input type="range" class="track-slider" min="0" max="100" value="0" disabled aria-label="Smooth: ${name}">
+            </div>`;
+    return `
+        <div class="ad-r adgrid${playing ? ' previewing' : ''}" data-i="${i}">
+            <button type="button" class="track-preview-btn${playing ? ' playing' : ''}" title="${playing ? 'Stop preview' : out ? 'Preview this exit' : 'Preview this entrance'}" aria-label="${playing ? 'Stop preview' : out ? 'Preview this exit' : 'Preview this entrance'}: ${name}" aria-pressed="${playing}" onclick="txPreview(${i})">${playing ? TX_ICON_STOP : TX_ICON_PLAY}</button>
+            <div class="ad-nm"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span><span class="ad-mode">${escapeHtml(r.mode)}</span></div>
+            <span class="ad-chg" aria-label="${txPct(r.from)} to ${txPct(r.to)}"><span class="ad-from">${txPct(r.from)}</span>${TX_ICON_ARROW}<span class="ad-to">${txPct(r.to)}</span></span>
+            <div class="ad-btns" role="group" aria-label="Style: ${name}">${btns}</div>
+            <div class="ad-sls">${blocks}</div>
+            <div class="ad-pre"><span class="c-lbl">Pre-fade</span><div class="mx-ctl"><div class="track-slider-wrapper"><input type="range" class="track-slider" min="0" max="90" step="5" value="${r.pre}" title="Starts this long before the step" aria-label="Pre-fade: ${name}" oninput="txPre(${i}, this)"></div><span class="track-slider-value">${r.pre ? `${r.pre} s` : 'Off'}</span></div></div>
+        </div>`;
+}
+
+function txRender() {
+    if (!tx.step) return;
+    const wp = tx.tab === 'while', out = tx.tab === 'out';
+    const ramp = txRamp();
+    const seqName = document.getElementById('sq-name').value.trim();
+    document.getElementById('tx-ttl').textContent = wp ? tx.name : `${out ? 'Leaving' : 'Coming into'} ${tx.name}`;
+    const sub = wp ? `${seqName ? `in ${seqName} · ` : ''}step ${tx.index + 1}`
+              : out ? (tx.nextName ? `to ${tx.nextName} · ramp ${ramp} s` : `last preset · ramp ${ramp} s`)
+                    : (tx.prevName ? `from ${tx.prevName} · ramp ${ramp} s` : `sequence start · ramp ${ramp} s`);
+    document.getElementById('tx-sub').textContent = sub;
+    const ctx = document.getElementById('tx-ctx');
+    ctx.textContent = sub;
+    ctx.hidden = wp;
+    const note = document.getElementById('tx-note');
+    note.textContent = `For this step only. Anything you don't change follows the preset, ${tx.name}.`;
+    note.hidden = !wp;
+    const tabs = [['while', 'While playing', twCount()], ['in', 'Coming in', tx.rows.in.length],
+                  ['out', `Leaving<span class="tn">&nbsp;${escapeHtml(tx.name)}</span>`, tx.rows.out.length]];
+    document.getElementById('tx-tabs').innerHTML = tabs.map(([k, label, n]) =>
+        `<button type="button" role="tab" aria-selected="${tx.tab === k}" aria-pressed="${tx.tab === k}" onclick="txSetTab('${k}')"><span class="tl">${label}</span><span class="badge badge-type">${n}</span></button>`).join('');
+    // While playing: the Theme Editor's track list (#tw); Coming in / Leaving: the transition rows
+    document.getElementById('tw').hidden = !wp;
+    document.querySelector('#tx-modal .ad-fix').hidden = wp;
+    document.querySelector('#tx-modal .ad-list').hidden = wp;
+    if (wp) {
+        twRender();
+        txRenderSum();
+        return;
+    }
+    const rows = tx.rows[tx.tab];
+    const box = document.getElementById('tx-rows');
+    box.innerHTML = tx.loading ? '<div class="sq-empty ad-empty">Loading…</div>'
+        : rows.length ? rows.map((r, i) => txRowHtml(r, i, ramp)).join('')
+        : `<div class="sq-empty ad-empty">${out ? (tx.next ? 'No track leaves at the next step' : 'Nothing comes after this preset') : (tx.prev ? 'No track comes in at this step' : 'The sequence starts here')}</div>`;
+    spUpdateMarquees(box);
+    txRenderSum();
+}
+
+function txRenderRow(i) {
+    const row = document.querySelector(`#tx-rows .ad-r[data-i="${i}"]`);
+    const r = tx.rows[tx.tab][i];
+    if (!row || !r) return txRender();
+    row.outerHTML = txRowHtml(r, i, txRamp());
+    spUpdateMarquees(document.getElementById('tx-rows'));
+    txRenderSum();
+}
+
+function txRenderSum() {
+    if (tx.tab === 'while') {
+        const n = twCount();
+        document.getElementById('tx-sum').textContent = n ? `${n} ${n === 1 ? 'change' : 'changes'} from the preset` : 'Follows the preset';
+        return;
+    }
+    const ramp = txRamp();
+    const n = tx.rows.in.filter(txRowSet).length + tx.rows.out.filter(txRowSet).length;
+    document.getElementById('tx-sum').textContent = n
+        ? `${n} ${n === 1 ? 'track' : 'tracks'} set · the rest follow the ${ramp} s ramp`
+        : `All Smooth · the ${ramp} s ramp`;
+}
+
+// A style button: on or off. Several can be on; each shows its own setting.
+function txPress(i, k) {
+    const r = tx.rows[tx.tab][i];
+    if (!r) return;
+    r.on[k] = !r.on[k];
+    txRenderRow(i);
+    txPreviewFollow(i);
+}
+
+function txSlide(i, k, input) {
+    const r = tx.rows[tx.tab][i];
+    if (!r || !r.on[k] || k === 'fresh') return;
+    r.v[k] = +input.value;
+    const block = input.closest('.ad-sl');
+    block.querySelector('.ad-sl-val').textContent = txSliderState(r, k, txRamp()).text;
+    if (k === 'build') {
+        const text = txHints(r);
+        block.querySelectorAll('.ad-hint').forEach((h, n) => { h.textContent = text[n]; });
+    }
+    txPreviewFollow(i);
+}
+
+function txMax(i, input) {
+    const r = tx.rows[tx.tab][i];
+    if (!r) return;
+    r.maxVol = +input.value;
+    input.closest('.ad-sl').querySelector('.ad-max-val').textContent = `${r.maxVol}% of ${r.cap}%`;
+    txPreviewFollow(i);
+}
+
+function txPre(i, input) {
+    const r = tx.rows[tx.tab][i];
+    if (!r) return;
+    r.pre = +input.value;
+    input.closest('.ad-pre').querySelector('.track-slider-value').textContent = r.pre ? `${r.pre} s` : 'Off';
+    // The swell's range follows the window (pre-fade + ramp)
+    if (r.on.swell) txRenderRow(i);
+    else txRenderSum();
+    txPreviewFollow(i);
+}
+
+function txMenu(button) {
+    xMenu('tx-more', button, xMenuItem('Reset to Smooth…', 'txAskReset()', { icon: TX_ICON_ADV }), { cls: 'menu sp-menu x-menu' });
+}
+
+function txAskReset() {
+    spConfirm('tx-reset', spMenuAnchor() || document.getElementById('tx-more-btn'),
+        { title: `Reset every track in “${tx.name}” to Smooth?`, ok: 'Reset', danger: true }, () => {
+            ['in', 'out'].forEach(side => tx.rows[side].forEach(r => {
+                TX_STYLES.forEach(k => { r.on[k] = false; });
+                r.pre = 0;
+            }));
+            tx.keep = { in: {}, out: {} };
+            txStopPreview();
+            txRender();
+            teFlash('Reset to Smooth');
+        });
+}
+
+async function txSave() {
+    const step = tx.step;
+    if (!step) return;
+    const data = {};
+    ['in', 'out'].forEach(side => {
+        const tracks = { ...(tx.keep[side] || {}) };
+        tx.rows[side].forEach(r => {
+            const cfg = txRowConfig(r);
+            if (cfg) tracks[r.key] = cfg;
+            else delete tracks[r.key];
+        });
+        if (Object.keys(tracks).length) data[side] = tracks;
+    });
+    sq.transitions = { ...(sq.transitions || {}) };
+    if (Object.keys(data).length) sq.transitions[step] = data;
+    else delete sq.transitions[step];
+    // While playing: put with the sequence (sqSave), so a new sequence gets it once it's saved
+    if (tw.vals && twUnsaved()) sq.layers[step] = twLayer();
+    const name = tx.name;
+    txClose();
+    sqRender();
+    // Saving a part saves the whole: the sequence is saved with them (it stays open)
+    if (await sqSave({ keepOpen: true, quiet: true })) teFlash(`Saved “${name}”`);
+}
+
+// --- Preview: one track's change on this device (Web Audio), following the edits ---
+const txp = { key: null, ctx: null, gain: null, filter: null, sources: [], timer: null, startAt: 0, buffers: new Map(),
+              nextPlayAt: 0, playingUntil: 0, end: 0, offset: 0, token: 0 };
+
+function txPreviewEnvelope(r, side) {
+    const window = r.pre + txRamp();
+    const cfg = txRowConfig(r) || { styles: [], values: {} };
+    return txEnvelope(side, cfg.styles, { ...TX_DEFAULTS, ...r.v }, r.from, r.to, window,
+        cfg.max_volume !== undefined ? cfg.max_volume : null, txFnv1a(`${side}|${tx.step}|${r.key}`),
+        r.presence_from, r.presence_to);
+}
+
+// Gaps for an Intermittent preview: the interval scaled down to fit the fade
+function txPreviewGap(duration, presence) {
+    return Math.max(0.5, Math.min(15, duration * (0.4 + 2.5 * (1 - presence))));
+}
+
+async function txPreview(i) {
+    const side = tx.tab;
+    const key = `${side}:${i}`;
+    if (txp.key === key) { txStopPreview(); return; }
+    txStopPreview();
+    const r = tx.rows[side][i];
+    if (!r) return;
+    if (typeof stopTrackPreview === 'function') stopTrackPreview();
+    if (typeof teStopMixPreview === 'function') teStopMixPreview();
+    const token = ++txp.token;
+    txp.key = key;
+    txRenderRow(i);
+    try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (!txp.ctx) txp.ctx = new AudioCtx();
+        if (txp.ctx.state === 'suspended') await txp.ctx.resume();
+        let buffer = txp.buffers.get(r.key);
+        if (!buffer) {
+            const url = `${BASE_PATH}/api/themes/${encodeURIComponent(te.themeId)}/tracks/${encodeURIComponent(r.key)}/audio`;
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            buffer = await txp.ctx.decodeAudioData(await response.arrayBuffer());
+            txp.buffers.set(r.key, buffer);
+        }
+        if (txp.token !== token) return;
+        txStartPreview(r, side, buffer);
+    } catch (error) {
+        if (txp.token !== token) return;
+        console.error('Transition preview failed:', error);
+        showToast('Failed to play track', 'error');
+        txStopPreview();
+    }
+}
+
+function txStartPreview(r, side, buffer) {
+    const ctx = txp.ctx;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.Q.value = 0.5;  // like the server's two one-pole filters
+    filter.frequency.value = 20000;
+    const gain = ctx.createGain();
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    Object.assign(txp, { gain, filter, sources: [], buffer, startAt: ctx.currentTime + 0.05, nextPlayAt: 0, playingUntil: 0, row: r, side });
+    const env = txPreviewEnvelope(r, side);
+    gain.gain.value = env.level(0);
+    txp.intermittent = r.mode === 'Intermittent';
+    const finish = side === 'out' && r.on.fresh;
+    if (!txp.intermittent) {
+        const src = ctx.createBufferSource();
+        src.buffer = buffer;
+        src.loop = !finish;
+        src.connect(filter);
+        // Finish then stop: from near the end of the file, so its finish is heard
+        const offset = finish ? Math.max(0, buffer.duration - Math.min(buffer.duration, env.window + 2)) : 0;
+        src.start(txp.startAt, offset);
+        if (finish) src.onended = () => { if (txp.sources.includes(src)) txStopPreview(); };
+        txp.sources.push(src);
+    }
+    txp.end = env.window + (side === 'in' ? 3 : 0.5);
+    txp.timer = setInterval(txPreviewTick, 50);
+    txPreviewTick();
+}
+
+// Called every 50 ms: the level, cutoff and (Intermittent) next play from the current envelope
+function txPreviewTick() {
+    const ctx = txp.ctx, r = txp.row;
+    if (!ctx || !r || !txp.gain) return;
+    const t = ctx.currentTime - txp.startAt;
+    const env = txPreviewEnvelope(r, txp.side);
+    const ahead = 0.1;
+    const level = env.level(Math.max(0, t + ahead));
+    txp.gain.gain.cancelScheduledValues(ctx.currentTime);
+    txp.gain.gain.setValueAtTime(txp.gain.gain.value, ctx.currentTime);
+    txp.gain.gain.linearRampToValueAtTime(Math.max(0, level), ctx.currentTime + ahead);
+    const cutoff = env.cutoff(Math.max(0, t + ahead));
+    txp.filter.frequency.cancelScheduledValues(ctx.currentTime);
+    txp.filter.frequency.setValueAtTime(txp.filter.frequency.value, ctx.currentTime);
+    txp.filter.frequency.linearRampToValueAtTime(cutoff === null ? 20000 : cutoff, ctx.currentTime + ahead);
+    if (txp.intermittent && t >= 0) {
+        const finish = txp.side === 'out' && r.on.fresh;
+        if (ctx.currentTime >= txp.playingUntil && ctx.currentTime >= txp.nextPlayAt && !(finish && txp.played)) {
+            const src = ctx.createBufferSource();
+            src.buffer = txp.buffer;
+            src.connect(txp.filter);
+            src.start();
+            txp.sources.push(src);
+            txp.played = true;
+            const presence = env.presence(t) ?? (txp.side === 'in' ? r.presence_to : r.presence_from);
+            txp.playingUntil = ctx.currentTime + txp.buffer.duration;
+            txp.nextPlayAt = txp.playingUntil + txPreviewGap(txp.buffer.duration, presence);
+        }
+        if (finish && txp.played && ctx.currentTime >= txp.playingUntil) { txStopPreview(); return; }
+    }
+    if (t >= txp.end && !(env.holds && !txp.intermittent)) txStopPreview();
+}
+
+// An edit while previewing: the next tick builds the envelope again from where it is
+function txPreviewFollow(i) {
+    if (txp.key !== `${tx.tab}:${i}`) return;
+    txp.row = tx.rows[tx.tab][i];
+    const env = txPreviewEnvelope(txp.row, txp.side);
+    txp.end = env.window + (txp.side === 'in' ? 3 : 0.5);
+    txPreviewTick();
+}
+
+function txStopPreview() {
+    txp.token++;
+    clearInterval(txp.timer);
+    txp.timer = null;
+    txp.sources.forEach(src => { try { src.onended = null; src.stop(); } catch (e) { /* not started */ } });
+    txp.sources = [];
+    try { txp.gain?.disconnect(); } catch (e) { /* gone */ }
+    txp.gain = txp.filter = null;
+    txp.played = false;
+    const key = txp.key;
+    txp.key = null;
+    txp.row = null;
+    if (key && tx.step && key.startsWith(`${tx.tab}:`)) txRenderRow(+key.split(':')[1]);
+}
+
+// Help (?) in the dialog's title bar
+const txHelp = makeHelpPanel('tx-help', 'tx-help-btn');
+
+function txToggleHelp() {
+    if (txHelp.isOpen()) return txHelp.close();
+    spClosePop();
+    txHelp.open();
+}
+
+// ---------- Sequence step: While playing (#tw, the Advanced dialog's first tab) ----------
+// How the theme plays while this step plays: the preset's values with the step's changes on top
+// (GET/PUT …/sequences/{id}/while/{preset}, core/sequences.py STEP_*_FIELDS), shown in the Theme
+// Editor's sections, groups and rows (twView()). Changes stay here until Save (txSave).
+const TW_FIELDS = {
+    tracks: ['volume', 'volume_low', 'presence', 'muted', 'rise', 'pause_between', 'pause_min', 'pause_max'],
+    groups: ['volume', 'presence', 'muted', 'gap_min', 'gap_max', 'pause_between', 'rise'],
+};
+const TW_TRACK_DEFAULTS = { volume: 1, presence: 1, muted: false, ...TE_EBB_DEFAULTS };
+const TW_GROUP_DEFAULTS = { volume: 1, presence: 1, muted: false, pause_between: false };
+const TW_SHARES = ['volume', 'volume_low', 'presence', 'rise'];  // 0..1, shown in whole percents
+const TW_ON = { value: 'twSetTrackValue', ebb: 'twSetEbb', mute: 'twToggleTrackMute', ebbPause: 'twToggleEbbPause', pause: 'twSetEbbPause',
+                group: 'twSetGroupValue', gap: 'twSetGroupGap', groupRise: 'twToggleGroupRise', fold: 'twToggleGroup', menu: 'twMenu' };
+
+// base: the preset's values and vals: this step's ({tracks: {key: {field: value}}, groups: {name: {…}}});
+// saved: vals as opened (Save closes the dialog); keep: the step's saved changes for tracks and groups
+// not listed here (kept on Save); modes: each track's section; menu: the open ⋯ menu ({kind, arg})
+const tw = { base: null, vals: null, saved: null, keep: null, modes: {}, closed: {}, menu: null };
+
+function twIsShown() {
+    return txIsOpen() && tx.tab === 'while';
+}
+
+// The step's layer as last saved: from this editor's Save when the sequence isn't saved yet, else the server's
+function twSavedLayer(step) {
+    if (sq.layers[step]) return sq.layers[step];
+    const saved = te.sequences.find(q => q.id === sq.id);
+    return saved?.presets.includes(step)
+        ? api('GET', `/themes/${te.themeId}/sequences/${encodeURIComponent(sq.id)}/while/${encodeURIComponent(step)}`) : null;
+}
+
+// The preset's values for every track and group that plays (Unassigned doesn't), with the layer over them.
+// A track the preset lists plays at 100% and unmuted where it sets no volume, interval or mute, as loading
+// it does; anything it doesn't set keeps the theme's value.
+function twStart(preset, layer) {
+    const base = { tracks: {}, groups: {} };
+    tw.modes = {};
+    for (const t of te.tracks) {
+        const own = preset.tracks?.[t.name];
+        const mode = teSectionOf({ ...t, playback_mode: own?.playback_mode ?? t.playback_mode, presence: own?.presence ?? t.presence });
+        if (mode === 'unassigned') continue;
+        tw.modes[t.name] = mode;
+        base.tracks[t.name] = Object.fromEntries(TW_FIELDS.tracks.map(f => [f,
+            own?.[f] ?? (own && !TE_EBB_FIELDS.includes(f) ? TW_TRACK_DEFAULTS[f] : t[f] ?? TW_TRACK_DEFAULTS[f])]));
+    }
+    for (const g of teListedGroups()) {
+        const own = preset.groups?.[g.name] || {};
+        base.groups[g.name] = Object.fromEntries(TW_FIELDS.groups.map(f => [f,
+            (f in own ? own[f] : g.settings?.[f]) ?? TW_GROUP_DEFAULTS[f] ?? null]));
+    }
+    tw.base = base;
+    tw.vals = { tracks: {}, groups: {} };
+    tw.keep = { tracks: {}, groups: {} };
+    for (const part of ['tracks', 'groups']) {
+        for (const [name, values] of Object.entries(base[part])) {
+            const step = layer?.[part]?.[name] || {};
+            tw.vals[part][name] = Object.fromEntries(Object.entries(values).map(([f, v]) => [f, step[f] ?? v]));
+        }
+        for (const [name, entry] of Object.entries(layer?.[part] || {})) {
+            if (!base[part][name]) tw.keep[part][name] = entry;
+        }
+    }
+    tw.saved = JSON.parse(JSON.stringify(tw.vals));
+    tw.closed = {};
+    tw.menu = null;
+}
+
+// The same as shown: shares in whole percents, gaps in tenths of a minute
+function twSame(field, a, b) {
+    if (a == null || b == null) return a == b;
+    if (TW_SHARES.includes(field)) return Math.round(a * 100) === Math.round(b * 100);
+    if (field === 'gap_min' || field === 'gap_max') return Math.round(a / 6) === Math.round(b / 6);
+    return a === b;
+}
+
+// A track's or group's values differ from the preset's (or, from = tw.saved, from the last save)
+function twDiffers(part, name, fields, from = tw.base) {
+    const vals = tw.vals[part][name];
+    return !!vals && fields.some(f => !twSame(f, vals[f], from[part][name][f]));
+}
+
+// Tracks and groups this step changes
+function twCount() {
+    if (!tw.vals) return 0;
+    return ['tracks', 'groups'].reduce((n, part) =>
+        n + Object.keys(tw.vals[part]).filter(name => twDiffers(part, name, TW_FIELDS[part])).length, 0);
+}
+
+function twUnsaved() {
+    return ['tracks', 'groups'].some(part => Object.keys(tw.vals[part]).some(name => twDiffers(part, name, TW_FIELDS[part], tw.saved)));
+}
+
+// The track list's view (see TE_VIEW): the theme's tracks and groups with this step's values. A step
+// doesn't change a track's mode: each stays in its preset's section.
+function twView() {
+    const ovr = (part, name, fields) => (twDiffers(part, name, fields) ? ' ovr' : '');
+    return {
+        edit: false,
+        tracks: te.tracks.filter(t => tw.vals.tracks[t.name]).map(t => ({ ...t, ...tw.vals.tracks[t.name], playback_mode: tw.modes[t.name] })),
+        groups: teListedGroups().map(g => ({ ...g, settings: { ...g.settings, ...tw.vals.groups[g.name] } })),
+        closed: tw.closed,
+        ovr,
+        advOn: (track, group, ebb) => ebb && !!ovr('tracks', track.name, ['rise', 'pause_between', 'pause_min', 'pause_max']),
+        on: TW_ON,
+    };
+}
+
+function twRender() {
+    const list = document.getElementById('tw-tracks');
+    if (!tw.vals) {
+        list.innerHTML = tx.loading ? '<div class="empty-row">Loading tracks…</div>' : '';
+        return;
+    }
+    const view = twView();
+    const scroll = list.scrollTop;
+    list.innerHTML = `<section aria-label="Tracks">${TE_SECTIONS.filter(s => s.mode !== 'unassigned').map(s => teRenderSection(s, view)).join('')}</section>`;
+    list.scrollTop = scroll;
+    spUpdateMarquees(list);
+    document.getElementById('tw-count').textContent = view.tracks.length;
+    document.getElementById('tw-revert').disabled = !twUnsaved();
+    twFollowMenu();
+}
+
+function twSet(part, name, values) {
+    if (!tw.vals?.[part][name]) return;
+    Object.assign(tw.vals[part][name], values);
+    txRender();
+}
+
+function twSetTrackValue(key, kind, percent) {
+    twSet('tracks', key, { [kind]: parseFloat(percent) / 100 });
+}
+
+// Ebb & Flow values of a track: { volume_low, rise } (any of them)
+function twSetEbb(key, values) {
+    twSet('tracks', key, values);
+}
+
+function twToggleTrackMute(key) {
+    const vals = tw.vals?.tracks[key];
+    if (vals && !teTrack(key)?.linked?.missing) twSet('tracks', key, { muted: !vals.muted });
+}
+
+function twToggleEbbPause(key) {
+    spClosePop();
+    twSet('tracks', key, { pause_between: !tw.vals.tracks[key].pause_between });
+}
+
+function twSetEbbPause(key, input) {
+    twSet('tracks', key, teEbbPauseValues(input));
+}
+
+function twSetGroupValue(name, key, value) {
+    twSet('groups', name, { [key]: key === 'volume' || key === 'presence' ? parseFloat(value) / 100 : value });
+}
+
+function twSetGroupGap(name, input) {
+    twSet('groups', name, teGapValues(input));
+}
+
+// Same Rise for every file: on starts halfway; off, each file's own Rise again
+function twToggleGroupRise(name) {
+    twSet('groups', name, { rise: tw.vals.groups[name].rise != null ? null : 0.5 });
+}
+
+function twToggleGroup(name) {
+    tw.closed[name] = !tw.closed[name];
+    twRender();
+}
+
+function twRevert(part, name) {
+    spClosePop();
+    tw.vals[part][name] = { ...tw.saved[part][name] };
+    txRender();
+    teFlash(`Reverted ${part === 'tracks' ? trackDisplayName(name) : name}`);
+}
+
+function twRevertAll() {
+    tw.vals = JSON.parse(JSON.stringify(tw.saved));
+    txRender();
+    teFlash('Reverted to the last save');
+}
+
+// ⋯ of a track (kind 'track' or 'link') or a group: Ebb & Flow's Rise and pauses, then Revert changes
+function twMenuHtml(kind, arg) {
+    const view = twView();
+    const revert = part => teMenuItem('Revert changes', `twRevert('${part}', ${jsArg(arg)})`,
+        { icon: TE_ICON_RESET, disabled: !twDiffers(part, arg, TW_FIELDS[part], tw.saved) });
+    if (kind === 'group') {
+        const group = view.groups.find(g => g.name === arg);
+        // The preset's own Rise for every file stays on: a step can't take it away
+        return group ? teGroupRiseRows(group, jsArg(arg), view, tw.base.groups[arg].rise != null) + revert('groups') : null;
+    }
+    const track = view.tracks.find(t => t.name === arg);
+    if (!track) return null;
+    const group = view.groups.find(g => g.name === teTrackGroup(track)?.name) || null;
+    return (teIsEbb(track) ? teEbbRows(track, group, jsArg(arg), !!track.linked?.missing, view) + TE_MENU_SEP : '') + revert('tracks');
+}
+
+function twMenuId(kind, arg) {
+    return `tw-${kind}:${arg}`;
+}
+
+function twMenu(kind, button, arg) {
+    const html = twMenuHtml(kind, arg);
+    if (!html) return;
+    tw.menu = { kind, arg };
+    xMenu(twMenuId(kind, arg), button, html, { cls: 'menu' });
+}
+
+// After a change: an open ⋯ menu shows the new values, next to its row's new button
+function twFollowMenu() {
+    const m = tw.menu;
+    if (!m || spm.id !== twMenuId(m.kind, m.arg)) return;
+    const row = m.kind === 'group' ? `.grp-sec[data-group="${CSS.escape(m.arg)}"] .ghead` : `.trow[data-track="${CSS.escape(m.arg)}"]`;
+    const button = document.querySelector(`#tw-tracks ${row} [aria-haspopup="menu"]`);
+    const html = button && twMenuHtml(m.kind, m.arg);
+    if (!html) { spClosePop(); return; }
+    const pop = document.getElementById('sp-menu');
+    const fresh = document.createElement('div');
+    fresh.innerHTML = html;
+    const rows = [...pop.children], next = [...fresh.children];
+    if (rows.length === next.length && rows.every((el, i) => el.tagName === next[i].tagName)) {
+        // The same rows: only their look (green Rise) and Revert follow, so a slider or field in use keeps its focus
+        rows.forEach((el, i) => {
+            el.className = next[i].className;
+            if (el.tagName === 'BUTTON') el.disabled = next[i].disabled;
+        });
+    } else {
+        pop.innerHTML = html;
+        pop.querySelector('button:not([disabled])')?.focus();
+    }
+    spm.btn = button;
+    button.setAttribute('aria-expanded', 'true');
+    spPlacePop(pop, button);
+}
+
+// What Save stores: each track and group this step changes, every field listed, null where it's the preset's
+function twLayer() {
+    const layer = { tracks: { ...tw.keep.tracks }, groups: { ...tw.keep.groups } };
+    for (const part of ['tracks', 'groups']) {
+        for (const [name, vals] of Object.entries(tw.vals[part])) {
+            const base = tw.base[part][name];
+            const entry = Object.fromEntries(TW_FIELDS[part].map(f => [f, twSame(f, vals[f], base[f]) ? null : vals[f]]));
+            if (Object.values(entry).some(v => v !== null)) layer[part][name] = entry;
+        }
+    }
+    return layer;
+}
+
+
+// ---------- Playlists page ----------
+const plOpenRows = {};
+
+async function renderPlaylistsPage() {
+    plRenderList();
+    const before = Object.keys(sessionPresetsCache).length;
+    await plLoadThemePresets();
+    if (Object.keys(sessionPresetsCache).length !== before && currentView === 'playlists') plRenderList();
+}
+
+function plPlayingOn(playlistId) {
+    return sessions.filter(s => s.playlist_id === playlistId && s.is_playing).map(s => s.name);
+}
+
+function plRenderList() {
+    const container = document.getElementById('playlists-list');
+    if (!container) return;
+    spSetTitle('playlists', 'Playlists', playlists.length);
+    document.getElementById('pll-bar').hidden = playlists.length === 0;
+    if (!playlists.length) {
+        container.innerHTML = '<div class="sp-empty"><strong>No playlists</strong><span>Themes in order or shuffled</span></div>';
+        return;
+    }
+    container.innerHTML = `<div class="sp-lbody">${playlists.map(p => {
+        const open = !!plOpenRows[p.id];
+        const name = escapeHtml(p.name);
+        const playing = plPlayingOn(p.id);
+        const n = p.entries.length;
+        const shuffle = p.order === 'shuffle';
+        const subs = p.entries.map((e, i) => {
+            const theme = themeById(e.theme_id);
+            return `
+                <div class="pll-srow">
+                    <span class="pll-gap"></span>
+                    <div class="pll-sname"><span class="sn">${i + 1}</span><span class="ti" aria-hidden="true">${theme ? themeIconOf(e.theme_id) : ''}</span><span class="trk-name${theme ? '' : ' gone'}" title="${escapeHtml(theme ? theme.name : 'Theme deleted')}"><span class="mq-in">${escapeHtml(theme ? theme.name : 'Theme deleted')}</span></span></div>
+                    <div class="swhat">${theme ? plWhatHtml(e.theme_id, e.preset_id, e.sequence_id) : ''}</div>
+                </div>`;
+        }).join('');
+        return `
+            <div class="pll-grp" data-id="${escapeHtml(p.id)}">
+                <div class="sp-lrow pll-grid pll-row">
+                    <button type="button" class="chev-btn pll-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Hide' : 'Show'} entries of ${name}" onclick="plToggleRow(${spArg(p.id)})">${SP_ICON_CHEV}</button>
+                    <div class="pll-name"><span class="pl-ic">${ICON_PLAYLIST}</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${playing.length ? `<span class="channel-status active" title="Playing on ${escapeHtml(playing.join(', '))}"></span>` : ''}</div>
+                    <span class="pll-num c" title="${n} ${n === 1 ? 'entry' : 'entries'}">${n}<span class="ph-only"> ${n === 1 ? 'entry' : 'entries'}</span></span>
+                    <span class="pll-meta"><span class="pll-ord">${shuffle ? ICON_SHUFFLE : ICON_IN_ORDER}${shuffle ? 'Shuffle' : 'In order'}</span>
+                    <span class="pll-time">${seqMinutes(p.play_min)}–${seqMinutes(p.play_max)} min</span>
+                    <span class="pll-rep c">${p.repeat ? `<span class="rep-ic" title="Repeats">${ICON_REPEAT}<span class="ph-only">Repeat</span></span>` : '<span class="dash" title="Stops after the last entry">–</span>'}</span></span>
+                    <button type="button" class="btn btn-sm btn-secondary pll-edit" onclick="plOpen(${spArg(p.id)})">Edit</button>
+                    <button type="button" class="icon-btn sm pll-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="plRowMenu(this, ${spArg(p.id)})">${SP_ICON_MORE}</button>
+                </div>
+                ${open ? `<div class="pll-subs">${subs || '<div class="sp-muted pll-none">No entries</div>'}</div>` : ''}
+            </div>`;
+    }).join('')}</div>`;
+    spUpdateMarquees(container);
+}
+
+function plToggleRow(playlistId) {
+    plOpenRows[playlistId] = !plOpenRows[playlistId];
+    plRenderList();
+}
+
+function plRowMenu(button, playlistId) {
+    xMenu(`pl:${playlistId}`, button, `
+        ${xMenuItem('Duplicate', `plDuplicate(${spArg(playlistId)})`, { icon: ICON_COPY })}
+        ${X_SEP}${xMenuItem('Delete…', `plAskDelete(${spArg(playlistId)})`, { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
+}
+
+function plAskDelete(playlistId, anchor = null) {
+    const p = playlistById(playlistId);
+    if (!p) return;
+    const playing = sessions.filter(s => s.playlist_id === playlistId).map(s => s.name);
+    spConfirm(`pl-del:${playlistId}`, anchor || spMenuAnchor(), {
+        title: `Delete “${p.name}”?`, sub: playing.length ? `${playing.join(', ')} ${playing.length === 1 ? 'stops' : 'stop'} playing it.` : '',
+        ok: 'Delete', danger: true }, () => plDelete(playlistId));
+}
+
+async function plDelete(playlistId) {
+    try {
+        await api('DELETE', `/playlists/${encodeURIComponent(playlistId)}`);
+        if (plIsOpen() && ple.id === playlistId) plClose();
+        await Promise.all([loadPlaylists(), loadSessions()]);
+        plRenderList();
+        renderSessions();
+        showToast('Playlist deleted', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+function plFreeName(base) {
+    const taken = new Set(playlists.map(p => p.name.toLowerCase()));
+    let name = `${base} (copy)`;
+    for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} (copy ${n})`;
+    return name;
+}
+
+async function plDuplicate(playlistId) {
+    spClosePop();
+    const p = playlistById(playlistId);
+    if (!p) return;
+    try {
+        const created = await api('POST', '/playlists', {
+            name: plFreeName(p.name), entries: p.entries, order: p.order, repeat: p.repeat,
+            play_min: p.play_min, play_max: p.play_max, fit_sequences: !!p.fit_sequences });
+        await loadPlaylists();
+        if (created?.id) {
+            // Right under the original
+            const i = playlists.findIndex(x => x.id === created.id);
+            const at = playlists.findIndex(x => x.id === playlistId);
+            if (i > -1 && at > -1) { const [x] = playlists.splice(i, 1); playlists.splice(at + 1, 0, x); }
+        }
+        plRenderList();
+        showToast('Duplicated', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// ---------- Playlist editor (#pl-modal) ----------
+const ple = { id: null, entries: [], order: 'in_order', rowErr: false };
+
+function plIsOpen() {
+    return !!document.getElementById('pl-modal')?.classList.contains('active');
+}
+
+async function plOpen(playlistId = null) {
+    spClosePop();
+    const p = playlistId ? playlistById(playlistId) : null;
+    if (playlistId && !p) { showToast('Playlist not found', 'error'); return; }
+    ple.id = p ? p.id : null;
+    ple.entries = p ? p.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null })) : [];
+    ple.order = p?.order === 'shuffle' ? 'shuffle' : 'in_order';
+    ple.rowErr = false;
+    const name = document.getElementById('pl-name');
+    name.value = p ? p.name : '';
+    name.classList.remove('err');
+    document.getElementById('pl-min').value = seqMinutes(p ? p.play_min : 1800);
+    document.getElementById('pl-max').value = seqMinutes(p ? p.play_max : 3600);
+    ['pl-min', 'pl-max'].forEach(id => document.getElementById(id).classList.remove('err'));
+    document.getElementById('pl-repeat').checked = p ? !!p.repeat : true;
+    document.getElementById('pl-fit').checked = !!p?.fit_sequences;
+    plRenderHead();
+    plRenderOrder();
+    plRenderEntries();
+    document.getElementById('pl-modal').classList.add('active');
+    document.getElementById('pl-entries').scrollTop = 0;
+    if (!p) setTimeout(() => name.focus(), 50);
+    await plLoadThemePresets([{ entries: ple.entries }]);
+    if (plIsOpen()) plRenderEntries();
+}
+
+function plRenderHead() {
+    document.getElementById('pl-title').textContent = ple.id ? 'Edit playlist' : 'Add playlist';
+    document.getElementById('pl-save-btn').textContent = ple.id ? 'Save' : 'Add playlist';
+    document.getElementById('pl-more-btn').hidden = !ple.id;
+}
+
+function plClose() {
+    spClosePop();
+    rowDragEnd();
+    document.getElementById('pl-modal')?.classList.remove('active');
+}
+
+function plSetOrder(order) {
+    ple.order = order;
+    plRenderOrder();
+}
+
+function plRenderOrder() {
+    document.getElementById('pl-inorder').setAttribute('aria-pressed', String(ple.order !== 'shuffle'));
+    document.getElementById('pl-shuffle').setAttribute('aria-pressed', String(ple.order === 'shuffle'));
+}
+
+function plRange() {
+    return { min: parseFloat(document.getElementById('pl-min').value), max: parseFloat(document.getElementById('pl-max').value) };
+}
+
+function plTiming() {
+    ['pl-min', 'pl-max'].forEach(id => document.getElementById(id).classList.remove('err'));
+    plRenderEntries();
+}
+
+function plEntryNote(e) {
+    if (!e.sequence_id) return '';
+    const seq = (sessionSequencesCache[e.theme_id] || []).find(q => q.id === e.sequence_id);
+    if (document.getElementById('pl-fit').checked) {
+        const r = plRange();
+        return Number.isFinite(r.min) && Number.isFinite(r.max) ? `Fits into ${+r.min.toFixed(1)}–${+r.max.toFixed(1)} min` : '';
+    }
+    return seq ? `Plays the whole sequence, about ${Math.round(seq.pass_min / 60)}–${Math.round(seq.pass_max / 60)} min` : '';
+}
+
+function plRenderEntries() {
+    const n = ple.entries.length;
+    document.getElementById('pl-count').textContent = String(n);
+    const box = document.getElementById('pl-entries');
+    const scroll = box.scrollTop;
+    box.innerHTML = n ? `<div class="ebox">${ple.entries.map((e, i) => {
+        const theme = themeById(e.theme_id);
+        const note = plEntryNote(e);
+        const bad = ple.rowErr && !theme;
+        return `
+            <div class="erow egrid" data-i="${i}" ondragover="rowDragOver(event, 'pl', ${i})" ondragleave="rowDragLeave(event)" ondrop="rowDrop(event, 'pl', ${i})">
+                <span class="drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag entry ${i + 1}" ondragstart="rowDragStart(event, 'pl', ${i})" ondragend="rowDragEnd()">${TE_ICON_GRIP}</span>
+                <span class="en">${i + 1}</span>
+                <button type="button" class="wsel ewt${bad ? ' err' : ''}" aria-haspopup="listbox" aria-label="Theme for entry ${i + 1}" onclick="plMenu('theme', this, ${i})">
+                    <span class="wsel-in">${theme ? `<span class="ti" aria-hidden="true">${themeIconOf(e.theme_id)}</span><span class="wl">${escapeHtml(theme.name)}</span>` : '<span class="wl dflt">Choose theme</span>'}</span><span class="chev">${ICON_CHEV_DOWN}</span>
+                </button>
+                <button type="button" class="wsel eww" aria-haspopup="listbox" aria-label="Preset or sequence for entry ${i + 1}" ${theme ? '' : 'disabled'} onclick="plMenu('what', this, ${i})">
+                    <span class="wsel-in">${theme ? plWhatHtml(e.theme_id, e.preset_id, e.sequence_id) : '<span class="wl dflt">Default settings</span>'}</span><span class="chev">${ICON_CHEV_DOWN}</span>
+                </button>
+                <button type="button" class="icon-btn sm" aria-label="More for entry ${i + 1}" aria-haspopup="menu" onclick="plMenu('row', this, ${i})">${TE_ICON_MORE}</button>
+                ${note ? `<span class="enote">${escapeHtml(note)}</span>` : ''}
+            </div>`;
+    }).join('')}</div>` : `<div class="eempty"><span>No entries</span><button type="button" class="link-btn" onclick="plAddEntry()">${TE_ICON_PLUS}Add entry</button></div>`;
+    box.scrollTop = scroll;
+    const r = plRange();
+    const range = r.min > 0 && r.max >= r.min ? ` · ${plDuration(n * r.min)}–${plDuration(n * r.max)} per pass` : '';
+    document.getElementById('pl-sum').textContent = n ? `${n} ${n === 1 ? 'entry' : 'entries'}${range}` : 'No entries';
+}
+
+function plAddEntry() {
+    spClosePop();
+    ple.entries.push({ theme_id: '', preset_id: null, sequence_id: null });
+    plRenderEntries();
+    const box = document.getElementById('pl-entries');
+    box.scrollTop = box.scrollHeight;
+    box.querySelector('.erow:last-child .ewt')?.focus();
+}
+
+function plMove(from, to) {
+    spClosePop();
+    if (moveItem(ple.entries, from, to)) plRenderEntries();
+}
+
+function plSetEntry(index, patch) {
+    spClosePop();
+    const e = ple.entries[index];
+    if (!e) return;
+    Object.assign(e, patch);
+    plRenderEntries();
+    document.querySelectorAll('#pl-entries .erow')[index]?.querySelector(patch.theme_id !== undefined ? '.ewt' : '.eww')?.focus();
+}
+
+async function plPickTheme(index, themeId) {
+    const e = ple.entries[index];
+    if (!e) return;
+    if (e.theme_id === themeId) { spClosePop(); return; }
+    await loadPresetsForTheme(themeId);
+    plSetEntry(index, { theme_id: themeId, preset_id: null, sequence_id: null });
+}
+
+async function plMenu(kind, button, arg = null) {
+    if (kind === 'more') {
+        xMenu('ple-more', button, `
+            ${xMenuItem('Duplicate', 'plEdDuplicate()', { icon: ICON_COPY })}
+            ${X_SEP}${xMenuItem('Delete playlist…', 'plEdAskDelete()', { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
+    } else if (kind === 'row') {
+        const n = ple.entries.length;
+        xMenu(`ple-row:${arg}`, button, `
+            ${xMenuItem('Move up', `plMove(${arg}, ${arg - 1})`, { icon: ICON_UP, disabled: arg === 0 })}
+            ${xMenuItem('Move down', `plMove(${arg}, ${arg + 1})`, { icon: ICON_DOWN, disabled: arg === n - 1 })}
+            ${xMenuItem('Duplicate', `plDupEntry(${arg})`, { icon: ICON_COPY })}
+            ${X_SEP}${xMenuItem('Remove', `plRemoveEntry(${arg})`, { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
+    } else if (kind === 'theme') {
+        const e = ple.entries[arg];
+        const items = themes.map(t => xMenuItem(escapeHtml(t.name), `plPickTheme(${arg}, ${spArg(t.id)})`, {
+            role: 'option', check: t.id === e?.theme_id, cls: t.id === e?.theme_id ? 'cur' : '',
+            icon: `<span class="ti" aria-hidden="true">${resolveThemeIcon(t.icon, t.id)}</span>` })).join('');
+        xMenu(`ple-theme:${arg}`, button, items || '<div class="mhead">No themes yet</div>', { cls: 'menu sp-menu x-menu x-list', role: 'listbox', align: 'field' });
+    } else if (kind === 'what') {
+        const e = ple.entries[arg];
+        if (!e?.theme_id) return;
+        if (spm.id === `ple-what:${arg}`) { spClosePop(); return; }
+        await loadPresetsForTheme(e.theme_id);
+        const presets = sessionPresetsCache[e.theme_id] || [];
+        const seqs = sessionSequencesCache[e.theme_id] || [];
+        const none = !e.preset_id && !e.sequence_id;
+        let html = xMenuItem('Default settings', `plSetEntry(${arg}, { preset_id: null, sequence_id: null })`, { role: 'option', check: none, cls: `dflt${none ? ' cur' : ''}` });
+        html += presets.map(p => {
+            const cur = !e.sequence_id && e.preset_id === p.id;
+            return xMenuItem(escapeHtml(p.name), `plSetEntry(${arg}, { preset_id: ${spArg(p.id)}, sequence_id: null })`, {
+                role: 'option', check: cur, cls: cur ? 'cur' : '', after: presetMarks(!!p.is_default, !!p.has_intrusion) });
+        }).join('');
+        if (seqs.length) html += X_SEP + seqs.map(q => {
+            const cur = e.sequence_id === q.id;
+            return xMenuItem(escapeHtml(q.name), `plSetEntry(${arg}, { preset_id: null, sequence_id: ${spArg(q.id)} })`, {
+                role: 'option', check: cur, cls: cur ? 'cur' : '', after: `${q.has_intrusion ? intrusionMark() : ''}${seqMark()}` });
+        }).join('');
+        xMenu(`ple-what:${arg}`, button, html, { cls: 'menu sp-menu x-menu x-list', role: 'listbox', align: 'field' });
+    }
+}
+
+function plDupEntry(index) {
+    spClosePop();
+    const e = ple.entries[index];
+    if (!e) return;
+    ple.entries.splice(index + 1, 0, { ...e });
+    plRenderEntries();
+}
+
+function plRemoveEntry(index) {
+    spClosePop();
+    ple.entries.splice(index, 1);
+    plRenderEntries();
+}
+
+function plEdDuplicate() {
+    spClosePop();
+    const name = document.getElementById('pl-name');
+    ple.id = null;
+    name.value = plFreeName(name.value.trim());
+    plRenderHead();
+    name.focus();
+}
+
+function plEdAskDelete() {
+    plAskDelete(ple.id, spMenuAnchor() || document.getElementById('pl-more-btn'));
+}
+
+async function plSave() {
+    const nameInput = document.getElementById('pl-name');
+    const name = nameInput.value.trim();
+    if (!name) {
+        nameInput.classList.add('err');
+        nameInput.focus();
+        showToast('Enter a name', 'error');
+        return;
+    }
+    if (playlists.some(p => p.id !== ple.id && p.name.toLowerCase() === name.toLowerCase())) {
+        nameInput.classList.add('err');
+        showToast('A playlist with that name exists', 'error');
+        return;
+    }
+    const r = plRange();
+    if (!(r.min > 0) || !(r.max > 0) || r.min > r.max) {
+        ['pl-min', 'pl-max'].forEach(id => document.getElementById(id).classList.add('err'));
+        showToast(r.min > r.max ? 'Minimum is more than maximum' : 'Enter the play time', 'error');
+        return;
+    }
+    if (!ple.entries.length) {
+        showToast('Add at least one entry', 'error');
+        return;
+    }
+    if (ple.entries.some(e => !themeById(e.theme_id))) {
+        ple.rowErr = true;
+        plRenderEntries();
+        showToast('Choose a theme for every entry', 'error');
+        return;
+    }
+    const body = {
+        name,
+        entries: ple.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null })),
+        order: ple.order,
+        repeat: document.getElementById('pl-repeat').checked,
+        play_min: Math.round(r.min * 60),
+        play_max: Math.round(r.max * 60),
+        fit_sequences: document.getElementById('pl-fit').checked,
+    };
+    try {
+        const isNew = !ple.id;
+        const saved = isNew ? await api('POST', '/playlists', body) : await api('PUT', `/playlists/${encodeURIComponent(ple.id)}`, body);
+        if (isNew && saved?.id) plOpenRows[saved.id] = true;
+        plClose();
+        await Promise.all([loadPlaylists(), loadSessions()]);
+        if (currentView === 'playlists') plRenderList();
+        renderSessions();
+        showToast(isNew ? 'Playlist added' : 'Playlist saved', 'success');
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+}
+
+// Esc in the sequence or playlist editor: closes its open menu, else the editor (never the Theme Editor under it);
+// over the sequence editor, the Advanced dialog (its help first)
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape') return;
+    const which = plIsOpen() ? 'pl' : txIsOpen() ? 'tx' : sqIsOpen() ? 'sq' : null;
+    if (!which || xs.key) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (spm.id) {
+        const button = spm.btn;
+        spClosePop();
+        button?.focus();
+    } else if (which === 'pl') {
+        plClose();
+    } else if (which === 'tx') {
+        if (txHelp.isOpen()) txHelp.close();
+        else txClose();
+    } else {
+        sqClose();
+    }
+}, true);
 
 // Start
 init();
@@ -7389,16 +9868,41 @@ const PAGE_HELP = {
         <h4>Each channel</h4>
         ${helpTerm('Theme', 'the sound the channel plays. Picking another theme also picks that theme\'s default preset, if it has one.')}
         ${helpTerm('Preset', 'a saved mix of the theme\'s tracks. Default settings plays the theme without a preset.')}
+        ${helpTerm('Sequences', 'listed in the Preset menu after the presets, marked with the sequence icon. Picking one plays its presets in turn; the line under the field shows the preset playing now and when it changes. Picking a preset stops it.')}
+        ${helpTerm('Playlist', 'a channel can play a playlist instead of one theme: press the playlist button right of the fields. The fields then show the playlist and the entry playing now.')}
+        ${helpTerm('Theme or playlist', 'the two buttons right of the fields. The palette plays a theme (Theme and Preset); the playlist icon plays a playlist (Playlist and Playing).')}
+        ${helpTerm('Now', 'the sequence step or playlist entry playing, and when the next one starts.')}
+        ${helpTerm('Next', 'skips to the next step or entry.')}
         ${helpTerm('Speakers', 'where the channel plays. Use Edit to change them.')}
-        ${helpTerm('Volume', 'the channel\'s volume. It is saved when you let go of the slider.')}
-        ${helpTerm('Play / Pause', 'starts or stops the channel on its speakers.')}
-        ${helpTerm('Edit', 'changes the channel\'s name, theme, preset, volume and speakers.')}
+        ${helpTerm('Volume', 'the speakers. Saved when you let go of the slider.')}
+        ${helpTerm('Speaker button', 'mutes the speakers. Red while muted. Speakers may take a few seconds to go quiet.')}
+        ${helpTerm('Headphones button', 'plays the channel in this browser, even while the speakers are stopped. Its slider is this browser\'s volume only.')}
+        ${helpTerm('Play / Stop', 'starts or stops the speakers. The browser keeps playing if it listens.')}
+        ${helpTerm('Edit', 'changes the channel\'s name, theme or playlist, preset, volume and speakers.')}
         ${helpTerm('Delete', 'removes the channel. You confirm first.')}
+        ${helpTerm('Recent changes', 'the channel\'s latest changes with their times: started, stopped, muted, theme, preset, sequence step, playlist entry.')}
         <h4>New channel</h4>
-        ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it after the theme and speakers.')}
+        ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it Channel and a number, for example Channel 1.')}
         ${helpTerm('Speakers', 'pick floors, areas or single speakers. Only speakers turned on under Settings › Speakers are listed.')}
         ${helpTerm('Speaker group', 'picks a saved group instead of single speakers. Shown when you have speaker groups.')}
         ${helpTerm('Playing count', 'the number next to Channels in the menu is how many channels are playing.')}` },
+
+    playlists: { title: 'Playlists', html: `
+        <p>A playlist plays themes one after another on a channel.</p>
+        <h4>Each playlist</h4>
+        ${helpTerm('Entry', 'a theme, plus a preset or sequence of that theme if you want one. Without one, the theme plays its default settings.')}
+        ${helpTerm('Arrow', 'shows the entries.')}
+        ${helpTerm('Green dot', 'a channel is playing the playlist now.')}
+        ${helpTerm('Play each', 'every entry plays for a random time in this range (minutes), drawn fresh each time. Then the next entry starts.')}
+        ${helpTerm('In order, Shuffle', 'Shuffle mixes the order on every pass.')}
+        ${helpTerm('Repeat', 'starts over after the last entry. Without it the channel stops after the last entry.')}
+        ${helpTerm('⋯', 'Duplicate and Delete. You confirm a delete first.')}
+        <h4>Editing</h4>
+        ${helpTerm('Sequence entry', 'plays the whole sequence once, then the playlist moves on. Sequences are listed after the presets, marked with the sequence icon.')}
+        ${helpTerm('Fit sequences into the playlist time', 'a sequence entry plays for the playlist\'s time like any other entry, with its steps shortened or lengthened to fit.')}
+        ${helpTerm('Reorder', 'drag an entry, or use its ⋯ menu.')}
+        <h4>Playing one</h4>
+        ${helpTerm('Channel', 'on a channel\'s card, press the playlist button right of the fields and pick the playlist. Next on the card skips to the next entry.')}` },
 
     themes: { title: 'Themes', html: `
         <p>A theme is a set of tracks (sound files) mixed together. Every theme is listed here.</p>
@@ -7529,9 +10033,11 @@ const PAGE_HELP = {
         <h4>Finding lines</h4>
         ${helpTerm('Search', 'shows the lines that contain the text.')}
         ${helpTerm('All, Info, Warnings, Errors', 'the lowest level shown. Warnings shows warnings and errors. All adds debug lines.')}
+        ${helpTerm('Playback', 'only what the channels play: sequence steps, transitions, tracks fading in and out, the mix level.')}
         ${helpTerm('Version line', 'the Sonorium version, install type and log level.')}
         ${helpTerm('Scrolling', 'the list follows new lines until you scroll up.')}
         <h4>Top bar</h4>
+        ${helpTerm('Pause', 'stops the list moving so you can read it. New lines wait and show up on Resume.')}
         ${helpTerm('Copy', 'copies the lines shown to the clipboard.')}
         ${helpTerm('Download', 'saves recent log messages as a text file.')}` },
 

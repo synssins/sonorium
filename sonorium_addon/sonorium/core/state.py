@@ -33,10 +33,11 @@ class NameSource(str, Enum):
 @dataclass
 class CycleConfig:
     """
-    Theme cycling configuration for a session.
-    
-    When enabled, the session will automatically rotate through themes
-    at the specified interval.
+    Theme cycling configuration for a session (retired).
+
+    Replaced by playlists: it is only read from older state files, so
+    core/playlists.migrate_cycling() can turn it into a playlist once.
+    It is no longer saved.
     """
     
     enabled: bool = False
@@ -80,9 +81,8 @@ class SonoriumSettings:
     # Master output gain (0-100, applied to all streams)
     master_gain: int = 60
 
-    # Default cycling settings (applied to new sessions)
-    default_cycle_interval: int = 60  # minutes
-    default_cycle_randomize: bool = False
+    # (default_cycle_interval / default_cycle_randomize were removed with theme
+    # cycling; from_dict drops them from older state files)
 
     # Speaker availability - only speakers switched on in Settings > Speakers are
     # visible/targetable in Sonorium. The list is exact: empty = none switched on.
@@ -307,9 +307,27 @@ class Session:
     # Playback state
     volume: int = 60
     is_playing: bool = False
+    # The speakers' stream is silenced (the speaker button on the card); browsers listening still hear it
+    speakers_muted: bool = False
 
-    # Theme cycling configuration
+    # Theme cycling configuration (retired: read from old state files for
+    # the one-time conversion to a playlist, never saved)
     cycle_config: CycleConfig = field(default_factory=CycleConfig)
+
+    # The sequence this channel runs (an id in its theme's presets.json), or None.
+    # Kept while stopped: playing again starts it from its first preset.
+    sequence_id: Optional[str] = None
+
+    # The playlist this channel plays (state.json "playlists"), or None, and
+    # where it is: playlist_order is the order of entry indexes this round
+    # (shuffled or not), playlist_position the place in that order
+    playlist_id: Optional[str] = None
+    playlist_position: int = 0
+    playlist_order: list[int] = field(default_factory=list)
+
+    # Recent changes shown on the channel's card, oldest first: [{"at": ISO
+    # time (UTC), "text": ...}] (SessionManager.note keeps the last RECENT_EVENTS)
+    recent: list[dict] = field(default_factory=list)
 
     # Metadata
     created_at: str = ""  # ISO format
@@ -331,6 +349,10 @@ class Session:
         # Convert cycle_config from dict if needed
         if isinstance(self.cycle_config, dict):
             self.cycle_config = CycleConfig.from_dict(self.cycle_config)
+
+        # Only well-formed events (from a hand-edited state file, say)
+        self.recent = [{"at": e["at"], "text": e["text"]} for e in (self.recent or [])
+                       if isinstance(e, dict) and isinstance(e.get("at"), str) and isinstance(e.get("text"), str)]
 
         self.entity_slug = self.get_entity_slug()
     
@@ -357,8 +379,8 @@ class Session:
     def to_dict(self) -> dict:
         data = asdict(self)
         data['name_source'] = self.name_source.value
-        # Handle cycle_config separately to avoid nested asdict issues
-        data['cycle_config'] = self.cycle_config.to_dict() if self.cycle_config else None
+        # Theme cycling is retired (converted to a playlist on load)
+        data.pop('cycle_config', None)
         return data
     
     @classmethod
@@ -383,7 +405,13 @@ class SonoriumState:
     settings: SonoriumSettings = field(default_factory=SonoriumSettings)
     speaker_groups: dict[str, SpeakerGroup] = field(default_factory=dict)
     sessions: dict[str, Session] = field(default_factory=dict)
-    
+
+    # Playlists ({playlist_id: data}, see core/playlists.py)
+    playlists: dict[str, dict] = field(default_factory=dict)
+
+    # Channels' theme cycling has been converted to playlists (core/playlists.migrate_cycling)
+    cycling_migrated: bool = False
+
     # Version for future migrations
     version: int = 1
     
@@ -393,6 +421,8 @@ class SonoriumState:
             "settings": self.settings.to_dict(),
             "speaker_groups": {k: v.to_dict() for k, v in self.speaker_groups.items()},
             "sessions": {k: v.to_dict() for k, v in self.sessions.items()},
+            "playlists": {k: dict(v) for k, v in self.playlists.items()},
+            "cycling_migrated": self.cycling_migrated,
         }
     
     @classmethod
@@ -410,6 +440,10 @@ class SonoriumState:
         if "sessions" in data:
             for k, v in data["sessions"].items():
                 state.sessions[k] = Session.from_dict(v)
+
+        if isinstance(data.get("playlists"), dict):
+            state.playlists = {k: dict(v) for k, v in data["playlists"].items() if isinstance(v, dict)}
+        state.cycling_migrated = bool(data.get("cycling_migrated", False))
         
         return state
 
@@ -477,3 +511,7 @@ class StateStore:
     @property
     def speaker_groups(self) -> dict[str, SpeakerGroup]:
         return self.state.speaker_groups
+
+    @property
+    def playlists(self) -> dict[str, dict]:
+        return self.state.playlists

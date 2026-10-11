@@ -1,0 +1,452 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sonorium - Channels page (phone)</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body { margin: 0; }
+
+/* ===== PROPOSED (new CSS): equal-size channel blocks ===== */
+.session-grid.ch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--box-gap, .875rem); align-items: start; }
+.ch-card { display: flex; flex-direction: column; gap: .5rem; height: 404px; box-sizing: border-box; padding: .875rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .625rem; }
+.ch-card.on { border-color: rgba(6, 214, 160, .45); }
+.ch-head { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto auto; align-items: center; column-gap: .5rem; }
+.ch-icon { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; font-size: 1.375rem; }
+.ch-title { display: flex; flex-direction: column; min-width: 0; }
+.ch-name { font-size: .9375rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-sub { font-size: .75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-state { padding: .125rem .5rem; border-radius: 999px; font-size: .6875rem; color: var(--text-muted); background: var(--bg-secondary); }
+.ch-state.on { color: var(--accent-primary); background: rgba(6, 214, 160, .12); }
+/* Theme and Preset (or Playlist and Playing), with the buttons that choose between them */
+.ch-src { display: grid; grid-template-columns: 56px minmax(0, 1fr) 36px; grid-template-rows: 36px 36px; align-items: center; gap: .5rem; }
+.ch-modes { grid-column: 3; grid-row: 1 / 3; display: flex; flex-direction: column; gap: .5rem; }
+.ch-mode { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; border: 1px solid var(--border-color); border-radius: .375rem; background: var(--bg-secondary); color: var(--text-muted); cursor: pointer; }
+.ch-mode:hover { color: var(--text-primary); border-color: var(--accent-secondary); }
+.ch-mode.on { background: rgba(6, 214, 160, .16); border-color: rgba(6, 214, 160, .6); color: var(--accent-primary); }
+.ch-lbl { font-size: .6875rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.ch-pick { width: 100%; min-height: 36px; height: 36px; }
+.ch-pick .nm { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+.ch-pick .seq-ic, .ch-pick .def-star { margin-left: .375rem; }
+.ch-now { display: flex; align-items: center; gap: .5rem; min-height: 32px; padding: 0 .125rem 0 64px; font-size: .8125rem; color: var(--text-secondary); }
+.ch-now-txt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-now b { color: var(--text-primary); font-weight: 600; }
+.ch-none { color: var(--text-muted); }
+.ch-pick .def-star { color: var(--accent-warning); }
+.ch-next svg { margin-right: .25rem; }
+.ch-vol { display: grid; grid-template-columns: 56px minmax(0, 1fr) 40px; align-items: center; column-gap: .5rem; }
+/* Speakers (a mute button) and headphones (this device listens), the same box */
+.ch-vol-ic { display: flex; align-items: center; justify-content: center; box-sizing: border-box; width: 36px; height: 32px; padding: 0; border: 1px solid var(--border-color); border-radius: .375rem; background: var(--bg-secondary); color: var(--text-muted); cursor: pointer; }
+.ch-vol-ic.on { background: rgba(6, 214, 160, .16); border-color: rgba(6, 214, 160, .6); color: var(--accent-primary); }
+.ch-vol-ic.muted { background: rgba(239, 83, 80, .2); border-color: rgba(239, 83, 80, .5); color: #ef5350; }
+.ch-vol-val { font-size: .75rem; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
+.ch-recent { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: .25rem; padding: .5rem .625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; overflow: hidden; }
+.ch-recent-hd { font-size: .6875rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.ch-recent ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .125rem; overflow-y: auto; scrollbar-width: thin; }
+.ch-recent li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .5rem; font-size: .75rem; color: var(--text-secondary); }
+.ch-recent time { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ch-recent li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-foot { display: flex; }
+.ch-play { flex: 1; justify-content: center; min-height: 40px; gap: .375rem; }
+@media (max-width: 760px) {
+    .session-grid.ch-grid { grid-template-columns: minmax(0, 1fr); }
+    .ch-card { height: 472px; }
+    .ch-src { grid-template-columns: 56px minmax(0, 1fr) 44px; grid-template-rows: 44px 44px; }
+    .ch-pick { min-height: 44px; height: 44px; }
+    .ch-mode { width: 44px; height: 44px; }
+    .ch-play { min-height: 44px; }
+    .ch-head .icon-btn.sm { width: 40px; height: 40px; }
+}
+
+</style>
+</helmet>
+<div class="board-page" style="width: 390px; height: 844px; overflow: hidden; background: var(--bg-primary)">
+
+    <!-- Phone: top bar with the menu button; the menu opens below it -->
+    <div class="mobile-topbar">
+        <button type="button" class="icon-btn mobile-nav-btn" id="mobile-nav-btn" aria-label="Menu" aria-expanded="false" aria-controls="sidebar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+        </button>
+        <img id="mobile-topbar-logo" class="mobile-topbar-logo" src="/logo.png" alt="Sonorium">
+        
+    </div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <img id="sidebar-logo-img" src="/logo.png" alt="Sonorium">
+                
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Playback</div>
+                <div class="nav-item active">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="14" width="7" height="7"></rect>
+                        <rect x="3" y="14" width="7" height="7"></rect>
+                    </svg>
+                    <span>Channels</span>
+                    <span id="playing-badge" class="nav-item-badge" style="display: none;">0</span>
+                </div>
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="6" x2="15" y2="6"></line>
+                        <line x1="3" y1="12" x2="15" y2="12"></line>
+                        <line x1="3" y1="18" x2="10" y2="18"></line>
+                        <path d="M21 16V5l-4 1"></path>
+                        <circle cx="18" cy="16" r="3"></circle>
+                    </svg>
+                    <span>Playlists</span>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Configuration</div>
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 18V5l12-2v13"></path>
+                        <circle cx="6" cy="18" r="3"></circle>
+                        <circle cx="18" cy="16" r="3"></circle>
+                    </svg>
+                    <span>Themes</span>
+                </div>
+            </div>
+
+            <div class="nav-section" id="settings-nav-section">
+                <div class="nav-section-header">
+                    <div class="nav-section-left">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                        </svg>
+                        <span>Settings</span>
+                    </div>
+                    <svg class="nav-section-toggle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                </div>
+                <div class="nav-sub-items">
+                    <!-- Standalone (Docker) only: shown when /api/connection exists -->
+                    <div class="nav-sub-item" id="nav-settings-connection" style="">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                        </svg>
+                        <span>Connection</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
+                            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
+                        </svg>
+                        <span>Audio Settings</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                        </svg>
+                        <span>Floors &amp; Areas</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
+                            <circle cx="12" cy="14" r="4"></circle>
+                            <line x1="12" y1="6" x2="12" y2="6"></line>
+                        </svg>
+                        <span>Speakers</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                        </svg>
+                        <span>Speaker Groups</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                            <path d="M2 17l10 5 10-5"></path>
+                            <path d="M2 12l10 5 10-5"></path>
+                        </svg>
+                        <span>Plugins</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="8" y1="13" x2="16" y2="13"></line>
+                            <line x1="8" y1="17" x2="16" y2="17"></line>
+                        </svg>
+                        <span>Logs</span>
+                    </div>
+                    <!-- Shown when this install has features that can be switched on -->
+                    <div class="nav-sub-item" id="nav-settings-advanced" style="display: none;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="4" y1="21" x2="4" y2="14"></line>
+                            <line x1="4" y1="10" x2="4" y2="3"></line>
+                            <line x1="12" y1="21" x2="12" y2="12"></line>
+                            <line x1="12" y1="8" x2="12" y2="3"></line>
+                            <line x1="20" y1="21" x2="20" y2="16"></line>
+                            <line x1="20" y1="12" x2="20" y2="3"></line>
+                            <line x1="1" y1="14" x2="7" y2="14"></line>
+                            <line x1="9" y1="8" x2="15" y2="8"></line>
+                            <line x1="17" y1="16" x2="23" y2="16"></line>
+                        </svg>
+                        <span>Advanced</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">System</div>
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+                    </svg>
+                    <span>Status</span>
+                </div>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <span id="version-text">v1.6.1-dev.14</span><span id="install-label" class="install-label">Docker</span>
+        </div>
+    </aside>
+
+    <!-- Mobile sidebar overlay (click to close) -->
+    <div class="sidebar-overlay"></div>
+
+    <!-- Main Content -->
+    <div class="main-wrapper">
+        <header class="main-header" data-view="sessions">
+            <div class="main-header-title">
+                <h2 id="view-title">Channels</h2><span class="badge badge-type ch-count">3</span>
+            </div>
+            <!-- Page actions (shown on their own page): Primary · Secondary · Cancel -->
+            <div class="header-actions hdr-pacts" data-view="settings-connection">
+                <span id="conn-state" class="sp-foot-state" hidden=""></span>
+                <button type="button" id="conn-save-btn" class="btn btn-primary" aria-haspopup="dialog" disabled="">Save and restart</button>
+                <button type="button" id="conn-cancel-btn" class="btn btn-secondary" disabled="">Cancel</button>
+            </div>
+            <div class="header-actions hdr-pacts" data-view="settings-audio">
+                <span id="audio-state" class="sp-foot-state" hidden=""><span class="sp-mod-dot"></span>Unsaved changes</span>
+                <button type="button" id="audio-save-btn" class="btn btn-primary" disabled="">Save settings</button>
+                <button type="button" id="audio-cancel-btn" class="btn btn-secondary" disabled="">Cancel</button>
+            </div>
+            <!-- Advanced: shown after a change, until the restart -->
+            <div class="header-actions hdr-pacts" data-view="settings-advanced" id="advanced-restart" hidden="">
+                <span class="sp-foot-state spa-note" id="adv-restart-note"></span>
+                <button type="button" class="btn btn-primary" id="adv-restart-btn" aria-haspopup="dialog">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                    Restart now
+                </button>
+            </div>
+            <div class="header-actions" id="view-actions">
+            <button class="btn btn-primary">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                New Channel
+            </button>
+        </div>
+            <!-- Help for the page shown: always the rightmost button -->
+            <button type="button" class="icon-btn sm hdr-help" id="page-help-btn" aria-label="Help" aria-expanded="false" aria-controls="page-help">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            </button>
+        </header>
+
+        <!-- Page help: the Theme Editor's help panel, under the ? button; full screen on a phone (with ×).
+             Title and text are set per page by app.js (PAGE_HELP). -->
+        <div id="page-help" class="te-help page-help" role="dialog" aria-labelledby="page-help-title" hidden="">
+            <div class="te-help-hd">
+                <strong id="page-help-title">Channels</strong>
+                <button class="modal-close te-help-x" aria-label="Close help">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="te-help-body" id="page-help-body">
+        <p>A channel plays one theme on a set of speakers. Each card is one channel.</p>
+        <h4>Each channel</h4>
+        <p class="hi"><b>Theme:</b> the sound the channel plays. Picking another theme also picks that theme's default preset, if it has one.</p>
+        <p class="hi"><b>Preset:</b> a saved mix of the theme's tracks. Default settings plays the theme without a preset.</p>
+        <p class="hi"><b>Sequences:</b> listed in the Preset menu after the presets, marked with the sequence icon. Picking one plays its presets in turn; the line under the field shows the preset playing now and when it changes. Picking a preset stops it.</p>
+        <p class="hi"><b>Playlist:</b> a channel can play a playlist instead of one theme: in Edit, choose Playlist. The card then shows the playlist and the entry playing now.</p>
+        <p class="hi"><b>Next:</b> plays the playlist's next entry now.</p>
+        <p class="hi"><b>Speakers:</b> where the channel plays. Use Edit to change them.</p>
+        <p class="hi"><b>Volume:</b> the channel's volume. It is saved when you let go of the slider.</p>
+        <p class="hi"><b>Play / Pause:</b> starts or stops the channel on its speakers.</p>
+        <p class="hi"><b>Edit:</b> changes the channel's name, theme or playlist, preset, volume and speakers.</p>
+        <p class="hi"><b>Delete:</b> removes the channel. You confirm first.</p>
+        <h4>New channel</h4>
+        <p class="hi"><b>New Channel:</b> makes a channel. Leave the name empty and Sonorium names it after the theme and speakers.</p>
+        <p class="hi"><b>Speakers:</b> pick floors, areas or single speakers. Only speakers turned on under Settings › Speakers are listed.</p>
+        <p class="hi"><b>Speaker group:</b> picks a saved group instead of single speakers. Shown when you have speaker groups.</p>
+        <p class="hi"><b>Playing count:</b> the number next to Channels in the menu is how many channels are playing.</p></div>
+        </div>
+
+        <main class="main-content">
+            <!-- Channels View -->
+            <div id="view-sessions" class="view active">
+                <div id="sessions-container" class="session-grid ch-grid">
+<div class="ch-card on">
+<div class="ch-head"><span class="ch-icon" aria-hidden="true">🌧️</span>
+<div class="ch-title"><span class="ch-name">Channel 1</span><span class="ch-sub" title="Speakers">Office display</span></div>
+<span class="ch-state on">Playing</span>
+<button type="button" class="icon-btn sm" aria-label="Edit Channel 1" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg></button>
+<button type="button" class="icon-btn sm" aria-label="More for Channel 1" aria-haspopup="menu"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg></button></div>
+<div class="ch-src"><span class="ch-lbl">Theme</span><button type="button" class="psel-btn ch-pick" aria-label="Theme: A Rainy Day... Or is it?"><span class="nm">A Rainy Day... Or is it?</span><span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></span></button><span class="ch-lbl">Preset</span><button type="button" class="psel-btn ch-pick" aria-label="Preset: Storm builds"><span class="nm">Storm builds</span><span class="seq-ic" title="Sequence"><svg class="seqsh" width="21" height="12" viewBox="0 0 28 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"></rect><path d="M10.5 9.5 14 2.5 17.5 9.5Z"></path><circle cx="23" cy="6" r="3.5"></circle></svg></span><span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></span></button><div class="ch-modes" role="group" aria-label="What Channel 1 plays"><button type="button" class="ch-mode on" aria-pressed="true" title="Play a theme" aria-label="Play a theme"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a10 10 0 0 0 0 20c1.1 0 1.8-.9 1.8-1.9 0-.5-.2-.9-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a5 5 0 0 0 5-5C22 6 17.5 2 12 2z"></path><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"></circle><circle cx="10.5" cy="6.5" r="1.2" fill="currentColor"></circle><circle cx="15.5" cy="7" r="1.2" fill="currentColor"></circle></svg></button><button type="button" class="ch-mode" aria-pressed="false" title="Play a playlist" aria-label="Play a playlist"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="15" y2="6"></line><line x1="3" y1="12" x2="15" y2="12"></line><line x1="3" y1="18" x2="10" y2="18"></line><path d="M21 16V5l-4 1"></path><circle cx="18" cy="16" r="3"></circle></svg></button></div></div>
+<div class="ch-now"><span class="ch-now-txt">Step 2 of 2: <b>OH S***</b> · next in 3:12</span><button type="button" class="btn btn-sm btn-secondary ch-next" title="Next step"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="13 17 18 12 13 7"></polyline><polyline points="6 17 11 12 6 7"></polyline></svg>Next</button></div>
+<div class="ch-vol" title="Volume on the speakers"><button type="button" class="ch-vol-ic ch-mute on" aria-pressed="false" title="Mute the speakers"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg></button><input type="range" class="track-slider" min="0" max="100" value="69" aria-label="Volume: Channel 1"><span class="ch-vol-val">69%</span></div>
+<div class="ch-vol ch-local"><button type="button" class="ch-vol-ic ch-listen on" aria-pressed="true" title="Listen on this device"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg></button><input type="range" class="track-slider" min="0" max="100" value="35" aria-label="Volume on this device: Channel 1" title="Volume on this device"><span class="ch-vol-val">35%</span></div>
+<div class="ch-recent"><div class="ch-recent-hd">Recent changes</div><ul><li><time>22:51</time><span>Step 2 of 2: OH S***</span></li><li><time>22:46</time><span>Step 1 of 2: Mild Summer Storm</span></li><li><time>22:46</time><span>Started: Storm builds</span></li></ul></div>
+<div class="ch-foot"><button type="button" class="btn btn-danger ch-play"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"></rect></svg>Stop</button></div>
+</div>
+<div class="ch-card">
+<div class="ch-head"><span class="ch-icon" aria-hidden="true">🍺</span>
+<div class="ch-title"><span class="ch-name">Kitchen</span><span class="ch-sub" title="Speakers">Kitchen speaker</span></div>
+<span class="ch-state">Stopped</span>
+<button type="button" class="icon-btn sm" aria-label="Edit Kitchen" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg></button>
+<button type="button" class="icon-btn sm" aria-label="More for Kitchen" aria-haspopup="menu"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg></button></div>
+<div class="ch-src"><span class="ch-lbl">Theme</span><button type="button" class="psel-btn ch-pick" aria-label="Theme: Tavern"><span class="nm">Tavern</span><span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></span></button><span class="ch-lbl">Preset</span><button type="button" class="psel-btn ch-pick" aria-label="Preset: Busy night"><span class="nm">Busy night</span><span class="def-star" title="Default preset">★</span><span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></span></button><div class="ch-modes" role="group" aria-label="What Kitchen plays"><button type="button" class="ch-mode on" aria-pressed="true" title="Play a theme" aria-label="Play a theme"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a10 10 0 0 0 0 20c1.1 0 1.8-.9 1.8-1.9 0-.5-.2-.9-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a5 5 0 0 0 5-5C22 6 17.5 2 12 2z"></path><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"></circle><circle cx="10.5" cy="6.5" r="1.2" fill="currentColor"></circle><circle cx="15.5" cy="7" r="1.2" fill="currentColor"></circle></svg></button><button type="button" class="ch-mode" aria-pressed="false" title="Play a playlist" aria-label="Play a playlist"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="15" y2="6"></line><line x1="3" y1="12" x2="15" y2="12"></line><line x1="3" y1="18" x2="10" y2="18"></line><path d="M21 16V5l-4 1"></path><circle cx="18" cy="16" r="3"></circle></svg></button></div></div>
+<div class="ch-now"><span class="ch-now-txt"><span class="ch-none">No sequence or playlist</span></span></div>
+<div class="ch-vol" title="Volume on the speakers"><button type="button" class="ch-vol-ic ch-mute" aria-pressed="false" title="Mute the speakers"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg></button><input type="range" class="track-slider" min="0" max="100" value="40" aria-label="Volume: Kitchen"><span class="ch-vol-val">40%</span></div>
+<div class="ch-vol ch-local"><button type="button" class="ch-vol-ic ch-listen" aria-pressed="false" title="Listen on this device"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg></button><input type="range" class="track-slider" min="0" max="100" value="100" aria-label="Volume on this device: Kitchen" title="Volume on this device"><span class="ch-vol-val">100%</span></div>
+<div class="ch-recent"><div class="ch-recent-hd">Recent changes</div><ul><li><time>Yesterday 21:30</time><span>Stopped</span></li><li><time>Yesterday 19:02</time><span>Preset: Busy night</span></li><li><time>Yesterday 19:00</time><span>Started</span></li></ul></div>
+<div class="ch-foot"><button type="button" class="btn btn-primary ch-play"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>Play</button></div>
+</div>
+<div class="ch-card on">
+<div class="ch-head"><span class="ch-icon" aria-hidden="true">🐸</span>
+<div class="ch-title"><span class="ch-name">Porch</span><span class="ch-sub" title="Speakers">Porch speakers (2)</span></div>
+<span class="ch-state on">Playing</span>
+<button type="button" class="icon-btn sm" aria-label="Edit Porch" title="Edit"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg></button>
+<button type="button" class="icon-btn sm" aria-label="More for Porch" aria-haspopup="menu"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg></button></div>
+<div class="ch-src"><span class="ch-lbl">Playlist</span><button type="button" class="psel-btn ch-pick" aria-label="Playlist: Evening"><span class="nm">Evening</span><span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></span></button><span class="ch-lbl">Playing</span><button type="button" class="psel-btn ch-pick" aria-label="Playing: Primeval Forest · Dusk"><span class="nm">Primeval Forest · Dusk</span><span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></span></button><div class="ch-modes" role="group" aria-label="What Porch plays"><button type="button" class="ch-mode" aria-pressed="false" title="Play a theme" aria-label="Play a theme"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a10 10 0 0 0 0 20c1.1 0 1.8-.9 1.8-1.9 0-.5-.2-.9-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a5 5 0 0 0 5-5C22 6 17.5 2 12 2z"></path><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"></circle><circle cx="10.5" cy="6.5" r="1.2" fill="currentColor"></circle><circle cx="15.5" cy="7" r="1.2" fill="currentColor"></circle></svg></button><button type="button" class="ch-mode on" aria-pressed="true" title="Play a playlist" aria-label="Play a playlist"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="15" y2="6"></line><line x1="3" y1="12" x2="15" y2="12"></line><line x1="3" y1="18" x2="10" y2="18"></line><path d="M21 16V5l-4 1"></path><circle cx="18" cy="16" r="3"></circle></svg></button></div></div>
+<div class="ch-now"><span class="ch-now-txt">Entry 2 of 5 · next in 12:40</span><button type="button" class="btn btn-sm btn-secondary ch-next" title="Next step"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="13 17 18 12 13 7"></polyline><polyline points="6 17 11 12 6 7"></polyline></svg>Next</button></div>
+<div class="ch-vol" title="Volume on the speakers"><button type="button" class="ch-vol-ic ch-mute muted" aria-pressed="true" title="Unmute the speakers"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><line x1="3" y1="3" x2="21" y2="21"></line></svg></button><input type="range" class="track-slider" min="0" max="100" value="55" aria-label="Volume: Porch"><span class="ch-vol-val">55%</span></div>
+<div class="ch-vol ch-local"><button type="button" class="ch-vol-ic ch-listen" aria-pressed="false" title="Listen on this device"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg></button><input type="range" class="track-slider" min="0" max="100" value="100" aria-label="Volume on this device: Porch" title="Volume on this device"><span class="ch-vol-val">100%</span></div>
+<div class="ch-recent"><div class="ch-recent-hd">Recent changes</div><ul><li><time>22:41</time><span>Speakers muted</span></li><li><time>22:38</time><span>Entry 2 of 5: Primeval Forest</span></li><li><time>22:08</time><span>Started: Evening</span></li></ul></div>
+<div class="ch-foot"><button type="button" class="btn btn-danger ch-play"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"></rect></svg>Stop</button></div>
+</div>
+</div>
+            </div>
+
+            <!-- Playlists: column headers fixed, the playlist list scrolls (pl* in app.js) -->
+            
+
+            <!-- Themes View: fixed search/filter bar; only #themes-browser scrolls.
+                 Chips, cards/rows and menus are rendered by app.js (tp* functions). -->
+            
+
+            <!-- Theme Edit Modal: fixed top and footer; only the track list scrolls.
+                 Track rows, chips, presets and menus are rendered by app.js (te* functions). -->
+            
+
+            <!-- Add from another theme: link files into an intrusion group. Step 1 picks a theme,
+                 step 2 ticks its tracks (read-only). Rendered by pk* in app.js. -->
+            
+
+            <!-- Manage categories (from the Themes page ⋯ menu) -->
+            
+
+            <!-- Preset Import Modal -->
+            
+
+            <!-- Preset Export Modal -->
+            
+
+            <!-- Settings View -->
+            <!-- Settings View (legacy - redirects to audio settings) -->
+            
+
+            <!-- Connection (standalone/Docker only): identical cards, Save and restart / Cancel in the top bar -->
+            
+
+            <!-- Audio Settings: one card, aligned columns; Save settings / Cancel in the top bar -->
+            
+
+            <!-- Floors & Areas Settings View -->
+            
+
+            <!-- Speakers: toolbar and column headers fixed, speakers by area scroll -->
+            
+
+            <!-- Speaker Groups: column headers fixed, the group list scrolls -->
+            
+
+            <!-- Plugins: Installed / Catalog and column headers fixed, the list scrolls -->
+            
+
+            <!-- Logs Settings View (filled by logs.js) -->
+            
+
+            <!-- Advanced: features this install has off by default; Restart now in the top bar after a change -->
+            
+
+            <!-- Status: tiles and list headers fixed, the channel list scrolls -->
+            
+        </main>
+    </div>
+
+    <!-- New/Edit Channel Modal: two columns on desktop, a full-screen sheet on phones -->
+    
+
+    <!-- Sequence editor (over the Theme Editor): name, timing and the order fixed; the preset list scrolls (sq* in app.js) -->
+    
+
+    <!-- Sequence step: Advanced transitions (over the sequence editor): header, tabs and column heads fixed, the tracks scroll (tx* in app.js) -->
+    
+
+    <!-- Playlist editor: name and options fixed, the entries scroll (pl* in app.js) -->
+    
+
+    <!-- Add Speaker Modal (standalone only) -->
+    <!-- Add floor / Add area (Settings > Floors & Areas) -->
+    
+
+    <!-- Add speaker (standalone only): one card wide; related fields share a row -->
+    
+
+    <!-- New / Edit speaker group: name and column headers fixed, the speaker tree scrolls -->
+    
+
+    <!-- Plugin requirements (Plugins page ⋯ menu) -->
+    
+
+    <!-- Settings pages: one floating menu / "Are you sure?" popover -->
+    <div class="te-pop" id="sp-menu" hidden=""></div>
+
+    <!-- Toast Container -->
+    
+
+    <!-- JavaScript - dynamically loaded for ingress support -->
+    
+
+
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

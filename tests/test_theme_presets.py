@@ -299,3 +299,73 @@ def test_a_new_empty_theme_is_loaded(mods, tmp_path):
     themes = manager.scan_themes()
     assert list(themes) == ["camp"]
     assert manager.get_folder_for_id("camp") == tmp_path / "Camping"
+
+
+def test_ebb_flow_interval_becomes_duration_once(mods, tmp_path):
+    """Higher used to mean quicker; Duration's higher means longer: Ebb & Flow values flip, once."""
+    metadata = {
+        "spec_version": 2, "id": "theme-2", "name": "Storm",
+        "groups": {"Wind": {"mode": "ebb_flow"}},
+        "tracks": {"Rain": {"presence": 0.7, "playback_mode": "presence"},
+                   "Birds": {"presence": 0.7, "playback_mode": "sparse"},
+                   "Wind/Gust": {"presence": 0.25, "playback_mode": "auto"}},
+    }
+    presets = {"spec_version": 2, "presets": {"heavy": {"name": "Heavy", "tracks": {
+        "Rain": {"presence": 0.9, "playback_mode": "presence"}, "Birds": {"presence": 0.9, "playback_mode": "sparse"},
+        "Wind/Gust": {"presence": 0.6}}}}}
+    folder = make_theme(tmp_path, name="Storm", metadata=metadata, presets_json=presets)
+    loaded = mods.meta.load_theme_folder(folder)
+    assert loaded.tracks["Rain"].presence == pytest.approx(0.3)
+    assert loaded.tracks["Birds"].presence == pytest.approx(0.7)  # Intermittent: unchanged
+    assert loaded.tracks["Wind/Gust"].presence == pytest.approx(0.75)  # in an Ebb & Flow group
+    heavy = loaded.presets["heavy"]["tracks"]
+    assert heavy["Rain"]["presence"] == pytest.approx(0.1) and heavy["Birds"]["presence"] == pytest.approx(0.9)
+    assert heavy["Wind/Gust"]["presence"] == pytest.approx(0.4)
+    # Saved, marked, and the originals kept
+    assert read(folder / "metadata.json")["ebb_duration"] is True
+    assert read(folder / "presets.json")["presets"]["heavy"]["tracks"]["Rain"]["presence"] == pytest.approx(0.1)
+    assert read(folder / "metadata.json.pre-duration.bak")["tracks"]["Rain"]["presence"] == 0.7
+    assert (folder / "presets.json.pre-duration.bak").exists()
+    # Loading again changes nothing
+    again = mods.meta.load_theme_folder(folder)
+    assert again.tracks["Rain"].presence == pytest.approx(0.3) and again.presets["heavy"]["tracks"]["Rain"]["presence"] == pytest.approx(0.1)
+
+
+def test_a_sequence_steps_while_playing_layer_goes_over_the_preset(mods):
+    """null keeps the preset's value; only the running sequence's step uses it."""
+    import importlib
+    core = sys.modules["sonorium.core"]
+    core.__path__ = [str(Path(__file__).resolve().parents[1] / "sonorium_addon" / "sonorium" / "core")]
+    seq_mod = importlib.import_module("sonorium.core.sequences")
+    layer = seq_mod.clean_step_while({"tracks": {"Wind": {"volume_low": 0.05, "presence": 0.1, "rise": 0.9, "muted": None}},
+                                      "groups": {"Thunder": {"gap_min": 30, "gap_max": 90}}})
+    assert layer["tracks"]["Wind"] == {"volume": None, "volume_low": 0.05, "presence": 0.1, "muted": None, "rise": 0.9,
+                                       "pause_between": None, "pause_min": None, "pause_max": None}  # every field, null = the preset's
+    preset = {"tracks": {"Wind": {"volume": 1.0, "volume_low": 0.2, "presence": 0.6, "muted": False}},
+              "groups": {"Thunder": {"gap_min": 60, "gap_max": 180, "volume": 0.8}}}
+    merged = seq_mod.merge_step(preset, layer)
+    assert merged["tracks"]["Wind"] == {"volume": 1.0, "volume_low": 0.05, "presence": 0.1, "muted": False, "rise": 0.9}
+    assert merged["groups"]["Thunder"] == {"gap_min": 30.0, "gap_max": 90.0, "volume": 0.8}
+    assert preset["tracks"]["Wind"]["presence"] == 0.6  # the preset itself is untouched
+    with pytest.raises(seq_mod.SequenceError):
+        seq_mod.clean_step_while({"tracks": {"Wind": {"loudness": 1}}})
+    with pytest.raises(seq_mod.SequenceError):
+        seq_mod.clean_step_while({"tracks": {"Wind": {"muted": "yes"}}})
+    # Stored in the sequence; a preset taken out of it drops its layer
+    sequence = seq_mod.set_step_while({"name": "Storm", "presets": ["mild", "ohs"]}, "ohs", layer)
+    assert seq_mod.step_while(sequence, "ohs")["tracks"]["Wind"]["rise"] == 0.9
+    assert "while" not in seq_mod.clean_sequence({"presets": ["mild"]}, ["mild", "ohs"], sequence)
+
+    # The channel: the step's values while that sequence plays that step, the preset alone otherwise
+    pytest.importorskip("numpy")
+    pytest.importorskip("av")
+    from test_crossfade_loop import recording
+    sys.modules["sonorium.recording"] = recording  # the fixture puts sys.modules back afterwards
+    manager = object.__new__(mods.session.SessionManager)
+    manager._theme_presets = lambda theme_id: {"ohs": preset}
+    manager.runner = SimpleNamespace(sequence=lambda t, s: {"while": {"ohs": layer}} if s == "storm" else None)
+    running = SimpleNamespace(theme_id="t", preset_id="ohs", sequence_id="storm")
+    assert manager.session_overrides(running)["Wind"]["presence"] == 0.1
+    by_hand = SimpleNamespace(theme_id="t", preset_id="ohs", sequence_id=None)
+    assert manager.session_overrides(by_hand)["Wind"]["presence"] == 0.6
+

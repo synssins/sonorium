@@ -61,6 +61,16 @@
                     <span>Channels</span>
                     <span id="playing-badge" class="nav-item-badge" style="display: none;">0</span>
                 </div>
+                <div class="nav-item" onclick="showView('playlists')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="6" x2="15" y2="6"/>
+                        <line x1="3" y1="12" x2="15" y2="12"/>
+                        <line x1="3" y1="18" x2="10" y2="18"/>
+                        <path d="M21 16V5l-4 1"/>
+                        <circle cx="18" cy="16" r="3"/>
+                    </svg>
+                    <span>Playlists</span>
+                </div>
             </div>
 
             <div class="nav-section">
@@ -237,11 +247,21 @@
         <main class="main-content">
             <!-- Channels View -->
             <div id="view-sessions" class="view active">
-                <div id="sessions-container" class="session-grid">
+                <div id="sessions-container" class="session-grid ch-grid">
                     <div class="loading">
                         <div class="spinner"></div>
                         Loading channels...
                     </div>
+                </div>
+            </div>
+
+            <!-- Playlists: column headers fixed, the playlist list scrolls (pl* in app.js) -->
+            <div id="view-playlists" class="view sp sp-ui">
+                <div class="sp-bar sp-bar-head" id="pll-bar" hidden>
+                    <div class="sp-wrap"><div class="sp-lhead pll-grid"><span></span><span>Name</span><span class="c">Entries</span><span>Order</span><span>Play each</span><span class="c">Repeat</span><span></span><span></span></div></div>
+                </div>
+                <div class="sp-scroll">
+                    <div class="sp-wrap" id="playlists-list"></div>
                 </div>
             </div>
 
@@ -337,33 +357,103 @@
                             </button>
                         </div>
                         <div class="te-help-body">
-                            <p>A theme is a set of tracks (sound files) mixed together. Each track has a <b>mode</b>, a <b>volume</b> and an <b>interval</b>.</p>
-                            <h4>Modes</h4>
-                            <p class="hi"><b>Background:</b> plays all the time, looping smoothly. Rain, wind, a fire.</p>
-                            <p class="hi"><b>Intermittent:</b> plays once, then goes quiet before playing again. <i>Interval</i> sets the wait. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.</p>
-                            <p class="hi"><b>Ebb &amp; Flow:</b> fades in, plays a while, fades out, then stays quiet before coming back. <i>Interval</i> sets how much of the time it's heard. Distant traffic, a passing crowd.</p>
-                            <p class="hi"><b>Auto:</b> picks for you. Under 15 seconds plays Intermittent, longer plays Ebb &amp; Flow. At 100% <i>interval</i>, either plays as Background.</p>
-                            <h4>Groups</h4>
-                            <p class="hi"><b>Take turns:</b> a group is a folder of tracks. In an Intermittent group only one plays at a time, never overlapping. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.</p>
-                            <p class="hi"><b>Group mode:</b> Intermittent plays one track at a time with a gap; Merry-go-round makes a continuous bed.</p>
-                            <p class="hi"><b>Gap:</b> after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other.</p>
-                            <p class="hi"><b>Intermittent group:</b> on its turn, a track plays its whole file once, start to finish, then hands over. Background and Ebb &amp; Flow are for the ambience outside groups.</p>
-                            <p class="hi"><b>Merry-go-round:</b> one file plays, then crossfades into another picked at random, never the same one twice in a row. Crossfade sets the overlap. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.</p>
-                            <p class="hi"><b>Weight:</b> each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.</p>
-                            <p class="hi"><b>Interval:</b> how fast a track's weight wears off. Higher comes back sooner; lower plays less often.</p>
-                            <p class="hi"><b>Group volume, interval, mute:</b> scale every track in the group.</p>
+                            <p>A theme is a set of tracks (sound files) mixed together. This help follows the editor from top to bottom.</p>
+                            <h4>Tracks</h4>
+                            <p class="hi"><b>Sequences:</b> Lists this theme's sequences. Pick one to edit it, or Add sequence.</p>
+                            <p class="hi"><b>Preview mix:</b> Plays the mix in this browser.</p>
+                            <p class="hi"><b>Upload:</b> Uploads to Unassigned, or to the group you pick.</p>
+                            <p class="hi"><b>Add from another theme:</b> Links files from another theme.</p>
+                            <p class="hi"><b>Reset all:</b> Resets every track and group to defaults.</p>
+                            <h4>Sections</h4>
+                            <p class="hi"><b>Sections:</b> tracks sit in sections by how they play: Background, Intermittent and Ebb &amp; Flow. Every section is always there, even empty. Change a track's Mode, or drag it to another section or into a group in one, and it moves there and plays that way. A track in a group plays its group's way: drag it out to change it.</p>
+                            <p class="hi"><b>Groups:</b> a group belongs to its section and plays that section's way: Background groups are Merry-go-round, Intermittent groups take turns, Ebb &amp; Flow groups play every file at once. Make one with the section's New group.</p>
                             <p class="hi"><b>Moving tracks:</b> drag a track onto a group, or use its ⋯ menu.</p>
-                            <p class="hi"><b>Deleting a group:</b> keeps its files; they move back into the theme.</p>
-                            <h4>Intrusions</h4>
-                            <p class="hi"><b>Intrusion group:</b> a group in Intrusion mode, marked <span class="int-ic" role="img" aria-label="link icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg></span>. Its tracks keep their own mode and settings, and it can hold files linked from other themes.</p>
-                            <p class="hi"><b>Linked file:</b> plays here but stays in its own theme. Add one with the group's ⋯ › Add from another theme. New links start muted. If the file is gone, it shows Missing.</p>
-                            <p class="hi"><b>Presets:</b> turn intrusion tracks on and other tracks off, like rain that mutes the crickets. A preset that turns intrusion tracks on shows <span class="int-ic" role="img" aria-label="two circles icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg></span>.</p>
-                            <h4>Saving</h4>
+                            <h4>Unassigned</h4>
+                            <p class="hi"><b>Unassigned:</b> uploads and files added from another theme start here. Nothing here plays. Pick each file's Mode, or drag it into a section or a group.</p>
+                            <h4>Background</h4>
+                            <p class="hi"><b>Background:</b> plays all the time, looping smoothly. Rain, wind, a fire.</p>
+                            <h5>Track</h5>
+                            <p class="hi lv2"><b>Gapless:</b> in the track's ⋯ menu, outside groups. Loops without a crossfade.</p>
+                            <h5>Merry-go-round group</h5>
+                            <p class="hi lv2"><b>Merry-go-round:</b> one file plays, then crossfades into another picked at random, never the same one twice in a row. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.</p>
+                            <p class="hi lv2"><b>Crossfade:</b> under the group's name. Overlap between files (seconds).</p>
+                            <p class="hi lv2"><b>Volume, Mute:</b> apply to every track in the group.</p>
+                            <h4>Intermittent</h4>
+                            <p class="hi"><b>Intermittent:</b> plays once, then goes quiet before playing again. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.</p>
+                            <h5>Track</h5>
+                            <p class="hi lv2"><b>Interval:</b> the wait between plays. In a group, how fast its weight wears off. Higher comes back sooner; lower plays less often.</p>
+                            <h5>Intermittent group</h5>
+                            <p class="hi lv2"><b>Take turns:</b> only one track plays at a time, never overlapping. On its turn, a track plays its whole file once, start to finish, then hands over. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.</p>
+                            <p class="hi lv2"><b>Gap:</b> under the group's name: after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other. Presets keep their own Gap.</p>
+                            <p class="hi lv2"><b>Weight:</b> each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.</p>
+                            <p class="hi lv2"><b>Volume, Interval, Mute:</b> apply to every track in the group.</p>
+                            <h4>Ebb &amp; Flow</h4>
+                            <p class="hi"><b>Ebb &amp; Flow:</b> Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. Wind, surf, rain that gusts.</p>
+                            <h5>Track</h5>
+                            <p class="hi lv2"><b>Volume:</b> minimum and maximum volume.</p>
+                            <p class="hi lv2"><b>Duration:</b> increases or decreases the amount of time the track is at a value.</p>
+                            <h6>Its ⋯ menu</h6>
+                            <p class="hi lv3"><b>Rise:</b> increases or decreases the speed at which the track reaches that value.</p>
+                            <p class="hi lv3"><b>Pause between plays:</b> off, the file loops and is always heard. On, it plays once from start to finish, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.</p>
+                            <p class="hi lv3"><b>Pause:</b> how long it stays quiet, in seconds, picked at random between the two numbers each time (600 is 10 minutes). It also staggers when tracks first start, so they don't all begin together.</p>
+                            <h5>Ebb &amp; Flow group</h5>
+                            <p class="hi lv2"><b>Ebb &amp; Flow group:</b> every file plays at once, each between its own minimum and maximum volume. Each file keeps its own settings; the group's Volume and Duration scale them down.</p>
+                            <p class="hi lv2"><b>Pause between plays:</b> under the group's name. On, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its own Pause between plays.</p>
+                            <p class="hi lv2"><b>Volume, Duration, Mute:</b> apply to every track in the group.</p>
+                            <h6>Its ⋯ menu</h6>
+                            <p class="hi lv3"><b>Same Rise for every file:</b> one Rise for the whole group instead of each file's own.</p>
+                            <h4>A track's ⋯ menu</h4>
+                            <p class="hi"><b>Fade in / Fade out:</b> for a file that starts or ends abruptly. Set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.</p>
+                            <p class="hi"><b>Move to:</b> Unassigned, or a group.</p>
+                            <p class="hi"><b>New group:</b> Creates a group in this section with the track in it.</p>
+                            <p class="hi"><b>Reset track:</b> Resets the track to defaults.</p>
+                            <h4>A group's ⋯ menu</h4>
+                            <p class="hi"><b>Rename:</b> also by double-clicking the group name.</p>
+                            <p class="hi"><b>Delete group:</b> keeps its files; they move back into its section.</p>
+                            <h4>Files from another theme</h4>
+                            <p class="hi"><b>Linked file:</b> plays here but stays in its own theme. Add one with Add from another theme above the list; it starts in Unassigned, and can go anywhere your own files can. If the file is gone, it shows Missing.</p>
+                            <p class="hi"><b>Presets:</b> turn linked files on and other tracks off, like rain that mutes the crickets. A preset that turns a linked file on shows <span class="int-ic" role="img" aria-label="two circles icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg></span>.</p>
+                            <p class="hi"><b>Remove link:</b> in a linked file's ⋯ menu. The file stays in its own theme.</p>
+                            <h4>Sequences</h4>
+                            <p class="hi"><b>Sequence:</b> plays presets of this theme in the order you choose, gliding from one to the next. Marked <span class="seq-ic" role="img" aria-label="sequence icon"><svg class="seqsh" width="18" height="10" viewBox="0 0 28 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"/><path d="M10.5 9.5 14 2.5 17.5 9.5Z"/><circle cx="23" cy="6" r="3.5"/></svg></span>.</p>
+                            <p class="hi"><b>Picking one:</b> preset lists show the sequences after the presets. Picking a preset by hand stops a running sequence.</p>
+                            <p class="hi"><b>Edit:</b> pick a sequence in the preset field below, then Edit.</p>
+                            <h5>Edit sequence</h5>
+                            <p class="hi lv2"><b>Time on each preset:</b> each preset plays for a random time in this range (minutes), drawn fresh each time.</p>
+                            <p class="hi lv2"><b>Ramp:</b> how long the glide to the next preset takes (seconds).</p>
+                            <p class="hi lv2"><b>At the end:</b> Reverse plays the list backwards, Start again goes back to the first preset, Stop stays on the last one.</p>
+                            <p class="hi lv2"><b>Order:</b> drag a preset, or use its ⋯ menu.</p>
+                            <p class="hi lv2"><b>Theme defaults:</b> empty fields use the theme's time and ramp, set at the bottom of the Sequences menu.</p>
+                            <p class="hi lv2"><b>Save:</b> saves the sequence at once. Every channel playing this theme can pick it.</p>
+                            <h5>A step: ⋯ › Advanced</h5>
+                            <p class="hi lv2"><b>While playing:</b> changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green; anything you don't change follows the preset.</p>
+                            <p class="hi lv2"><b>Revert changes:</b> puts back the settings as they were when Save was last pressed.</p>
+                            <p class="hi lv2"><b>Coming in / Leaving:</b> tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.</p>
+                            <h6>Coming in and Leaving</h6>
+                            <p class="hi lv3"><b>Smooth:</b> no button on. The track follows the sequence's ramp.</p>
+                            <p class="hi lv3"><b>Buttons:</b> click to turn a style on, click again to turn it off. Each style that's on shows its own setting under Setting.</p>
+                            <p class="hi lv3"><b>Pre-fade:</b> starts the change this many seconds before the step.</p>
+                            <p class="hi lv3"><b>Gusts / Gusts dying down:</b> rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.</p>
+                            <p class="hi lv3"><b>Swell / Smooth fade:</b> one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.</p>
+                            <p class="hi lv3"><b>Build / Thin out:</b> Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.</p>
+                            <p class="hi lv3"><b>Distance / Recede:</b> starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.</p>
+                            <p class="hi lv3"><b>Start fresh / Finish then stop:</b> plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.</p>
+                            <p class="hi lv3"><b>Preview:</b> ▶ plays that track's change on this device and follows your edits.</p>
+                            <p class="hi lv3"><b>File fades:</b> a file's own Fade in and Fade out apply on top of every style.</p>
+                            <p class="hi lv3"><b>Combining styles:</b> several styles can be on together. They all work over the same fade time (pre-fade plus ramp). For example:</p>
+                            <p class="hi ex lv3"><b>Gusts + Distance:</b> wind starts far off and muffled, and surges unevenly as it comes closer.</p>
+                            <p class="hi ex lv3"><b>Gusts + Swell:</b> the surges ride on one curved rise instead of a steady one.</p>
+                            <p class="hi ex lv3"><b>Gusts + Start fresh:</b> the file plays from its start and rises in uneven surges.</p>
+                            <p class="hi ex lv3"><b>Build + Distance:</b> thunder comes more often and louder as it moves from far off to close.</p>
+                            <p class="hi ex lv3"><b>Thin out + Recede:</b> thunder comes less often and quieter as it drifts away.</p>
+                            <p class="hi ex lv3"><b>Smooth fade + Finish then stop:</b> fades out over the fade time; if the current play ends first, it stops there with a short fade.</p>
+                            <h4>Presets and saving</h4>
                             <p class="hi"><b>Live:</b> changes are heard on speakers playing this theme, and on this device with Preview mix.</p>
-                            <p class="hi"><b>Cancel:</b> Reverts unsaved changes.</p>
+                            <p class="hi"><b>Preset:</b> the loaded preset. Current settings is the theme without one.</p>
+                            <p class="hi"><b>New:</b> makes a new preset from the current mix.</p>
                             <p class="hi"><b>Save Preset:</b> Saves loaded preset</p>
                             <p class="hi"><b>Save Theme:</b> Saves theme with all changes (presets, name, etc) Required after saving a preset.</p>
-                            <p class="hi"><b>New:</b> makes a new preset from the current mix.</p>
+                            <p class="hi"><b>Cancel:</b> Reverts unsaved changes.</p>
                         </div>
                     </div>
 
@@ -394,12 +484,12 @@
                         </div>
                     </div>
 
-                    <!-- Fixed: tracks toolbar + column headers -->
+                    <!-- Fixed: tracks toolbar (each section has its own column headings) -->
                     <div class="tfix">
                         <div class="tsec-head">
                             <h3>Tracks</h3><span class="badge badge-type" id="te-track-count">0</span>
                             <button class="btn btn-sm btn-secondary seq-btn" aria-haspopup="menu" onclick="teMenu('seq', this)">
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><polyline points="3 5 4 6 3 7"/><polyline points="3 11 4 12 3 13"/><polyline points="3 17 4 18 3 19"/></svg>Sequences<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+                                <span class="seq-ic"><svg class="seqsh" width="21" height="12" viewBox="0 0 28 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"/><path d="M10.5 9.5 14 2.5 17.5 9.5Z"/><circle cx="23" cy="6" r="3.5"/></svg></span>Sequences<span class="badge badge-type seq-n" id="te-seq-n">0</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                             </button>
                             <button class="btn btn-sm btn-secondary te-mix-btn" id="te-mix-btn" aria-pressed="false" onclick="teToggleMixPreview()"
                                     title="Play the whole theme on this device, with your changes, without changing the speakers">
@@ -410,11 +500,8 @@
                                 <button class="btn btn-sm btn-secondary" aria-haspopup="menu" onclick="teMenu('upload', this)">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>Upload<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
                                 </button>
-                                <button class="btn btn-sm btn-secondary" id="te-newgroup-btn" onclick="teNewGroup()">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8l-2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>New group
-                                </button>
-                                <button class="btn btn-sm btn-secondary" id="te-intrusion-btn" onclick="teAddIntrusion()">
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Add intrusion
+                                <button class="btn btn-sm btn-secondary" onclick="pkOpen()">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>Add from another theme
                                 </button>
                                 <button class="btn btn-sm btn-secondary" aria-haspopup="dialog" onclick="teMenu('reset', this)">
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>Reset all
@@ -434,10 +521,9 @@
                         </div>
                         <input type="file" id="te-upload-input" multiple accept=".mp3,.wav,.flac,.ogg,audio/*" hidden
                                onchange="teUploadFiles(this.files); this.value = ''">
-                        <div class="thead-wrap"><div class="thead tgrid"><span></span><span></span><span>Name</span><span>Mode</span><span>Volume</span><span>Interval</span><span class="c">Mute</span><span></span></div></div>
                     </div>
 
-                    <!-- Scrolls: the track list only -->
+                    <!-- Scrolls: the track list only, in sections by playback type (teRenderTracks) -->
                     <div class="modal-body tlist" id="te-tracks" onscroll="teCloseMenu()" aria-label="Tracks"></div>
 
                     <!-- Footer: preset field on the left, save actions on the right -->
@@ -457,8 +543,8 @@
                             <span class="dirty" id="te-dirty" hidden><i></i>Mix changed</span>
                         </span>
                         <div class="foot-btns">
-                            <button class="btn btn-primary save-btn" title="Save theme" onclick="teSaveAndClose()">Save theme<span class="sdot" id="te-sdot" title="Unsaved changes" hidden></span></button>
                             <button class="btn btn-secondary" id="te-savepreset-btn" title="Saves loaded preset" onclick="teSavePreset()">Save preset</button>
+                            <button class="btn btn-primary save-btn" title="Save theme" onclick="teSaveAndClose()">Save theme<span class="sdot" id="te-sdot" title="Unsaved changes" hidden></span></button>
                             <button class="btn btn-secondary" onclick="teCancel()">Cancel</button>
                         </div>
                     </div>
@@ -468,12 +554,12 @@
                 </div>
             </div>
 
-            <!-- Add from another theme: link files into an intrusion group. Step 1 picks a theme,
-                 step 2 ticks its tracks (read-only). Rendered by pk* in app.js. -->
+            <!-- Add from another theme: link files into this theme (they start in Unassigned). Step 1
+                 picks a theme, step 2 ticks its tracks (read-only). Rendered by pk* in app.js. -->
             <div id="te-pk" class="modal-backdrop pk-backdrop" onclick="if(event.target===this) pkClose()">
                 <div class="modal pk tp" role="dialog" aria-modal="true" aria-labelledby="pk-title">
                     <div class="modal-header">
-                        <h2 id="pk-title">Add from another theme <span class="sub" id="pk-target"></span></h2>
+                        <h2 id="pk-title">Add from another theme</h2>
                         <button class="modal-close" aria-label="Close" onclick="pkClose()">
                             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                         </button>
@@ -784,7 +870,22 @@ Example:
                         <input type="text" id="session-name" placeholder="Leave empty to auto-generate from selection">
                     </div>
 
-                    <div class="session-field grow">
+                    <div class="session-field ch-plays">
+                        <label id="ch-plays-lbl">Plays</label>
+                        <div class="seg" role="group" aria-labelledby="ch-plays-lbl">
+                            <button type="button" id="ch-mode-theme" aria-pressed="true" onclick="chSetMode('theme')">Theme</button>
+                            <button type="button" id="ch-mode-playlist" aria-pressed="false" onclick="chSetMode('playlist')"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="15" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="10" y2="18"/><path d="M21 16V5l-4 1"/><circle cx="18" cy="16" r="3"/></svg>Playlist</button>
+                        </div>
+                    </div>
+
+                    <div class="session-field" id="ch-playlist-field" hidden>
+                        <label id="ch-playlist-lbl">Playlist</label>
+                        <div id="ch-playlist-picker"></div>
+                        <div class="pl-sum" id="ch-playlist-sum"></div>
+                    </div>
+                    <div class="session-field grow ch-pl-fill" id="ch-playlist-fill" hidden></div>
+
+                    <div class="session-field grow" id="ch-theme-field">
                         <label>Theme · <span id="theme-selected-name">None</span></label>
                         <div class="theme-panel">
                             <div class="picker-head">
@@ -850,6 +951,154 @@ Example:
                 <button class="btn btn-primary" onclick="saveSession()">
                     <span id="save-btn-text">Create Channel</span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sequence editor (over the Theme Editor): name, timing and the order fixed; the preset list scrolls (sq* in app.js) -->
+    <div id="sq-modal" class="modal-backdrop sq-back" onclick="if(event.target===this) sqClose()">
+        <div class="modal sq" role="dialog" aria-modal="true" aria-labelledby="sq-title">
+            <div class="modal-header">
+                <h2 id="sq-title"><span id="sq-title-text">Edit sequence</span> <span class="sub" id="sq-sub"></span></h2>
+                <div class="hd-acts">
+                    <button type="button" class="icon-btn sm hd-more" id="sq-more-btn" aria-label="More sequence actions" aria-haspopup="menu" onclick="sqMenu('more', this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+                    <button type="button" class="modal-close" aria-label="Close" onclick="sqClose()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                </div>
+            </div>
+            <div class="sq-top">
+                <div class="sq-row">
+                    <div class="fld f-sqname"><label class="fld-label" for="sq-name">Name</label><input id="sq-name" class="inp name" type="text" maxlength="100" autocomplete="off" placeholder="Sequence name" oninput="this.classList.remove('err')" onkeydown="if (event.key === 'Enter') { event.preventDefault(); sqSave(); }"></div>
+                </div>
+                <div class="sq-row">
+                    <div class="fld"><span class="fld-label" title="A random time in this range, drawn fresh each time. Empty uses the theme default.">Time on each preset</span>
+                        <div class="rng"><input id="sq-min" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Minimum minutes on each preset" oninput="sqTiming()"><span>–</span><input id="sq-max" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Maximum minutes on each preset" oninput="sqTiming()"><span>min</span></div></div>
+                    <div class="fld"><span class="fld-label" title="How long the glide to the next preset takes. Empty uses the theme default.">Ramp</span>
+                        <div class="rng"><input id="sq-ramp" class="num" type="number" min="0" step="5" inputmode="numeric" aria-label="Ramp seconds" oninput="sqTiming()"><span>s</span></div></div>
+                    <div class="fld f-end"><span class="fld-label" id="sq-end-lbl">At the end</span>
+                        <div class="seg" role="group" aria-labelledby="sq-end-lbl">
+                            <button type="button" data-end="reverse" onclick="sqSetEnd('reverse')">Reverse</button>
+                            <button type="button" data-end="restart" onclick="sqSetEnd('restart')">Start again</button>
+                            <button type="button" data-end="stop" onclick="sqSetEnd('stop')">Stop</button>
+                        </div></div>
+                </div>
+                <div class="flow" id="sq-flow" aria-label="Order"></div>
+            </div>
+            <div class="sq-fix">
+                <div class="sq-head"><h3>Presets</h3><span class="badge badge-type" id="sq-count">0</span><span class="grow"></span>
+                    <button type="button" class="btn btn-sm btn-secondary" aria-haspopup="menu" onclick="sqMenu('add', this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add preset<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg></button></div>
+                <div class="sq-thead sgrid"><span></span><span class="c">#</span><span>Preset</span><span></span></div>
+            </div>
+            <div class="sq-list"><div class="sq-box" id="sq-rows"></div></div>
+            <div class="modal-footer foot">
+                <span class="sq-sum" id="sq-sum"></span>
+                <span class="grow"></span>
+                <button type="button" class="btn btn-primary" onclick="sqSave()">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="sqClose()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sequence step: Advanced transitions (over the sequence editor): header, tabs and column heads fixed, the tracks scroll (tx* in app.js) -->
+    <div id="tx-modal" class="modal-backdrop ad-back" onclick="if(event.target===this) txCancel()">
+        <div class="modal ad" role="dialog" aria-modal="true" aria-labelledby="tx-title">
+            <div class="modal-header">
+                <h2 id="tx-title"><span class="ttl" id="tx-ttl">Coming into</span> <span class="sub" id="tx-sub"></span></h2>
+                <div class="hd-acts">
+                    <button type="button" class="icon-btn sm hd-more" id="tx-help-btn" aria-label="Help" aria-expanded="false" aria-controls="tx-help" onclick="txToggleHelp()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg></button>
+                    <button type="button" class="icon-btn sm hd-more" id="tx-more-btn" aria-label="More transition actions" aria-haspopup="menu" onclick="txMenu(this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+                    <button type="button" class="modal-close" aria-label="Close" onclick="txCancel()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                </div>
+            </div>
+            <div id="tx-help" class="te-help" role="dialog" aria-label="Advanced transitions help" hidden>
+                <div class="te-help-hd">
+                    <strong>Advanced transitions</strong>
+                    <button type="button" class="modal-close te-help-x" aria-label="Close help" onclick="txToggleHelp()"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                </div>
+                <div class="te-help-body">
+                    <h4>In a sequence step</h4>
+                    <p class="hi"><b>While playing:</b> changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green; anything you don't change follows the preset.</p>
+                    <p class="hi"><b>Revert changes:</b> puts back the settings as they were when Save was last pressed: for one track or group in its ⋯ menu, or for everything at the top of the list. A value set back to the preset's follows the preset again.</p>
+                    <p class="hi"><b>Coming in / Leaving:</b> how tracks change as the step starts and ends (see Advanced transitions).</p>
+                    <p class="hi"><b>Rise:</b> in an Ebb &amp; Flow track's ⋯ menu. Increases or decreases the speed at which the track reaches a value. <i>Duration</i> increases or decreases the amount of time the track is at a value. A group can set the same Rise for every file.</p>
+                    <h4>Advanced transitions</h4>
+                    <p class="hi"><b>Advanced:</b> in a sequence, a preset's ⋯ › Advanced sets how each track comes in, and how it leaves.</p>
+                    <p class="hi"><b>Coming in / Leaving:</b> tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.</p>
+                    <p class="hi"><b>Smooth:</b> no button on. The track follows the sequence's ramp.</p>
+                    <p class="hi"><b>Buttons:</b> click to turn one on, click it again to show its setting on the slider, click once more to turn it off. Several can be on together.</p>
+                    <p class="hi"><b>Pre-fade:</b> starts the change this many seconds before the step.</p>
+                    <p class="hi"><b>Gusts / Gusts dying down:</b> rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.</p>
+                    <p class="hi"><b>Swell / Smooth fade:</b> one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.</p>
+                    <p class="hi"><b>Build / Thin out:</b> Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.</p>
+                    <p class="hi"><b>Distance / Recede:</b> starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.</p>
+                    <p class="hi"><b>Start fresh / Finish then stop:</b> plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.</p>
+                    <p class="hi"><b>Preview:</b> ▶ plays that track's change on this device and follows your edits.</p>
+                </div>
+            </div>
+            <div class="ad-ctx" id="tx-ctx"></div>
+            <div class="ad-top st-top"><div class="seg ad-tabs" role="tablist" aria-label="Step" id="tx-tabs"></div><p class="st-note" id="tx-note" hidden></p></div>
+            <!-- While playing: the theme's tracks as the Theme Editor lists them, with this step's values (tw* in app.js) -->
+            <div class="te tw" id="tw" hidden>
+                <div class="tfix">
+                    <div class="tsec-head">
+                        <h3>Tracks</h3><span class="badge badge-type" id="tw-count">0</span>
+                        <span class="grow"></span>
+                        <div class="tbar">
+                            <button type="button" class="btn btn-sm btn-secondary" id="tw-revert" onclick="twRevertAll()" disabled>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>Revert changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-body tlist" id="tw-tracks" aria-label="Tracks"></div>
+            </div>
+            <div class="ad-fix"><div class="sq-thead adgrid"><span></span><span>Track</span><span>Change</span><span>Style</span><span>Setting</span><span title="Starts this long before the step">Pre-fade</span></div></div>
+            <div class="ad-list"><div class="sq-box" id="tx-rows"></div></div>
+            <div class="modal-footer foot">
+                <span class="sq-sum" id="tx-sum"></span>
+                <span class="grow"></span>
+                <button type="button" class="btn btn-primary" onclick="txSave()">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="txCancel()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Playlist editor: name and options fixed, the entries scroll (pl* in app.js) -->
+    <div id="pl-modal" class="modal-backdrop pl-back" onclick="if(event.target===this) plClose()">
+        <div class="modal ple" role="dialog" aria-modal="true" aria-labelledby="pl-title">
+            <div class="modal-header">
+                <h2 id="pl-title">Edit playlist</h2>
+                <div class="hd-acts">
+                    <button type="button" class="icon-btn sm hd-more" id="pl-more-btn" aria-label="More playlist actions" aria-haspopup="menu" onclick="plMenu('more', this)"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></button>
+                    <button type="button" class="modal-close" aria-label="Close" onclick="plClose()"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+                </div>
+            </div>
+            <div class="ple-top">
+                <div class="ple-row"><div class="fld ple-name"><label class="fld-label" for="pl-name">Name</label><input id="pl-name" class="inp name" type="text" maxlength="100" autocomplete="off" placeholder="Playlist name" oninput="this.classList.remove('err')" onkeydown="if (event.key === 'Enter') { event.preventDefault(); plSave(); }"></div></div>
+                <div class="ple-row">
+                    <div class="fld"><span class="fld-label" title="Every entry plays for a random time in this range, drawn fresh each time">Play each entry</span>
+                        <div class="rng"><input id="pl-min" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Minimum minutes per entry" oninput="plTiming()"><span>–</span><input id="pl-max" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Maximum minutes per entry" oninput="plTiming()"><span>min</span></div></div>
+                    <div class="fld"><span class="fld-label" id="pl-order-lbl">Order</span>
+                        <div class="seg" role="group" aria-labelledby="pl-order-lbl">
+                            <button type="button" id="pl-inorder" onclick="plSetOrder('in_order')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><polyline points="3 5 4 6 3 7"/><polyline points="3 11 4 12 3 13"/><polyline points="3 17 4 18 3 19"/></svg>In order</button>
+                            <button type="button" id="pl-shuffle" onclick="plSetOrder('shuffle')"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/><line x1="4" y1="4" x2="9" y2="9"/></svg>Shuffle</button>
+                        </div></div>
+                    <div class="fld"><span class="fld-label" id="pl-rep-lbl">Repeat</span>
+                        <div class="sw-fld"><label class="toggle-switch"><input type="checkbox" id="pl-repeat" aria-labelledby="pl-rep-lbl"><span class="toggle-slider"></span></label></div></div>
+                    <div class="fld"><span class="fld-label" id="pl-fit-lbl">Fit sequences into the playlist time</span>
+                        <div class="sw-fld"><label class="toggle-switch"><input type="checkbox" id="pl-fit" aria-labelledby="pl-fit-lbl" onchange="plRenderEntries()"><span class="toggle-slider"></span></label></div></div>
+                </div>
+            </div>
+            <div class="ple-fix">
+                <div class="ple-head"><h3>Entries</h3><span class="badge badge-type" id="pl-count">0</span><span class="grow"></span>
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="plAddEntry()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add entry</button></div>
+                <div class="ple-thead egrid"><span></span><span class="c">#</span><span>Theme</span><span>Preset or sequence</span><span></span></div>
+            </div>
+            <div class="ple-scroll" id="pl-entries"></div>
+            <div class="modal-footer foot">
+                <span class="ple-sum" id="pl-sum"></span>
+                <span class="grow"></span>
+                <button type="button" class="btn btn-primary" id="pl-save-btn" onclick="plSave()">Save</button>
+                <button type="button" class="btn btn-secondary" onclick="plClose()">Cancel</button>
             </div>
         </div>
     </div>

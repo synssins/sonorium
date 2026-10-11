@@ -73,7 +73,7 @@ class ApiSonorium(api.Base):
         self._session_manager = None
         self._group_manager = None
         self._channel_manager = None
-        self._cycle_manager = None
+        self._background = None
         self._mqtt_manager = None
         self._theme_refresh_task = None
         self._plugin_manager = None
@@ -88,7 +88,7 @@ class ApiSonorium(api.Base):
             logbuffer.attach("uvicorn")
             await self.initialize_v2()
         
-        # Register shutdown event to stop cycle manager
+        # Register shutdown event to stop the background loop
         @self.app.on_event("shutdown")
         async def shutdown_event():
             logger.info("FastAPI shutdown event triggered")
@@ -147,6 +147,8 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/volume', method=self.set_track_volume),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/playback_mode', method=self.set_track_playback_mode),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/seamless_loop', method=self.set_track_seamless_loop),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/fades', method=self.set_track_fades),
+            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/ebb', method=self.set_track_ebb),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/exclusive', method=self.set_track_exclusive),
 
             # Groups (subfolders of a theme, Themes 2.0)
@@ -158,7 +160,7 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/{track_name:path}/move', method=self.move_track_to_group),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
 
-            # Intrusion groups: linked files from other themes (docs/THEME_FORMAT.md 2.6)
+            # Linked files from other themes (docs/THEME_FORMAT.md 2.6)
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/links/source/{source_id}', method=self.list_link_source_tracks),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/links', method=self.add_links),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/links/{key:path}/copy-in', method=self.copy_link_in),
@@ -171,6 +173,7 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets', method=self.list_presets),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets', method=self.create_preset),
             api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/{preset_id}/load', method=self.load_preset),
+            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.get_preset),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.update_preset),
             api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.delete_preset),
             api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/default', method=self.set_default_preset),
@@ -202,7 +205,7 @@ class ApiSonorium(api.Base):
             from sonorium.core.session_manager import SessionManager
             from sonorium.core.group_manager import GroupManager
             from sonorium.core.channel import ChannelManager
-            from sonorium.core.cycle_manager import CycleManager
+            from sonorium.core.background import BackgroundLoop
             from sonorium.ha.registry import HARegistry
             from sonorium.ha.media_controller import HAMediaController
             from sonorium.web.api_v2 import create_api_router
@@ -225,11 +228,18 @@ class ApiSonorium(api.Base):
             # Migrate any theme data from state.json to metadata.json (one-time migration)
             self._migrate_theme_data_to_metadata()
 
-            # Intrusion groups' linked files (in other themes' folders) join their themes
+            # Linked files (in other themes' folders) join their themes
             self._attach_linked_tracks()
 
             # Apply saved track settings to themes (now reads from metadata.json)
             self._apply_saved_track_settings()
+
+            # Theme cycling became playlists: convert channels' cycling once
+            # (before anything saves state.json, which no longer keeps cycle_config)
+            self._migrate_cycling()
+
+            # Settings > Audio Settings > Master output gain (0-100) is the mix's output gain
+            self._apply_master_gain()
 
             # Initialize channel manager
             max_channels = getattr(settings, 'max_channels', 6)
@@ -285,27 +295,19 @@ class ApiSonorium(api.Base):
             stream_base_url = settings.stream_url
             logger.debug(f"  Stream base URL: {stream_base_url}")
             
-            # Initialize cycle manager
-            self._cycle_manager = CycleManager(
-                session_manager=None,  # Will set after session_manager is created
-                themes=self.client.device.themes,
-                check_interval=10.0,  # Check every 10 seconds
-            )
-            
-            # Initialize session manager (with cycle manager and metadata manager)
+            # Initialize session manager (with metadata manager)
             self._session_manager = SessionManager(
                 self._state_store,
                 self._ha_registry,
                 self._media_controller,
                 stream_base_url,
                 channel_manager=self._channel_manager,
-                cycle_manager=self._cycle_manager,
                 themes=self.client.device.themes,
                 theme_metadata_manager=self._theme_metadata_manager,
             )
 
-            # Connect cycle manager to session manager
-            self._cycle_manager.set_session_manager(self._session_manager)
+            # Background loop: sequence and playlist timers, idle sessions
+            self._background = BackgroundLoop(self._session_manager)
             
             self._group_manager = GroupManager(
                 self._state_store,
@@ -363,21 +365,23 @@ class ApiSonorium(api.Base):
                 ha_registry=self._ha_registry,
                 state_store=self._state_store,
                 channel_manager=self._channel_manager,
-                cycle_manager=self._cycle_manager,
                 plugin_manager=self._plugin_manager,
                 mqtt_manager=self._mqtt_manager,
                 on_themes_changed=self.schedule_theme_refresh,
                 network_service=self._network_service,
+                on_master_gain=self._apply_master_gain,
             )
             self.app.include_router(api_router)
             
-            # Keep MQTT entities in sync when idle sessions are stopped
+            # Keep MQTT entities in sync when idle sessions are stopped, and
+            # when a sequence or playlist moves a channel on
             if self._mqtt_manager:
-                self._cycle_manager.on_session_stopped = self._mqtt_manager.update_session_state
+                self._background.on_session_stopped = self._mqtt_manager.update_session_state
+                self._session_manager.runner.on_change = self._mqtt_manager.update_session_state
 
-            # Start cycle manager background task
-            await self._cycle_manager.start()
-            logger.debug("  CycleManager started")
+            # Start the background loop
+            await self._background.start()
+            logger.debug("  Background loop started")
 
             # Network speaker discovery runs in the background: the UI is up meanwhile
             if self._network_service:
@@ -394,6 +398,31 @@ class ApiSonorium(api.Base):
             import traceback
             traceback.print_exc()
     
+    def _migrate_cycling(self):
+        """Turn channels' theme cycling into playlists, once (core/playlists.migrate_cycling)."""
+        from sonorium.core.playlists import migrate_cycling
+        state = self._state_store.state
+        if state.cycling_migrated:
+            return
+        try:
+            themes = sorted(self.client.device.themes or [], key=lambda t: (t.name or "").lower())
+            migrate_cycling(state, [t.id for t in themes])
+            self._state_store.save()
+        except Exception as e:
+            logger.warning(f"  Could not convert theme cycling to playlists: {e}")
+
+    def _apply_master_gain(self):
+        """
+        Settings > Audio Settings > Master output gain (0-100 %) as the mix's
+        output gain (device.master_volume, 0-10; 60 % = 6.0, the old default),
+        the same scale as the Home Assistant "Master Volume" number.
+        """
+        try:
+            gain = int(self._state_store.settings.master_gain)
+            self.client.device.master_volume = max(0, min(100, gain)) / 100 * 10.0
+        except Exception as e:
+            logger.warning(f"  Could not apply the master output gain: {e}")
+
     def _migrate_theme_data_to_metadata(self):
         """
         Migrate theme data from state.json to metadata.json (one-time migration).
@@ -471,6 +500,7 @@ class ApiSonorium(api.Base):
 
     def _apply_saved_track_settings(self):
         """Apply saved track settings from metadata.json to theme instances on startup."""
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, reset_ebb_settings
         if not self._theme_metadata_manager:
             return
 
@@ -509,6 +539,8 @@ class ApiSonorium(api.Base):
                     inst.playback_mode = PlaybackMode.AUTO
                     inst.crossfade_enabled = True
                     inst.exclusive = False
+                    inst.fade_in = inst.fade_out = 0.0
+                    reset_ebb_settings(inst)
                     if getattr(inst.meta, "link", None):
                         inst.is_enabled = False  # a linked file without settings stays off
                     continue
@@ -523,14 +555,16 @@ class ApiSonorium(api.Base):
                     inst.playback_mode = PlaybackMode.AUTO
                 inst.crossfade_enabled = not track_settings.seamless_loop
                 inst.exclusive = track_settings.exclusive
+                inst.fade_in, inst.fade_out = track_settings.fade_in, track_settings.fade_out
+                for key in EBB_TRACK_SETTINGS:
+                    setattr(inst, key, getattr(track_settings, key))
 
             logger.debug(f"    Applied settings to theme '{theme.name}'")
 
     async def shutdown_v2(self):
         """Shutdown v2 components gracefully."""
-        if self._cycle_manager:
-            await self._cycle_manager.stop()
-            logger.info("CycleManager stopped")
+        if self._background:
+            await self._background.stop()
         if self._network_service:
             await self._network_service.stop()
 
@@ -975,8 +1009,8 @@ class ApiSonorium(api.Base):
         response = StreamingResponse(stream, media_type="audio/mpeg")
         return response
 
-    async def stream_channel(self, channel_id: int):
-        """Stream audio from a channel (new endpoint)."""
+    async def stream_channel(self, channel_id: int, local: bool = False):
+        """Stream audio from a channel (new endpoint). ?local=1: a browser listening here (Listen here)."""
         if not self._channel_manager:
             return HTMLResponse(content="Channel system not initialized", status_code=503)
 
@@ -984,7 +1018,7 @@ class ApiSonorium(api.Base):
         if not channel:
             return HTMLResponse(content=f"Channel {channel_id} not found", status_code=404)
 
-        stream = channel.get_stream()
+        stream = channel.get_stream(local)
         response = StreamingResponse(stream, media_type="audio/mpeg")
         return response
 
@@ -1103,7 +1137,7 @@ class ApiSonorium(api.Base):
         # Save back to metadata.json
         return self._theme_metadata_manager.save_metadata(metadata.id, metadata)
 
-    # ==================== Intrusion groups: linked files ====================
+    # ==================== Linked files ====================
 
     def _folder_for_theme_id(self, theme_id) -> Path | None:
         """A theme's folder by its id (metadata.json), for resolving links."""
@@ -1113,7 +1147,7 @@ class ApiSonorium(api.Base):
 
     def _linked_recordings(self, metadata) -> list:
         """RecordingMetadata for a theme's linked files that can be found (missing ones are left out)."""
-        from sonorium.core.intrusions import resolve_link
+        from sonorium.core.intrusions import link_group, resolve_link
         from sonorium.recording import RecordingMetadata
         found = []
         for key, link in (getattr(metadata, "links", None) or {}).items():
@@ -1122,7 +1156,7 @@ class ApiSonorium(api.Base):
                 logger.warning(f'Theme "{metadata.name}": linked track "{key}" is missing '
                                f'(theme {link.get("theme")}, track "{link.get("track")}"); it is skipped')
                 continue
-            found.append(RecordingMetadata(path, key=key, group=key.split("/", 1)[0], link=dict(link)))
+            found.append(RecordingMetadata(path, key=key, group=link_group(key), link=dict(link)))
         return found
 
     def _attach_linked_tracks(self):
@@ -1155,13 +1189,12 @@ class ApiSonorium(api.Base):
             "missing": resolve_link(link, self._folder_for_theme_id) is None,
         }
 
-    def _intrusion_keys(self, theme, metadata) -> dict:
-        """{intrusion group: [its playable track keys]} for a theme."""
-        from sonorium.core.intrusions import intrusion_track_keys
+    def _linked_keys(self, theme, metadata) -> list:
+        """A theme's playable linked files (their source is there): what the ⚭ preset mark looks at."""
+        from sonorium.core.intrusions import linked_track_keys
         instances = list(getattr(theme, "instances", None) or []) if theme else []
-        local = [i.name for i in instances if not getattr(i.meta, "link", None)]
         playable = {i.name for i in instances if getattr(i.meta, "link", None)}
-        return intrusion_track_keys(metadata, local, playable)
+        return linked_track_keys(metadata, playable)
 
     def _get_theme_by_id(self, theme_id: str):
         """
@@ -1301,6 +1334,7 @@ class ApiSonorium(api.Base):
 
     async def refresh_themes(self):
         """Rescan theme folders and reload themes."""
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, reset_ebb_settings
         from sonorium.theme import ThemeDefinition
         from sonorium.recording import RecordingMetadata, PlaybackMode
         from fmtr.tools.iterator_tools import IndexList
@@ -1334,7 +1368,7 @@ class ApiSonorium(api.Base):
             if audio_files or (folder / "metadata.json").is_file():
                 theme_name = folder.name
                 new_theme_metas[theme_name] = IndexList(RecordingMetadata(path, folder) for path in audio_files)
-                # An intrusion group's linked files, found by their source theme's
+                # The theme's linked files, found by their source theme's
                 # id (so a renamed or rescanned source is followed; a missing one is skipped)
                 folder_metadata = (self._theme_metadata_manager.get_metadata_by_folder(folder)
                                    if self._theme_metadata_manager else None)
@@ -1418,6 +1452,9 @@ class ApiSonorium(api.Base):
                                 inst.playback_mode = PlaybackMode.AUTO
                             inst.crossfade_enabled = not track_settings.seamless_loop
                             inst.exclusive = track_settings.exclusive
+                            inst.fade_in, inst.fade_out = track_settings.fade_in, track_settings.fade_out
+                            for key in EBB_TRACK_SETTINGS:
+                                setattr(inst, key, getattr(track_settings, key))
                             continue
 
                     # Use defaults if no metadata (a linked file stays off)
@@ -1427,6 +1464,8 @@ class ApiSonorium(api.Base):
                     inst.playback_mode = PlaybackMode.AUTO
                     inst.crossfade_enabled = True
                     inst.exclusive = False
+                    inst.fade_in = inst.fade_out = 0.0
+                    reset_ebb_settings(inst)
 
         logger.info(f'Theme refresh complete: {len(device.themes)} themes loaded')
 
@@ -1478,11 +1517,14 @@ class ApiSonorium(api.Base):
     async def get_theme_tracks(self, theme_id: str):
         """
         Get all tracks for a theme with presence/mute settings from metadata.json.
-        Each has its "group" and "intrusion_group" (its group is in Intrusion
-        mode); a linked file has "linked": {theme_id, theme_name, track, missing},
-        and a linked file whose source is gone is listed too (missing, not played).
+        Each has its "group" (null when ungrouped) and "intrusion_group" (its
+        group is still an old Intrusion group: only until the theme is
+        converted); a linked file has "linked": {theme_id, theme_name, track,
+        missing}, and a linked file whose source is gone is listed too
+        (missing, not played).
         """
-        from sonorium.core.intrusions import is_intrusion_group
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, TrackSettings
+        from sonorium.core.intrusions import is_intrusion_group, link_group
         theme, theme_folder = self._get_theme_by_id(theme_id)
         if not theme:
             return {"error": "Theme not found"}
@@ -1510,6 +1552,9 @@ class ApiSonorium(api.Base):
                 ),
                 "seamless_loop": track_settings.seamless_loop if track_settings else not inst.crossfade_enabled,
                 "exclusive": track_settings.exclusive if track_settings else inst.exclusive,
+                "fade_in": track_settings.fade_in if track_settings else getattr(inst, "fade_in", 0.0),
+                "fade_out": track_settings.fade_out if track_settings else getattr(inst, "fade_out", 0.0),
+                **{key: getattr(track_settings, key) if track_settings else getattr(inst, key) for key in EBB_TRACK_SETTINGS},
                 "group": getattr(inst.meta, "group", None),
                 "intrusion_group": is_intrusion_group((getattr(theme, "groups", None) or {}).get(getattr(inst.meta, "group", None))),
             })
@@ -1523,7 +1568,7 @@ class ApiSonorium(api.Base):
                 if key in listed:
                     continue
                 track_settings = metadata.tracks.get(key)
-                group = key.split("/", 1)[0]
+                group = link_group(key)
                 tracks.append({
                     "name": key,
                     "presence": track_settings.presence if track_settings else 1.0,
@@ -1535,6 +1580,9 @@ class ApiSonorium(api.Base):
                     "playback_mode": track_settings.playback_mode if track_settings else "auto",
                     "seamless_loop": track_settings.seamless_loop if track_settings else False,
                     "exclusive": track_settings.exclusive if track_settings else False,
+                    "fade_in": track_settings.fade_in if track_settings else 0.0,
+                    "fade_out": track_settings.fade_out if track_settings else 0.0,
+                    **{key: getattr(track_settings or TrackSettings(), key) for key in EBB_TRACK_SETTINGS},
                     "group": group,
                     "intrusion_group": is_intrusion_group((metadata.groups or {}).get(group)),
                     "linked": self._link_info(link),
@@ -1718,10 +1766,13 @@ class ApiSonorium(api.Base):
         """Set playback mode for a specific track in a theme.
 
         Playback modes:
-        - auto: Automatically choose based on file length and presence
-        - continuous: Loop continuously with crossfade
-        - sparse: Play once, then silence for interval based on presence
-        - presence: Fade in/out based on presence value
+        - unassigned: not placed in a section yet, doesn't play
+        - continuous: Loop continuously with crossfade (Background)
+        - sparse: Play once, then silence for interval based on presence (Intermittent)
+        - presence: Ebb & Flow (presence is its Duration)
+        - auto: choose by file length and presence at play time (still
+          accepted; only a track without saved settings has it now)
+        A track in a group plays its group's way whatever its own mode.
         """
         from sonorium.recording import PlaybackMode
 
@@ -1798,15 +1849,95 @@ class ApiSonorium(api.Base):
 
         return {"status": "ok", "track": track_name, "seamless_loop": seamless}
 
+    async def set_track_ebb(self, theme_id: str, track_name: str, request: Request):
+        """
+        A track's Ebb & Flow settings. Body, any of: {"volume_low": 0..1 (the
+        Volume slider's lower knob), "pause_between": bool, "pause_min": s,
+        "pause_max": s}. Playing channels follow at once.
+        """
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS
+        from fastapi.responses import JSONResponse
+        theme, _ = self._get_theme_by_id(theme_id)
+        if not theme:
+            return JSONResponse({"error": "Theme not found"}, status_code=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+        if not isinstance(body, dict) or not body:
+            return JSONResponse({"error": "Expected volume_low, pause_between, pause_min or pause_max"}, status_code=400)
+        track_inst = next((inst for inst in theme.instances if inst.name == track_name), None)
+        if track_inst is None:
+            return JSONResponse({"error": "Track not found"}, status_code=404)
+        values = {}
+        for key, raw in body.items():
+            if key not in EBB_TRACK_SETTINGS:
+                return JSONResponse({"error": f"Unknown setting '{key}'"}, status_code=400)
+            if key == "pause_between":
+                if not isinstance(raw, bool):
+                    return JSONResponse({"error": "pause_between must be true or false"}, status_code=400)
+                values[key] = raw
+                continue
+            try:
+                number = float(raw)
+            except (TypeError, ValueError):
+                return JSONResponse({"error": f"{key} must be a number"}, status_code=400)
+            if number != number or isinstance(raw, bool):
+                return JSONResponse({"error": f"{key} must be a number"}, status_code=400)
+            values[key] = max(0.0, min(1.0, number)) if key in ("volume_low", "rise") else round(max(0.0, min(86400.0, number)), 1)
+        for key, value in values.items():
+            setattr(track_inst, key, value)
+        self._save_track_setting_to_metadata(theme_id, track_name, **values)
+        return {"status": "ok", "track": track_name, **{key: getattr(track_inst, key) for key in EBB_TRACK_SETTINGS}}
+
+    async def set_track_fades(self, theme_id: str, track_name: str, request: Request):
+        """
+        A file's own Fade in / Fade out, seconds (0 or empty = off, at most 30).
+        Body: {"fade_in": s, "fade_out": s}; either may be left out. They apply
+        from the file's next start or loop.
+        """
+        from fastapi.responses import JSONResponse
+        from sonorium.recording import FILE_FADE_MAX_SECONDS
+        theme, _ = self._get_theme_by_id(theme_id)
+        if not theme:
+            return JSONResponse({"error": "Theme not found"}, status_code=404)
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+        if not isinstance(body, dict):
+            return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
+        track_inst = next((inst for inst in theme.instances if inst.name == track_name), None)
+        if track_inst is None:
+            return JSONResponse({"error": "Track not found"}, status_code=404)
+        values = {}
+        for key in ("fade_in", "fade_out"):
+            if key not in body:
+                continue
+            raw = body[key]
+            try:
+                seconds = float(raw) if raw not in (None, "") else 0.0
+            except (TypeError, ValueError):
+                return JSONResponse({"error": f"{key} must be a number of seconds"}, status_code=400)
+            if seconds != seconds or seconds < 0:
+                return JSONResponse({"error": f"{key} must be 0 or more"}, status_code=400)
+            values[key] = round(min(FILE_FADE_MAX_SECONDS, seconds), 2)
+        if not values:
+            return JSONResponse({"error": "fade_in or fade_out is required"}, status_code=400)
+        for key, seconds in values.items():
+            setattr(track_inst, key, seconds)
+        self._save_track_setting_to_metadata(theme_id, track_name, **values)
+        return {"status": "ok", "track": track_name, "fade_in": track_inst.fade_in, "fade_out": track_inst.fade_out}
+
     # --- Groups ---
 
     # Master controls: volume and presence multiply each track's own value; the
     # gap between plays (seconds) is a real interval, never scaled. mode:
     # "intermittent" (default) or "merry_go_round"; crossfade: a merry-go-round's
     # overlap in seconds. Mode and crossfade are theme settings, not in presets.
-    # Mode "intrusion": the tracks play as their own settings say (no turns)
-    # and the group can hold files linked from other themes.
-    GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max", "mode", "crossfade")
+    # Mode "intrusion" is retired (read from old files, converted on load,
+    # refused here); a linked file can be in any group.
+    GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max", "mode", "crossfade", "pause_between", "rise")
 
     def _theme_group_folder(self, theme_id: str):
         """(theme, folder, metadata) for a theme, or raise 404."""
@@ -1826,9 +1957,11 @@ class ApiSonorium(api.Base):
         theme, folder, metadata = self._theme_group_folder(theme_id)
         members = {name: theme_groups.group_track_keys(folder, name)
                    for name in theme_groups.group_folder_names(folder)}
-        # An intrusion group's linked files are its tracks too
+        # A group's linked files are its tracks too
+        from sonorium.core.intrusions import link_group
         for key in (getattr(metadata, "links", None) or {}):
-            members.setdefault(key.split("/", 1)[0], []).append(key)
+            if link_group(key) is not None:
+                members.setdefault(link_group(key), []).append(key)
         return theme, metadata, members
 
     @staticmethod
@@ -1843,10 +1976,11 @@ class ApiSonorium(api.Base):
 
     def _save_group_change(self, folder, metadata, change) -> None:
         """
-        After the files moved: carry the track keys along in metadata.json and
-        presets.json, save both, and rebuild the live themes.
+        After the files moved (or a linked file was re-keyed): carry the track
+        keys along in metadata.json and presets.json (presets and sequences),
+        save both, and rebuild the live themes.
         """
-        from sonorium.core import theme_groups, theme_presets
+        from sonorium.core import sequences, theme_groups, theme_presets
         presets = theme_presets.load_presets(folder)
         migrated = theme_groups.migrate_keys(metadata, presets, change)
         # TODO: per-user preset files (planned, docs/THEME_FORMAT.md 1.5) store
@@ -1855,6 +1989,7 @@ class ApiSonorium(api.Base):
         try:
             if migrated != presets:
                 theme_presets.save_presets(folder, migrated)
+            sequences.migrate_track_keys(folder, change.track_keys, change.group_renames)
         except OSError as e:
             logger.error(f"Theme '{metadata.name}': files moved but presets.json couldn't be saved ({e})")
             self.schedule_theme_refresh()
@@ -1909,14 +2044,22 @@ class ApiSonorium(api.Base):
     async def delete_group_folder(self, theme_id: str, group: str):
         """
         Delete a group: its audio files move up to the theme folder (renamed
-        "x (2)" on a clash) and keep their settings. Audio files are never deleted.
+        "x (2)" on a clash) and keep their settings; its linked files become
+        ungrouped the same way (re-keyed, nothing moves). Audio files are never deleted.
         """
-        from sonorium.core import theme_groups
+        from sonorium.core import intrusions, theme_groups
         theme, folder, metadata = self._theme_group_folder(theme_id)
+        links = intrusions.group_link_keys(metadata, group)
         try:
-            change = theme_groups.delete_group(folder, group)
+            change = theme_groups.delete_group(folder, group, reserved=intrusions.link_names(metadata, None))
+        except theme_groups.NotFound as e:
+            if not links:
+                raise self._group_http_error(e)
+            change = theme_groups.Change(group_renames={group: None})  # only links, no folder
         except theme_groups.GroupError as e:
             raise self._group_http_error(e)
+        change.track_keys.update(intrusions.regroup_link_keys(metadata, folder, links, None,
+                                                              taken=change.track_keys.values()))
         self._save_group_change(folder, metadata, change)
         await self._refresh_now()
         result = {"name": group, "tracks": change.track_keys, "folder_removed": change.folder_removed}
@@ -1933,10 +2076,10 @@ class ApiSonorium(api.Base):
     async def move_track_to_group(self, theme_id: str, track_name: str, request: Request):
         """
         Move a track into a group (created if missing) or, with {"group": null}, to the top level.
-        A linked file moves only into another Intrusion group (its link is re-keyed, settings and
-        preset values kept); anywhere else gives 409 (copy it in: POST .../links/{key}/copy-in).
+        A linked file moves the same way, but only its key changes (no file moves). Its
+        settings, preset values and sequence entries follow the new key. 200 {"track": new key}.
         """
-        from sonorium.core import theme_groups
+        from sonorium.core import intrusions, theme_groups
         from sonorium.theme_files import track_display_name
         theme, folder, metadata = self._theme_group_folder(theme_id)
         body = await self._json_object(request)
@@ -1946,7 +2089,8 @@ class ApiSonorium(api.Base):
         if track_name in (getattr(metadata, "links", None) or {}):
             return await self._move_link(theme_id, metadata, folder, track_name, group)
         try:
-            change = theme_groups.move_track(folder, track_name, group)
+            change = theme_groups.move_track(folder, track_name, group,
+                                             reserved=intrusions.link_names(metadata, group))
         except theme_groups.GroupError as e:
             raise self._group_http_error(e)
         new_key = change.track_keys.get(track_name, track_name)
@@ -1959,23 +2103,30 @@ class ApiSonorium(api.Base):
         return {"track": new_key}
 
     async def _move_link(self, theme_id: str, metadata, folder, key: str, group):
-        """A linked file into another Intrusion group (see move_track_to_group)."""
-        from sonorium.core import intrusions
-        _, _, members = self._theme_groups(theme_id)
-        if group is not None and (not isinstance(group, str) or group not in members):
-            raise HTTPException(status_code=404, detail="Group not found")
-        if group is None or not intrusions.is_intrusion_group((metadata.groups or {}).get(group)):
-            raise HTTPException(status_code=409, detail="A linked file can only move into an Intrusion group; copy it into this theme instead")
-        new_key = intrusions.move_link(metadata, folder, key, group)
-        if new_key != key:
-            if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
-                raise HTTPException(status_code=500, detail="metadata.json couldn't be saved")
+        """
+        A linked file into a group (its folder created if missing, as for a
+        file) or ungrouped: re-keyed "<group>/<name>" or "<name>" (" (2)" on a
+        clash), like a moved file (see move_track_to_group). No file moves.
+        """
+        from sonorium.core import intrusions, theme_groups
+        if group is not None:
+            if not isinstance(group, str):
+                raise HTTPException(status_code=400, detail="'group' must be a group name or null")
+            try:
+                group = theme_groups.group_target(folder, group).name
+            except theme_groups.GroupError as e:
+                raise self._group_http_error(e)
+        moves = intrusions.regroup_link_keys(metadata, folder, [key], group)
+        new_key = moves.get(key, key)
+        if moves:
+            self._save_group_change(folder, metadata, theme_groups.Change(track_keys=moves))
             await self._refresh_now()
             logger.info(f"Theme '{metadata.name}': linked track '{key}' moved to '{new_key}'")
         return {"track": new_key}
 
     async def list_groups(self, theme_id: str):
         """A theme's groups: their master settings and their tracks."""
+        from sonorium.core.intrusions import link_group
         theme, metadata, members = self._theme_groups(theme_id)
         groups = []
         for name, keys in sorted(members.items()):
@@ -1987,7 +2138,7 @@ class ApiSonorium(api.Base):
                 "tracks": keys,
                 "intrusion": settings.get("mode") == "intrusion",
                 "links": [{"key": key, **self._link_info(link)}
-                          for key, link in links.items() if key.split("/", 1)[0] == name],
+                          for key, link in links.items() if link_group(key) == name],
             })
         return {"groups": groups}
 
@@ -1995,16 +2146,14 @@ class ApiSonorium(api.Base):
         """
         Change a group's master settings. Body: any of presence, volume (0-1,
         multiplying each track's own value), muted, gap_min, gap_max (seconds
-        between plays), mode ("intermittent", "merry_go_round" or "intrusion")
-        and crossfade (seconds, 1-60, for a merry-go-round). Mode "intrusion": the tracks
-        play as their own settings say and the group can hold linked files.
-        null removes a setting (back to 100% / no mute / default gap /
-        Intermittent / 10 s crossfade). A group that still holds linked files
-        can't leave Intrusion mode (409), unless the body also has
-        "remove_links": true: then its links are removed first (with their
-        settings and preset entries; never a file).
+        between plays), mode ("intermittent", "merry_go_round" or "ebb_flow";
+        "intrusion" is retired: 400), crossfade (seconds, 1-60, for a
+        merry-go-round), pause_between and rise (Ebb & Flow). null removes a
+        setting (back to 100% / no mute / default gap / Intermittent / 10 s
+        crossfade). A group's linked files stay in it whatever its mode.
+        "remove_links" (from when intrusion groups held them) is accepted and ignored.
         """
-        from sonorium.recording import GROUP_MODES, MAX_GROUP_CROSSFADE, MIN_GROUP_CROSSFADE
+        from sonorium.recording import GROUP_MODE_INTRUSION, GROUP_MODES, MAX_GROUP_CROSSFADE, MIN_GROUP_CROSSFADE
         theme, metadata, members = self._theme_groups(theme_id)
         if group not in members:
             raise HTTPException(status_code=404, detail="Group not found")
@@ -2027,14 +2176,17 @@ class ApiSonorium(api.Base):
                 settings.pop(key, None)
                 continue
             try:
-                if key in ("presence", "volume"):
+                if key in ("presence", "volume", "rise"):
+                    if isinstance(value, bool):
+                        raise ValueError(value)
                     value = max(0.0, min(1.0, float(value)))
                 elif key in ("gap_min", "gap_max"):
                     value = max(0.0, float(value))
-                elif key == "muted":
-                    value = bool(value)
+                elif key in ("muted", "pause_between"):
+                    if not isinstance(value, bool):
+                        raise ValueError(value)
                 elif key == "mode":
-                    if value not in GROUP_MODES:
+                    if value not in GROUP_MODES or value == GROUP_MODE_INTRUSION:
                         raise ValueError(value)
                 elif key == "crossfade":
                     if isinstance(value, bool):
@@ -2049,42 +2201,16 @@ class ApiSonorium(api.Base):
         if "gap_min" in settings and "gap_max" in settings and settings["gap_min"] > settings["gap_max"]:
             settings["gap_min"], settings["gap_max"] = settings["gap_max"], settings["gap_min"]
 
-        from sonorium.core.intrusions import group_link_keys, is_intrusion_group, remove_group_links
-        was_intrusion = is_intrusion_group((metadata.groups or {}).get(group))
-        is_intrusion = is_intrusion_group(settings)
-        removed_links = []
-        if was_intrusion and not is_intrusion and group_link_keys(metadata, group):
-            if not remove_links:
-                raise HTTPException(status_code=409, detail="This group still holds linked files; remove them before changing its mode")
-            removed_links = remove_group_links(metadata, group)
-        if is_intrusion and not was_intrusion:
-            # An intrusion group may hold only linked files: keep its folder, so it stays a group
-            from sonorium.core import theme_groups
-            _, folder = self._get_theme_by_id(theme_id)
-            if folder is not None:
-                try:
-                    theme_groups.group_target(folder, group)
-                except theme_groups.GroupError as e:
-                    raise self._group_http_error(e)
-
         metadata.groups = {**(metadata.groups or {}), group: settings}
         self._theme_metadata_manager.save_metadata(metadata.id, metadata)
         theme.groups = dict(metadata.groups)  # live: playing channels follow (a mode change rebuilds the group's streams)
         logger.info(f"Theme '{theme.name}': group '{group}' settings changed")
-        if removed_links:
-            logger.info(f"Theme '{theme.name}': {len(removed_links)} linked track(s) of group '{group}' removed")
-        if is_intrusion != was_intrusion:
-            logger.info(f"Theme '{theme.name}': group '{group}' is {'now' if is_intrusion else 'no longer'} in Intrusion mode")
-            await self._refresh_now()
-        result = {"name": group, "settings": settings}
-        if removed_links:
-            result["removed_links"] = removed_links
-        return result
+        return {"name": group, "settings": settings}
 
     async def list_link_source_tracks(self, theme_id: str, source_id: str):
         """
-        Another theme's tracks, read-only, for picking files to link into an
-        intrusion group of theme_id: each with its key ("id"), group, display
+        Another theme's tracks, read-only, for picking files to link into
+        theme_id: each with its key ("id"), group, display
         name, duration, a preview URL (the source theme's own track audio,
         relative to the app's base path) and the key it is already linked as
         in theme_id, if it is. Linked files of the source are not offered.
@@ -2125,10 +2251,14 @@ class ApiSonorium(api.Base):
 
     async def add_links(self, theme_id: str, request: Request):
         """
-        Link files of another theme into an intrusion group. Body:
-        {"theme": source theme id, "tracks": [source track keys], "group": intrusion group}.
+        Link files of another theme into this theme. Body:
+        {"theme": source theme id, "tracks": [source track keys], "group": a group (optional)}.
         Nothing is copied. Each new linked track starts with the source theme's
-        settings for it, muted. 201 {"links": [{"key", "theme", "track", "added"}]}.
+        settings for it, muted. Without "group" (or null) they are ungrouped
+        and Unassigned (playback_mode "unassigned": not played until placed);
+        with one, they go in that group (any mode). A file already linked
+        there is not linked again ("added": false).
+        201 {"links": [{"key", "theme", "track", "added"}]}.
         """
         from fastapi.responses import JSONResponse
         from sonorium.core import intrusions, theme_groups
@@ -2137,18 +2267,16 @@ class ApiSonorium(api.Base):
         source_id, keys, group = body.get("theme"), body.get("tracks"), body.get("group")
         if not isinstance(source_id, str) or not source_id:
             raise HTTPException(status_code=400, detail="'theme' (the source theme id) is required")
-        if not isinstance(group, str) or not group:
-            raise HTTPException(status_code=400, detail="'group' (an intrusion group) is required")
+        if group is not None and (not isinstance(group, str) or not group):
+            raise HTTPException(status_code=400, detail="'group' must be a group name or null")
         if (not isinstance(keys, list) or not keys or len(keys) > 500
                 or not all(isinstance(k, str) and k for k in keys)):
             raise HTTPException(status_code=400, detail="'tracks' must be a list of track keys")
         keys = list(dict.fromkeys(keys))
 
         _, _, members = self._theme_groups(theme_id)
-        if group not in members:
+        if group is not None and group not in members:
             raise HTTPException(status_code=404, detail="Group not found")
-        if not intrusions.is_intrusion_group((metadata.groups or {}).get(group)):
-            raise HTTPException(status_code=400, detail="Files can only be linked into a group in Intrusion mode")
 
         source, source_folder = self._get_theme_by_id(source_id)
         source_metadata = (self._theme_metadata_manager.get_metadata_by_folder(source_folder)
@@ -2166,15 +2294,17 @@ class ApiSonorium(api.Base):
         if unknown:
             raise HTTPException(status_code=404, detail=f"Not a track of the source theme: {', '.join(unknown)}")
 
-        try:
-            theme_groups.group_target(folder, group)  # the group's folder exists, even with only links in it
-        except theme_groups.GroupError as e:
-            raise self._group_http_error(e)
+        if group is not None:
+            try:
+                theme_groups.group_target(folder, group)  # the group's folder exists, even with only links in it
+            except theme_groups.GroupError as e:
+                raise self._group_http_error(e)
         results = intrusions.add_links(metadata, folder, group, source_metadata.id, source_metadata, keys)
         if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
             raise HTTPException(status_code=500, detail="metadata.json couldn't be saved")
         added = [r for r in results if r["added"]]
-        logger.info(f"Theme '{metadata.name}': {len(added)} file(s) of '{source_metadata.name}' linked into group '{group}'")
+        where = f"into group '{group}'" if group is not None else "as Unassigned"
+        logger.info(f"Theme '{metadata.name}': {len(added)} file(s) of '{source_metadata.name}' linked {where}")
         if added:
             await self._refresh_now()
         return JSONResponse(status_code=201, content={"links": results})
@@ -2189,7 +2319,7 @@ class ApiSonorium(api.Base):
         """
         import shutil
         from sonorium.core import intrusions, theme_groups
-        from sonorium.theme_files import track_key
+        from sonorium.theme_files import track_display_name, track_key
         theme, folder, metadata = self._theme_group_folder(theme_id)
         body = await self._json_object(request)
         if "group" not in body:
@@ -2208,17 +2338,19 @@ class ApiSonorium(api.Base):
             target_folder = folder if group is None else theme_groups.group_target(folder, group)
         except theme_groups.GroupError as e:
             raise self._group_http_error(e)
-        target = target_folder / theme_groups.free_file_name(target_folder, source.name)
+        # Another linked file there keeps its name; this one's key is free once it is copied in
+        reserved = intrusions.link_names(metadata, group) - (
+            {track_display_name(key)} if intrusions.link_group(key) == group else set())
+        target = target_folder / theme_groups.free_file_name(target_folder, source.name, reserved=reserved)
         try:
             shutil.copy2(source, target)
         except OSError as e:
             raise HTTPException(status_code=500, detail=f"Couldn't copy the file: {e}")
         new_key = track_key(folder, target)
         intrusions.remove_link_keep_settings(metadata, key)
-        intrusions.rekey_track(metadata, key, new_key)
-        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
-            self.schedule_theme_refresh()
-            raise HTTPException(status_code=500, detail="The file was copied, but metadata.json couldn't be saved")
+        # Its settings, preset values and sequence entries move to the new key
+        self._save_group_change(folder, metadata, theme_groups.Change(
+            track_keys={key: new_key} if new_key != key else {}))
         await self._refresh_now()
         logger.info(f"Theme '{metadata.name}': linked track '{key}' copied in as '{new_key}' (from {source})")
         return {"track": new_key}
@@ -2278,7 +2410,7 @@ class ApiSonorium(api.Base):
     async def reset_theme_tracks(self, theme_id: str):
         """Reset all track settings to defaults for a theme (linked files stay muted)."""
         from sonorium.recording import PlaybackMode
-        from sonorium.core.theme_metadata import TrackSettings
+        from sonorium.core.theme_metadata import TrackSettings, reset_ebb_settings
 
         theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
@@ -2292,6 +2424,8 @@ class ApiSonorium(api.Base):
             inst.playback_mode = PlaybackMode.AUTO
             inst.crossfade_enabled = True
             inst.exclusive = False
+            inst.fade_in = inst.fade_out = 0.0
+            reset_ebb_settings(inst)
 
         # Clear persisted settings in metadata.json
         if self._theme_metadata_manager:
@@ -2308,18 +2442,19 @@ class ApiSonorium(api.Base):
     # ==================== Preset API ====================
 
     def _get_current_group_settings(self, theme_id: str) -> dict:
-        """The theme's group master settings as a preset saves them ({group: {volume, presence, muted}})."""
-        from sonorium.recording import GROUP_TRACK_SETTINGS
+        """The theme's group settings as a preset saves them ({group: {volume, presence, muted, gap_min, gap_max}})."""
+        from sonorium.recording import GROUP_PRESET_SETTINGS
         theme, _ = self._get_theme_by_id(theme_id)
         groups = getattr(theme, "groups", None) or {} if theme else {}
         return {
-            name: {k: v for k, v in (settings or {}).items() if k in GROUP_TRACK_SETTINGS}
+            name: {k: v for k, v in (settings or {}).items() if k in GROUP_PRESET_SETTINGS}
             for name, settings in groups.items()
             if not (settings or {}).get("legacy_exclusive")
         }
 
     def _get_current_track_settings(self, theme_id: str) -> dict:
         """Get current track settings for a theme as a preset-compatible dict."""
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
         theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
@@ -2334,11 +2469,13 @@ class ApiSonorium(api.Base):
                 "seamless_loop": not inst.crossfade_enabled,
                 "exclusive": inst.exclusive,
                 "muted": not inst.is_enabled,
+                **{key: getattr(inst, key) for key in EBB_TRACK_SETTINGS},
             }
         return tracks
 
     def _apply_preset_to_theme(self, theme_id: str, preset_tracks: dict, preset_groups: dict | None = None) -> bool:
         """Apply preset track settings (and group master settings) to a theme. Returns True on success."""
+        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS
         from sonorium.recording import PlaybackMode
 
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
@@ -2360,14 +2497,17 @@ class ApiSonorium(api.Base):
                 inst.crossfade_enabled = not settings.get("seamless_loop", False)
                 inst.exclusive = settings.get("exclusive", False)
                 inst.is_enabled = not settings.get("muted", False)
+                for key in EBB_TRACK_SETTINGS:
+                    if key in settings:
+                        setattr(inst, key, settings[key])
 
         # Group master settings from the preset
         if preset_groups:
-            from sonorium.recording import GROUP_TRACK_SETTINGS
+            from sonorium.recording import GROUP_PRESET_SETTINGS
             merged = dict(getattr(theme, "groups", None) or {})
             for name, values in preset_groups.items():
                 merged[name] = {**(merged.get(name) or {}),
-                                **{k: v for k, v in (values or {}).items() if k in GROUP_TRACK_SETTINGS}}
+                                **{k: v for k, v in (values or {}).items() if k in GROUP_PRESET_SETTINGS}}
             theme.groups = merged
 
         # Persist to metadata.json
@@ -2385,16 +2525,40 @@ class ApiSonorium(api.Base):
                     track_settings.playback_mode = settings.get("playback_mode", "auto")
                     track_settings.seamless_loop = settings.get("seamless_loop", False)
                     track_settings.exclusive = settings.get("exclusive", False)
+                    for key in EBB_TRACK_SETTINGS:
+                        if key in settings:
+                            setattr(track_settings, key, settings[key])
 
                 self._theme_metadata_manager.save_metadata(metadata.id, metadata)
 
         return True
 
+    @staticmethod
+    def _sequence_choices(folder, preset_intrusion: dict) -> list:
+        """
+        A theme's sequences as choices next to its presets (core/sequences.py
+        to_choice): id, name, presets, at_end, effective timing, pass_min /
+        pass_max, "choice" ("seq:<id>") and has_intrusion.
+        """
+        from sonorium.core import sequences as seq
+        if not folder:
+            return []
+        try:
+            defaults = seq.load_defaults(folder)
+            return [seq.to_choice(sid, data, defaults, preset_intrusion)
+                    for sid, data in seq.load_sequences(folder).items()]
+        except Exception as e:
+            logger.warning(f"Could not read the sequences in {folder}: {e}")
+            return []
+
     async def list_presets(self, theme_id: str):
         """
-        List all presets for a theme. "has_intrusion": the preset turns on at
-        least one track of an intrusion group (its settings over the theme's);
-        "default_has_intrusion": the theme's own settings do (no preset).
+        List all presets for a theme. "has_intrusion" (the ⚭ mark): the preset
+        turns on (unmutes) at least one linked file, wherever it is (its
+        settings over the theme's); "default_has_intrusion": the theme's own
+        settings do (no preset).
+        "sequences": the theme's sequences, which a channel can pick like a
+        preset (preset_id "seq:<id>"); has_intrusion if any of its presets has.
         """
         from sonorium.core.intrusions import enables_intrusion
         theme, theme_folder = self._get_theme_by_id(theme_id)
@@ -2403,7 +2567,7 @@ class ApiSonorium(api.Base):
         if self._theme_metadata_manager and theme_folder:
             metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
             if metadata_obj:
-                intrusion_keys = self._intrusion_keys(theme, metadata_obj)
+                linked_keys = self._linked_keys(theme, metadata_obj)
                 result = []
                 for preset_id, preset_data in metadata_obj.presets.items():
                     result.append({
@@ -2411,10 +2575,12 @@ class ApiSonorium(api.Base):
                         "name": preset_data.get("name", preset_id),
                         "is_default": preset_data.get("is_default", False),
                         "track_count": len(preset_data.get("tracks", {})),
-                        "has_intrusion": enables_intrusion(metadata_obj, intrusion_keys, preset_data),
+                        "has_intrusion": enables_intrusion(metadata_obj, linked_keys, preset_data),
                     })
+                intrusion = {p["id"]: p["has_intrusion"] for p in result}
                 return {"theme_id": theme_id, "presets": result,
-                        "default_has_intrusion": enables_intrusion(metadata_obj, intrusion_keys)}
+                        "default_has_intrusion": enables_intrusion(metadata_obj, linked_keys),
+                        "sequences": self._sequence_choices(theme_folder, intrusion)}
 
         # Fallback to direct file I/O
         metadata = self._read_theme_metadata(theme_id)
@@ -2429,7 +2595,28 @@ class ApiSonorium(api.Base):
                 "track_count": len(preset_data.get("tracks", {})),
             })
 
-        return {"theme_id": theme_id, "presets": result}
+        return {"theme_id": theme_id, "presets": result,
+                "sequences": self._sequence_choices(self._find_theme_folder(theme_id), {})}
+
+    async def get_preset(self, theme_id: str, preset_id: str):
+        """One preset's settings: {"id", "name", "tracks": {key: {...}}, "groups": {name: {...}}}."""
+        _, theme_folder = self._get_theme_by_id(theme_id)
+        presets = None
+        if self._theme_metadata_manager and theme_folder:
+            metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
+            if metadata_obj:
+                presets = metadata_obj.presets
+        if presets is None:  # fallback: direct file I/O
+            presets = self._read_theme_metadata(theme_id).get("presets", {})
+        if preset_id not in presets:
+            raise HTTPException(status_code=404, detail="Preset not found")
+        preset = presets[preset_id]
+        return {
+            "id": preset_id,
+            "name": preset.get("name", preset_id),
+            "tracks": preset.get("tracks") or {},
+            "groups": preset.get("groups") or {},
+        }
 
     async def create_preset(self, theme_id: str, request: Request):
         """Create a new preset from current track settings."""
@@ -2590,6 +2777,7 @@ class ApiSonorium(api.Base):
                 # Save via metadata manager (updates cache and file)
                 if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
                     raise HTTPException(status_code=500, detail="Failed to update preset")
+                self._preset_saved(theme_id, theme, preset_id)
 
                 return {
                     "status": "ok",
@@ -2612,6 +2800,7 @@ class ApiSonorium(api.Base):
 
         if not self._write_theme_metadata(theme_id, metadata):
             raise HTTPException(status_code=500, detail="Failed to update preset")
+        self._preset_saved(theme_id, theme, preset_id)
 
         return {
             "status": "ok",
@@ -2619,6 +2808,15 @@ class ApiSonorium(api.Base):
             "name": presets[preset_id].get("name", preset_id),
             "tracks_updated": len(tracks),
         }
+
+    def _preset_saved(self, theme_id: str, theme, preset_id: str) -> None:
+        """Channels playing the saved preset follow its new values."""
+        if self._session_manager is None:
+            return
+        try:
+            self._session_manager.preset_saved({theme_id, getattr(theme, "id", None)}, preset_id)
+        except Exception as e:
+            logger.warning(f"Preset '{preset_id}' saved, but playing channels could not follow it: {e}")
 
     async def delete_preset(self, theme_id: str, preset_id: str):
         """Delete a preset."""
@@ -2642,6 +2840,7 @@ class ApiSonorium(api.Base):
                 if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
                     raise HTTPException(status_code=500, detail="Failed to save changes")
 
+                await self._preset_removed(theme_id, theme_folder, preset_id)
                 return {"status": "ok", "preset_id": preset_id}
 
         # Fallback to direct file I/O
@@ -2663,7 +2862,24 @@ class ApiSonorium(api.Base):
         if not self._write_theme_metadata(theme_id, metadata):
             raise HTTPException(status_code=500, detail="Failed to save changes")
 
+        await self._preset_removed(theme_id, theme_folder or self._find_theme_folder(theme_id), preset_id)
         return {"status": "ok", "preset_id": preset_id}
+
+    async def _preset_removed(self, theme_id: str, folder, preset_id: str) -> None:
+        """A preset was deleted: take it out of the theme's sequences, and update the MQTT selects."""
+        if folder:
+            try:
+                from sonorium.core.sequences import drop_preset
+                changed = drop_preset(folder, preset_id)
+                if changed:
+                    logger.info(f"  Preset '{preset_id}' removed from sequence(s): {', '.join(changed)}")
+            except Exception as e:
+                logger.warning(f"  Could not remove preset '{preset_id}' from the theme's sequences: {e}")
+        if self._mqtt_manager:
+            try:
+                await self._mqtt_manager.refresh_sequences(theme_id)
+            except Exception as e:
+                logger.warning(f"  Could not update MQTT selects: {e}")
 
     async def set_default_preset(self, theme_id: str, preset_id: str):
         """Set a preset as the default for this theme."""
@@ -3143,12 +3359,10 @@ class ApiSonorium(api.Base):
                 status_data["channels"] = self._channel_manager.max_channels
                 status_data["active_channels"] = self._channel_manager.get_active_count()
             
-            # Count sessions with cycling enabled
-            cycling_count = sum(
-                1 for s in self._state_store.sessions.values() 
-                if s.cycle_config and s.cycle_config.enabled
+            # Channels playing a playlist (theme cycling became playlists)
+            status_data["playlist_sessions"] = sum(
+                1 for s in self._state_store.sessions.values() if s.playlist_id
             )
-            status_data["cycling_sessions"] = cycling_count
         
         return status_data
 

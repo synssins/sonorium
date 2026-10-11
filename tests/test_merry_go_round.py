@@ -277,7 +277,7 @@ def test_group_mute_and_volume_scale_the_bed(forest):
     half = pull(bed, 4)
     assert 0.4 < np.sqrt(np.mean(half[RATE:] ** 2)) / np.sqrt(np.mean(loud[RATE:] ** 2)) < 0.6
     theme.groups = {"Bed": {**theme.groups["Bed"], "muted": True}}
-    pull(bed, 0.1)
+    pull(bed, 0.3)  # the level eases down (VOLUME_EASE_SECONDS) rather than cutting
     assert np.abs(pull(bed, 3)).max() == 0
 
 

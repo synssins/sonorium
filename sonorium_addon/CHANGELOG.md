@@ -2,6 +2,305 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.42 (2026-10-11)
+
+
+## v1.6.1-dev.41 (2026-10-11)
+
+### Documentation
+
+- **ui**: Channels help: an unnamed channel is called Channel and a number
+  ([`1aaa787`](https://github.com/synssins/sonorium/commit/1aaa7874ec29742b1cd346fc11b7ad56b418a2c4))
+
+
+## v1.6.1-dev.40 (2026-10-11)
+
+### Documentation
+
+- Ebb & Flow described as minimum/maximum volume with Duration and Rise; breeze and gust
+  screenshots; What's new without layout details
+  ([`f74a70c`](https://github.com/synssins/sonorium/commit/f74a70c8c44a3cbb205a0fc423834558527e2e43))
+
+
+## v1.6.1-dev.39 (2026-10-11)
+
+### Documentation
+
+- Theme Editor help screenshot
+  ([`e131d53`](https://github.com/synssins/sonorium/commit/e131d534ae5a626b34d0595d926dd644d51cc3bb))
+
+- **ui**: Help lines that restated their own control removed; the rest short and literal
+  ([`263176f`](https://github.com/synssins/sonorium/commit/263176f28c9c6bbccaeba5f48b4b1138f15acbbb))
+
+
+## v1.6.1-dev.38 (2026-10-11)
+
+### Documentation
+
+- Phone screenshot of the Channels page
+  ([`18c4300`](https://github.com/synssins/sonorium/commit/18c4300619b48fb9d01db10715c5cbc1cb117746))
+
+- **ui**: Theme Editor help in tiers, in the order the editor shows things; release named 1.6.1
+  (refinements)
+  ([`3d150b6`](https://github.com/synssins/sonorium/commit/3d150b682c696bd99164cce51e9004973c9bc121))
+
+
+## v1.6.1-dev.37 (2026-10-11)
+
+### Documentation
+
+- 1.7.0 what's new and announcement, new screenshots, help copied into the READMEs; Channels board
+  with mute and headphones rows; phone channel blocks fit three recent changes
+  ([`2783d88`](https://github.com/synssins/sonorium/commit/2783d88a34cc1bf9b25a05d3771eb372f462ec87))
+
+
+## v1.6.1-dev.36 (2026-10-11)
+
+### Documentation
+
+- **ui**: Help for the speaker and headphones buttons, Now and Next; Theme Editor help without Auto
+  or intrusion groups, with Rise
+  ([`d5ff290`](https://github.com/synssins/sonorium/commit/d5ff2905ed9012906b9491ee1c63beed29454190))
+
+
+## v1.6.1-dev.35 (2026-10-11)
+
+### Features
+
+- **channels**: The speaker button mutes the speakers' stream (red, muted icon); browsers listening
+  keep hearing it
+  ([`8a2300f`](https://github.com/synssins/sonorium/commit/8a2300f15d7e5da1fa0fbcd673b10b9ff00600e4))
+
+
+## v1.6.1-dev.34 (2026-10-11)
+
+### Bug Fixes
+
+- **channels**: One browser leaving keeps the mix for others; volume ramps stay in range; matching
+  speaker and headphones boxes; listening fails quietly without audio
+  ([`b36d3c6`](https://github.com/synssins/sonorium/commit/b36d3c69c057db52ab1d252029dcc27ce254ee6f))
+
+
+## v1.6.1-dev.33 (2026-10-11)
+
+### Code Style
+
+- **channels**: The speaker icon centred over the headphones button
+  ([`79cf029`](https://github.com/synssins/sonorium/commit/79cf029f746bc7bbd681c7f952def5088f48d8f4))
+
+
+## v1.6.1-dev.32 (2026-10-10)
+
+
+## v1.6.1-dev.31 (2026-10-10)
+
+
+## v1.6.1-dev.29 (2026-10-10)
+
+
+## v1.6.1-dev.28 (2026-10-10)
+
+### Features
+
+- **ui**: Channels page: Listen here button on each channel block
+  ([`5e85480`](https://github.com/synssins/sonorium/commit/5e854801b6d1ec4451d4a7019458e4c7e8a7e5f0))
+
+
+## v1.6.1-dev.27 (2026-10-10)
+
+### Features
+
+- **channels**: Listen here on the server: a channel's mix for browsers, apart from its speakers
+  ([`a731f18`](https://github.com/synssins/sonorium/commit/a731f18cc935c4d3d28f65872dbbb47eb8346be8))
+
+
+## v1.6.1-dev.25 (2026-10-10)
+
+
+## v1.6.1-dev.24 (2026-10-10)
+
+### Features
+
+- **channels**: Keep each channel's recent changes and return them on the sessions API
+  ([`555b348`](https://github.com/synssins/sonorium/commit/555b348299ab2b7cba64cd9cd2a27a6a4511f835))
+
+
+## v1.6.1-dev.22 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: A track's menu moves it to Unassigned (not "Theme (no group)"); design board for the
+  Channels page
+  ([`930bca6`](https://github.com/synssins/sonorium/commit/930bca68ea05f17d10f74291cb3a64187502f2ca))
+
+
+## v1.6.1-dev.21 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: A section's column headings use the section's colour, not the old grey header's
+  ([`d41038a`](https://github.com/synssins/sonorium/commit/d41038a579b27484722be0e0f76b8cd07d7ca12e))
+
+
+## v1.6.1-dev.20 (2026-10-10)
+
+
+## v1.6.1-dev.19 (2026-10-10)
+
+### Bug Fixes
+
+- **theme load**: Auto conversion uses a 0 s short-file threshold as set
+  ([`9a2d69b`](https://github.com/synssins/sonorium/commit/9a2d69bdd5038ec9615adf0842758bb69cedfceb))
+
+### Documentation
+
+- **theme format**: Linked files anywhere, intrusion groups and Auto retired, Unassigned
+  ([`325b7eb`](https://github.com/synssins/sonorium/commit/325b7eb00f4d7a514a5f0e3f8bbc8f60c71a6b30))
+
+### Testing
+
+- Intrusion groups and Auto converted once with backups
+  ([`a0547ee`](https://github.com/synssins/sonorium/commit/a0547eef1c2e158be3925f8aed96e02697a5a7a7))
+
+
+## v1.6.1-dev.18 (2026-10-10)
+
+### Documentation
+
+- Approved design boards for sections, Ebb & Flow and a sequence step's While playing
+  ([`b0197d1`](https://github.com/synssins/sonorium/commit/b0197d1eb5a5a6618178ab4f57f9b0f8bd2b22aa))
+
+### Features
+
+- Linked files anywhere; intrusion groups and Auto retired once on load; uploads start Unassigned
+  ([`4c54025`](https://github.com/synssins/sonorium/commit/4c5402595a0c82da35a872fd23b3466c2d6e4e26))
+
+- **groups**: Moved and renamed keys follow into sequences; names linked files hold stay free
+  ([`b193769`](https://github.com/synssins/sonorium/commit/b193769564c79779e6c486b4e79c720aebec530f))
+
+
+## v1.6.1-dev.14 (2026-10-10)
+
+### Features
+
+- Ebb & Flow Duration, drift and Rise; Unassigned mode; a sequence step's While playing layer
+  ([`d3de5df`](https://github.com/synssins/sonorium/commit/d3de5dfaa487b1388f414263b46b3467fa1136b2))
+
+
+## v1.6.1-dev.13 (2026-10-10)
+
+### Bug Fixes
+
+- Saving a preset updates the channels playing it
+  ([`fd2fdb1`](https://github.com/synssins/sonorium/commit/fd2fdb17be9e3b3eca6a0301477d98c369fd60b6))
+
+
+## v1.6.1-dev.12 (2026-10-10)
+
+### Features
+
+- Ebb & Flow groups, Pause between plays, two-knob volume; Interval sets how lively
+  ([`863d3f6`](https://github.com/synssins/sonorium/commit/863d3f644699418ad19c67d499ae7d37978d5b81))
+
+
+## v1.6.1-dev.11 (2026-10-10)
+
+### Features
+
+- Ebb & Flow rises and falls instead of coming and going
+  ([`3acee12`](https://github.com/synssins/sonorium/commit/3acee12e9a726d30046dc597461b1731ad7d513f))
+
+
+## v1.6.1-dev.10 (2026-10-10)
+
+### Features
+
+- Group gaps saved in presets; volume changes ease instead of stepping
+  ([`6423fdd`](https://github.com/synssins/sonorium/commit/6423fdd1e6ec9de2626743c855a24e70f20590e2))
+
+
+## v1.6.1-dev.9 (2026-10-10)
+
+### Features
+
+- File fades (Fade in / Fade out on a file); advanced transitions show every chosen style's setting
+  ([`f05156f`](https://github.com/synssins/sonorium/commit/f05156f0fefd6032f49cb322bb9aedfe9721dd09))
+
+
+## v1.6.1-dev.8 (2026-10-10)
+
+### Bug Fixes
+
+- The mix no longer ducks the moment a track starts fading in
+  ([`5687652`](https://github.com/synssins/sonorium/commit/56876522b8915249cc0ea07f66c32095a7a0bc6c))
+
+### Features
+
+- Advanced transitions for sequence steps; playback log with a filter
+  ([`121f2db`](https://github.com/synssins/sonorium/commit/121f2db11e54837068b37ca5b49a42e87e21b68f))
+
+
+## v1.6.1-dev.7 (2026-10-10)
+
+### Features
+
+- Sequence steps fade tracks over the ramp; Ebb & Flow tracks start fresh
+  ([`f2d8d6e`](https://github.com/synssins/sonorium/commit/f2d8d6e637860a7d0d5509bab4cc8767457d2515))
+
+
+## v1.6.1-dev.6 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Picking a preset in the Theme Editor loads it
+  ([`3f314ba`](https://github.com/synssins/sonorium/commit/3f314badebdad0fd464f370f6afe5e62698b3544))
+
+
+## v1.6.1-dev.5 (2026-10-10)
+
+### Bug Fixes
+
+- **ui**: Save theme sits next to Cancel in the Theme Editor
+  ([`ed3e4ba`](https://github.com/synssins/sonorium/commit/ed3e4ba5dc171dd8e78e6e54d8cb5652bad6f0a4))
+
+
+## v1.6.1-dev.4 (2026-10-10)
+
+### Bug Fixes
+
+- Shuffled playlists never repeat a theme back to back, nor A-B-A
+  ([`810e6f6`](https://github.com/synssins/sonorium/commit/810e6f644a8cfde72373f09b5c2367050eb6e106))
+
+
+## v1.6.1-dev.3 (2026-10-10)
+
+### Features
+
+- **ui**: Sequences and playlists
+  ([`b43ac16`](https://github.com/synssins/sonorium/commit/b43ac168ce405a8f318dae918a2a6e6f80fbf536))
+
+
+## v1.6.1-dev.2 (2026-10-10)
+
+### Features
+
+- Sequences are picked like presets; playlists can fit sequences into their time
+  ([`9f96faa`](https://github.com/synssins/sonorium/commit/9f96faaa9367ee0f7fe80a9b5ee46d7dc7a1932c))
+
+
+## v1.6.1-dev.1 (2026-10-10)
+
+### Documentation
+
+- **changelog**: 1.6.0 notice and highlights [skip ci]
+  ([`dd7fcff`](https://github.com/synssins/sonorium/commit/dd7fcff5df3abd3fbeca4a151662cd187ff45da9))
+
+### Features
+
+- Sequences, playlists, preset glides and channel start/stop fades
+  ([`d5a6dc5`](https://github.com/synssins/sonorium/commit/d5a6dc5b5701216a772ca47bd53a2f77e1da957b))
+
+
 ## v1.6.0 (2026-10-10)
 
 > ## ⭐ 1.6.0: Merry-go-round and Intrusions

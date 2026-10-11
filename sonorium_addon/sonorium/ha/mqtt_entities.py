@@ -4,9 +4,13 @@ MQTT Entity Management for Sonorium Sessions
 Creates and manages Home Assistant entities via MQTT Discovery:
 - switch.sonorium_{session}_play - Play/pause toggle
 - select.sonorium_{session}_theme - Theme selector
-- select.sonorium_{session}_preset - Preset selector (per-theme)
+- select.sonorium_{session}_preset - Preset selector: None, the theme's presets,
+  then its sequences ("<name> (sequence)"; picking one starts it)
+- select.sonorium_{session}_playlist - Playlist selector (None + all playlists)
+- button.sonorium_{session}_next - Next playlist entry (or next sequence step)
 - number.sonorium_{session}_volume - Volume control
 - sensor.sonorium_{session}_status - Current status
+- sensor.sonorium_{session}_step - Sequence step / playlist entry (details as attributes)
 - sensor.sonorium_{session}_speakers - Speaker info
 """
 
@@ -21,6 +25,61 @@ from sonorium.obs import logger
 if TYPE_CHECKING:
     from sonorium.core.state import Session, StateStore
     from sonorium.core.session_manager import SessionManager
+
+# The "nothing" option of the Preset and Playlist selects. Not the bare word
+# "None": Home Assistant's MQTT select reads a "None" state (any case) as
+# "no option" and shows the entity as unknown.
+NONE_OPTION = "(None)"
+# A sequence in a Preset select: "<name> (sequence)"
+SEQUENCE_SUFFIX = " (sequence)"
+# A preset choice that is a sequence: "seq:<sequence_id>" (core/sequences.py
+# SEQUENCE_PREFIX; not imported, so this module loads on its own)
+SEQUENCE_PREFIX = "seq:"
+
+
+def choice_id(sequence_id: str) -> str:
+    return f"{SEQUENCE_PREFIX}{sequence_id}"
+
+
+def is_none_option(payload) -> bool:
+    """A select command meaning "nothing": empty, "None" or "(None)", any case."""
+    text = (payload or "").strip().lower()
+    return text in ("", "none", NONE_OPTION.lower())
+
+
+def preset_choices(presets: list[dict], sequences: list[dict]) -> tuple[list[str], dict, dict]:
+    """
+    A Preset select's options and mappings: None, the presets by name, then
+    the sequences as "<name> (sequence)". Returns (options, option -> choice,
+    choice -> option); a choice is a preset id or "seq:<sequence_id>".
+    """
+    options = [NONE_OPTION]
+    to_choice, to_option = {}, {}
+
+    def add(option, choice):
+        if option and option not in to_choice and not is_none_option(option):
+            options.append(option)
+            to_choice[option] = choice
+            to_option[choice] = option
+
+    for p in presets or []:
+        if p.get("id"):
+            add(p.get("name") or p["id"], p["id"])
+    for s in sequences or []:
+        if s.get("id"):
+            add(f"{s.get('name') or s['id']}{SEQUENCE_SUFFIX}", choice_id(s["id"]))
+    return options, to_choice, to_option
+
+
+def preset_option(session, to_option: dict) -> str:
+    """A Preset select's state: the running sequence's option, else the preset's, else None."""
+    sequence_id = getattr(session, "sequence_id", None)
+    if sequence_id and choice_id(sequence_id) in to_option:
+        return to_option[choice_id(sequence_id)]
+    preset_id = getattr(session, "preset_id", None)
+    if preset_id and preset_id in to_option:
+        return to_option[preset_id]
+    return NONE_OPTION
 
 
 @dataclass
@@ -47,6 +106,9 @@ class SessionMQTTEntities:
         device_info: dict,
         themes: list[dict] = None,
         get_presets_for_theme: Callable[[str], list[dict]] = None,
+        get_sequences_for_theme: Callable[[str], list[dict]] = None,
+        get_playlists: Callable[[], list[dict]] = None,
+        get_playback: Callable[[Session], dict] = None,
     ):
         """
         Initialize entity manager for a session.
@@ -58,6 +120,10 @@ class SessionMQTTEntities:
             device_info: HA device info dict for grouping entities
             themes: List of available themes for select entity
             get_presets_for_theme: Callback to get presets for a theme ID
+            get_sequences_for_theme: Callback to get sequences ({id, name}) for a theme ID
+                (offered in the Preset select)
+            get_playlists: Callback to get all playlists ({id, name})
+            get_playback: Callback to get a session's sequence/playlist status
         """
         self.session = session
         self.prefix = entity_prefix
@@ -65,6 +131,9 @@ class SessionMQTTEntities:
         self.device_info = device_info
         self.themes = themes or []
         self.get_presets_for_theme = get_presets_for_theme
+        self.get_sequences_for_theme = get_sequences_for_theme
+        self.get_playlists = get_playlists
+        self.get_playback = get_playback
 
         self.slug = session.get_entity_slug()
         self.base_topic = f"homeassistant"
@@ -74,9 +143,14 @@ class SessionMQTTEntities:
         self._theme_name_to_id: dict[str, str] = {}
         self._theme_id_to_name: dict[str, str] = {}
 
-        # Preset name/ID mappings (populated in _publish_preset_select)
+        # Preset select option <-> choice (a preset id or "seq:<sequence_id>"),
+        # populated in _publish_preset_select
         self._preset_name_to_id: dict[str, str] = {}
         self._preset_id_to_name: dict[str, str] = {}
+
+        # Playlist name/ID mappings (populated when its select is published)
+        self._playlist_name_to_id: dict[str, str] = {}
+        self._playlist_id_to_name: dict[str, str] = {}
     
     def _get_unique_id(self, suffix: str) -> str:
         """Generate unique ID for an entity."""
@@ -99,24 +173,49 @@ class SessionMQTTEntities:
         await asyncio.sleep(0.05)
         await self._publish_preset_select()
         await asyncio.sleep(0.05)
+        await self._clear_retired()
+        await self._publish_playlist_select()
+        await asyncio.sleep(0.05)
+        await self._publish_next_button()
+        await asyncio.sleep(0.05)
         await self._publish_volume_number()
         await asyncio.sleep(0.05)
         await self._publish_status_sensor()
+        await asyncio.sleep(0.05)
+        await self._publish_step_sensor()
         await asyncio.sleep(0.05)
         await self._publish_speakers_sensor()
 
         logger.debug(f"Published MQTT discovery for session '{self.session.name}'")
     
+    # Every entity a session has: (component, suffix)
+    ENTITIES = (
+        ("switch", "play"),
+        ("select", "theme"),
+        ("select", "preset"),
+        ("select", "playlist"),
+        ("button", "next"),
+        ("number", "volume"),
+        ("sensor", "status"),
+        ("sensor", "step"),
+        ("sensor", "speakers"),
+    )
+
+    # Entities older versions published that are gone: (component, suffix).
+    # The Sequence select became sequence options in the Preset select.
+    RETIRED_ENTITIES = (
+        ("select", "sequence"),
+    )
+
+    async def _clear_retired(self):
+        """Empty the retained discovery config (and state) of retired entities, so HA drops them."""
+        for component, suffix in self.RETIRED_ENTITIES:
+            await self.mqtt_publish(self._get_discovery_topic(component, suffix), "", retain=True)
+            await self.mqtt_publish(f"{self.state_topic_base}/{suffix}/state", "", retain=True)
+
     async def remove_discovery(self):
-        """Remove MQTT discovery configs (publish empty payloads)."""
-        entities = [
-            ("switch", "play"),
-            ("select", "theme"),
-            ("select", "preset"),
-            ("number", "volume"),
-            ("sensor", "status"),
-            ("sensor", "speakers"),
-        ]
+        """Remove MQTT discovery configs (publish empty payloads), retired ones too."""
+        entities = self.ENTITIES + self.RETIRED_ENTITIES
 
         for component, suffix in entities:
             topic = self._get_discovery_topic(component, suffix)
@@ -141,13 +240,21 @@ class SessionMQTTEntities:
             retain=True,
         )
 
-        # Preset select state (use name, not ID)
-        preset_name = self._preset_id_to_name.get(self.session.preset_id, "") if self.session.preset_id else ""
-        await self.mqtt_publish(
-            f"{self.state_topic_base}/preset/state",
-            preset_name,
-            retain=True,
-        )
+        # Preset and playlist select states (option names; None when there is none)
+        await self._publish_preset_state()
+        await self._publish_playlist_state()
+
+        # Step sensor: what the sequence / playlist is on, details as attributes
+        playback = {}
+        if self.get_playback:
+            try:
+                playback = self.get_playback(self.session) or {}
+            except Exception as e:
+                logger.warning(f"Could not read the playback status of '{self.session.name}': {e}")
+            if not isinstance(playback, dict):
+                playback = {}
+        await self.mqtt_publish(f"{self.state_topic_base}/step/state", step_text(playback), retain=True)
+        await self.mqtt_publish(f"{self.state_topic_base}/step/attributes", json.dumps(playback), retain=True)
 
         # Volume number state
         await self.mqtt_publish(
@@ -224,23 +331,32 @@ class SessionMQTTEntities:
         topic = self._get_discovery_topic("select", "theme")
         await self.mqtt_publish(topic, json.dumps(config), retain=True)
 
+    async def _publish_preset_state(self):
+        await self.mqtt_publish(f"{self.state_topic_base}/preset/state",
+                                preset_option(self.session, self._preset_id_to_name), retain=True)
+
+    async def _publish_playlist_state(self):
+        playlist_id = getattr(self.session, "playlist_id", None)
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/playlist/state",
+            self._playlist_id_to_name.get(playlist_id, NONE_OPTION) if playlist_id else NONE_OPTION,
+            retain=True,
+        )
+
     async def _publish_preset_select(self):
-        """Publish preset selector discovery."""
+        """
+        Preset selector: None, the theme's presets, then its sequences as
+        "<name> (sequence)" (picking one starts it). Its state follows at once.
+        """
         unique_id = self._get_unique_id("preset")
 
-        # Get presets for the current theme - use NAMES not IDs
-        options = [""]  # Empty option for "no preset"
-        self._preset_name_to_id = {}
-        self._preset_id_to_name = {}
-        if self.session.theme_id and self.get_presets_for_theme:
-            presets = self.get_presets_for_theme(self.session.theme_id)
-            for p in presets:
-                preset_id = p.get("id")
-                preset_name = p.get("name", preset_id)  # Fall back to ID if no name
-                if preset_id:
-                    options.append(preset_name)
-                    self._preset_name_to_id[preset_name] = preset_id
-                    self._preset_id_to_name[preset_id] = preset_name
+        presets, sequences = [], []
+        if self.session.theme_id:
+            if self.get_presets_for_theme:
+                presets = self.get_presets_for_theme(self.session.theme_id)
+            if self.get_sequences_for_theme:
+                sequences = self.get_sequences_for_theme(self.session.theme_id)
+        options, self._preset_name_to_id, self._preset_id_to_name = preset_choices(presets, sequences)
 
         config = {
             "name": f"{self.session.name} Preset",
@@ -255,10 +371,63 @@ class SessionMQTTEntities:
 
         topic = self._get_discovery_topic("select", "preset")
         await self.mqtt_publish(topic, json.dumps(config), retain=True)
+        await self._publish_preset_state()
 
     async def update_preset_options(self):
-        """Re-publish preset select with updated options when theme changes."""
+        """Re-publish the preset select with updated options (theme, presets or sequences changed)."""
         await self._publish_preset_select()
+
+    async def _publish_playlist_select(self):
+        """Playlist selector: None, or one of all playlists (picking one plays it on this channel). Its state follows at once."""
+        options = [NONE_OPTION]
+        self._playlist_name_to_id = {}
+        self._playlist_id_to_name = {}
+        if self.get_playlists:
+            for p in self.get_playlists():
+                playlist_id, name = p.get("id"), p.get("name") or p.get("id")
+                if playlist_id and name not in self._playlist_name_to_id and not is_none_option(name):
+                    options.append(name)
+                    self._playlist_name_to_id[name] = playlist_id
+                    self._playlist_id_to_name[playlist_id] = name
+
+        config = {
+            "name": f"{self.session.name} Playlist",
+            "unique_id": self._get_unique_id("playlist"),
+            "default_entity_id": f"select.{self.prefix}_{self.slug}_playlist",
+            "state_topic": f"{self.state_topic_base}/playlist/state",
+            "command_topic": f"{self.state_topic_base}/playlist/set",
+            "options": options,
+            "icon": "mdi:playlist-music",
+            "device": self.device_info,
+        }
+        await self.mqtt_publish(self._get_discovery_topic("select", "playlist"), json.dumps(config), retain=True)
+        await self._publish_playlist_state()
+
+    async def _publish_next_button(self):
+        """Next: the playlist's next entry, or the sequence's next preset."""
+        config = {
+            "name": f"{self.session.name} Next",
+            "unique_id": self._get_unique_id("next"),
+            "default_entity_id": f"button.{self.prefix}_{self.slug}_next",
+            "command_topic": f"{self.state_topic_base}/next/set",
+            "payload_press": "PRESS",
+            "icon": "mdi:skip-next",
+            "device": self.device_info,
+        }
+        await self.mqtt_publish(self._get_discovery_topic("button", "next"), json.dumps(config), retain=True)
+
+    async def _publish_step_sensor(self):
+        """What the sequence and playlist are on now; the full status is in its attributes."""
+        config = {
+            "name": f"{self.session.name} Step",
+            "unique_id": self._get_unique_id("step"),
+            "default_entity_id": f"sensor.{self.prefix}_{self.slug}_step",
+            "state_topic": f"{self.state_topic_base}/step/state",
+            "json_attributes_topic": f"{self.state_topic_base}/step/attributes",
+            "icon": "mdi:format-list-numbered",
+            "device": self.device_info,
+        }
+        await self.mqtt_publish(self._get_discovery_topic("sensor", "step"), json.dumps(config), retain=True)
 
     async def _publish_volume_number(self):
         """Publish volume control discovery."""
@@ -319,6 +488,24 @@ class SessionMQTTEntities:
         )
 
 
+def step_text(playback: dict) -> str:
+    """The Step sensor's state: the playlist entry and sequence step, or "Off"."""
+    parts = []
+    playlist = (playback or {}).get("playlist")
+    if playlist:
+        where = playlist.get("theme_name") or playlist.get("theme_id") or ""
+        if playlist.get("entry_index") is not None:
+            where = f"{where} ({playlist['entry_index'] + 1}/{playlist.get('entries', 0)})"
+        parts.append(f"{playlist.get('name')}: {where}".strip())
+    sequence = (playback or {}).get("sequence")
+    if sequence:
+        where = sequence.get("current_preset_name") or sequence.get("current_preset_id") or ""
+        if sequence.get("step"):
+            where = f"{where} ({sequence['step']}/{sequence.get('steps', 0)})"
+        parts.append(f"{sequence.get('name')}: {where}".strip())
+    return " | ".join(parts)[:255] if parts else "Off"
+
+
 class SonoriumMQTTManager:
     """
     Manages all MQTT entities for Sonorium.
@@ -368,7 +555,8 @@ class SonoriumMQTTManager:
         self._theme_name_to_id: dict[str, str] = {}
         self._theme_id_to_name: dict[str, str] = {}
 
-        # Preset name/ID mappings for global controls (populated in _update_global_preset_options)
+        # Preset option <-> choice (preset id or "seq:<id>") for global controls
+        # (populated in _update_global_preset_options)
         self._preset_name_to_id: dict[str, str] = {}
         self._preset_id_to_name: dict[str, str] = {}
 
@@ -454,6 +642,39 @@ class SonoriumMQTTManager:
         except Exception as e:
             logger.warning(f"Failed to get presets for theme {theme_id}: {e}")
             return []
+
+    def get_sequences_for_theme(self, theme_id: str) -> list[dict]:
+        """A theme's sequences ({id, name}), from its presets.json."""
+        try:
+            sequences, _ = self.session_manager.theme_sequences(theme_id)
+            return [{"id": sid, "name": data.get("name", sid)} for sid, data in sequences.items()]
+        except Exception as e:
+            logger.warning(f"Failed to get sequences for theme {theme_id}: {e}")
+            return []
+
+    def get_playlists(self) -> list[dict]:
+        """All playlists ({id, name})."""
+        playlists = getattr(self.state, "playlists", None) or {}
+        return [{"id": pid, "name": (p or {}).get("name", pid)} for pid, p in playlists.items()]
+
+    def get_playback(self, session: Session) -> dict:
+        """A session's sequence and playlist status."""
+        return self.session_manager.playback_status(session)
+
+    async def refresh_playlists(self):
+        """Republish every channel's Playlist select after playlists are added, renamed or deleted."""
+        for entities in self._session_entities.values():
+            await entities._publish_playlist_select()
+        await self.sync_all_states()
+
+    async def refresh_sequences(self, theme_id: str | None = None):
+        """Republish the Preset selects (their sequence options) of channels on a theme (all if None) after its sequences changed."""
+        for session_id, entities in self._session_entities.items():
+            session = self.state.sessions.get(session_id)
+            if session and (theme_id is None or session.theme_id == theme_id):
+                await entities._publish_preset_select()
+        await self.sync_all_states()
+        await self._update_global_control_states()
     
     async def _mqtt_publish(self, topic: str, payload: str, retain: bool = False):
         """Publish an MQTT message with logging."""
@@ -564,6 +785,9 @@ class SonoriumMQTTManager:
             device_info=self.device_info,
             themes=self._themes,
             get_presets_for_theme=self.get_presets_for_theme,
+            get_sequences_for_theme=self.get_sequences_for_theme,
+            get_playlists=self.get_playlists,
+            get_playback=self.get_playback,
         )
 
         await entities.publish_discovery()
@@ -775,7 +999,7 @@ class SonoriumMQTTManager:
             "default_entity_id": f"select.{self.prefix}_preset",
             "state_topic": f"{self.prefix}/preset/state",
             "command_topic": f"{self.prefix}/preset/set",
-            "options": [""],  # Will be updated when session/theme changes
+            "options": [NONE_OPTION],  # Will be updated when session/theme changes
             "icon": "mdi:tune-variant",
             "device": self.device_info,
         }
@@ -789,7 +1013,7 @@ class SonoriumMQTTManager:
         # Publish initial state
         await self._mqtt_publish(
             f"{self.prefix}/preset/state",
-            "",
+            NONE_OPTION,
             retain=True,
         )
         await asyncio.sleep(0.1)
@@ -956,14 +1180,6 @@ class SonoriumMQTTManager:
                 retain=True,
             )
             
-            # Preset state (use name, not ID)
-            preset_name = self._preset_id_to_name.get(session.preset_id, "") if session.preset_id else ""
-            await self._mqtt_publish(
-                f"{self.prefix}/preset/state",
-                preset_name,
-                retain=True,
-            )
-            
             # Volume state
             await self._mqtt_publish(
                 f"{self.prefix}/volume/state",
@@ -995,34 +1211,32 @@ class SonoriumMQTTManager:
                 retain=True,
             )
             
-            # Update preset options for selected session's theme
+            # Preset options for the selected session's theme, then its state
+            # (an option name: the running sequence's, else the preset's)
             await self._update_global_preset_options(session.theme_id)
+            await self._mqtt_publish(
+                f"{self.prefix}/preset/state",
+                preset_option(session, self._preset_id_to_name),
+                retain=True,
+            )
         else:
             # No session selected - show empty/default states
             await self._mqtt_publish(f"{self.prefix}/play/state", "OFF", retain=True)
             await self._mqtt_publish(f"{self.prefix}/theme/state", "", retain=True)
-            await self._mqtt_publish(f"{self.prefix}/preset/state", "", retain=True)
             await self._mqtt_publish(f"{self.prefix}/volume/state", "50", retain=True)
             await self._mqtt_publish(f"{self.prefix}/status/state", "No session selected", retain=True)
             await self._mqtt_publish(f"{self.prefix}/speakers/state", "None", retain=True)
             await self._update_global_preset_options(None)
+            await self._mqtt_publish(f"{self.prefix}/preset/state", NONE_OPTION, retain=True)
     
     async def _update_global_preset_options(self, theme_id: str | None):
-        """Update the global preset select options based on theme."""
-        options = [""]  # Empty option
-        self._preset_name_to_id = {}
-        self._preset_id_to_name = {}
-
+        """Update the global preset select options (None, presets, sequences) based on theme."""
+        presets, sequences = [], []
         if theme_id:
             presets = self.get_presets_for_theme(theme_id)
-            for p in presets:
-                preset_id = p.get("id")
-                preset_name = p.get("name", preset_id)  # Fall back to ID if no name
-                if preset_id:
-                    options.append(preset_name)
-                    self._preset_name_to_id[preset_name] = preset_id
-                    self._preset_id_to_name[preset_id] = preset_name
-        
+            sequences = self.get_sequences_for_theme(theme_id)
+        options, self._preset_name_to_id, self._preset_id_to_name = preset_choices(presets, sequences)
+
         # Re-publish config with updated options
         config = {
             "name": "Sonorium Preset",
@@ -1104,6 +1318,8 @@ class SonoriumMQTTManager:
                 f"{self.prefix}/{slug}/play/set",
                 f"{self.prefix}/{slug}/theme/set",
                 f"{self.prefix}/{slug}/preset/set",
+                f"{self.prefix}/{slug}/playlist/set",
+                f"{self.prefix}/{slug}/next/set",
                 f"{self.prefix}/{slug}/volume/set",
             ])
 
@@ -1206,13 +1422,9 @@ class SonoriumMQTTManager:
                 logger.warning("No session selected for global preset control")
                 return
 
-            # Convert preset name to ID (payload is the preset name from the dropdown)
-            preset_id = self._preset_name_to_id.get(payload) if payload else None
-            if payload and not preset_id:
-                logger.warning(f"Unknown preset name: {payload}")
+            # The payload is an option name: a preset, a sequence or None
+            if not self._pick_preset(self._selected_session_id, payload, self._preset_name_to_id):
                 return
-
-            self.session_manager.update(self._selected_session_id, preset_id=preset_id)
             session = self.state.sessions.get(self._selected_session_id)
             if session:
                 await self.update_session_state(session)
@@ -1274,17 +1486,50 @@ class SonoriumMQTTManager:
                 return
 
             elif topic == f"{self.prefix}/{slug}/preset/set":
-                # Convert preset name to ID (payload is the preset name from the dropdown)
-                preset_id = entities._preset_name_to_id.get(payload) if payload else None
-                if payload and not preset_id:
-                    logger.warning(f"Unknown preset name for session {session_id}: {payload}")
-                    return
-
-                self.session_manager.update(session_id, preset_id=preset_id)
+                # The payload is an option name: a preset, a sequence ("<name> (sequence)") or None
+                self._pick_preset(session_id, payload, entities._preset_name_to_id)
                 session = self.state.sessions.get(session_id)
                 if session:
-                    await self.update_session_state(session)
+                    await self.update_session_state(session)  # also puts the select back after a refusal
                 # Update global state if this is the selected session
+                if session_id == self._selected_session_id:
+                    await self._update_global_control_states()
+                return
+
+            elif topic == f"{self.prefix}/{slug}/playlist/set":
+                # Payload is the playlist NAME; None stops the playlist (the theme keeps playing)
+                session = self.state.sessions.get(session_id)
+                if not session:
+                    return
+                if is_none_option(payload):
+                    self.session_manager.clear_playlist(session_id)
+                else:
+                    playlist_id = entities._playlist_name_to_id.get(payload)
+                    if not playlist_id:
+                        logger.warning(f"Unknown playlist name for session {session_id}: {payload}")
+                        await self.update_session_state(session)
+                        return
+                    try:
+                        self.session_manager.set_playlist(session_id, playlist_id)
+                    except (LookupError, ValueError) as e:
+                        logger.warning(f"Could not play playlist '{payload}' on '{session.name}': {e}")
+                await self.update_session_state(session)
+                if session_id == self._selected_session_id:
+                    await self._update_global_control_states()
+                return
+
+            elif topic == f"{self.prefix}/{slug}/next/set":
+                session = self.state.sessions.get(session_id)
+                if not session:
+                    return
+                if not session.is_playing:
+                    logger.info(f"Next on '{session.name}' ignored: the channel is not playing")
+                    return
+                result = await self.session_manager.skip(session_id)
+                if result is None:
+                    logger.info(f"Next on '{session.name}' ignored: no playlist or sequence is running")
+                await self.update_session_state(session)
+                await self._update_active_sessions_count()
                 if session_id == self._selected_session_id:
                     await self._update_global_control_states()
                 return
@@ -1303,6 +1548,27 @@ class SonoriumMQTTManager:
                     logger.warning(f"Invalid volume value: {payload}")
                 return
     
+    def _pick_preset(self, session_id: str, payload: str, name_to_choice: dict) -> bool:
+        """
+        A Preset select command: None clears the preset (the theme's own
+        settings), a preset name picks it, a sequence option starts that
+        sequence. Logs and returns False for an unknown option or a sequence
+        that can't run.
+        """
+        if is_none_option(payload):
+            choice = ""
+        else:
+            choice = name_to_choice.get(payload)
+            if not choice:
+                logger.warning(f"Unknown preset option for session {session_id}: {payload}")
+                return False
+        try:
+            self.session_manager.update(session_id, preset_id=choice)
+        except (LookupError, ValueError) as e:
+            logger.warning(f"Could not pick '{payload}' for session {session_id}: {e}")
+            return False
+        return True
+
     async def sync_all_states(self):
         """Synchronize all entity states with current session data."""
         for session in self.state.sessions.values():

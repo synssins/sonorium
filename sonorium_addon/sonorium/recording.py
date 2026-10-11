@@ -9,6 +9,8 @@ from sonorium.obs import logger
 import av
 
 LOG_THRESHOLD = 500
+EBB_DEFAULT_LOW = 0.2  # Ebb & Flow's lower Volume knob, until a track sets one
+DEFAULT_PAUSE = (30.0, 300.0)  # Ebb & Flow's Pause between plays, seconds, until a track sets its own
 
 
 class ExclusionGroupCoordinator:
@@ -230,6 +232,7 @@ class PlaybackMode(str, Enum):
     SPARSE = "sparse"
     PRESENCE = "presence"
     AUTO = "auto"
+    UNASSIGNED = "unassigned"  # uploaded or linked, not placed in a section yet: not played
 
 # Threshold for "short" audio files that get sparse playback
 SHORT_FILE_THRESHOLD_SECONDS = 15.0
@@ -279,6 +282,124 @@ def decode_mono(path):
             container.close()
 
     return decode()
+
+
+# A track's volume moves to a new value (a slider, a preset) at most this
+# fast: from silence to full in this long. Slower changes (a glide over a
+# sequence's ramp) pass through as they are, just without per-chunk steps.
+VOLUME_EASE_SECONDS = 0.25
+
+
+def eased_volume(current, target: float, samples: int) -> float:
+    """Where a volume gets to after `samples` moving toward `target` (None: it starts there)."""
+    target = float(target)
+    if current is None:
+        return target
+    step = samples / (VOLUME_EASE_SECONDS * SAMPLE_RATE)
+    if abs(target - current) <= step:
+        return target
+    return current + step if target > current else current - step
+
+
+def eases_from(track, current):
+    """
+    Where a stream's volume eases from: `current`, or None (no easing) while
+    an advanced transition sets the volume, since the transition scales its
+    level against that volume in the same chunk.
+    """
+    pinned = getattr(track, "is_pinned", None)
+    return None if pinned is not None and pinned("volume") else current
+
+
+def apply_volume(data, current, target: float):
+    """`data` (samples on its last axis) at a volume easing from `current` toward `target`; returns (scaled, volume reached)."""
+    n = data.shape[-1]
+    reached = eased_volume(current, target, n)
+    start = reached if current is None else current
+    if start == reached:
+        return data * reached, reached
+    return data * np.linspace(start, reached, n, dtype=np.float32), reached
+
+
+# A file's own Fade in / Fade out (Theme Editor, the track's ⋯ menu): for a
+# file that starts or ends abruptly. Off (0) unless set. Applied wherever the
+# file is decoded, so every play, loop, step and transition has them.
+FILE_FADE_MAX_SECONDS = 30.0
+
+
+def file_fade_samples(track) -> tuple[int, int]:
+    """A track's (fade in, fade out) in samples; 0 when off."""
+    def samples(name):
+        try:
+            seconds = float(getattr(track, name, 0.0) or 0.0)
+        except (TypeError, ValueError):
+            seconds = 0.0
+        return int(min(FILE_FADE_MAX_SECONDS, max(0.0, seconds)) * SAMPLE_RATE)
+    return samples("fade_in"), samples("fade_out")
+
+
+def _fade_in_gain(start: int, count: int, length: int):
+    """Equal-power fade-in gains for samples start..start+count of a fade `length` long."""
+    return np.sin(np.pi / 2 * (np.arange(start, start + count, dtype=np.float32) + 1) / length).astype(np.float32)
+
+
+def _fade_out_gain(count: int, length: int):
+    """Equal-power fade-out gains for the last `count` samples of a fade `length` long (ends at 0)."""
+    done = np.arange(length - count, length, dtype=np.float32) + 1
+    return np.cos(np.pi / 2 * done / length).astype(np.float32)
+
+
+def apply_file_fades(samples, fade_in: int, fade_out: int):
+    """The whole file's samples with its fades applied (a copy when any is set)."""
+    n = len(samples)
+    if not n or not (fade_in or fade_out):
+        return samples
+    out = np.asarray(samples, dtype=np.float32).copy()
+    if fade_in:
+        k = min(n, fade_in)
+        out[:k] *= _fade_in_gain(0, k, fade_in)
+    if fade_out:
+        k = min(n, fade_out)
+        out[n - k:] *= _fade_out_gain(k, fade_out)
+    return out
+
+
+def decode_faded(path, fade_in: int = 0, fade_out: int = 0):
+    """
+    decode_mono with the file's fades: the first `fade_in` samples rise from
+    silence, the last `fade_out` fall to silence. The end is found by holding
+    back `fade_out` samples, so no length is needed.
+    """
+    blocks = decode_mono(path)
+    if not (fade_in or fade_out):
+        return blocks
+
+    def faded():
+        pos = 0
+        pending, held = deque(), 0
+        for block in blocks:
+            block = np.asarray(block, dtype=np.float32).reshape(-1)
+            if fade_in and pos < fade_in:
+                k = min(len(block), fade_in - pos)
+                block = block.copy()
+                block[:k] *= _fade_in_gain(pos, k, fade_in)
+            pos += len(block)
+            if not fade_out:
+                yield block
+                continue
+            pending.append(block)
+            held += len(block)
+            while pending and held - len(pending[0]) >= fade_out:
+                first = pending.popleft()
+                held -= len(first)
+                yield first
+        if fade_out and pending:
+            tail = np.concatenate(list(pending))
+            k = min(len(tail), fade_out)
+            tail[len(tail) - k:] *= _fade_out_gain(k, fade_out)
+            yield tail
+
+    return faded()
 
 
 class RecordingMetadata:
@@ -370,6 +491,13 @@ class RecordingThemeInstance:
         self.crossfade_enabled = True  # Enable crossfade looping by default
         self.playback_mode = PlaybackMode.AUTO  # How playback/looping is handled
         self.exclusive = False  # If True, only one exclusive track can play at a time
+        self.fade_in = 0.0  # The file's own fades, seconds (0 = off), see file_fade_samples
+        self.fade_out = 0.0
+        # Ebb & Flow: the lower knob of the Volume slider, and Pause between plays with its range (seconds)
+        self.volume_low = EBB_DEFAULT_LOW
+        self.pause_between = False
+        self.pause_min, self.pause_max = DEFAULT_PAUSE
+        self.rise = 0.0  # Ebb & Flow: 0 gradual .. 1 sudden
 
     @property
     def short_file_threshold(self) -> float:
@@ -392,6 +520,10 @@ class RecordingThemeInstance:
     def get_stream(self, exclusion_coordinator: ExclusionGroupCoordinator = None):
         mode = self._resolve_playback_mode()
 
+        # UNASSIGNED: not placed yet, so not played (and not decoded)
+        if mode == PlaybackMode.UNASSIGNED:
+            return SilentTrackStream(self)
+
         # SPARSE: Play once at full volume, then silence for interval
         if mode == PlaybackMode.SPARSE:
             return SparsePlaybackStream(self, exclusion_coordinator)
@@ -404,7 +536,7 @@ class RecordingThemeInstance:
 
         # PRESENCE: Wrap with fade in/out based on presence value. In a group the
         # wrapper is always used, so the track waits its turn even at 100%.
-        if mode == PlaybackMode.PRESENCE and (self.presence < 1.0 or (self.exclusive and exclusion_coordinator)):
+        if mode == PlaybackMode.PRESENCE:
             return PresenceMixingStream(base_stream, self, exclusion_coordinator if self.exclusive else None)
 
         return base_stream
@@ -421,7 +553,11 @@ LEGACY_EXCLUSIVE_GROUP = "Exclusive"
 # track attribute each one acts on. Volume and presence multiply the track's own
 # value (track 50% x group 50% = 25%); muted mutes every track in the group.
 # The gap between plays (gap_min/gap_max, seconds) is a real interval, never scaled.
-GROUP_TRACK_SETTINGS = {"volume": "volume", "presence": "presence", "muted": "is_enabled"}
+GROUP_TRACK_SETTINGS = {"volume": "volume", "presence": "presence", "muted": "is_enabled",
+                        "pause_between": "pause_between", "rise": "rise"}
+GROUP_GAP_SETTINGS = ("gap_min", "gap_max")
+# What a preset saves for a group: the master controls and the gap
+GROUP_PRESET_SETTINGS = (*GROUP_TRACK_SETTINGS, *GROUP_GAP_SETTINGS)
 GROUP_KEY_PREFIX = "@group:"  # a channel's preset values for a group, in its overrides dict
 
 
@@ -458,7 +594,10 @@ def group_gap_range(group_settings: dict | None) -> tuple[float, float] | None:
 GROUP_MODE_INTERMITTENT = "intermittent"
 GROUP_MODE_MERRY_GO_ROUND = "merry_go_round"
 GROUP_MODE_INTRUSION = "intrusion"
-GROUP_MODES = (GROUP_MODE_INTERMITTENT, GROUP_MODE_MERRY_GO_ROUND, GROUP_MODE_INTRUSION)
+# Ebb & Flow: every file of the group plays at once as Ebb & Flow (no turns);
+# the group's Pause between plays runs them on a staggered, never-silent cycle
+GROUP_MODE_EBB_FLOW = "ebb_flow"
+GROUP_MODES = (GROUP_MODE_INTERMITTENT, GROUP_MODE_MERRY_GO_ROUND, GROUP_MODE_EBB_FLOW, GROUP_MODE_INTRUSION)
 # Merry-go-round crossfade (groups[name]["crossfade"], seconds)
 DEFAULT_GROUP_CROSSFADE = 10.0
 MIN_GROUP_CROSSFADE = 1.0
@@ -483,7 +622,11 @@ def group_crossfade(group_settings: dict | None) -> float:
     return max(MIN_GROUP_CROSSFADE, min(MAX_GROUP_CROSSFADE, value))
 
 # Track settings a preset can set, as RecordingThemeInstance attribute names
-PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive")
+PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive",
+                       "volume_low", "pause_between", "pause_min", "pause_max")
+# Ebb & Flow settings, saved in metadata.json and presets under the same names
+# (theme_metadata.EBB_TRACK_SETTINGS; repeated here so this module stands alone)
+EBB_TRACK_SETTINGS = ("volume_low", "pause_between", "pause_min", "pause_max", "rise")
 
 
 def preset_track_overrides(preset_tracks: dict) -> dict:
@@ -512,19 +655,45 @@ def preset_track_overrides(preset_tracks: dict) -> dict:
                 track["playback_mode"] = PlaybackMode.AUTO
         if "exclusive" in settings:
             track["exclusive"] = settings["exclusive"]
+        for key in EBB_TRACK_SETTINGS:
+            if key in settings:
+                track[key] = settings[key]
         overrides[track_name] = track
     return overrides
 
 
 def preset_group_overrides(preset_groups: dict) -> dict:
-    """A preset's group master controls ({"Lute": {"presence": .4, "muted": false}}) as channel overrides."""
+    """
+    A preset's group settings ({"Lute": {"presence": .4, "muted": false,
+    "gap_min": 60}}) as channel overrides: the master controls as the track
+    attributes they act on, the gap as saved (see preset_gap_range).
+    """
     overrides = {}
     for group, settings in (preset_groups or {}).items():
-        overrides[GROUP_KEY_PREFIX + group] = {
+        values = {
             GROUP_TRACK_SETTINGS[key]: group_setting_value(key, value)
             for key, value in (settings or {}).items() if key in GROUP_TRACK_SETTINGS
         }
+        values.update({key: value for key, value in (settings or {}).items() if key in GROUP_GAP_SETTINGS})
+        overrides[GROUP_KEY_PREFIX + group] = values
     return overrides
+
+
+def group_pauses(group: str, overrides: dict | None, theme_groups: dict | None) -> bool:
+    """An Ebb & Flow group's Pause between plays as a channel plays it: its preset's, else the theme's."""
+    preset = (overrides or {}).get(GROUP_KEY_PREFIX + group) or {}
+    if "pause_between" in preset:
+        return bool(preset["pause_between"])
+    return bool(((theme_groups or {}).get(group) or {}).get("pause_between"))
+
+
+def preset_gap_range(group: str, overrides: dict | None, theme_groups: dict | None) -> tuple[float, float] | None:
+    """A group's gap as a channel plays it: its preset's gap when the preset saves one, else the theme's."""
+    saved = dict((theme_groups or {}).get(group) or {})
+    preset = (overrides or {}).get(GROUP_KEY_PREFIX + group) or {}
+    if any(key in preset for key in GROUP_GAP_SETTINGS):
+        saved.update({key: preset.get(key) for key in GROUP_GAP_SETTINGS})
+    return group_gap_range(saved)
 
 
 class TrackView:
@@ -534,18 +703,58 @@ class TrackView:
 
     `overrides` is the channel's dict ({track name: {field: value}}), shared by
     reference, so changing it in place changes what the channel plays.
+
+    `pins` (shared with the mix, see theme.ThemeStream) holds values an
+    advanced transition sets for a while ({track name: {field: value}}):
+    they win over everything else, group masters included. `context` is the
+    mix's {"label": ...}, for log lines.
     """
 
-    def __init__(self, instance: RecordingThemeInstance, overrides: dict):
+    def __init__(self, instance: RecordingThemeInstance, overrides: dict, pins: dict | None = None,
+                 context: dict | None = None):
         self._instance = instance
         self._overrides = overrides
+        self._pins = pins if pins is not None else {}
+        self._context = context if context is not None else {}
 
-    def __getattr__(self, name):
+    @property
+    def log_label(self) -> str:
+        """Who is playing, for log lines: the mix's label (channel and theme)."""
+        return self._context.get("label") or getattr(getattr(self._instance, "theme", None), "name", "") or ""
+
+    def is_pinned(self, name) -> bool:
+        """An advanced transition sets this value now."""
+        pinned = self._pins.get(self._instance.name)
+        return pinned is not None and name in pinned
+
+    def unpinned(self, name):
+        """A value as the presets set it, ignoring a transition's pins."""
         value = self._track_value(name)
         group = getattr(self._instance.meta, "group", None)
         if group:
             return self._in_group(group, name, value)
         return value
+
+    def __getattr__(self, name):
+        pinned = self._pins.get(self._instance.name)
+        if pinned is not None and name in pinned:
+            return pinned[name]
+        value = self._track_value(name)
+        group = getattr(self._instance.meta, "group", None)
+        if group:
+            return self._in_group(group, name, value)
+        return value
+
+    def _ebb_group(self, group: str) -> bool:
+        """A group in Ebb & Flow mode: every file plays at once as Ebb & Flow."""
+        theme_groups = getattr(getattr(self._instance, "theme", None), "groups", None) or {}
+        return group_mode(theme_groups.get(group)) == GROUP_MODE_EBB_FLOW
+
+    @property
+    def ebb_group_name(self) -> str | None:
+        """The Ebb & Flow group this track plays in, if it does."""
+        group = getattr(self._instance.meta, "group", None)
+        return group if group and self._ebb_group(group) else None
 
     def _intrusion_group(self, group: str) -> bool:
         """A group in Intrusion mode: its tracks play as their own settings say."""
@@ -576,6 +785,19 @@ class TrackView:
         """A track in a group folder: the group's master controls act on the track's own value."""
         if name in ("exclusive", "playback_mode") and self._intrusion_group(group):
             return value  # an intrusion group doesn't take turns: the track's own mode
+        if name in ("exclusive", "playback_mode", "pause_between") and self._ebb_group(group):
+            if name == "exclusive":
+                return False  # no turns: every file plays at once
+            if name == "playback_mode":
+                return PlaybackMode.PRESENCE
+            # Pause between plays: the group's, when it's on, else the track's own
+            return bool(self._group_master(group, name)) or bool(value)
+        if name == "rise" and self._ebb_group(group):
+            master = self._group_master(group, name)  # Same Rise for every file
+            return value if master is None else master
+        if name == "volume_low":
+            master = self._group_master(group, "volume")
+            return value * master if master is not None and value is not None else value
         if name == "exclusive":
             return True  # one track of a group at a time
         if name in ("volume", "presence"):
@@ -595,13 +817,28 @@ class TrackView:
     def exclusion_group(self) -> str | None:
         """The named group this track plays in, one at a time: its folder, or "Exclusive" for the old flag."""
         group = getattr(self._instance.meta, "group", None)
-        if group and not self._intrusion_group(group):
+        if group and not self._intrusion_group(group) and not self._ebb_group(group):
             return group
         return LEGACY_EXCLUSIVE_GROUP if self.exclusive else None
 
     # Same decisions as the theme's own track, made with the channel's values
     _resolve_playback_mode = RecordingThemeInstance._resolve_playback_mode
     get_stream = RecordingThemeInstance.get_stream
+
+
+class SilentTrackStream:
+    """A track that doesn't play (Unassigned): silence, nothing decoded."""
+    CHUNK_SIZE = 1_024
+
+    def __init__(self, instance):
+        self.instance = instance
+        self._silence = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return self._silence
 
 
 class RecordingThemeStream:
@@ -613,39 +850,29 @@ class RecordingThemeStream:
     def __init__(self, instance: RecordingThemeInstance):
         self.instance = instance
         self.resampler = av.AudioResampler(format='s16', layout='mono', rate=SAMPLE_RATE)
+        self._volume = None  # the volume reached, easing toward the track's (see apply_volume)
         self.gen = self._gen()
 
     def _gen(self):
         while True:
-            container = av.open(self.instance.meta.path)
-
-            if len(container.streams.audio) == 0:
-                raise ValueError('No audio stream')
-            stream = next(iter(container.streams.audio))
-
-            buffer = np.empty((1, 0), dtype=np.int16)
-
+            buffer = np.empty(0, dtype=np.float32)
             i = 0
-            for frame_orig in container.decode(stream):
-                for frame_resamp in self.resampler.resample(frame_orig):
-                    data_resamp = frame_resamp.to_ndarray()
-                    data_resamp = data_resamp.mean(axis=0).astype(data_resamp.dtype).reshape(data_resamp.shape)
-                    data_resamp = (data_resamp * self.instance.volume).astype(data_resamp.dtype)
+            # Each pass through the file has the file's own fades (if set)
+            for block in decode_faded(self.instance.meta.path, *file_fade_samples(self.instance)):
+                buffer = np.concatenate([buffer, np.asarray(block, dtype=np.float32).reshape(-1)])
 
-                    buffer = np.hstack((buffer, data_resamp))
+                while len(buffer) >= self.CHUNK_SIZE:
+                    data = buffer[:self.CHUNK_SIZE].reshape(1, -1)
+                    buffer = buffer[self.CHUNK_SIZE:]
 
-                    while buffer.shape[1] >= self.CHUNK_SIZE:
-                        data = buffer[:, :self.CHUNK_SIZE]
-                        buffer = buffer[:, self.CHUNK_SIZE:]
+                    # The volume is read as each chunk goes out (no lag behind a glide or a transition), and eases
+                    data, self._volume = apply_volume(data, eases_from(self.instance, self._volume), self.instance.volume)
+                    yield np.clip(data, -32768, 32767).astype(np.int16)
 
-                        yield data
-
-                        if i % LOG_THRESHOLD == 0:
-                            vol_mean = round(abs(data).mean())
-                            logger.debug(f'{self.__class__.__name__} Yielding chunk #{i} {data.shape=}, {buffer.shape=}, {vol_mean=}')
-                        i += 1
-
-            container.close()
+                    if i % LOG_THRESHOLD == 0:
+                        vol_mean = round(abs(data).mean())
+                        logger.debug(f'{self.__class__.__name__} Yielding chunk #{i} {data.shape=}, {buffer.shape=}, {vol_mean=}')
+                    i += 1
 
     def __iter__(self):
         return self
@@ -665,17 +892,30 @@ class CrossfadeRecordingStream:
 
     def __init__(self, instance: RecordingThemeInstance):
         self.instance = instance
+        # Where the current pass through the file is (samples), and the file's length
+        self.position = 0
+        self.length = 0
+        self._volume = None  # the volume reached, easing toward the track's (see apply_volume)
         self.gen = self._gen()
 
     def _create_decoder(self):
-        """Create a new decoder generator for the audio file (the track's volume read per block)"""
-        return (block * self.instance.volume for block in decode_mono(self.instance.meta.path))
+        """Create a new decoder generator for the audio file (the volume is applied as chunks go out)"""
+        return decode_faded(self.instance.meta.path, *self._fades)
 
     def _gen(self):
         """Main generator with crossfade logic"""
         
         # Get track duration for crossfade timing
         track_duration = self.instance.meta.duration_samples
+
+        # The file's own fades: the loop's overlap is as long as the longer
+        # one, and a side with its own fade isn't faded again (its fade does
+        # it). Without fades, the usual equal-power crossfade.
+        self._fades = fade_in_n, fade_out_n = file_fade_samples(self.instance)
+        CROSSFADE_SAMPLES = max(fade_in_n, fade_out_n) or globals()["CROSSFADE_SAMPLES"]
+        if track_duration:
+            CROSSFADE_SAMPLES = max(self.CHUNK_SIZE, min(CROSSFADE_SAMPLES, track_duration // 2))
+        self.overlap = CROSSFADE_SAMPLES
         crossfade_start = max(0, track_duration - CROSSFADE_SAMPLES)
         
         logger.debug(f'CrossfadeStream: {self.instance.name} duration={track_duration} samples ({track_duration/SAMPLE_RATE:.1f}s), crossfade at {crossfade_start} ({crossfade_start/SAMPLE_RATE:.1f}s)')
@@ -693,6 +933,10 @@ class CrossfadeRecordingStream:
         # Pre-generate crossfade curves (equal-power)
         fade_out = np.cos(np.linspace(0, np.pi/2, CROSSFADE_SAMPLES)).astype(np.float32)
         fade_in = np.sin(np.linspace(0, np.pi/2, CROSSFADE_SAMPLES)).astype(np.float32)
+        if fade_out_n:
+            fade_out = np.ones(CROSSFADE_SAMPLES, dtype=np.float32)  # the file's end fades by itself
+        if fade_in_n:
+            fade_in = np.ones(CROSSFADE_SAMPLES, dtype=np.float32)  # the file's start rises by itself
         
         next_buffer = np.empty(0, dtype=np.float32)
         current_done = False
@@ -780,11 +1024,13 @@ class CrossfadeRecordingStream:
                     in_crossfade = False
                     crossfade_position = 0
             
-            # Convert to int16 and reshape for output
+            # The track's volume, read as each chunk goes out and eased; int16 for output
+            output_chunk, self._volume = apply_volume(output_chunk, eases_from(self.instance, self._volume), self.instance.volume)
             output_chunk = np.clip(output_chunk, -32768, 32767).astype(np.int16)
             output_data = output_chunk.reshape(1, -1)
             
             samples_played += self.CHUNK_SIZE
+            self.position, self.length = samples_played, track_duration
             chunk_count += 1
             
             if chunk_count % LOG_THRESHOLD == 0:
@@ -820,9 +1066,14 @@ class SparsePlaybackStream:
     """
     CHUNK_SIZE = 1_024
 
-    def __init__(self, instance: RecordingThemeInstance, exclusion_coordinator: ExclusionGroupCoordinator = None):
+    def __init__(self, instance: RecordingThemeInstance, exclusion_coordinator: ExclusionGroupCoordinator = None,
+                 play_now: bool = False):
         self.instance = instance
         self.exclusion_coordinator = exclusion_coordinator
+        # Start fresh (an advanced transition): the first play starts now, without the random first wait
+        self.play_now = play_now
+        # True while a play is going out (Finish then stop waits for it)
+        self.playing = False
 
         # Register exclusive tracks with coordinator
         if self.instance.exclusive and self.exclusion_coordinator is not None:
@@ -897,7 +1148,7 @@ class SparsePlaybackStream:
             if not samples:
                 return np.zeros(0, dtype=np.float32)
 
-            return np.concatenate(samples)
+            return apply_file_fades(np.concatenate(samples), *file_fade_samples(self.instance))
 
         def is_blocked_exclusive():
             """Check if this exclusive track is blocked (without claiming playback)."""
@@ -934,6 +1185,7 @@ class SparsePlaybackStream:
         chunk_count = 0
         silence_chunk = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
         first_play = True
+        volume = None  # the volume reached, easing toward the track's (see apply_volume)
 
         while True:
             # Check for updated presence
@@ -948,8 +1200,8 @@ class SparsePlaybackStream:
 
             # On first play, delay with a random portion of the interval
             # This prevents all sparse tracks from playing at stream start
-            if first_play and grouped:
-                first_play = False  # the group decides when its tracks play
+            if first_play and (grouped or self.play_now):
+                first_play = False  # the group decides when its tracks play (or: play now)
             if first_play:
                 first_play = False
                 # Random initial delay: 0% to 100% of the normal interval
@@ -983,8 +1235,10 @@ class SparsePlaybackStream:
             audio_data = decode_file_once()
 
             if len(audio_data) > 0:
-                # Apply volume
-                audio_data = audio_data * self.instance.volume
+                group = getattr(self.instance, "exclusion_group", None) if grouped else None
+                logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} plays '
+                            f'(Intermittent{", group " + group if group else ""}, {len(audio_data) / SAMPLE_RATE:.1f}s)')
+                self.playing = True
 
                 # Apply fade in at start
                 if len(fade_in_curve) <= len(audio_data):
@@ -1004,7 +1258,8 @@ class SparsePlaybackStream:
                     if len(chunk) < self.CHUNK_SIZE:
                         chunk = np.concatenate([chunk, np.zeros(self.CHUNK_SIZE - len(chunk), dtype=np.float32)])
 
-                    # Convert to int16
+                    # The volume, read for each chunk and eased; int16 for output
+                    chunk, volume = apply_volume(chunk, eases_from(self.instance, volume), self.instance.volume)
                     output = np.clip(chunk, -32768, 32767).astype(np.int16).reshape(1, -1)
 
                     chunk_count += 1
@@ -1014,6 +1269,7 @@ class SparsePlaybackStream:
                     yield output
                     pos += self.CHUNK_SIZE
 
+            self.playing = False
             # Mark exclusive track as finished playing
             finish_exclusive()
 
@@ -1024,9 +1280,21 @@ class SparsePlaybackStream:
 
             logger.debug(f'SparsePlaybackStream: {self.instance.name} entering silence for {silent_samples/SAMPLE_RATE:.1f}s ({silent_chunks} chunks)')
 
-            for _ in range(silent_chunks):
+            # While a transition moves the interval (Build / Thin out), the wait
+            # left is stretched or shortened as it moves
+            waited_at = presence
+            remaining = float(silent_chunks)
+            while remaining >= 1.0:
                 chunk_count += 1
+                remaining -= 1.0
                 yield silence_chunk
+                if getattr(self.instance, "interval_live", False):
+                    now = self.instance.presence
+                    if abs(now - waited_at) > 0.005:
+                        old_base = SPARSE_MIN_INTERVAL + (SPARSE_MAX_INTERVAL - SPARSE_MIN_INTERVAL) * (1.0 - waited_at)
+                        new_base = SPARSE_MIN_INTERVAL + (SPARSE_MAX_INTERVAL - SPARSE_MIN_INTERVAL) * (1.0 - now)
+                        remaining *= new_base / old_base
+                        waited_at = presence = now
 
     def __iter__(self):
         return self
@@ -1035,17 +1303,104 @@ class SparsePlaybackStream:
         return next(self.gen)
 
 
+# Ebb & Flow: the level drifts between the two knobs of the track's Volume
+# (volume_low .. volume). Duration (the track's presence) sets how long each
+# rise and fall takes: at 0 (shorter) the glides take EBB_GLIDE_SHORT seconds
+# and the holds EBB_HOLD_SHORT, at 1 (longer) EBB_GLIDE_LONG and EBB_HOLD_LONG.
+# Rise (0 gradual .. 1 sudden) sets how fast it rises compared with how it
+# falls: gradual rises as smoothly as it falls; sudden jumps up quickly and
+# eases back down slower (gusts of wind, waves on rocks).
+EBB_GLIDE_SHORT, EBB_GLIDE_LONG = (2.0, 6.0), (15.0, 40.0)
+EBB_HOLD_SHORT, EBB_HOLD_LONG = (2.0, 10.0), (20.0, 60.0)
+EBB_LONG_REST = 0.12  # the chance a hold lasts 2 to 4 times longer: uneven, not metronomic
+EBB_TURN = 0.35  # the chance a move changes direction: it drifts more than it seesaws
+
+
+def ebb_timing(duration: float) -> tuple[tuple[float, float], tuple[float, float]]:
+    """(glide range, hold range) in seconds for a Duration (0 shorter .. 1 longer)."""
+    d = min(1.0, max(0.0, float(duration)))
+    lerp = lambda a, b: (a[0] + (b[0] - a[0]) * d, a[1] + (b[1] - a[1]) * d)
+    return lerp(EBB_GLIDE_SHORT, EBB_GLIDE_LONG), lerp(EBB_HOLD_SHORT, EBB_HOLD_LONG)
+
+
+def ebb_step(low: float, current, direction: int, duration: float, rng=random) -> tuple[float, int]:
+    """
+    The next level (a share of the top knob, `low` .. 1) and the direction it
+    went. A drift, not a seesaw: it usually keeps going the way it was, and a
+    shorter Duration takes smaller steps more often, so it never just swings
+    between the two knobs. At a knob it turns back.
+    """
+    low = min(1.0, max(0.0, float(low)))
+    span = 1.0 - low
+    if span < 0.02:
+        return 1.0, direction
+    if current is None:
+        return low + span * rng.random(), rng.choice((-1, 1))
+    d = min(1.0, max(0.0, float(duration)))
+    if rng.random() < EBB_TURN:
+        direction = -direction
+    size = span * rng.uniform(0.12, 0.3 + 0.4 * d)
+    level = current + direction * size
+    if level > 1.0:
+        level, direction = max(low, 2.0 - level), -1
+    elif level < low:
+        level, direction = min(1.0, 2.0 * low - level), 1
+    return min(1.0, max(low, level)), direction
+
+
+def ebb_curve(x, rising: bool, rise: float):
+    """Where a glide is (0..1) at x (0..1): an S-curve; a sudden rise starts fast and settles."""
+    s = 0.5 - 0.5 * np.cos(np.pi * x)
+    if not rising or rise <= 0:
+        return s
+    return (1.0 - rise) * s + rise * (1.0 - (1.0 - x) ** 3)
+
+
+class EbbGroup:
+    """
+    An Ebb & Flow group's files, for the group's Pause between plays: the
+    first file to start plays at once and the others start staggered, and a
+    file only fades out for its pause while another (unmuted) file of the
+    group is playing, so the group is never silent.
+    """
+
+    def __init__(self, cycling):
+        self._cycling = cycling  # () -> bool: the group's Pause between plays is on
+        self._views = {}
+        self._sounding = {}
+
+    def cycling(self) -> bool:
+        return bool(self._cycling())
+
+    def register(self, name: str, view) -> None:
+        self._views[name] = view
+
+    def set_sounding(self, name: str, on: bool) -> None:
+        self._sounding[name] = on
+
+    def others_sounding(self, name: str) -> bool:
+        return any(on and other != name and getattr(self._views.get(other), "is_enabled", True)
+                   for other, on in list(self._sounding.items()))
+
+    def claim_first(self, name: str) -> bool:
+        """Nothing of the group plays yet: this file starts now."""
+        if self.others_sounding(name):
+            return False
+        self._sounding[name] = True
+        return True
+
+
 class PresenceMixingStream:
     """
-    Wrapper stream that controls track presence in the mix.
+    Ebb & Flow.
 
-    Instead of controlling amplitude, the 'presence' value (0.0-1.0) controls
-    how often this track is audible in the mix:
-    - presence=1.0: Track plays continuously (always in mix)
-    - presence=0.5: Track plays ~50% of the time, fading in/out
-    - presence=0.0: Track never plays (always silent)
+    On its own or in an Ebb & Flow group (see _gen_wander) the level rises and
+    falls between the two knobs of the track's Volume; Interval sets how
+    lively. With Pause between plays, each play runs once from the file's
+    start to its end, fades out and pauses before the next.
 
-    Uses randomized timing so tracks don't all fade in/out together.
+    In a group of the old Exclusive switch (see _gen_turns) it takes turns:
+    fades in on its turn, plays a while, fades out, and hands the turn back.
     """
     CHUNK_SIZE = 1_024
 
@@ -1059,10 +1414,231 @@ class PresenceMixingStream:
         self.exclusion_coordinator = exclusion_coordinator
         if exclusion_coordinator is not None:
             exclusion_coordinator.register_track(instance.name)
+        self._restart = False
+        self.ebb_group = None  # an Ebb & Flow group's EbbGroup, set by the mix
         self.gen = self._gen()
 
+    @property
+    def position(self) -> int:
+        return getattr(self.base_stream, "position", 0)
+
+    @property
+    def length(self) -> int:
+        return getattr(self.base_stream, "length", 0)
+
+    def _log_fade(self, direction: str):
+        logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} Ebb & Flow '
+                    f'fading {direction} over {TRACK_FADE_DURATION:g}s')
+
+    def _log_move(self, level: float, seconds: float):
+        logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} Ebb & Flow '
+                    f'to {round(level * 100)}% volume over {seconds:.0f}s')
+
+    def restart(self):
+        """
+        The track was turned on again (a preset, a sequence step, unmute): from
+        the next chunk it starts afresh instead of resuming where it paused,
+        from its file's beginning, its level rising from silence (the mix's on
+        fade on top). Not for a track of the old Exclusive switch: it keeps its
+        turn rules.
+        """
+        if self.exclusion_coordinator is None:
+            self._restart = True
+
+    def _restart_base(self):
+        """A new base stream of the same kind, at the file's beginning."""
+        old = self.base_stream
+        gen = getattr(old, "gen", None)
+        if gen is not None:
+            gen.close()
+        self.base_stream = type(old)(old.instance)
+
     def _gen(self):
-        """Generator that applies presence-based fading"""
+        if self.exclusion_coordinator is None:
+            yield from self._gen_wander()
+        else:
+            yield from self._gen_turns()
+
+    def _ebb_low(self) -> float:
+        """The lower knob as a share of the upper one (both as the channel plays them)."""
+        view = self.instance
+        get = getattr(view, "unpinned", None) or (lambda name: getattr(view, name))
+        top = float(get("volume") or 0.0)
+        low = get("volume_low")
+        low = EBB_DEFAULT_LOW if low is None else float(low)
+        return 1.0 if top <= 0 else min(1.0, low / top)
+
+    def _pause_samples(self) -> int:
+        """A pause between plays, drawn from the track's range (seconds)."""
+        low = getattr(self.instance, "pause_min", None)
+        high = getattr(self.instance, "pause_max", None)
+        low = DEFAULT_PAUSE[0] if low is None else max(0.0, float(low))
+        high = DEFAULT_PAUSE[1] if high is None else max(0.0, float(high))
+        return int(random.uniform(min(low, high), max(low, high)) * SAMPLE_RATE)
+
+    def _gen_wander(self):
+        """
+        The level drifts between the two knobs of the track's Volume (see
+        ebb_step), at the pace its Duration sets (see ebb_timing), rising as
+        its Rise says (see ebb_curve). With Pause between plays, each play starts at
+        the file's beginning rising from silence, runs to the file's end,
+        fades out and pauses for a while from the track's Pause range; the
+        first start is staggered the same way. In an Ebb & Flow group with the
+        group's Pause between plays on, see EbbGroup: never all quiet.
+        """
+        rate = SAMPLE_RATE
+        name = self.instance.name
+        group = self.ebb_group
+        silence = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
+        state = "playing"  # playing, ending (fading out for a pause) or paused
+        level = start = target = 0.0
+        glide = done = hold = wait = 0  # samples
+        played = 0  # samples of the file into this pass
+        end_fade = 0  # samples: how long this play's fade-out at the file's end lasts
+        direction = 1  # which way the level last moved
+        rising = False  # the glide in progress goes up (Rise shapes it)
+
+        def duration() -> float:
+            return float(getattr(self.instance, "presence", 0.5) or 0.0)
+
+        def rise() -> float:
+            try:
+                return min(1.0, max(0.0, float(getattr(self.instance, "rise", 0.0) or 0.0)))
+            except (TypeError, ValueError):
+                return 0.0
+
+        def next_hold() -> int:
+            seconds = random.uniform(*ebb_timing(duration())[1])
+            if random.random() < EBB_LONG_REST:
+                seconds *= random.uniform(2.0, 4.0)
+            return int(seconds * rate)
+
+        def move():
+            """The next drift step, at the pace Duration and Rise set."""
+            nonlocal direction
+            to, direction = ebb_step(self._ebb_low(), level, direction, duration())
+            go(to, random.uniform(*ebb_timing(duration())[0]))
+
+        def pauses() -> bool:
+            return bool(getattr(self.instance, "pause_between", False))
+
+        def guarded() -> bool:
+            return group is not None and group.cycling()
+
+        def sounding(on: bool) -> None:
+            if group is not None:
+                group.set_sounding(name, on)
+
+        def go(to: float, seconds: float, shaped: bool = True):
+            nonlocal start, target, glide, done, rising
+            rising = to > level
+            if shaped and rise() > 0:
+                # sudden: up quickly, down slower
+                seconds *= (1.0 - 0.85 * rise()) if rising else (1.0 + 0.5 * rise())
+            start, target, glide, done = level, to, max(1, int(seconds * rate)), 0
+            self._log_move(to * self._top(), seconds)
+
+        def new_play():
+            """From the file's beginning, rising from silence."""
+            nonlocal state, level, played, end_fade
+            self._restart_base()
+            nonlocal direction
+            state, level, played = "playing", 0.0, 0
+            glides, _ = ebb_timing(duration())
+            end_fade = int(random.uniform(*glides) * rate)
+            to, direction = ebb_step(self._ebb_low(), None, direction, duration())
+            go(to, random.uniform(*glides))
+            sounding(True)
+
+        def pause(log_reason: str = ""):
+            nonlocal state, wait
+            state, wait = "paused", self._pause_samples()
+            sounding(False)
+            logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {name} Ebb & Flow '
+                        f'{log_reason}pausing for {wait / rate:.0f}s')
+
+        # Joining the mix
+        glides, _ = ebb_timing(duration())
+        if pauses() and not (guarded() and group.claim_first(name)):
+            pause("starts staggered, ")
+        else:
+            level, direction = ebb_step(self._ebb_low(), None, direction, duration())  # at a level: the mix fades the track in
+            start = target = level
+            hold = next_hold()
+            end_fade = int(random.uniform(*glides) * rate)
+            sounding(True)
+
+        while True:
+            if self._restart:
+                self._restart = False  # turned on again
+                new_play()
+
+            if state == "paused":
+                if not pauses() or (guarded() and not group.others_sounding(name)):
+                    wait = 0  # back at once: looping again, or the group would fall silent
+                wait -= self.CHUNK_SIZE
+                if wait > 0:
+                    yield silence  # not decoded while it pauses
+                    continue
+                new_play()
+
+            try:
+                chunk = next(self.base_stream)
+            except StopIteration:
+                return
+            n = chunk.shape[-1]
+            played += n
+
+            # Pause between plays: fade out to reach silence at the file's end
+            length = int(getattr(self.instance.meta, "duration_samples", 0) or 0)
+            pass_length = max(n, length - int(getattr(self.base_stream, "overlap", 0) or 0))
+            if state == "playing" and pauses() and length:
+                left = pass_length - played
+                if left <= min(end_fade, pass_length // 3):
+                    if guarded() and not group.others_sounding(name):
+                        pass  # the only one playing: it carries on into another pass
+                    else:
+                        state = "ending"
+                        sounding(False)
+                        go(0.0, max(left, n) / rate, shaped=False)  # silent exactly at the file's end
+            elif state == "ending" and not pauses():
+                state = "playing"  # switched back to looping while fading out
+                sounding(True)
+                move()
+            if played >= pass_length:
+                played -= pass_length  # the file looped
+
+            if glide:
+                done = min(glide, done + n)
+                x = done / glide
+                end = start + (target - start) * float(ebb_curve(x, rising, rise()))
+                if done >= glide:
+                    glide = 0
+                    hold = next_hold()
+            else:
+                end = level
+                if state == "playing":
+                    hold -= n
+                    if hold <= 0:
+                        move()
+
+            if level != end or level < 1.0:
+                ramp = np.linspace(level, end, n, dtype=np.float32) if level != end else level
+                chunk = np.clip(chunk.astype(np.float32) * ramp, -32768, 32767).astype(np.int16)
+            level = end
+            if state == "ending" and not glide:
+                pause()
+            yield chunk
+
+    def _top(self) -> float:
+        get = getattr(self.instance, "unpinned", None) or (lambda name: getattr(self.instance, name))
+        try:
+            return float(get("volume") or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    def _gen_turns(self):
+        """In a group (the old Exclusive switch): fades in on its turn, plays a while, fades out, hands the turn back."""
         import random
 
         # State for presence fading
@@ -1125,6 +1701,19 @@ class PresenceMixingStream:
         chunk_count = 0
 
         while True:
+            if self._restart:
+                # Turned on again: from the file's beginning, an active period
+                # starting now, fading in from silence
+                self._restart = False
+                self._restart_base()
+                presence = self.instance.presence
+                if presence > 0.0:
+                    is_active, current_gain, target_gain, fade_position = True, 0.0, 1.0, 0
+                    samples_until_change = get_next_duration(presence, True)
+                else:
+                    is_active, current_gain, target_gain, fade_position = False, 0.0, 0.0, 0
+                    samples_until_change = get_next_duration(presence, False)
+
             # Get base audio chunk
             try:
                 chunk = next(self.base_stream)
@@ -1141,9 +1730,11 @@ class PresenceMixingStream:
                 elif presence >= 1.0 and target_gain < 1.0:
                     target_gain = 1.0
                     fade_position = 0
+                    self._log_fade("in")
                 elif presence <= 0.0 and target_gain > 0.0:
                     target_gain = 0.0
                     fade_position = 0
+                    self._log_fade("out")
 
             # Check if it's time to change state
             samples_until_change -= self.CHUNK_SIZE
@@ -1159,6 +1750,7 @@ class PresenceMixingStream:
                     if coordinator.try_start_playing(self.instance.name, seconds, presence):
                         is_active, target_gain, fade_position = True, 1.0, 0
                         samples_until_change = active_samples
+                        self._log_fade("in")
                     else:
                         samples_until_change = retry_samples
                 else:
@@ -1167,16 +1759,17 @@ class PresenceMixingStream:
                     is_active, target_gain, fade_position = False, 0.0, 0
                     releasing = True
                     samples_until_change = retry_samples
+                    self._log_fade("out")
             elif coordinator is not None and presence <= 0.0 and is_active:
                 is_active, target_gain, fade_position = False, 0.0, 0
                 releasing = True
+                self._log_fade("out")
             elif coordinator is None and samples_until_change <= 0 and 0 < presence < 1.0:
                 is_active = not is_active
                 target_gain = 1.0 if is_active else 0.0
                 fade_position = 0
                 samples_until_change = get_next_duration(presence, is_active)
-                if chunk_count % LOG_THRESHOLD == 0:
-                    logger.debug(f'PresenceMixingStream: {self.instance.name} {"fading in" if is_active else "fading out"}')
+                self._log_fade("in" if is_active else "out")
 
             # Apply fade if current_gain != target_gain
             if current_gain != target_gain:
@@ -1269,7 +1862,7 @@ class _BedFile:
         except Exception:
             self.estimate = 0
         try:
-            self._decoder = decode_mono(view.meta.path)
+            self._decoder = decode_faded(view.meta.path, *file_fade_samples(view))
         except Exception as e:
             logger.warning(f'MerryGoRound: cannot play "{self.name}": {e}')
             self._decoder = iter(())
@@ -1309,6 +1902,7 @@ class _BedFile:
 
     def render(self, count: int, offset: int, level: float):
         """`count` samples of the mix: silence for `offset`, then this file with its fades and level."""
+        level = eased_volume(self.level, level, count)  # a level change eases (see VOLUME_EASE_SECONDS)
         out = np.zeros(count, np.float32)
         n = count - offset
         if self.end is not None:
