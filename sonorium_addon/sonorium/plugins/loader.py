@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -27,9 +29,67 @@ except ImportError:
     BUILTIN_PLUGINS_DIR = None
 
 
+def parse_version(version) -> Optional[tuple]:
+    """
+    A semantic version as a sortable tuple, None if it isn't one.
+    "2.1.0" > "2.1.0-beta" > "2.0.9" (a pre-release sorts before its release).
+    """
+    if not isinstance(version, str):
+        return None
+    match = re.match(r'^\s*v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?\s*$', version)
+    if not match:
+        return None
+    major, minor, patch, pre = match.groups()
+    if pre is None:
+        pre_key = (1,)
+    else:
+        # Numeric identifiers sort below text ones, as semver says
+        pre_key = (0,) + tuple((0, int(p), "") if p.isdigit() else (1, 0, p) for p in pre.split("."))
+    return (int(major), int(minor), int(patch), pre_key)
+
+
+def plugin_version(plugin_dir: Path) -> Optional[str]:
+    """The version a plugin folder declares: manifest.json, else the class's version in plugin.py."""
+    manifest_path = plugin_dir / "manifest.json"
+    if manifest_path.exists():
+        try:
+            version = json.loads(manifest_path.read_text(encoding="utf-8")).get("version")
+            if isinstance(version, str):
+                return version
+        except Exception:
+            pass
+    try:
+        text = (plugin_dir / "plugin.py").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    match = re.search(r'^\s*version\s*(?::\s*str\s*)?=\s*["\']([^"\']+)["\']', text, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def _replace_plugin_dir(source: Path, target_dir: Path) -> None:
+    """Replace target_dir with a copy of source: copied beside it first, so a failed copy changes nothing."""
+    staging = target_dir.with_name(f".{target_dir.name}.updating")
+    old = target_dir.with_name(f".{target_dir.name}.old")
+    for leftover in (staging, old):
+        if leftover.exists():
+            shutil.rmtree(leftover)
+    shutil.copytree(source, staging, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    os.replace(target_dir, old)
+    try:
+        os.replace(staging, target_dir)
+    except OSError:
+        os.replace(old, target_dir)  # put the installed one back
+        raise
+    shutil.rmtree(old, ignore_errors=True)
+
+
 def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR, skip_plugins: list[str] = None) -> None:
     """
-    Copy built-in plugins to the user plugins directory if not present.
+    Copy built-in plugins to the user plugins directory: a missing one is
+    copied, and an installed one is replaced when the bundled version
+    (manifest "version", semver) is newer. An installed version that is the
+    same or newer (e.g. from the catalog) is kept. The plugin's settings are
+    kept in state.json, so a replaced plugin keeps them.
 
     This ensures users have access to official plugins even after updates.
 
@@ -66,13 +126,22 @@ def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR, skip_plugins: 
 
         target_dir = plugins_dir / item.name
 
-        # Only copy if target doesn't exist
         if target_dir.exists():
-            logger.debug(f"Plugin {item.name} already exists in user directory")
+            bundled_version = plugin_version(item)
+            installed_version = plugin_version(target_dir)
+            bundled, installed = parse_version(bundled_version), parse_version(installed_version)
+            if bundled is None or (installed is not None and installed >= bundled):
+                logger.debug(f"Plugin {item.name} {installed_version} is installed (bundled: {bundled_version})")
+                continue
+            try:
+                _replace_plugin_dir(item, target_dir)
+                logger.info(f"Updated built-in plugin {item.name}: {installed_version or 'unknown version'} -> {bundled_version}")
+            except Exception as e:
+                logger.error(f"Failed to update built-in plugin {item.name}: {e}")
             continue
 
         try:
-            shutil.copytree(item, target_dir)
+            shutil.copytree(item, target_dir, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
             logger.info(f"Copied built-in plugin: {item.name} -> {target_dir}")
         except Exception as e:
             logger.error(f"Failed to copy built-in plugin {item.name}: {e}")
@@ -117,7 +186,7 @@ def discover_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR) -> list[Path]:
 
     plugin_dirs = []
     for item in plugins_dir.iterdir():
-        if item.is_dir():
+        if item.is_dir() and not item.name.startswith('.'):  # .x.updating / .x.old: an update in progress
             plugin_file = item / "plugin.py"
             if plugin_file.exists():
                 plugin_dirs.append(item)
