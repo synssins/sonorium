@@ -7195,12 +7195,16 @@ function pluginHasForm(plugin) {
     return !!(plugin.ui_schema && plugin.ui_schema.fields && plugin.ui_schema.fields.length);
 }
 
+function pluginHasSettings(plugin) {
+    return !!(plugin.settings_schema && Object.keys(plugin.settings_schema).length);
+}
+
 function renderInstalledPlugins() {
     if (plugins.length === 0) {
         return `<div class="sp-empty">${SP_ICON_PLUGINS}<strong>No plugins installed</strong></div>`;
     }
     return `<div class="sp-lbody">${plugins.map(plugin => {
-        const hasForm = pluginHasForm(plugin);
+        const hasForm = pluginHasForm(plugin) || pluginHasSettings(plugin);
         const canOpen = hasForm && plugin.enabled;
         const open = canOpen && pluginOpen[plugin.id] !== false;
         const name = escapeHtml(plugin.name);
@@ -7253,7 +7257,9 @@ function pluginFieldShown(plugin, field) {
 }
 
 function renderPluginUI(plugin) {
-    if (!pluginHasForm(plugin)) return '';
+    const hasForm = pluginHasForm(plugin);
+    if (!hasForm && !pluginHasSettings(plugin)) return '';
+    if (!hasForm) return `<div class="spp-form">${renderPluginSettings(plugin)}</div>`;
     const fields = plugin.ui_schema.fields.map(field => renderPluginField(plugin, field)).join('');
     const actions = (plugin.ui_schema.actions || []).slice()
         .sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0))
@@ -7263,7 +7269,87 @@ function renderPluginUI(plugin) {
         <div class="spp-form">
             <div class="spp-fields">${fields}</div>
             ${actions ? `<div class="spp-acts">${actions}</div>` : ''}
+            ${renderPluginSettings(plugin)}
         </div>`;
+}
+
+// A plugin's settings, drawn from the settings it declares; each one is saved when it's changed
+function renderPluginSettings(plugin) {
+    if (!pluginHasSettings(plugin)) return '';
+    const values = plugin.settings || {};
+    const fields = Object.entries(plugin.settings_schema).map(([name, field]) => {
+        const id = `pset-${plugin.id}-${name}`;
+        const value = values[name] ?? field.default ?? (field.type === 'boolean' ? false : '');
+        const help = field.help ? ` title="${escapeHtml(field.help)}"` : '';
+        const data = `data-pset-plugin="${escapeHtml(plugin.id)}" data-pset="${escapeHtml(name)}" onchange="savePluginSetting(this)"`;
+        const label = `<label class="sp-fld-label" for="${id}"${help}>${escapeHtml(field.label || name)}</label>`;
+        switch (field.type) {
+            case 'boolean':
+                return `<div class="spp-set-b"${help}><label class="toggle-switch"><input type="checkbox" id="${id}" ${data} ${value ? 'checked' : ''}><span class="toggle-slider"></span></label><label for="${id}">${escapeHtml(field.label || name)}</label></div>`;
+            case 'select':
+                return `<div class="sp-fld spp-f-sel">${label}
+                    <select class="sp-inp" id="${id}" ${data}${help}>
+                        ${(field.options || []).map(opt => {
+                            const v = opt && typeof opt === 'object' ? opt.value : opt;
+                            const l = opt && typeof opt === 'object' ? (opt.label ?? opt.value) : opt;
+                            return `<option value="${escapeHtml(String(v))}" ${String(v) === String(value) ? 'selected' : ''}>${escapeHtml(String(l))}</option>`;
+                        }).join('')}
+                    </select></div>`;
+            case 'number':
+            case 'url':
+            case 'string': {
+                const kind = field.type === 'url' ? 'url' : field.type === 'number' ? 'num' : 'str';
+                const range = field.type === 'number'
+                    ? `${field.min !== undefined ? ` min="${field.min}"` : ''}${field.max !== undefined ? ` max="${field.max}"` : ''}` : '';
+                return `<div class="sp-fld spp-f-${kind}">${label}
+                    <input class="sp-inp" type="${field.type === 'url' ? 'url' : field.type === 'number' ? 'number' : 'text'}" id="${id}" ${data}${range}
+                           placeholder="${escapeHtml(field.placeholder || '')}" value="${escapeHtml(String(value ?? ''))}"${help}></div>`;
+            }
+            default:
+                return '';
+        }
+    }).join('');
+    return `<div class="spp-set${pluginHasForm(plugin) ? '' : ' solo'}"><div class="spp-set-hd">Settings</div>
+        <div class="spp-set-f">${fields}<div class="spp-set-err" id="pset-err-${escapeHtml(plugin.id)}" hidden></div></div></div>`;
+}
+
+// What's wrong with a setting's value, in the words of its label (empty when it's fine)
+function pluginSettingProblem(field, value) {
+    const label = field.label || 'This setting';
+    if (field.type === 'number') {
+        if (value === '' || Number.isNaN(value)) return `${label} must be a number`;
+        const hasMin = field.min !== undefined, hasMax = field.max !== undefined;
+        if ((hasMin && value < field.min) || (hasMax && value > field.max)) {
+            if (hasMin && hasMax) return `${label} must be ${field.min} to ${field.max}`;
+            return hasMin ? `${label} must be at least ${field.min}` : `${label} must be at most ${field.max}`;
+        }
+    }
+    if (field.type === 'url' && value && !/^https?:\/\/[^\s]+$/i.test(value)) return `${label} must start with http:// or https://`;
+    if (field.required && (value === '' || value === null)) return `${label} can't be empty`;
+    return '';
+}
+
+async function savePluginSetting(el) {
+    const pluginId = el.dataset.psetPlugin;
+    const name = el.dataset.pset;
+    const plugin = plugins.find(p => p.id === pluginId);
+    const field = plugin?.settings_schema?.[name];
+    if (!field) return;
+    let value = el.type === 'checkbox' ? el.checked : el.value;
+    if (field.type === 'number') value = value === '' ? '' : Number(value);
+    if (field.type === 'string' || field.type === 'url') value = String(value).trim();
+    const err = document.getElementById(`pset-err-${pluginId}`);
+    const problem = pluginSettingProblem(field, value);
+    el.classList.toggle('bad', !!problem);
+    if (err) { err.textContent = problem; err.hidden = !problem; }
+    if (problem) return;
+    try {
+        const result = await api('PUT', `/plugins/${pluginId}/settings`, { settings: { [name]: value } });
+        plugin.settings = result.settings || { ...(plugin.settings || {}), [name]: value };
+    } catch (error) {
+        el.classList.add('bad');
+        if (err) { err.textContent = error.message || 'Not saved'; err.hidden = false; }
+    }
 }
 
 function renderPluginField(plugin, field) {

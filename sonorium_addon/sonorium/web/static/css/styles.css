@@ -3265,6 +3265,15 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .spp-f-bool { display: flex; align-items: center; gap: .5rem; min-height: 38px; font-size: .875rem; color: var(--text-primary); cursor: pointer; }
 .spp-f-bool input { width: 16px; height: 16px; margin: 0; accent-color: var(--accent-primary); }
 .spp-acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .5rem; }
+.spp-set { display: flex; flex-direction: column; gap: .625rem; padding-top: .875rem; border-top: 1px solid rgba(51, 65, 85, .55); }
+.spp-set.solo { padding-top: 0; border-top: 0; }
+.spp-set-hd { font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 600; }
+.spp-set-f { display: flex; flex-wrap: wrap; align-items: flex-end; gap: .75rem 1rem; }
+.spp-set-b { flex: 1 1 100%; display: flex; align-items: center; gap: .75rem; min-height: 38px; font-size: .875rem; color: var(--text-primary); }
+.spp-set-b[title] { cursor: help; }
+.spp-set-b > label:last-child { cursor: pointer; }
+.spp-set-err { flex: 1 1 100%; font-size: .75rem; color: #ef5350; }
+.spp-set .sp-inp.bad { border-color: rgba(239, 83, 80, .6); }
 .spp-cat-state { display: flex; flex-direction: column; align-items: center; gap: .75rem; padding: 4rem 1rem; font-size: .875rem; color: var(--text-muted); }
 .spp-spin { width: 22px; height: 22px; border: 2px solid var(--border-color); border-top-color: var(--accent-primary); border-radius: 50%; animation: sp-spin 1s linear infinite; }
 .modal.sp-rq { width: 520px; max-width: 100%; min-width: 0; }
@@ -3455,6 +3464,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
     .spp-f-url, .spp-f-str, .spp-f-sel { flex: 1 1 100%; max-width: none; }
     .spp-f-num { flex: 0 0 140px; }
     .spp-f-bool { min-height: 44px; }
+    .spp-set-b { min-height: 44px; }
     .spp-acts .btn { min-height: 44px; }
     #plugin-req-modal.active { padding: .75rem; }
     .modal.sp-rq { width: 100%; }
