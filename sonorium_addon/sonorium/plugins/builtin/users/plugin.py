@@ -65,6 +65,7 @@ POST    /api/users                      admin.users
 PUT     /api/users/{user_id}            admin.users
 POST    /api/users/{user_id}/password   admin.users
 POST    /api/users/{user_id}/sign-out   admin.users
+DELETE  /api/users/{user_id}/sessions/{session_id}  admin.users
 DELETE  /api/users/{user_id}            admin.users
 """
 
@@ -377,6 +378,21 @@ def create_router(service) -> APIRouter:
             clear_cookie(response, request)
         return response
 
+    @router.delete("/users/{user_id}/sessions/{session_id}")
+    async def end_browser_session(user_id: str, session_id: str, request: Request):
+        """Sign one browser of a user out (Users & devices: Remove on a browser)."""
+        if accounts().user(user_id) is None:
+            raise HTTPException(404, "No such user.")
+        if not any(i == session_id for i, _ in accounts().sessions(user_id)):
+            raise HTTPException(404, "No such browser.")
+        accounts().end_session(session_id)
+        logger.info(f"Users: a browser of {accounts().user(user_id)['username']} signed out")
+        mine = session_id == p_of(request).session_id
+        response = JSONResponse({"signed_out": True, "this_browser": mine})
+        if mine:
+            clear_cookie(response, request)
+        return response
+
     @router.delete("/users/{user_id}")
     async def remove_user(user_id: str, request: Request):
         if user_id == p_of(request).user_id:
@@ -395,7 +411,7 @@ def create_router(service) -> APIRouter:
 class UsersPlugin(BasePlugin):
     id = PLUGIN_ID
     name = "Users"
-    version = "1.0.0"
+    version = "1.0.1"
     description = "Accounts, sign-in and roles for Sonorium"
     author = "Sonorium"
     builtin = True

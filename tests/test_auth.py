@@ -242,6 +242,34 @@ def test_last_admin_stays(w):
     assert admin.delete(f"/api/users/{me}", headers=H(None, csrf)).status_code == 409
 
 
+def test_admin_signs_one_browser_out(w):
+    admin, csrf = w.setup_admin()
+    assert admin.post("/api/users", json={"username": "alex", "password": "alex password", "role": "user"},
+                      headers=H(None, csrf)).status_code == 200
+    laptop, _ = w.sign_in("alex", "alex password")
+    tablet, _ = w.sign_in("alex", "alex password")
+    users = admin.get("/api/users").json()["users"]
+    alex = next(u for u in users if u["username"] == "alex")
+    browsers = [d for d in alex["devices"] if d["kind"] == "browser"]
+    assert len(browsers) == 2 and not any(d["this"] for d in browsers)
+    me = next(u for u in users if u["you"])
+    mine = next(d for d in me["devices"] if d["kind"] == "browser")
+    assert mine["this"]
+    # Another user's session id can't be ended through this user
+    assert admin.delete(f"/api/users/{alex['id']}/sessions/{mine['id']}", headers=H(None, csrf)).status_code == 404
+    r = admin.delete(f"/api/users/{alex['id']}/sessions/{browsers[0]['id']}", headers=H(None, csrf))
+    assert r.status_code == 200 and r.json() == {"signed_out": True, "this_browser": False}
+    left = [c.get("/api/sessions").status_code for c in (laptop, tablet)]
+    assert sorted(left) == [200, 401]
+    # A user can't use it
+    user, ucsrf = w.sign_in("alex", "alex password")
+    assert user.delete(f"/api/users/{me['id']}/sessions/{mine['id']}", headers=H(None, ucsrf)).status_code == 403
+    # Your own browser: signed out, cookie cleared
+    r = admin.delete(f"/api/users/{me['id']}/sessions/{mine['id']}", headers=H(None, csrf))
+    assert r.json()["this_browser"] is True
+    assert admin.get("/api/sessions").status_code == 401
+
+
 # --- Link App and pairing ----------------------------------------------------------
 
 def link_and_pair(w, c, csrf, name="Pixel 8"):
