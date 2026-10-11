@@ -9,7 +9,7 @@
  * Slots (Sonorium.register(pluginId, {...})):
  *   headerButtons  [{view, html(me), when(me)}]       buttons left of a page's own actions
  *   screens        [{show(me) -> bool|Promise<bool>}] a full-page screen that replaces the app
- *   settingsPages  [{id, label, icon, title, perm, before, render(el, me), actions(me)}]
+ *   settingsPages  [{id, label, icon, title, perm, before, help, render(el, me), actions(me)}]
  *   banners        [{html(me)}]                       strips above the page header
  *   sidebar        [{html(me)}]                       above the menu's version line
  *   channelCard    [{badges(session), strip(session)}]
@@ -233,7 +233,8 @@
                 item.id = 'nav-plugin-' + p.id;
                 item.setAttribute('onclick', `showView('plugin-${p.id}')`);
                 item.innerHTML = `${p.icon || ''}<span>${S.esc(p.label)}</span>`;
-                const before = document.getElementById(p.before || 'nav-settings-advanced');
+                const before = document.getElementById(p.before || 'nav-settings-advanced')
+                    || document.getElementById('nav-settings-advanced');
                 nav.insertBefore(item, before && before.parentNode === nav ? before : null);
                 const view = document.createElement('div');
                 view.id = 'view-plugin-' + p.id;

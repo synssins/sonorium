@@ -417,7 +417,7 @@ function showView(viewName) {
     // Keep Settings menu expanded when on any settings page
     const settingsSection = document.getElementById('settings-nav-section');
     if (settingsSection) {
-        if (viewName.startsWith('settings')) {
+        if (viewName.startsWith('settings') || Sonorium.isPage(viewName)) {
             settingsSection.classList.add('expanded');
             const header = settingsSection.querySelector('.nav-section-header');
             if (header) {
@@ -10134,7 +10134,7 @@ function setPageHelp(viewName) {
 }
 
 function fillPageHelp(viewName) {
-    const help = PAGE_HELP[viewName] || PAGE_HELP.settings;
+    const help = PAGE_HELP[viewName] || Sonorium.page(viewName)?.help || PAGE_HELP.settings;
     document.getElementById('page-help-title').textContent = help.title;
     document.getElementById('page-help-body').innerHTML = help.html;
 }
@@ -10219,6 +10219,8 @@ const PAGE_HELP = {
         ${helpTerm('Speaker Groups', 'saved sets of speakers for channels.')}
         ${helpTerm('Plugins', 'extras that add features.')}
         ${helpTerm('Logs', 'recent messages from Sonorium.')}
+        ${helpTerm('Users &amp; devices', 'who can sign in, and their phones and browsers. Shown to admins while the Users plugin is on.')}
+        ${helpTerm('Keys', 'keys that let devices and programs use Sonorium. Shown to admins while the Integration plugin is on.')}
         ${helpTerm('Advanced', 'features that are off by default. Shown on installs that have them.')}` },
 
     'settings-connection': { title: 'Connection', html: `

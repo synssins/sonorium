@@ -200,7 +200,8 @@ Core:
 Users plugin: `POST /api/auth/setup`, `/api/auth/login`, `/api/auth/logout`,
 `/api/auth/code-login`, `/api/auth/new-password`, `PUT /api/auth/require-login`,
 `POST /api/pair/login`, `POST /api/devices/recovery-code`, `GET|POST /api/users`,
-`PUT|DELETE /api/users/{id}`, `POST /api/users/{id}/password`, `POST /api/users/{id}/sign-out`.
+`PUT|DELETE /api/users/{id}`, `POST /api/users/{id}/password`, `POST /api/users/{id}/sign-out`,
+`DELETE /api/users/{id}/sessions/{session_id}` (signs one browser out).
 
 Integration plugin: `GET|POST /api/keys`, `PUT|DELETE /api/keys/{id}`.
 
