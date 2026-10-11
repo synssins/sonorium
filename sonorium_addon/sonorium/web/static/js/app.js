@@ -560,9 +560,7 @@ function showView(viewName) {
                 Download
             </a>
         `,
-        status: `
-            <button class="btn btn-secondary sp-hbtn" aria-label="Refresh" title="Refresh" onclick="refreshStatus(this)">${SP_ICON_REFRESH}<span class="lbl">Refresh</span></button>
-        `
+        status: npModeHtml()
     };
     // Plugins' buttons first, then the page's own (slots.js)
     document.getElementById('view-actions').innerHTML = Sonorium.headerButtons(viewName)
@@ -599,7 +597,7 @@ function showView(viewName) {
     if (viewName === 'settings-logs' && window.SonoriumLogs) {
         SonoriumLogs.mount(document.getElementById('settings-logs-root'), BASE_PATH);
     }
-    if (viewName === 'status') renderStatus();
+    if (viewName === 'status') renderStatus(); else npStop();
     if (Sonorium.isPage(viewName)) Sonorium.renderPage(viewName);
 
     // Close mobile sidebar when navigating to a new view
@@ -6875,55 +6873,233 @@ async function disableAllSpeakers() {
     }
 }
 
-// Status View
-async function renderStatus() {
-    const activePlayingSessions = sessions.filter(s => s.is_playing).length;
-    const active = document.getElementById('status-active-channels');
-    active.textContent = activePlayingSessions;
-    active.classList.toggle('spst-on', activePlayingSessions > 0);
-    document.getElementById('status-total-speakers').textContent = getAllSpeakersFlat().length;
+// Status: Now playing (docs/design/Now_Playing.dc.html). The playing channels, each with its tracks
+// by section, as the mixer has them (GET /api/now-playing, a few times a second while the page is open).
+// Server: the mix right this second. As heard: the mix delayed by the speakers' estimated buffer
+// (the longest on a channel with several; this browser's own buffer when it listens).
+const NP_POLL_MS = 200;
+const NP_KEEP_MS = 20000;  // snapshots kept for As heard
+const NP_ICON_SPK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+const NP_ICON_HEAD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>';
+const NP_ICON_CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+const NP_ICON_FOLDER = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+const np = { timer: null, snaps: [], shape: '', closed: new Set(), mode: npSavedMode(), ahead: null };
 
-    await loadChannels();
-    document.getElementById('status-ch-count').textContent = channels.length;
-    document.getElementById('status-lhead').hidden = channels.length === 0;
-    const channelList = document.getElementById('channel-list');
-    if (!channels.length) {
-        channelList.innerHTML = '<div class="sp-empty"><strong>No channels</strong></div>';
-        return;
-    }
-    channelList.innerHTML = `<div class="sp-lbody">${channels.map(ch => {
-        const on = ch.state === 'playing';
-        const name = escapeHtml(ch.name);
-        const theme = escapeHtml(ch.current_theme_name || '');
-        return `
-            <div class="sp-lrow spst-grid${on ? ' on' : ''}">
-                <span class="trk-name spst-name" title="${name}"><span class="mq-in">${name}</span></span>
-                <div class="spst-theme">${on && theme
-                    ? `<span class="trk-name" title="${theme}"><span class="mq-in">${theme}</span></span>`
-                    : '<span class="spst-idle">—</span>'}</div>
-                <span class="spst-state"><span class="badge ${on ? 'sp-badge-air' : 'sp-badge-idle'}"><i></i>${on ? 'Playing' : 'Idle'}</span></span>
-            </div>`;
-    }).join('')}</div>`;
-    spUpdateMarquees(channelList);
+function npSavedMode() {
+    try { return localStorage.getItem('sonorium.statusTiming') === 'heard' ? 'heard' : 'server'; } catch (error) { return 'server'; }
 }
 
-async function refreshStatus(button) {
-    if (button) {
-        button.disabled = true;
-        button.classList.add('sp-spinning');
-    }
+function npModeHtml() {
+    const b = (mode, label, tip) => `<button type="button" data-mode="${mode}" aria-pressed="${np.mode === mode}" title="${tip}" onclick="npSetMode('${mode}')">${label}</button>`;
+    return `<div class="seg np-seg" role="group" aria-label="Timing">${b('server', 'Server', 'Server right this second')}${b('heard', 'As heard', 'Estimate of what you are hearing right now')}</div>`;
+}
+
+function npSetMode(mode) {
+    np.mode = mode === 'heard' ? 'heard' : 'server';
+    try { localStorage.setItem('sonorium.statusTiming', np.mode); } catch (error) { /* not kept: fine */ }
+    document.querySelectorAll('.np-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === np.mode)));
+    np.shape = '';
+    npRender();
+}
+
+function renderStatus() {
+    np.shape = '';
+    npStart();
+}
+
+function npOpen() {
+    return currentView === 'status' && !document.hidden;
+}
+
+function npStart() {
+    if (np.timer || !npOpen()) return;
+    np.timer = setTimeout(npPoll, 0);
+}
+
+function npStop() {
+    clearTimeout(np.timer);
+    np.timer = null;
+}
+
+async function npPoll() {
     try {
-        await loadSessions();
-        await renderStatus();
-        showToast('Status refreshed', 'success');
-    } catch (error) {
-        showToast(error.message || 'Refresh failed', 'error');
-    } finally {
-        if (button) {
-            button.disabled = false;
-            button.classList.remove('sp-spinning');
-        }
+        const data = await api('GET', '/now-playing');
+        const now = performance.now();
+        np.snaps.push({ t: now, data });
+        // Keep enough for the longest delay, and always the newest
+        while (np.snaps.length > 1 && np.snaps[1].t < now - NP_KEEP_MS) np.snaps.shift();
+        if (currentView === 'status') npRender();
+    } catch (error) { /* the next poll tries again */ }
+    np.timer = npOpen() ? setTimeout(npPoll, NP_POLL_MS) : null;
+}
+
+document.addEventListener('visibilitychange', () => { if (npOpen()) npStart(); });
+
+// This browser's own buffer while it listens to the channel (seconds), from its audio element. The
+// stream arrives in bursts, so it is smoothed over a few seconds.
+function npBrowserBuffer(id) {
+    if (chListen.id !== id) return 0;
+    const audio = chListen.audio;
+    let ahead = null;
+    try {
+        if (audio && audio.buffered.length) ahead = Math.max(0, audio.buffered.end(audio.buffered.length - 1) - audio.currentTime);
+    } catch (error) { /* not known yet */ }
+    if (ahead === null) {
+        np.ahead = null;
+        return 0;
     }
+    np.ahead = np.ahead === null || np.ahead === undefined ? ahead : np.ahead * 0.92 + ahead * 0.08;
+    return np.ahead;
+}
+
+// The channel at the chosen time: the newest snapshot taken by then (else the oldest that has it),
+// and how far past that snapshot the time is (seconds)
+function npAt(id, delay) {
+    const target = performance.now() - delay * 1000;
+    let pick = null;
+    for (const snap of np.snaps) {
+        const ch = snap.data.channels.find(c => c.id === id);
+        if (!ch) continue;
+        if (!pick || snap.t <= target) pick = { snap, ch };
+        if (snap.t > target) break;
+    }
+    return { ch: pick.ch, past: Math.max(0, (target - pick.snap.t) / 1000) };
+}
+
+function npTime(seconds) {
+    const s = Math.max(0, Math.ceil(seconds));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${r}` : `${m}:${r}`;
+}
+
+function npNow(row, past) {
+    if (row.seconds === null || row.seconds === undefined) return row.now.replace('{t}', '—');
+    return row.now.replace('{t}', npTime(row.seconds - past));
+}
+
+function npLevel(row) {
+    const pct = row.level === null || row.level === undefined ? null : Math.round(row.level * 100);
+    const band = row.band ? `<i class="np-band" style="left:${Math.round(row.band[0] * 100)}%;width:${Math.max(0, Math.round((row.band[1] - row.band[0]) * 100))}%"></i>` : '';
+    const fill = pct === null ? '' : `<i class="np-fill" style="width:${pct}%"></i>`;
+    return `<span class="np-meter">${band}${fill}</span><span class="np-pct">${pct === null ? '—' : `${pct}%`}</span>`;
+}
+
+function npRowHtml(chId, row, child, past) {
+    const key = escapeHtml(`${chId}|${row.type}|${row.key}`);
+    const now = escapeHtml(npNow(row, past));
+    const name = escapeHtml(row.name);
+    const lvl = npLevel(row);
+    if (row.type === 'group') {
+        const closed = np.closed.has(`${chId}|${row.key}`);
+        return `<div class="np-row np-grp${closed ? ' closed' : ''}" data-np="${key}" role="button" tabindex="0" aria-expanded="${!closed}" onclick="npToggle(this)" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); npToggle(this); }">`
+            + `<span class="np-dot ${row.state}" title="${now}"></span>`
+            + `<span class="np-name" title="${name}"><span class="np-chev">${NP_ICON_CHEV}</span><span class="np-fold">${NP_ICON_FOLDER}</span><b>${name}</b></span>`
+            + `<span class="np-mode">${escapeHtml(row.mode)}</span><span class="np-now">${now}</span><span class="np-lvl" data-v="${escapeHtml(lvl)}">${lvl}</span></div>`
+            + (closed ? '' : row.tracks.map(t => npRowHtml(chId, t, true, past)).join(''));
+    }
+    return `<div class="np-row${child ? ' np-child' : ''}" data-np="${key}"><span class="np-dot ${row.state}" title="${now}"></span>`
+        + `<span class="np-name" title="${name}">${name}</span><span class="np-mode">${escapeHtml(row.mode)}</span>`
+        + `<span class="np-now">${now}</span><span class="np-lvl" data-v="${escapeHtml(lvl)}">${lvl}</span></div>`;
+}
+
+function npToggle(el) {
+    const parts = el.dataset.np.split('|');
+    const key = `${parts[0]}|${parts.slice(2).join('|')}`;
+    if (np.closed.has(key)) np.closed.delete(key); else np.closed.add(key);
+    np.shape = '';
+    npRender();
+}
+
+// "Theme · preset", or "Theme · sequence · Step 2 of 3: preset"
+function npPlaysHtml(ch) {
+    const seq = ch.sequence;
+    let step = ch.preset_name || 'Default settings';
+    if (seq) step = seq.step ? `${seq.name} · Step ${seq.step} of ${seq.steps}: ${step}` : `${seq.name} · ${step}`;
+    return `${escapeHtml(ch.theme_name || '')} · <span class="np-step">${escapeHtml(step)}</span>`;
+}
+
+function npWhereHtml(ch) {
+    const out = [];
+    if (ch.speakers_playing) out.push(`<span class="np-out${ch.speakers_muted ? '' : ' on'}">${NP_ICON_SPK}${escapeHtml(ch.speakers || '')}</span>`);
+    if (chListen.id === ch.id) out.push(`<span class="np-out on">${NP_ICON_HEAD}This browser</span>`);
+    return out.join('');
+}
+
+function npCardHtml(ch, past) {
+    const plays = npPlaysHtml(ch), where = npWhereHtml(ch);
+    return `<div class="np-card" data-ch="${escapeHtml(ch.id)}">
+        <div class="np-hd"><span class="ch-icon" aria-hidden="true">${themeIconOf(ch.theme_id)}</span>
+            <div class="np-title"><span class="np-cname">${escapeHtml(ch.name)}</span><span class="np-plays" data-v="${escapeHtml(plays)}">${plays}</span></div>
+            <span class="np-where" data-v="${escapeHtml(where)}">${where}</span></div>
+        <div class="np-cols"><span></span><span>Name</span><span>Mode</span><span>Now</span><span>Level</span></div>
+        ${ch.sections.map(sec => `<div class="np-sec"><div class="np-sec-hd">${escapeHtml(sec.title)}</div>${sec.rows.map(r => npRowHtml(ch.id, r, false, past)).join('')}</div>`).join('')}
+    </div>`;
+}
+
+// The rows' keys: the cards are built again only when these change; otherwise their parts are updated in place
+function npShape(chs) {
+    return JSON.stringify([chs.map(ch => [ch.id, ch.sections.map(sec => [sec.title, sec.rows.map(r => [r.key, r.type, (r.tracks || []).map(t => t.key)])])]), [...np.closed]]);
+}
+
+function npUpdateRow(el, row, past) {
+    const now = npNow(row, past);
+    const dot = el.querySelector('.np-dot');
+    const cls = `np-dot ${row.state}`;
+    if (dot.className !== cls) dot.className = cls;
+    if (dot.title !== now) dot.title = now;
+    const nowEl = el.querySelector('.np-now');
+    if (nowEl.textContent !== now) nowEl.textContent = now;
+    const modeEl = el.querySelector('.np-mode');
+    if (modeEl.textContent !== row.mode) modeEl.textContent = row.mode;
+    const lvl = npLevel(row);
+    const lvlEl = el.querySelector('.np-lvl');
+    if (lvlEl.dataset.v !== lvl) { lvlEl.innerHTML = lvl; lvlEl.dataset.v = lvl; }
+}
+
+function npSet(el, html) {
+    if (el && el.dataset.v !== html) { el.innerHTML = html; el.dataset.v = html; }
+}
+
+function npRender() {
+    const list = document.getElementById('np-list');
+    if (!list || !np.snaps.length) return;
+    const newest = np.snaps[np.snaps.length - 1];
+    const latest = newest.data.channels;
+    // Each channel now (Server), or as heard now (As heard: the mix its speakers' buffer ago)
+    const shown = latest.map(c => np.mode === 'heard'
+        ? npAt(c.id, Math.max(c.buffer_seconds || 0, npBrowserBuffer(c.id)))
+        : { ch: c, past: (performance.now() - newest.t) / 1000 });
+    const active = document.getElementById('status-active-channels');
+    active.textContent = latest.length;
+    active.classList.toggle('spst-on', latest.length > 0);
+    document.getElementById('status-ch-count').textContent = latest.length;
+    document.getElementById('np-legend').hidden = !latest.length;
+    if (!latest.length) {
+        if (np.shape !== 'none') list.innerHTML = '<div class="sp-empty"><strong>Nothing playing</strong></div>';
+        np.shape = 'none';
+        return;
+    }
+    const shape = npShape(shown.map(s => s.ch));
+    if (shape !== np.shape) {
+        np.shape = shape;
+        list.innerHTML = shown.map(s => npCardHtml(s.ch, s.past)).join('');
+        return;
+    }
+    shown.forEach(({ ch, past }) => {
+        const card = list.querySelector(`.np-card[data-ch="${CSS.escape(ch.id)}"]`);
+        if (!card) return;
+        npSet(card.querySelector('.np-plays'), npPlaysHtml(ch));
+        npSet(card.querySelector('.np-where'), npWhereHtml(ch));
+        const rows = new Map();
+        ch.sections.forEach(sec => sec.rows.forEach(r => {
+            rows.set(`${ch.id}|${r.type}|${r.key}`, r);
+            (r.tracks || []).forEach(t => rows.set(`${ch.id}|${t.type}|${t.key}`, t));
+        }));
+        card.querySelectorAll('[data-np]').forEach(el => {
+            const row = rows.get(el.dataset.np);
+            if (row) npUpdateRow(el, row, past);
+        });
+    });
 }
 
 // Volume Slider
@@ -7773,7 +7949,6 @@ const SP_ICON_INFO = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none
 const SP_ICON_CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
 const SP_ICON_PLUS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
 const SP_ICON_RESET = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
-const SP_ICON_REFRESH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
 const SP_ICON_PENCIL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 const SP_ICON_UPLOAD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
 const SP_ICON_DOC = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
@@ -10348,8 +10523,14 @@ const PAGE_HELP = {
         <p>What Sonorium is doing now.</p>
         <h4>Overview</h4>
         ${helpTerm('Active Channels', 'channels playing now.')}
-        ${helpTerm('Total Speakers', 'speakers Sonorium can play to.')}
-        ${helpTerm('Channels', 'each channel with the theme it plays, and Playing or Idle.')}
+        ${helpTerm('Playing', 'one card per playing channel: its theme, preset or sequence step, where it plays, and its tracks by section. Idle channels are hidden.')}
+        <h4>Tracks</h4>
+        ${helpTerm('Light', 'Playing, Fading, Waiting, Paused or Muted.')}
+        ${helpTerm('Mode', 'how the track plays. A group shows how its files play: One at a time, Every file at once or Merry-go-round.')}
+        ${helpTerm('Now', 'what the track is doing, and the time until its next change: the wait, pause or gap the mixer picked.')}
+        ${helpTerm('Level', 'how loud the track plays now. For Ebb & Flow, the shaded band is the range it moves in.')}
+        ${helpTerm('Group', 'counts down to the group\'s next turn. Which file plays is picked when the gap ends.')}
         <h4>Top bar</h4>
-        ${helpTerm('Refresh', 'loads the status again.')}` }
+        ${helpTerm('Server', 'the mix on the server right this second.')}
+        ${helpTerm('As heard', 'an estimate of what you are hearing right now: the mix delayed by the speakers\' buffer, the longest one when a channel plays on several.')}` }
 };
