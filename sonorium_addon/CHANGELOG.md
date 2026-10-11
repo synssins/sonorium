@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.8 (2026-10-11)
+
+### Bug Fixes
+
+- **ambient-mixer**: A mix named from its address reads "Spring Rain - Sanctuary" (3.1.1)
+  ([`7f93a08`](https://github.com/synssins/sonorium/commit/7f93a0898131b7422ce6d18e792fdf28670cd722))
+
+### Features
+
+- **plugins**: Each plugin's settings under its form, saved as they're changed
+  ([`47ecf8e`](https://github.com/synssins/sonorium/commit/47ecf8ec23c7b5b4536fc581ab35e83752ac74f8))
+
+
 ## v1.6.2-dev.7 (2026-10-11)
 
 ### Bug Fixes
