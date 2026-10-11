@@ -2,6 +2,9 @@
 
 <!-- version list -->
 
+## v1.6.1-dev.42 (2026-10-11)
+
+
 ## v1.6.1-dev.41 (2026-10-11)
 
 ### Documentation
