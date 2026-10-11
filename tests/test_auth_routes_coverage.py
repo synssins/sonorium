@@ -37,7 +37,7 @@ def _plugin_permissions(name):
 def test_every_route_has_a_permission(m):
     permissions = _exec("sonorium.auth.permissions", PACKAGE / "auth" / "permissions.py")
     table = set(permissions.ROUTES)
-    app = m.api.ApiSonorium(MagicMock()).app
+    app = m.api.WebApp(MagicMock()).app
     routes = _routes(app.routes)
     routes |= _routes(m.v2.create_api_router(
         session_manager=MagicMock(), group_manager=MagicMock(), ha_registry=MagicMock(), state_store=MagicMock(),

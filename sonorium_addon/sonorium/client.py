@@ -13,7 +13,7 @@ from typing import Awaitable, Callable, NamedTuple
 import paho.mqtt.client as paho_mqtt
 
 from sonorium import runtime
-from sonorium.api import ApiSonorium
+from sonorium.api import WebApp
 from sonorium.device import Library
 from sonorium.obs import logger
 
@@ -296,7 +296,7 @@ class Backend:
                 await self._mqtt.connect()
             except RuntimeError as e:
                 logger.warning(f"  {e}; continuing without MQTT for now")
-        await ApiSonorium.launch_async(self)
+        await WebApp(self).serve()
 
     async def stop(self):
         await self._mqtt.disconnect()

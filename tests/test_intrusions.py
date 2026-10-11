@@ -108,8 +108,8 @@ def world(tmp_path, tones):
 
     device = SimpleNamespace(audio_dir=root, themes=m.IndexList(), files_by_theme={}, all_files=m.IndexList(),
                              master_volume=1.0)
-    api = object.__new__(m.api.ApiSonorium)
-    api.client = SimpleNamespace(device=device)
+    api = object.__new__(m.api.WebApp)
+    api.backend = SimpleNamespace(device=device)
     api._theme_metadata_manager = m.meta.ThemeMetadataManager(root)
     api._theme_refresh_task = None
     api._session_manager = None

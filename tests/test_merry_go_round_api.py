@@ -65,7 +65,7 @@ class Body:
 
 
 def make_api(m, metadata, theme):
-    api = object.__new__(m.api.ApiSonorium)
+    api = object.__new__(m.api.WebApp)
     api._theme_metadata_manager = Mock()
     api._theme_metadata_manager.save_metadata.return_value = True
     api._theme_groups = lambda theme_id: (theme, metadata, {"Bed": ["Bed/Wind A", "Bed/Wind B"], "Birds": []})
@@ -118,7 +118,7 @@ def test_bad_mode_or_crossfade_is_refused(m, body):
 
 
 def test_mode_and_crossfade_stay_out_of_presets(m):
-    api = object.__new__(m.api.ApiSonorium)
+    api = object.__new__(m.api.WebApp)
     theme = SimpleNamespace(groups={"Bed": {"volume": 0.5, "mode": "merry_go_round", "crossfade": 8.0, "gap_min": 30}})
     api._get_theme_by_id = lambda theme_id: (theme, None)
     # The gap is saved in presets; mode and crossfade stay theme settings
