@@ -388,16 +388,16 @@
                             <p class="hi lv2"><b>Weight:</b> each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.</p>
                             <p class="hi lv2"><b>Volume, Interval, Mute:</b> apply to every track in the group.</p>
                             <h4>Ebb &amp; Flow</h4>
-                            <p class="hi"><b>Ebb &amp; Flow:</b> always heard, but never at one level: it rises and falls, gliding from one level to the next, never the same way twice. Wind, surf, rain that gusts.</p>
+                            <p class="hi"><b>Ebb &amp; Flow:</b> Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. Wind, surf, rain that gusts.</p>
                             <h5>Track</h5>
-                            <p class="hi lv2"><b>Volume:</b> two knobs. The level rises and falls between them.</p>
-                            <p class="hi lv2"><b>Duration:</b> length of each rise and fall, shorter to longer.</p>
+                            <p class="hi lv2"><b>Volume:</b> minimum and maximum volume.</p>
+                            <p class="hi lv2"><b>Duration:</b> increases or decreases the amount of time the track is at a value.</p>
                             <h6>Its ⋯ menu</h6>
-                            <p class="hi lv3"><b>Rise:</b> how fast it rises. Gradual rises as smoothly as it falls. Sudden jumps up quickly and eases back down, like gusts of wind or waves on rocks.</p>
-                            <p class="hi lv3"><b>Pause between plays:</b> off, the file loops and is always heard, rising and falling. On, it plays once from start to finish, still rising and falling, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.</p>
+                            <p class="hi lv3"><b>Rise:</b> increases or decreases the speed at which the track reaches that value.</p>
+                            <p class="hi lv3"><b>Pause between plays:</b> off, the file loops and is always heard. On, it plays once from start to finish, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.</p>
                             <p class="hi lv3"><b>Pause:</b> how long it stays quiet, in seconds, picked at random between the two numbers each time (600 is 10 minutes). It also staggers when tracks first start, so they don't all begin together.</p>
                             <h5>Ebb &amp; Flow group</h5>
-                            <p class="hi lv2"><b>Ebb &amp; Flow group:</b> every file plays at once, each rising and falling on its own. Each file keeps its own settings; the group's Volume and Duration scale them down.</p>
+                            <p class="hi lv2"><b>Ebb &amp; Flow group:</b> every file plays at once, each between its own minimum and maximum volume. Each file keeps its own settings; the group's Volume and Duration scale them down.</p>
                             <p class="hi lv2"><b>Pause between plays:</b> under the group's name. On, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its own Pause between plays.</p>
                             <p class="hi lv2"><b>Volume, Duration, Mute:</b> apply to every track in the group.</p>
                             <h6>Its ⋯ menu</h6>
@@ -1019,7 +1019,7 @@ Example:
                     <p class="hi"><b>While playing:</b> changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green; anything you don't change follows the preset.</p>
                     <p class="hi"><b>Revert changes:</b> puts back the settings as they were when Save was last pressed: for one track or group in its ⋯ menu, or for everything at the top of the list. A value set back to the preset's follows the preset again.</p>
                     <p class="hi"><b>Coming in / Leaving:</b> how tracks change as the step starts and ends (see Advanced transitions).</p>
-                    <p class="hi"><b>Rise:</b> in an Ebb &amp; Flow track's ⋯ menu: how fast it rises. Gradual rises as smoothly as it falls. Sudden jumps up quickly and eases back down, like gusts of wind or waves on rocks. <i>Duration</i> sets how long each rise and fall takes. A group can set the same Rise for every file.</p>
+                    <p class="hi"><b>Rise:</b> in an Ebb &amp; Flow track's ⋯ menu. Increases or decreases the speed at which the track reaches a value. <i>Duration</i> increases or decreases the amount of time the track is at a value. A group can set the same Rise for every file.</p>
                     <h4>Advanced transitions</h4>
                     <p class="hi"><b>Advanced:</b> in a sequence, a preset's ⋯ › Advanced sets how each track comes in, and how it leaves.</p>
                     <p class="hi"><b>Coming in / Leaving:</b> tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.</p>
