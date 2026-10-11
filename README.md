@@ -569,7 +569,7 @@ A theme is a set of tracks (sound files) mixed together. This help follows the e
 
 **Presets and saving**
 
-- **Live:** changes are heard on speakers playing this theme, and on this device with Preview mix.
+- **Live:** changes are heard at once with Preview mix, and on channels playing this theme with no preset. A channel playing a preset hears them after Save Preset.
 - **Preset:** the loaded preset. Current settings is the theme without one.
 - **New:** makes a new preset from the current mix.
 - **Save Preset:** Saves loaded preset
