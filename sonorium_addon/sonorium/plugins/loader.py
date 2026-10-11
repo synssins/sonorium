@@ -88,7 +88,8 @@ def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR, skip_plugins: 
     Copy built-in plugins to the user plugins directory: a missing one is
     copied, and an installed one is replaced when the bundled version
     (manifest "version", semver) is newer. An installed version that is the
-    same or newer (e.g. from the catalog) is kept. The plugin's settings are
+    same or newer (e.g. from the catalog), or a version that isn't semver on
+    either side, is kept (and logged). The plugin's settings are
     kept in state.json, so a replaced plugin keeps them.
 
     This ensures users have access to official plugins even after updates.
@@ -130,7 +131,11 @@ def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR, skip_plugins: 
             bundled_version = plugin_version(item)
             installed_version = plugin_version(target_dir)
             bundled, installed = parse_version(bundled_version), parse_version(installed_version)
-            if bundled is None or (installed is not None and installed >= bundled):
+            if bundled is None or installed is None:
+                logger.info(f"Plugin {item.name}: keeping the installed copy (version {installed_version!r}, "
+                            f"bundled {bundled_version!r}: not both semantic versions)")
+                continue
+            if installed >= bundled:
                 logger.debug(f"Plugin {item.name} {installed_version} is installed (bundled: {bundled_version})")
                 continue
             try:

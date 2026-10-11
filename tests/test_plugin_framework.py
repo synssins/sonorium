@@ -196,6 +196,8 @@ def test_parse_version_orders_semver(m):
     ("2.0.0", "2.0.0", False),
     ("3.0.0", "2.0.0", False),   # e.g. a newer one from the catalog
     ("2.0.0-beta", "2.0.0", True),
+    ("custom", "2.0.0", False),   # not semver: kept
+    ("1.0.0", "next", False),
 ])
 def test_bundled_plugin_replaces_older_install(m, tmp_path, installed, bundled, replaced):
     bundled_dir = tmp_path / "bundled"
