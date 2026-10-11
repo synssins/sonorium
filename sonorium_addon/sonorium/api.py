@@ -79,6 +79,21 @@ class ApiSonorium(api.Base):
         self._plugin_manager = None
         self._theme_metadata_manager = None
         self._network_service = None  # standalone only
+        self._cards = None  # Home Assistant dashboard cards (ha/cards.py)
+
+        # Home Assistant loads the dashboard cards from Sonorium (Docker /
+        # Windows): a module script from another origin needs CORS
+        @self.app.middleware("http")
+        async def cards_cors(request: Request, call_next):
+            response = await call_next(request)
+            if request.url.path == "/static/ha/sonorium-cards.js":
+                from sonorium.ha.cards import origin_of
+                origin = (request.headers.get("origin") or "").lower()
+                linked = origin_of(runtime.load_connection().get("ha_url", "")) if runtime.STANDALONE else ""
+                if origin and origin == linked:
+                    response.headers["Access-Control-Allow-Origin"] = request.headers["origin"]
+                    response.headers["Vary"] = "Origin"
+            return response
 
         # Register startup event to initialize v2
         @self.app.on_event("startup")
@@ -113,6 +128,9 @@ class ApiSonorium(api.Base):
             api.Endpoint(method_http=self.app.put, path='/api/connection', method=self.put_connection),
             api.Endpoint(method_http=self.app.delete, path='/api/connection/ha', method=self.delete_connection_ha),
             api.Endpoint(method_http=self.app.delete, path='/api/connection/mqtt', method=self.delete_connection_mqtt),
+            # Home Assistant dashboard cards: status and the file (to add by hand)
+            api.Endpoint(method_http=self.app.get, path='/api/ha-cards', method=self.get_ha_cards),
+            api.Endpoint(method_http=self.app.get, path='/api/ha-cards/download', method=self.download_ha_cards),
             api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
             api.Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
             api.Endpoint(method_http=self.app.get, path='/display.png', method=self.serve_display_image),
@@ -343,6 +361,7 @@ class ApiSonorium(api.Base):
                     session_manager=self._session_manager,
                     mqtt_client=self.client.mqtt_client,
                     theme_metadata_manager=self._theme_metadata_manager,
+                    version=__version__,
                 )
                 # Set available themes for the theme select entity
                 themes = [{"id": t.id, "name": t.name} for t in self.client.device.themes]
@@ -381,6 +400,9 @@ class ApiSonorium(api.Base):
             if self._mqtt_manager:
                 self._background.on_session_stopped = self._mqtt_manager.update_session_state
                 self._session_manager.runner.on_change = self._mqtt_manager.update_session_state
+
+            # Home Assistant dashboard cards: installed once both HA and MQTT are linked
+            self._init_dashboard_cards(stream_base_url)
 
             # Start the background loop
             await self._background.start()
@@ -570,6 +592,47 @@ class ApiSonorium(api.Base):
             await self._background.stop()
         if self._network_service:
             await self._network_service.stop()
+
+    def _ha_linked(self) -> bool:
+        """Home Assistant is linked: always for the add-on; standalone once its registry loaded."""
+        registry = self._ha_registry
+        if not runtime.ha_configured() or registry is None or registry.ha_removed:
+            return False
+        return runtime.INSTALL == "addon" or registry._hierarchy is not None
+
+    def _init_dashboard_cards(self, sonorium_url: str):
+        """Install the dashboard cards in the background (ha/cards.py); errors only leave a status."""
+        import asyncio
+        try:
+            from sonorium.ha.cards import DashboardCards
+            self._cards = DashboardCards(
+                self._ha_registry.ws_commands if self._ha_registry else None,
+                install=runtime.INSTALL,
+                version=__version__,
+                ha_linked=self._ha_linked,
+                mqtt_manager=self._mqtt_manager,
+                ha_url=runtime.load_connection().get("ha_url", "") if runtime.STANDALONE else "",
+                sonorium_url=sonorium_url or "",
+            )
+            if self._mqtt_manager:
+                self._mqtt_manager.on_discovery = self._cards.schedule_entity_refresh
+            asyncio.get_running_loop().create_task(self._cards.start())
+        except Exception as e:
+            logger.warning(f"  Dashboard cards unavailable: {e}")
+
+    async def get_ha_cards(self):
+        """The dashboard cards' status line for Settings › Connection."""
+        if self._cards is None:
+            from sonorium.ha.cards import LINES, NEEDS_HA
+            return {"state": NEEDS_HA, "line": LINES[NEEDS_HA], "reason": ""}
+        return self._cards.status()
+
+    async def download_ha_cards(self):
+        """The dashboard cards' file, to add to Home Assistant by hand."""
+        from sonorium.ha.cards import CARD_FILE, CARD_NAME
+        if not CARD_FILE.exists():
+            raise HTTPException(status_code=404, detail="Card file not found")
+        return FileResponse(CARD_FILE, media_type="text/javascript", filename=CARD_NAME)
 
     def _init_network_speakers(self):
         """Network speaker discovery and streaming (only when the network_speakers feature is on)."""

@@ -5873,6 +5873,27 @@ function renderConnectionSettings() {
     setConnectionStatus('ha', !!c.ha_url, c.ha_connected, 'Check the address and token');
     setConnectionStatus('mqtt', !!c.mqtt_host, c.mqtt_connected, 'Check the broker address and login');
     updateConnectionState();
+    renderDashboardCardsStatus();
+}
+
+// The Home Assistant dashboard cards: one line under MQTT, with Download when they're added by hand
+async function renderDashboardCardsStatus() {
+    const row = document.getElementById('conn-cards');
+    if (!row) return;
+    let status;
+    try {
+        status = await api('GET', '/ha-cards');
+    } catch (error) {
+        row.hidden = true;
+        return;
+    }
+    const line = document.getElementById('conn-cards-line');
+    line.textContent = status.line;
+    line.title = status.reason || '';
+    const download = document.getElementById('conn-cards-dl');
+    download.href = `${BASE_PATH}/api/ha-cards/download`;
+    download.hidden = status.state !== 'by_hand';
+    row.hidden = false;
 }
 
 function updateConnectionState() {

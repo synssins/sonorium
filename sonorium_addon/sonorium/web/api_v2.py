@@ -588,6 +588,7 @@ def create_api_router(
         muted = bool(request.get("muted"))
         if not session_manager.set_speakers_muted(session_id, muted):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        await _sync_mqtt(session_manager.get(session_id))  # the Speakers muted switch and Recent changes
         return {"speakers_muted": muted}
 
     @router.post("/sessions/{session_id}/listen")

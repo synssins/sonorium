@@ -521,6 +521,34 @@ class HARegistry:
         from sonorium.runtime import ha_websocket_url
         return ha_websocket_url(self.api_url)
 
+    async def ws_commands(self, messages: list[dict], timeout: float = 30.0) -> list[dict]:
+        """
+        Send WebSocket API commands (each a dict without "id") over one
+        authenticated connection, in order, and return each one's result
+        message ({"success": ..., "result": ...} or {"success": False,
+        "error": {"code", "message"}}). Raises ConnectionError when Home
+        Assistant can't be reached or the token is refused.
+        """
+        if not WEBSOCKETS_AVAILABLE:
+            raise ConnectionError("WebSocket library not available")
+        replies = []
+        async with websockets.connect(self._get_websocket_url(), max_size=64 * 1024 * 1024) as websocket:
+            hello = json.loads(await asyncio.wait_for(websocket.recv(), timeout=5.0))
+            if hello.get("type") != "auth_required":
+                raise ConnectionError(f"Unexpected WebSocket message: {hello.get('type')}")
+            await websocket.send(json.dumps({"type": "auth", "access_token": self.token}))
+            auth = json.loads(await asyncio.wait_for(websocket.recv(), timeout=5.0))
+            if auth.get("type") != "auth_ok":
+                raise ConnectionError("Home Assistant refused the access token")
+            for number, message in enumerate(messages, start=1):
+                await websocket.send(json.dumps({**message, "id": number}))
+                while True:
+                    reply = json.loads(await asyncio.wait_for(websocket.recv(), timeout=timeout))
+                    if reply.get("id") == number and reply.get("type") == "result":
+                        replies.append(reply)
+                        break
+        return replies
+
     async def _ws_fetch_registries(self) -> tuple[list, list, list, list]:
         """
         Fetch floor, area, entity, and device registries via WebSocket API.
