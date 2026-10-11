@@ -50,6 +50,8 @@ class KeysAuth:
             return Reject(401, {"detail": "This key is not valid. It may have expired or been revoked."})
         key_id, record = found
         data = record.get("data") or {}
+        if self.service.user_blocked(data.get("created_by")):
+            return Reject(401, {"detail": "The user who made this key is switched off. Make a new key."})
         return Principal("key", frozenset(P.clean_abilities(data.get("abilities"))), key_id=key_id,
                          channels=data.get("channels"))
 

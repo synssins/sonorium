@@ -29,6 +29,11 @@ def bypass_login() -> bool:
     return _flag("BYPASS_LOGIN", "SONORIUM__BYPASS_LOGIN")
 
 
+def is_addon() -> bool:
+    """The Home Assistant add-on (not Docker or a native install)."""
+    return not runtime.STANDALONE
+
+
 def web_ui_only_through_ha() -> bool:
     """Add-on only: the direct ports serve streams and the key/device API, not the web UI."""
     return not runtime.STANDALONE and _flag("SONORIUM__WEB_UI_ONLY_THROUGH_HA", "WEB_UI_ONLY_THROUGH_HA")
