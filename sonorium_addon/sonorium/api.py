@@ -96,6 +96,10 @@ class ApiSonorium(Base):
                     response.headers["Vary"] = "Origin"
             return response
 
+        # Older theme, category and channel routes' 200 {"error"} answers get an error status (G10)
+        from sonorium.web.legacy_errors import LegacyErrorStatus
+        self.app.add_middleware(LegacyErrorStatus)
+
         # Register startup event to initialize v2
         @self.app.on_event("startup")
         async def startup_event():
