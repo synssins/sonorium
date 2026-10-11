@@ -28,7 +28,7 @@ MAX_HOSTNAMES = 9          # sonorium.local, sonorium-2.local ... sonorium-9.loc
 RESOLVE_TIMEOUT_MS = 1500  # how long to listen for another device answering for a name
 
 # Interfaces that never face the LAN: loopback, Docker / Podman / libvirt / CNI bridges and their pairs
-_SKIP_INTERFACES = re.compile(r"^(lo\d*|docker\d*|veth\w*|br-\w+|virbr\d+|cni\d*|flannel\S*|podman\d*|hassio|kube\S*)$",
+_SKIP_INTERFACES = re.compile(r"^(lo\d*|docker\d*|veth\w*|br-\w+|virbr\d+|cni\d*|flannel\S*|podman\d*|hassio|kube\S*|incusbr\d*|lxdbr\d*|lxcbr\d*|tailscale\d*|zt\w*|wg\d*)$",
                               re.IGNORECASE)
 # Docker's default bridge and Home Assistant's internal network
 _SKIP_NETWORKS = (ipaddress.ip_network("172.17.0.0/16"), ipaddress.ip_network("172.30.32.0/23"))
