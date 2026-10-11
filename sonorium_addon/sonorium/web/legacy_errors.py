@@ -58,7 +58,11 @@ class LegacyErrorStatus:
         if scope["type"] != "http" or not path.startswith(PREFIXES):
             return await self.app(scope, receive, send)
 
-        held = {}  # a 200 JSON answer's start, while its body is read
+        held = {}  # a 200 JSON answer's start and body so far, while its body is read
+
+        async def flush(start, body: bytes, more: bool):
+            await send(start)
+            await send({"type": "http.response.body", "body": body, "more_body": more})
 
         async def wrapped(message):
             if message["type"] == "http.response.start" and not held:
@@ -66,21 +70,27 @@ class LegacyErrorStatus:
                 is_json = headers.get(b"content-type", b"").startswith(b"application/json")
                 small = int(headers.get(b"content-length", b"0") or 0) <= MAX_BODY
                 if message["status"] == 200 and is_json and small and b"content-length" in headers:
-                    held["start"] = message
+                    held.update(start=message, body=b"")
                     return
                 return await send(message)
             if message["type"] == "http.response.body" and "start" in held:
+                body = held["body"] + message.get("body", b"")
+                if message.get("more_body"):  # sent in parts (e.g. through another middleware)
+                    if len(body) <= MAX_BODY:
+                        held["body"] = body
+                        return
+                    start = held.pop("start")
+                    held.pop("body")
+                    return await flush(start, body, True)
                 start = held.pop("start")
-                body = message.get("body", b"")
-                error = _legacy_error(body) if not message.get("more_body") else None
+                held.pop("body")
+                error = _legacy_error(body)
                 if error is not None:
                     body = json.dumps({"detail": error, "error": error}).encode("utf-8")
                     headers = [(k, v) for k, v in start.get("headers") or [] if k != b"content-length"]
                     headers.append((b"content-length", str(len(body)).encode()))
                     start = {**start, "status": status_for(error), "headers": headers}
-                    message = {**message, "body": body}
-                await send(start)
-                return await send(message)
+                return await flush(start, body, False)
             return await send(message)
 
         return await self.app(scope, receive, wrapped)

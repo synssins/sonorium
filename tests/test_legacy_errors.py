@@ -14,6 +14,11 @@ def client():
     from fastapi.testclient import TestClient
     with addon_modules("sonorium.web.legacy_errors") as mods:
         app = FastAPI()
+
+        @app.middleware("http")  # as api.py's cards CORS: the answer then comes in parts
+        async def passthrough(request, call_next):
+            return await call_next(request)
+
         app.add_middleware(mods.legacy_errors.LegacyErrorStatus)
 
         @app.get("/api/themes/{theme_id}")
