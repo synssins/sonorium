@@ -352,7 +352,28 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
     async def notifications_overview():
         n = _host().notifications
         from sonorium.plugins.notifications import LEVELS
-        return {"notifiers": n.notifiers(), "rules": n.rules(), "levels": list(LEVELS)}
+        return {"sources": n.sources(), "notifiers": n.notifiers(), "rules": n.rules(), "levels": list(LEVELS),
+                "tts": bool(host.tts.providers())}
+
+    @router.post("/notifications/rules/{rule_id}/test")
+    async def test_rule(rule_id: str):
+        """Do what the rule does, with a test message: announce it and send it to its notifiers."""
+        n = _host().notifications
+        rule = next((r for r in n.rules() if r["id"] == rule_id), None)
+        if rule is None:
+            raise HTTPException(status_code=404, detail="No such rule")
+        from datetime import datetime, timezone
+        message = {"title": rule.get("name") or "Sonorium test", "body": "A test of this rule.", "level": "info",
+                   "time": datetime.now(timezone.utc).isoformat(), "origin": "sonorium", "event": None}
+        announced, error = False, ""
+        if rule.get("announce") and n.announcer is not None:
+            try:
+                await n.announcer(rule["announce"], message)
+                announced = True
+            except Exception as e:
+                error = str(getattr(e, "message", None) or e)
+        sent = await n.send(rule["notifiers"], message) if rule.get("notifiers") else {}
+        return {"announced": announced, "error": error, "sent": sent}
 
     @router.put("/notifications/rules")
     async def replace_rules(request: Request):
@@ -517,4 +538,236 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         clean.pop("refresh", None)
         return clean
 
+    _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json)
     return router
+
+
+def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> None:
+    """Sounds, announcements, ramps, audio outputs, command maps, alerts (framework phase 2)."""
+    from sonorium.core.audio_outputs import OutputError
+    from sonorium.core.decode import DecodeError
+    from sonorium.core.overlay import OverlayError
+    from sonorium.core.ramps import RampError
+    from sonorium.plugins import commands as cmd
+    from sonorium.plugins import compat
+    from sonorium.plugins.tts import TtsError
+
+    def _svc(name: str, what: str):
+        service = getattr(_host(), name)
+        if service is None:
+            raise HTTPException(status_code=503, detail=f"{what} isn't available yet")
+        return service
+
+    def _channels(value) -> list:
+        if value in ("*", "all", ["*"]):
+            sessions = _svc("overlay", "Playing sounds").sessions
+            return [s.id for s in sessions.list()]
+        if isinstance(value, str):
+            return [value]
+        if not isinstance(value, list) or not value or not all(isinstance(c, str) for c in value):
+            raise HTTPException(status_code=400, detail="'channels' must list channel ids (or be \"all\")")
+        return value
+
+    def _number(body, key, default):
+        value = body.get(key, default)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+            raise HTTPException(status_code=400, detail=f"'{key}' must be a number")
+        return value
+
+    async def _guard(coro):
+        try:
+            return await coro
+        except LookupError as e:
+            raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+        except (OverlayError, DecodeError, RampError, OutputError, cmd.CommandError) as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except TtsError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+
+    async def _done(value):
+        return value
+
+    # --- Framework ---
+
+    @router.get("/plugin-framework")
+    async def framework_info():
+        """The plugin API version, every capability, and which this install offers now."""
+        info = compat.describe()
+        info["offered"] = sorted(_host().capabilities())
+        info["tts_providers"] = host.tts.providers()
+        return info
+
+    @router.get("/plugins/{plugin_id}/packages")
+    async def plugin_packages(plugin_id: str):
+        """A plugin's Python packages: what it asks for, whether they're allowed and installed."""
+        plugin_id_ok = plugin_manager.get_plugin(plugin_id) or plugin_manager.refused.get(plugin_id)
+        if plugin_id_ok is None:
+            raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
+        plugin = plugin_manager.get_plugin(plugin_id)
+        manifest = plugin._manifest if plugin is not None else {}
+        if plugin is None:
+            from sonorium.plugins.loader import load_manifest
+            manifest = load_manifest(plugin_manager.plugins_dir / plugin_id)
+        return _host().packages.status(plugin_id, manifest)
+
+    # --- Alerts (the web UI's alert bar) ---
+
+    @router.get("/alerts")
+    async def list_alerts():
+        from sonorium import alerts
+        return {"alerts": alerts.active()}
+
+    @router.post("/alerts/{alert_id}/dismiss")
+    async def dismiss_alert(alert_id: int):
+        from sonorium import alerts
+        if not alerts.dismiss(alert_id):
+            raise HTTPException(status_code=404, detail="No such alert")
+        return {"dismissed": True}
+
+    # --- Sounds and announcements ---
+
+    @router.post("/announce")
+    async def announce(request: Request):
+        """
+        {"channels": [...] | "all", "text": "Dinner is ready", "url": "https://.../chime.mp3",
+         "volume", "duck", "provider", "language", "start_stopped"}: a chime and/or spoken text,
+        ducking the channels' mix. Admin-level: overrides zones and quiet hours.
+        """
+        from sonorium.core.announce import announce as do_announce
+        body = await _json(request)
+        text = body.get("text", body.get("message"))
+        url = body.get("url")
+        if text is not None and not isinstance(text, str):
+            raise HTTPException(status_code=400, detail="'text' must be text")
+        if url is not None and (not isinstance(url, str) or not url.lower().startswith(("http://", "https://"))):
+            raise HTTPException(status_code=400, detail="'url' must be an http(s) URL")
+        overlay = _svc("overlay", "Playing sounds")
+        return await _guard(do_announce(
+            overlay, host.tts, _channels(body.get("channels")), text=(text or "").strip() or None, sound=url,
+            volume=_number(body, "volume", 100), duck=body.get("duck", True), provider=body.get("provider"),
+            language=body.get("language"), start_stopped=bool(body.get("start_stopped", True)), origin="api"))
+
+    @router.get("/sounds")
+    async def list_sounds():
+        """Sounds playing, waiting or queued on every channel."""
+        return {"sounds": _svc("overlay", "Playing sounds").sounds()}
+
+    @router.post("/sounds")
+    async def play_sound(request: Request):
+        """
+        {"channels", "url", "volume", "duck", "policy", "priority", "max_seconds",
+         "start_stopped", "override", "label"}: a sound over the channels' mix.
+        """
+        body = await _json(request)
+        url = body.get("url")
+        if not isinstance(url, str) or not url.lower().startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="'url' must be an http(s) URL")
+        priority = body.get("priority", 0)
+        return await _guard(_svc("overlay", "Playing sounds").play(
+            _channels(body.get("channels")), url, volume=_number(body, "volume", 100), duck=body.get("duck", True),
+            policy=body.get("policy", "queue"), priority=priority, max_seconds=_number(body, "max_seconds", None),
+            start_stopped=bool(body.get("start_stopped", False)), override=bool(body.get("override", False)),
+            label=str(body.get("label") or "")[:80], origin="api"))
+
+    @router.delete("/sounds/{sound_id}")
+    async def cancel_sound(sound_id: str):
+        if not _svc("overlay", "Playing sounds").cancel(sound_id):
+            raise HTTPException(status_code=404, detail="No such sound playing or queued")
+        return {"cancelled": True}
+
+    # --- Ramps ---
+
+    @router.get("/sessions/{session_id}/ramp")
+    async def ramp_status(session_id: str):
+        return await _guard(_done(_svc("ramps", "Volume ramps").status(session_id)))
+
+    @router.post("/sessions/{session_id}/ramp")
+    async def ramp_start(session_id: str, request: Request):
+        """{"to": 0-1, "seconds", "from", "curve": linear|db|ease|exp, "then": stop|pause, "start": bool}"""
+        body = await _json(request)
+        return await _guard(_svc("ramps", "Volume ramps").start(
+            session_id, _number(body, "to", None), _number(body, "seconds", None),
+            from_level=_number(body, "from", None), curve=body.get("curve", "db"), then=body.get("then"),
+            start=bool(body.get("start", False)), origin="api"))
+
+    @router.delete("/sessions/{session_id}/ramp")
+    async def ramp_cancel(session_id: str, reset: bool = False):
+        result = await _guard(_done(_svc("ramps", "Volume ramps").cancel(session_id, reset)))
+        return {"cancelled": result is not None, **(result or {})}
+
+    # --- Audio outputs ---
+
+    @router.get("/audio-outputs")
+    async def output_types():
+        return {"types": _svc("outputs", "Audio outputs").types()}
+
+    @router.get("/audio-outputs/{type_id}/devices")
+    async def output_devices(type_id: str):
+        return {"devices": await _guard(_svc("outputs", "Audio outputs").discover(type_id))}
+
+    @router.get("/sessions/{session_id}/audio-outputs")
+    async def channel_outputs(session_id: str):
+        return {"attachments": _svc("outputs", "Audio outputs").attachments(session_id)}
+
+    @router.post("/sessions/{session_id}/audio-outputs", status_code=201)
+    async def attach_output(session_id: str, request: Request):
+        """{"type", "device", "options"}: send the channel there (its mix starts if needed)."""
+        body = await _json(request)
+        return await _guard(_done(_svc("outputs", "Audio outputs").attach(
+            session_id, body.get("type"), body.get("device"), body.get("options"))))
+
+    @router.delete("/sessions/{session_id}/audio-outputs/{attachment_id}")
+    async def detach_output(session_id: str, attachment_id: str):
+        if not await _svc("outputs", "Audio outputs").detach(session_id, attachment_id):
+            raise HTTPException(status_code=404, detail="No such output on this channel")
+        return {"removed": True}
+
+    # --- Command maps ---
+
+    @router.get("/command-actions")
+    async def command_actions():
+        """What a command map entry can do."""
+        return {"actions": cmd.catalogue()}
+
+    def _map_decl(plugin, map_id: str) -> dict:
+        for decl in plugin.get_command_maps() or []:
+            if isinstance(decl, dict) and decl.get("id") == map_id:
+                return decl
+        raise HTTPException(status_code=404, detail=f"No command map '{map_id}'")
+
+    @router.get("/plugins/{plugin_id}/command-maps")
+    async def command_maps(plugin_id: str):
+        plugin = _plugin(plugin_id)
+        maps = []
+        for decl in plugin.get_command_maps() or []:
+            if isinstance(decl, dict) and cmd.MAP_ID.match(str(decl.get("id", ""))):
+                maps.append({"id": decl["id"], "title": str(decl.get("title") or decl["id"]),
+                             "codes": decl.get("codes") or [],
+                             "entries": host.commands.entries(plugin.id, decl["id"])})
+        return {"plugin_id": plugin.id, "maps": maps}
+
+    @router.put("/plugins/{plugin_id}/command-maps/{map_id}")
+    async def put_command_map(plugin_id: str, map_id: str, request: Request):
+        """{"entries": [{"code", "label", "action", "channel", "args", "enabled"}]}: replace the map."""
+        plugin = _plugin(plugin_id)
+        _map_decl(plugin, map_id)
+        body = await _json(request)
+        return {"entries": await _guard(_done(host.commands.set_entries(plugin.id, map_id, body.get("entries"))))}
+
+    @router.post("/plugins/{plugin_id}/command-maps/{map_id}/learn")
+    async def learn_command(plugin_id: str, map_id: str, seconds: float = 20.0):
+        """Wait for the next code the plugin receives on this map: {"code"} (null if none came in time)."""
+        plugin = _plugin(plugin_id, enabled=True)
+        _map_decl(plugin, map_id)
+        return {"code": await host.commands.learn(plugin.id, map_id, seconds)}
+
+    @router.post("/plugins/{plugin_id}/command-maps/{map_id}/test")
+    async def test_command(plugin_id: str, map_id: str, request: Request):
+        """{"code", "value"}: act as if the plugin received the code."""
+        plugin = _plugin(plugin_id, enabled=True)
+        _map_decl(plugin, map_id)
+        body = await _json(request)
+        if not isinstance(body.get("code"), str):
+            raise HTTPException(status_code=400, detail="'code' must be text")
+        return await host.commands.received(plugin.id, map_id, body["code"], host.actions_for(plugin.id),
+                                            body.get("value"))
