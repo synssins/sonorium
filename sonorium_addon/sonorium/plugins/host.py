@@ -7,6 +7,8 @@ The plugin host: the services Sonorium gives every plugin, in one place.
     triggers       webhook triggers and their tokens (triggers.py, tokens.py)
     notifications  notifiers and routing rules (notifications.py)
     connections    saved connection values, secrets apart (extensions.py)
+    auth           sign-in (sonorium/auth/service.py): built-in sign-in plugins
+                   register who is calling, their routes and their web UI there
 
 The plugin manager hands the host to each plugin (BasePlugin uses it for
 self.actions, self.subscribe(), self.schedule(), ...) and tells it when a
@@ -38,7 +40,7 @@ class PluginFrameworkUnavailable(RuntimeError):
 
 class PluginHost:
     def __init__(self, folder: Path, *, bus: Optional[events.EventBus] = None, session_manager=None,
-                 state_store=None, registry=None, now: Optional[Callable] = None):
+                 state_store=None, registry=None, now: Optional[Callable] = None, auth=None):
         self.bus = bus or events.get_bus()
         self.store = FrameworkStore(folder)
         self.tokens = TokenStore(self.store)
@@ -48,6 +50,7 @@ class PluginHost:
         self.connections = ConnectionValues(self.store)
         self.scheduler = Scheduler(self.store, dispatch=self._run_job, is_enabled=self._is_enabled,
                                    publish=self.bus.publish, now=now)
+        self.auth = auth  # sonorium.auth.service.AuthService (None in tests without the web app)
         self.manager = None  # the PluginManager, set by it
         self.on_change: Optional[Callable] = None  # async callback(session): Home Assistant entities
         self._job_callbacks: dict[tuple, Callable] = {}
@@ -100,6 +103,8 @@ class PluginHost:
         self.bus.publish("plugin.enabled", {"plugin_id": plugin.id, "name": plugin.name})
 
     def plugin_disabled(self, plugin) -> None:
+        if self.auth is not None:
+            self.auth.unregister(plugin.id)  # its sign-in, routes and web UI go with it
         self.bus.unsubscribe_owner(plugin.id)
         self.notifications.unregister_owner(plugin.id)
         for key in [k for k in self._job_callbacks if k[0] == plugin.id]:

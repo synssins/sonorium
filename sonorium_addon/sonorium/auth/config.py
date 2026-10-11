@@ -4,7 +4,7 @@ Switches read from the environment each time they're used (so tests can change t
     BYPASS_LOGIN=true                    Docker: no sign-in in the web UI (recovery)
     SONORIUM__BYPASS_LOGIN               the add-on option bypass_login (run.sh / options.json)
     SONORIUM__WEB_UI_ONLY_THROUGH_HA     add-on option web_ui_only_through_ha
-    SONORIUM_HTTPS_PORT                  the app's HTTPS port (default 8808, 0 = off)
+    SONORIUM_HTTPS_PORT                  the HTTPS port (default 8808; always on)
     SONORIUM_CONFIG_DIR                  Sonorium's config folder (default /config/sonorium)
 """
 import os
@@ -49,8 +49,8 @@ def _port(name: str, default: int) -> int:
 
 
 def https_port() -> int:
-    """The port the HTTPS listener binds to inside the container (0 = no HTTPS listener)."""
-    return _port("SONORIUM_HTTPS_PORT", DEFAULT_HTTPS_PORT)
+    """The port the HTTPS listener binds to inside the container (always on)."""
+    return _port("SONORIUM_HTTPS_PORT", DEFAULT_HTTPS_PORT) or DEFAULT_HTTPS_PORT
 
 
 def ingress_port() -> int:

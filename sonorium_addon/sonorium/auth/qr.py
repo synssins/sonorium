@@ -19,12 +19,14 @@ DARK = "#0b0f1a"
 
 
 def pair_uri(*, server_id: str, name: str, hosts: list[str], http_port: int, https_port: int,
-             fingerprint: str, code: str, username: str) -> str:
-    """sonorium://pair?v=1&id=..&n=..&h=host[,host2]&p=..&s=..&fp=..&c=..&u=.. (s only when HTTPS is on)."""
+             fingerprint: str, code: str, username: str | None = None) -> str:
+    """sonorium://pair?v=1&id=..&n=..&h=host[,host2]&p=..&s=..&fp=..&c=..[&u=..] (u: the signed-in user, if any)."""
     params = [("v", "1"), ("id", server_id), ("n", name), ("h", ",".join(hosts)), ("p", str(http_port))]
     if https_port:
         params.append(("s", str(https_port)))
-    params += [("fp", fingerprint), ("c", code), ("u", username)]
+    params += [("fp", fingerprint), ("c", code)]
+    if username:
+        params.append(("u", username))
     return "sonorium://pair?" + urlencode(params, quote_via=quote, safe=",")
 
 

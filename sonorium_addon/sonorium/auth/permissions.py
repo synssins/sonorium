@@ -1,18 +1,18 @@
 """
-What each caller may do, and the permission every route needs.
+The permission every route needs, and the abilities callers have.
 
 Abilities are the boxes on a key (Settings > Keys), grouped by area exactly
-as the Keys dialog shows them. Roles are sets of abilities plus the
-admin-only permissions no key can have:
+as the Keys dialog shows them; roles (the Users plugin) are sets of them.
+Permissions no key can have:
 
-    admin.users       Users & devices, Require login
-    admin.keys        Keys (and the plugin framework's old token endpoints)
+    admin.users       users and everyone's devices (the Users plugin)
+    admin.keys        keys, and the plugin framework's older token endpoints
     admin.plugins     install, configure and remove plugins, schedules, notifications
     admin.connection  Settings > Connection (Home Assistant and MQTT credentials)
-    self              link your own phone, sign out your own browsers and phones
-    device            only a linked phone: ask for a one-time sign-in code
+    self              link a phone, see and remove your own phones
+    device            only a linked phone (e.g. the Users plugin's one-time sign-in code)
 
-Every route is listed in ROUTES with one of:
+Every route is listed with one of:
 
     public      no sign-in at all (streams, the test tone, icons, sign-in endpoints)
     page        a web page shell (its data comes from the API, which is checked);
@@ -21,7 +21,10 @@ Every route is listed in ROUTES with one of:
     +legacy     the route also takes the plugin framework's own token (triggers,
                 event stream), checked by the route itself
 
-tests/test_auth_routes_coverage.py fails when a route has no entry here.
+The core's routes are in _ROUTES below. A plugin adds its own with
+PermissionRegistry.register() (sonorium/auth/service.py: add_routes); they
+answer 404 while the plugin is off. tests/test_auth_routes_coverage.py fails
+when a route has no entry.
 """
 from __future__ import annotations
 
@@ -63,36 +66,15 @@ ADMIN_ONLY = frozenset({"admin.users", "admin.keys", "admin.plugins", "admin.con
 SELF = "self"
 DEVICE = "device"
 
-ROLES = ("admin", "user")
-ROLE_LABELS = {"admin": "Admin", "user": "User"}
-
-ADMIN_PERMS = frozenset(ABILITIES | ADMIN_ONLY | {SELF})
-USER_PERMS = frozenset({
-    "ch.view", "ch.play", "ch.change", "ch.speakers", "ch.add",
-    "th.view",
-    "pl.view", "pl.run", "pl.edit",
-    "sp.view", "sp.mute",
-    "ev.read",
-    SELF,
-})
-ROLE_PERMS = {"admin": ADMIN_PERMS, "user": USER_PERMS}
-
-# A linked phone acts as its user, but never manages users, devices or keys
+ALL_PERMS = frozenset(ABILITIES | ADMIN_ONLY | {SELF})
+# A linked phone never manages users, devices or keys
 DEVICE_EXCLUDED = frozenset({"admin.users", "admin.keys", SELF})
-# Nobody signed in while Require login is off: today's open access, except
-# managing users and keys, which needs a sign-in once there are accounts
-OPEN_EXCLUDED = frozenset({"admin.users", "admin.keys", SELF})
-
-# Keys whose ability lists ever contained these are cleaned on load
 NEVER_FOR_KEYS = ADMIN_ONLY | {SELF, DEVICE}
 
 
-def role_perms(role: str) -> frozenset:
-    return ROLE_PERMS.get(role, frozenset())
-
-
-def device_perms(role: str) -> frozenset:
-    return frozenset((role_perms(role) - DEVICE_EXCLUDED) | {DEVICE})
+def device_perms(perms) -> frozenset:
+    """What a linked phone may do, from what its user (or nobody signed in) may do."""
+    return frozenset((frozenset(perms) - DEVICE_EXCLUDED) | {DEVICE})
 
 
 def clean_abilities(values) -> list[str]:
@@ -139,27 +121,12 @@ GET     /api/test-tone.mp3                              public
 
 GET     /api/info                                       public
 GET     /api/auth/me                                    public
-POST    /api/auth/setup                                 public
-POST    /api/auth/login                                 public
-POST    /api/auth/logout                                public
-POST    /api/auth/code-login                            public
-POST    /api/auth/new-password                          public
-PUT     /api/auth/require-login                         admin.users
-POST    /api/pair                                       public
-POST    /api/pair/login                                 public
+GET     /api/ui/plugins                                 public
+GET     /plugin-ui/{plugin_id}/{path:path}              public
 POST    /api/link                                       self
-POST    /api/devices/recovery-code                      device
+POST    /api/pair                                       public
+GET     /api/devices                                    self
 DELETE  /api/devices/{device_id}                        self
-GET     /api/users                                      admin.users
-POST    /api/users                                      admin.users
-PUT     /api/users/{user_id}                            admin.users
-POST    /api/users/{user_id}/password                   admin.users
-POST    /api/users/{user_id}/sign-out                   admin.users
-DELETE  /api/users/{user_id}                            admin.users
-GET     /api/keys                                       admin.keys
-POST    /api/keys                                       admin.keys
-PUT     /api/keys/{key_id}                              admin.keys
-DELETE  /api/keys/{key_id}                              admin.keys
 GET     /api/stream/url                                 ch.view
 
 GET     /api/connection                                 admin.connection
@@ -371,58 +338,83 @@ class RoutePermission:
         return f"RoutePermission({self.raw!r})"
 
 
-def _parse(text: str) -> dict:
+def parse(text: str) -> dict:
+    """ "METHOD path permission" lines -> {(method, path): RoutePermission}."""
     table = {}
     for line in text.strip().splitlines():
         line = line.strip()
-        if not line:
+        if not line or line.startswith("#"):
             continue
         method, path, perm = line.split()
         key = (method, path)
         if key in table:
             raise ValueError(f"Route listed twice: {method} {path}")
         table[key] = RoutePermission(perm)
+        unknown = table[key].any_of - KNOWN
+        if unknown:
+            raise ValueError(f"Unknown permission {unknown} for {method} {path}")
     return table
 
 
-ROUTES: dict[tuple[str, str], RoutePermission] = _parse(_ROUTES)
 KNOWN = ABILITIES | ADMIN_ONLY | {SELF, DEVICE}
-for _p in ROUTES.values():
-    unknown = _p.any_of - KNOWN
-    if unknown:
-        raise ValueError(f"Unknown permission {unknown} in the route table")
+ROUTES: dict[tuple[str, str], RoutePermission] = parse(_ROUTES)
 
 
-def _compile(table: dict) -> list:
-    from starlette.routing import compile_path
-    return [(method, template, compile_path(template)[0], perm) for (method, template), perm in table.items()]
+class PermissionRegistry:
+    """The core's route table plus each plugin's; a plugin's routes count only while it's on."""
 
+    def __init__(self):
+        from starlette.routing import compile_path
+        self._compile_path = compile_path
+        self._tables: dict[str, dict] = {}
+        self._active: dict[str, bool] = {}
+        self._compiled: dict[str, list] = {}
+        self.register("core", ROUTES)
 
-_COMPILED = None
+    def register(self, owner: str, table) -> None:
+        if isinstance(table, str):
+            table = parse(table)
+        for key in table:
+            for other, existing in self._tables.items():
+                if other != owner and key in existing:
+                    raise ValueError(f"{key[0]} {key[1]} already has a permission (from {other})")
+        self._tables[owner] = dict(table)
+        self._compiled[owner] = [(m, t, self._compile_path(t)[0], p) for (m, t), p in table.items()]
+        self._active[owner] = True
 
+    def set_active(self, owner: str, active: bool) -> None:
+        if owner in self._tables:
+            self._active[owner] = active
 
-def match(method: str, path: str) -> list[tuple[str, dict, RoutePermission]]:
-    """
-    Every table entry a request matches: (template, path params, permission).
-    Matched against the table itself (not the app's routes), so it doesn't
-    depend on how FastAPI keeps included routers. Where two templates match
-    (/api/plugins/catalog and /api/plugins/{plugin_id}), each must allow it.
-    """
-    global _COMPILED
-    if _COMPILED is None:
-        _COMPILED = _compile(ROUTES)
-    method = "GET" if method == "HEAD" else method
-    found = []
-    for m, template, regex, perm in _COMPILED:
-        if m != method:
-            continue
-        hit = regex.match(path)
-        if hit:
-            found.append((template, hit.groupdict(), perm))
-    return found
+    def table(self, owner: str = None) -> dict:
+        if owner is not None:
+            return dict(self._tables.get(owner, {}))
+        merged = {}
+        for t in self._tables.values():
+            merged.update(t)
+        return merged
+
+    def match(self, method: str, path: str, *, inactive: bool = False) -> list[tuple[str, dict, RoutePermission]]:
+        """
+        Every entry a request matches: (template, path params, permission); with
+        inactive=True, entries of plugins that are off. Matched against the tables
+        (not the app's routes). Where two templates match (/api/plugins/catalog
+        and /api/plugins/{plugin_id}), each must allow the request.
+        """
+        method = "GET" if method == "HEAD" else method
+        found = []
+        for owner, compiled in self._compiled.items():
+            if self._active.get(owner, False) == inactive:
+                continue
+            for m, template, regex, perm in compiled:
+                if m == method:
+                    hit = regex.match(path)
+                    if hit:
+                        found.append((template, hit.groupdict(), perm))
+        return found
 
 
 def for_route(method: str, path: str) -> RoutePermission | None:
-    """The permission a route needs (path is the route's template, e.g. /api/sessions/{session_id})."""
+    """The core's permission for a route template (e.g. /api/sessions/{session_id})."""
     method = "GET" if method == "HEAD" else method
     return ROUTES.get((method, path))

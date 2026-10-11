@@ -115,12 +115,13 @@ class ApiSonorium(Base):
         # Sign-in, users, linked phones and keys: one middleware checks every
         # route (sonorium/auth); it's outermost, so it runs first
         from sonorium.auth.middleware import AuthMiddleware, AuthService
-        from sonorium.auth.routes import create_auth_router
+        from sonorium.auth.routes import create_core_auth_router
         self.auth = AuthService()
+        self.auth.app = self.app  # sign-in plugins add their routes to it
         self._https_host_port = None  # the HTTPS port as the LAN sees it (add-on: its port mapping)
         self._announcer = None
         self.app.add_middleware(AuthMiddleware, service=self.auth)
-        self.app.include_router(create_auth_router(
+        self.app.include_router(create_core_auth_router(
             self.auth,
             stream_url=self._stream_base_url,
             features=lambda: runtime.features(self._state_store.settings.feature_overrides if self._state_store else None),
@@ -364,6 +365,7 @@ class ApiSonorium(Base):
                 plugin_events.get_bus().bind_loop()
                 self._plugin_host = PluginHost(
                     self._state_store.state_file.parent,
+                    auth=self.auth,
                     session_manager=self._session_manager,
                     state_store=self._state_store,
                     registry=self._ha_registry,
@@ -481,6 +483,9 @@ class ApiSonorium(Base):
             logger.error(f"  Failed to initialize v2 components: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            # Plugins are loaded (or failed): sign-in decides from here (auth/service.py)
+            self.auth.mark_ready()
     
     def _migrate_cycling(self):
         """Turn channels' theme cycling into playlists, once (core/playlists.migrate_cycling)."""
@@ -698,7 +703,9 @@ class ApiSonorium(Base):
         import asyncio
         from sonorium.auth import config
         try:
-            store = self.auth.store
+            self.auth.note_install()
+            from sonorium.plugins.manager import DEFAULT_PLUGINS_DIR
+            self.auth.find_expected_providers(DEFAULT_PLUGINS_DIR)
             identity = await asyncio.to_thread(lambda: self.auth.identity)
             if config.bypass_login():
                 logger.warning("BYPASS_LOGIN is on: anyone on your network can use and change Sonorium without signing in. "
@@ -715,15 +722,14 @@ class ApiSonorium(Base):
                     self._announcer.start, server_id=identity.server_id, version=__version__, api=API_VERSION,
                     base_url=self._stream_base_url(),
                     https_port=self._https_port_outside() if identity.tls_ready else 0,
-                    login_required=store.require_login)
+                    login_required=bool(self.auth.expected_providers))
         except Exception as e:
             logger.error(f"Sign-in setup failed: {e}")
 
     async def _stop_auth(self):
         import asyncio
         try:
-            if self.auth._store is not None:
-                self.auth.store.flush()
+            self.auth.flush()
             if self._announcer is not None:
                 await asyncio.to_thread(self._announcer.stop)
         except Exception:

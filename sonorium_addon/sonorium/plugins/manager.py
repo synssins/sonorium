@@ -92,8 +92,20 @@ class PluginManager:
 
         # Enable previously enabled plugins
         enabled_list = self.state_store.settings.enabled_plugins
-        for plugin_id in enabled_list:
+        for plugin_id in list(enabled_list):
             if plugin_id in self.plugins:
+                await self.enable_plugin(plugin_id)
+
+        # Built-in plugins that start switched on (manifest "enabled_by_default"),
+        # the first time they're seen only
+        known = self.state_store.settings.known_builtin_plugins
+        for plugin_id, plugin in list(self.plugins.items()):
+            if not plugin._builtin or plugin_id in known:
+                continue
+            known.append(plugin_id)
+            self.state_store.save()
+            if plugin._manifest.get("enabled_by_default") and not plugin.enabled:
+                logger.info(f"Switching on the built-in plugin {plugin.name}")
                 await self.enable_plugin(plugin_id)
 
         self._initialized = True

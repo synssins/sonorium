@@ -28,7 +28,7 @@ def is_valid_plugin_id(plugin_id) -> bool:
 
 
 # Plugin storage location (survives addon updates)
-DEFAULT_PLUGINS_DIR = Path("/config/sonorium/plugins")
+DEFAULT_PLUGINS_DIR = Path(os.environ.get("SONORIUM_CONFIG_DIR") or "/config/sonorium") / "plugins"
 
 # Built-in plugins directory
 try:
