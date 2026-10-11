@@ -2,6 +2,15 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.24 (2026-10-11)
+
+### Bug Fixes
+
+- **auth**: Skip container and VPN bridges (incus, LXD, LXC, Tailscale, ZeroTier, WireGuard) in the
+  QR and mDNS addresses
+  ([`ac2819b`](https://github.com/synssins/sonorium/commit/ac2819b22a5043f60f865683616dad8364e8b132))
+
+
 ## v1.6.2-dev.23 (2026-10-11)
 
 
