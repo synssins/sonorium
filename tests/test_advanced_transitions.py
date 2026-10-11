@@ -195,7 +195,7 @@ def test_sequence_keeps_transitions_of_its_presets_only(tmp_path):
 def _instances(names):
     R = m.recording
     theme = SimpleNamespace(groups={}, short_file_threshold=15.0, name="Storm")
-    return [R.RecordingThemeInstance(R.RecordingMetadata(Path(f"{n}.mp3"), key=n), theme) for n in names]
+    return [R.ThemeTrack(R.AudioFile(Path(f"{n}.mp3"), key=n), theme) for n in names]
 
 
 def test_step_plans_pick_tracks_that_really_come_in_or_leave():
@@ -288,7 +288,7 @@ def make_theme(folder, names, groups=None):
     for n in names:
         key, group = (n, None) if "/" not in n else (n, n.split("/")[0])
         file = folder / f"{n.split('/')[-1]}.mp3"
-        theme.instances.append(R.RecordingThemeInstance(R.RecordingMetadata(file, key=key, group=group), theme))
+        theme.instances.append(R.ThemeTrack(R.AudioFile(file, key=key, group=group), theme))
     theme.get_stream = lambda overrides=None: m.theme.ThemeStream(theme, overrides)
     return theme
 
@@ -554,7 +554,7 @@ def api(tmp_path):
         t = build(tmp_path, themes)
         R = mods.recording
         theme = SimpleNamespace(groups={}, short_file_threshold=15.0, name="Storm")
-        insts = [R.RecordingThemeInstance(R.RecordingMetadata(Path(f"{n}.mp3"), key=n), theme)
+        insts = [R.ThemeTrack(R.AudioFile(Path(f"{n}.mp3"), key=n), theme)
                  for n in ("Wind", "Rain", "Drums")]
         for inst in insts:
             inst.meta._duration_samples = 60 * RATE

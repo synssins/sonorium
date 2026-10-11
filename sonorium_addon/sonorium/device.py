@@ -11,7 +11,7 @@ from typing import Self, TYPE_CHECKING
 
 from sonorium import runtime
 from sonorium.obs import logger
-from sonorium.recording import RecordingMetadata
+from sonorium.recording import AudioFile
 from sonorium.utils import HomeAssistantClient, IndexList
 
 if TYPE_CHECKING:
@@ -116,7 +116,7 @@ class Sonorium:
             # A theme made in Sonorium has its metadata.json before it has any audio
             if audio_files or (folder / "metadata.json").is_file():
                 theme_name = folder.name
-                self.theme_metas[theme_name] = IndexList(RecordingMetadata(path, folder) for path in audio_files)
+                self.theme_metas[theme_name] = IndexList(AudioFile(path, folder) for path in audio_files)
 
                 # Read UUID from metadata.json if it exists
                 theme_id = None

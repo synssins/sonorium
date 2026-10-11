@@ -80,7 +80,7 @@ def theme_with(folder: Path, names, crossfade=1.0, mode="merry_go_round", muted=
     theme.instances = []
     for name in names:
         path = next((folder / group).glob(f"{name}.*"))
-        instance = recording.RecordingThemeInstance(recording.RecordingMetadata(path, folder), theme)
+        instance = recording.ThemeTrack(recording.AudioFile(path, folder), theme)
         instance.is_enabled = name not in muted
         instance.presence = (presence or {}).get(name, 1.0)
         theme.instances.append(instance)
@@ -198,8 +198,8 @@ def test_a_single_file_crossfades_into_itself_without_a_dip(forest):
     noise_file(forest / "Bed" / "Rain.mp3", 3.0)
     theme = SimpleNamespace(name="Forest", short_file_threshold=15.0, sonorium=SimpleNamespace(master_volume=1.0),
                             groups={"Bed": {"mode": "merry_go_round", "crossfade": 1.0}})
-    theme.instances = [recording.RecordingThemeInstance(
-        recording.RecordingMetadata(forest / "Bed" / "Rain.mp3", forest), theme)]
+    theme.instances = [recording.ThemeTrack(
+        recording.AudioFile(forest / "Bed" / "Rain.mp3", forest), theme)]
     bed = bed_of(ThemeStream(theme))
     out = pull(bed, 20)
     began = starts(bed)

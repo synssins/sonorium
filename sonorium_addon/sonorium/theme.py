@@ -9,7 +9,7 @@ import av
 import numpy as np
 
 from sonorium.obs import logger
-from sonorium.recording import LOG_THRESHOLD, SAMPLE_RATE, ExclusionGroupCoordinator, playback_values
+from sonorium.recording import BLOCK_SAMPLES, SAMPLE_RATE, ExclusionGroupCoordinator, ThemeTrack, close_stream, playback_values
 from sonorium.utils import IndexList
 
 
@@ -108,7 +108,7 @@ class ThemeDefinition:
             theme_metas = self.sonorium.metas
 
         # Pass theme reference to instances so they can access threshold
-        self.instances = IndexList(meta.get_instance(theme=self) for meta in theme_metas)
+        self.instances = IndexList(ThemeTrack(meta, theme=self) for meta in theme_metas)
 
         # Mixes of this theme that are still in use. Weak references: a mix is
         # freed (with its decoders and buffers) once its channel or listener
@@ -164,8 +164,7 @@ class ThemeStream:
 
         # Create streams, passing the exclusion coordinator
         from sonorium.mixing import MixLevel
-        from sonorium.recording import RecordingThemeStream
-        self.mix_level = MixLevel(SAMPLE_RATE, RecordingThemeStream.CHUNK_SIZE)
+        self.mix_level = MixLevel(SAMPLE_RATE, BLOCK_SAMPLES)
 
         # Track key -> its TrackView, and the streams in mixing order: one per
         # track, except a Merry-go-round group, which plays as one stream (its bed)
@@ -213,7 +212,7 @@ class ThemeStream:
             gap = lambda g=group: preset_gap_range(g, self.overrides, getattr(self.theme_def, "groups", None))
             self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap, clock=lambda: self.audio_seconds)
         coordinator = self.exclusion_coordinators.get(group) if group else None
-        stream = track.get_stream(exclusion_coordinator=coordinator)
+        stream = track.open_stream(exclusion_coordinator=coordinator)
         stream.built_as = self._build_key(track)
         ebb = getattr(track, "ebb_group_name", None)
         if ebb and hasattr(stream, "ebb_group"):
@@ -373,8 +372,7 @@ class ThemeStream:
 
     @cached_property
     def chunk_silence(self):
-        from sonorium.recording import RecordingThemeStream
-        data = np.zeros((1, RecordingThemeStream.CHUNK_SIZE), np.int16)
+        data = np.zeros((1, BLOCK_SAMPLES), np.int16)
         return data
 
     @staticmethod
@@ -399,10 +397,9 @@ class ThemeStream:
     @staticmethod
     def _fade_step(seconds: float) -> float:
         """How far an on/off fade of `seconds` moves per chunk (a fade of 0 still ramps over one chunk)."""
-        from sonorium.recording import RecordingThemeStream
         if not seconds or seconds <= 0:
             return 1.0
-        return min(1.0, RecordingThemeStream.CHUNK_SIZE / (seconds * SAMPLE_RATE))
+        return min(1.0, BLOCK_SAMPLES / (seconds * SAMPLE_RATE))
 
     def _pull(self, step: float) -> list:
         """
@@ -459,12 +456,10 @@ class ThemeStream:
         return chunks
 
     def iter_chunks(self):
-        from sonorium.recording import RecordingThemeStream
-
         while True:
             self._follow_group_modes()
             data_recs = self._pull(self._fade_step(switch_fade_seconds()))  # the Switch fade, read live
-            self.audio_seconds += RecordingThemeStream.CHUNK_SIZE / SAMPLE_RATE
+            self.audio_seconds += BLOCK_SAMPLES / SAMPLE_RATE
             if not data_recs:
                 # logger.debug(f'Theme "{self.theme_def.name}" has no enabled recordings. Streaming silence...')
                 data_recs.append(self.chunk_silence)
@@ -588,7 +583,7 @@ class ThemeStream:
         if running is not None:
             running.release = None
             if running.old_stream is not None:
-                getattr(running.old_stream, "gen", None) and running.old_stream.gen.close()
+                close_stream(running.old_stream)
         self._pins[name] = pins
         self._active[name] = transition
         paused = running is None and self._toggle_gain.get(name, 1.0 if enabled else 0.0) <= 0.0
@@ -599,9 +594,7 @@ class ThemeStream:
             if not paused and a > EPS:
                 transition.old_stream, transition.old_level = stream, a
             else:
-                old_gen = getattr(stream, "gen", None)
-                if old_gen is not None:
-                    old_gen.close()
+                close_stream(stream)
             self._replace_stream(stream, new)
         elif side == "in" and paused:
             restart = getattr(stream, "restart", None)
@@ -638,8 +631,8 @@ class ThemeStream:
 
     def _pull_transition(self, transition, stream):
         """One chunk of a track with a transition running: its level from the envelope (and filter)."""
-        from sonorium.recording import RecordingThemeStream, SAMPLE_RATE as RATE
-        size = RecordingThemeStream.CHUNK_SIZE
+        from sonorium.recording import SAMPLE_RATE as RATE
+        size = BLOCK_SAMPLES
         chunk_seconds = size / RATE
         now = self.audio_seconds
         name = transition.track
@@ -676,7 +669,7 @@ class ThemeStream:
             old = next(transition.old_stream)
             out = out + old.astype(np.float32).reshape(-1) * np.linspace(g0, g1, size, dtype=np.float32)
             if g1 <= 0.0:
-                getattr(transition.old_stream, "gen", None) and transition.old_stream.gen.close()
+                close_stream(transition.old_stream)
                 transition.old_stream = None
         transition.level = end_level
         data = np.clip(out, -32768, 32767).astype(np.int16).reshape(1, -1)
@@ -708,7 +701,7 @@ class ThemeStream:
         transition = self._active.pop(name, None)
         self._pins.pop(name, None)
         if transition is not None and transition.old_stream is not None:
-            getattr(transition.old_stream, "gen", None) and transition.old_stream.gen.close()
+            close_stream(transition.old_stream)
         view = self._views.get(name)
         enabled = bool(view.is_enabled) if view is not None else False
         self._toggle_on[name] = enabled

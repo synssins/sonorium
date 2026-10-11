@@ -54,8 +54,8 @@ def theme_with(folder: Path, names: list[str], muted=()):
                             short_file_threshold=15.0, sonorium=SimpleNamespace(master_volume=1.0))
     theme.instances = []
     for name in names:
-        meta = recording.RecordingMetadata(folder / "Thunder" / f"{name}.mp3", folder)
-        instance = recording.RecordingThemeInstance(meta, theme)
+        meta = recording.AudioFile(folder / "Thunder" / f"{name}.mp3", folder)
+        instance = recording.ThemeTrack(meta, theme)
         instance.is_enabled = name not in muted
         theme.instances.append(instance)
     return theme

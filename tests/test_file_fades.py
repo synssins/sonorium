@@ -119,7 +119,7 @@ def _arrival(tmp_path, fade_in):
     instance = SimpleNamespace(meta=SimpleNamespace(path=str(path), duration_samples=n), volume=1.0, name="t",
                                fade_in=fade_in, fade_out=0.0)
     stream = recording.CrossfadeRecordingStream(instance)
-    size = stream.CHUNK_SIZE
+    size = recording.BLOCK_SAMPLES
     out = np.concatenate([next(stream).reshape(-1) for _ in range(int(1.6 * n / size))]).astype(np.float64)
     start = n - stream.overlap  # where the first loop's overlap begins
     w = np.exp(-2j * np.pi * 440 * np.arange(size) / RATE)

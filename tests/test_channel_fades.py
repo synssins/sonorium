@@ -38,7 +38,7 @@ def tones(tmp_path_factory):
 def make_theme(folder, names, theme_id):
     theme = SimpleNamespace(id=theme_id, name=theme_id, groups={}, short_file_threshold=15.0,
                             sonorium=SimpleNamespace(master_volume=1.0))
-    theme.instances = [m.recording.RecordingThemeInstance(m.recording.RecordingMetadata(folder / f"{n}.mp3", folder), theme)
+    theme.instances = [m.recording.ThemeTrack(m.recording.AudioFile(folder / f"{n}.mp3", folder), theme)
                        for n in names]
     theme.get_stream = lambda overrides=None: m.theme.ThemeStream(theme, overrides)
     return theme

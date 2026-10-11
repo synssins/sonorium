@@ -167,7 +167,7 @@ fi
 
 # Test the actual recording module import
 bashio::log.debug "Testing sonorium.recording import..."
-if ! python3 -c "from sonorium.recording import RecordingMetadata" 2>&1; then
+if ! python3 -c "from sonorium.recording import AudioFile" 2>&1; then
     bashio::log.error "FAILED: sonorium.recording import"
     IMPORTS_OK=false
 fi

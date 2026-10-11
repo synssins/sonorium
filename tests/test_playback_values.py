@@ -187,11 +187,11 @@ def test_short_file_threshold_for_new_themes(stored):
     assert m.theme_metadata.ThemeMetadata(name="New").short_file_threshold == 40.0
     assert m.theme_metadata.ThemeMetadata(name="Own", short_file_threshold=5.0).short_file_threshold == 5.0
     meta = SimpleNamespace(duration_seconds=20.0)
-    instance = m.recording.RecordingThemeInstance.__new__(m.recording.RecordingThemeInstance)
+    instance = m.recording.ThemeTrack.__new__(m.recording.ThemeTrack)
     instance.theme = None
     assert instance.short_file_threshold == 40.0
-    assert m.recording.RecordingMetadata.is_short_file(meta) is True
-    assert m.recording.RecordingMetadata.is_short_file(meta, 15.0) is False
+    assert m.recording.AudioFile.is_short_file(meta) is True
+    assert m.recording.AudioFile.is_short_file(meta, 15.0) is False
 
 
 def test_switch_fade_is_read_as_the_mix_runs(stored):

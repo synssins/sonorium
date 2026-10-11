@@ -12,7 +12,7 @@ from test_crossfade_loop import recording  # noqa: E402  (loads recording.py on 
 
 def theme_track(name="Rain", volume=1.0):
     meta = SimpleNamespace(name=name, is_short_file=lambda threshold: False)
-    track = recording.RecordingThemeInstance(meta)
+    track = recording.ThemeTrack(meta)
     track.volume = volume
     return track
 

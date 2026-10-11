@@ -1374,9 +1374,9 @@ class ApiSonorium(Base):
         return self._theme_metadata_manager.get_folder_for_id(theme_id)
 
     def _linked_recordings(self, metadata) -> list:
-        """RecordingMetadata for a theme's linked files that can be found (missing ones are left out)."""
+        """AudioFile for a theme's linked files that can be found (missing ones are left out)."""
         from sonorium.core.intrusions import link_group, resolve_link
-        from sonorium.recording import RecordingMetadata
+        from sonorium.recording import AudioFile
         found = []
         for key, link in (getattr(metadata, "links", None) or {}).items():
             path = resolve_link(link, self._folder_for_theme_id)
@@ -1384,13 +1384,14 @@ class ApiSonorium(Base):
                 logger.warning(f'Theme "{metadata.name}": linked track "{key}" is missing '
                                f'(theme {link.get("theme")}, track "{link.get("track")}"); it is skipped')
                 continue
-            found.append(RecordingMetadata(path, key=key, group=link_group(key), link=dict(link)))
+            found.append(AudioFile(path, key=key, group=link_group(key), link=dict(link)))
         return found
 
     def _attach_linked_tracks(self):
         """At start-up: each theme's linked files join its tracks (refresh_themes does this on a rescan)."""
         if not self._theme_metadata_manager:
             return
+        from sonorium.recording import ThemeTrack
         device = self.client.device
         for theme in device.themes or []:
             folder = self._find_theme_folder(theme.id)
@@ -1401,7 +1402,7 @@ class ApiSonorium(Base):
             for meta in linked:
                 if theme.name in device.theme_metas:
                     device.theme_metas[theme.name].append(meta)
-                theme.instances.append(meta.get_instance(theme=theme))
+                theme.instances.append(ThemeTrack(meta, theme=theme))
             logger.debug(f'Theme "{theme.name}": {len(linked)} linked track(s)')
 
     def _link_info(self, link: dict) -> dict:
@@ -1564,7 +1565,7 @@ class ApiSonorium(Base):
         """Rescan theme folders and reload themes."""
         from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, reset_ebb_settings
         from sonorium.theme import ThemeDefinition
-        from sonorium.recording import RecordingMetadata, PlaybackMode
+        from sonorium.recording import AudioFile, PlaybackMode
         from sonorium.utils import IndexList
 
         device = self.client.device
@@ -1595,7 +1596,7 @@ class ApiSonorium(Base):
             # audio: load it empty, so it can be edited, saved and given presets
             if audio_files or (folder / "metadata.json").is_file():
                 theme_name = folder.name
-                new_theme_metas[theme_name] = IndexList(RecordingMetadata(path, folder) for path in audio_files)
+                new_theme_metas[theme_name] = IndexList(AudioFile(path, folder) for path in audio_files)
                 # The theme's linked files, found by their source theme's
                 # id (so a renamed or rescanned source is followed; a missing one is skipped)
                 folder_metadata = (self._theme_metadata_manager.get_metadata_by_folder(folder)

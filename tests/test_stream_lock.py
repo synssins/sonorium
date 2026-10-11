@@ -134,7 +134,7 @@ def lock_theme(folder: Path):
                                     "Waves": {"mode": "merry_go_round", "crossfade": 1.0}})
     theme.instances = []
     for name in TRACKS:
-        track = m.recording.RecordingThemeInstance(m.recording.RecordingMetadata(folder / name, folder), theme)
+        track = m.recording.ThemeTrack(m.recording.AudioFile(folder / name, folder), theme)
         theme.instances.append(track)
     hum, bed, wind = theme.instances[:3]
     hum.crossfade_enabled = False  # hard-cut loop

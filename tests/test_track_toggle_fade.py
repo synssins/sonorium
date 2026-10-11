@@ -58,7 +58,7 @@ def stream_of(tmp_path):
     tone_mp3(folder / "B.mp3", 25.0, B_HZ)
     theme = SimpleNamespace(name="Field", groups={}, short_file_threshold=15.0,
                             sonorium=SimpleNamespace(master_volume=1.0))
-    theme.instances = [m.recording.RecordingThemeInstance(m.recording.RecordingMetadata(folder / f"{n}.mp3", folder), theme)
+    theme.instances = [m.recording.ThemeTrack(m.recording.AudioFile(folder / f"{n}.mp3", folder), theme)
                        for n in ("A", "B")]
 
     def make(overrides):
@@ -122,10 +122,10 @@ def test_mute_button_fades_out_and_the_track_then_pauses(stream_of):
     assert a[0] > 0.8 * a[:2].max() and a[30] < 0.7 * a[0] and a[-5:].max() < 0.01 * a[0]
     assert stream._toggle_gain["A"] == 0.0
     # Once silent it is no longer pulled (it pauses where it was)
-    position = track_a.gen.gi_frame.f_locals.get("samples_played")
+    position = track_a._source.gi_frame.f_locals.get("samples_played")
     assert position
     pull(chunks, 0.5)
-    assert track_a.gen.gi_frame.f_locals.get("samples_played") == position
+    assert track_a._source.gi_frame.f_locals.get("samples_played") == position
 
     # On again: it fades in from silence
     track_a.instance._instance.is_enabled = True
