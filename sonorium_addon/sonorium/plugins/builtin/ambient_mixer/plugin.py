@@ -45,8 +45,9 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 XML_API_BASE = "http://xml.ambient-mixer.com/audio-template?player=html5&id_template="
 AUDIO_EXTENSIONS = {'.mp3', '.wav', '.ogg', '.flac'}  # what Sonorium plays
 
-# Intermittent gaps (recording.py SPARSE_MIN_INTERVAL / SPARSE_MAX_INTERVAL):
-# presence 1 waits about 3 minutes between plays, presence 0 about 30
+# Intermittent gaps out of the box (Settings > Advanced's Wait between plays,
+# sonorium/playback_values.py): presence 1 waits about 3 minutes between plays,
+# presence 0 about 30. Used when this Sonorium has no such setting.
 SPARSE_MIN_GAP = 180.0
 SPARSE_MAX_GAP = 1800.0
 RANDOM_UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600}
@@ -120,15 +121,28 @@ def random_unit_seconds(unit: str) -> float:
     return max(1.0, float(match.group(1)) * RANDOM_UNIT_SECONDS[match.group(2)])
 
 
+def wait_range() -> tuple[float, float]:
+    """Intermittent Wait between plays now (shortest, longest), seconds: Settings > Advanced, else 180-1800."""
+    try:
+        from sonorium import playback_values
+        return playback_values.wait_range()
+    except (ImportError, AttributeError):
+        return SPARSE_MIN_GAP, SPARSE_MAX_GAP
+
+
 def random_presence(random_counter: int, random_unit: str) -> float:
     """
     The Intermittent presence that plays a random channel about as often as
     Ambient Mixer does: random_counter plays per random_unit is a gap of
-    unit / counter, and presence p gives a gap of 180 + 1620 * (1 - p) seconds
-    (docs/THEME_FORMAT.md 3.4). Kept within 0-1.
+    unit / counter, and presence p gives a gap of min + (max - min) * (1 - p)
+    seconds in the current Wait between plays range (by default 180-1800,
+    docs/THEME_FORMAT.md 3.4). Kept within 0-1.
     """
     gap = random_unit_seconds(random_unit) / max(1, int(random_counter or 1))
-    presence = 1.0 - (gap - SPARSE_MIN_GAP) / (SPARSE_MAX_GAP - SPARSE_MIN_GAP)
+    low, high = wait_range()
+    if high <= low:
+        return 1.0
+    presence = 1.0 - (gap - low) / (high - low)
     return round(min(1.0, max(0.0, presence)), 3)
 
 
@@ -169,7 +183,7 @@ class AmbientMixerPlugin(BasePlugin):
 
     id = "ambient_mixer"
     name = "Ambient Mixer Importer"
-    version = "3.1.1"
+    version = "3.1.2"
     description = "Import soundscapes from Ambient-Mixer.com with preset support"
     author = "Sonorium"
     builtin = True  # Shipped with Sonorium

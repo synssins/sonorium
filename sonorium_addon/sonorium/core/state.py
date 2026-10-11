@@ -154,6 +154,10 @@ class SonoriumSettings:
     # this install (see runtime.FEATURES). Format: {"network_speakers": true}
     feature_overrides: dict[str, bool] = field(default_factory=dict)
 
+    # Settings > Advanced: playback values changed from their defaults (see
+    # sonorium/playback_values.py). Format: {"loop_crossfade": 2.0}
+    playback_values: dict[str, float] = field(default_factory=dict)
+
     # Deleted builtin plugins (prevents auto-reinstall on startup)
     # When a user deletes a builtin plugin, its ID is added here so it won't be restored
     deleted_builtin_plugins: list[str] = field(default_factory=list)

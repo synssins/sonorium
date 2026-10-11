@@ -44,14 +44,14 @@ async function init() {
             loadConnectionSettings(),
             loadNetworkInfo(),
             loadInstallInfo(),
-            loadPlaylists()
+            loadPlaylists(),
+            loadPlaybackValues()
         ]);
         console.log('Data loaded, rendering...');
 
         // Restore saved view or default to sessions
         let savedView = localStorage.getItem('sonorium_currentView') || 'sessions';
         if (savedView === 'settings-connection' && !connectionSettings) savedView = 'sessions';
-        if (savedView === 'settings-advanced' && !hasAdvancedSettings()) savedView = 'sessions';
 
         // Always render sessions first (needed for session cards)
         renderSessions();
@@ -588,7 +588,10 @@ function showView(viewName) {
     }
     if (viewName === 'settings-groups') renderSettingsGroupsList();
     if (viewName === 'settings-plugins') renderPluginsView();
-    if (viewName === 'settings-advanced') renderAdvancedSettings();
+    if (viewName === 'settings-advanced') {
+        renderAdvancedSettings();
+        loadPlaybackValues().then(pvRender);
+    }
     if (viewName === 'settings-spaces') loadSpaces();
     if (viewName === 'settings-logs' && window.SonoriumLogs) {
         SonoriumLogs.mount(document.getElementById('settings-logs-root'), BASE_PATH);
@@ -3540,7 +3543,7 @@ function teRenderGroup(group, view = TE_VIEW) {
     const crossfade = (cls) => `
         <div class="${cls}">
             <span class="gap-word">Crossfade</span>
-            <input class="num" type="number" min="1" max="60" step="1" placeholder="${TE_GROUP_CROSSFADE}" value="${teEsc(s.crossfade ?? '')}"
+            <input class="num" type="number" min="${pvValue('group_crossfade_min')}" max="${pvValue('group_crossfade_max')}" step="1" placeholder="${TE_GROUP_CROSSFADE}" value="${teEsc(s.crossfade ?? '')}"
                    aria-label="${label} crossfade, seconds" onchange="teSetGroupCrossfade(${n}, this)">
             <span>s</span>
         </div>`;
@@ -3859,7 +3862,9 @@ async function teSetGroupGap(name, input) {
 
 async function teSetGroupCrossfade(name, input) {
     const seconds = parseFloat(input.value);
-    const value = input.value === '' || !Number.isFinite(seconds) ? null : Math.min(60, Math.max(1, seconds));
+    // kept within Settings › Advanced's Merry-go-round crossfade range (by default 1 to 60 s)
+    const value = input.value === '' || !Number.isFinite(seconds) ? null
+        : Math.min(pvValue('group_crossfade_max'), Math.max(pvValue('group_crossfade_min'), seconds));
     await teSetGroupValue(name, 'crossfade', value);
 }
 
@@ -5566,8 +5571,6 @@ async function loadInstallInfo() {
         label.textContent = installInfo.label;
         label.hidden = false;
     }
-    const advancedNav = document.getElementById('nav-settings-advanced');
-    if (advancedNav) advancedNav.style.display = hasAdvancedSettings() ? '' : 'none';
 }
 
 function hasAdvancedSettings() {
@@ -5580,8 +5583,14 @@ let advancedBusy = false;
 
 function renderAdvancedSettings() {
     const body = document.getElementById('advanced-settings-form');
-    if (!body || !installInfo) return;
-    spSetTitle('settings-advanced', 'Advanced', installInfo.label, 'Install type');
+    if (!body) return;
+    // The features list only when this install has any (the playback values are always there)
+    const hasFeatures = hasAdvancedSettings();
+    body.style.display = hasFeatures ? '' : 'none';
+    document.getElementById('advanced-features-head').style.display = hasFeatures ? '' : 'none';
+    document.getElementById('advanced-values-head').classList.toggle('spv-after', hasFeatures);
+    spSetTitle('settings-advanced', 'Advanced', installInfo?.label, 'Install type');
+    if (!installInfo) return;
     const names = Object.keys(ADVANCED_FEATURES).filter(name => installInfo.features[name]?.overridable);
     if (!advancedRunning) advancedRunning = Object.fromEntries(names.map(name => [name, !!installInfo.features[name].enabled]));
     let pending = false;
@@ -5636,6 +5645,153 @@ async function restartForAdvancedSettings() {
     }
     advancedBusy = false;
     renderAdvancedSettings();
+}
+
+// --- Settings > Advanced: playback values. Global: tracks and groups follow them unless
+// they set their own (a group's Gap, a theme's threshold). Saved as each one is changed. ---
+let playbackValues = null;   // { values, defaults } from the server; null until loaded
+
+// Out of the box, until loaded (the server's playback_values.DEFAULTS)
+const PV_FALLBACK = { group_crossfade_min: 1, group_crossfade_max: 60 };
+
+function pvValue(key) {
+    const v = playbackValues?.values?.[key];
+    return Number.isFinite(v) ? v : PV_FALLBACK[key];
+}
+
+// Rows by section: keys (two for a range), unit ('%' is shown as a percent, stored as a
+// fraction), the usual range (outside it: an amber warning, never refused) and, for some,
+// what may happen below it
+const PV_SECTIONS = [
+    { title: 'Intermittent', rows: [
+        { name: 'Wait between plays', keys: ['sparse_min_interval', 'sparse_max_interval'], unit: 's', usual: [30, 7200],
+          desc: "How long Intermittent tracks wait between plays. A track's Interval slider sets where in this range it waits: 100% near the shortest, 0% near the longest." },
+        { name: 'Wait randomness', keys: ['sparse_interval_variance'], unit: '%', usual: [0, 60],
+          desc: "How far each wait strays from the Interval's point in the range, either way." },
+        { name: "Gap after a group's track", keys: ['group_gap'], unit: 's', usual: [10, 1800],
+          desc: 'Every Intermittent group uses this, unless its own Gap is set.' },
+    ] },
+    { title: 'Background', rows: [
+        { name: 'Loop crossfade', keys: ['loop_crossfade'], unit: 's', usual: [0.5, 5], below: 'a loop may click where it starts over',
+          desc: 'How long a looping file crossfades into itself when it starts over.' },
+        { name: 'Merry-go-round crossfade range', keys: ['group_crossfade_min', 'group_crossfade_max'], unit: 's', usual: [0.5, 120],
+          desc: 'The shortest and longest crossfade a Merry-go-round group can be given.' },
+    ] },
+    { title: 'Fades', rows: [
+        { name: 'Track fade', keys: ['track_fade'], unit: 's', usual: [1, 20],
+          desc: 'How long a track fades in and out when it joins or leaves the mix.' },
+        { name: 'Switch fade', keys: ['switch_fade'], unit: 's', usual: [0.5, 10],
+          desc: "How long a track fades when it's switched on or off, or muted." },
+    ] },
+    { title: 'Ebb & Flow', rows: [
+        { name: 'Long pause chance', keys: ['ebb_long_rest'], unit: '%', usual: [0, 50],
+          desc: 'How often a pause lasts 2 to 4 times longer, so it never sounds regular.' },
+        { name: 'Turn chance', keys: ['ebb_turn'], unit: '%', usual: [5, 80],
+          desc: 'How often a rise or fall changes direction partway.' },
+    ] },
+    { title: 'New themes', rows: [
+        { name: 'Short file threshold', keys: ['short_file_threshold'], unit: 's', usual: [3, 60],
+          desc: 'Files shorter than this start as Intermittent in a new theme.' },
+    ] },
+];
+
+async function loadPlaybackValues() {
+    try {
+        playbackValues = await api('GET', '/settings/playback-values');
+    } catch (error) {
+        playbackValues = null;  // older server: the page shows no values
+    }
+}
+
+// Stored value -> the number shown (a % as 0-100, without float noise)
+function pvShow(row, value) {
+    return row.unit === '%' ? +(value * 100).toFixed(4) : +(+value).toFixed(4);
+}
+
+function pvUnit(row, text) {
+    return row.unit === '%' ? `${text}%` : `${text} ${row.unit}`;
+}
+
+function pvWarning(row, shown) {
+    const [lo, hi] = row.usual;
+    const usual = pvUnit(row, `${lo} to ${hi}`);
+    if (shown.some(v => v < lo)) return `Far below the usual ${usual}${row.below ? `: ${row.below}` : ''}`;
+    if (shown.some(v => v > hi)) return `Far above the usual ${usual}`;
+    return '';
+}
+
+function pvRow(row) {
+    const { values, defaults } = playbackValues;
+    const shown = row.keys.map(k => pvShow(row, values[k]));
+    const changed = row.keys.some(k => values[k] !== defaults[k]);
+    const warn = changed ? pvWarning(row, shown) : '';
+    const keys = escapeHtml(JSON.stringify(row.keys));
+    const inputs = row.keys.map((k, i) => `<input class="sp-inp spv-num" type="number" min="0"${row.unit === '%' ? ' max="100"' : ''} step="any" value="${shown[i]}"
+               aria-label="${escapeHtml(row.name)}${row.keys.length > 1 ? (i ? ', longest' : ', shortest') : ''}" data-pv="${k}" onchange="pvChanged(this)">`)
+        .join('<span class="spv-dash">–</span>');
+    const def = row.keys.map(k => pvShow(row, defaults[k])).join('–');
+    return `<div class="sp-lrow spv-grid${changed ? ' changed' : ''}">
+        <span class="spv-name">${escapeHtml(row.name)}</span><span class="spv-desc">${escapeHtml(row.desc)}</span><span class="spv-def">${def} ${escapeHtml(row.unit)}</span>
+        <span class="spv-val">${inputs}<span class="spv-unit">${escapeHtml(row.unit)}</span></span><button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="${escapeHtml(row.name)}: back to the default"${changed ? '' : ' disabled'} onclick="pvReset(${keys})">${SP_ICON_RESET}</button>
+        ${warn ? `<div class="spv-warn">${escapeHtml(warn)}</div>` : ''}</div>`;
+}
+
+function pvRender() {
+    const form = document.getElementById('advanced-values-form');
+    const head = document.getElementById('advanced-values-head');
+    if (!form || !head) return;
+    head.style.display = playbackValues ? '' : 'none';
+    form.innerHTML = playbackValues ? PV_SECTIONS.map(section =>
+        `<h3 class="spv-sec">${escapeHtml(section.title)}</h3><div class="sp-lbody">${section.rows.map(pvRow).join('')}</div>`).join('') : '';
+}
+
+function pvRowOf(key) {
+    return PV_SECTIONS.flatMap(section => section.rows).find(row => row.keys.includes(key));
+}
+
+// A value changed: checked here (a number, not negative, a % up to 100, a range's
+// shortest not above its longest), then saved; an empty field goes back to the default
+async function pvChanged(input) {
+    const row = pvRowOf(input.dataset.pv);
+    const inputs = [...input.closest('.spv-val').querySelectorAll('.spv-num')];
+    const update = {};
+    let bad = false;
+    inputs.forEach(el => el.classList.remove('bad'));
+    for (const el of inputs) {
+        if (el.value.trim() === '') {
+            update[el.dataset.pv] = null;
+            continue;
+        }
+        const n = Number(el.value);
+        if (!Number.isFinite(n) || n < 0 || (row.unit === '%' && n > 100)) {
+            el.classList.add('bad');
+            bad = true;
+            continue;
+        }
+        update[el.dataset.pv] = row.unit === '%' ? n / 100 : n;
+    }
+    if (!bad && inputs.length === 2) {
+        const [lo, hi] = row.keys.map(k => update[k] === null ? playbackValues.defaults[k] : update[k]);
+        if (lo > hi) {
+            inputs.forEach(el => el.classList.add('bad'));
+            bad = true;
+        }
+    }
+    if (bad) return;
+    await pvSave(update);
+}
+
+function pvReset(keys) {
+    pvSave(Object.fromEntries(keys.map(k => [k, null])));
+}
+
+async function pvSave(update) {
+    try {
+        playbackValues = await api('PUT', '/settings/playback-values', update);
+    } catch (error) {
+        showToast(error.message || 'Failed to save', 'error');
+    }
+    pvRender();
 }
 
 async function loadConnectionSettings() {
@@ -10130,12 +10286,17 @@ const PAGE_HELP = {
         ${helpTerm('Download', 'saves recent log messages as a text file.')}` },
 
     'settings-advanced': { title: 'Advanced', html: `
-        <p>Features this install has off by default.</p>
+        <p>Features this install has off by default, and the values playback uses.</p>
         <h4>Features</h4>
         ${helpTerm('On', 'turns the feature on or off. A change needs a restart.')}
         ${helpTerm('Default', 'the setting out of the box.')}
         ${helpTerm('Restart to apply', 'marks a feature changed since the last restart.')}
         ${helpTerm('Network speakers', 'adds speakers by IP address, outside Home Assistant.')}
+        <h4>Playback values</h4>
+        ${helpTerm('Value', 'used by every theme, unless a track or group sets its own. Saved as you change it; playing channels follow.')}
+        ${helpTerm('Default', 'the value out of the box. The arrow puts it back.')}
+        ${helpTerm('Green', 'changed from the default.')}
+        ${helpTerm('Amber', 'far outside the usual range. Allowed, but it may not sound right.')}
         <h4>Top bar</h4>
         ${helpTerm('Badge', 'the install type.')}
         ${helpTerm('Restart now', 'restarts Sonorium to apply the changes. Shown after a change. You confirm first.')}` },

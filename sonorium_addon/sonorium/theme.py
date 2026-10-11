@@ -9,7 +9,7 @@ import av
 import numpy as np
 
 from sonorium.obs import logger
-from sonorium.recording import LOG_THRESHOLD, SAMPLE_RATE, ExclusionGroupCoordinator
+from sonorium.recording import LOG_THRESHOLD, SAMPLE_RATE, ExclusionGroupCoordinator, playback_values
 from sonorium.utils import IndexList
 
 
@@ -25,13 +25,20 @@ def sanitize(text: str) -> str:
 # Default output gain multiplier (now controlled via device.master_volume)
 DEFAULT_OUTPUT_GAIN = 6.0
 
-# Default threshold for short file detection (seconds)
+# Default threshold for short file detection (seconds): the default of Settings >
+# Advanced's Short file threshold, which a theme without its own follows
 DEFAULT_SHORT_FILE_THRESHOLD = 15.0
 
 # A track turning on or off in a playing mix (a preset change, the mute
 # button) fades in or out over this long instead of cutting. A sequence step
-# fades the tracks it turns on or off over its ramp time instead.
+# fades the tracks it turns on or off over its ramp time instead. The default
+# of Settings > Advanced's Switch fade (switch_fade_seconds()).
 TRACK_TOGGLE_FADE_SECONDS = 3.0
+
+
+def switch_fade_seconds() -> float:
+    """The Switch fade now (Settings > Advanced), seconds."""
+    return playback_values.get("switch_fade")
 
 # A transition stopped half way (Next, a preset picked by hand) glides to
 # what the channel plays now over this long
@@ -88,7 +95,7 @@ class ThemeDefinition:
 
         # Short file threshold (seconds) - files shorter than this use sparse playback
         # Can be customized per theme via metadata.json
-        self.short_file_threshold = DEFAULT_SHORT_FILE_THRESHOLD
+        self.short_file_threshold = playback_values.get("short_file_threshold")
 
         # Group settings by group name (metadata.json "groups"), read by grouped tracks
         self.groups: dict[str, dict] = {}
@@ -423,7 +430,7 @@ class ThemeStream:
             if was is not None and was != enabled:
                 seconds = self._next_fade.get(name)
                 self._toggle_step[name] = step if seconds is None else self._fade_step(seconds)
-                fade = TRACK_TOGGLE_FADE_SECONDS if seconds is None else seconds
+                fade = switch_fade_seconds() if seconds is None else seconds
                 logger.info(f'Playback: {self.label}: {name} {"on, fading in" if enabled else "off, fading out"} over {fade:g}s')
             track_step = self._toggle_step.get(name, step)
             old = self._toggle_gain.get(name, 1.0 if enabled else 0.0)
@@ -454,10 +461,9 @@ class ThemeStream:
     def iter_chunks(self):
         from sonorium.recording import RecordingThemeStream
 
-        step = RecordingThemeStream.CHUNK_SIZE / (TRACK_TOGGLE_FADE_SECONDS * SAMPLE_RATE)
         while True:
             self._follow_group_modes()
-            data_recs = self._pull(step)
+            data_recs = self._pull(self._fade_step(switch_fade_seconds()))  # the Switch fade, read live
             self.audio_seconds += RecordingThemeStream.CHUNK_SIZE / SAMPLE_RATE
             if not data_recs:
                 # logger.debug(f'Theme "{self.theme_def.name}" has no enabled recordings. Streaming silence...')
@@ -572,8 +578,8 @@ class ThemeStream:
                 if not stream.playing:
                     transition.finish_at = now  # nothing playing: done at once
             elif getattr(stream, "length", 0):
-                from sonorium.recording import CROSSFADE_SAMPLES
-                left = stream.length - getattr(stream, "overlap", CROSSFADE_SAMPLES) - stream.position
+                from sonorium.recording import loop_crossfade_samples
+                left = stream.length - (getattr(stream, "overlap", None) or loop_crossfade_samples()) - stream.position
                 if left <= 0:
                     left += stream.length
                 transition.finish_at = now + min(left / RATE, 600.0)

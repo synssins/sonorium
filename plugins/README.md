@@ -13,7 +13,7 @@ Downloadable plugins for Sonorium. These plugins are included by default in new 
 
 ### Ambient Mixer Importer
 
-**File:** `ambient_mixer_v3.1.1.zip`
+**File:** `ambient_mixer_v3.1.2.zip`
 
 Import soundscapes from [Ambient-Mixer.com](https://ambient-mixer.com) directly into Sonorium.
 
@@ -21,7 +21,7 @@ Import soundscapes from [Ambient-Mixer.com](https://ambient-mixer.com) directly 
 - Import any public Ambient Mixer soundscape by URL
 - Create new themes or add as presets to existing themes
 - Automatic duplicate detection (filename and audio hash)
-- Preserves each sound's volume, mute and loop settings; sounds the mix plays at random play Intermittent, about as often
+- Preserves each sound's volume, mute and loop settings; sounds the mix plays at random play Intermittent, about as often (within Settings → Advanced's Wait between plays)
 - Attribution tracking for Creative Commons content
 
 **Usage:**
