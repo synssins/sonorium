@@ -3073,6 +3073,11 @@ body.preview-active .sp-scroll { padding-bottom: calc(1.5rem + 56px); }
 .sp-cards { display: grid; grid-template-columns: repeat(2, minmax(0, var(--sp-card))); gap: var(--box-gap); align-items: start; }
 .sp-fstack { display: flex; flex-direction: column; gap: .875rem; }
 .sp-frow { display: flex; align-items: flex-start; gap: 1rem; min-width: 0; }
+/* Settings › Connection: the dashboard cards' status line under MQTT */
+.conn-cards { display: flex; align-items: center; gap: .625rem; min-height: 32px; }
+.conn-cards[hidden] { display: none; }
+.conn-cards .btn { flex: none; }
+.conn-cards .btn[hidden] { display: none; }
 .sp-fill { flex: 1 1 0; min-width: 0; }
 .sp-port { flex: 0 0 90px; min-width: 0; }
 .sp-fld { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
