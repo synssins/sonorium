@@ -2,6 +2,50 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.30 (2026-10-11)
+
+### Build System
+
+- Drop the ffmpeg package from both images
+  ([`25a1796`](https://github.com/synssins/sonorium/commit/25a179633ed585c6ca46af236e082ac224815b92))
+
+### Documentation
+
+- APP_API.md, the API reference for the Android app
+  ([`e749dd2`](https://github.com/synssins/sonorium/commit/e749dd2f98b7b3912ac91639bf22c681c5deb7ec))
+
+### Refactoring
+
+- LoadedTheme, version.py, and the last near-copies
+  ([`955a1d3`](https://github.com/synssins/sonorium/commit/955a1d3b08f43fd61acd7c2b407da305755d1e98))
+
+- One MP3 encoder and real-time pacer for theme and channel streams
+  ([`f3222d0`](https://github.com/synssins/sonorium/commit/f3222d090465e152eb27f8d3796ab8e11cf25a16))
+
+- Reword the last lines that read like Amniotic's
+  ([`67cdc43`](https://github.com/synssins/sonorium/commit/67cdc430b671bb3443f8fd05c1a9b0217eb87465))
+
+- **device**: The theme library as Library, written fresh
+  ([`b80fa86`](https://github.com/synssins/sonorium/commit/b80fa86047b91c9152d353c0e74d26dc665b82a2))
+
+- **recording**: One decoder, one block-source base, own names for file and track
+  ([`c80569b`](https://github.com/synssins/sonorium/commit/c80569be7a2e8896d676dae043e72aa1a9843e96))
+
+- **start-up**: Settings, broker lookup and start-up written fresh
+  ([`d533879`](https://github.com/synssins/sonorium/commit/d533879ec0f1a4e68cef7325bf255e795605a9f2))
+
+- **theme**: Theme and ThemeMix, written fresh
+  ([`c8fc0c8`](https://github.com/synssins/sonorium/commit/c8fc0c87917e26e4731de4bdca0199871e9a9a91))
+
+- **web**: Web_server.py and WebApp replace api_base and ApiSonorium
+  ([`2ddb3c6`](https://github.com/synssins/sonorium/commit/2ddb3c642d3e36e962d12cd211ac9f4fb3e4c382))
+
+### Testing
+
+- Lock stream format, pacing, a known mix and route docs before the rewrite
+  ([`6917ea5`](https://github.com/synssins/sonorium/commit/6917ea53b0be843777a37074ad660fe3646e4b63))
+
+
 ## v1.6.2-dev.24 (2026-10-11)
 
 ### Bug Fixes
