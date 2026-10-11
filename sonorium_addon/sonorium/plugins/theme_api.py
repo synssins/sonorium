@@ -266,6 +266,7 @@ class ThemeEdit:
         self._presets_before = set(metadata.presets)
         self._new_presets: dict[str, bool] = {}  # preset id -> mute the tracks it doesn't name
         self._done = False
+        self._opened_json: dict[str, Optional[bytes]] = {}  # metadata.json/presets.json as open() read them
 
     @classmethod
     def new(cls, audio_path: Path, name: str, description: str = "", icon: str = "",
@@ -292,7 +293,11 @@ class ThemeEdit:
         if metadata.problems:
             raise ThemeEditError(f"Theme '{metadata.name}' has problems ({'; '.join(metadata.problems)}); "
                                  "open it in Sonorium and check it first")
-        return cls(audio_path, folder, metadata, False)
+        edit = cls(audio_path, folder, metadata, False)
+        # The files as loaded (after any load-time conversion); commit refuses if they change
+        edit._opened_json = {name: (folder / name).read_bytes() if (folder / name).exists() else None
+                             for name in (METADATA_FILE, PRESETS_FILE)}
+        return edit
 
     # --- reading ----------------------------------------------------------------
 
@@ -563,6 +568,9 @@ class ThemeEdit:
         for name in (METADATA_FILE, PRESETS_FILE):
             path = folder / name
             saved_json[name] = path.read_bytes() if path.exists() else None
+        # Saved by anyone else since open(): writing now would lose that change
+        if saved_json != self._opened_json:
+            raise ThemeEditError("The theme was changed meanwhile. Try again.")
         created_dirs: list[Path] = []
         partial: list[tuple[Path, Path]] = []
         placed: list[Path] = []

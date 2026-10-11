@@ -28,6 +28,8 @@ import asyncio
 import hashlib
 import json
 import re
+import shutil
+import tempfile
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
@@ -309,7 +311,7 @@ class AmbientMixerPlugin(BasePlugin):
         Import a soundscape from Ambient-Mixer using the XML API.
         Supports both new themes and adding to existing themes as presets.
         """
-        from sonorium.plugins.theme_api import ThemeEdit, ThemeEditError
+        from sonorium.plugins.theme_api import ThemeEdit, ThemeEditError, find_theme
 
         url = str(data.get("url") or "").strip()
         existing_theme_id = str(data.get("existing_theme") or "").strip()
@@ -328,16 +330,19 @@ class AmbientMixerPlugin(BasePlugin):
                 "message": "URL must be from ambient-mixer.com",
             }
 
-        # An existing theme is picked by id from the list; checked before downloading
-        edit = None
+        # An existing theme is picked by id from the list; checked before downloading.
+        # It is only read now (to skip files it has); it is opened and written
+        # after the downloads, with no await in between, so nothing saved to it
+        # meanwhile is lost.
+        theme_path = None
         if existing_theme_id:
-            try:
-                edit = ThemeEdit.open(self.audio_path, existing_theme_id)
-            except ThemeEditError as e:
-                return {"success": False, "message": str(e)}
+            theme_path = find_theme(self.audio_path, existing_theme_id)
+            if theme_path is None:
+                return {"success": False, "message": f"Theme not found: {existing_theme_id}"}
 
         # Track warnings for partial failures
         warnings = []
+        download_dir = Path(tempfile.mkdtemp(prefix="sonorium-ambient-mixer-"))
 
         try:
             # Import httpx
@@ -385,25 +390,28 @@ class AmbientMixerPlugin(BasePlugin):
 
                 logger.info(f"Parsed mix: {mix.name} with {len(mix.channels)} channels")
 
-                # Step 4: New theme, or the existing one
-                is_new_theme = edit is None
-                if is_new_theme:
-                    theme_name = custom_theme_name or mix.name or f"ambient_mix_{template_id}"
-                    edit = ThemeEdit.new(
-                        self.audio_path, theme_name,
-                        description=f"Imported from {url}",
-                        icon="mdi:music",
-                        attribution=self._attribution(url, template_id),
-                    )
-                    logger.info(f"Creating new theme: {theme_name}")
-                else:
-                    theme_name = edit.name
-                    logger.info(f"Adding to existing theme: {theme_name}")
+                # Step 4: Download audio files (to a temporary folder outside the themes)
+                downloads, failed = await self._download_channels(client, mix, theme_path, download_dir, warnings)
 
-                # Step 5: Download audio files with duplicate detection
-                downloaded_new, downloaded_existing, failed = await self._download_channels(
-                    client, mix, edit, warnings)
+            # From here on no await: the theme is read, changed and written in one go
+            # Step 5: New theme, or the existing one
+            is_new_theme = theme_path is None
+            if is_new_theme:
+                theme_name = custom_theme_name or mix.name or f"ambient_mix_{template_id}"
+                edit = ThemeEdit.new(
+                    self.audio_path, theme_name,
+                    description=f"Imported from {url}",
+                    icon="mdi:music",
+                    attribution=self._attribution(url, template_id),
+                )
+                logger.info(f"Creating new theme: {theme_name}")
+            else:
+                edit = ThemeEdit.open(self.audio_path, existing_theme_id)
+                theme_name = edit.name
+                logger.info(f"Adding to existing theme: {theme_name}")
 
+            # Step 6: The downloaded files join the theme (or reuse its own)
+            downloaded_new, downloaded_existing = self._add_downloads(edit, downloads, warnings)
             total_tracks = downloaded_new + downloaded_existing
             if total_tracks == 0:
                 return {
@@ -412,7 +420,7 @@ class AmbientMixerPlugin(BasePlugin):
                     "warnings": warnings,
                 }
 
-            # Step 6: Preset with each channel's settings; the theme's other tracks muted in it
+            # Step 7: Preset with each channel's settings; the theme's other tracks muted in it
             preset_name = edit.free_preset_name(
                 custom_preset_name or mix.name or f"Preset {len(edit.metadata.presets) + 1}")
             preset_tracks = {}
@@ -421,12 +429,12 @@ class AmbientMixerPlugin(BasePlugin):
                     preset_tracks.setdefault(Path(channel.local_filename).stem, channel_track_settings(channel))
             preset_id = edit.add_preset(preset_name, preset_tracks)
 
-            # Step 7: MANIFEST.json and ATTRIBUTION.md (never replacing the theme's own)
+            # Step 8: MANIFEST.json and ATTRIBUTION.md (never replacing the theme's own)
             edit.add_extra_file("MANIFEST.json", json.dumps(mix.to_manifest(), indent=2))
             if is_new_theme:
                 edit.add_extra_file("ATTRIBUTION.md", self._attribution_text(mix))
 
-            # Step 8: Write the theme
+            # Step 9: Write the theme
             result = edit.commit()
             logger.info(f"Saved theme '{result['name']}' with preset '{preset_name}'")
 
@@ -471,18 +479,22 @@ class AmbientMixerPlugin(BasePlugin):
                 "message": f"Import failed: {e}",
                 "warnings": warnings if warnings else None,
             }
+        finally:
+            shutil.rmtree(download_dir, ignore_errors=True)
 
-    async def _download_channels(self, client, mix: AmbientMix, edit, warnings: list) -> tuple[int, int, int]:
+    async def _download_channels(self, client, mix: AmbientMix, theme_path: Optional[Path],
+                                 download_dir: Path, warnings: list) -> tuple[list, int]:
         """
-        Download each channel into the theme edit, reusing a file the theme
-        already has (or one downloaded for another channel of this mix).
-        Sets each channel's local_filename. Returns (new, existing, failed).
+        Download each channel into download_dir, skipping a sound the existing
+        theme (theme_path, None for a new theme) already has or one already
+        downloaded for another channel of this mix. Nothing in the themes
+        folder is written. Returns ([(channel, kind, value)], failed) where
+        kind is "existing" (value: the theme's file name), "same" (value: the
+        channel with the same sound) or "new" (value: the downloaded file).
         """
-        use_hash_check = self.get_setting("hash_check_duplicates", True)
-        theme_path = edit.folder  # None for a new theme
-        by_audio_id: dict[str, str] = {}
-        by_hash: dict[str, str] = {}
-        downloaded_new = downloaded_existing = failed = 0
+        downloads = []
+        by_audio_id: dict[str, AudioChannel] = {}
+        failed = 0
 
         for channel in mix.channels:
             if not channel.url:
@@ -490,17 +502,14 @@ class AmbientMixerPlugin(BasePlugin):
 
             # Same sound twice in this mix
             if channel.audio_id and channel.audio_id in by_audio_id:
-                channel.local_filename = by_audio_id[channel.audio_id]
-                downloaded_existing += 1
+                downloads.append((channel, "same", by_audio_id[channel.audio_id]))
                 continue
 
             existing = self._find_duplicate(channel, theme_path)
             if existing:
                 logger.info(f"  Using existing: {existing} (audio_id={channel.audio_id})")
-                warnings.append(f"Used existing file: {existing}")
-                channel.local_filename = existing
-                by_audio_id[channel.audio_id] = existing
-                downloaded_existing += 1
+                downloads.append((channel, "existing", existing))
+                by_audio_id[channel.audio_id] = channel
                 continue
 
             final_name = self._expected_name(channel, self._sanitize_filename(channel.name))
@@ -508,7 +517,9 @@ class AmbientMixerPlugin(BasePlugin):
                 logger.info(f"  Downloading: {channel.name} -> {final_name}")
                 response = await client.get(channel.url, timeout=60.0)
                 response.raise_for_status()
-                content = response.content
+                target = download_dir / f"{channel.channel_num}" / final_name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(response.content)
             except Exception as e:
                 error_msg = f"Failed to download {channel.name}: {e}"
                 logger.warning(f"  {error_msg}")
@@ -516,25 +527,52 @@ class AmbientMixerPlugin(BasePlugin):
                 failed += 1
                 continue
 
+            downloads.append((channel, "new", target))
+            by_audio_id[channel.audio_id] = channel
+
+            # Small delay between downloads
+            await asyncio.sleep(0.3)
+
+        return downloads, failed
+
+    def _add_downloads(self, edit, downloads: list, warnings: list) -> tuple[int, int]:
+        """
+        Add the downloaded files to the theme edit (no await: the theme was
+        just opened), reusing a file the theme has with the same content.
+        Sets each channel's local_filename. Returns (new, existing).
+        """
+        use_hash_check = self.get_setting("hash_check_duplicates", True)
+        by_hash: dict[str, str] = {}
+        downloaded_new = downloaded_existing = 0
+
+        for channel, kind, value in downloads:
+            if kind == "same":
+                channel.local_filename = value.local_filename
+                if channel.local_filename:
+                    downloaded_existing += 1
+                continue
+            if kind == "existing":
+                warnings.append(f"Used existing file: {value}")
+                channel.local_filename = value
+                downloaded_existing += 1
+                continue
+
+            content = value.read_bytes()
             file_hash = hashlib.md5(content).hexdigest()
-            same = by_hash.get(file_hash) or (self._find_by_hash(content, theme_path) if use_hash_check else None)
+            same = by_hash.get(file_hash) or (self._find_by_hash(content, edit.folder) if use_hash_check else None)
             if same:
                 logger.info(f"  Hash match: using {same}")
                 warnings.append(f"Used existing file: {same}")
                 channel.local_filename = same
                 downloaded_existing += 1
             else:
-                key = edit.add_file(content, final_name, settings=channel_track_settings(channel))
-                channel.local_filename = key + Path(final_name).suffix
+                key = edit.add_file(value, value.name, settings=channel_track_settings(channel))
+                channel.local_filename = key + value.suffix
                 channel.file_hash = file_hash
                 by_hash[file_hash] = channel.local_filename
                 downloaded_new += 1
-            by_audio_id[channel.audio_id] = channel.local_filename
 
-            # Small delay between downloads
-            await asyncio.sleep(0.3)
-
-        return downloaded_new, downloaded_existing, failed
+        return downloaded_new, downloaded_existing
 
     def _attribution(self, url: str, template_id: str) -> dict:
         """metadata.json "attribution" for an imported theme."""

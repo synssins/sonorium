@@ -245,3 +245,17 @@ def test_resolve_auto(m):
     assert api.resolve_auto("A", TS(), None, 15.0).playback_mode == "continuous"
     assert api.resolve_auto("A", TS(presence=0.3), None, 15.0).playback_mode == "sparse"
     assert api.resolve_auto("A", TS(playback_mode="presence", presence=0.3), None, 15.0).presence == 0.3
+
+
+def test_commit_refuses_when_the_theme_changed_after_open(m, tmp_path):
+    api = m.theme_api
+    folder = make_existing(tmp_path, m)
+    edit = api.ThemeEdit.open(tmp_path, "forest-id")
+    edit.add_file(b"x", "New.mp3")
+    metadata = m.theme_metadata.load_theme_folder(folder)
+    metadata.description = "saved by someone else"
+    assert m.theme_metadata.save_theme_folder(folder, metadata)
+    before = {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()}
+    with pytest.raises(api.ThemeEditError, match="changed meanwhile"):
+        edit.commit()
+    assert {p.relative_to(folder): p.read_bytes() for p in folder.rglob("*") if p.is_file()} == before

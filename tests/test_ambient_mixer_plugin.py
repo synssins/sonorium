@@ -196,3 +196,27 @@ def test_ui_lists_themes_by_id(m, importer):
     first = importer.run()
     options = importer.plugin.get_ui_schema()["fields"][1]["options"]
     assert options[1] == {"value": first["data"]["theme_id"], "label": "Rainy Night"}
+
+
+def test_edit_made_during_the_download_is_kept(m, importer, monkeypatch):
+    first = importer.run()
+    theme_id, folder = first["data"]["theme_id"], Path(first["data"]["theme_path"])
+    seen = []
+
+    class EditingClient(FakeClient):
+        async def get(self, url, **k):
+            if "xml.ambient-mixer.com" in url and not seen:
+                # The user saves the theme while the import is downloading
+                metadata = m.theme_metadata.load_theme_folder(folder)
+                metadata.description = "edited meanwhile"
+                assert m.theme_metadata.save_theme_folder(folder, metadata)
+                seen.append([p.name for p in folder.iterdir()])
+            return await super().get(url, **k)
+
+    monkeypatch.setitem(sys.modules, "httpx", types.SimpleNamespace(AsyncClient=EditingClient))
+    result = importer.run(existing_theme=theme_id, preset_name="Second")
+    assert result["success"], result
+    assert seen and not any(n.startswith(".sonorium") for n in seen[0])  # nothing written there yet
+    metadata = m.theme_metadata.load_theme_folder(folder)
+    assert metadata.description == "edited meanwhile"
+    assert {p["name"] for p in metadata.presets.values()} == {"Rainy Night", "Second"}
