@@ -8,7 +8,7 @@ from __future__ import annotations
 import base64
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qsl, quote, urlencode
 
 import segno
 
@@ -18,16 +18,41 @@ BORDER = 3
 DARK = "#0b0f1a"
 
 
+LINK_URL = "https://sonorium.app/link"
+LEGACY_PREFIX = "sonorium://pair?"
+
+
 def pair_uri(*, server_id: str, name: str, hosts: list[str], http_port: int, https_port: int,
              fingerprint: str, code: str, username: str | None = None) -> str:
-    """sonorium://pair?v=1&id=..&n=..&h=host[,host2]&p=..&s=..&fp=..&c=..[&u=..] (u: the signed-in user, if any)."""
+    """
+    https://sonorium.app/link#v=1&id=..&n=..&h=host[,host2]&p=..&s=..&fp=..&c=..[&u=..]
+    (u: the signed-in user, if any). Everything is after the #, so none of it
+    reaches the website: a phone without the app lands on a page that says how
+    to get it, and the app opens the link itself.
+    """
     params = [("v", "1"), ("id", server_id), ("n", name), ("h", ",".join(hosts)), ("p", str(http_port))]
     if https_port:
         params.append(("s", str(https_port)))
     params += [("fp", fingerprint), ("c", code)]
     if username:
         params.append(("u", username))
-    return "sonorium://pair?" + urlencode(params, quote_via=quote, safe=",")
+    return f"{LINK_URL}#" + urlencode(params, quote_via=quote, safe=",")
+
+
+def parse_link(uri: str) -> dict[str, str]:
+    """
+    The parameters of a Link App link: the web address above, or the older
+    sonorium://pair?v=1&... (same parameters after the ?), which the app still
+    accepts. {} when it's neither.
+    """
+    uri = (uri or "").strip()
+    if uri.startswith(LINK_URL + "#") or uri.startswith(LINK_URL + "/#"):
+        query = uri.split("#", 1)[1]
+    elif uri.startswith(LEGACY_PREFIX):
+        query = uri[len(LEGACY_PREFIX):]
+    else:
+        return {}
+    return dict(parse_qsl(query, keep_blank_values=True))
 
 
 @lru_cache(maxsize=1)

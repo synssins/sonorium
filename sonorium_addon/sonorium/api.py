@@ -120,6 +120,7 @@ class ApiSonorium(Base):
         self.auth.app = self.app  # sign-in plugins add their routes to it
         self._https_host_port = None  # the HTTPS port as the LAN sees it (add-on: its port mapping)
         self._announcer = None
+        self._announce_task = None
         self.app.add_middleware(AuthMiddleware, service=self.auth)
         self.app.include_router(create_core_auth_router(
             self.auth,
@@ -127,6 +128,7 @@ class ApiSonorium(Base):
             features=lambda: runtime.features(self._state_store.settings.feature_overrides if self._state_store else None),
             version=__version__,
             https_host_port=self._https_port_outside,
+            mdns_host=lambda: self._announcer.hostname if self._announcer is not None else None,
         ))
 
         # Mount static files (CSS, JS) for the web UI
@@ -718,11 +720,15 @@ class ApiSonorium(Base):
                 from sonorium.auth.announce import Announcer
                 from sonorium.auth.routes import API_VERSION
                 self._announcer = Announcer()
-                await asyncio.to_thread(
+                # in the background: checking that sonorium.local is free takes a moment
+                self._announce_task = asyncio.create_task(asyncio.to_thread(
                     self._announcer.start, server_id=identity.server_id, version=__version__, api=API_VERSION,
                     base_url=self._stream_base_url(),
                     https_port=self._https_port_outside() if identity.tls_ready else 0,
-                    login_required=bool(self.auth.expected_providers))
+                    login_required=bool(self.auth.expected_providers)))
+            else:
+                logger.info("mDNS: the Home Assistant add-on isn't on the host network, so sonorium.local isn't "
+                            "announced; the app links with the QR code, which carries the address")
         except Exception as e:
             logger.error(f"Sign-in setup failed: {e}")
 
@@ -731,6 +737,8 @@ class ApiSonorium(Base):
         try:
             self.auth.flush()
             if self._announcer is not None:
+                if self._announce_task is not None:
+                    await asyncio.wait({self._announce_task}, timeout=20)
                 await asyncio.to_thread(self._announcer.stop)
         except Exception:
             pass

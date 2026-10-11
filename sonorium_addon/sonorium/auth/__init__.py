@@ -9,5 +9,5 @@ Sign-in, users, linked devices and keys (docs/AUTH.md).
     middleware.py   who is calling, and whether they may
     routes.py       sign-in, Users & devices, Keys, Link App, pairing
     qr.py           the Link App QR code
-    announce.py     mDNS (_sonorium._tcp)
+    announce.py     mDNS (sonorium.local, _sonorium._tcp) and the LAN addresses for the QR code
 """

@@ -29,7 +29,7 @@ CHANNEL = "ch1"
 @pytest.fixture(autouse=True, scope="module")
 def modules():
     with addon_modules("sonorium.auth.service", "sonorium.auth.middleware", "sonorium.auth.routes",
-                       "sonorium.auth.permissions", "sonorium.auth.config", "sonorium.auth.qr",
+                       "sonorium.auth.permissions", "sonorium.auth.config", "sonorium.auth.qr", "sonorium.auth.announce",
                        "sonorium.auth.tokens", "sonorium.plugins.loader", "sonorium.runtime") as mods:
         m.__dict__.update(mods.__dict__)
         yield
@@ -58,6 +58,9 @@ class World:
         for name in ("BYPASS_LOGIN", "SONORIUM__BYPASS_LOGIN", "SONORIUM__WEB_UI_ONLY_THROUGH_HA"):
             monkeypatch.delenv(name, raising=False)
         monkeypatch.setattr(m.runtime, "STANDALONE", True)
+        self.interfaces = [("lo", "127.0.0.1"), ("eth0", "192.168.1.5"), ("docker0", "172.17.0.1")]
+        monkeypatch.setattr(m.announce, "interface_addresses", lambda: self.interfaces)
+        self.mdns = None
         if existing:
             (tmp_path / "state.json").write_text("{}")
         self.clock = Clock()
@@ -67,7 +70,7 @@ class World:
         app.add_middleware(m.middleware.AuthMiddleware, service=s)
         app.include_router(m.routes.create_core_auth_router(
             s, stream_url=lambda: "http://192.168.1.5:8008", features=lambda: {}, version="test",
-            https_host_port=lambda: 8808))
+            https_host_port=lambda: 8808, mdns_host=lambda: self.mdns))
         seen = self.seen = []
 
         def record(name):
@@ -283,12 +286,24 @@ def test_link_app_qr_and_single_use_code(w):
     c, csrf = w.setup_admin()
     link, r = link_and_pair(w, c, csrf)
     uri = link["uri"]
-    assert uri.startswith("sonorium://pair?v=1&id=") and "&h=192.168.1.5&p=8008&s=8808&fp=" in uri
+    assert uri.startswith("https://sonorium.app/link#v=1&id=") and "&h=192.168.1.5&p=8008&s=8808&fp=" in uri
     assert f"&c={link['code']}&u=chris" in uri and link["expires_in"] == 300 and len(link["words"]) == 4
     assert "<svg" in link["qr_svg"] and "data:image/png;base64," in link["qr_svg"]
     assert r.status_code == 200 and r.json()["token"].startswith("sd_") and r.json()["user"]["username"] == "chris"
     again = w.client(base_url="https://testserver").post("/api/pair", json={"code": link["code"]})
     assert again.status_code == 401
+
+
+def test_link_lists_every_lan_address_and_the_mdns_name(w):
+    w.interfaces = [("eth1", "10.0.0.7"), ("eth0", "192.168.1.5"), ("veth12ab", "172.18.0.1"),
+                    ("br-0a1b2c", "172.19.0.1"), ("wlan0", "169.254.3.3")]
+    w.mdns = "sonorium-2.local"
+    c, csrf = w.setup_admin()
+    link = c.post("/api/link", headers=H(None, csrf)).json()
+    assert link["hosts"] == ["192.168.1.5", "10.0.0.7", "sonorium-2.local"]
+    params = m.qr.parse_link(link["uri"])
+    assert params["h"] == "192.168.1.5,10.0.0.7,sonorium-2.local" and params["c"] == link["code"]
+    assert w.client().get("/api/info").json()["hostname"] == "sonorium-2.local"
 
 
 def test_pair_code_expires_and_needs_https(w):

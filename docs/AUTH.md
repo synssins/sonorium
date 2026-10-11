@@ -109,11 +109,25 @@ or a key, even while sign-in is off.
 **Link App** (top right of Channels, on a desktop-width screen) shows a QR code:
 
 ```
-sonorium://pair?v=1&id=<server id>&n=Sonorium&h=<host>[,<host2>]&p=<http port>&s=<https port>&fp=<certificate sha256>&c=<code>[&u=<username>]
+https://sonorium.app/link#v=1&id=<server id>&n=Sonorium&h=<host>[,<host2>,...]&p=<http port>&s=<https port>&fp=<certificate sha256>&c=<code>[&u=<username>]
 ```
 
-- `h` and `p` are the address speakers use (Settings › Connection's stream
-  URL, or the detected one), never an ingress address.
+It's an ordinary web address, so any camera app can read it: with the
+Sonorium app installed, the app opens it; without it, the page at
+sonorium.app/link says how to get the app. Everything after the `#` stays on
+the phone: browsers never send that part to the website.
+
+The app also accepts the older form, with the same parameters:
+
+```
+sonorium://pair?v=1&id=<server id>&n=Sonorium&h=<host>[,<host2>,...]&p=<http port>&s=<https port>&fp=<certificate sha256>&c=<code>[&u=<username>]
+```
+
+- `h` lists the addresses to try, in order: first the one speakers use
+  (Settings › Connection's stream URL, or the detected one), never an ingress
+  address; then the server's other LAN IPv4 addresses (not loopback or
+  Docker's internal networks); last its mDNS name (`sonorium.local`) when it
+  is announced. `p` is the HTTP port speakers use.
 - `fp` lets the app check it is talking to this server before it sends
   anything (it pins the certificate).
 - `c` works once, for 5 minutes; **New code** makes another and the old one
@@ -165,11 +179,26 @@ linked phones and keys. The web UI is then only in HA's sidebar.
 
 ## Discovery
 
-Docker and the native installs announce `_sonorium._tcp` on mDNS with TXT
-`id`, `name`, `api`, `http`, `https`, `pair`, `version` and `url`. It's a
-hint only: anyone on the network could announce a server, so the app trusts
-a server only after linking. The add-on isn't on the host network, so its
-announcement wouldn't reach your phone; link it with the QR code.
+Docker (host networking) and the native installs announce on mDNS:
+
+- **`sonorium.local`**, the server's LAN addresses, so a browser or the app
+  can open `http://sonorium.local:8008` and `https://sonorium.local:8808`. If
+  another device already answers for that name, Sonorium takes
+  `sonorium-2.local`, then `sonorium-3.local` and so on (up to
+  `sonorium-9.local`), and the log says which name it got.
+- **`_sonorium._tcp`**, with TXT `id`, `name`, `api`, `http`, `https`,
+  `pair`, `version`, `url` and `host` (the name above).
+
+It's a hint only: anyone on the network could announce a server, so the app
+trusts a server only after linking. The add-on isn't on the host network, so
+its announcement wouldn't reach your phone: it doesn't announce (the log says
+so once at start); link it with the QR code.
+
+The HTTPS certificate names `sonorium.local` to `sonorium-9.local`,
+`localhost` and the LAN addresses the server had when the certificate was
+made. A certificate is never made again once it exists (that would break
+every linked phone's pin), so one made by an older version keeps working
+without the extra names: the app checks the fingerprint, not the names.
 
 ## Files
 
@@ -190,7 +219,7 @@ Core:
 
 | Route | Who |
 |---|---|
-| `GET /api/info` | anyone: server id, name, version, `api`, install type, features, ports, `login_required`, fingerprint |
+| `GET /api/info` | anyone: server id, name, version, `api`, install type, features, ports, `host` (the speakers' address), `hostname` (the mDNS name, or null), `login_required`, fingerprint |
 | `GET /api/auth/me` | anyone: who you are, your permissions, CSRF token, bypass |
 | `POST /api/link` | signed in (or open access): a Link App code and QR |
 | `POST /api/pair` | anyone, HTTPS: code → phone token |

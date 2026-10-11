@@ -3,6 +3,12 @@ The server's identity: a random server ID and a self-signed HTTPS certificate
 (ECDSA P-256, valid 20 years), made on first start and kept in Sonorium's
 config folder (tls/key.pem readable only by Sonorium).
 
+Its names: sonorium.local (and sonorium-2.local ... in case that name is
+taken), localhost and the LAN addresses it was made with. Browsers warn about
+a self-signed certificate anyway; the names only matter there. A certificate
+is never made again once it exists (that would break the app's pin), so one
+made before a name or address was added keeps working without it.
+
 The certificate's SHA-256 fingerprint is what the app pins: the Link App QR
 code carries it, so the app knows it talks to this server before it sends
 anything. Without the QR (sign-in with a username and password), the app and
@@ -19,12 +25,20 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+from sonorium.auth.announce import hostnames, lan_addresses
 from sonorium.auth.wordlist import security_words
 from sonorium.obs import logger
 
 SERVER_FILE = "server.json"
 TLS_DIR = "tls"
 CERT_YEARS = 20
+
+
+def _lan_ips() -> list[str]:
+    try:
+        return lan_addresses()
+    except Exception:
+        return []
 
 
 class ServerIdentity:
@@ -77,8 +91,8 @@ class ServerIdentity:
         key = ec.generate_private_key(ec.SECP256R1())
         name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"Sonorium {self.server_id[:8]}")])
         now = datetime.now(timezone.utc)
-        alt = [x509.DNSName("sonorium.local"), x509.DNSName("localhost"),
-               x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
+        alt = [x509.DNSName(name) for name in hostnames()] + [x509.DNSName("localhost")]
+        alt += [x509.IPAddress(ipaddress.ip_address(ip)) for ip in ["127.0.0.1"] + _lan_ips()]
         cert = (x509.CertificateBuilder()
                 .subject_name(name).issuer_name(name)
                 .public_key(key.public_key())
