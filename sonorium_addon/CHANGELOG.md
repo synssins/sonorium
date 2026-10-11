@@ -2,6 +2,40 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.18 (2026-10-11)
+
+### Build System
+
+- **auth**: Add-on ingress port 8099, HTTPS port 8808, sign-in options and packages
+  ([`2d64e32`](https://github.com/synssins/sonorium/commit/2d64e329214d0e84a231c83ffb7fed1bf865431f))
+
+### Documentation
+
+- **auth**: Sign-in, linked phones and keys; plugin sign-in hooks and web UI slots
+  ([`e02465b`](https://github.com/synssins/sonorium/commit/e02465b2c49ce37ff7865641fef9d1206fc58baa))
+
+### Features
+
+- **plugins**: Built-in Users and Integration plugins
+  ([`5f67896`](https://github.com/synssins/sonorium/commit/5f678967c6c1326b20b8b8e357c84654149f93b2))
+
+- **ui**: Web UI slots for built-in plugins, Link App, sign-in screens
+  ([`5151f5b`](https://github.com/synssins/sonorium/commit/5151f5b690ddb4e3a7cca9cdd254cb3ea99d9b37))
+
+### Refactoring
+
+- **auth**: Core with authenticator hooks; accounts and keys leave the core
+  ([`ce24ef3`](https://github.com/synssins/sonorium/commit/ce24ef3aca6a2f6f6a4d20730c878d7fbe213d25))
+
+- **auth**: One token service, secrets file and rate limiter in core
+  ([`9e87bca`](https://github.com/synssins/sonorium/commit/9e87bca2db17e645f68a4cf394e412072f25658a))
+
+### Testing
+
+- **auth**: Sign-in, roles, pairing, recovery codes, keys, bypass, ingress, route coverage
+  ([`a6b9520`](https://github.com/synssins/sonorium/commit/a6b9520aa7283a7848c53b945acc31f900351788))
+
+
 ## v1.6.2-dev.17 (2026-10-11)
 
 ### Features
