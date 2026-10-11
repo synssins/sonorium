@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.17 (2026-10-11)
+
+### Features
+
+- **auth**: Accounts, sessions, devices, keys and route permissions (backend, WIP)
+  ([`6fa2437`](https://github.com/synssins/sonorium/commit/6fa24379ed39b3dbfc80ae31ad92f262249a8911))
+
+- **auth**: Wire sign-in into the app (middleware, router, HTTPS and ingress listeners)
+  ([`49a2ee5`](https://github.com/synssins/sonorium/commit/49a2ee5961222fbdc2c3789f9238dbb63883dc9d))
+
+
 ## v1.6.2-dev.16 (2026-10-11)
 
 
