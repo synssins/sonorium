@@ -476,7 +476,7 @@ def create_router(service) -> APIRouter:
 class UsersPlugin(BasePlugin):
     id = PLUGIN_ID
     name = "Users"
-    version = "1.0.2"
+    version = "1.0.3"
     description = "Accounts, sign-in and roles for Sonorium"
     author = "Sonorium"
     builtin = True
