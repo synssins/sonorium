@@ -4,6 +4,22 @@
 
 ## v1.6.1 (2026-10-11)
 
+> ## ⭐ 1.6.1: Refinements
+>
+> Refinements across Sonorium, with the Theme Editor and Channels page restructured.
+
+### Highlights
+
+- **Sequences:** a theme's presets played one after another, gliding from one to the next, with per-step While playing changes and advanced transitions.
+- **Playlists:** themes played one after another on a channel, in order or shuffled. Theme cycling became playlists.
+- **Ebb & Flow:** tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time, controlled by Duration and Rise. Pause between plays; Ebb & Flow groups.
+- **Theme Editor:** tracks listed in sections by playback mode (Unassigned, Background, Intermittent, Ebb & Flow). Auto and Intrusion groups retired; themes converted once, with backups.
+- **Channels:** theme or playlist per channel, speaker mute, and listening in the browser with its own volume.
+- **Playback:** file Fade in / Fade out, Gap saved in presets, smooth volume changes, preset glides, channels fade in and out.
+- **Fixes:** saving a preset updates the channels playing it; a file added to a playing theme plays as soon as it has a Mode; Crossfade and Master output gain work in the Home Assistant app.
+
+The full list is in the README under What's new.
+
 
 ## v1.6.1-dev.42 (2026-10-11)
 
