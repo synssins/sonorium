@@ -43,6 +43,7 @@ class PluginManager:
         state_store: StateStore,
         plugins_dir: Path = DEFAULT_PLUGINS_DIR,
         audio_path: Optional[Path] = None,
+        host=None,
     ):
         """
         Initialize the plugin manager.
@@ -51,7 +52,12 @@ class PluginManager:
             state_store: State store for persisting settings
             plugins_dir: Directory containing plugins
             audio_path: Path to audio/themes directory (from addon config)
+            host: Optional PluginHost (plugins/host.py): the services plugins
+                use (events, actions, scheduler, triggers, notifications)
         """
+        self.host = host
+        if host is not None:
+            host.manager = self
         self.state_store = state_store
         self.plugins_dir = plugins_dir
         self.audio_path = audio_path or Path("/media/sonorium")
@@ -113,6 +119,9 @@ class PluginManager:
             if plugin is None:
                 return None
 
+            plugin._manifest = manifest
+            plugin._host = self.host
+
             # Set builtin flag from manifest if present
             if manifest.get("builtin", False):
                 plugin._builtin = True
@@ -169,6 +178,21 @@ class PluginManager:
             await plugin.on_unload()
         except Exception as e:
             logger.error(f"Error unloading plugin {plugin_id}: {e}")
+        if self.host is not None and plugin.enabled:
+            self._host_call("plugin_disabled", plugin)
+
+    def _host_call(self, name: str, *args) -> None:
+        """Tell the plugin host (a failure there never fails the plugin manager)."""
+        if self.host is None:
+            return
+        try:
+            getattr(self.host, name)(*args)
+        except Exception as e:
+            logger.error(f"Plugin host {name} failed: {e}")
+
+    def plugin_removed(self, plugin_id: str) -> None:
+        """A plugin was uninstalled: the host forgets its jobs, tokens and connection values."""
+        self._host_call("plugin_removed", plugin_id)
 
     def list_plugins(self) -> list[dict]:
         """
@@ -204,6 +228,7 @@ class PluginManager:
         try:
             await plugin.on_enable()
             plugin.enabled = True
+            self._host_call("plugin_enabled", plugin)
 
             # Persist enabled state
             enabled_list = self.state_store.settings.enabled_plugins
@@ -216,6 +241,8 @@ class PluginManager:
 
         except Exception as e:
             logger.error(f"Failed to enable plugin {plugin_id}: {e}")
+            if self.host is not None:  # what it subscribed to before failing
+                self.host.bus.unsubscribe_owner(plugin_id)
             return False
 
     async def disable_plugin(self, plugin_id: str) -> bool:
@@ -239,6 +266,7 @@ class PluginManager:
         try:
             await plugin.on_disable()
             plugin.enabled = False
+            self._host_call("plugin_disabled", plugin)
 
             # Persist enabled state
             enabled_list = self.state_store.settings.enabled_plugins

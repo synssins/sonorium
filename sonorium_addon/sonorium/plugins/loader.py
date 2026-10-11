@@ -19,6 +19,14 @@ from sonorium.plugins.base import BasePlugin
 from sonorium.obs import logger
 
 
+# A plugin id: letters, digits, "_" and "-" (never a path). Used by every API route.
+PLUGIN_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def is_valid_plugin_id(plugin_id) -> bool:
+    return isinstance(plugin_id, str) and PLUGIN_ID_PATTERN.fullmatch(plugin_id) is not None
+
+
 # Plugin storage location (survives addon updates)
 DEFAULT_PLUGINS_DIR = Path("/config/sonorium/plugins")
 
