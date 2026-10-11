@@ -83,6 +83,7 @@ class SessionResponse(BaseModel):
     playlist_id: Optional[str] = None  # The playlist it plays
     sequence: Optional[dict] = None  # Sequence status: name, step, current preset, next change
     playlist: Optional[dict] = None  # Playlist status: name, entry, theme, next change
+    speakers_muted: bool = False  # the speakers' stream is silenced
     listening: bool = False  # a browser listens (its mix runs even with the speakers stopped)
     recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
     created_at: str
@@ -276,6 +277,7 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         playlist_id=getattr(session, 'playlist_id', None),
         sequence=playback.get("sequence"),
         playlist=playback.get("playlist"),
+        speakers_muted=session.speakers_muted,
         listening=session_manager.is_listened(session),
         recent=list(reversed(session.recent)),
         created_at=session.created_at,
@@ -574,6 +576,14 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         return {"volume": request.volume}
     
+    @router.put("/sessions/{session_id}/speakers-muted")
+    async def mute_session_speakers(session_id: str, request: dict) -> dict:
+        """Silence (or not) what the speakers get; a browser listening keeps hearing it."""
+        muted = bool(request.get("muted"))
+        if not session_manager.set_speakers_muted(session_id, muted):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        return {"speakers_muted": muted}
+
     @router.post("/sessions/{session_id}/listen")
     async def listen_session(session_id: str) -> dict:
         """

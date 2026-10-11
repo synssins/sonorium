@@ -653,6 +653,7 @@ function renderSessions() {
 // ---------- Channel cards (docs/design/Channels_Blocks.dc.html): every block the same size ----------
 const CH_ICON_EDIT = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>';
 const CH_ICON_THEME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a10 10 0 0 0 0 20c1.1 0 1.8-.9 1.8-1.9 0-.5-.2-.9-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a5 5 0 0 0 5-5C22 6 17.5 2 12 2z"/><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="6.5" r="1.2" fill="currentColor"/><circle cx="15.5" cy="7" r="1.2" fill="currentColor"/></svg>';
+const CH_ICON_MUTED = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><line x1="3" y1="3" x2="21" y2="21"/></svg>';
 const CH_ICON_VOLUME = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
 const CH_ICON_PLAY = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 const CH_ICON_STOP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
@@ -686,7 +687,9 @@ function renderSessionCard(session) {
             </div>
             ${chNowHtml(session)}
             <div class="ch-vol" title="Volume on the speakers">
-                <span class="ch-vol-ic${isPlaying ? ' on' : ''}" aria-hidden="true">${CH_ICON_VOLUME}</span>
+                <button type="button" class="ch-vol-ic ch-mute${session.speakers_muted ? ' muted' : (isPlaying ? ' on' : '')}" aria-pressed="${!!session.speakers_muted}"
+                        aria-label="${session.speakers_muted ? 'Unmute the speakers' : 'Mute the speakers'}" title="${session.speakers_muted ? 'Unmute the speakers' : 'Mute the speakers'}"
+                        onclick="chToggleSpeakersMuted(${spArg(id)})">${session.speakers_muted ? CH_ICON_MUTED : CH_ICON_VOLUME}</button>
                 <input type="range" class="track-slider" min="0" max="100" value="${session.volume}" aria-label="Volume: ${name}"
                        oninput="updateSessionVolumeDisplay(${spArg(id)}, this.value)"
                        onchange="updateSessionVolume(${spArg(id)}, this.value)">
@@ -831,6 +834,22 @@ async function chToggleListen(sessionId) {
         // No audio output, or a browser that can't play the stream: the button just stays off
         console.warn('Listen on this device:', error);
         await chStopListening();
+    }
+}
+
+// Mute the speakers: their stream goes silent (a browser listening keeps it); Play and Stop are unchanged
+async function chToggleSpeakersMuted(sessionId) {
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session) return;
+    const muted = !session.speakers_muted;
+    session.speakers_muted = muted;
+    renderSessions();
+    try {
+        await api('PUT', `/sessions/${sessionId}/speakers-muted`, { muted });
+    } catch (error) {
+        session.speakers_muted = !muted;
+        renderSessions();
+        showToast(error.message, 'error');
     }
 }
 

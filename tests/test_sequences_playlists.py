@@ -652,6 +652,17 @@ def test_one_browser_leaving_keeps_the_mix_for_another(tmp_path):
     assert released(t) and not t.manager.is_listened(t.session)
 
 
+def test_muted_speakers_stay_muted_for_the_channel(tmp_path):
+    t = build(tmp_path)
+    sid = t.session.id
+    assert t.manager.set_speakers_muted(sid, True) and t.session.speakers_muted
+    run(t.manager.play(sid))
+    assert t.channel.speakers_muted is True  # a channel taken up later gets it too
+    t.manager.set_speakers_muted(sid, False)
+    assert t.channel.speakers_muted is False and not t.session.speakers_muted
+    assert not t.manager.set_speakers_muted("nope", True)
+
+
 def test_play_then_listen_then_stop_then_unlisten(tmp_path):
     t = build(tmp_path)
     sid = t.session.id

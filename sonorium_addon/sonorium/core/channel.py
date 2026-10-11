@@ -108,6 +108,9 @@ class Channel:
     _local_count: int = 0
     _local_time: float = field(default_factory=time.monotonic)
 
+    # The speakers' stream is silenced (every client but the browsers listening here)
+    speakers_muted: bool = False
+
     # Lock for thread-safe operations
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
@@ -585,6 +588,7 @@ class Channel:
             self._out_level, self._out_target, self._out_rate = 1.0, 1.0, 0.0
             self._theme_version += 1
             self.state = ChannelState.IDLE
+            self.speakers_muted = False
             self._broadcast_buffer.clear()
 
             # Wake up any waiting clients
@@ -659,6 +663,21 @@ class ChannelStream:
 
         # Start from current position
         self._last_sequence = channel.get_current_sequence()
+        self._gain = 0.0 if self._muted() else 1.0
+
+    def _muted(self) -> bool:
+        return not self.local and self.channel.speakers_muted
+
+    def _apply_mute(self, chunk):
+        """Silence a speaker's stream when muted, ramping over one chunk so it doesn't click."""
+        target = 0.0 if self._muted() else 1.0
+        if target == self._gain == 1.0:
+            return chunk
+        if target == self._gain == 0.0:
+            return np.zeros_like(chunk)
+        ramp = np.linspace(self._gain, target, chunk.shape[-1], dtype=np.float32)
+        self._gain = target
+        return (chunk.astype(np.float32) * ramp).astype(chunk.dtype)
 
     def __iter__(self):
         output = av.open(file='.mp3', mode="w")
@@ -675,6 +694,7 @@ class ChannelStream:
                     for seq, chunk in chunks:
                         self._last_sequence = seq
 
+                        chunk = self._apply_mute(chunk)
                         # Encode to MP3
                         frame = av.AudioFrame.from_ndarray(chunk, format='s16', layout='mono')
                         frame.rate = SAMPLE_RATE

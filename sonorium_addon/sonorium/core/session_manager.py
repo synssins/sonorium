@@ -275,6 +275,19 @@ class SessionManager:
             logger.info(f"  Preset '{preset_id}' saved: {count} playing channel(s) follow it")
         return count
 
+    def set_speakers_muted(self, session_id: str, muted: bool) -> bool:
+        """Silence (or not) the speakers' stream; browsers listening keep hearing it. False: no such channel."""
+        session = self.state.sessions.get(session_id)
+        if session is None:
+            return False
+        session.speakers_muted = bool(muted)
+        channel = self.channel_manager.get_channel(self._session_channels.get(session_id) or 0) if self.channel_manager else None
+        if channel is not None:
+            channel.speakers_muted = session.speakers_muted
+        self.note(session, "Speakers muted" if muted else "Speakers unmuted")
+        self.state.save()
+        return True
+
     def is_listened(self, session: Session) -> bool:
         """A browser listens to the channel."""
         return session.id in self._listening
@@ -412,6 +425,7 @@ class SessionManager:
         channel = self.channel_manager.get_available_channel()
         if channel:
             self._session_channels[session.id] = channel.id
+            channel.speakers_muted = session.speakers_muted
             logger.debug(f"  Assigned channel {channel.id} to session {session.id}")
         
         return channel

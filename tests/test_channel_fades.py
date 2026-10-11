@@ -255,3 +255,21 @@ def test_browsers_listening_here_are_counted_apart_from_speakers():
     channel._local_time -= 30
     channel.expect_local_listener()  # asked to listen: the wait for the browser counts from now
     assert channel.local_idle_seconds() < 5
+
+
+def test_muting_the_speakers_silences_their_stream_but_not_a_browsers():
+    channel = m.channel.Channel(id=1)
+    speaker, browser = m.channel.ChannelStream(channel), m.channel.ChannelStream(channel, local=True)
+    chunk = np.full((1, CHUNK), 10000, dtype=np.int16)
+    assert np.array_equal(speaker._apply_mute(chunk), chunk)
+    channel.speakers_muted = True
+    ramp = speaker._apply_mute(chunk)  # fades out over one chunk
+    assert ramp[0, 0] == 10000 and ramp[0, -1] == 0 and np.all(np.diff(ramp[0].astype(int)) <= 0)
+    assert not speaker._apply_mute(chunk).any()
+    assert np.array_equal(browser._apply_mute(chunk), chunk)
+    channel.speakers_muted = False
+    back = speaker._apply_mute(chunk)  # fades back in
+    assert back[0, 0] == 0 and back[0, -1] == 10000
+    channel.stop()
+    assert channel.speakers_muted is False
+
