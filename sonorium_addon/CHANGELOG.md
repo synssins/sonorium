@@ -2,6 +2,22 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.38 (2026-10-11)
+
+### Bug Fixes
+
+- **core**: Channel policy hears of new channels; load without it
+  ([`081eae8`](https://github.com/synssins/sonorium/commit/081eae89055f841bf6c569f20ab37a6e1bab6269))
+
+### Features
+
+- **core**: Channel policy hook for zones
+  ([`3144f2d`](https://github.com/synssins/sonorium/commit/3144f2d337b23723d4ce406cc5320732f2aa4007))
+
+- **users**: Zones, Kid mode, speaker homes and links
+  ([`0ebf819`](https://github.com/synssins/sonorium/commit/0ebf819ee3042ae721d9ff351e32da6dab0eddaf))
+
+
 ## v1.6.2-dev.35 (2026-10-11)
 
 
