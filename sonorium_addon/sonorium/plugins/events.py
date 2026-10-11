@@ -145,6 +145,12 @@ CATALOGUE: dict[str, dict] = {
                    "reason": "cancelled or replaced (another ramp started)", "level": "The level it got to"},
         "summary": "{name}: volume ramp cancelled",
     },
+    "command.received": {
+        "description": "An input plugin (remote, MQTT, webhook) handed over a code for one of its command maps.",
+        "fields": {"plugin_id": "Plugin id", "map_id": "Command map id", "code": "The code",
+                   "actions": "Actions it ran", "learned": "True if the map was learning it"},
+        "summary": "Command {code}",
+    },
     # --- Speakers ---
     "speaker.added": {
         "description": "A speaker appeared (Home Assistant, the network or added by address).",

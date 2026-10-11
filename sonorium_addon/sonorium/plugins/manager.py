@@ -62,6 +62,8 @@ class PluginManager:
         self.plugins_dir = plugins_dir
         self.audio_path = audio_path or Path("/media/sonorium")
         self.plugins: dict[str, BasePlugin] = {}
+        # Plugins that can't run here (API version, capabilities, packages): id -> what Settings > Plugins shows
+        self.refused: dict[str, dict] = {}
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -121,6 +123,14 @@ class PluginManager:
             plugin_id = manifest.get("id", plugin_dir.name)
             settings = self.state_store.settings.plugin_settings.get(plugin_id, {})
 
+            # Can it run here? Decided before any of its code is loaded
+            # (API version, capabilities, packages, binaries)
+            self.refused.pop(plugin_id, None)
+            problem, binaries = await self._check_runnable(plugin_id, plugin_dir, manifest)
+            if problem:
+                self._refuse(plugin_id, manifest, problem)
+                return None
+
             # Load plugin class
             plugin_class = load_plugin_class(plugin_dir, manifest)
             if plugin_class is None:
@@ -133,6 +143,7 @@ class PluginManager:
 
             plugin._manifest = manifest
             plugin._host = self.host
+            plugin._binaries = binaries
 
             # Set builtin flag from manifest if present
             if manifest.get("builtin", False):
@@ -166,6 +177,38 @@ class PluginManager:
             logger.error(f"Failed to load plugin from {plugin_dir}: {e}")
             return None
 
+    async def _check_runnable(self, plugin_id: str, plugin_dir: Path, manifest: dict) -> tuple:
+        """(why it can't run or None, its binaries {name: path})."""
+        from sonorium.plugins import compat
+        from sonorium.plugins.packages import PackageError, check_binaries
+        problem = compat.check(manifest, self.host.capabilities() if self.host is not None else None)
+        if problem:
+            return problem, {}
+        try:
+            binaries = check_binaries(plugin_dir, manifest)
+            if manifest.get("requirements"):
+                if self.host is None:
+                    return "Python packages need the plugin framework", {}
+                await asyncio.to_thread(self.host.packages.ensure, plugin_id, manifest)
+        except PackageError as e:
+            return str(e), {}
+        return None, binaries
+
+    def _refuse(self, plugin_id: str, manifest: dict, problem: str) -> None:
+        logger.warning(f"Plugin {plugin_id} not loaded: {problem}")
+        self.refused[plugin_id] = {
+            "id": plugin_id, "name": manifest.get("name") or plugin_id, "version": manifest.get("version") or "",
+            "description": manifest.get("description") or "", "author": manifest.get("author") or "",
+            "enabled": False, "builtin": bool(manifest.get("builtin")), "auth_provider": False,
+            "settings": {}, "ui_schema": {}, "settings_schema": {},
+            "api_version": manifest.get("api_version") or "1.0", "compatible": False, "problem": problem,
+        }
+        try:
+            from sonorium import alerts
+            alerts.report(f"Plugin {manifest.get('name') or plugin_id} was not loaded: {problem}", "plugin")
+        except Exception:
+            pass
+
     async def reload_plugins(self) -> None:
         """Reload all plugins."""
         # Unload existing plugins
@@ -173,6 +216,7 @@ class PluginManager:
             await self._unload_plugin(plugin_id)
 
         self.plugins.clear()
+        self.refused.clear()
         self._initialized = False
 
         # Reinitialize
@@ -213,7 +257,8 @@ class PluginManager:
         Returns:
             List of plugin info dicts
         """
-        return [plugin.to_dict() for plugin in self.plugins.values()]
+        loaded = [plugin.to_dict() for plugin in self.plugins.values()]
+        return loaded + [dict(r) for pid, r in self.refused.items() if pid not in self.plugins]
 
     def get_plugin(self, plugin_id: str) -> Optional[BasePlugin]:
         """Get a plugin by ID."""
