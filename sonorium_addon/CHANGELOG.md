@@ -2,6 +2,23 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.2 (2026-10-11)
+
+### Bug Fixes
+
+- **ui**: Short file threshold removed from the Theme Editor's menu (it only fed Auto, which is
+  retired)
+  ([`383244d`](https://github.com/synssins/sonorium/commit/383244d4872571affc57f0174110d72b256da40e))
+
+### Documentation
+
+- Remove the writing style file
+  ([`39f8b28`](https://github.com/synssins/sonorium/commit/39f8b28a7eae07c104042fc7f8b6a6c887bd7685))
+
+- Writing style for the README, wiki, site and help
+  ([`bacef35`](https://github.com/synssins/sonorium/commit/bacef35b62ba34d2ab41094a482d5a6fe4aca0dc))
+
+
 ## v1.6.2-dev.1 (2026-10-11)
 
 ### Documentation
