@@ -94,6 +94,7 @@ APP_ROUTES = [
 V2_ROUTES = [
     ('APIRoute', 'GET', '/api/debug/speakers', 'debug_speakers'),
     ('APIRoute', 'GET', '/api/sessions', 'list_sessions'),
+    ('APIRoute', 'GET', '/api/now-playing', 'now_playing'),
     ('APIRoute', 'POST', '/api/sessions', 'create_session'),
     ('APIRoute', 'GET', '/api/sessions/{session_id}', 'get_session'),
     ('APIRoute', 'PUT', '/api/sessions/{session_id}', 'update_session'),

@@ -214,6 +214,22 @@ class ExclusionGroupCoordinator:
                 return max(0.0, self._collect_from + self.COLLECT_SECONDS - now)
             return 0
 
+    def turn_now(self) -> tuple[str | None, float | None]:
+        """
+        The group's turn now, for Now playing (the Status page): the track
+        holding it (None between turns) and the seconds until the next turn
+        opens (the first wait, or the gap it picked; 0 once the gap is over and
+        the next track is being picked; None while a track plays).
+        """
+        with self._lock:
+            now = self._clock()
+            if self._playing_track is not None:
+                return self._playing_track, None  # (past its end: until it hands the turn back)
+            start = self._start_time + self.INITIAL_DELAY
+            if now < start:
+                return None, start - now
+            return None, max(0.0, self._cooldown_until - now)
+
     def get_track_count(self) -> int:
         """Get number of registered tracks."""
         with self._lock:
@@ -1140,6 +1156,13 @@ class SparsePlaybackStream:
         self.play_now = play_now
         # True while a play is going out (Finish then stop waits for it)
         self.playing = False
+        # For Now playing (the Status page): samples this stream has produced,
+        # what it does now ("play", "wait": a timed wait, "turn": waiting for
+        # its group's turn, "off": Interval at 0 or muted), and the sample
+        # count (self.clock) when that ends (None: not timed)
+        self.clock = 0
+        self.phase = "wait"
+        self.phase_end = None
 
         # Register exclusive tracks with coordinator
         if self.instance.exclusive and self.exclusion_coordinator is not None:
@@ -1260,6 +1283,7 @@ class SparsePlaybackStream:
             # 0% means never, and a muted track (pulled while it fades out)
             # starts no new play: stay silent, checking again every second
             if presence <= 0.0 or not getattr(self.instance, "is_enabled", True):
+                self.phase, self.phase_end = "off", None
                 for _ in range(max(1, SAMPLE_RATE // self.CHUNK_SIZE)):
                     yield silence_chunk
                 continue
@@ -1273,6 +1297,7 @@ class SparsePlaybackStream:
                 # Random initial delay: 0% to 100% of the normal interval
                 initial_delay_samples = int(get_silent_interval() * random.uniform(0.0, 1.0))
                 initial_delay_chunks = initial_delay_samples // self.CHUNK_SIZE
+                self.phase, self.phase_end = "wait", self.clock + initial_delay_chunks * self.CHUNK_SIZE
                 if initial_delay_chunks > 0:
                     logger.debug(f'SparsePlaybackStream: {self.instance.name} initial delay: {initial_delay_samples/SAMPLE_RATE:.1f}s')
                     for _ in range(initial_delay_chunks):
@@ -1282,6 +1307,7 @@ class SparsePlaybackStream:
             # For exclusive tracks, first check if we're blocked
             if is_blocked_exclusive():
                 # Output silence for a while before checking again
+                self.phase, self.phase_end = "turn", None
                 wait_chunks = get_block_wait_chunks()
                 for _ in range(wait_chunks):
                     chunk_count += 1
@@ -1291,6 +1317,7 @@ class SparsePlaybackStream:
             # Try to claim the exclusive playback slot
             if not try_start_exclusive():
                 # Another track claimed it first - wait and retry
+                self.phase, self.phase_end = "turn", None
                 wait_chunks = get_block_wait_chunks()
                 for _ in range(wait_chunks):
                     chunk_count += 1
@@ -1305,6 +1332,8 @@ class SparsePlaybackStream:
                 logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} plays '
                             f'(Intermittent{", group " + group if group else ""}, {len(audio_data) / SAMPLE_RATE:.1f}s)')
                 self.playing = True
+                self.phase = "play"
+                self.phase_end = self.clock + -(-len(audio_data) // self.CHUNK_SIZE) * self.CHUNK_SIZE
                 fade_in_curve, fade_out_curve = fade_curves()
 
                 # Apply fade in at start
@@ -1353,6 +1382,8 @@ class SparsePlaybackStream:
             waited_at = presence
             waited_range = playback_values.wait_range()
             remaining = float(silent_chunks)
+            if remaining >= 1.0:
+                self.phase, self.phase_end = "wait", self.clock + int(remaining) * self.CHUNK_SIZE
             while remaining >= 1.0:
                 chunk_count += 1
                 remaining -= 1.0
@@ -1365,12 +1396,15 @@ class SparsePlaybackStream:
                     remaining = remaining * new_base / old_base if old_base > 0 else new_base * SAMPLE_RATE / self.CHUNK_SIZE
                     waited_at = presence = now
                     waited_range = now_range
+                    self.phase_end = self.clock + int(remaining) * self.CHUNK_SIZE
 
     def __iter__(self):
         return self
 
     def __next__(self):
-        return next(self.gen)
+        chunk = next(self.gen)
+        self.clock += self.CHUNK_SIZE
+        return chunk
 
 
 # Ebb & Flow: the level drifts between the two knobs of the track's Volume
@@ -1487,6 +1521,18 @@ class PresenceMixingStream:
             exclusion_coordinator.register_track(instance.name)
         self._restart = False
         self.ebb_group = None  # an Ebb & Flow group's EbbGroup, set by the mix
+        # For Now playing (the Status page): samples produced; on its own or in
+        # an Ebb & Flow group, its state ("playing", "ending", "paused"), its
+        # move ("rise", "fall", "hold"), its level (a share of the top knob),
+        # and the sample count (self.clock) when the move or pause ends;
+        # in a turn-taking group, the gain it plays at and the one it heads for
+        self.clock = 0
+        self.ebb_state = "playing"
+        self.ebb_move = "hold"
+        self.ebb_level = 0.0
+        self.ebb_until = None
+        self.turn_gain = 0.0
+        self.turn_target = 0.0
         self.gen = self._gen()
 
     @property
@@ -1607,6 +1653,7 @@ class PresenceMixingStream:
                 # sudden: up quickly, down slower
                 seconds *= (1.0 - 0.85 * rise()) if rising else (1.0 + 0.5 * rise())
             start, target, glide, done = level, to, max(1, int(seconds * rate)), 0
+            self.ebb_move, self.ebb_until = ("rise" if rising else "fall"), self.clock + glide
             self._log_move(to * self._top(), seconds)
 
         def new_play():
@@ -1624,6 +1671,7 @@ class PresenceMixingStream:
         def pause(log_reason: str = ""):
             nonlocal state, wait
             state, wait = "paused", self._pause_samples()
+            self.ebb_state, self.ebb_level, self.ebb_until = state, 0.0, self.clock + wait
             sounding(False)
             logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {name} Ebb & Flow '
                         f'{log_reason}pausing for {wait / rate:.0f}s')
@@ -1636,6 +1684,7 @@ class PresenceMixingStream:
             level, direction = ebb_step(self._ebb_low(), None, direction, duration())  # at a level: the mix fades the track in
             start = target = level
             hold = next_hold()
+            self.ebb_move, self.ebb_until = "hold", self.clock + hold
             end_fade = int(random.uniform(*glides) * rate)
             sounding(True)
 
@@ -1686,6 +1735,7 @@ class PresenceMixingStream:
                 if done >= glide:
                     glide = 0
                     hold = next_hold()
+                    self.ebb_move, self.ebb_until = "hold", self.clock + n + hold
             else:
                 end = level
                 if state == "playing":
@@ -1697,6 +1747,7 @@ class PresenceMixingStream:
                 ramp = np.linspace(level, end, n, dtype=np.float32) if level != end else level
                 chunk = np.clip(chunk.astype(np.float32) * ramp, -32768, 32767).astype(np.int16)
             level = end
+            self.ebb_state, self.ebb_level = state, level
             if state == "ending" and not glide:
                 pause()
             yield chunk
@@ -1866,6 +1917,7 @@ class PresenceMixingStream:
                         coordinator.finish_playing(self.instance.name)  # silent now: the group's gap starts
             else:
                 applied_gain = current_gain
+            self.turn_gain, self.turn_target = float(applied_gain), target_gain
 
             # Apply gain to chunk
             if applied_gain < 1.0:
@@ -1880,7 +1932,9 @@ class PresenceMixingStream:
         return self
 
     def __next__(self):
-        return next(self.gen)
+        chunk = next(self.gen)
+        self.clock += self.CHUNK_SIZE
+        return chunk
 
 
 class _SampleQueue:
