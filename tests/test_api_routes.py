@@ -215,7 +215,7 @@ def m():
     obs.logger = logging.getLogger("sonorium-routes-test")
     obs.logger.instrument = lambda *a, **k: (lambda f: f)
     theme = types.ModuleType("sonorium.theme")
-    theme.ThemeDefinition = object
+    theme.Theme = object
     version = types.ModuleType("sonorium.version")
     version.__version__ = "test"
     logbuffer = types.ModuleType("sonorium.logbuffer")

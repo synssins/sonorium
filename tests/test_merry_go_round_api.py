@@ -35,7 +35,7 @@ def m():
     obs = types.ModuleType("sonorium.obs")
     obs.logger = logging.getLogger("sonorium-mgr-api-test")
     theme = types.ModuleType("sonorium.theme")
-    theme.ThemeDefinition = object
+    theme.Theme = object
     version = types.ModuleType("sonorium.version")
     version.__version__ = "test"
     logbuffer = types.ModuleType("sonorium.logbuffer")
@@ -144,7 +144,7 @@ def test_track_ebb_settings_save_and_go_into_presets(m):
     inst = SimpleNamespace(name="Waves", volume=0.8, presence=0.5, playback_mode=SimpleNamespace(value="presence"),
                            crossfade_enabled=True, exclusive=False, is_enabled=True,
                            volume_low=0.2, pause_between=False, pause_min=30.0, pause_max=300.0, rise=0.0)
-    theme = SimpleNamespace(name="Storm", instances=[inst], groups={})
+    theme = SimpleNamespace(name="Storm", tracks=[inst], groups={})
     metadata = m.meta.ThemeMetadata(id="t1", name="Storm")
     api = make_api(m, metadata, theme)
     api._get_theme_by_id = lambda theme_id: (theme, "folder")

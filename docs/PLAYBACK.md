@@ -126,7 +126,7 @@ How it runs:
 - When a step is taken (and when a sequence starts), the runner looks at the next step (the next
   preset, as `at_end` will take it) and plans its transitions on the channel's mix at once: each
   track's start time and window. Only tracks that really come in or leave at that step are used.
-- In the mix (`theme.ThemeStream`), a track with a running transition gets its level from the
+- In the mix (`theme.ThemeMix`), a track with a running transition gets its level from the
   envelope (`core/transitions.py` `Envelope`), applied per chunk as a ramp from the level at the
   chunk's start to its end, plus, for Distance / Recede, two one-pole low-pass filters (12 dB per
   octave, numpy only, state carried between chunks). For the window the track's volume, on/off and

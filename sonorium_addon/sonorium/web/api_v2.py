@@ -971,7 +971,7 @@ def create_api_router(
             before = session_manager.preset_overrides(theme_id, before_id)
             after = session_manager.preset_overrides(theme_id, after_id)
             result = []
-            for instance in list(theme.instances):
+            for instance in list(theme.tracks):
                 group = getattr(instance.meta, "group", None)
                 if group and group_mode(groups.get(group)) == GROUP_MODE_MERRY_GO_ROUND:
                     continue

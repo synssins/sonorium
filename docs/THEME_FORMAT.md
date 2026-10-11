@@ -251,7 +251,7 @@ API (`api.py:151-152`):
   not a boolean gives 400. Everything
   applies live to playing channels: volume, presence, mute and crossfade every chunk, the gap
   at the next gap, and a mode change rebuilds that group's streams
-  (`ThemeStream._follow_group_modes`).
+  (`ThemeMix._follow_group_modes`).
 - `DELETE /api/themes/{id}/groups/{group}` moves the group's files up to the theme folder
   (`"x (2)"` on a clash) and makes its linked files ungrouped the same way (re-keyed only).
   Keys follow in `metadata.json`, every preset and every sequence. `{"name", "tracks": {old
@@ -285,7 +285,7 @@ any file there does. It is listed in this theme's `metadata.json`:
 | Missing | A link whose source theme or file is gone is left out of playback and shown with `"missing": true`; the link and its settings are kept (`sync_entries_with_files` counts linked keys as present while the link exists). Links are only removed through the API. |
 | Folder | The group's folder is created when a file is linked or moved into it, so a group may hold only linked files. A group that holds links also counts as a group without its folder. |
 | Group rename / delete | Links follow a renamed group; deleting the group makes its links ungrouped (re-keyed, `" (2)"` on a clash), never dropped. |
-| Rescan | A theme rescan rebuilds every theme, so a source file removed or added updates the themes that link it, and playing channels follow (`ThemeStream.adopt`). |
+| Rescan | A theme rescan rebuilds every theme, so a source file removed or added updates the themes that link it, and playing channels follow (`ThemeMix.adopt`). |
 | Export | The linked files are copied into the zip as normal files where they sit (the theme folder or their group's folder), `links` is dropped and the settings stay under the same keys: the exported theme is self-contained. Other themes are never bundled. |
 | Preset mark | A preset that turns a linked file on gets the ⚭ mark (`has_intrusion`, 4.2). |
 
@@ -366,7 +366,7 @@ header, or a full decode if the header has none, or 60 s if the file cannot be o
 Then (`recording.py:310-324`):
 
 - Sparse -> `SparsePlaybackStream`.
-- Otherwise `CrossfadeRecordingStream` if `crossfade_enabled` (that is `seamless_loop == false`), else `RecordingThemeStream` (hard-cut loop).
+- Otherwise `CrossfadeRecordingStream` if `crossfade_enabled` (that is `seamless_loop == false`), else `HardLoopStream` (hard-cut loop).
 - Presence mode wraps that loop in `PresenceMixingStream` if `presence < 1.0`, **or** if the track is exclusive and has a group coordinator (then always, even at 100 %, so it waits for its group's turn) (`recording.py:319-322`).
 
 **Tracks in a group folder** (`TrackView._in_group`, `recording.py:450-465`):
@@ -395,7 +395,7 @@ coordinator.
 - `volume` multiplies each decoded frame, read live (`recording.py:552-557`).
 - Each output chunk is clipped and truncated to int16 (`recording.py:682`).
 
-**Without crossfade** (`seamless_loop: true`, `RecordingThemeStream`, `recording.py:480-527`):
+**Without crossfade** (`seamless_loop: true`, `HardLoopStream`, `recording.py:480-527`):
 the file is decoded start to end, then reopened. No fade. `volume` multiplies each frame
 (int16 multiply then truncation, `recording.py:506`). Leftover samples shorter than one chunk
 at the end of each pass are dropped (`recording.py:499`, buffer reset per pass), and the
@@ -505,12 +505,12 @@ Grouped tracks play Intermittent (3.6): the whole file once, start to finish, wi
 and pick decide when a track plays again. With four tracks at 100%, 100%, 100% and 20%, the 20%
 track plays about one turn in ten.
 
-The coordinator runs on the theme's audio clock (`ThemeStream.audio_seconds`), not the wall
+The coordinator runs on the theme's audio clock (`ThemeMix.audio_seconds`), not the wall
 clock, so a stalled stream can't let two tracks of a group overlap.
 
 **Merry-go-round** (`MerryGoRoundStream`, `recording.py`). A group with `"mode": "merry_go_round"`
 plays as **one stream** in the theme's mix (its bed) instead of one stream per track
-(`ThemeStream._build`, `theme.py`). It counts time in its own samples, never the wall clock.
+(`ThemeMix._build`, `theme.py`). It counts time in its own samples, never the wall clock.
 
 | Rule | Value |
 |---|---|
@@ -528,7 +528,7 @@ plays as **one stream** in the theme's mix (its bed) instead of one stream per t
 
 Files added to the group while it plays join the pool at once (no drag, so they are a likely
 early pick); a removed file finishes if it is playing and is never picked again
-(`ThemeStream.adopt`). Changing the group's mode on a playing stream replaces its streams within
+(`ThemeMix.adopt`). Changing the group's mode on a playing stream replaces its streams within
 one chunk: a bed stops at once, Intermittent tracks start with a new coordinator (and its 60 s
 delay).
 
@@ -559,19 +559,19 @@ the same theme changes the override values in place, gliding volume and presence
 | Setting | When it applies |
 |---|---|
 | `volume` (track and group) | Live. Loops: every decoded frame. Sparse: at the start of each play. |
-| `muted` (track and group) | Live, every chunk, with a fade: a track turning off fades out over `TRACK_TOGGLE_FADE_SECONDS = 3.0` s (linear, per sample) and is then no longer advanced: it pauses and resumes where it stopped. A track turning on fades in from silence over 3 s. A track already on when the stream starts, or added by a rescan, starts at full level (`ThemeStream._pull`). While it fades out, a muted track starts no new play and asks for no group turn. A group's turn holder muted mid-play fades out and then runs on silently, so its turn ends on time. Merry-go-round files keep their own handover (3.6). |
+| `muted` (track and group) | Live, every chunk, with a fade: a track turning off fades out over `TRACK_TOGGLE_FADE_SECONDS = 3.0` s (linear, per sample) and is then no longer advanced: it pauses and resumes where it stopped. A track turning on fades in from silence over 3 s. A track already on when the stream starts, or added by a rescan, starts at full level (`ThemeMix._pull`). While it fades out, a muted track starts no new play and asks for no group turn. A group's turn holder muted mid-play fades out and then runs on silently, so its turn ends on time. Merry-go-round files keep their own handover (3.6). |
 | `presence` (track and group) | Live for sparse gaps and for presence-mode timing (in a group: the next active time). It does **not** change the resolved mode, and outside a group a presence wrapper is added only if `presence < 1` at creation. |
 | `playback_mode`, `short_file_threshold` | Fixed at creation (mode resolution). |
 | `seamless_loop` | Fixed at creation (stream class choice). |
 | `exclusive`, group membership | Fixed at creation (`theme.py:126-133`, `recording.py:725-727`, `:940-943`). |
 | Group `gap_min`, `gap_max` | Read at each gap (`theme.py`, `_new_stream`). |
-| Group `mode` | Live: the theme stream checks every chunk and rebuilds the group's streams when it changes, also into or out of Intrusion (`ThemeStream._follow_group_modes`). |
+| Group `mode` | Live: the theme stream checks every chunk and rebuilds the group's streams when it changes, also into or out of Intrusion (`ThemeMix._follow_group_modes`). |
 | Group `crossfade` | Live: read every chunk; applies to the next transition. |
 | Output gain (master volume) | Live, every chunk (`theme.py:150`). |
 
 ### 3.8 The mix (built)
 
-`ThemeStream.iter_chunks` (`theme.py:141-153`) and `MixLevel.mix` (`mixing.py:58-72`):
+`ThemeMix.blocks` (`theme.py:141-153`) and `MixLevel.mix` (`mixing.py:58-72`):
 
 1. Pull one chunk from every **unmuted** track stream, and from every track still fading in or out (3.7), in track order, each multiplied by its on/off fade ramp. If none, use one silent chunk.
 2. Stack as float32. `active` = number of rows whose peak `|x| > 100` (about -50 dBFS) (`mixing.py:23`, `:61`).
@@ -918,7 +918,7 @@ Q7. **Preset changes on a playing channel do not change `playback_mode`, `seamle
 group membership** until the theme is restarted (3.7).
 
 Q8. **Muted streams pause** (after their 3 s fade-out) instead of running silently, so unmuting
-resumes a loop where it stopped and a sparse track mid-gap continues its gap (`ThemeStream._pull`).
+resumes a loop where it stopped and a sparse track mid-gap continues its gap (`ThemeMix._pull`).
 
 Q9. **Presence fades step once per 1024-sample chunk** (`recording.py:1059-1082`). Outside a
 group, a live presence change to 1 or 0 during a fade restarts the fade at position 0, which

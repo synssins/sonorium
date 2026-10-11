@@ -58,7 +58,7 @@ class ExclusionGroupCoordinator:
     their share; for COLLECT_SECONDS after the gap the group gathers who is
     asking, then picks one of them.
 
-    One coordinator per group per ThemeStream.
+    One coordinator per group per ThemeMix.
     """
 
     # Gap after a track finishes when the group doesn't set one (seconds): the
@@ -93,7 +93,7 @@ class ExclusionGroupCoordinator:
         # The group's gap between plays (seconds, random in the range each time);
         # group_gap() (Settings > Advanced) when the group doesn't set one
         self._gap_range = gap_range
-        # Seconds of audio the theme has played (ThemeStream.audio_seconds), so a
+        # Seconds of audio the theme has played (ThemeMix.audio_seconds), so a
         # stalled stream delays every track alike and turns can't overlap;
         # the wall clock when no audio clock is given
         self._clock = clock or time.time
@@ -777,7 +777,7 @@ class TrackView:
     `overrides` is the channel's dict ({track name: {field: value}}), shared by
     reference, so changing it in place changes what the channel plays.
 
-    `pins` (shared with the mix, see theme.ThemeStream) holds values an
+    `pins` (shared with the mix, see theme.ThemeMix) holds values an
     advanced transition sets for a while ({track name: {field: value}}):
     they win over everything else, group masters included. `context` is the
     mix's {"label": ...}, for log lines.

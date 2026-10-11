@@ -129,14 +129,14 @@ TRACKS = ("Hum.wav", "Bed.wav", "Wind.wav", "Birds/Chirp A.wav", "Birds/Chirp B.
 def lock_theme(folder: Path):
     """The theme MIX_LOCK was recorded from."""
     theme = SimpleNamespace(id="lock", name="Lock", short_file_threshold=15.0,
-                            sonorium=SimpleNamespace(master_volume=6.0),
+                            library=SimpleNamespace(master_volume=6.0),
                             groups={"Birds": {"gap_min": 0.5, "gap_max": 1.5},
                                     "Waves": {"mode": "merry_go_round", "crossfade": 1.0}})
-    theme.instances = []
+    theme.tracks = []
     for name in TRACKS:
         track = m.recording.ThemeTrack(m.recording.AudioFile(folder / name, folder), theme)
-        theme.instances.append(track)
-    hum, bed, wind = theme.instances[:3]
+        theme.tracks.append(track)
+    hum, bed, wind = theme.tracks[:3]
     hum.crossfade_enabled = False  # hard-cut loop
     hum.volume = 0.7
     bed.fade_in, bed.fade_out = 0.5, 0.4  # crossfade loop with the file's own fades
@@ -145,11 +145,11 @@ def lock_theme(folder: Path):
 
 
 def new_mix(theme, overrides=None):
-    return m.theme.ThemeStream(theme, overrides)
+    return m.theme.ThemeMix(theme, overrides)
 
 
 def render(mix, seconds):
-    chunks = mix.iter_chunks()
+    chunks = mix.blocks()
     return np.concatenate([next(chunks).reshape(-1) for _ in range(int(seconds * RATE / CHUNK))])
 
 
@@ -208,7 +208,7 @@ def test_channel_stream_sends_128k_stereo_mp3_at_44100(lock_folder, seeded):
     channel = m.channel.Channel(id=1)
     channel.state = m.channel.ChannelState.PLAYING
     stream = channel.get_stream()
-    mix = new_mix(lock_theme(lock_folder)).iter_chunks()
+    mix = new_mix(lock_theme(lock_folder)).blocks()
     pending = [next(mix) for _ in range(int(2.0 / CHUNK_SECONDS))]
     handed = []
 

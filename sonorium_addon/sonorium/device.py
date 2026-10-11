@@ -15,7 +15,7 @@ from sonorium.recording import AudioFile
 from sonorium.utils import HomeAssistantClient, IndexList
 
 if TYPE_CHECKING:
-    from sonorium.theme import ThemeDefinition
+    from sonorium.theme import Theme
 
 
 @dataclass
@@ -64,7 +64,7 @@ class Sonorium:
 
     def __post_init__(self):
         # Lazy import to avoid circular dependency
-        from sonorium.theme import ThemeDefinition
+        from sonorium.theme import Theme
 
         if not self.path_audio.exists():
             logger.warning(f'Audio path "{self.path_audio}" does not exist. Will be created.')
@@ -129,7 +129,7 @@ class Sonorium:
                     except Exception:
                         pass  # Fall back to sanitized folder name
 
-                theme_def = ThemeDefinition(sonorium=self, name=theme_name, theme_id=theme_id)
+                theme_def = Theme(library=self, name=theme_name, theme_id=theme_id)
                 self.themes.append(theme_def)
                 logger.debug(f'Loaded theme "{theme_name}" with {len(audio_files)} audio files')
             else:
@@ -141,15 +141,15 @@ class Sonorium:
 
         if not self.themes:
             logger.warning(f'No themes with audio files found in "{self.path_audio}". Add audio files to theme folders.')
-            self.themes = IndexList(ThemeDefinition(sonorium=self, name=f'Theme {ab}') for ab in 'AB')
+            self.themes = IndexList(Theme(library=self, name=f'Theme {ab}') for ab in 'AB')
 
         if self.themes:
             self.themes.current = self.themes[0]
             logger.debug(f'Set default theme to: "{self.themes.current.name}"')
             # Enable ALL recordings in ALL themes by default for seamless mixing
             for theme in self.themes:
-                if theme.instances:
-                    for inst in theme.instances:
+                if theme.tracks:
+                    for inst in theme.tracks:
                         inst.is_enabled = True
 
         if not runtime.ha_configured():

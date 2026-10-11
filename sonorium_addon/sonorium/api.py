@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from sonorium.theme import ThemeDefinition
+from sonorium.theme import Theme
 from sonorium import runtime
 from sonorium.version import __version__
 from sonorium.obs import logger
@@ -603,7 +603,7 @@ class ApiSonorium(Base):
 
         logger.debug("  Applying saved track settings to themes...")
         for theme in device.themes:
-            if not theme.instances:
+            if not theme.tracks:
                 continue
 
             # Find metadata for this theme by matching folder name
@@ -620,7 +620,7 @@ class ApiSonorium(Base):
             # Group settings (Themes 2.0), read by the theme's grouped tracks
             theme.groups = dict(getattr(metadata, "groups", None) or {})
 
-            for inst in theme.instances:
+            for inst in theme.tracks:
                 track_settings = metadata.tracks.get(inst.name)
                 if not track_settings:
                     # Use defaults
@@ -1060,12 +1060,12 @@ class ApiSonorium(Base):
         # Build theme cards
         theme_cards = ""
         for theme in themes:
-            total = len(theme.instances)
+            total = len(theme.tracks)
             is_current = theme == themes.current
             current_class = "current" if is_current else ""
             
             recordings_list = ""
-            for inst in theme.instances:
+            for inst in theme.tracks:
                 recordings_list += f'<div class="rec"><span class="status">✓</span> {inst.name}</div>'
             
             theme_cards += f'''
@@ -1078,7 +1078,7 @@ class ApiSonorium(Base):
                 <div class="theme-actions">
                     <button onclick="playTheme('{theme.id}')" class="play">▶ Play in Browser</button>
                 </div>
-                <div class="stream-url">Stream: {theme.url}</div>
+                <div class="stream-url">Stream: {theme.listen_url}</div>
             </div>
             '''
         
@@ -1233,7 +1233,7 @@ class ApiSonorium(Base):
         theme_def, _ = self._get_theme_by_id(id)
         if not theme_def:
             raise HTTPException(status_code=404, detail=f"Theme '{id}' not found")
-        stream = theme_def.get_stream()
+        stream = theme_def.new_mix()
         response = StreamingResponse(stream, media_type="audio/mpeg")
         return response
 
@@ -1402,7 +1402,7 @@ class ApiSonorium(Base):
             for meta in linked:
                 if theme.name in device.theme_metas:
                     device.theme_metas[theme.name].append(meta)
-                theme.instances.append(ThemeTrack(meta, theme=theme))
+                theme.tracks.append(ThemeTrack(meta, theme=theme))
             logger.debug(f'Theme "{theme.name}": {len(linked)} linked track(s)')
 
     def _link_info(self, link: dict) -> dict:
@@ -1421,7 +1421,7 @@ class ApiSonorium(Base):
     def _linked_keys(self, theme, metadata) -> list:
         """A theme's playable linked files (their source is there): what the ⚭ preset mark looks at."""
         from sonorium.core.intrusions import linked_track_keys
-        instances = list(getattr(theme, "instances", None) or []) if theme else []
+        instances = list(getattr(theme, "tracks", None) or []) if theme else []
         playable = {i.name for i in instances if getattr(i.meta, "link", None)}
         return linked_track_keys(metadata, playable)
 
@@ -1455,7 +1455,7 @@ class ApiSonorium(Base):
 
         # First, add themes loaded by the device (have audio files)
         for theme in device.themes:
-            enabled_count = sum(1 for i in theme.instances if i.is_enabled)
+            enabled_count = sum(1 for i in theme.tracks if i.is_enabled)
 
             # Get metadata from metadata manager or read from file
             theme_folder = self._find_theme_folder(theme.id)
@@ -1472,9 +1472,9 @@ class ApiSonorium(Base):
                 themes.append({
                     "id": theme_id,
                     "name": metadata_dict.get("name", theme.name),
-                    "total_tracks": len(theme.instances),
+                    "total_tracks": len(theme.tracks),
                     "enabled_tracks": enabled_count,
-                    "url": theme.url,
+                    "url": theme.listen_url,
                     "description": metadata_dict.get("description", ""),
                     "icon": metadata_dict.get("icon", ""),
                     "is_favorite": metadata_dict.get("is_favorite", False),
@@ -1492,9 +1492,9 @@ class ApiSonorium(Base):
             themes.append({
                 "id": metadata.id,
                 "name": metadata.name,
-                "total_tracks": len(theme.instances),
+                "total_tracks": len(theme.tracks),
                 "enabled_tracks": enabled_count,
-                "url": theme.url,
+                "url": theme.listen_url,
                 "description": metadata.description,
                 "icon": metadata.icon,
                 "is_favorite": metadata.is_favorite,
@@ -1564,7 +1564,7 @@ class ApiSonorium(Base):
     async def refresh_themes(self):
         """Rescan theme folders and reload themes."""
         from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, reset_ebb_settings
-        from sonorium.theme import ThemeDefinition
+        from sonorium.theme import Theme
         from sonorium.recording import AudioFile, PlaybackMode
         from sonorium.utils import IndexList
 
@@ -1607,7 +1607,7 @@ class ApiSonorium(Base):
                 logger.debug(f'Found theme "{theme_name}" with {len(audio_files)} audio files')
 
         # Step 2: Update device.theme_metas BEFORE creating ThemeDefinitions
-        # This is critical because ThemeDefinition.__init__ looks up theme_metas[name]
+        # This is critical because Theme.__init__ looks up theme_metas[name]
         device.theme_metas = new_theme_metas
 
         # Rebuild metas list
@@ -1615,7 +1615,7 @@ class ApiSonorium(Base):
         for theme_recordings in device.theme_metas.values():
             device.metas.extend(theme_recordings)
 
-        # Step 3: NOW create ThemeDefinition objects (they will find their metas correctly)
+        # Step 3: NOW create Theme objects (they will find their metas correctly)
         new_themes = IndexList()
         for theme_name in theme_names_with_audio:
             # Read UUID from metadata.json if it exists
@@ -1629,9 +1629,9 @@ class ApiSonorium(Base):
                 except Exception:
                     pass  # Fall back to sanitized folder name
 
-            theme_def = ThemeDefinition(sonorium=device, name=theme_name, theme_id=theme_id)
+            theme_def = Theme(library=device, name=theme_name, theme_id=theme_id)
             new_themes.append(theme_def)
-            logger.debug(f'Created ThemeDefinition "{theme_name}" with {len(theme_def.instances)} instances')
+            logger.debug(f'Created Theme "{theme_name}" with {len(theme_def.tracks)} instances')
 
         # Step 4: Update device.themes
         previous = {t.id: t for t in (device.themes or [])}
@@ -1643,7 +1643,7 @@ class ApiSonorium(Base):
 
             # Enable all recordings and apply saved track settings from metadata.json
             for theme in device.themes:
-                if not theme.instances:
+                if not theme.tracks:
                     continue
 
                 # Find metadata for this theme
@@ -1668,7 +1668,7 @@ class ApiSonorium(Base):
                     theme.short_file_threshold = metadata.short_file_threshold
                     theme.groups = dict(getattr(metadata, "groups", None) or {})
 
-                for inst in theme.instances:
+                for inst in theme.tracks:
                     if metadata:
                         track_settings = metadata.tracks.get(inst.name)
                         if track_settings:
@@ -1704,10 +1704,10 @@ class ApiSonorium(Base):
             old = previous.get(theme.id)
             if old is None or old is theme:
                 continue
-            for stream in list(getattr(old, "streams", ())):
+            for stream in list(getattr(old, "live_mixes", ())):
                 try:
                     stream.adopt(theme)
-                    theme.streams.add(stream)
+                    theme.live_mixes.add(stream)
                 except Exception as e:
                     logger.warning(f'Could not update a playing stream of "{theme.name}": {e}')
 
@@ -1738,9 +1738,9 @@ class ApiSonorium(Base):
         return {
             "id": theme.id,
             "name": theme.name,
-            "track_count": len(theme.instances),
-            "url": theme.url,
-            "tracks": [{"name": i.name} for i in theme.instances],
+            "track_count": len(theme.tracks),
+            "url": theme.listen_url,
+            "tracks": [{"name": i.name} for i in theme.tracks],
         }
 
     async def get_theme_tracks(self, theme_id: str):
@@ -1764,7 +1764,7 @@ class ApiSonorium(Base):
             metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
 
         tracks = []
-        for inst in theme.instances:
+        for inst in theme.tracks:
             # Get track settings from metadata or use instance values (which were loaded from metadata)
             track_settings = metadata.tracks.get(inst.name) if metadata else None
 
@@ -1843,7 +1843,7 @@ class ApiSonorium(Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -1901,7 +1901,7 @@ class ApiSonorium(Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -1936,7 +1936,7 @@ class ApiSonorium(Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -1975,7 +1975,7 @@ class ApiSonorium(Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -2027,7 +2027,7 @@ class ApiSonorium(Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -2062,7 +2062,7 @@ class ApiSonorium(Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -2095,7 +2095,7 @@ class ApiSonorium(Base):
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
         if not isinstance(body, dict) or not body:
             return JSONResponse({"error": "Expected volume_low, pause_between, pause_min or pause_max"}, status_code=400)
-        track_inst = next((inst for inst in theme.instances if inst.name == track_name), None)
+        track_inst = next((inst for inst in theme.tracks if inst.name == track_name), None)
         if track_inst is None:
             return JSONResponse({"error": "Track not found"}, status_code=404)
         values = {}
@@ -2136,7 +2136,7 @@ class ApiSonorium(Base):
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
         if not isinstance(body, dict):
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
-        track_inst = next((inst for inst in theme.instances if inst.name == track_name), None)
+        track_inst = next((inst for inst in theme.tracks if inst.name == track_name), None)
         if track_inst is None:
             return JSONResponse({"error": "Track not found"}, status_code=404)
         values = {}
@@ -2455,7 +2455,7 @@ class ApiSonorium(Base):
             raise HTTPException(status_code=404, detail="Source theme not found")
         linked_as = {(link["theme"], link["track"]): key for key, link in (metadata.links or {}).items()}
         tracks = []
-        for inst in source.instances:
+        for inst in source.tracks:
             if getattr(inst.meta, "link", None):
                 continue
             try:
@@ -2621,7 +2621,7 @@ class ApiSonorium(Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -2647,7 +2647,7 @@ class ApiSonorium(Base):
             return {"error": "Theme not found"}
 
         # Reset live instances (linked files stay off, as when they were added)
-        for inst in theme.instances:
+        for inst in theme.tracks:
             inst.presence = 1.0
             inst.is_enabled = not getattr(inst.meta, "link", None)
             inst.volume = 1.0
@@ -2691,7 +2691,7 @@ class ApiSonorium(Base):
             return {}
 
         tracks = {}
-        for inst in theme.instances:
+        for inst in theme.tracks:
             tracks[inst.name] = {
                 "volume": inst.volume,
                 "presence": inst.presence,
@@ -2714,7 +2714,7 @@ class ApiSonorium(Base):
             return False
 
         # Apply to live instances
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name in preset_tracks:
                 settings = preset_tracks[inst.name]
                 inst.volume = settings.get("volume", 1.0)
@@ -3192,7 +3192,7 @@ class ApiSonorium(Base):
             raise HTTPException(status_code=400, detail="Tracks must be a JSON object")
 
         # Validate track settings and filter to only known tracks
-        valid_track_names = {inst.name for inst in theme.instances}
+        valid_track_names = {inst.name for inst in theme.tracks}
         validated_tracks = {}
         unknown_tracks = []
 
@@ -3570,8 +3570,8 @@ class ApiSonorium(Base):
             themes_data.append({
                 "name": theme.name,
                 "id": theme.id,
-                "track_count": len(theme.instances),
-                "url": theme.url
+                "track_count": len(theme.tracks),
+                "url": theme.listen_url
             })
         
         status_data = {

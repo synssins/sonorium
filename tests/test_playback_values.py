@@ -195,7 +195,7 @@ def test_short_file_threshold_for_new_themes(stored):
 
 
 def test_switch_fade_is_read_as_the_mix_runs(stored):
-    step = m.theme.ThemeStream._fade_step
+    step = m.theme.ThemeMix._fade_step
     assert step(m.theme.switch_fade_seconds()) == pytest.approx(CHUNK / (3.0 * RATE))
     stored["switch_fade"] = 10.0
     assert step(m.theme.switch_fade_seconds()) == pytest.approx(CHUNK / (10.0 * RATE))

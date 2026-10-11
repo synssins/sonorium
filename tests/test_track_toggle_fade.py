@@ -57,12 +57,12 @@ def stream_of(tmp_path):
     tone_mp3(folder / "A.mp3", 25.0, A_HZ)
     tone_mp3(folder / "B.mp3", 25.0, B_HZ)
     theme = SimpleNamespace(name="Field", groups={}, short_file_threshold=15.0,
-                            sonorium=SimpleNamespace(master_volume=1.0))
-    theme.instances = [m.recording.ThemeTrack(m.recording.AudioFile(folder / f"{n}.mp3", folder), theme)
+                            library=SimpleNamespace(master_volume=1.0))
+    theme.tracks = [m.recording.ThemeTrack(m.recording.AudioFile(folder / f"{n}.mp3", folder), theme)
                        for n in ("A", "B")]
 
     def make(overrides):
-        return m.theme.ThemeStream(theme, overrides)
+        return m.theme.ThemeMix(theme, overrides)
     return make
 
 
@@ -85,7 +85,7 @@ def test_switching_preset_crossfades_over_three_seconds(stream_of):
     assert m.theme.TRACK_TOGGLE_FADE_SECONDS == 3.0
     preset = m.recording.preset_track_overrides
     overrides = preset({"B": {"muted": True}})
-    chunks = stream_of(overrides).iter_chunks()
+    chunks = stream_of(overrides).blocks()
     before = pull(chunks, 2.0)
     a_full = envelope(before, A_HZ)[-10:].mean()
     assert envelope(before, B_HZ)[-10:].max() < 0.01 * a_full
@@ -113,9 +113,9 @@ def test_switching_preset_crossfades_over_three_seconds(stream_of):
 
 def test_mute_button_fades_out_and_the_track_then_pauses(stream_of):
     stream = stream_of({})
-    chunks = stream.iter_chunks()
+    chunks = stream.blocks()
     pull(chunks, 1.0)
-    track_a = next(s for s in stream.recording_streams if s.instance.name == "A")
+    track_a = next(s for s in stream.sources if s.instance.name == "A")
     track_a.instance._instance.is_enabled = False  # the theme's own mute (the mixer's mute button)
     out = pull(chunks, 3.5)
     a = envelope(out, A_HZ)

@@ -25,7 +25,7 @@ from sonorium.mp3_out import Mp3Encoder, RealtimePacer
 from sonorium.recording import SAMPLE_RATE, CROSSFADE_SAMPLES
 
 if TYPE_CHECKING:
-    from sonorium.theme import ThemeDefinition, ThemeStream
+    from sonorium.theme import Theme, ThemeMix
 
 
 # Default length of a theme-to-theme crossfade and of a channel's start/stop
@@ -87,7 +87,7 @@ class Channel:
     name: str = ""
 
     # Current theme reference
-    _current_theme: Optional[ThemeDefinition] = field(default=None, repr=False)
+    _current_theme: Optional[Theme] = field(default=None, repr=False)
 
     # Theme version - increments when theme changes
     _theme_version: int = 0
@@ -118,11 +118,11 @@ class Channel:
     _data_available: threading.Condition = field(default_factory=threading.Condition, repr=False)
 
     # Shared audio state
-    _theme_stream: Optional[ThemeStream] = field(default=None, repr=False)
+    _theme_stream: Optional[ThemeMix] = field(default=None, repr=False)
     _chunk_generator: Optional[Generator] = field(default=None, repr=False)
 
     # Pending theme change (for thread-safe crossfade), and its length in seconds
-    _pending_theme: Optional[ThemeDefinition] = field(default=None, repr=False)
+    _pending_theme: Optional[Theme] = field(default=None, repr=False)
     _pending_crossfade: float = THEME_CROSSFADE_DURATION
 
     # This channel's preset layer for the theme it plays ({track: {field: value}},
@@ -167,7 +167,7 @@ class Channel:
         self._silence = np.zeros((1, CHUNK_SIZE), dtype=np.int16)
 
     @property
-    def current_theme(self) -> Optional[ThemeDefinition]:
+    def current_theme(self) -> Optional[Theme]:
         """Get the current theme."""
         return self._current_theme
 
@@ -246,7 +246,7 @@ class Channel:
             saved = (getattr(theme, "groups", None) or {}).get(key[len(GROUP_KEY_PREFIX):]) or {}
             value = saved.get(name)
             return 1.0 if value is None else value
-        for instance in list(getattr(theme, "instances", None) or []):
+        for instance in list(getattr(theme, "tracks", None) or []):
             if instance.name == key:
                 return getattr(instance, name, None)
         return None
@@ -340,7 +340,7 @@ class Channel:
             stream.label = f"{self.name}: {theme.name}"
 
     def schedule_transitions(self, plans: list) -> None:
-        """Plan tracks' advanced transitions on the playing mix (see theme.ThemeStream.schedule_transitions)."""
+        """Plan tracks' advanced transitions on the playing mix (see theme.ThemeMix.schedule_transitions)."""
         with self._lock:
             if self._pending_theme is not None:
                 self._pending_transitions = (time.monotonic(), [dict(p) for p in plans])
@@ -359,7 +359,7 @@ class Channel:
 
     # --- Theme ---
 
-    def set_theme(self, theme: ThemeDefinition, overrides: dict | None = None,
+    def set_theme(self, theme: Theme, overrides: dict | None = None,
                   crossfade: float = THEME_CROSSFADE_DURATION, fade_in: float = 0.0) -> None:
         """
         Set or change the theme for this channel, with the channel's preset
@@ -395,9 +395,9 @@ class Channel:
                 self._track_overrides = {key: dict(values) for key, values in (overrides or {}).items()}
                 self._glide = None
                 self._xfade_old = None
-                self._theme_stream = theme.get_stream(self._track_overrides)
+                self._theme_stream = theme.new_mix(self._track_overrides)
                 self._label_stream(self._theme_stream, theme)
-                self._chunk_generator = self._theme_stream.iter_chunks()
+                self._chunk_generator = self._theme_stream.blocks()
                 if fade_in and fade_in > 0:
                     self._out_level, self._out_target = 0.0, 1.0
                     self._out_rate = 1.0 / (fade_in * SAMPLE_RATE)
@@ -415,7 +415,7 @@ class Channel:
             return
 
         # Create new stream, with the channel's preset layer for the new theme
-        new_stream = theme.get_stream(overrides)
+        new_stream = theme.new_mix(overrides)
         self._label_stream(new_stream, theme)
         planned, self._pending_transitions = self._pending_transitions, None
         if planned is not None and hasattr(new_stream, "schedule_transitions"):
@@ -440,7 +440,7 @@ class Channel:
         self._current_theme = theme
         self._theme_stream = new_stream
         self._track_overrides = overrides
-        self._chunk_generator = new_stream.iter_chunks()
+        self._chunk_generator = new_stream.blocks()
         self._glide = None
 
     def _crossfade_step(self, new_chunk: np.ndarray) -> np.ndarray:

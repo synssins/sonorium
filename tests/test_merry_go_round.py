@@ -1,4 +1,4 @@
-"""Merry-go-round groups: a continuous bed, each file crossfading into the next, through the real ThemeStream."""
+"""Merry-go-round groups: a continuous bed, each file crossfading into the next, through the real ThemeMix."""
 
 import logging
 import random
@@ -12,7 +12,7 @@ np = pytest.importorskip("numpy")
 av = pytest.importorskip("av")
 
 ADDON = str(Path(__file__).resolve().parents[1] / "sonorium_addon")
-recording = ThemeStream = None
+recording = ThemeMix = None
 RATE = 44100
 CHUNK = 1024
 
@@ -20,14 +20,14 @@ CHUNK = 1024
 @pytest.fixture(autouse=True, scope="module")
 def addon_package():
     """Imports the add-on's sonorium package for these tests only (other tests use another one)."""
-    global recording, ThemeStream
+    global recording, ThemeMix
     saved = {k: v for k, v in sys.modules.items() if k == "sonorium" or k.startswith("sonorium.")}
     for k in saved:
         del sys.modules[k]
     sys.path.insert(0, ADDON)
     try:
         theme = pytest.importorskip("sonorium.theme")
-        recording, ThemeStream = sys.modules["sonorium.recording"], theme.ThemeStream
+        recording, ThemeMix = sys.modules["sonorium.recording"], theme.ThemeMix
         yield
     finally:
         sys.path.remove(ADDON)
@@ -75,20 +75,20 @@ def noise_file(path: Path, seconds: float, amp=3000):
 
 def theme_with(folder: Path, names, crossfade=1.0, mode="merry_go_round", muted=(), presence=None, group="Bed"):
     """A freshly scanned theme definition, as refresh_themes builds one."""
-    theme = SimpleNamespace(name="Forest", short_file_threshold=15.0, sonorium=SimpleNamespace(master_volume=1.0),
+    theme = SimpleNamespace(name="Forest", short_file_threshold=15.0, library=SimpleNamespace(master_volume=1.0),
                             groups={group: {"mode": mode, "crossfade": crossfade}})
-    theme.instances = []
+    theme.tracks = []
     for name in names:
         path = next((folder / group).glob(f"{name}.*"))
         instance = recording.ThemeTrack(recording.AudioFile(path, folder), theme)
         instance.is_enabled = name not in muted
         instance.presence = (presence or {}).get(name, 1.0)
-        theme.instances.append(instance)
+        theme.tracks.append(instance)
     return theme
 
 
 def bed_of(stream):
-    beds = [s for s in stream.recording_streams if isinstance(s, recording.MerryGoRoundStream)]
+    beds = [s for s in stream.sources if isinstance(s, recording.MerryGoRoundStream)]
     assert len(beds) == 1
     return beds[0]
 
@@ -139,9 +139,9 @@ def make_files(folder, lengths, group="Bed"):
 
 def test_files_crossfade_and_never_start_or_stop_together(forest):
     make_files(forest, {"Wind A": 4.0, "Wind B": 5.0, "Wind C": 6.0})
-    stream = ThemeStream(theme_with(forest, ["Wind A", "Wind B", "Wind C"], crossfade=1.0))
+    stream = ThemeMix(theme_with(forest, ["Wind A", "Wind B", "Wind C"], crossfade=1.0))
     bed = bed_of(stream)
-    assert len(stream.recording_streams) == 1  # the group plays as one stream
+    assert len(stream.sources) == 1  # the group plays as one stream
     out = pull(bed, 60)
 
     began, ended = starts(bed), stops(bed)
@@ -168,7 +168,7 @@ def test_files_crossfade_and_never_start_or_stop_together(forest):
 
 def test_no_immediate_repeats_and_the_order_varies(forest):
     make_files(forest, {"Wind A": 2.5, "Wind B": 2.5, "Wind C": 2.5})
-    bed = bed_of(ThemeStream(theme_with(forest, ["Wind A", "Wind B", "Wind C"], crossfade=1.0)))
+    bed = bed_of(ThemeMix(theme_with(forest, ["Wind A", "Wind B", "Wind C"], crossfade=1.0)))
     pull(bed, 90)
     order = [name for _, name in starts(bed)]
     assert len(order) >= 40
@@ -181,7 +181,7 @@ def test_no_immediate_repeats_and_the_order_varies(forest):
 def test_interval_is_each_files_weight(forest, caplog):
     make_files(forest, {"Wind A": 2.2, "Wind B": 2.2, "Wind C": 2.2, "Wind D": 2.2})
     theme = theme_with(forest, ["Wind A", "Wind B", "Wind C", "Wind D"], crossfade=1.0, presence={"Wind D": 0.1})
-    bed = bed_of(ThemeStream(theme))
+    bed = bed_of(ThemeMix(theme))
     with caplog.at_level(logging.DEBUG, logger=recording.logger.name):
         pull(bed, 200)
     order = [name for _, name in starts(bed)]
@@ -196,11 +196,11 @@ def test_interval_is_each_files_weight(forest, caplog):
 
 def test_a_single_file_crossfades_into_itself_without_a_dip(forest):
     noise_file(forest / "Bed" / "Rain.mp3", 3.0)
-    theme = SimpleNamespace(name="Forest", short_file_threshold=15.0, sonorium=SimpleNamespace(master_volume=1.0),
+    theme = SimpleNamespace(name="Forest", short_file_threshold=15.0, library=SimpleNamespace(master_volume=1.0),
                             groups={"Bed": {"mode": "merry_go_round", "crossfade": 1.0}})
-    theme.instances = [recording.ThemeTrack(
+    theme.tracks = [recording.ThemeTrack(
         recording.AudioFile(forest / "Bed" / "Rain.mp3", forest), theme)]
-    bed = bed_of(ThemeStream(theme))
+    bed = bed_of(ThemeMix(theme))
     out = pull(bed, 20)
     began = starts(bed)
     assert [name for _, name in began] == ["Rain"] * len(began) and len(began) >= 8
@@ -213,7 +213,7 @@ def test_a_single_file_crossfades_into_itself_without_a_dip(forest):
 
 def test_short_files_get_a_shorter_crossfade(forest):
     make_files(forest, {"Wind A": 3.0, "Wind B": 1.0})
-    bed = bed_of(ThemeStream(theme_with(forest, ["Wind A", "Wind B"], crossfade=2.0)))
+    bed = bed_of(ThemeMix(theme_with(forest, ["Wind A", "Wind B"], crossfade=2.0)))
     pull(bed, 30)
     began, ended = starts(bed), stops(bed)
     for (t_next, name_next), (t_stop, _), (t_prev, name_prev) in zip(began[1:], ended, began):
@@ -226,8 +226,8 @@ def test_short_files_get_a_shorter_crossfade(forest):
 
 def test_files_added_and_removed_while_playing(forest):
     make_files(forest, {"Wind A": 2.5, "Wind B": 2.5, "Wind C": 2.5})
-    stream = ThemeStream(theme_with(forest, ["Wind A", "Wind B"], crossfade=1.0))
-    chunks = stream.iter_chunks()
+    stream = ThemeMix(theme_with(forest, ["Wind A", "Wind B"], crossfade=1.0))
+    chunks = stream.blocks()
     play(chunks, 15)
     bed = bed_of(stream)
     assert {name for _, name in starts(bed)} == {"Wind A", "Wind B"}
@@ -251,7 +251,7 @@ def test_files_added_and_removed_while_playing(forest):
 def test_a_muted_file_is_never_picked_and_muting_hands_over(forest):
     make_files(forest, {"Wind A": 4.0, "Wind B": 4.0, "Wind C": 4.0})
     theme = theme_with(forest, ["Wind A", "Wind B", "Wind C"], crossfade=1.0, muted={"Wind B"})
-    stream = ThemeStream(theme)
+    stream = ThemeMix(theme)
     bed = bed_of(stream)
     pull(bed, 40)
     assert "Wind B" not in [name for _, name in starts(bed)]
@@ -260,7 +260,7 @@ def test_a_muted_file_is_never_picked_and_muting_hands_over(forest):
     while len(bed._voices) > 1 or bed._current.end is not None:  # not in a crossfade, not near its end
         next(bed)
     playing = bed._current.name
-    next(i for i in theme.instances if i.name == playing).is_enabled = False
+    next(i for i in theme.tracks if i.name == playing).is_enabled = False
     mark = bed._samples
     pull(bed, 2)
     assert [name for _, name in stops(bed, mark)][:1] == [short(playing)]
@@ -271,7 +271,7 @@ def test_a_muted_file_is_never_picked_and_muting_hands_over(forest):
 def test_group_mute_and_volume_scale_the_bed(forest):
     make_files(forest, {"Wind A": 3.0, "Wind B": 3.0})
     theme = theme_with(forest, ["Wind A", "Wind B"], crossfade=1.0)
-    bed = bed_of(ThemeStream(theme))
+    bed = bed_of(ThemeMix(theme))
     loud = pull(bed, 4)
     theme.groups = {"Bed": {**theme.groups["Bed"], "volume": 0.5}}
     half = pull(bed, 4)
@@ -284,7 +284,7 @@ def test_group_mute_and_volume_scale_the_bed(forest):
 def test_other_formats_play(forest):
     tone_file(forest / "Bed" / "Wind A.mp3", 2.5, 300.0, rate=48000, layout="stereo")
     tone_file(forest / "Bed" / "Wind B.mp3", 2.5, 500.0)
-    bed = bed_of(ThemeStream(theme_with(forest, ["Wind A", "Wind B"], crossfade=1.0)))
+    bed = bed_of(ThemeMix(theme_with(forest, ["Wind A", "Wind B"], crossfade=1.0)))
     out = pull(bed, 8)
     began = starts(bed)
     first = next(t for t, name in began if name == "Wind A")
@@ -294,21 +294,21 @@ def test_other_formats_play(forest):
 def test_mode_switch_rebuilds_the_group_on_a_playing_stream(forest):
     make_files(forest, {"Wind A": 2.5, "Wind B": 2.5})
     theme = theme_with(forest, ["Wind A", "Wind B"], crossfade=1.0, mode="intermittent")
-    stream = ThemeStream(theme)
-    chunks = stream.iter_chunks()
+    stream = ThemeMix(theme)
+    chunks = stream.blocks()
     play(chunks, 1)
-    assert len(stream.recording_streams) == 2
-    assert not any(isinstance(s, recording.MerryGoRoundStream) for s in stream.recording_streams)
+    assert len(stream.sources) == 2
+    assert not any(isinstance(s, recording.MerryGoRoundStream) for s in stream.sources)
 
     theme.groups = {"Bed": {"mode": "merry_go_round", "crossfade": 1.0}}  # as the group API sets it
     play(chunks, 3)
     bed = bed_of(stream)
-    assert len(stream.recording_streams) == 1 and starts(bed)
+    assert len(stream.sources) == 1 and starts(bed)
 
     theme.groups = {"Bed": {"crossfade": 1.0}}  # no mode: Intermittent
     play(chunks, 1)
-    assert len(stream.recording_streams) == 2
-    assert all(isinstance(s, recording.SparsePlaybackStream) for s in stream.recording_streams)
+    assert len(stream.sources) == 2
+    assert all(isinstance(s, recording.SparsePlaybackStream) for s in stream.sources)
 
 
 def test_group_mode_and_crossfade_defaults():

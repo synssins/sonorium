@@ -229,7 +229,7 @@ def test_runner_plans_the_next_step_with_its_pre_fade(tmp_path):
                                             "a": {"in": {"Wind": {"styles": ["swell"]}}}}}}}}
     t = build(tmp_path, themes)
     insts = _instances(["Wind"])
-    t.manager.get_theme = lambda theme_id: SimpleNamespace(id=theme_id, name="Storm", instances=insts, groups={})
+    t.manager.get_theme = lambda theme_id: SimpleNamespace(id=theme_id, name="Storm", tracks=insts, groups={})
     scheduled, cancelled = [], []
     t.channel.schedule_transitions = lambda plans: scheduled.append((t.clock.now, plans))
     t.channel.cancel_transitions = lambda: cancelled.append(t.clock.now)
@@ -258,7 +258,7 @@ def test_pre_fade_never_starts_before_the_glide_into_the_current_preset(tmp_path
                             "transitions": {"b": {"in": {"Wind": {"styles": ["swell"], "pre_fade": 90}}}}}}}}
     t = build(tmp_path, themes)
     insts = _instances(["Wind"])
-    t.manager.get_theme = lambda theme_id: SimpleNamespace(id=theme_id, name="Storm", instances=insts, groups={})
+    t.manager.get_theme = lambda theme_id: SimpleNamespace(id=theme_id, name="Storm", tracks=insts, groups={})
     scheduled = []
     t.channel.schedule_transitions = lambda plans: scheduled.append(plans)
     run(t.manager.play(t.session.id))
@@ -283,13 +283,13 @@ def tones(tmp_path_factory):
 def make_theme(folder, names, groups=None):
     R = m.recording
     theme = SimpleNamespace(id="t", name="Storm", groups=groups or {}, short_file_threshold=15.0,
-                            sonorium=SimpleNamespace(master_volume=1.0))
-    theme.instances = []
+                            library=SimpleNamespace(master_volume=1.0))
+    theme.tracks = []
     for n in names:
         key, group = (n, None) if "/" not in n else (n, n.split("/")[0])
         file = folder / f"{n.split('/')[-1]}.mp3"
-        theme.instances.append(R.ThemeTrack(R.AudioFile(file, key=key, group=group), theme))
-    theme.get_stream = lambda overrides=None: m.theme.ThemeStream(theme, overrides)
+        theme.tracks.append(R.ThemeTrack(R.AudioFile(file, key=key, group=group), theme))
+    theme.new_mix = lambda overrides=None: m.theme.ThemeMix(theme, overrides)
     return theme
 
 
@@ -306,7 +306,7 @@ def pull(channel, seconds):
 
 def plans_for(theme, before, after, cfg_in, cfg_out, delay, window):
     R = m.recording
-    plans = m.transitions.step_plans(theme.instances, before, after, cfg_in, cfg_out, "next", "this",
+    plans = m.transitions.step_plans(theme.tracks, before, after, cfg_in, cfg_out, "next", "this",
                                      lambda i, o: R.TrackView(i, o))
     for plan in plans:
         plan.update(delay=delay, window=window, pre_fade_used=window - 10.0)
@@ -438,9 +438,9 @@ def test_per_chunk_cost_with_four_transitions(tones):
 # --- "Playback:" log lines ---
 
 def test_mix_level_is_logged_when_it_moves_a_decibel(caplog):
-    stream = m.theme.ThemeStream.__new__(m.theme.ThemeStream)
+    stream = m.theme.ThemeMix.__new__(m.theme.ThemeMix)
     stream._context = {"label": "Bedroom: Storm"}
-    stream.theme_def = SimpleNamespace(name="Storm")
+    stream.theme = SimpleNamespace(name="Storm")
     stream._logged_gain = None
     stream.mix_level = SimpleNamespace(gain=1.0, count=1.0)
     with caplog.at_level(logging.INFO):
@@ -558,7 +558,7 @@ def api(tmp_path):
                  for n in ("Wind", "Rain", "Drums")]
         for inst in insts:
             inst.meta._duration_samples = 60 * RATE
-        t.manager.get_theme = lambda theme_id: (SimpleNamespace(id=theme_id, name="Storm", instances=insts, groups={})
+        t.manager.get_theme = lambda theme_id: (SimpleNamespace(id=theme_id, name="Storm", tracks=insts, groups={})
                                                 if theme_id == "storm" else None)
         app = FastAPI()
         app.include_router(mods.api_v2.create_api_router(
