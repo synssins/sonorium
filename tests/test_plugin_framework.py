@@ -282,19 +282,23 @@ def api(m, tmp_path):
     manager, store = manager_with(m, tmp_path)
     asyncio.run(manager.enable_plugin("demo"))
     rescans = []
+    behaviour = {"cancel": False}
 
     def on_themes_changed(delay=2.0):
         rescans.append(delay)
 
         async def done():
-            return None
-        return asyncio.get_running_loop().create_task(done())
+            await asyncio.sleep(0.05)
+        task = asyncio.get_running_loop().create_task(done())
+        if behaviour["cancel"]:
+            task.cancel()  # as schedule_theme_refresh does when another request reschedules
+        return task
 
     app = FastAPI()
     app.include_router(api_v2.create_api_router(
         session_manager=MagicMock(), group_manager=MagicMock(), ha_registry=MagicMock(),
         state_store=store, plugin_manager=manager, on_themes_changed=on_themes_changed))
-    return MagicMock(client=TestClient(app), manager=manager, rescans=rescans)
+    return MagicMock(client=TestClient(app), manager=manager, rescans=rescans, behaviour=behaviour)
 
 
 def test_plugin_list_has_builtin_settings_and_schema(api):
@@ -330,6 +334,15 @@ def test_action_that_changed_themes_rescans_and_notifies(api, tmp_path):
     assert r.json()["themes_changed"] is True
     assert api.rescans == [0.0]
     plugin.on_theme_created.assert_awaited_once_with("abc", tmp_path / "T")
+
+
+def test_action_succeeds_when_its_rescan_is_replaced(api):
+    api.behaviour["cancel"] = True
+    plugin = api.manager.get_plugin("demo")
+    plugin.handle_action = AsyncMock(return_value={"success": True, "message": "ok", "refresh_themes": True})
+    r = api.client.post("/api/plugins/demo/action", json={"action": "import", "data": {}})
+    assert r.status_code == 200, r.text
+    assert r.json()["success"] is True and r.json()["themes_changed"] is True
 
 
 def test_action_without_theme_changes_does_not_rescan(api):

@@ -1879,6 +1879,9 @@ def create_api_router(
             task = on_themes_changed(0.0)
             if task is not None:
                 await task
+        except asyncio.CancelledError:
+            # Another request rescheduled the refresh: that one runs instead
+            logger.debug(f"Theme refresh after {reason} was replaced by a newer one")
         except Exception as e:
             logger.warning(f"Theme refresh after {reason} failed: {e}")
 
@@ -1968,13 +1971,7 @@ def create_api_router(
             (theme_path / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
             # Load it now, so the editor can open it straight away
-            if on_themes_changed:
-                task = on_themes_changed(0.0)
-                if task is not None:
-                    try:
-                        await task
-                    except Exception as e:
-                        logger.warning(f"Theme refresh after creating '{name}' failed: {e}")
+            await _rescan_themes(f"creating '{name}'")
             await _notify_theme_created(theme_id, theme_path)
 
             return {
