@@ -8,7 +8,11 @@
         // Determine base path for ingress support and store globally
         (function() {
             var path = window.location.pathname;
-            window.SONORIUM_BASE = path.replace(/\/?(index\.html)?$/, '') || '';
+            // The Sonorium app may set its own base (docs/APP_API.md 12.2.2); a browser never does
+            var host = window.SONORIUM_HOST;
+            window.SONORIUM_BASE = host && typeof host.baseUrl === 'string'
+                ? host.baseUrl.replace(/\/$/, '')
+                : path.replace(/\/?(index\.html)?$/, '') || '';
 
             // Dynamically load CSS with correct path
             var link = document.createElement('link');
@@ -828,26 +832,22 @@ Example:
                 </div>
             </div>
 
-            <!-- Status: tiles and list headers fixed, the channel list scrolls -->
+            <!-- Status: tiles, title and legend fixed; the playing channels scroll (docs/design/Now_Playing.dc.html) -->
             <div id="view-status" class="view sp sp-ui">
                 <div class="sp-top">
-                    <div class="sp-wrap">
-                        <div class="spst-tiles">
+                    <div class="sp-wrap np-head">
+                        <div class="spst-tiles np-tiles">
                             <div class="status-card spst-tile" title="Channels playing now">
                                 <h4>Active Channels</h4>
                                 <div id="status-active-channels" class="status-value">0</div>
                             </div>
-                            <div class="status-card spst-tile" title="Speakers Sonorium can play to">
-                                <h4>Total Speakers</h4>
-                                <div id="status-total-speakers" class="status-value">0</div>
-                            </div>
                         </div>
-                        <h3 class="spst-title">Channels <span class="badge badge-type" id="status-ch-count">0</span></h3>
-                        <div class="sp-lhead spst-grid" id="status-lhead"><span>Channel</span><span>Theme</span><span>State</span></div>
+                        <h3 class="spst-title">Playing <span class="badge badge-type" id="status-ch-count">0</span></h3>
+                        <div class="np-legend" id="np-legend" hidden><span><i class="np-dot on"></i>Playing</span><span><i class="np-dot fade"></i>Fading</span><span><i class="np-dot wait"></i>Waiting</span><span><i class="np-dot rest"></i>Paused</span><span><i class="np-dot off"></i>Muted</span></div>
                     </div>
                 </div>
                 <div class="sp-scroll sp-scroll-flush">
-                    <div class="sp-wrap" id="channel-list"></div>
+                    <div class="sp-wrap np-list" id="np-list"></div>
                 </div>
             </div>
         </main>

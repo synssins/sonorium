@@ -145,6 +145,9 @@ class FakeZeroconf:
     def register_service(self, info, allow_name_change=False):
         self.registered.append(info)
 
+    def update_service(self, info):
+        self.registered = [info if r.name == info.name else r for r in self.registered]
+
     def unregister_service(self, info):
         self.registered.remove(info)
 
@@ -225,6 +228,28 @@ def test_every_name_taken_still_announces_the_service(zc, caplog):
     info = zc.instances[0].registered[0]
     assert info.server == "sonorium-0f8fad5b.local." and info.properties["host"] == ""
     assert "are all taken" in caplog.text
+
+
+def test_txt_pair_follows_require_login(zc):
+    """G7: TXT pair is "1" while Require login is on, and follows it when it changes."""
+    required = {"on": False}
+    a = m.announce.Announcer(addresses=lambda first: ["192.168.1.5"], pair_check_seconds=3600)
+    assert a.start(server_id="0f8fad5b-d9cb-469f-a165-70867728950e", version="1.6.2", api=1,
+                   base_url="http://192.168.1.5:8008", https_port=8808, login_required=lambda: required["on"])
+    zc_ = zc.instances[0]
+    assert zc_.registered[0].properties["pair"] == "0"
+    assert a.refresh_pair() is False  # unchanged: nothing re-announced
+    required["on"] = True
+    assert a.refresh_pair() is True
+    info = zc_.registered[0]
+    assert info.properties["pair"] == "1" and info.properties["host"] == "sonorium.local" and info.port == 8008
+    required["on"] = False
+    assert a.refresh_pair() is True and zc_.registered[0].properties["pair"] == "0"
+    a.stop()
+    assert a.refresh_pair() is False  # stopped: nothing to update
+    # A plain value still works (older callers)
+    b, ok = announce()
+    assert ok and zc.instances[-1].registered[0].properties["pair"] == "1"
 
 
 def test_no_lan_address_no_announcement(zc):

@@ -98,6 +98,10 @@ class WebApp:
                     response.headers["Vary"] = "Origin"
             return response
 
+        # Older theme, category and channel routes' 200 {"error"} answers get an error status (G10)
+        from sonorium.web.legacy_errors import LegacyErrorStatus
+        self.app.add_middleware(LegacyErrorStatus)
+
         # Register startup event to initialize v2
         @self.app.on_event("startup")
         async def startup_event():
@@ -732,7 +736,7 @@ class WebApp:
                     self._announcer.start, server_id=identity.server_id, version=__version__, api=API_VERSION,
                     base_url=self._stream_base_url(),
                     https_port=self._https_port_outside() if identity.tls_ready else 0,
-                    login_required=bool(self.auth.expected_providers)))
+                    login_required=self.auth.login_required))  # TXT pair follows Require login
             else:
                 logger.info("mDNS: the Home Assistant add-on isn't on the host network, so sonorium.local isn't "
                             "announced; the app links with the QR code, which carries the address")

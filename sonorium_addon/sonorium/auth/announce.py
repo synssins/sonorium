@@ -3,6 +3,7 @@ Announce Sonorium on the LAN with mDNS, so the app and browsers can find it:
 
     sonorium.local          the server's LAN addresses (sonorium-2.local, ... when the name is taken)
     _sonorium._tcp.local.   TXT: id, name, api, http, https, pair, version, url, host
+                            (pair: "1" while Require login is on; it follows the setting)
 
 Only a hint: anyone on the LAN can announce anything, so the app trusts a
 server only after linking (the QR code carries the certificate fingerprint).
@@ -17,7 +18,8 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
-from typing import Callable, Iterable, Optional
+import threading
+from typing import Callable, Iterable, Optional, Union
 from urllib.parse import urlsplit
 
 from sonorium.obs import logger
@@ -116,11 +118,48 @@ def lan_addresses(first: str = "", *, interfaces: Optional[Iterable[tuple[str, s
 class Announcer:
     """start() and stop() block (zeroconf's own thread): call them with asyncio.to_thread."""
 
-    def __init__(self, *, addresses: Callable[[str], list[str]] = lan_addresses):
+    def __init__(self, *, addresses: Callable[[str], list[str]] = lan_addresses, pair_check_seconds: float = 10.0):
         self._zc = None
         self._info = None
         self._addresses = addresses
         self.hostname: Optional[str] = None  # "sonorium.local" once announced
+        self._login_required: Callable[[], bool] = lambda: False
+        self._pair_check_seconds = pair_check_seconds
+        self._stop_watch = threading.Event()
+        self._watcher: Optional[threading.Thread] = None
+
+    def _pair(self) -> str:
+        """TXT pair: "1" while Require login is on (sign-in needed), else "0"."""
+        try:
+            return "1" if self._login_required() else "0"
+        except Exception:
+            return "0"
+
+    def refresh_pair(self) -> bool:
+        """Re-announce when TXT pair no longer matches Require login. True when it changed."""
+        zc, info = self._zc, self._info
+        if zc is None or info is None:
+            return False
+        pair = self._pair()
+        text = lambda s: s.decode() if isinstance(s, bytes) else s  # noqa: E731  (zeroconf keeps bytes)
+        properties = {text(k): text(v) for k, v in (info.properties or {}).items()}
+        if properties.get("pair") == pair:
+            return False
+        from zeroconf import ServiceInfo
+        properties["pair"] = pair
+        new = ServiceInfo(info.type, info.name, addresses=info.addresses, port=info.port,
+                          properties=properties, server=info.server)
+        zc.update_service(new)
+        self._info = new
+        logger.debug(f"mDNS: pair is now {pair}")
+        return True
+
+    def _watch(self) -> None:
+        while not self._stop_watch.wait(self._pair_check_seconds):
+            try:
+                self.refresh_pair()
+            except Exception as e:
+                logger.debug(f"mDNS: could not update pair ({e})")
 
     def _resolve(self, name: str) -> list[str]:
         """The IPv4 addresses another responder gives for `name` (empty: nobody answered)."""
@@ -143,7 +182,10 @@ class Announcer:
             logger.info(f"mDNS: {name} is taken by {', '.join(sorted(answer))}")
         return None
 
-    def start(self, *, server_id: str, version: str, api: int, base_url: str, https_port: int, login_required: bool) -> bool:
+    def start(self, *, server_id: str, version: str, api: int, base_url: str, https_port: int,
+              login_required: Union[bool, Callable[[], bool]]) -> bool:
+        """login_required: Require login now (a callable is checked again every few seconds: TXT pair follows it)."""
+        self._login_required = login_required if callable(login_required) else (lambda: bool(login_required))
         url = urlsplit(base_url or "")
         ips = [ip for ip in self._addresses(url.hostname or "") if _usable(ip)]
         if not ips:
@@ -160,7 +202,7 @@ class Announcer:
             hostname = self._pick_hostname(set(ips))
             server = f"{hostname}." if hostname else f"sonorium-{server_id[:8]}.local."
             properties = {"id": server_id, "name": "Sonorium", "api": str(api), "http": str(http_port),
-                          "https": str(https_port or ""), "pair": "1" if login_required else "0",
+                          "https": str(https_port or ""), "pair": self._pair(),
                           "version": version, "url": f"{url.scheme or 'http'}://{url.netloc}",
                           "host": hostname or ""}
             self._info = ServiceInfo(SERVICE_TYPE, f"Sonorium {server_id[:8]}.{SERVICE_TYPE}",
@@ -168,6 +210,10 @@ class Announcer:
                                      properties=properties, server=server)
             self._zc.register_service(self._info, allow_name_change=True)
             self.hostname = hostname
+            if callable(login_required):  # Require login can change while Sonorium runs
+                self._stop_watch.clear()
+                self._watcher = threading.Thread(target=self._watch, name="mdns-pair", daemon=True)
+                self._watcher.start()
             if hostname:
                 logger.info(f"mDNS: Sonorium announced as {hostname} ({', '.join(ips)}), "
                             f"http://{hostname}:{http_port}" + (f" and https://{hostname}:{https_port}" if https_port else ""))
@@ -181,6 +227,7 @@ class Announcer:
             return False
 
     def stop(self) -> None:
+        self._stop_watch.set()
         zc, info = self._zc, self._info
         self._zc = self._info = None
         self.hostname = None

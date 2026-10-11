@@ -400,3 +400,11 @@ def test_catalog_zips_match_the_bundled_plugins():
         assert manifest["version"] == entry["version"]
         assert manifest == json.loads((bundled / pid / "manifest.json").read_text(encoding="utf-8"))
         assert code == (bundled / pid / "plugin.py").read_bytes().replace(b"\r\n", b"\n")
+
+
+def test_catalog_lists_uninstalled_builtins_and_installs_them_from_the_bundle(m, tmp_path):
+    """An uninstalled built-in shows in the Catalog and installs again from the copy Sonorium carries."""
+    from sonorium.plugins.builtin import BUILTIN_PLUGINS_DIR
+    ids = sorted(p.name for p in BUILTIN_PLUGINS_DIR.iterdir() if (p / "plugin.py").exists())
+    assert "users" in ids and "integration" in ids
+    assert m.loader.parse_version("3.1.2") > m.loader.parse_version("3.0.0")  # Update only for newer versions

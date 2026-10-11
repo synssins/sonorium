@@ -86,6 +86,7 @@ class SessionResponse(BaseModel):
     playlist: Optional[dict] = None  # Playlist status: name, entry, theme, next change
     speakers_muted: bool = False  # the speakers' stream is silenced
     listening: bool = False  # a browser listens (its mix runs even with the speakers stopped)
+    outputs: list[dict] = Field(default_factory=list)  # devices the app reports playing it (core/outputs.py)
     recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
     created_at: str
     last_played_at: Optional[str]
@@ -255,6 +256,15 @@ def _preset_choice(session) -> Optional[str]:
     return choice_id(sequence_id) if sequence_id else getattr(session, 'preset_id', None)
 
 
+def _outputs_of(session, session_manager) -> list[dict]:
+    outputs = getattr(session_manager, "outputs", None)
+    try:
+        described = outputs.describe(session.id) if outputs is not None else []
+        return described if isinstance(described, list) else []
+    except Exception:
+        return []
+
+
 def _session_to_response(session, session_manager) -> SessionResponse:
     """Convert a Session to SessionResponse."""
     try:
@@ -282,6 +292,7 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         playlist=playback.get("playlist"),
         speakers_muted=session.speakers_muted,
         listening=session_manager.is_listened(session),
+        outputs=_outputs_of(session, session_manager),
         recent=list(reversed(session.recent)),
         created_at=session.created_at,
         last_played_at=session.last_played_at,
@@ -333,6 +344,10 @@ def create_api_router(
         Configured APIRouter
     """
     router = APIRouter(prefix="/api", tags=["api"])
+
+    # A speaker's own volume and mute, set from the app (web/app_routes.py)
+    from sonorium.core.speaker_live import SpeakerLive
+    speaker_live = SpeakerLive(lambda: getattr(session_manager, "media_controller", None))
 
     # Settings > Advanced's playback values: the mixer reads them from this store
     from sonorium import playback_values
@@ -428,7 +443,31 @@ def create_api_router(
         caller = _caller(http)
         sessions = [s for s in session_manager.list() if caller.can_channel(s.id)]
         return [_session_to_response(s, session_manager) for s in sessions]
-    
+
+    @router.get("/now-playing")
+    async def now_playing(http: Request) -> dict:
+        """
+        The playing channels as the mixer has them right now (the Status page
+        asks a few times a second while it is open): each track's state, mode,
+        level and the seconds until its next change (sonorium/now_playing.py).
+        "at" is the server's time of the snapshot (seconds since the epoch).
+        """
+        import time
+        from sonorium.now_playing import channel_now
+        caller = _caller(http)
+        channels = []
+        for session in session_manager.list():
+            if not caller.can_channel(session.id):
+                continue
+            try:
+                entry = channel_now(session_manager, session)
+            except Exception as e:
+                logger.debug(f"Now playing: '{session.name}' not read: {e}")
+                entry = None
+            if entry is not None:
+                channels.append(entry)
+        return {"at": round(time.time(), 3), "channels": channels}
+
     @router.post("/sessions", status_code=status.HTTP_201_CREATED)
     async def create_session(request: CreateSessionRequest) -> SessionResponse:
         """Create a new session."""
@@ -607,21 +646,26 @@ def create_api_router(
         return {"speakers_muted": muted}
 
     @router.post("/sessions/{session_id}/listen")
-    async def listen_session(session_id: str) -> dict:
+    async def listen_session(session_id: str, request: Request) -> dict:
         """
         Listen here: this browser plays the channel's stream (GET stream_path
         with ?local=1). The mix starts without the speakers if they don't play,
         and runs until no browser listens. Play and Stop stay the speakers'.
+        Optional {"hold_seconds": 0-300} (or ?hold_seconds=): how long the mix
+        waits for a dropped stream to come back (default 15).
         """
+        from sonorium.web.app_routes import hold_seconds_of
+        hold = await hold_seconds_of(request)
         try:
-            channel = session_manager.listen(session_id)
+            channel = session_manager.listen(session_id, hold)
         except KeyError:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         if channel is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No free channel")
-        return {"channel_id": channel.id, "stream_path": channel.stream_path}
+        return {"channel_id": channel.id, "stream_path": channel.stream_path,
+                "hold_seconds": session_manager.listen_hold(session_id)}
 
     @router.delete("/sessions/{session_id}/listen")
     async def unlisten_session(session_id: str) -> dict:
@@ -1312,7 +1356,8 @@ def create_api_router(
         """List all available speakers (flat list)."""
         hierarchy = ha_registry.hierarchy
         speakers = hierarchy.get_all_speakers()
-        return [s.to_dict() for s in speakers]
+        # with "volume" and "muted" when they were set live (PUT /speakers/{id}/volume, /muted)
+        return [{**s.to_dict(), **speaker_live.state(s.entity_id)} for s in speakers]
     
     @router.get("/speakers/hierarchy")
     async def get_speaker_hierarchy() -> dict:
@@ -2513,6 +2558,38 @@ def create_api_router(
     _catalog_cache: dict = {'data': None, 'timestamp': 0}
     CATALOG_CACHE_TTL = 3600  # 1 hour
 
+    from sonorium.plugins import loader
+
+    def _bundled_manifests() -> list:
+        """The manifests of the plugins that come with Sonorium."""
+        import json as _json
+        out = []
+        base = loader.BUILTIN_PLUGINS_DIR
+        if base is None or not base.exists():
+            return out
+        for item in sorted(base.iterdir()):
+            manifest = item / 'manifest.json'
+            if item.is_dir() and not item.name.startswith('_') and (item / 'plugin.py').exists() and manifest.exists():
+                try:
+                    data = _json.loads(manifest.read_text(encoding='utf-8'))
+                except (OSError, ValueError):
+                    continue
+                if data.get('id') == item.name:
+                    out.append(data)
+        return out
+
+    async def _install_bundled(plugin_id: str, manifest: dict):
+        """Install a built-in plugin again from the copy that comes with Sonorium."""
+        deleted = plugin_manager.state_store.settings.deleted_builtin_plugins
+        if plugin_id in deleted:
+            deleted.remove(plugin_id)
+            plugin_manager.state_store.save()
+        loader.copy_builtin_plugins(plugin_manager.plugins_dir, skip_plugins=list(deleted))
+        await plugin_manager.reload_plugins()
+        logger.info(f"Installed the built-in plugin {manifest.get('name', plugin_id)} again")
+        return {'status': 'ok', 'plugin_id': plugin_id, 'name': manifest.get('name', plugin_id),
+                'version': manifest.get('version')}
+
     @router.get("/plugins/catalog")
     async def get_plugin_catalog():
         """Fetch available plugins from the GitHub catalog."""
@@ -2553,12 +2630,28 @@ def create_api_router(
             if pid in installed_plugins:
                 plugin_copy['installed'] = True
                 plugin_copy['installed_version'] = installed_plugins[pid]
-                plugin_copy['update_available'] = plugin.get('version') != installed_plugins[pid]
+                newer = loader.parse_version(plugin.get('version'))
+                have = loader.parse_version(installed_plugins[pid])
+                plugin_copy['update_available'] = bool(newer and have and newer > have)
             else:
                 plugin_copy['installed'] = False
                 plugin_copy['installed_version'] = None
                 plugin_copy['update_available'] = False
             enriched_plugins.append(plugin_copy)
+
+        # Built-in plugins come with Sonorium: one that was uninstalled can be installed again
+        listed = {p.get('id') for p in enriched_plugins}
+        for manifest in _bundled_manifests():
+            pid = manifest.get('id')
+            if pid in listed:
+                continue
+            enriched_plugins.append({
+                'id': pid, 'name': manifest.get('name', pid), 'version': manifest.get('version'),
+                'description': manifest.get('description', ''), 'author': manifest.get('author', ''),
+                'category': 'Built-in', 'bundled': True,
+                'installed': pid in installed_plugins, 'installed_version': installed_plugins.get(pid),
+                'update_available': False,
+            })
 
         return {
             'version': catalog.get('version', 1),
@@ -2581,6 +2674,10 @@ def create_api_router(
         plugin_id = body.get('plugin_id')
         if not plugin_id:
             raise HTTPException(status_code=400, detail='plugin_id is required')
+
+        bundled = next((m for m in _bundled_manifests() if m.get('id') == plugin_id), None)
+        if bundled is not None and plugin_id not in plugin_manager.plugins:
+            return await _install_bundled(plugin_id, bundled)
 
         # Fetch catalog
         catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium/main/plugins/catalog.json'
@@ -3006,5 +3103,9 @@ def create_api_router(
         except Exception as e:
             logger.error(f"Failed to uninstall plugin {plugin_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to uninstall plugin: {str(e)}")
+
+    # The Sonorium app's routes (docs/APP_API.md section 13)
+    from sonorium.web.app_routes import add_app_routes
+    add_app_routes(router, session_manager=session_manager, ha_registry=ha_registry, speaker_live=speaker_live)
 
     return router

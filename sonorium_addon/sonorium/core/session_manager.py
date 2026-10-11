@@ -41,8 +41,10 @@ DEFAULT_CROSSFADE_SECONDS = 3.0
 RECENT_EVENTS = 20
 
 # Listen here: a channel's mix kept running for browsers alone is released
-# once no browser has listened for this long
+# once no browser has listened for this long (POST .../listen can ask for
+# longer, up to LISTEN_HOLD_MAX_SECONDS, e.g. a phone on flaky Wi-Fi)
 LISTEN_RELEASE_SECONDS = 15
+LISTEN_HOLD_MAX_SECONDS = 300
 
 if TYPE_CHECKING:
     from sonorium.ha.registry import HARegistry
@@ -90,6 +92,12 @@ class SessionManager:
         # or not their speakers play, until no browser listens
         self._listening: set[str] = set()
         self._listeners: dict[str, int] = {}  # how many browsers listen to each
+        self._listen_hold: dict[str, float] = {}  # seconds a mix waits for its browsers to come back
+
+        # Devices the app reports playing a channel (a Cast device): their mix
+        # runs like a listener's while they are reported (core/outputs.py)
+        from sonorium.core.outputs import OutputRegistry
+        self.outputs = OutputRegistry()
 
         # Sequence and playlist timers
         from sonorium.core.playback_runner import PlaybackRunner
@@ -319,8 +327,12 @@ class SessionManager:
         return session.id in self._listening
 
     def _live(self, session: Session) -> bool:
-        """The channel's mix runs: its speakers play, or a browser listens."""
-        return session.is_playing or session.id in self._listening
+        """The channel's mix runs: its speakers play, a browser listens, or the app reports a device playing it."""
+        return session.is_playing or session.id in self._listening or self.outputs.held(session.id)
+
+    def _kept(self, session_id: str) -> bool:
+        """Something other than the speakers keeps the channel's mix: a browser listening, or a reported output."""
+        return session_id in self._listening or self.outputs.held(session_id)
 
     def _channel_for(self, session: Session):
         channel_id = self._session_channels.get(session.id)
@@ -992,11 +1004,13 @@ class SessionManager:
             return False
         
         # Release channel if assigned
+        self.drop_outputs(session_id, "deleted")
         self._release_channel(session_id)
         self.runner.forget(session_id)
         self._fading.pop(session_id, None)
         self._listening.discard(session_id)
         self._listeners.pop(session_id, None)
+        self._listen_hold.pop(session_id, None)
 
         session = self.state.sessions.pop(session_id)
         self.state.save()
@@ -1233,6 +1247,7 @@ class SessionManager:
 
         was_running = session.is_playing or session_id in self._session_channels
         session.is_playing = False
+        self.drop_outputs(session_id, "paused")  # a reported Cast device pauses like the speakers
         self.note(session, "Stopped")
         self.state.save()
         if was_running:
@@ -1270,6 +1285,7 @@ class SessionManager:
 
         was_running = session.is_playing or session_id in self._session_channels
         session.is_playing = False
+        self.drop_outputs(session_id, reason)  # a reported Cast device stops like the speakers
         self.note(session, "Stopped")
         self.state.save()
         if was_running:
@@ -1328,38 +1344,76 @@ class SessionManager:
     
     # --- Listen here (a browser plays the channel's stream) ---
 
-    def listen(self, session_id: str) -> Optional[Channel]:
+    def _run_mix(self, session: Session) -> tuple[Optional[Channel], bool]:
         """
-        A browser listens to the channel: its mix runs (started without the
-        speakers if they don't play) until no browser listens. Returns the
-        channel, None if none is free. KeyError: no such session;
-        ValueError: no theme, or it isn't found.
+        For a listener or a reported output: the channel's mix runs, started
+        without the speakers if they don't play. Returns (the channel or None
+        when none is free, whether its sequence or playlist starts fresh: then
+        call runner.after_play once the listener is counted). ValueError: no
+        theme, or it isn't found.
         """
-        session = self.state.sessions.get(session_id)
-        if not session:
-            raise KeyError(session_id)
         theme = self.get_theme(session.theme_id) if session.theme_id else None
         if theme is None:
             raise ValueError("No theme selected" if not session.theme_id else "Theme not found")
         channel = self._assign_channel(session)
         if channel is None:
-            return None
-        fresh_start = not self._live(session) and (self.runner.running_sequence(session_id) is None
-                                                   and self.runner.running_playlist(session_id) is None)
+            return None, False
+        fresh_start = not self._live(session) and (self.runner.running_sequence(session.id) is None
+                                                   and self.runner.running_playlist(session.id) is None)
         if fresh_start:
             self.runner.before_play(session)  # the playlist entry, or the sequence's first preset
             theme = self.get_theme(session.theme_id) or theme
         if not session.is_playing:
             # Speakers off: (re)start the mix, or cancel its fade-out after a stop or pause
-            self._fading.pop(session_id, None)
+            self._fading.pop(session.id, None)
             fade = self.crossfade_seconds()
             channel.set_theme(theme, self.session_overrides(session), crossfade=fade, fade_in=fade)
             channel.fade_in(fade)
+        return channel, fresh_start
+
+    def listen_hold(self, session_id: str) -> float:
+        """Seconds the channel's mix waits for its browsers to come back after the last one left."""
+        return self._listen_hold.get(session_id, LISTEN_RELEASE_SECONDS)
+
+    def _listening_changed(self, session_id: str, listening: bool) -> None:
+        if not listening:
+            self._listen_hold.pop(session_id, None)
+        session = self.state.sessions.get(session_id)
+        if session is not None:
+            self.publish("channel.listening", session, listening=listening)
+
+    def listen(self, session_id: str, hold_seconds: Optional[float] = None) -> Optional[Channel]:
+        """
+        A browser listens to the channel: its mix runs (started without the
+        speakers if they don't play) until no browser listens. Returns the
+        channel, None if none is free. KeyError: no such session;
+        ValueError: no theme, or it isn't found.
+
+        hold_seconds (0..LISTEN_HOLD_MAX_SECONDS, default LISTEN_RELEASE_SECONDS):
+        how long the mix waits for a browser whose stream dropped to come
+        back. With several browsers the longest asked for counts.
+        """
+        if hold_seconds is not None:
+            hold_seconds = float(hold_seconds)
+            if not 0 <= hold_seconds <= LISTEN_HOLD_MAX_SECONDS:
+                raise ValueError(f"hold_seconds must be between 0 and {LISTEN_HOLD_MAX_SECONDS}")
+        session = self.state.sessions.get(session_id)
+        if not session:
+            raise KeyError(session_id)
+        channel, fresh_start = self._run_mix(session)
+        if channel is None:
+            return None
         channel.expect_local_listener()
+        was_listening = session_id in self._listening
+        if hold_seconds is not None:
+            held = self._listen_hold.get(session_id, 0.0) if was_listening else 0.0
+            self._listen_hold[session_id] = max(held, hold_seconds)
         self._listening.add(session_id)
         self._listeners[session_id] = self._listeners.get(session_id, 0) + 1
         if fresh_start:
             self.runner.after_play(session)  # its timers run while the browser listens
+        if not was_listening:
+            self._listening_changed(session_id, True)
         logger.info(f"  '{session.name}': a browser listens on channel {channel.id}")
         return channel
 
@@ -1370,14 +1424,93 @@ class SessionManager:
             self._listeners[session_id] = left
             return
         self._listeners.pop(session_id, None)
-        self._listening.discard(session_id)
+        if session_id in self._listening:
+            self._listening.discard(session_id)
+            self._listening_changed(session_id, False)
+        await self._release_unused(session_id, "no browser listens")
+
+    async def _release_unused(self, session_id: str, why: str) -> None:
+        """Nothing keeps the channel's mix any more (no speakers, listener or output): fade out, release."""
         session = self.state.sessions.get(session_id)
-        if session and not session.is_playing and session_id not in self._listening:
+        if session and not session.is_playing and not self._kept(session_id):
             self.runner.on_stop(session_id)  # nothing plays it now: its sequence or playlist pauses
-        if session and not session.is_playing and session_id in self._session_channels:
-            if await self._fade_out(session) and session_id not in self._listening:
+        if session and not session.is_playing and not self._kept(session_id) and session_id in self._session_channels:
+            if await self._fade_out(session) and not self._kept(session_id):
                 self._release_channel(session_id)
-                logger.info(f"  '{session.name}': no browser listens, channel released")
+                logger.info(f"  '{session.name}': {why}, channel released")
+
+    # --- Outputs the app reports (a Cast device playing a channel; core/outputs.py) ---
+
+    def _publish_output(self, event_type: str, output, **extra) -> None:
+        session = self.state.sessions.get(output.session_id)
+        if session is not None:
+            self.publish(event_type, session, output_id=output.output_id, kind=output.kind,
+                         output_name=output.name, address=output.address, **extra)
+
+    def add_output(self, session_id: str, report: dict, device_id: Optional[str] = None):
+        """
+        The app reports a device playing the channel's stream: the mix runs
+        while it is reported. Returns (output, channel); channel None when no
+        channel is free (nothing recorded). KeyError: no such session;
+        ValueError (OutputError): no theme, or a bad report.
+        """
+        from sonorium.core.outputs import MAX_PER_CHANNEL, OutputError, clean_report
+        report = clean_report(report)
+        session = self.state.sessions.get(session_id)
+        if not session:
+            raise KeyError(session_id)
+        if len(self.outputs.of(session_id)) >= MAX_PER_CHANNEL:
+            raise OutputError(f"A channel can have at most {MAX_PER_CHANNEL} outputs")
+        channel, fresh_start = self._run_mix(session)
+        if channel is None:
+            return None, None
+        output, replaced = self.outputs.add(session_id, report, device_id)
+        for old in replaced:
+            self._publish_output("channel.output_removed", old, reason="replaced")
+        if fresh_start:
+            self.runner.after_play(session)  # its timers run while the device plays it
+        self._publish_output("channel.output_added", output)
+        for old in replaced:
+            if old.session_id != session_id:
+                self._background(self._release_unused(old.session_id, f"{old.name} moved to another channel"))
+        logger.info(f"  '{session.name}': {output.kind} output '{output.name}' plays channel {channel.id}")
+        return output, channel
+
+    def touch_output(self, session_id: str, output_id: str):
+        """The app's heartbeat for an output. None: no such output (expired or dropped: report it again)."""
+        return self.outputs.touch(session_id, output_id)
+
+    def remove_output(self, session_id: str, output_id: str, reason: str = "removed"):
+        """
+        The device stopped playing the channel. Returns the output, None if
+        unknown. The mix fades out and is released in the background when
+        nothing else keeps it.
+        """
+        output = self.outputs.remove(session_id, output_id)
+        if output is None:
+            return None
+        self._publish_output("channel.output_removed", output, reason=reason)
+        self._background(self._release_unused(session_id, f"{output.name} stopped"))
+        return output
+
+    def drop_outputs(self, session_id: str, reason: str) -> list:
+        """Forget every output of a channel (stopped, paused, deleted, idle), each announced."""
+        dropped = self.outputs.drop(session_id)
+        for output in dropped:
+            self._publish_output("channel.output_removed", output, reason=reason)
+        return dropped
+
+    _tasks: set = set()  # background fades still running (a reference keeps them alive)
+
+    @classmethod
+    def _background(cls, coro) -> None:
+        try:
+            task = asyncio.get_running_loop().create_task(coro)
+        except RuntimeError:  # no event loop running (tests): now
+            asyncio.run(coro)
+            return
+        cls._tasks.add(task)
+        task.add_done_callback(cls._tasks.discard)
 
     async def stop_all(self) -> int:
         """
@@ -1408,14 +1541,24 @@ class SessionManager:
         # Listen here: no browser for a while (closed without unlistening)
         for session_id in list(self._listening):
             channel = self.channel_manager.get_channel(self._session_channels.get(session_id) or 0)
-            if channel and channel.local_idle_seconds() < LISTEN_RELEASE_SECONDS:
+            if channel and channel.local_idle_seconds() < self.listen_hold(session_id):
                 continue
             self._listening.discard(session_id)
             self._listeners.pop(session_id, None)
+            self._listening_changed(session_id, False)
             session = self.state.sessions.get(session_id)
-            if session and not session.is_playing:
+            if session and not session.is_playing and not self.outputs.held(session_id):
                 logger.info(f"  '{session.name}': no browser listens any more, channel released")
                 self._release_channel(session_id)
+
+        # Outputs the app reported and stopped sending heartbeats for
+        for output in self.outputs.expired():
+            self._publish_output("channel.output_removed", output, reason="expired")
+            session = self.state.sessions.get(output.session_id)
+            if session and not session.is_playing and not self._kept(session.id):
+                logger.info(f"  '{session.name}': {output.name} was not heard from, channel released")
+                self.runner.on_stop(session.id)
+                self._release_channel(session.id)
 
         stopped = []
         for session_id, channel_id in list(self._session_channels.items()):
@@ -1423,6 +1566,7 @@ class SessionManager:
             if not channel or channel.idle_seconds() < idle_after or session_id in self._listening:
                 continue
             logger.info(f"  Channel {channel_id}: no listener has pulled audio for {int(channel.idle_seconds())}s, stopping its session")
+            self.drop_outputs(session_id, "idle")  # a reported device that pulls nothing isn't playing
             self._release_channel(session_id)
             self.runner.on_stop(session_id)
             session = self.state.sessions.get(session_id)

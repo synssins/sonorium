@@ -259,19 +259,41 @@ All theme management is done through the Sonorium web interface:
 
 #### Sign-in
 
-Home Assistant's sidebar opens Sonorium without a second sign-in: Home Assistant already
-signed you in, and your Home Assistant user gets a Sonorium account. The direct ports are
-open on your network until you choose otherwise:
+Home Assistant's users are Sonorium's users. Each person who signs in to Home Assistant
+gets Sonorium with the role their Home Assistant account has:
 
-1. **Settings › Users & devices**: give your account a password (⋯ › Reset password…).
-2. Turn on **Require login**. From then on port 8008 (HTTP) and 8808 (HTTPS) need a
-   sign-in, a linked phone or a key.
+| Home Assistant | Sonorium |
+|---|---|
+| Owner or Administrator | Admin: everything, including settings and users |
+| User, Read-only | User: plays channels, playlists and sequences; sees themes and speakers |
 
-**The Sonorium app** links with **Link App** on the Channels page (a QR code), or signs in
-with a Sonorium username and password. It talks to port 8808 (HTTPS, self-signed; the app
-checks the certificate), never to HA's sidebar address. Speakers keep using port 8008.
+- **HA's sidebar** opens Sonorium without a second sign-in, for every Home Assistant user.
+- **Role changes** made in Home Assistant apply within a minute, on phones too.
+- **Switching a user off or removing them** in Home Assistant signs them out of Sonorium,
+  and their phones stop working.
+- **Passwords** stay in Home Assistant. Sonorium has none to set for these users: Users &
+  devices shows them with a **Home Assistant** label.
 
-More: [docs/AUTH.md](https://github.com/synssins/sonorium/blob/main/docs/AUTH.md).
+The direct ports are open on your network until you choose otherwise: in **Settings ›
+Users & devices**, turn on **Require login**. From then on port 8008 (HTTP) and 8808
+(HTTPS) need a sign-in with your Home Assistant username and password, a linked phone or
+a key.
+
+**The Sonorium app** links with **Link App** on the Channels page (a QR code; the phone
+acts as you), or signs in with your Home Assistant username and password. It talks to port
+8808 (HTTPS, self-signed; the app checks the certificate), never to HA's sidebar address.
+Speakers keep using port 8008.
+
+**Updating from an earlier version:** the accounts Sonorium made for Home Assistant users
+now follow Home Assistant. Owners and administrators stay Admin; everyone else becomes a
+User. A Sonorium password set on one of these accounts no longer works: use the Home
+Assistant password.
+
+**Forgotten password:** set `bypass_login` to `true` on the Configuration tab and restart.
+Reset the account under **Settings › Users & devices**, then set it back to `false` and restart.
+
+More: the [Sign-in and Users](https://github.com/synssins/sonorium/wiki/Sign-in-and-Users) wiki page and
+[docs/AUTH.md](https://github.com/synssins/sonorium/blob/main/docs/AUTH.md).
 
 #### Where data is stored
 
@@ -327,6 +349,35 @@ and publish. Only remove leftover topics, not current channels. Back up any
 automations that use the entity first.
 
 ## What's new
+
+### Next release
+
+**Sign-in**
+- **Accounts and roles.** The built-in **Users** plugin adds accounts with two roles. An **Admin** can change everything; a **User** can play and change channels, run and edit playlists and sequences, and see themes and speakers. Sonorium always keeps one Admin.
+- **New installs** ask for an admin account on the first visit and need a sign-in from then on. **Updates** change nothing until you create the account and turn on **Require login**; the banner at the top offers both.
+- **Users & devices.** **Settings → Users & devices** lists each person with the browsers and phones they use. Add users, change roles, reset passwords, and sign out one browser or every device.
+- **Keys.** The built-in **Integration** plugin adds **Settings → Keys**: keys for devices and programs, each allowed only the items checked on it, for some channels or all, with an expiry. A key is shown once.
+- **Link App.** The button on the **Channels** page shows a QR code that links a phone to your account. Each code works once, for 5 minutes.
+- **HTTPS.** Port 8808 serves the web UI and the API over HTTPS, with a certificate Sonorium makes itself. Port 8008 is unchanged; speakers keep using it.
+- **sonorium.local.** The Docker version announces itself on your network: `http://sonorium.local:8008`.
+- **Home Assistant's users** (Home Assistant app). Everyone who signs in to Home Assistant gets Sonorium with the role their Home Assistant account has: owners and administrators are Admins, everyone else is a User. Phones and the app's sign-in use the Home Assistant username and password; switching a user off in Home Assistant switches them off in Sonorium.
+- **Forgotten password.** `BYPASS_LOGIN=true` (Docker) or `bypass_login` (Home Assistant app) opens the web UI without a sign-in, to reset the account.
+
+**Plugins**
+- **Built-in plugins can be uninstalled** like any other. An uninstalled built-in plugin stays uninstalled after restarts and updates.
+- **Plugin settings** show under each plugin's form on **Settings → Plugins**, and are saved as you change them.
+- **Theme Merge 2.0** merges two themes into a new theme or into either one, with their tracks, groups, linked files and presets.
+- **Ambient Mixer Importer 3.1** imports mixes with the current playback modes and gapless loops. Its random sounds follow **Wait between plays** on **Settings → Advanced**.
+- **For plugin authors:** events, an actions API for channels, a scheduler, webhook triggers, notifications, menu pages and Connections sections. See [docs/PLUGIN_DEVELOPMENT.md](https://github.com/synssins/sonorium/blob/main/docs/PLUGIN_DEVELOPMENT.md).
+
+**Settings → Advanced**
+- **Playback values.** The values every theme's playback is built on, until now fixed: **Wait between plays**, **Wait randomness**, **Gap after a group's track**, **Loop crossfade**, **Merry-go-round crossfade range**, **Track fade**, **Switch fade**, **Long pause chance**, **Turn chance** and **Short file threshold**. Each is saved as you change it, playing channels follow it, and the arrow on its row puts the default back. **Advanced** is now always in the menu.
+
+**Home Assistant dashboard cards**
+- **Sonorium's cards** are added to Home Assistant automatically when Home Assistant and MQTT are linked. Search for **Sonorium** in the card picker.
+- **Four layouts:** **Tile**, **Channel**, **Player** and **All channels**, changed in the card's editor along with what each one shows.
+- **Channel popup.** Clicking a channel's name opens the channel as it looks on Sonorium's Channels page, with its recent changes.
+- When the cards can't be added automatically, **Settings → Connection** says why and offers the file to download (Docker).
 
 ### 1.6.1
 
@@ -611,6 +662,8 @@ Sonorium is a fork of [Amniotic](https://github.com/fmtr/amniotic) by [fmtr](htt
 ## License
 
 See LICENSE file for details.
+
+The components Sonorium is built on, and their licences, are listed in [THIRD_PARTY_NOTICES.md](https://github.com/synssins/sonorium/blob/main/THIRD_PARTY_NOTICES.md).
 
 ## Contributing
 

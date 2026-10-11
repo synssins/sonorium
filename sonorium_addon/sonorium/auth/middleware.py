@@ -164,6 +164,11 @@ class AuthMiddleware:
             return await self.app(scope, receive, send)
 
         headers = _headers(scope)
+        for plugin_id, prepare in service.provider("prepare"):
+            try:
+                await prepare(listener, headers)
+            except Exception as e:
+                logger.warning(f"Sign-in: plugin {plugin_id} could not get ready for a request: {e}")
         principal, reject = resolve(service, scope, headers)
         scope.setdefault("state", {})["auth"] = principal
 

@@ -172,9 +172,12 @@ GET  /api/events/stream?types=channel.*,error
 A key from **Settings › Keys** with **Read events** works in place of the token, and so does
 a linked phone or a signed-in browser (docs/AUTH.md).
 
-Each event arrives as `id: <n>`, `event: <type>`, `data: <JSON>`. A comment line is sent
-every 15 s to keep the connection open. After a reconnect, the `Last-Event-ID` header (or
-`?last_event_id=`) replays the events since then that Sonorium still holds (the last 200).
+Each event arrives as `id: <boot_id>:<n>`, `event: <type>`, `data: <JSON>`. `boot_id` is new
+each time Sonorium starts (and `n` starts again at 1); `GET /api/info` has it too. A comment
+line is sent every 15 s to keep the connection open. After a reconnect, the `Last-Event-ID`
+header (or `?last_event_id=`) replays the events since then that Sonorium still holds (the
+last 200). An id from before a restart replays all the events of the new run it still holds;
+a bare `<n>` (older clients) is read as an id of the current run.
 `?max_events=N` closes the stream after N events.
 
 ```sh

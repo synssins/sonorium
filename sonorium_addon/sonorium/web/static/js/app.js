@@ -77,52 +77,14 @@ async function init() {
 
         updatePlayingBadge();
 
-        // Start heartbeat to track browser connection
-        startHeartbeat();
         // Channels running a sequence or playlist: keep their cards current
         startPlaybackPolling();
+        chHostEvents();  // only in the Sonorium app
 
         console.log('Sonorium init() complete');
     } catch (error) {
         console.error('Init error:', error);
         showToast('Failed to load data', 'error');
-    }
-}
-
-// Heartbeat to track browser connection (stops playback when browser closes)
-let heartbeatInterval = null;
-
-function startHeartbeat() {
-    // Send heartbeat every 3 seconds
-    if (heartbeatInterval) {
-        clearInterval(heartbeatInterval);
-    }
-
-    // Send initial heartbeat
-    sendHeartbeat();
-
-    // Set up interval
-    heartbeatInterval = setInterval(sendHeartbeat, 3000);
-
-    // Also send heartbeat on page visibility change
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-            sendHeartbeat();
-        }
-    });
-
-    // Send heartbeat before page unload (gives server a chance to know we're leaving)
-    window.addEventListener('beforeunload', () => {
-        // Don't send - let the heartbeat timeout naturally
-        // This way closing the browser stops playback
-    });
-}
-
-async function sendHeartbeat() {
-    try {
-        await fetch(BASE_PATH + '/api/heartbeat', { method: 'POST' });
-    } catch (e) {
-        // Ignore errors - server might be down
     }
 }
 
@@ -134,189 +96,6 @@ async function loadVersion() {
         }
     } catch (e) {
         console.error('Failed to load version:', e);
-    }
-
-    // Check for updates (non-blocking)
-    checkForUpdates();
-}
-
-// Update checking
-let updateInfo = null;
-
-async function checkForUpdates() {
-    try {
-        const result = await api('GET', '/update/check');
-        if (result && result.update_available) {
-            updateInfo = result;
-            showUpdateNotification(result);
-        }
-    } catch (e) {
-        console.error('Failed to check for updates:', e);
-    }
-}
-
-function showUpdateNotification(info) {
-    // Create update banner if it doesn't exist
-    let banner = document.getElementById('update-banner');
-    if (!banner) {
-        banner = document.createElement('div');
-        banner.id = 'update-banner';
-        banner.className = 'update-banner';
-        document.body.insertBefore(banner, document.body.firstChild);
-    }
-
-    const sizeText = info.download_size ? ` (${formatBytes(info.download_size)})` : '';
-
-    banner.innerHTML = `
-        <div class="update-banner-content">
-            <div class="update-info">
-                <span class="update-icon">&#x2B06;</span>
-                <span><strong>Update available:</strong> v${info.latest_version}${sizeText}</span>
-            </div>
-            <div class="update-actions">
-                <button class="btn btn-primary btn-sm" onclick="showUpdateModal()">Update Now</button>
-                <button class="btn btn-secondary btn-sm" onclick="remindLater()">Later</button>
-                <button class="btn btn-text btn-sm" onclick="ignoreUpdate()">Ignore</button>
-            </div>
-        </div>
-    `;
-    banner.style.display = 'flex';
-}
-
-function hideUpdateBanner() {
-    const banner = document.getElementById('update-banner');
-    if (banner) {
-        banner.style.display = 'none';
-    }
-}
-
-function showUpdateModal() {
-    if (!updateInfo) return;
-
-    const modal = document.getElementById('update-modal') || createUpdateModal();
-
-    document.getElementById('update-version').textContent = updateInfo.latest_version;
-    document.getElementById('update-current').textContent = updateInfo.current_version;
-    document.getElementById('update-notes').innerHTML = formatReleaseNotes(updateInfo.release_notes);
-
-    if (updateInfo.download_size) {
-        document.getElementById('update-size').textContent = formatBytes(updateInfo.download_size);
-        document.getElementById('update-size-row').style.display = '';
-    } else {
-        document.getElementById('update-size-row').style.display = 'none';
-    }
-
-    modal.style.display = 'flex';
-}
-
-function createUpdateModal() {
-    const modal = document.createElement('div');
-    modal.id = 'update-modal';
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `
-        <div class="modal-content update-modal">
-            <div class="modal-header">
-                <h2>Update Available</h2>
-                <button class="modal-close" onclick="closeUpdateModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="update-details">
-                    <div class="update-detail-row">
-                        <span>Current version:</span>
-                        <span id="update-current">-</span>
-                    </div>
-                    <div class="update-detail-row">
-                        <span>New version:</span>
-                        <strong id="update-version">-</strong>
-                    </div>
-                    <div class="update-detail-row" id="update-size-row">
-                        <span>Download size:</span>
-                        <span id="update-size">-</span>
-                    </div>
-                </div>
-                <div class="update-notes-section">
-                    <h3>Release Notes</h3>
-                    <div id="update-notes" class="update-notes"></div>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="closeUpdateModal()">Cancel</button>
-                <button class="btn btn-secondary" onclick="remindLater(); closeUpdateModal()">Remind Later</button>
-                <button class="btn btn-primary" onclick="installUpdate()">Update Now</button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    return modal;
-}
-
-function closeUpdateModal() {
-    const modal = document.getElementById('update-modal');
-    if (modal) {
-        modal.style.display = 'none';
-    }
-}
-
-function formatReleaseNotes(notes) {
-    if (!notes) return '<p>No release notes available.</p>';
-
-    // Simple markdown-like formatting
-    return notes
-        .split('\n')
-        .map(line => {
-            if (line.startsWith('# ')) return `<h3>${line.slice(2)}</h3>`;
-            if (line.startsWith('## ')) return `<h4>${line.slice(3)}</h4>`;
-            if (line.startsWith('- ')) return `<li>${line.slice(2)}</li>`;
-            if (line.startsWith('* ')) return `<li>${line.slice(2)}</li>`;
-            if (line.trim() === '') return '';
-            return `<p>${line}</p>`;
-        })
-        .join('');
-}
-
-function formatBytes(bytes) {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
-
-async function installUpdate() {
-    try {
-        showToast('Starting update...', 'info');
-        closeUpdateModal();
-        hideUpdateBanner();
-
-        const result = await api('POST', '/update/install');
-        if (result && result.status === 'ok') {
-            showToast('Update started. The application will restart.', 'success');
-            // The app will exit and restart
-        }
-    } catch (e) {
-        showToast('Failed to start update: ' + (e.message || e), 'error');
-    }
-}
-
-async function remindLater() {
-    try {
-        await api('POST', '/update/remind-later');
-        hideUpdateBanner();
-        showToast('Will remind you about the update later', 'info');
-    } catch (e) {
-        console.error('Failed to set remind later:', e);
-    }
-}
-
-async function ignoreUpdate() {
-    if (!updateInfo) return;
-
-    try {
-        await api('POST', '/update/ignore?version=' + updateInfo.latest_version);
-        hideUpdateBanner();
-        showToast('This update will be ignored', 'info');
-    } catch (e) {
-        console.error('Failed to ignore update:', e);
     }
 }
 
@@ -551,7 +330,7 @@ function showView(viewName) {
                 </svg>
                 <span>Copy</span>
             </button>
-            <a class="btn btn-primary" href="${BASE_PATH}/api/logs/download">
+            <a class="btn btn-primary" href="${BASE_PATH}/api/logs/download" onclick="return !hostDownload(this.href, '')">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
                     <polyline points="7 10 12 15 17 10"/>
@@ -560,9 +339,7 @@ function showView(viewName) {
                 Download
             </a>
         `,
-        status: `
-            <button class="btn btn-secondary sp-hbtn" aria-label="Refresh" title="Refresh" onclick="refreshStatus(this)">${SP_ICON_REFRESH}<span class="lbl">Refresh</span></button>
-        `
+        status: npModeHtml()
     };
     // Plugins' buttons first, then the page's own (slots.js)
     document.getElementById('view-actions').innerHTML = Sonorium.headerButtons(viewName)
@@ -599,7 +376,7 @@ function showView(viewName) {
     if (viewName === 'settings-logs' && window.SonoriumLogs) {
         SonoriumLogs.mount(document.getElementById('settings-logs-root'), BASE_PATH);
     }
-    if (viewName === 'status') renderStatus();
+    if (viewName === 'status') renderStatus(); else npStop();
     if (Sonorium.isPage(viewName)) Sonorium.renderPage(viewName);
 
     // Close mobile sidebar when navigating to a new view
@@ -822,13 +599,24 @@ function chMenu(button, sessionId) {
 const chListen = { id: null, audio: null };
 
 async function chToggleListen(sessionId) {
-    if (typeof Audio === 'undefined') return;
+    const native = hostHas('listen');  // the Sonorium app plays it with its own player
+    if (typeof Audio === 'undefined' && !native) return;
     const again = chListen.id === sessionId;
     await chStopListening();
     if (again) return;
     try {
         const result = await api('POST', `/sessions/${sessionId}/listen`);
-        const audio = new Audio(`${BASE_PATH}${result.stream_path}?local=1`);
+        const url = `${hostStreamUrl(result.stream_path)}?local=1`;
+        if (native) {
+            const session = sessions.find(s => s.id === sessionId) || {};
+            const theme = themes.find(t => t.id === session.theme_id) || {};
+            chListen.id = sessionId;
+            renderSessions();
+            sonoriumHost.listen(sessionId, url, { name: session.name || '', themeName: theme.name || '',
+                                                  channelId: result.channel_id, volume: chLocalVolume() });
+            return;
+        }
+        const audio = new Audio(url);
         audio.volume = chLocalVolume() / 100;
         chListen.id = sessionId;
         chListen.audio = audio;
@@ -875,6 +663,7 @@ function chSetLocalVolume(input) {
     const value = Math.max(0, Math.min(100, parseInt(input.value, 10) || 0));
     input.closest('.ch-vol').querySelector('.ch-vol-val').textContent = `${value}%`;
     if (chListen.audio) previewRampVolume(chListen.audio, value / 100);
+    else if (chListen.id && hostHas('setListenVolume')) sonoriumHost.setListenVolume(chListen.id, value);
     try { localStorage.setItem('sonorium.listenVolume', String(value)); } catch (error) { /* not kept: fine */ }
 }
 
@@ -883,13 +672,38 @@ async function chStopListening() {
     if (!id) return;
     chListen.id = null;
     chListen.audio = null;
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();  // closes the stream
+    if (audio) {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();  // closes the stream
+    } else if (hostHas('stopListening')) {
+        sonoriumHost.stopListening(id);  // the app's own player
+    }
     renderSessions();
     try {
         await api('DELETE', `/sessions/${id}/listen`);
     } catch (error) { /* the server releases it once no browser listens */ }
+}
+
+// The Sonorium app tells the page about its player and asks it to refresh (docs/APP_API.md 12.5).
+// Its player stopping by itself (the lock screen) is the app's to tell the server.
+function chHostEvents() {
+    if (!hostHas('on')) return;
+    sonoriumHost.on('listening', data => {
+        const { sessionId, playing } = data || {};
+        if (playing && chListen.id !== sessionId) chListen.id = sessionId;
+        else if (!playing && chListen.id === sessionId) chListen.id = null;
+        else return;
+        chListen.audio = null;
+        renderSessions();
+    });
+    sonoriumHost.on('refresh', async () => {
+        try {
+            await loadSessions();
+            renderSessions();
+            updatePlayingBadge();
+        } catch (error) { console.warn('Refresh:', error); }
+    });
 }
 
 // The mode buttons: back to a theme stops the playlist (the channel keeps its theme);
@@ -5097,7 +4911,7 @@ function startThemePreview(themeId, themeName) {
     currentPreviewThemeId = themeId;
 
     // Get the stream URL for this theme
-    const streamUrl = `${BASE_PATH}/stream/${encodeURIComponent(themeId)}`;
+    const streamUrl = hostStreamUrl(`/stream/${encodeURIComponent(themeId)}`);
 
     themePreviewAudio = new Audio(streamUrl);
     themePreviewAudio.volume = document.getElementById('preview-volume').value / 100;
@@ -5210,6 +5024,8 @@ async function exportThemeZip(themeId = document.getElementById('theme-edit-id')
     try {
         showToast('Preparing export...', 'info');
 
+        // In the Sonorium app the app saves the file (its name comes with it)
+        if (hostDownload(`${BASE_PATH}/api/themes/${themeId}/export`, '')) return;
         const response = await fetch(`${BASE_PATH}/api/themes/${themeId}/export`);
         if (!response.ok) {
             const error = await response.json();
@@ -5900,6 +5716,7 @@ async function renderDashboardCardsStatus() {
     line.title = status.reason || '';
     const download = document.getElementById('conn-cards-dl');
     download.href = `${BASE_PATH}/api/ha-cards/download`;
+    download.onclick = () => !hostDownload(download.href, 'sonorium-cards.js');  // the Sonorium app saves it
     download.hidden = status.state !== 'by_hand';
     row.hidden = false;
 }
@@ -6029,274 +5846,6 @@ async function afterHomeAssistantRemoved() {
     ]);
     renderSessions();
     updatePlayingBadge();
-}
-
-// Settings - Local Audio Devices
-let localAudioDevices = [];
-let selectedAudioDevice = null;
-let networkSpeakers = [];
-let enabledNetworkSpeakers = [];
-
-async function loadLocalAudioDevices() {
-    try {
-        const data = await api('GET', '/settings/audio-devices');
-        localAudioDevices = data.devices || [];
-        selectedAudioDevice = data.selected;
-        renderLocalAudioDevices();
-    } catch (error) {
-        console.error('Failed to load audio devices:', error);
-        const container = document.getElementById('local-audio-devices');
-        if (container) {
-            container.innerHTML = '<p class="text-muted">Failed to load audio devices.</p>';
-        }
-    }
-}
-
-function renderLocalAudioDevices() {
-    const container = document.getElementById('local-audio-devices');
-    if (!container) return;
-
-    // Build dropdown with "None" option for network-only streaming
-    let html = `
-        <select id="audio-device-select" class="settings-select" onchange="selectAudioDevice(this.value)">
-            <option value="-1" ${selectedAudioDevice === -1 || selectedAudioDevice === null ? 'selected' : ''}>
-                None (Network speakers only)
-            </option>
-    `;
-
-    for (const device of localAudioDevices) {
-        const selected = device.index === selectedAudioDevice ? 'selected' : '';
-        const info = `${device.channels}ch, ${device.sample_rate}Hz`;
-        html += `<option value="${device.index}" ${selected}>${escapeHtml(device.name)} (${info})</option>`;
-    }
-
-    html += '</select>';
-
-    if (localAudioDevices.length === 0) {
-        html += '<p class="text-muted-small" style="margin-top: 0.5rem;">No audio output devices detected.</p>';
-    }
-
-    container.innerHTML = html;
-}
-
-async function selectAudioDevice(deviceIndex) {
-    try {
-        // Convert string from dropdown to number
-        const index = parseInt(deviceIndex, 10);
-        await api('PUT', '/settings/audio-device', { device_index: index });
-        selectedAudioDevice = index;
-        renderLocalAudioDevices();
-        if (index === -1) {
-            showToast('Local audio disabled', 'success');
-        } else {
-            showToast('Audio device changed', 'success');
-        }
-    } catch (error) {
-        showToast(error.message, 'error');
-    }
-}
-
-// Settings - Network Speakers
-async function loadNetworkSpeakers() {
-    try {
-        const data = await api('GET', '/network-speakers');
-        networkSpeakers = data.speakers || [];
-        enabledNetworkSpeakers = data.enabled || [];
-        renderNetworkSpeakers();
-    } catch (error) {
-        console.error('Failed to load network speakers:', error);
-    }
-}
-
-function renderNetworkSpeakers() {
-    const container = document.getElementById('network-speakers-list');
-    if (!container) return;
-
-    if (networkSpeakers.length === 0) {
-        container.innerHTML = '<p class="text-muted-small">No network speakers found. Click refresh to scan.</p>';
-        return;
-    }
-
-    // Group by speaker type
-    const byType = {};
-    for (const speaker of networkSpeakers) {
-        const type = speaker.type || 'unknown';
-        if (!byType[type]) {
-            byType[type] = [];
-        }
-        byType[type].push(speaker);
-    }
-
-    const typeNames = {
-        'chromecast': 'Chromecast',
-        'sonos': 'Sonos',
-        'dlna': 'DLNA/UPnP',
-        'unknown': 'Other'
-    };
-
-    const typeIcons = {
-        'chromecast': '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>',
-        'sonos': '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-2-8c0 1.1.9 2 2 2s2-.9 2-2-.9-2-2-2-2 .9-2 2z"/></svg>',
-        'dlna': '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM9 8h2v8H9zm4 0h2v8h-2z"/></svg>',
-        'unknown': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>'
-    };
-
-    let html = '';
-
-    for (const [type, speakers] of Object.entries(byType)) {
-        html += `
-            <div class="network-speaker-category">
-                <div class="network-speaker-category-header">
-                    ${typeIcons[type] || typeIcons['unknown']}
-                    <span>${typeNames[type] || type}</span>
-                    <span style="margin-left: auto; font-weight: normal;">${speakers.length}</span>
-                </div>
-                ${speakers.map(speaker => renderNetworkSpeakerItem(speaker)).join('')}
-            </div>
-        `;
-    }
-
-    container.innerHTML = html;
-}
-
-function renderNetworkSpeakerItem(speaker) {
-    const modelInfo = speaker.model || speaker.host || '';
-    const isEnabled = enabledNetworkSpeakers.includes(speaker.id);
-
-    return `
-        <div class="network-speaker-item-compact ${isEnabled ? 'enabled' : ''}" onclick="toggleNetworkSpeaker('${speaker.id}')">
-            <div class="speaker-icon-small">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <rect x="4" y="2" width="16" height="20" rx="2" ry="2"/>
-                    <circle cx="12" cy="14" r="4"/>
-                    <line x1="12" y1="6" x2="12.01" y2="6"/>
-                </svg>
-            </div>
-            <div class="speaker-info-compact">
-                <div class="speaker-name-compact">${escapeHtml(speaker.name)}</div>
-                <div class="speaker-model-compact">${escapeHtml(modelInfo)}</div>
-            </div>
-            <div class="speaker-toggle">
-                <div class="toggle-switch ${isEnabled ? 'on' : ''}">
-                    <div class="toggle-slider"></div>
-                </div>
-            </div>
-        </div>
-    `;
-}
-
-async function toggleNetworkSpeaker(speakerId) {
-    const isEnabled = enabledNetworkSpeakers.includes(speakerId);
-
-    if (isEnabled) {
-        enabledNetworkSpeakers = enabledNetworkSpeakers.filter(id => id !== speakerId);
-    } else {
-        enabledNetworkSpeakers.push(speakerId);
-    }
-
-    // Save to server
-    try {
-        await api('PUT', '/network-speakers/enabled', { speaker_ids: enabledNetworkSpeakers });
-        renderNetworkSpeakers();
-
-        // Reload speaker hierarchy and enabled speakers so Channel view is updated
-        await loadSpeakerHierarchy();
-        await loadEnabledSpeakers();
-    } catch (error) {
-        showToast('Failed to update speaker: ' + error.message, 'error');
-        // Revert on error
-        if (isEnabled) {
-            enabledNetworkSpeakers.push(speakerId);
-        } else {
-            enabledNetworkSpeakers = enabledNetworkSpeakers.filter(id => id !== speakerId);
-        }
-        renderNetworkSpeakers();
-    }
-}
-
-async function refreshNetworkSpeakers() {
-    const container = document.getElementById('network-speakers-list');
-    const btn = event?.target?.closest('.btn-icon');
-
-    // Add scanning animation to button
-    if (btn) btn.classList.add('scanning');
-
-    if (container) {
-        container.innerHTML = `
-            <div class="loading-small">
-                <div class="spinner-small"></div>
-                <span>Scanning network...</span>
-            </div>
-        `;
-    }
-
-    try {
-        const result = await api('POST', '/network-speakers/refresh');
-        const total = result.total_speakers || 0;
-        if (total > 0) {
-            showToast(`Found ${total} speaker${total !== 1 ? 's' : ''}`, 'success');
-        } else {
-            showToast('No network speakers found', 'info');
-        }
-        await loadNetworkSpeakers();
-    } catch (error) {
-        showToast('Scan failed: ' + error.message, 'error');
-        if (container) {
-            container.innerHTML = '<p class="text-muted-small">Scan failed. Try again.</p>';
-        }
-    } finally {
-        if (btn) btn.classList.remove('scanning');
-    }
-}
-
-async function refreshAllSpeakerSettings() {
-    // Refresh both local audio devices and network speakers
-    showToast('Refreshing speakers...', 'info');
-    try {
-        // Refresh local devices
-        await api('POST', '/speakers/refresh');
-        loadLocalAudioDevices();
-
-        // Refresh network speakers (scan network)
-        await refreshNetworkSpeakers();
-
-        // Also reload speaker hierarchy for Channel view
-        await loadSpeakerHierarchy();
-
-        showToast('Speakers refreshed', 'success');
-    } catch (error) {
-        showToast('Refresh failed: ' + error.message, 'error');
-    }
-}
-
-async function playOnNetworkSpeaker(speakerId, pluginId) {
-    // Get current theme/preset
-    if (!currentTheme) {
-        showToast('Please select a theme first', 'error');
-        return;
-    }
-
-    try {
-        await api('POST', `/network-speakers/${speakerId}/play`, {
-            theme_id: currentTheme,
-            preset_id: currentPreset,
-            plugin_id: pluginId
-        });
-        showToast('Playback started on network speaker', 'success');
-        await loadNetworkSpeakers();
-    } catch (error) {
-        showToast('Failed to start playback: ' + error.message, 'error');
-    }
-}
-
-async function stopNetworkSpeaker(speakerId, pluginId) {
-    try {
-        await api('POST', `/network-speakers/${speakerId}/stop`, { plugin_id: pluginId });
-        showToast('Playback stopped', 'success');
-        await loadNetworkSpeakers();
-    } catch (error) {
-        showToast('Failed to stop playback: ' + error.message, 'error');
-    }
 }
 
 // Settings > Speakers: every speaker grouped by room, with its name, room,
@@ -6875,55 +6424,233 @@ async function disableAllSpeakers() {
     }
 }
 
-// Status View
-async function renderStatus() {
-    const activePlayingSessions = sessions.filter(s => s.is_playing).length;
-    const active = document.getElementById('status-active-channels');
-    active.textContent = activePlayingSessions;
-    active.classList.toggle('spst-on', activePlayingSessions > 0);
-    document.getElementById('status-total-speakers').textContent = getAllSpeakersFlat().length;
+// Status: Now playing (docs/design/Now_Playing.dc.html). The playing channels, each with its tracks
+// by section, as the mixer has them (GET /api/now-playing, a few times a second while the page is open).
+// Server: the mix right this second. As heard: the mix delayed by the speakers' estimated buffer
+// (the longest on a channel with several; this browser's own buffer when it listens).
+const NP_POLL_MS = 200;
+const NP_KEEP_MS = 20000;  // snapshots kept for As heard
+const NP_ICON_SPK = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+const NP_ICON_HEAD = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>';
+const NP_ICON_CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>';
+const NP_ICON_FOLDER = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+const np = { timer: null, snaps: [], shape: '', closed: new Set(), mode: npSavedMode(), ahead: null };
 
-    await loadChannels();
-    document.getElementById('status-ch-count').textContent = channels.length;
-    document.getElementById('status-lhead').hidden = channels.length === 0;
-    const channelList = document.getElementById('channel-list');
-    if (!channels.length) {
-        channelList.innerHTML = '<div class="sp-empty"><strong>No channels</strong></div>';
-        return;
-    }
-    channelList.innerHTML = `<div class="sp-lbody">${channels.map(ch => {
-        const on = ch.state === 'playing';
-        const name = escapeHtml(ch.name);
-        const theme = escapeHtml(ch.current_theme_name || '');
-        return `
-            <div class="sp-lrow spst-grid${on ? ' on' : ''}">
-                <span class="trk-name spst-name" title="${name}"><span class="mq-in">${name}</span></span>
-                <div class="spst-theme">${on && theme
-                    ? `<span class="trk-name" title="${theme}"><span class="mq-in">${theme}</span></span>`
-                    : '<span class="spst-idle">—</span>'}</div>
-                <span class="spst-state"><span class="badge ${on ? 'sp-badge-air' : 'sp-badge-idle'}"><i></i>${on ? 'Playing' : 'Idle'}</span></span>
-            </div>`;
-    }).join('')}</div>`;
-    spUpdateMarquees(channelList);
+function npSavedMode() {
+    try { return localStorage.getItem('sonorium.statusTiming') === 'heard' ? 'heard' : 'server'; } catch (error) { return 'server'; }
 }
 
-async function refreshStatus(button) {
-    if (button) {
-        button.disabled = true;
-        button.classList.add('sp-spinning');
-    }
+function npModeHtml() {
+    const b = (mode, label, tip) => `<button type="button" data-mode="${mode}" aria-pressed="${np.mode === mode}" title="${tip}" onclick="npSetMode('${mode}')">${label}</button>`;
+    return `<div class="seg np-seg" role="group" aria-label="Timing">${b('server', 'Server', 'Server right this second')}${b('heard', 'As heard', 'Estimate of what you are hearing right now')}</div>`;
+}
+
+function npSetMode(mode) {
+    np.mode = mode === 'heard' ? 'heard' : 'server';
+    try { localStorage.setItem('sonorium.statusTiming', np.mode); } catch (error) { /* not kept: fine */ }
+    document.querySelectorAll('.np-seg button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === np.mode)));
+    np.shape = '';
+    npRender();
+}
+
+function renderStatus() {
+    np.shape = '';
+    npStart();
+}
+
+function npOpen() {
+    return currentView === 'status' && !document.hidden;
+}
+
+function npStart() {
+    if (np.timer || !npOpen()) return;
+    np.timer = setTimeout(npPoll, 0);
+}
+
+function npStop() {
+    clearTimeout(np.timer);
+    np.timer = null;
+}
+
+async function npPoll() {
     try {
-        await loadSessions();
-        await renderStatus();
-        showToast('Status refreshed', 'success');
-    } catch (error) {
-        showToast(error.message || 'Refresh failed', 'error');
-    } finally {
-        if (button) {
-            button.disabled = false;
-            button.classList.remove('sp-spinning');
-        }
+        const data = await api('GET', '/now-playing');
+        const now = performance.now();
+        np.snaps.push({ t: now, data });
+        // Keep enough for the longest delay, and always the newest
+        while (np.snaps.length > 1 && np.snaps[1].t < now - NP_KEEP_MS) np.snaps.shift();
+        if (currentView === 'status') npRender();
+    } catch (error) { /* the next poll tries again */ }
+    np.timer = npOpen() ? setTimeout(npPoll, NP_POLL_MS) : null;
+}
+
+document.addEventListener('visibilitychange', () => { if (npOpen()) npStart(); });
+
+// This browser's own buffer while it listens to the channel (seconds), from its audio element. The
+// stream arrives in bursts, so it is smoothed over a few seconds.
+function npBrowserBuffer(id) {
+    if (chListen.id !== id) return 0;
+    const audio = chListen.audio;
+    let ahead = null;
+    try {
+        if (audio && audio.buffered.length) ahead = Math.max(0, audio.buffered.end(audio.buffered.length - 1) - audio.currentTime);
+    } catch (error) { /* not known yet */ }
+    if (ahead === null) {
+        np.ahead = null;
+        return 0;
     }
+    np.ahead = np.ahead === null || np.ahead === undefined ? ahead : np.ahead * 0.92 + ahead * 0.08;
+    return np.ahead;
+}
+
+// The channel at the chosen time: the newest snapshot taken by then (else the oldest that has it),
+// and how far past that snapshot the time is (seconds)
+function npAt(id, delay) {
+    const target = performance.now() - delay * 1000;
+    let pick = null;
+    for (const snap of np.snaps) {
+        const ch = snap.data.channels.find(c => c.id === id);
+        if (!ch) continue;
+        if (!pick || snap.t <= target) pick = { snap, ch };
+        if (snap.t > target) break;
+    }
+    return { ch: pick.ch, past: Math.max(0, (target - pick.snap.t) / 1000) };
+}
+
+function npTime(seconds) {
+    const s = Math.max(0, Math.ceil(seconds));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${r}` : `${m}:${r}`;
+}
+
+function npNow(row, past) {
+    if (row.seconds === null || row.seconds === undefined) return row.now.replace('{t}', '—');
+    return row.now.replace('{t}', npTime(row.seconds - past));
+}
+
+function npLevel(row) {
+    const pct = row.level === null || row.level === undefined ? null : Math.round(row.level * 100);
+    const band = row.band ? `<i class="np-band" style="left:${Math.round(row.band[0] * 100)}%;width:${Math.max(0, Math.round((row.band[1] - row.band[0]) * 100))}%"></i>` : '';
+    const fill = pct === null ? '' : `<i class="np-fill" style="width:${pct}%"></i>`;
+    return `<span class="np-meter">${band}${fill}</span><span class="np-pct">${pct === null ? '—' : `${pct}%`}</span>`;
+}
+
+function npRowHtml(chId, row, child, past) {
+    const key = escapeHtml(`${chId}|${row.type}|${row.key}`);
+    const now = escapeHtml(npNow(row, past));
+    const name = escapeHtml(row.name);
+    const lvl = npLevel(row);
+    if (row.type === 'group') {
+        const closed = np.closed.has(`${chId}|${row.key}`);
+        return `<div class="np-row np-grp${closed ? ' closed' : ''}" data-np="${key}" role="button" tabindex="0" aria-expanded="${!closed}" onclick="npToggle(this)" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); npToggle(this); }">`
+            + `<span class="np-dot ${row.state}" title="${now}"></span>`
+            + `<span class="np-name" title="${name}"><span class="np-chev">${NP_ICON_CHEV}</span><span class="np-fold">${NP_ICON_FOLDER}</span><b>${name}</b></span>`
+            + `<span class="np-mode">${escapeHtml(row.mode)}</span><span class="np-now">${now}</span><span class="np-lvl" data-v="${escapeHtml(lvl)}">${lvl}</span></div>`
+            + (closed ? '' : row.tracks.map(t => npRowHtml(chId, t, true, past)).join(''));
+    }
+    return `<div class="np-row${child ? ' np-child' : ''}" data-np="${key}"><span class="np-dot ${row.state}" title="${now}"></span>`
+        + `<span class="np-name" title="${name}">${name}</span><span class="np-mode">${escapeHtml(row.mode)}</span>`
+        + `<span class="np-now">${now}</span><span class="np-lvl" data-v="${escapeHtml(lvl)}">${lvl}</span></div>`;
+}
+
+function npToggle(el) {
+    const parts = el.dataset.np.split('|');
+    const key = `${parts[0]}|${parts.slice(2).join('|')}`;
+    if (np.closed.has(key)) np.closed.delete(key); else np.closed.add(key);
+    np.shape = '';
+    npRender();
+}
+
+// "Theme · preset", or "Theme · sequence · Step 2 of 3: preset"
+function npPlaysHtml(ch) {
+    const seq = ch.sequence;
+    let step = ch.preset_name || 'Default settings';
+    if (seq) step = seq.step ? `${seq.name} · Step ${seq.step} of ${seq.steps}: ${step}` : `${seq.name} · ${step}`;
+    return `${escapeHtml(ch.theme_name || '')} · <span class="np-step">${escapeHtml(step)}</span>`;
+}
+
+function npWhereHtml(ch) {
+    const out = [];
+    if (ch.speakers_playing) out.push(`<span class="np-out${ch.speakers_muted ? '' : ' on'}">${NP_ICON_SPK}${escapeHtml(ch.speakers || '')}</span>`);
+    if (chListen.id === ch.id) out.push(`<span class="np-out on">${NP_ICON_HEAD}This browser</span>`);
+    return out.join('');
+}
+
+function npCardHtml(ch, past) {
+    const plays = npPlaysHtml(ch), where = npWhereHtml(ch);
+    return `<div class="np-card" data-ch="${escapeHtml(ch.id)}">
+        <div class="np-hd"><span class="ch-icon" aria-hidden="true">${themeIconOf(ch.theme_id)}</span>
+            <div class="np-title"><span class="np-cname">${escapeHtml(ch.name)}</span><span class="np-plays" data-v="${escapeHtml(plays)}">${plays}</span></div>
+            <span class="np-where" data-v="${escapeHtml(where)}">${where}</span></div>
+        <div class="np-cols"><span></span><span>Name</span><span>Mode</span><span>Now</span><span>Level</span></div>
+        ${ch.sections.map(sec => `<div class="np-sec"><div class="np-sec-hd">${escapeHtml(sec.title)}</div>${sec.rows.map(r => npRowHtml(ch.id, r, false, past)).join('')}</div>`).join('')}
+    </div>`;
+}
+
+// The rows' keys: the cards are built again only when these change; otherwise their parts are updated in place
+function npShape(chs) {
+    return JSON.stringify([chs.map(ch => [ch.id, ch.sections.map(sec => [sec.title, sec.rows.map(r => [r.key, r.type, (r.tracks || []).map(t => t.key)])])]), [...np.closed]]);
+}
+
+function npUpdateRow(el, row, past) {
+    const now = npNow(row, past);
+    const dot = el.querySelector('.np-dot');
+    const cls = `np-dot ${row.state}`;
+    if (dot.className !== cls) dot.className = cls;
+    if (dot.title !== now) dot.title = now;
+    const nowEl = el.querySelector('.np-now');
+    if (nowEl.textContent !== now) nowEl.textContent = now;
+    const modeEl = el.querySelector('.np-mode');
+    if (modeEl.textContent !== row.mode) modeEl.textContent = row.mode;
+    const lvl = npLevel(row);
+    const lvlEl = el.querySelector('.np-lvl');
+    if (lvlEl.dataset.v !== lvl) { lvlEl.innerHTML = lvl; lvlEl.dataset.v = lvl; }
+}
+
+function npSet(el, html) {
+    if (el && el.dataset.v !== html) { el.innerHTML = html; el.dataset.v = html; }
+}
+
+function npRender() {
+    const list = document.getElementById('np-list');
+    if (!list || !np.snaps.length) return;
+    const newest = np.snaps[np.snaps.length - 1];
+    const latest = newest.data.channels;
+    // Each channel now (Server), or as heard now (As heard: the mix its speakers' buffer ago)
+    const shown = latest.map(c => np.mode === 'heard'
+        ? npAt(c.id, Math.max(c.buffer_seconds || 0, npBrowserBuffer(c.id)))
+        : { ch: c, past: (performance.now() - newest.t) / 1000 });
+    const active = document.getElementById('status-active-channels');
+    active.textContent = latest.length;
+    active.classList.toggle('spst-on', latest.length > 0);
+    document.getElementById('status-ch-count').textContent = latest.length;
+    document.getElementById('np-legend').hidden = !latest.length;
+    if (!latest.length) {
+        if (np.shape !== 'none') list.innerHTML = '<div class="sp-empty"><strong>Nothing playing</strong></div>';
+        np.shape = 'none';
+        return;
+    }
+    const shape = npShape(shown.map(s => s.ch));
+    if (shape !== np.shape) {
+        np.shape = shape;
+        list.innerHTML = shown.map(s => npCardHtml(s.ch, s.past)).join('');
+        return;
+    }
+    shown.forEach(({ ch, past }) => {
+        const card = list.querySelector(`.np-card[data-ch="${CSS.escape(ch.id)}"]`);
+        if (!card) return;
+        npSet(card.querySelector('.np-plays'), npPlaysHtml(ch));
+        npSet(card.querySelector('.np-where'), npWhereHtml(ch));
+        const rows = new Map();
+        ch.sections.forEach(sec => sec.rows.forEach(r => {
+            rows.set(`${ch.id}|${r.type}|${r.key}`, r);
+            (r.tracks || []).forEach(t => rows.set(`${ch.id}|${t.type}|${t.key}`, t));
+        }));
+        card.querySelectorAll('[data-np]').forEach(el => {
+            const row = rows.get(el.dataset.np);
+            if (row) npUpdateRow(el, row, past);
+        });
+    });
 }
 
 // Volume Slider
@@ -7773,7 +7500,6 @@ const SP_ICON_INFO = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none
 const SP_ICON_CHEV = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="9 18 15 12 9 6"/></svg>';
 const SP_ICON_PLUS = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>';
 const SP_ICON_RESET = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>';
-const SP_ICON_REFRESH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>';
 const SP_ICON_PENCIL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 const SP_ICON_UPLOAD = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>';
 const SP_ICON_DOC = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
@@ -9979,7 +9705,7 @@ Sonorium.start(init);
 let teMixAudio = null;
 
 function teMixUrl() {
-    return `${BASE_PATH}/stream/${encodeURIComponent(te.themeId)}?preview=${Date.now()}`;
+    return hostStreamUrl(`/stream/${encodeURIComponent(te.themeId)}?preview=${Date.now()}`);
 }
 
 function teRenderMixButton() {
@@ -10306,7 +10032,7 @@ const PAGE_HELP = {
         <h4>Installed</h4>
         ${helpTerm('On', 'turns a plugin on or off.')}
         ${helpTerm('Arrow', 'shows the plugin\'s fields and buttons. Only for a plugin that is on and has options.')}
-        ${helpTerm('Built-in', 'comes with Sonorium and can\'t be uninstalled.')}
+        ${helpTerm('Built-in', 'comes with Sonorium. If you uninstall it, the Catalog can install it again.')}
         ${helpTerm('⋯ › Uninstall', 'removes the plugin files. You confirm first.')}
         <h4>Catalog</h4>
         ${helpTerm('Install', 'downloads the plugin from the catalog and installs it.')}
@@ -10348,8 +10074,14 @@ const PAGE_HELP = {
         <p>What Sonorium is doing now.</p>
         <h4>Overview</h4>
         ${helpTerm('Active Channels', 'channels playing now.')}
-        ${helpTerm('Total Speakers', 'speakers Sonorium can play to.')}
-        ${helpTerm('Channels', 'each channel with the theme it plays, and Playing or Idle.')}
+        ${helpTerm('Playing', 'one card per playing channel: its theme, preset or sequence step, where it plays, and its tracks by section. Idle channels are hidden.')}
+        <h4>Tracks</h4>
+        ${helpTerm('Light', 'Playing, Fading, Waiting, Paused or Muted.')}
+        ${helpTerm('Mode', 'how the track plays. A group shows how its files play: One at a time, Every file at once or Merry-go-round.')}
+        ${helpTerm('Now', 'what the track is doing, and the time until its next change: the wait, pause or gap the mixer picked.')}
+        ${helpTerm('Level', 'how loud the track plays now. For Ebb & Flow, the shaded band is the range it moves in.')}
+        ${helpTerm('Group', 'counts down to the group\'s next turn. Which file plays is picked when the gap ends.')}
         <h4>Top bar</h4>
-        ${helpTerm('Refresh', 'loads the status again.')}` }
+        ${helpTerm('Server', 'the mix on the server right this second.')}
+        ${helpTerm('As heard', 'an estimate of what you are hearing right now: the mix delayed by the speakers\' buffer, the longest one when a channel plays on several.')}` }
 };

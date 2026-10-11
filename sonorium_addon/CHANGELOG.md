@@ -2,48 +2,61 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.32 (2026-10-11)
+
+
 ## v1.6.2-dev.30 (2026-10-11)
 
-### Build System
 
-- Drop the ffmpeg package from both images
-  ([`25a1796`](https://github.com/synssins/sonorium/commit/25a179633ed585c6ca46af236e082ac224815b92))
+## v1.6.2-dev.29 (2026-10-11)
+
+### Bug Fixes
+
+- **plugins**: An uninstalled built-in can be installed again from the Catalog; Update only for a
+  newer version
+  ([`768803b`](https://github.com/synssins/sonorium/commit/768803b1593ab9a68923f54b74534f3703e5343b))
+
+
+## v1.6.2-dev.28 (2026-10-11)
+
+
+## v1.6.2-dev.27 (2026-10-11)
+
+### Documentation
+
+- Home Assistant's users on the add-on (AUTH, APP_API, add-on README)
+  ([`50e051a`](https://github.com/synssins/sonorium/commit/50e051adb287e2caf81ae762cc2b4f077f4ddf95))
+
+- Next release in What's new, Sign-in section, HTTPS port in the compose example,
+  THIRD_PARTY_NOTICES.md
+  ([`5833f46`](https://github.com/synssins/sonorium/commit/5833f46d06e011c013f5a85ad36736856bdfab28))
+
+
+## v1.6.2-dev.26 (2026-10-11)
+
+
+## v1.6.2-dev.25 (2026-10-11)
+
+### Bug Fixes
+
+- **status**: Ebb & Flow counts down to the fade at the file's end; theme's own name
+  ([`cec35a9`](https://github.com/synssins/sonorium/commit/cec35a99cef8aaa8f9a837692d5c5d4f64287ada))
 
 ### Documentation
 
 - APP_API.md, the API reference for the Android app
   ([`e749dd2`](https://github.com/synssins/sonorium/commit/e749dd2f98b7b3912ac91639bf22c681c5deb7ec))
 
-### Refactoring
+- Now playing board and GET /api/now-playing
+  ([`e33c340`](https://github.com/synssins/sonorium/commit/e33c340dc4abe0eeaebddb77e7b6ee6938dbfd0f))
 
-- LoadedTheme, version.py, and the last near-copies
-  ([`955a1d3`](https://github.com/synssins/sonorium/commit/955a1d3b08f43fd61acd7c2b407da305755d1e98))
+### Features
 
-- One MP3 encoder and real-time pacer for theme and channel streams
-  ([`f3222d0`](https://github.com/synssins/sonorium/commit/f3222d090465e152eb27f8d3796ab8e11cf25a16))
+- **status**: GET /api/now-playing, the mixer's live track state
+  ([`0a1cbc6`](https://github.com/synssins/sonorium/commit/0a1cbc6bae6d5a8e01b96274e81beef72c10e12c))
 
-- Reword the last lines that read like Amniotic's
-  ([`67cdc43`](https://github.com/synssins/sonorium/commit/67cdc430b671bb3443f8fd05c1a9b0217eb87465))
-
-- **device**: The theme library as Library, written fresh
-  ([`b80fa86`](https://github.com/synssins/sonorium/commit/b80fa86047b91c9152d353c0e74d26dc665b82a2))
-
-- **recording**: One decoder, one block-source base, own names for file and track
-  ([`c80569b`](https://github.com/synssins/sonorium/commit/c80569be7a2e8896d676dae043e72aa1a9843e96))
-
-- **start-up**: Settings, broker lookup and start-up written fresh
-  ([`d533879`](https://github.com/synssins/sonorium/commit/d533879ec0f1a4e68cef7325bf255e795605a9f2))
-
-- **theme**: Theme and ThemeMix, written fresh
-  ([`c8fc0c8`](https://github.com/synssins/sonorium/commit/c8fc0c87917e26e4731de4bdca0199871e9a9a91))
-
-- **web**: Web_server.py and WebApp replace api_base and ApiSonorium
-  ([`2ddb3c6`](https://github.com/synssins/sonorium/commit/2ddb3c642d3e36e962d12cd211ac9f4fb3e4c382))
-
-### Testing
-
-- Lock stream format, pacing, a known mix and route docs before the rewrite
-  ([`6917ea5`](https://github.com/synssins/sonorium/commit/6917ea53b0be843777a37074ad660fe3646e4b63))
+- **status**: Now playing on the Status page
+  ([`03fc89e`](https://github.com/synssins/sonorium/commit/03fc89e34c1b7651a449134afaa21a033b6dd96f))
 
 
 ## v1.6.2-dev.24 (2026-10-11)
