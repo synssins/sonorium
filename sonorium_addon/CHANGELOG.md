@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.1 (2026-10-11)
+
+### Documentation
+
+- **changelog**: 1.6.1 notice and highlights [skip ci]
+  ([`c99e0c6`](https://github.com/synssins/sonorium/commit/c99e0c69054ef378377bb29d32b5a35c57bb82a2))
+
+- **ui**: The Live help line says what is heard at once (Preview mix, channels with no preset) and
+  what waits for Save Preset
+  ([`f8b1ecd`](https://github.com/synssins/sonorium/commit/f8b1ecd5c6df9663599e0db64f28a9b72178d48b))
+
+
 ## v1.6.1 (2026-10-11)
 
 > ## ⭐ 1.6.1: Refinements
