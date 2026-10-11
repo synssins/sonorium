@@ -106,6 +106,12 @@ class AmbientMix:
         }
 
 
+def name_from_slug(slug: str) -> str:
+    """A mix's name from the last part of its address: "spring-rain---sanctuary" is "Spring Rain - Sanctuary"."""
+    parts = [" ".join(w for w in part.split("-") if w) for part in slug.split("---")]
+    return " - ".join(p.title() for p in parts if p) or "Imported mix"
+
+
 def random_unit_seconds(unit: str) -> float:
     """Ambient Mixer's random unit ("1m", "10m", "1h") in seconds (an hour if unreadable)."""
     match = re.match(r'^\s*(\d+(?:\.\d+)?)\s*([smh])', str(unit or "").lower())
@@ -163,7 +169,7 @@ class AmbientMixerPlugin(BasePlugin):
 
     id = "ambient_mixer"
     name = "Ambient Mixer Importer"
-    version = "3.1.0"
+    version = "3.1.1"
     description = "Import soundscapes from Ambient-Mixer.com with preset support"
     author = "Sonorium"
     builtin = True  # Shipped with Sonorium
@@ -631,7 +637,7 @@ class AmbientMixerPlugin(BasePlugin):
             # Fall back to URL parsing
             from urllib.parse import urlparse
             parsed = urlparse(source_url)
-            mix.name = parsed.path.strip('/').split('/')[-1].replace('-', ' ').title()
+            mix.name = name_from_slug(parsed.path.strip('/').split('/')[-1])
 
         mix.category = root.findtext('category', '')
 

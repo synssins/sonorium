@@ -220,3 +220,10 @@ def test_edit_made_during_the_download_is_kept(m, importer, monkeypatch):
     metadata = m.theme_metadata.load_theme_folder(folder)
     assert metadata.description == "edited meanwhile"
     assert {p["name"] for p in metadata.presets.values()} == {"Rainy Night", "Second"}
+
+
+def test_name_from_the_address():
+    from sonorium.plugins.builtin.ambient_mixer.plugin import name_from_slug
+    assert name_from_slug("spring-rain---sanctuary") == "Spring Rain - Sanctuary"
+    assert name_from_slug("scottish-rain") == "Scottish Rain"
+    assert name_from_slug("neverland-") == "Neverland"

@@ -1,7 +1,7 @@
 {
   "id": "ambient_mixer",
   "name": "Ambient Mixer Importer",
-  "version": "3.1.0",
+  "version": "3.1.1",
   "description": "Import soundscapes from Ambient-Mixer.com with preset support",
   "author": "Sonorium",
   "entry_point": "plugin.py",

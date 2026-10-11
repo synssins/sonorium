@@ -6,10 +6,10 @@
       "id": "ambient_mixer",
       "name": "Ambient Mixer Importer",
       "description": "Import soundscapes from Ambient-Mixer.com with preset support",
-      "version": "3.1.0",
+      "version": "3.1.1",
       "author": "Sonorium",
       "category": "importers",
-      "zip_file": "ambient_mixer_v3.1.0.zip"
+      "zip_file": "ambient_mixer_v3.1.1.zip"
     },
     {
       "id": "theme_merge",

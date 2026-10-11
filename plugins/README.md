@@ -13,7 +13,7 @@ Downloadable plugins for Sonorium. These plugins are included by default in new 
 
 ### Ambient Mixer Importer
 
-**File:** `ambient_mixer_v3.1.0.zip`
+**File:** `ambient_mixer_v3.1.1.zip`
 
 Import soundscapes from [Ambient-Mixer.com](https://ambient-mixer.com) directly into Sonorium.
 
