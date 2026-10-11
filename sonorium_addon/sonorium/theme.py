@@ -30,7 +30,7 @@ def sanitize(text: str) -> str:
     # Strip leading/trailing underscores
     return text.strip('_')
 
-# Default output gain multiplier (now controlled via device.master_volume)
+# Output gain when the library sets none (the Master volume is library.master_volume)
 DEFAULT_OUTPUT_GAIN = 6.0
 
 # Default threshold for short file detection (seconds): the default of Settings >
@@ -94,8 +94,8 @@ class Theme:
         # Group settings by group name (metadata.json "groups"), read by grouped tracks
         self.groups: dict[str, dict] = {}
 
-        # The theme's own files; the whole library only for a theme scanned before files were per theme
-        files = library.theme_metas.get(name) if name in library.theme_metas else library.metas
+        # Its own files; a theme the library lists no files for (a placeholder) gets them all
+        files = library.files_by_theme.get(name) if name in library.files_by_theme else library.all_files
         self.tracks = IndexList(ThemeTrack(file, theme=self) for file in files)
 
         # Mixes of this theme still playing. Held weakly, so a mix nobody

@@ -130,8 +130,8 @@ class SessionManager:
         import json
         if self.themes and len(self.themes) > 0:
             first_theme = self.themes[0]
-            if hasattr(first_theme, 'library') and hasattr(first_theme.library, 'path_audio'):
-                for folder in first_theme.library.path_audio.iterdir():
+            if hasattr(first_theme, 'library') and hasattr(first_theme.library, 'audio_dir'):
+                for folder in first_theme.library.audio_dir.iterdir():
                     metadata_path = folder / "metadata.json"
                     if folder.is_dir() and metadata_path.exists():
                         try:
@@ -166,8 +166,8 @@ class SessionManager:
         import json
         if self.themes and len(self.themes) > 0:
             first_theme = self.themes[0]
-            if hasattr(first_theme, 'library') and hasattr(first_theme.library, 'path_audio'):
-                for folder in first_theme.library.path_audio.iterdir():
+            if hasattr(first_theme, 'library') and hasattr(first_theme.library, 'audio_dir'):
+                for folder in first_theme.library.audio_dir.iterdir():
                     metadata_path = folder / "metadata.json"
                     if folder.is_dir() and metadata_path.exists():
                         try:
@@ -396,8 +396,8 @@ class SessionManager:
         if hasattr(self, 'themes') and self.themes and len(self.themes) > 0:
             # Get path from first theme's sonorium device
             first_theme = self.themes[0]
-            if hasattr(first_theme, 'library') and hasattr(first_theme.library, 'path_audio'):
-                audio_path = first_theme.library.path_audio
+            if hasattr(first_theme, 'library') and hasattr(first_theme.library, 'audio_dir'):
+                audio_path = first_theme.library.audio_dir
             else:
                 return None
         else:

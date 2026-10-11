@@ -265,7 +265,7 @@ class ApiSonorium(Base):
 
             # Initialize theme metadata manager
             from sonorium.core.theme_metadata import ThemeMetadataManager
-            audio_path = self.client.device.path_audio
+            audio_path = self.client.device.audio_dir
             self._theme_metadata_manager = ThemeMetadataManager(audio_path)
             theme_metadata = self._theme_metadata_manager.scan_themes()
             logger.debug(f"  Theme metadata: {len(theme_metadata)} themes scanned")
@@ -379,7 +379,7 @@ class ApiSonorium(Base):
             # Initialize plugin manager
             try:
                 from sonorium.plugins.manager import PluginManager
-                audio_path = self.client.device.path_audio if self.client and self.client.device else None
+                audio_path = self.client.device.audio_dir if self.client and self.client.device else None
                 self._plugin_manager = PluginManager(
                     self._state_store,
                     audio_path=audio_path,
@@ -881,9 +881,9 @@ class ApiSonorium(Base):
         if controller is not None and hasattr(controller, "ha_controller"):
             controller.ha_controller = None
         device = getattr(self.client, "device", None)
-        if device is not None and hasattr(device, "media_player_states"):
+        if device is not None and hasattr(device, "media_players"):
             from sonorium.utils import IndexList
-            device.media_player_states = IndexList()
+            device.media_players = IndexList()
 
         logger.info("Home Assistant connection removed")
         return {"status": "ok", "connection": await self.get_connection()}
@@ -1273,11 +1273,11 @@ class ApiSonorium(Base):
 
         # Fallback: Get the actual audio path from device and scan manually
         device = self.client.device
-        if device and hasattr(device, 'path_audio'):
-            media_paths = [device.path_audio]
+        if device and hasattr(device, 'audio_dir'):
+            media_paths = [device.audio_dir]
         else:
-            # Fallback to device path_audio (no hardcoded paths)
-            logger.warning("_find_theme_folder: device.path_audio not available")
+            # Fallback to the library's audio folder (no hardcoded paths)
+            logger.warning("_find_theme_folder: device.audio_dir not available")
             return None
 
         # Create multiple normalized versions of theme_id for matching
@@ -1400,8 +1400,8 @@ class ApiSonorium(Base):
                 continue
             linked = self._linked_recordings(metadata)
             for meta in linked:
-                if theme.name in device.theme_metas:
-                    device.theme_metas[theme.name].append(meta)
+                if theme.name in device.files_by_theme:
+                    device.files_by_theme[theme.name].append(meta)
                 theme.tracks.append(ThemeTrack(meta, theme=theme))
             logger.debug(f'Theme "{theme.name}": {len(linked)} linked track(s)')
 
@@ -1504,9 +1504,9 @@ class ApiSonorium(Base):
                 "problems": list(metadata.problems),
             })
 
-        # Then scan for empty theme folders (using device.path_audio, not hardcoded)
-        if device and hasattr(device, 'path_audio') and device.path_audio.exists():
-            for folder in device.path_audio.iterdir():
+        # Then scan for empty theme folders (the library's audio folder, not hardcoded)
+        if device and hasattr(device, 'audio_dir') and device.audio_dir.exists():
+            for folder in device.audio_dir.iterdir():
                 if not folder.is_dir() or folder.name in seen_folders or folder.name.startswith("."):
                     continue
 
@@ -1569,7 +1569,7 @@ class ApiSonorium(Base):
         from sonorium.utils import IndexList
 
         device = self.client.device
-        path_audio = device.path_audio
+        path_audio = device.audio_dir
         audio_extensions = ['.mp3', '.wav', '.flac', '.ogg']
 
         logger.info(f'Rescanning themes in "{path_audio}"...')
@@ -1582,7 +1582,7 @@ class ApiSonorium(Base):
         theme_folders = [folder for folder in path_audio.iterdir() if folder.is_dir() and not folder.name.startswith(".")]
         logger.debug(f'Found {len(theme_folders)} theme folder(s)')
 
-        # Step 1: Build theme_metas FIRST (before creating ThemeDefinitions)
+        # Step 1: each theme's files, before any Theme is made (it looks its files up)
         new_theme_metas = {}
         theme_names_with_audio = []
 
@@ -1606,14 +1606,13 @@ class ApiSonorium(Base):
                 theme_names_with_audio.append(theme_name)
                 logger.debug(f'Found theme "{theme_name}" with {len(audio_files)} audio files')
 
-        # Step 2: Update device.theme_metas BEFORE creating ThemeDefinitions
-        # This is critical because Theme.__init__ looks up theme_metas[name]
-        device.theme_metas = new_theme_metas
+        # Step 2: the library's file lists, which Theme() reads
+        device.files_by_theme = new_theme_metas
 
         # Rebuild metas list
-        device.metas = IndexList()
-        for theme_recordings in device.theme_metas.values():
-            device.metas.extend(theme_recordings)
+        device.all_files = IndexList()
+        for theme_recordings in device.files_by_theme.values():
+            device.all_files.extend(theme_recordings)
 
         # Step 3: NOW create Theme objects (they will find their metas correctly)
         new_themes = IndexList()

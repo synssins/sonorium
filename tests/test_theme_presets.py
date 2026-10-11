@@ -224,7 +224,7 @@ def test_session_manager_reads_presets_json(mods, tmp_path):
 
     manager = mods.session.SessionManager.__new__(mods.session.SessionManager)
     manager.theme_metadata_manager = None
-    manager.themes = [SimpleNamespace(library=SimpleNamespace(path_audio=tmp_path))]
+    manager.themes = [SimpleNamespace(library=SimpleNamespace(audio_dir=tmp_path))]
     assert manager._theme_presets("theme-1") == PRESETS
     assert manager.preset_for_theme("theme-1") == "calm"
     assert manager.preset_for_theme("theme-1", "storm") == "storm"

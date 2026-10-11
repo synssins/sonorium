@@ -106,7 +106,7 @@ def world(tmp_path, tones):
     write_theme(root / "Rain", "rain-id", tracks={"Rain": {"volume": 0.8, "presence": 1.0}})
     shutil.copy(tones / "rain.mp3", root / "Rain" / "Rain.mp3")
 
-    device = SimpleNamespace(path_audio=root, themes=m.IndexList(), theme_metas={}, metas=m.IndexList(),
+    device = SimpleNamespace(audio_dir=root, themes=m.IndexList(), files_by_theme={}, all_files=m.IndexList(),
                              master_volume=1.0)
     api = object.__new__(m.api.ApiSonorium)
     api.client = SimpleNamespace(device=device)

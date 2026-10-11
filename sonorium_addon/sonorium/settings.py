@@ -15,7 +15,7 @@ from pydantic_settings import BaseSettings
 
 from sonorium import runtime
 from sonorium.client import ClientSonorium
-from sonorium.device import Sonorium
+from sonorium.device import Library
 from sonorium.paths import PackagePaths, paths
 from sonorium.utils import HomeAssistantClient
 
@@ -203,7 +203,7 @@ class Settings(BaseSettings):
 
         return self
 
-    name: str = Sonorium.__name__
+    name: str = "Sonorium"
 
     # MQTT broker settings (auto-detect from Supervisor if not specified)
     mqtt_host: str = "auto"
@@ -229,10 +229,7 @@ class Settings(BaseSettings):
         logger.debug(f'Launching...')
 
         client_ha = HomeAssistantClient(api_url=self.ha_core_api, token=self.token)
-        device = Sonorium(
-            client_ha=client_ha,
-            path_audio_str=self.path_audio,
-        )
+        device = Library(client_ha=client_ha, audio_dir=self.path_audio)
 
         client = ClientSonorium.from_supervisor(device=device)
         await client.start()

@@ -9,7 +9,7 @@ from typing import Callable, Awaitable
 import paho.mqtt.client as paho_mqtt
 
 from sonorium.api import ApiSonorium
-from sonorium.device import Sonorium
+from sonorium.device import Library
 from sonorium import runtime
 from sonorium.obs import logger
 
@@ -179,7 +179,7 @@ class ClientSonorium:
 
     def __init__(
         self,
-        device: Sonorium,
+        device: Library,
         hostname: str,
         port: int = 1883,
         username: str | None = None,
@@ -228,7 +228,7 @@ class ClientSonorium:
 
     @classmethod
     @logger.instrument('Instantiating MQTT client...')
-    def from_supervisor(cls, device: Sonorium, **kwargs):
+    def from_supervisor(cls, device: Library, **kwargs):
         """
         Create MQTT client with configuration from environment/settings.
 
