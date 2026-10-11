@@ -247,6 +247,30 @@ def test_resolve_auto(m):
     assert api.resolve_auto("A", TS(playback_mode="presence", presence=0.3), None, 15.0).presence == 0.3
 
 
+def test_leftovers_of_an_interrupted_commit(m, tmp_path):
+    api = m.theme_api
+    folder = make_existing(tmp_path, m)
+    staging = tmp_path / ".sonorium-new-abc123"
+    staging.mkdir()
+    (staging / "Rain.mp3").write_bytes(b"x")
+    (staging / "metadata.json").write_text(json.dumps({"id": "half", "name": "Half"}))
+    (folder / ".sonorium-partial-1.mp3").write_bytes(b"x")
+    (folder / "Birds" / ".sonorium-partial-2.mp3").write_bytes(b"x")
+    (tmp_path / ".other").mkdir()
+
+    # Rescans never take a hidden folder for a theme
+    themes = m.theme_metadata.ThemeMetadataManager(tmp_path).scan_themes()
+    assert set(themes) == {"forest-id"}
+
+    # At start-up they are removed; everything else stays
+    removed = api.remove_stale_staging(tmp_path)
+    assert len(removed) == 3
+    assert not staging.exists() and (tmp_path / ".other").exists()
+    assert not list(folder.rglob(".sonorium-partial-*"))
+    assert (folder / "Rain.mp3").exists() and (folder / "Birds" / "Robin.mp3").exists()
+    assert api.remove_stale_staging(tmp_path / "missing") == []
+
+
 def test_commit_refuses_when_the_theme_changed_after_open(m, tmp_path):
     api = m.theme_api
     folder = make_existing(tmp_path, m)

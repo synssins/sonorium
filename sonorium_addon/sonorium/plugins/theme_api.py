@@ -156,6 +156,36 @@ def preset_id_for(name: str, existing) -> str:
     return preset_id
 
 
+def remove_stale_staging(audio_path: Path) -> list[str]:
+    """
+    At start-up: remove what a commit interrupted by a crash left behind, the
+    hidden staging folders of new themes (.sonorium-new-*) in audio_path and
+    the hidden partial files (.sonorium-partial-*) in theme and group folders.
+    Returns the names removed.
+    """
+    removed = []
+    try:
+        entries = list(Path(audio_path).iterdir())
+    except OSError:
+        return removed
+    for entry in entries:
+        try:
+            if entry.is_dir() and entry.name.startswith(STAGING_PREFIX):
+                shutil.rmtree(entry)
+                removed.append(entry.name)
+            elif entry.is_dir() and not entry.name.startswith("."):
+                for folder in [entry] + [p for p in entry.iterdir() if p.is_dir()]:
+                    for partial in folder.glob(f"{PARTIAL_PREFIX}*"):
+                        if partial.is_file():
+                            partial.unlink()
+                            removed.append(str(partial.relative_to(audio_path)))
+        except OSError as e:
+            logger.warning(f"Couldn't remove an interrupted theme write in {entry.name}: {e}")
+    if removed:
+        logger.info(f"Removed {len(removed)} leftover(s) of interrupted theme writes: {', '.join(removed)}")
+    return removed
+
+
 # --- checking values ----------------------------------------------------------------
 
 def _check_mode(mode) -> str:

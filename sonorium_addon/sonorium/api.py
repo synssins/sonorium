@@ -1278,7 +1278,7 @@ class ApiSonorium(api.Base):
         # Then scan for empty theme folders (using device.path_audio, not hardcoded)
         if device and hasattr(device, 'path_audio') and device.path_audio.exists():
             for folder in device.path_audio.iterdir():
-                if not folder.is_dir() or folder.name in seen_folders:
+                if not folder.is_dir() or folder.name in seen_folders or folder.name.startswith("."):
                     continue
 
                 # Count audio files in this folder (top level and group folders)
@@ -1350,7 +1350,7 @@ class ApiSonorium(api.Base):
             self._theme_metadata_manager.scan_themes()
 
         # Scan for theme folders
-        theme_folders = [folder for folder in path_audio.iterdir() if folder.is_dir()]
+        theme_folders = [folder for folder in path_audio.iterdir() if folder.is_dir() and not folder.name.startswith(".")]
         logger.debug(f'Found {len(theme_folders)} theme folder(s)')
 
         # Step 1: Build theme_metas FIRST (before creating ThemeDefinitions)

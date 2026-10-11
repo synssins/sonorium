@@ -677,7 +677,8 @@ class ThemeMetadataManager:
         themes = {}
 
         for folder in self.audio_path.iterdir():
-            if not folder.is_dir():
+            # Hidden folders aren't themes (e.g. a plugin's theme still being written)
+            if not folder.is_dir() or folder.name.startswith("."):
                 continue
 
             # Check for audio files (top level and group folders)
