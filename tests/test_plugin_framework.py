@@ -341,3 +341,19 @@ def test_theme_hook_errors_never_fail_the_operation(api, tmp_path):
         "data": {"is_new_theme": True, "theme_id": "abc", "theme_path": str(tmp_path)}})
     r = api.client.post("/api/plugins/demo/action", json={"action": "import", "data": {}})
     assert r.status_code == 200 and r.json()["success"] is True
+
+
+def test_catalog_zips_match_the_bundled_plugins():
+    import zipfile
+    root = Path(__file__).resolve().parents[1]
+    bundled = root / "sonorium_addon" / "sonorium" / "plugins" / "builtin"
+    catalog = json.loads((root / "plugins" / "catalog.json").read_text(encoding="utf-8"))
+    for entry in catalog["plugins"]:
+        pid = entry["id"]
+        assert entry["zip_file"] == f"{pid}_v{entry['version']}.zip"
+        with zipfile.ZipFile(root / "plugins" / entry["zip_file"]) as z:
+            manifest = json.loads(z.read(f"{pid}/manifest.json"))
+            code = z.read(f"{pid}/plugin.py").replace(b"\r\n", b"\n")
+        assert manifest["version"] == entry["version"]
+        assert manifest == json.loads((bundled / pid / "manifest.json").read_text(encoding="utf-8"))
+        assert code == (bundled / pid / "plugin.py").read_bytes().replace(b"\r\n", b"\n")
