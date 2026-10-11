@@ -1,0 +1,1350 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sonorium - Now playing</title>
+<script src="./support.js"></script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body { margin: 0; }
+
+/* ===== PROPOSED (new CSS): Now playing ===== */
+.np-page { max-width: 864px; padding: 0 0 2rem; display: flex; flex-direction: column; gap: 1rem; }
+.np-tiles { margin-bottom: .5rem; }
+.np-page .spst-title { margin: .5rem 0 0; }
+.np-seg button { min-height: 32px; font-size: .8125rem; }
+.np-legend { display: flex; flex-wrap: wrap; gap: .25rem 1rem; font-size: .75rem; color: var(--text-muted); }
+.np-legend span { display: inline-flex; align-items: center; gap: .375rem; }
+.np-card { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .625rem; overflow: hidden; }
+.np-hd { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: .75rem; padding: .75rem .875rem; border-bottom: 1px solid var(--border-color); }
+.np-hd .ch-icon { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; font-size: 1.375rem; }
+.np-title { display: flex; flex-direction: column; min-width: 0; }
+.np-cname { font-weight: 600; color: var(--text-primary); }
+.np-plays { font-size: .8125rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-step { color: var(--text-muted); }
+.np-out { display: inline-flex; align-items: center; gap: .375rem; padding: .25rem .625rem; border-radius: 999px; font-size: .75rem; border: 1px solid var(--border-color); color: var(--text-muted); }
+.np-out.on { color: var(--accent-primary); border-color: rgba(6, 214, 160, .45); background: rgba(6, 214, 160, .1); }
+.np-cols, .np-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 150px 190px 170px; align-items: center; column-gap: .75rem; padding: 0 .875rem; }
+.np-cols { padding-top: .5rem; padding-bottom: .375rem; font-size: .6875rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.np-sec-hd { padding: .5rem .875rem .25rem; font-size: .75rem; font-weight: 600; color: var(--text-secondary); border-top: 1px solid var(--border-color); }
+.np-row { min-height: 36px; font-size: .8125rem; color: var(--text-secondary); }
+.np-row + .np-row { border-top: 1px solid rgba(255, 255, 255, .04); }
+.np-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-primary); display: flex; align-items: center; gap: .375rem; }
+.np-child .np-name { padding-left: 1.5rem; }
+.np-grp .np-name b { font-weight: 600; }
+.np-chev, .np-fold { display: inline-flex; color: var(--text-muted); }
+.np-fold { color: var(--accent-warning); }
+.np-mode { color: var(--text-muted); }
+.np-now { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.np-lvl { display: grid; grid-template-columns: 1fr 40px; align-items: center; gap: .5rem; }
+.np-meter { position: relative; height: 8px; border-radius: 4px; background: var(--bg-secondary); overflow: hidden; }
+.np-band { position: absolute; top: 0; bottom: 0; background: rgba(6, 214, 160, .18); }
+.np-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; background: var(--accent-primary); }
+.np-pct { font-size: .75rem; text-align: right; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+.np-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; box-sizing: border-box; }
+.np-dot.on { background: var(--accent-primary); box-shadow: 0 0 6px rgba(6, 214, 160, .7); }
+.np-dot.fade { background: var(--accent-warning); }
+.np-dot.wait { border: 2px solid var(--text-muted); }
+.np-dot.rest { background: var(--text-muted); opacity: .6; }
+.np-dot.off { background: var(--accent-danger); opacity: .8; }
+@media (max-width: 760px) {
+    .np-page { padding: .75rem .75rem 1.5rem; }
+    .np-cols { display: none; }
+    .np-row { grid-template-columns: 18px minmax(0, 1fr) auto; grid-template-areas: "dot name now" "dot mode lvl"; row-gap: .125rem; padding: .5rem .75rem; }
+    .np-row .np-dot { grid-area: dot; }
+    .np-name { grid-area: name; }
+    .np-mode { grid-area: mode; font-size: .75rem; }
+    .np-now { grid-area: now; text-align: right; font-size: .75rem; }
+    .np-lvl { grid-area: lvl; width: 120px; }
+    .np-hd { grid-template-columns: 40px minmax(0, 1fr); }
+    .np-where { grid-column: 1 / -1; }
+}
+
+/* Phone board: the app's phone rules, applied without a media query */
+.phone .mobile-topbar { display: flex; align-items: center; gap: .75rem; position: relative; height: var(--mobile-bar-h); padding: 0 .75rem; background: var(--bg-sidebar); border-bottom: 1px solid var(--border-color); }
+.phone .mobile-topbar .mobile-nav-btn { width: 44px; height: 44px; flex: none; }
+.phone .mobile-topbar-logo { height: 28px; width: auto; }
+.phone .sidebar, .phone .sidebar-overlay { display: none; }
+.phone .main-wrapper { margin-left: 0; padding-top: 0; }
+.phone .main-header { height: auto; min-height: 61px; padding: .5rem .75rem; }
+.phone .main-header h2 { font-size: 1.125rem; }
+.phone .np-page { padding: .75rem .75rem 1.5rem; }
+.phone .np-seg button { padding: 0 .625rem; }
+.phone .np-cols { display: none; }
+.phone .np-row { grid-template-columns: 18px minmax(0, 1fr) auto; grid-template-areas: "dot name now" "dot mode lvl"; row-gap: .125rem; padding: .5rem .75rem; }
+.phone .np-row .np-dot { grid-area: dot; }
+.phone .np-name { grid-area: name; }
+.phone .np-mode { grid-area: mode; font-size: .75rem; }
+.phone .np-now { grid-area: now; text-align: right; font-size: .75rem; }
+.phone .np-lvl { grid-area: lvl; width: 130px; }
+.phone .np-child .np-name { padding-left: .75rem; }
+.phone .np-hd { grid-template-columns: 40px minmax(0, 1fr); }
+.phone .np-where { grid-column: 1 / -1; }
+
+</style>
+</helmet>
+<div class="board-page " style="width: 1600px; height: 1000px; overflow: hidden; background: var(--bg-primary)">
+
+    <!-- Phone: top bar with the menu button; the menu opens below it -->
+    <div class="mobile-topbar">
+        <button type="button" class="icon-btn mobile-nav-btn" id="mobile-nav-btn" aria-label="Menu" aria-expanded="false" aria-controls="sidebar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <line x1="3" y1="12" x2="21" y2="12"></line>
+                <line x1="3" y1="6" x2="21" y2="6"></line>
+                <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+        </button>
+        <img id="mobile-topbar-logo" class="mobile-topbar-logo" src="/logo.png" alt="Sonorium">
+        
+    </div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+            <div class="sidebar-logo">
+                <img id="sidebar-logo-img" src="/logo.png" alt="Sonorium">
+                
+            </div>
+        </div>
+
+        <nav class="sidebar-nav">
+            <div class="nav-section">
+                <div class="nav-section-title">Playback</div>
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="3" width="7" height="7"></rect>
+                        <rect x="14" y="14" width="7" height="7"></rect>
+                        <rect x="3" y="14" width="7" height="7"></rect>
+                    </svg>
+                    <span>Channels</span>
+                    <span id="playing-badge" class="nav-item-badge" style="display: none;">0</span>
+                </div>
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="3" y1="6" x2="15" y2="6"></line>
+                        <line x1="3" y1="12" x2="15" y2="12"></line>
+                        <line x1="3" y1="18" x2="10" y2="18"></line>
+                        <path d="M21 16V5l-4 1"></path>
+                        <circle cx="18" cy="16" r="3"></circle>
+                    </svg>
+                    <span>Playlists</span>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">Configuration</div>
+                <div class="nav-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 18V5l12-2v13"></path>
+                        <circle cx="6" cy="18" r="3"></circle>
+                        <circle cx="18" cy="16" r="3"></circle>
+                    </svg>
+                    <span>Themes</span>
+                </div>
+            </div>
+
+            <div class="nav-section" id="settings-nav-section">
+                <div class="nav-section-header">
+                    <div class="nav-section-left">
+                        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="3"></circle>
+                            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                        </svg>
+                        <span>Settings</span>
+                    </div>
+                    <svg class="nav-section-toggle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="9 18 15 12 9 6"></polyline>
+                    </svg>
+                </div>
+                <div class="nav-sub-items">
+                    <!-- Standalone (Docker) only: shown when /api/connection exists -->
+                    <div class="nav-sub-item" id="nav-settings-connection" style="">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                        </svg>
+                        <span>Connection</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
+                            <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
+                        </svg>
+                        <span>Audio Settings</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
+                            <polyline points="9 22 9 12 15 12 15 22"></polyline>
+                        </svg>
+                        <span>Floors &amp; Areas</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="4" y="2" width="16" height="20" rx="2" ry="2"></rect>
+                            <circle cx="12" cy="14" r="4"></circle>
+                            <line x1="12" y1="6" x2="12" y2="6"></line>
+                        </svg>
+                        <span>Speakers</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                        </svg>
+                        <span>Speaker Groups</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                            <path d="M2 17l10 5 10-5"></path>
+                            <path d="M2 12l10 5 10-5"></path>
+                        </svg>
+                        <span>Plugins</span>
+                    </div>
+                    <div class="nav-sub-item">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="8" y1="13" x2="16" y2="13"></line>
+                            <line x1="8" y1="17" x2="16" y2="17"></line>
+                        </svg>
+                        <span>Logs</span>
+                    </div>
+                    <!-- Shown when this install has features that can be switched on -->
+                    <div class="nav-sub-item" id="nav-settings-advanced" style="display: none;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <line x1="4" y1="21" x2="4" y2="14"></line>
+                            <line x1="4" y1="10" x2="4" y2="3"></line>
+                            <line x1="12" y1="21" x2="12" y2="12"></line>
+                            <line x1="12" y1="8" x2="12" y2="3"></line>
+                            <line x1="20" y1="21" x2="20" y2="16"></line>
+                            <line x1="20" y1="12" x2="20" y2="3"></line>
+                            <line x1="1" y1="14" x2="7" y2="14"></line>
+                            <line x1="9" y1="8" x2="15" y2="8"></line>
+                            <line x1="17" y1="16" x2="23" y2="16"></line>
+                        </svg>
+                        <span>Advanced</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="nav-section">
+                <div class="nav-section-title">System</div>
+                <div class="nav-item active">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 12h-4l-3 9L9 3l-3 9H2"></path>
+                    </svg>
+                    <span>Status</span>
+                </div>
+            </div>
+        </nav>
+
+        <div class="sidebar-footer">
+            <span id="version-text">v1.6.1</span><span id="install-label" class="install-label">Docker</span>
+        </div>
+    </aside>
+
+    <!-- Mobile sidebar overlay (click to close) -->
+    <div class="sidebar-overlay"></div>
+
+    <!-- Main Content -->
+    <div class="main-wrapper">
+        <header class="main-header" data-view="status">
+            <div class="main-header-title">
+                <h2 id="view-title">Status</h2>
+            </div>
+            <!-- Page actions (shown on their own page): Primary · Secondary · Cancel -->
+            <div class="header-actions hdr-pacts" data-view="settings-connection">
+                <span id="conn-state" class="sp-foot-state" hidden=""></span>
+                <button type="button" id="conn-save-btn" class="btn btn-primary" aria-haspopup="dialog" disabled="">Save and restart</button>
+                <button type="button" id="conn-cancel-btn" class="btn btn-secondary" disabled="">Cancel</button>
+            </div>
+            <div class="header-actions hdr-pacts" data-view="settings-audio">
+                <span id="audio-state" class="sp-foot-state" hidden=""><span class="sp-mod-dot"></span>Unsaved changes</span>
+                <button type="button" id="audio-save-btn" class="btn btn-primary" disabled="">Save settings</button>
+                <button type="button" id="audio-cancel-btn" class="btn btn-secondary" disabled="">Cancel</button>
+            </div>
+            <!-- Advanced: shown after a change, until the restart -->
+            <div class="header-actions hdr-pacts" data-view="settings-advanced" id="advanced-restart" hidden="">
+                <span class="sp-foot-state spa-note" id="adv-restart-note"></span>
+                <button type="button" class="btn btn-primary" id="adv-restart-btn" aria-haspopup="dialog">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                    Restart now
+                </button>
+            </div>
+            <div class="header-actions" id="view-actions"><div class="seg np-seg" role="group" aria-label="Timing"><button type="button" aria-pressed="true" title="Server right this second">Server</button><button type="button" aria-pressed="false" title="Estimate of what you are hearing right now">As heard</button></div>
+            
+        </div>
+            <!-- Help for the page shown: always the rightmost button -->
+            <button type="button" class="icon-btn sm hdr-help" id="page-help-btn" aria-label="Help" aria-expanded="false" aria-controls="page-help">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+            </button>
+        </header>
+
+        <!-- Page help: the Theme Editor's help panel, under the ? button; full screen on a phone (with ×).
+             Title and text are set per page by app.js (PAGE_HELP). -->
+        <div id="page-help" class="te-help page-help" role="dialog" aria-labelledby="page-help-title" hidden="">
+            <div class="te-help-hd">
+                <strong id="page-help-title">Status</strong>
+                <button class="modal-close te-help-x" aria-label="Close help">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="te-help-body" id="page-help-body">
+        <p>What Sonorium is doing now.</p>
+        <h4>Overview</h4>
+        <p class="hi"><b>Active Channels:</b> channels playing now.</p>
+        <p class="hi"><b>Total Speakers:</b> speakers Sonorium can play to.</p>
+        <p class="hi"><b>Channels:</b> each channel with the theme it plays, and Playing or Idle.</p>
+        <h4>Top bar</h4>
+        <p class="hi"><b>Refresh:</b> loads the status again.</p></div>
+        </div>
+
+        <main class="main-content">
+            <!-- Channels View -->
+            <div id="view-sessions" class="view">
+                <div id="sessions-container" class="session-grid ch-grid">
+        <div class="ch-card" data-session-id="c9f049f9">
+            <div class="ch-head">
+                <span class="ch-icon" aria-hidden="true">⛈️</span>
+                <div class="ch-title"><span class="ch-name">Office</span><span class="ch-sub" title="Speakers">Office_C97A</span></div>
+                <span class="ch-state">Stopped</span>
+                <button type="button" class="icon-btn sm" aria-label="Edit Office" title="Edit" aria-haspopup="dialog"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path></svg></button>
+                <button type="button" class="icon-btn sm" aria-label="More for Office" aria-haspopup="menu"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg></button>
+            </div>
+            <div class="ch-src">
+                
+                <span class="ch-lbl" id="xsel-lbl-cth:c9f049f9">Theme</span>
+                
+                <div class="psel xsel">
+                    <button type="button" class="psel-btn ch-pick" id="xsel-btn-cth:c9f049f9" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="xsel-lbl-cth:c9f049f9 xsel-btn-cth:c9f049f9">
+                        <span class="nm">A Rainy Day... Or is it?</span><span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></span>
+                    </button>
+                    <div class="psel-list" id="xsel-list-cth:c9f049f9" role="listbox" tabindex="-1" aria-labelledby="xsel-lbl-cth:c9f049f9" hidden=""></div>
+                </div>
+                <span class="ch-lbl" id="psel-lbl-c9f049f9">Preset</span>
+                
+                <div class="psel">
+                    <button type="button" class="psel-btn ch-pick" id="psel-btn-c9f049f9" aria-haspopup="listbox" aria-expanded="false" aria-labelledby="psel-lbl-c9f049f9 psel-btn-c9f049f9">
+                        <span class="nm">Mild Summer Storm</span><span class="def-star" title="Default">★</span>
+                        <span class="chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></span>
+                    </button>
+                    <div class="psel-list" id="psel-list-c9f049f9" role="listbox" tabindex="-1" aria-labelledby="psel-lbl-c9f049f9" hidden=""></div>
+                </div>
+                <div class="ch-modes" role="group" aria-label="What Office plays">
+                    <button type="button" class="ch-mode on" aria-pressed="true" title="Play a theme" aria-label="Play a theme"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2a10 10 0 0 0 0 20c1.1 0 1.8-.9 1.8-1.9 0-.5-.2-.9-.5-1.3-.3-.4-.5-.8-.5-1.3 0-1 .8-1.8 1.8-1.8H17a5 5 0 0 0 5-5C22 6 17.5 2 12 2z"></path><circle cx="7.5" cy="10.5" r="1.2" fill="currentColor"></circle><circle cx="10.5" cy="6.5" r="1.2" fill="currentColor"></circle><circle cx="15.5" cy="7" r="1.2" fill="currentColor"></circle></svg></button>
+                    <button type="button" class="ch-mode" aria-pressed="false" title="Play a playlist" aria-label="Play a playlist"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="15" y2="6"></line><line x1="3" y1="12" x2="15" y2="12"></line><line x1="3" y1="18" x2="10" y2="18"></line><path d="M21 16V5l-4 1"></path><circle cx="18" cy="16" r="3"></circle></svg></button>
+                </div>
+            </div>
+            <div class="ch-now"><span class="ch-now-txt"><span class="ch-none">No sequence or playlist</span></span></div>
+            <div class="ch-vol" title="Volume on the speakers">
+                <button type="button" class="ch-vol-ic ch-mute" aria-pressed="false" aria-label="Mute the speakers" title="Mute the speakers"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg></button>
+                <input type="range" class="track-slider" min="0" max="100" value="60" aria-label="Volume: Office">
+                <span class="ch-vol-val">60%</span>
+            </div>
+            <div class="ch-vol ch-local">
+                <button type="button" class="ch-vol-ic ch-listen" aria-pressed="false" aria-label="Listen on this device" title="Listen on this device"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg></button>
+                <input type="range" class="track-slider" min="0" max="100" value="100" aria-label="Volume on this device: Office" title="Volume on this device">
+                <span class="ch-vol-val">100%</span>
+            </div>
+            <div class="ch-recent"><div class="ch-recent-hd">Recent changes</div><ul><li><time datetime="2026-10-11T02:15:52.361545+00:00">Yesterday 21:15</time><span title="Stopped: Evening test">Stopped: Evening test</span></li><li><time datetime="2026-10-11T02:15:44.441559+00:00">Yesterday 21:15</time><span title="Preset: Mild Summer Storm">Preset: Mild Summer Storm</span></li><li><time datetime="2026-10-11T02:15:44.441296+00:00">Yesterday 21:15</time><span title="Stopped: Storm builds">Stopped: Storm builds</span></li><li><time datetime="2026-10-11T02:15:06.380754+00:00">Yesterday 21:15</time><span title="Entry 1 of 2: A Rainy Day">Entry 1 of 2: A Rainy Day</span></li><li><time datetime="2026-10-11T02:15:06.380731+00:00">Yesterday 21:15</time><span title="Started: Evening test">Started: Evening test</span></li><li><time datetime="2026-10-11T02:12:44.917957+00:00">Yesterday 21:12</time><span title="Step 1 of 3: Were those sprinkles?">Step 1 of 3: Were those sprinkles?</span></li><li><time datetime="2026-10-11T02:12:44.917937+00:00">Yesterday 21:12</time><span title="Started: Storm builds">Started: Storm builds</span></li></ul></div>
+            <div class="ch-foot">
+                <button type="button" class="btn btn-primary ch-play"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>Play</button>
+            </div>
+        </div>
+    </div>
+            </div>
+
+            <!-- Playlists: column headers fixed, the playlist list scrolls (pl* in app.js) -->
+            <div id="view-playlists" class="view sp sp-ui">
+                <div class="sp-bar sp-bar-head" id="pll-bar" hidden="">
+                    <div class="sp-wrap"><div class="sp-lhead pll-grid"><span></span><span>Name</span><span class="c">Entries</span><span>Order</span><span>Play each</span><span class="c">Repeat</span><span></span><span></span></div></div>
+                </div>
+                <div class="sp-scroll">
+                    <div class="sp-wrap" id="playlists-list"></div>
+                </div>
+            </div>
+
+            <!-- Themes View: fixed search/filter bar; only #themes-browser scrolls.
+                 Chips, cards/rows and menus are rendered by app.js (tp* functions). -->
+            <div id="view-themes" class="view tp">
+                <div class="tp-bar">
+                    <div class="tp-search">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                        <input id="tp-q" class="inp" type="text" placeholder="Search themes" aria-label="Search themes" autocomplete="off">
+                        <button type="button" class="clr" id="tp-clr" aria-label="Clear search" hidden="">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                    <div class="tp-tools">
+                        <span class="tp-cnt" id="tp-cnt"></span>
+                        <button type="button" class="sort-btn" aria-haspopup="menu"><span class="lab">Sort</span><span id="tp-sort-lbl">Name</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button>
+                        <div class="seg tp-view" role="group" aria-label="View">
+                            <button type="button" id="tp-cards-btn" aria-pressed="true"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>Cards</button>
+                            <button type="button" id="tp-list-btn" aria-pressed="false"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>List</button>
+                        </div>
+                    </div>
+                    <div class="fchips" id="tp-chips" role="group" aria-label="Category"></div>
+                    <div class="tp-lhead-wrap" id="tp-lhead" hidden="">
+                        <div class="lwrap"><div class="lhead lgrid"><span></span><span>Name</span><span>Categories</span><span class="c">Tracks</span><span class="c">★</span><span></span><span></span></div></div>
+                    </div>
+                </div>
+
+                <div id="themes-browser" class="tp-scroll">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        Loading themes...
+                    </div>
+                </div>
+
+                <!-- Local Theme Preview Player -->
+                <div id="theme-preview-player" class="theme-preview-player" style="display: none;">
+                    <div class="preview-player-info">
+                        <span class="preview-label">Local Preview:</span>
+                        <span id="preview-theme-name" class="preview-theme-name">--</span>
+                    </div>
+                    <div class="preview-player-controls">
+                        <button id="preview-play-btn" class="preview-control-btn">
+                            <svg class="play-icon" viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
+                                <path d="M8 5v14l11-7z"></path>
+                            </svg>
+                            <svg class="pause-icon" viewBox="0 0 24 24" fill="currentColor" width="20" height="20" style="display:none;">
+                                <rect x="6" y="4" width="4" height="16"></rect>
+                                <rect x="14" y="4" width="4" height="16"></rect>
+                            </svg>
+                        </button>
+                        <input type="range" id="preview-volume" class="preview-volume-slider" min="0" max="100" value="80">
+                        <span id="preview-volume-value" class="preview-volume-value">80%</span>
+                        <button class="preview-close-btn" title="Close preview">
+                            ×
+                        </button>
+                    </div>
+                </div>
+
+
+                <!-- One floating menu/popover, filled and placed by tpMenu() -->
+                <div class="te-pop" id="tp-menu" hidden=""></div>
+            </div>
+
+            <!-- Theme Edit Modal: fixed top and footer; only the track list scrolls.
+                 Track rows, chips, presets and menus are rendered by app.js (te* functions). -->
+            <div id="theme-edit-modal" class="modal-backdrop te-backdrop">
+                <div class="modal te" role="dialog" aria-modal="true" aria-labelledby="te-title">
+                    <input type="hidden" id="theme-edit-id">
+                    <div class="modal-header">
+                        <h2 id="te-title">Edit theme <span class="sub" id="te-title-name"></span></h2>
+                        <div class="hd-acts">
+                            <button class="icon-btn sm hd-more" id="te-help-btn" aria-label="Help" aria-expanded="false" aria-controls="te-help">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>
+                            </button>
+                            <button class="icon-btn sm hd-more" aria-label="More theme options" aria-haspopup="menu">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg>
+                            </button>
+                            <button class="modal-close" aria-label="Close">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Help: small panel under the ? button; full screen on a phone (with ×) -->
+                    <div id="te-help" class="te-help" role="dialog" aria-label="Theme editor help" hidden="">
+                        <div class="te-help-hd">
+                            <strong>How a theme plays</strong>
+                            <button class="modal-close te-help-x" aria-label="Close help">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        </div>
+                        <div class="te-help-body">
+                            <p>A theme is a set of tracks (sound files) mixed together. This help follows the editor from top to bottom.</p>
+                            <h4>Tracks</h4>
+                            <p class="hi"><b>Sequences:</b> Lists this theme's sequences. Pick one to edit it, or Add sequence.</p>
+                            <p class="hi"><b>Preview mix:</b> Plays the mix in this browser.</p>
+                            <p class="hi"><b>Upload:</b> Uploads to Unassigned, or to the group you pick.</p>
+                            <p class="hi"><b>Add from another theme:</b> Links files from another theme.</p>
+                            <p class="hi"><b>Reset all:</b> Resets every track and group to defaults.</p>
+                            <h4>Sections</h4>
+                            <p class="hi"><b>Sections:</b> tracks sit in sections by how they play: Background, Intermittent and Ebb &amp; Flow. Every section is always there, even empty. Change a track's Mode, or drag it to another section or into a group in one, and it moves there and plays that way. A track in a group plays its group's way: drag it out to change it.</p>
+                            <p class="hi"><b>Groups:</b> a group belongs to its section and plays that section's way: Background groups are Merry-go-round, Intermittent groups take turns, Ebb &amp; Flow groups play every file at once. Make one with the section's New group.</p>
+                            <p class="hi"><b>Moving tracks:</b> drag a track onto a group, or use its ⋯ menu.</p>
+                            <h4>Unassigned</h4>
+                            <p class="hi"><b>Unassigned:</b> uploads and files added from another theme start here. Nothing here plays. Pick each file's Mode, or drag it into a section or a group.</p>
+                            <h4>Background</h4>
+                            <p class="hi"><b>Background:</b> plays all the time, looping smoothly. Rain, wind, a fire.</p>
+                            <h5>Track</h5>
+                            <p class="hi lv2"><b>Gapless:</b> in the track's ⋯ menu, outside groups. Loops without a crossfade.</p>
+                            <h5>Merry-go-round group</h5>
+                            <p class="hi lv2"><b>Merry-go-round:</b> one file plays, then crossfades into another picked at random, never the same one twice in a row. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.</p>
+                            <p class="hi lv2"><b>Crossfade:</b> under the group's name. Overlap between files (seconds).</p>
+                            <p class="hi lv2"><b>Volume, Mute:</b> apply to every track in the group.</p>
+                            <h4>Intermittent</h4>
+                            <p class="hi"><b>Intermittent:</b> plays once, then goes quiet before playing again. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.</p>
+                            <h5>Track</h5>
+                            <p class="hi lv2"><b>Interval:</b> the wait between plays. In a group, how fast its weight wears off. Higher comes back sooner; lower plays less often.</p>
+                            <h5>Intermittent group</h5>
+                            <p class="hi lv2"><b>Take turns:</b> only one track plays at a time, never overlapping. On its turn, a track plays its whole file once, start to finish, then hands over. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.</p>
+                            <p class="hi lv2"><b>Gap:</b> under the group's name: after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other. Presets keep their own Gap.</p>
+                            <p class="hi lv2"><b>Weight:</b> each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.</p>
+                            <p class="hi lv2"><b>Volume, Interval, Mute:</b> apply to every track in the group.</p>
+                            <h4>Ebb &amp; Flow</h4>
+                            <p class="hi"><b>Ebb &amp; Flow:</b> Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. Wind, surf, rain that gusts.</p>
+                            <h5>Track</h5>
+                            <p class="hi lv2"><b>Volume:</b> minimum and maximum volume.</p>
+                            <p class="hi lv2"><b>Duration:</b> increases or decreases the amount of time the track is at a value.</p>
+                            <h6>Its ⋯ menu</h6>
+                            <p class="hi lv3"><b>Rise:</b> increases or decreases the speed at which the track reaches that value.</p>
+                            <p class="hi lv3"><b>Pause between plays:</b> off, the file loops and is always heard. On, it plays once from start to finish, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.</p>
+                            <p class="hi lv3"><b>Pause:</b> how long it stays quiet, in seconds, picked at random between the two numbers each time (600 is 10 minutes). It also staggers when tracks first start, so they don't all begin together.</p>
+                            <h5>Ebb &amp; Flow group</h5>
+                            <p class="hi lv2"><b>Ebb &amp; Flow group:</b> every file plays at once, each between its own minimum and maximum volume. Each file keeps its own settings; the group's Volume and Duration scale them down.</p>
+                            <p class="hi lv2"><b>Pause between plays:</b> under the group's name. On, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its own Pause between plays.</p>
+                            <p class="hi lv2"><b>Volume, Duration, Mute:</b> apply to every track in the group.</p>
+                            <h6>Its ⋯ menu</h6>
+                            <p class="hi lv3"><b>Same Rise for every file:</b> one Rise for the whole group instead of each file's own.</p>
+                            <h4>A track's ⋯ menu</h4>
+                            <p class="hi"><b>Fade in / Fade out:</b> for a file that starts or ends abruptly. Set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.</p>
+                            <p class="hi"><b>Move to:</b> Unassigned, or a group.</p>
+                            <p class="hi"><b>New group:</b> Creates a group in this section with the track in it.</p>
+                            <p class="hi"><b>Reset track:</b> Resets the track to defaults.</p>
+                            <h4>A group's ⋯ menu</h4>
+                            <p class="hi"><b>Rename:</b> also by double-clicking the group name.</p>
+                            <p class="hi"><b>Delete group:</b> keeps its files; they move back into its section.</p>
+                            <h4>Files from another theme</h4>
+                            <p class="hi"><b>Linked file:</b> plays here but stays in its own theme. Add one with Add from another theme above the list; it starts in Unassigned, and can go anywhere your own files can. If the file is gone, it shows Missing.</p>
+                            <p class="hi"><b>Presets:</b> turn linked files on and other tracks off, like rain that mutes the crickets. A preset that turns a linked file on shows <span class="int-ic" role="img" aria-label="two circles icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="12" r="6"></circle><circle cx="15" cy="12" r="6"></circle></svg></span>.</p>
+                            <p class="hi"><b>Remove link:</b> in a linked file's ⋯ menu. The file stays in its own theme.</p>
+                            <h4>Sequences</h4>
+                            <p class="hi"><b>Sequence:</b> plays presets of this theme in the order you choose, gliding from one to the next. Marked <span class="seq-ic" role="img" aria-label="sequence icon"><svg class="seqsh" width="18" height="10" viewBox="0 0 28 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"></rect><path d="M10.5 9.5 14 2.5 17.5 9.5Z"></path><circle cx="23" cy="6" r="3.5"></circle></svg></span>.</p>
+                            <p class="hi"><b>Picking one:</b> preset lists show the sequences after the presets. Picking a preset by hand stops a running sequence.</p>
+                            <p class="hi"><b>Edit:</b> pick a sequence in the preset field below, then Edit.</p>
+                            <h5>Edit sequence</h5>
+                            <p class="hi lv2"><b>Time on each preset:</b> each preset plays for a random time in this range (minutes), drawn fresh each time.</p>
+                            <p class="hi lv2"><b>Ramp:</b> how long the glide to the next preset takes (seconds).</p>
+                            <p class="hi lv2"><b>At the end:</b> Reverse plays the list backwards, Start again goes back to the first preset, Stop stays on the last one.</p>
+                            <p class="hi lv2"><b>Order:</b> drag a preset, or use its ⋯ menu.</p>
+                            <p class="hi lv2"><b>Theme defaults:</b> empty fields use the theme's time and ramp, set at the bottom of the Sequences menu.</p>
+                            <p class="hi lv2"><b>Save:</b> saves the sequence at once. Every channel playing this theme can pick it.</p>
+                            <h5>A step: ⋯ › Advanced</h5>
+                            <p class="hi lv2"><b>While playing:</b> changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green; anything you don't change follows the preset.</p>
+                            <p class="hi lv2"><b>Revert changes:</b> puts back the settings as they were when Save was last pressed.</p>
+                            <p class="hi lv2"><b>Coming in / Leaving:</b> tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.</p>
+                            <h6>Coming in and Leaving</h6>
+                            <p class="hi lv3"><b>Smooth:</b> no button on. The track follows the sequence's ramp.</p>
+                            <p class="hi lv3"><b>Buttons:</b> click to turn a style on, click again to turn it off. Each style that's on shows its own setting under Setting.</p>
+                            <p class="hi lv3"><b>Pre-fade:</b> starts the change this many seconds before the step.</p>
+                            <p class="hi lv3"><b>Gusts / Gusts dying down:</b> rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.</p>
+                            <p class="hi lv3"><b>Swell / Smooth fade:</b> one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.</p>
+                            <p class="hi lv3"><b>Build / Thin out:</b> Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.</p>
+                            <p class="hi lv3"><b>Distance / Recede:</b> starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.</p>
+                            <p class="hi lv3"><b>Start fresh / Finish then stop:</b> plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.</p>
+                            <p class="hi lv3"><b>Preview:</b> ▶ plays that track's change on this device and follows your edits.</p>
+                            <p class="hi lv3"><b>File fades:</b> a file's own Fade in and Fade out apply on top of every style.</p>
+                            <p class="hi lv3"><b>Combining styles:</b> several styles can be on together. They all work over the same fade time (pre-fade plus ramp). For example:</p>
+                            <p class="hi ex lv3"><b>Gusts + Distance:</b> wind starts far off and muffled, and surges unevenly as it comes closer.</p>
+                            <p class="hi ex lv3"><b>Gusts + Swell:</b> the surges ride on one curved rise instead of a steady one.</p>
+                            <p class="hi ex lv3"><b>Gusts + Start fresh:</b> the file plays from its start and rises in uneven surges.</p>
+                            <p class="hi ex lv3"><b>Build + Distance:</b> thunder comes more often and louder as it moves from far off to close.</p>
+                            <p class="hi ex lv3"><b>Thin out + Recede:</b> thunder comes less often and quieter as it drifts away.</p>
+                            <p class="hi ex lv3"><b>Smooth fade + Finish then stop:</b> fades out over the fade time; if the current play ends first, it stops there with a short fade.</p>
+                            <h4>Presets and saving</h4>
+                            <p class="hi"><b>Live:</b> changes are heard on speakers playing this theme, and on this device with Preview mix.</p>
+                            <p class="hi"><b>Preset:</b> the loaded preset. Current settings is the theme without one.</p>
+                            <p class="hi"><b>New:</b> makes a new preset from the current mix.</p>
+                            <p class="hi"><b>Save Preset:</b> Saves loaded preset</p>
+                            <p class="hi"><b>Save Theme:</b> Saves theme with all changes (presets, name, etc) Required after saving a preset.</p>
+                            <p class="hi"><b>Cancel:</b> Reverts unsaved changes.</p>
+                        </div>
+                    </div>
+
+                    <!-- Fixed: icon + Name + Categories on one row, Description below -->
+                    <div class="te-top">
+                        <div class="top-row">
+                            <button class="icon-tile" id="te-icon" title="Change icon" aria-label="Theme icon" aria-haspopup="menu">🎵</button>
+                            <div class="fld f-name">
+                                <label class="fld-label" for="te-name">Name</label>
+                                <input id="te-name" class="inp name" type="text" autocomplete="off">
+                            </div>
+                            <div class="fld f-cats">
+                                <span class="fld-label" id="te-cat-label">Categories</span>
+                                <div class="cat-wrap">
+                                    <label class="chipfield" id="te-chipfield" for="te-cat">
+                                        <span class="te-chips" id="te-chips"></span>
+                                        <input id="te-cat" class="chip-input" type="text" autocomplete="off" enterkeyhint="done" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="te-cat-list" aria-labelledby="te-cat-label">
+                                    </label>
+                                    <div class="ac" id="te-cat-list" role="listbox" hidden=""></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="fld">
+                            <label class="fld-label" for="te-desc">Description</label>
+                            <textarea id="te-desc" class="inp desc" rows="1" placeholder="Optional"></textarea>
+                        </div>
+                    </div>
+
+                    <!-- Fixed: tracks toolbar (each section has its own column headings) -->
+                    <div class="tfix">
+                        <div class="tsec-head">
+                            <h3>Tracks</h3><span class="badge badge-type" id="te-track-count">0</span>
+                            <button class="btn btn-sm btn-secondary seq-btn" aria-haspopup="menu">
+                                <span class="seq-ic"><svg class="seqsh" width="21" height="12" viewBox="0 0 28 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"></rect><path d="M10.5 9.5 14 2.5 17.5 9.5Z"></path><circle cx="23" cy="6" r="3.5"></circle></svg></span>Sequences<span class="badge badge-type seq-n" id="te-seq-n">0</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                            </button>
+                            <button class="btn btn-sm btn-secondary te-mix-btn" id="te-mix-btn" aria-pressed="false" title="Play the whole theme on this device, with your changes, without changing the speakers">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg><span id="te-mix-label">Preview mix</span>
+                            </button>
+                            <span class="grow"></span>
+                            <div class="tbar">
+                                <button class="btn btn-sm btn-secondary" aria-haspopup="menu">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>Upload<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                                </button>
+                                <button class="btn btn-sm btn-secondary">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>Add from another theme
+                                </button>
+                                <button class="btn btn-sm btn-secondary" aria-haspopup="dialog">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>Reset all
+                                </button>
+                            </div>
+                        </div>
+                        <div class="upload-zone" id="te-upload-zone" hidden="">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                            <span class="uz-drop">Drop audio files here or</span>
+                            <button class="link-btn">browse</button>
+                            <span class="grow"></span>
+                            <span class="uz-target">Upload to <strong id="te-upload-label"></strong></span>
+                            <button class="icon-btn sm" aria-label="Close upload">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                            </button>
+                        </div>
+                        <input type="file" id="te-upload-input" multiple="" accept=".mp3,.wav,.flac,.ogg,audio/*" hidden="">
+                    </div>
+
+                    <!-- Scrolls: the track list only, in sections by playback type (teRenderTracks) -->
+                    <div class="modal-body tlist" id="te-tracks" aria-label="Tracks"></div>
+
+                    <!-- Footer: preset field on the left, save actions on the right -->
+                    <div class="modal-footer foot">
+                        <div class="pgroup" role="group" aria-label="Presets">
+                            <span class="pb-label">Preset</span>
+                            <button class="pdd" id="te-preset-btn" aria-haspopup="listbox"></button>
+                            <button class="icon-btn sm" aria-label="More preset actions" aria-haspopup="menu">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg>
+                            </button>
+                            <button class="btn btn-secondary" id="te-load-btn">Load</button>
+                            <button class="btn btn-secondary" aria-haspopup="dialog">New</button>
+                        </div>
+                        <span class="grow"></span>
+                        <span class="foot-status">
+                            <span class="pmsg" id="te-msg" role="status"></span>
+                            <span class="dirty" id="te-dirty" hidden=""><i></i>Mix changed</span>
+                        </span>
+                        <div class="foot-btns">
+                            <button class="btn btn-secondary" id="te-savepreset-btn" title="Saves loaded preset">Save preset</button>
+                            <button class="btn btn-primary save-btn" title="Save theme">Save theme<span class="sdot" id="te-sdot" title="Unsaved changes" hidden=""></span></button>
+                            <button class="btn btn-secondary">Cancel</button>
+                        </div>
+                    </div>
+
+                    <!-- One floating menu/popover, filled and placed by teMenu() -->
+                    <div class="te-pop" id="te-menu" hidden=""></div>
+                </div>
+            </div>
+
+            <!-- Add from another theme: link files into this theme (they start in Unassigned). Step 1
+                 picks a theme, step 2 ticks its tracks (read-only). Rendered by pk* in app.js. -->
+            <div id="te-pk" class="modal-backdrop pk-backdrop">
+                <div class="modal pk tp" role="dialog" aria-modal="true" aria-labelledby="pk-title">
+                    <div class="modal-header">
+                        <h2 id="pk-title">Add from another theme</h2>
+                        <button class="modal-close" aria-label="Close">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                    <div class="pk-bar" id="pk-bar"></div>
+                    <div class="pk-headwrap"><div class="pk-head" id="pk-head"></div></div>
+                    <div class="pk-body" id="pk-body"></div>
+                    <div class="modal-footer pk-foot">
+                        <span class="pk-count" id="pk-count" role="status"></span>
+                        <span class="grow"></span>
+                        <button class="btn btn-primary" id="pk-add" disabled="">Add</button>
+                        <button class="btn btn-secondary">Cancel</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Manage categories (from the Themes page ⋯ menu) -->
+            <div id="tp-cat-modal" class="modal-backdrop">
+                <div class="modal tp-cm" role="dialog" aria-modal="true" aria-labelledby="tp-cm-title">
+                    <div class="modal-header">
+                        <h2 id="tp-cm-title">Categories</h2>
+                        <button class="modal-close" aria-label="Close">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                        </button>
+                    </div>
+                    <div class="modal-body" id="tp-cm-list"></div>
+                    <div class="cm-add">
+                        <input id="tp-cm-new" class="inp sm" type="text" maxlength="60" autocomplete="off" placeholder="New category" aria-label="New category">
+                        <button type="button" class="btn btn-sm btn-secondary" id="tp-cm-add" disabled="">Add</button>
+                    </div>
+                    <div class="modal-footer"><button type="button" class="btn btn-primary">Done</button></div>
+                </div>
+            </div>
+
+            <!-- Preset Import Modal -->
+            <div id="preset-import-modal" class="modal-backdrop">
+                <div class="modal" style="max-width: 600px;">
+                    <div class="modal-header">
+                        <h3>Import Preset</h3>
+                        <button class="modal-close">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label for="preset-import-name">Preset Name</label>
+                                <input type="text" id="preset-import-name" placeholder="e.g., Sleep Mode, Focus Mix...">
+                            </div>
+                            <div>
+                                <label for="preset-import-json">Preset JSON *</label>
+                                <textarea id="preset-import-json" rows="10" placeholder="Paste preset JSON here...
+Example:
+{
+  &quot;name&quot;: &quot;Sleep Mode&quot;,
+  &quot;tracks&quot;: {
+    &quot;rain.mp3&quot;: {&quot;volume&quot;: 0.8, &quot;presence&quot;: 1.0},
+    &quot;thunder.mp3&quot;: {&quot;volume&quot;: 0.3, &quot;presence&quot;: 0.2}
+  }
+}"></textarea>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary">Cancel</button>
+                        <button class="btn btn-primary">Import</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Preset Export Modal -->
+            <div id="preset-export-modal" class="modal-backdrop">
+                <div class="modal" style="max-width: 600px;">
+                    <div class="modal-header">
+                        <h3>Export Preset</h3>
+                        <button class="modal-close">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="theme-create-form">
+                            <div>
+                                <label>Preset JSON</label>
+                                <textarea id="preset-export-json" rows="12" readonly="" style="font-family: monospace; font-size: 0.8rem;"></textarea>
+                            </div>
+                            <p style="font-size: 0.8rem; color: var(--text-muted);">Copy this JSON to share with others or import into another theme.</p>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary">Close</button>
+                        <button class="btn btn-primary">Copy to Clipboard</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings View -->
+            <!-- Settings View (legacy - redirects to audio settings) -->
+            <div id="view-settings" class="view">
+                <div class="settings-section">
+                    <p>Please select a settings category from the menu.</p>
+                </div>
+            </div>
+
+            <!-- Connection (standalone/Docker only): identical cards, Save and restart / Cancel in the top bar -->
+            <div id="view-settings-connection" class="view sp sp-ui">
+                <div class="sp-scroll">
+                    <div class="sp-wrap sp-cards">
+                        <section class="sp-card" aria-labelledby="conn-ha-h">
+                            <div class="sp-head">
+                                <h3 id="conn-ha-h">Home Assistant</h3>
+                                <span id="conn-ha-status" class="badge sp-st sp-st-off"><i></i><span>Not configured</span></span>
+                                <span id="conn-ha-note" class="sp-note" hidden=""></span>
+                                <span class="grow"></span>
+                                <button type="button" class="icon-btn sm" id="conn-ha-remove" aria-label="Remove Home Assistant" title="Remove" aria-haspopup="dialog">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
+                                </button>
+                            </div>
+                            <div class="sp-fstack">
+                                <label class="sp-fld"><span class="sp-flab">URL<span class="sp-tip" title="Optional · e.g. http://homeassistant.local:8123" aria-label="Optional · e.g. http://homeassistant.local:8123"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></span></span>
+                                    <input class="sp-inp" type="url" id="conn-ha-url" data-conn="ha_url" placeholder="http://homeassistant.local:8123" aria-label="URL">
+                                    <span class="sp-ferr" data-err="ha_url" hidden=""></span></label>
+                                <label class="sp-fld"><span class="sp-flab">Access token<span class="sp-tip" title="Profile › Security › Long-lived access tokens" aria-label="Profile › Security › Long-lived access tokens"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></span><span class="sp-saved" data-saved="ha_token" hidden="">· saved</span></span>
+                                    <input class="sp-inp" type="password" id="conn-ha-token" data-conn="ha_token" autocomplete="off" aria-label="Access token"></label>
+                            </div>
+                        </section>
+                        <section class="sp-card" aria-labelledby="conn-mqtt-h">
+                            <div class="sp-head">
+                                <h3 id="conn-mqtt-h">MQTT</h3>
+                                <span id="conn-mqtt-status" class="badge sp-st sp-st-off"><i></i><span>Not configured</span></span>
+                                <span id="conn-mqtt-note" class="sp-note" hidden=""></span>
+                                <span class="grow"></span>
+                                <button type="button" class="icon-btn sm" id="conn-mqtt-remove" aria-label="Remove MQTT" title="Remove" aria-haspopup="dialog">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path><path d="M10 11v6M14 11v6"></path><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path></svg>
+                                </button>
+                            </div>
+                            <div class="sp-fstack">
+                                <div class="sp-frow">
+                                    <label class="sp-fld sp-fill"><span class="sp-flab">Broker<span class="sp-tip" title="Optional · host name or IP of your broker" aria-label="Optional · host name or IP of your broker"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></span></span>
+                                        <input class="sp-inp" type="text" id="conn-mqtt-host" data-conn="mqtt_host" placeholder="192.168.1.10" aria-label="Broker"></label>
+                                    <label class="sp-fld sp-port"><span class="sp-flab">Port</span>
+                                        <input class="sp-inp" type="number" id="conn-mqtt-port" data-conn="mqtt_port" min="1" max="65535" placeholder="1883" aria-label="Port">
+                                        <span class="sp-ferr" data-err="mqtt_port" hidden=""></span></label>
+                                </div>
+                                <div class="sp-frow">
+                                    <label class="sp-fld sp-fill"><span class="sp-flab">Username<span class="sp-tip" title="Blank for anonymous" aria-label="Blank for anonymous"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></span></span>
+                                        <input class="sp-inp" type="text" id="conn-mqtt-user" data-conn="mqtt_username" autocomplete="off" placeholder="Anonymous" aria-label="Username"></label>
+                                    <label class="sp-fld sp-fill"><span class="sp-flab">Password<span class="sp-tip" title="Blank keeps the saved password" aria-label="Blank keeps the saved password"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></span><span class="sp-saved" data-saved="mqtt_password" hidden="">· saved</span></span>
+                                        <input class="sp-inp" type="password" id="conn-mqtt-pass" data-conn="mqtt_password" autocomplete="off" aria-label="Password"></label>
+                                </div>
+                            </div>
+                        </section>
+                        <section class="sp-card" aria-labelledby="conn-st-h">
+                            <div class="sp-head"><h3 id="conn-st-h">Streaming</h3></div>
+                            <div class="sp-fstack">
+                                <label class="sp-fld"><span class="sp-flab">Stream URL<span class="sp-tip" title="The address speakers use to reach Sonorium (port 8008)" aria-label="The address speakers use to reach Sonorium (port 8008)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg></span></span>
+                                    <input class="sp-inp" type="url" id="conn-stream-url" data-conn="stream_url" placeholder="http://192.168.1.20:8008" aria-label="Stream URL">
+                                    <span class="sp-ferr" data-err="stream_url" hidden=""></span></label>
+                            </div>
+                        </section>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audio Settings: one card, aligned columns; Save settings / Cancel in the top bar -->
+            <div id="view-settings-audio" class="view sp sp-ui">
+                <div class="sp-scroll">
+                    <div class="sp-wrap sp-narrow">
+                        <section class="sp-card sp-audio" aria-label="Audio">
+                            <div class="sp-srow sp-shead"><span>Setting</span><span class="sp-shead-val">Value</span><span>Default</span><span></span></div>
+                            <div id="audio-rows"></div>
+                        </section>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Floors & Areas Settings View -->
+            <div id="view-settings-spaces" class="view">
+                <div class="settings-section">
+                    <h3>Floors &amp; Areas</h3>
+                    <p id="spaces-intro"></p>
+                    <div id="spaces-list"></div>
+                </div>
+            </div>
+
+            <!-- Speakers: toolbar and column headers fixed, speakers by area scroll -->
+            <div id="view-settings-speakers" class="view sp sp-ui">
+                <div class="sp-bar">
+                    <div class="sp-wrap">
+                        <div class="sps-tb">
+                            <div class="sp-search">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                                <input type="text" id="spk-search" class="sp-inp" placeholder="Search speakers" aria-label="Search speakers">
+                                <button type="button" class="clr" id="spk-search-clr" aria-label="Clear search" hidden=""><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+                            </div>
+                            <div class="sp-segscroll" id="spk-filter-wrap"><div id="spk-filter" class="seg" role="group" aria-label="Show speakers from"></div></div>
+                            <label class="sp-swlab">
+                                <span class="toggle-switch">
+                                    <input type="checkbox" id="spk-hide-offline">
+                                    <span class="toggle-slider"></span>
+                                </span>
+                                <span>Hide offline</span>
+                            </label>
+                            <span class="grow sps-tb-grow"></span>
+                            <span id="spk-scan-meta" class="sp-cnt" hidden=""></span>
+                            <button type="button" class="btn btn-sm btn-secondary sps-rescan" id="spk-rescan">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"></path><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                                <span class="lbl" id="spk-rescan-label">Rescan network</span>
+                            </button>
+                        </div>
+                        <div id="spk-lhead" class="sp-lhead sps-grid" hidden=""><span></span><span>Name</span><span>Source</span><span>Address</span><span>Area</span><span>Offset</span><span class="c">Test</span><span class="c">Use</span><span></span></div>
+                    </div>
+                </div>
+                <div class="sp-scroll">
+                    <div class="sp-wrap" id="settings-speaker-tree">
+                        <div class="loading">
+                            <div class="spinner"></div>
+                            Loading speakers...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Speaker Groups: column headers fixed, the group list scrolls -->
+            <div id="view-settings-groups" class="view sp sp-ui">
+                <div class="sp-bar sp-bar-head" id="grp-bar" hidden="">
+                    <div class="sp-wrap"><div class="sp-lhead spg-grid"><span></span><span>Name</span><span>Includes</span><span class="c">Speakers</span><span></span><span></span></div></div>
+                </div>
+                <div class="sp-scroll">
+                    <div class="sp-wrap" id="settings-groups-list"></div>
+                </div>
+            </div>
+
+            <!-- Plugins: Installed / Catalog and column headers fixed, the list scrolls -->
+            <div id="view-settings-plugins" class="view sp sp-ui">
+                <div class="sp-bar">
+                    <div class="sp-wrap">
+                        <div class="seg spp-tabs" role="tablist" aria-label="Plugins">
+                            <button type="button" role="tab" id="plg-tab-installed">Installed<span class="n" id="plg-count">0</span></button>
+                            <button type="button" role="tab" id="plg-tab-browse">Catalog</button>
+                        </div>
+                        <div id="plg-lhead"></div>
+                    </div>
+                </div>
+                <div class="sp-scroll">
+                    <div class="sp-wrap" id="plugins-list"></div>
+                </div>
+                <input type="file" id="plugin-file-input" accept=".zip" hidden="">
+            </div>
+
+            <!-- Logs Settings View (filled by logs.js) -->
+            <div id="view-settings-logs" class="view">
+                <div class="settings-section">
+                    <h3>Logs</h3>
+                    <div id="settings-logs-root"></div>
+                </div>
+            </div>
+
+            <!-- Advanced: features this install has off by default; Restart now in the top bar after a change -->
+            <div id="view-settings-advanced" class="view sp sp-ui">
+                <div class="sp-scroll">
+                    <div class="sp-wrap">
+                        <div class="sp-lhead spa-grid"><span>Feature</span><span>Description</span><span class="c">Default</span><span></span><span class="c">On</span></div>
+                        <div class="sp-lbody" id="advanced-settings-form"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status: tiles and list headers fixed, the channel list scrolls -->
+            <div id="view-status" class="view active">
+<div class="np-page">
+<div class="spst-tiles np-tiles">
+<div class="status-card spst-tile" title="Channels playing now"><h4>Active Channels</h4><div class="status-value">2</div></div>
+</div>
+<h3 class="spst-title">Playing <span class="badge badge-type">2</span></h3>
+<div class="np-legend"><span><i class="np-dot on"></i>Playing</span><span><i class="np-dot fade"></i>Fading</span><span><i class="np-dot wait"></i>Waiting</span><span><i class="np-dot rest"></i>Paused</span><span><i class="np-dot off"></i>Muted</span></div>
+<div class="np-card">
+<div class="np-hd"><span class="ch-icon" aria-hidden="true">🌧️</span>
+<div class="np-title"><span class="np-cname">Office</span><span class="np-plays">A Rainy Day... Or is it? · <span class="np-step">Storm builds · Step 2 of 3: Mild Summer Storm</span></span></div>
+<span class="np-where"><span class="np-out on"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>Office_C97A</span></span></div>
+<div class="np-cols"><span></span><span>Name</span><span>Mode</span><span>Now</span><span>Level</span></div>
+<div class="np-sec"><div class="np-sec-hd">Background</div><div class="np-row"><span class="np-dot on" title="Playing"></span><span class="np-name">Light_rain_2_37</span><span class="np-mode">Background</span><span class="np-now">Playing</span><span class="np-lvl"><span class="np-meter"><i class="np-fill" style="width:72%"></i></span><span class="np-pct">72%</span></span></div></div><div class="np-sec"><div class="np-sec-hd">Intermittent</div><div class="np-row np-grp"><span class="np-dot on"></span><span class="np-name"><span class="np-chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></span><span class="np-fold"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span><b>Thunder</b></span><span class="np-mode">One at a time</span><span class="np-now">thunder-124463 playing</span><span class="np-lvl"><span class="np-meter"><i class="np-fill" style="width:64%"></i></span><span class="np-pct">64%</span></span></div><div class="np-row np-child"><span class="np-dot on" title="Playing"></span><span class="np-name">thunder-124463</span><span class="np-mode">Intermittent</span><span class="np-now">Playing</span><span class="np-lvl"><span class="np-meter"><i class="np-fill" style="width:64%"></i></span><span class="np-pct">64%</span></span></div><div class="np-row np-child"><span class="np-dot wait" title="Waiting"></span><span class="np-name">Close_lightning_42</span><span class="np-mode">Intermittent</span><span class="np-now">Waiting</span><span class="np-lvl"><span class="np-meter"></span><span class="np-pct">—</span></span></div><div class="np-row np-child"><span class="np-dot wait" title="Waiting"></span><span class="np-name">Thunder_crispy_bang_40</span><span class="np-mode">Intermittent</span><span class="np-now">Waiting</span><span class="np-lvl"><span class="np-meter"></span><span class="np-pct">—</span></span></div><div class="np-row np-child"><span class="np-dot off" title="Muted"></span><span class="np-name">Cannon_shot_near_1279</span><span class="np-mode">Intermittent</span><span class="np-now">Muted</span><span class="np-lvl"><span class="np-meter"></span><span class="np-pct">—</span></span></div><div class="np-row"><span class="np-dot wait" title="Next in 0:38"></span><span class="np-name">Distant_rolling_thunder_39</span><span class="np-mode">Intermittent</span><span class="np-now">Next in 0:38</span><span class="np-lvl"><span class="np-meter"></span><span class="np-pct">—</span></span></div><div class="np-row"><span class="np-dot fade" title="Fading out"></span><span class="np-name">Pre_thunderstorm_41</span><span class="np-mode">Intermittent</span><span class="np-now">Fading out</span><span class="np-lvl"><span class="np-meter"><i class="np-fill" style="width:18%"></i></span><span class="np-pct">18%</span></span></div></div><div class="np-sec"><div class="np-sec-hd">Ebb &amp; Flow</div><div class="np-row np-grp"><span class="np-dot on"></span><span class="np-name"><span class="np-chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></span><span class="np-fold"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span><b>Wind</b></span><span class="np-mode">Every file at once</span><span class="np-now">2 playing</span><span class="np-lvl"><span class="np-meter"></span><span class="np-pct">—</span></span></div><div class="np-row np-child"><span class="np-dot on" title="Rising, 0:06"></span><span class="np-name">Wind_Howling_Nighttime_772</span><span class="np-mode">Ebb &amp; Flow</span><span class="np-now">Rising, 0:06</span><span class="np-lvl"><span class="np-meter"><i class="np-band" style="left:11%;width:42%"></i><i class="np-fill" style="width:47%"></i></span><span class="np-pct">47%</span></span></div><div class="np-row np-child"><span class="np-dot rest" title="Paused, back in 1:40"></span><span class="np-name">Wind_Massive_2883</span><span class="np-mode">Ebb &amp; Flow</span><span class="np-now">Paused, back in 1:40</span><span class="np-lvl"><span class="np-meter"><i class="np-band" style="left:13%;width:55%"></i></span><span class="np-pct">—</span></span></div></div>
+</div>
+<div class="np-card">
+<div class="np-hd"><span class="ch-icon" aria-hidden="true">🐸</span>
+<div class="np-title"><span class="np-cname">Living Room</span><span class="np-plays">Primeval Forest · <span class="np-step">Default settings</span></span></div>
+<span class="np-where"><span class="np-out on"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>This browser</span></span></div>
+<div class="np-cols"><span></span><span>Name</span><span>Mode</span><span>Now</span><span>Level</span></div>
+<div class="np-sec"><div class="np-sec-hd">Background</div><div class="np-row np-grp"><span class="np-dot on"></span><span class="np-name"><span class="np-chev"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></span><span class="np-fold"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path></svg></span><b>Forest bed</b></span><span class="np-mode">Merry-go-round</span><span class="np-now">1a, crossfading to 3b</span><span class="np-lvl"><span class="np-meter"><i class="np-fill" style="width:66%"></i></span><span class="np-pct">66%</span></span></div><div class="np-row np-child"><span class="np-dot fade" title="Fading out"></span><span class="np-name">1a</span><span class="np-mode">Background</span><span class="np-now">Fading out</span><span class="np-lvl"><span class="np-meter"><i class="np-fill" style="width:30%"></i></span><span class="np-pct">30%</span></span></div><div class="np-row np-child"><span class="np-dot fade" title="Fading in"></span><span class="np-name">3b</span><span class="np-mode">Background</span><span class="np-now">Fading in</span><span class="np-lvl"><span class="np-meter"><i class="np-fill" style="width:41%"></i></span><span class="np-pct">41%</span></span></div></div><div class="np-sec"><div class="np-sec-hd">Intermittent</div><div class="np-row"><span class="np-dot on" title="Playing"></span><span class="np-name">owl_call</span><span class="np-mode">Intermittent</span><span class="np-now">Playing</span><span class="np-lvl"><span class="np-meter"><i class="np-fill" style="width:38%"></i></span><span class="np-pct">38%</span></span></div><div class="np-row"><span class="np-dot wait" title="Next in 2:12"></span><span class="np-name">woodpecker</span><span class="np-mode">Intermittent</span><span class="np-now">Next in 2:12</span><span class="np-lvl"><span class="np-meter"></span><span class="np-pct">—</span></span></div></div>
+</div>
+</div>
+</div>
+        </main>
+    </div>
+
+    <!-- New/Edit Channel Modal: two columns on desktop, a full-screen sheet on phones -->
+    <div id="session-modal" class="modal-backdrop">
+        <div class="modal channel-editor" role="dialog" aria-labelledby="modal-title">
+            <div class="modal-header">
+                <h2 id="modal-title">New Channel</h2>
+                <button class="modal-close" aria-label="Close">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-session-id" value="">
+
+                <div class="col col-left">
+                    <div class="session-field">
+                        <label for="session-name">Channel Name</label>
+                        <input type="text" id="session-name" placeholder="Leave empty to auto-generate from selection">
+                    </div>
+
+                    <div class="session-field ch-plays">
+                        <label id="ch-plays-lbl">Plays</label>
+                        <div class="seg" role="group" aria-labelledby="ch-plays-lbl">
+                            <button type="button" id="ch-mode-theme" aria-pressed="true">Theme</button>
+                            <button type="button" id="ch-mode-playlist" aria-pressed="false"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="3" y1="6" x2="15" y2="6"></line><line x1="3" y1="12" x2="15" y2="12"></line><line x1="3" y1="18" x2="10" y2="18"></line><path d="M21 16V5l-4 1"></path><circle cx="18" cy="16" r="3"></circle></svg>Playlist</button>
+                        </div>
+                    </div>
+
+                    <div class="session-field" id="ch-playlist-field" hidden="">
+                        <label id="ch-playlist-lbl">Playlist</label>
+                        <div id="ch-playlist-picker"></div>
+                        <div class="pl-sum" id="ch-playlist-sum"></div>
+                    </div>
+                    <div class="session-field grow ch-pl-fill" id="ch-playlist-fill" hidden=""></div>
+
+                    <div class="session-field grow" id="ch-theme-field">
+                        <label>Theme · <span id="theme-selected-name">None</span></label>
+                        <div class="theme-panel">
+                            <div class="picker-head">
+                                <input type="search" id="theme-search" class="picker-search" placeholder="Search themes" aria-label="Search themes">
+                            </div>
+                            <div class="theme-list">
+                                <div id="theme-selector" class="theme-chips" role="radiogroup" aria-label="Theme">
+                                    <!-- Themes loaded dynamically -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="session-field" id="channel-preset-field" style="display: none;">
+                        <label id="channel-preset-lbl">Theme Preset</label>
+                        <!-- The value lives in this hidden select; the list below shows it with the preset marks -->
+                        <select id="channel-preset-select" hidden="" aria-hidden="true" tabindex="-1">
+                            <option value="">-- Default Settings --</option>
+                        </select>
+                        <div class="psel" id="channel-preset-picker"></div>
+                    </div>
+
+                    <div class="session-field">
+                        <label for="session-volume">Volume</label>
+                        <div class="volume-control">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                            </svg>
+                            <input type="range" id="session-volume" class="volume-slider" min="0" max="100" value="60">
+                            <span id="volume-display" class="volume-value">60%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col">
+                    <div class="session-field grow">
+                        <label for="session-speaker-group">Speakers<span class="picker-label-summary"> · <span id="speaker-label-summary">0 selected</span></span></label>
+                        <div id="speaker-group-field" style="display: none; margin-bottom: 0.5rem;">
+                            <select id="session-speaker-group">
+                                <option value="">-- Choose speakers below --</option>
+                                <!-- Groups loaded dynamically -->
+                            </select>
+                        </div>
+                        <div class="picker" id="manual-speaker-selection">
+                            <div class="picker-head">
+                                <input type="search" id="speaker-search" class="picker-search" placeholder="Search speakers" aria-label="Search speakers">
+                                <div id="speaker-chips" class="chips" aria-label="Selected speakers"></div>
+                            </div>
+                            <div id="speaker-tree" class="picker-list">
+                                <!-- Speaker tree loaded dynamically -->
+                            </div>
+                            <div class="picker-foot">
+                                <span id="speaker-summary">0 speakers selected</span>
+                                <button type="button" class="link-btn">Clear selection</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary">Cancel</button>
+                <button class="btn btn-primary">
+                    <span id="save-btn-text">Create Channel</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sequence editor (over the Theme Editor): name, timing and the order fixed; the preset list scrolls (sq* in app.js) -->
+    <div id="sq-modal" class="modal-backdrop sq-back">
+        <div class="modal sq" role="dialog" aria-modal="true" aria-labelledby="sq-title">
+            <div class="modal-header">
+                <h2 id="sq-title"><span id="sq-title-text">Edit sequence</span> <span class="sub" id="sq-sub"></span></h2>
+                <div class="hd-acts">
+                    <button type="button" class="icon-btn sm hd-more" id="sq-more-btn" aria-label="More sequence actions" aria-haspopup="menu"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg></button>
+                    <button type="button" class="modal-close" aria-label="Close"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+                </div>
+            </div>
+            <div class="sq-top">
+                <div class="sq-row">
+                    <div class="fld f-sqname"><label class="fld-label" for="sq-name">Name</label><input id="sq-name" class="inp name" type="text" maxlength="100" autocomplete="off" placeholder="Sequence name"></div>
+                </div>
+                <div class="sq-row">
+                    <div class="fld"><span class="fld-label" title="A random time in this range, drawn fresh each time. Empty uses the theme default.">Time on each preset</span>
+                        <div class="rng"><input id="sq-min" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Minimum minutes on each preset"><span>–</span><input id="sq-max" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Maximum minutes on each preset"><span>min</span></div></div>
+                    <div class="fld"><span class="fld-label" title="How long the glide to the next preset takes. Empty uses the theme default.">Ramp</span>
+                        <div class="rng"><input id="sq-ramp" class="num" type="number" min="0" step="5" inputmode="numeric" aria-label="Ramp seconds"><span>s</span></div></div>
+                    <div class="fld f-end"><span class="fld-label" id="sq-end-lbl">At the end</span>
+                        <div class="seg" role="group" aria-labelledby="sq-end-lbl">
+                            <button type="button" data-end="reverse">Reverse</button>
+                            <button type="button" data-end="restart">Start again</button>
+                            <button type="button" data-end="stop">Stop</button>
+                        </div></div>
+                </div>
+                <div class="flow" id="sq-flow" aria-label="Order"></div>
+            </div>
+            <div class="sq-fix">
+                <div class="sq-head"><h3>Presets</h3><span class="badge badge-type" id="sq-count">0</span><span class="grow"></span>
+                    <button type="button" class="btn btn-sm btn-secondary" aria-haspopup="menu"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Add preset<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="6 9 12 15 18 9"></polyline></svg></button></div>
+                <div class="sq-thead sgrid"><span></span><span class="c">#</span><span>Preset</span><span></span></div>
+            </div>
+            <div class="sq-list"><div class="sq-box" id="sq-rows"></div></div>
+            <div class="modal-footer foot">
+                <span class="sq-sum" id="sq-sum"></span>
+                <span class="grow"></span>
+                <button type="button" class="btn btn-primary">Save</button>
+                <button type="button" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Sequence step: Advanced transitions (over the sequence editor): header, tabs and column heads fixed, the tracks scroll (tx* in app.js) -->
+    <div id="tx-modal" class="modal-backdrop ad-back">
+        <div class="modal ad" role="dialog" aria-modal="true" aria-labelledby="tx-title">
+            <div class="modal-header">
+                <h2 id="tx-title"><span class="ttl" id="tx-ttl">Coming into</span> <span class="sub" id="tx-sub"></span></h2>
+                <div class="hd-acts">
+                    <button type="button" class="icon-btn sm hd-more" id="tx-help-btn" aria-label="Help" aria-expanded="false" aria-controls="tx-help"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"></circle><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"></path><line x1="12" y1="17" x2="12.01" y2="17"></line></svg></button>
+                    <button type="button" class="icon-btn sm hd-more" id="tx-more-btn" aria-label="More transition actions" aria-haspopup="menu"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg></button>
+                    <button type="button" class="modal-close" aria-label="Close"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+                </div>
+            </div>
+            <div id="tx-help" class="te-help" role="dialog" aria-label="Advanced transitions help" hidden="">
+                <div class="te-help-hd">
+                    <strong>Advanced transitions</strong>
+                    <button type="button" class="modal-close te-help-x" aria-label="Close help"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+                </div>
+                <div class="te-help-body">
+                    <h4>In a sequence step</h4>
+                    <p class="hi"><b>While playing:</b> changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green; anything you don't change follows the preset.</p>
+                    <p class="hi"><b>Revert changes:</b> puts back the settings as they were when Save was last pressed: for one track or group in its ⋯ menu, or for everything at the top of the list. A value set back to the preset's follows the preset again.</p>
+                    <p class="hi"><b>Coming in / Leaving:</b> how tracks change as the step starts and ends (see Advanced transitions).</p>
+                    <p class="hi"><b>Rise:</b> in an Ebb &amp; Flow track's ⋯ menu. Increases or decreases the speed at which the track reaches a value. <i>Duration</i> increases or decreases the amount of time the track is at a value. A group can set the same Rise for every file.</p>
+                    <h4>Advanced transitions</h4>
+                    <p class="hi"><b>Advanced:</b> in a sequence, a preset's ⋯ › Advanced sets how each track comes in, and how it leaves.</p>
+                    <p class="hi"><b>Coming in / Leaving:</b> tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.</p>
+                    <p class="hi"><b>Smooth:</b> no button on. The track follows the sequence's ramp.</p>
+                    <p class="hi"><b>Buttons:</b> click to turn one on, click it again to show its setting on the slider, click once more to turn it off. Several can be on together.</p>
+                    <p class="hi"><b>Pre-fade:</b> starts the change this many seconds before the step.</p>
+                    <p class="hi"><b>Gusts / Gusts dying down:</b> rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.</p>
+                    <p class="hi"><b>Swell / Smooth fade:</b> one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.</p>
+                    <p class="hi"><b>Build / Thin out:</b> Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.</p>
+                    <p class="hi"><b>Distance / Recede:</b> starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.</p>
+                    <p class="hi"><b>Start fresh / Finish then stop:</b> plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.</p>
+                    <p class="hi"><b>Preview:</b> ▶ plays that track's change on this device and follows your edits.</p>
+                </div>
+            </div>
+            <div class="ad-ctx" id="tx-ctx"></div>
+            <div class="ad-top st-top"><div class="seg ad-tabs" role="tablist" aria-label="Step" id="tx-tabs"></div><p class="st-note" id="tx-note" hidden=""></p></div>
+            <!-- While playing: the theme's tracks as the Theme Editor lists them, with this step's values (tw* in app.js) -->
+            <div class="te tw" id="tw" hidden="">
+                <div class="tfix">
+                    <div class="tsec-head">
+                        <h3>Tracks</h3><span class="badge badge-type" id="tw-count">0</span>
+                        <span class="grow"></span>
+                        <div class="tbar">
+                            <button type="button" class="btn btn-sm btn-secondary" id="tw-revert" disabled="">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>Revert changes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-body tlist" id="tw-tracks" aria-label="Tracks"></div>
+            </div>
+            <div class="ad-fix"><div class="sq-thead adgrid"><span></span><span>Track</span><span>Change</span><span>Style</span><span>Setting</span><span title="Starts this long before the step">Pre-fade</span></div></div>
+            <div class="ad-list"><div class="sq-box" id="tx-rows"></div></div>
+            <div class="modal-footer foot">
+                <span class="sq-sum" id="tx-sum"></span>
+                <span class="grow"></span>
+                <button type="button" class="btn btn-primary">Save</button>
+                <button type="button" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Playlist editor: name and options fixed, the entries scroll (pl* in app.js) -->
+    <div id="pl-modal" class="modal-backdrop pl-back">
+        <div class="modal ple" role="dialog" aria-modal="true" aria-labelledby="pl-title">
+            <div class="modal-header">
+                <h2 id="pl-title">Edit playlist</h2>
+                <div class="hd-acts">
+                    <button type="button" class="icon-btn sm hd-more" id="pl-more-btn" aria-label="More playlist actions" aria-haspopup="menu"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"></circle><circle cx="12" cy="12" r="2"></circle><circle cx="19" cy="12" r="2"></circle></svg></button>
+                    <button type="button" class="modal-close" aria-label="Close"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></button>
+                </div>
+            </div>
+            <div class="ple-top">
+                <div class="ple-row"><div class="fld ple-name"><label class="fld-label" for="pl-name">Name</label><input id="pl-name" class="inp name" type="text" maxlength="100" autocomplete="off" placeholder="Playlist name"></div></div>
+                <div class="ple-row">
+                    <div class="fld"><span class="fld-label" title="Every entry plays for a random time in this range, drawn fresh each time">Play each entry</span>
+                        <div class="rng"><input id="pl-min" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Minimum minutes per entry"><span>–</span><input id="pl-max" class="num" type="number" min="1" step="any" inputmode="decimal" aria-label="Maximum minutes per entry"><span>min</span></div></div>
+                    <div class="fld"><span class="fld-label" id="pl-order-lbl">Order</span>
+                        <div class="seg" role="group" aria-labelledby="pl-order-lbl">
+                            <button type="button" id="pl-inorder"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><polyline points="3 5 4 6 3 7"></polyline><polyline points="3 11 4 12 3 13"></polyline><polyline points="3 17 4 18 3 19"></polyline></svg>In order</button>
+                            <button type="button" id="pl-shuffle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="16 3 21 3 21 8"></polyline><line x1="4" y1="20" x2="21" y2="3"></line><polyline points="21 16 21 21 16 21"></polyline><line x1="15" y1="15" x2="21" y2="21"></line><line x1="4" y1="4" x2="9" y2="9"></line></svg>Shuffle</button>
+                        </div></div>
+                    <div class="fld"><span class="fld-label" id="pl-rep-lbl">Repeat</span>
+                        <div class="sw-fld"><label class="toggle-switch"><input type="checkbox" id="pl-repeat" aria-labelledby="pl-rep-lbl"><span class="toggle-slider"></span></label></div></div>
+                    <div class="fld"><span class="fld-label" id="pl-fit-lbl">Fit sequences into the playlist time</span>
+                        <div class="sw-fld"><label class="toggle-switch"><input type="checkbox" id="pl-fit" aria-labelledby="pl-fit-lbl"><span class="toggle-slider"></span></label></div></div>
+                </div>
+            </div>
+            <div class="ple-fix">
+                <div class="ple-head"><h3>Entries</h3><span class="badge badge-type" id="pl-count">0</span><span class="grow"></span>
+                    <button type="button" class="btn btn-sm btn-secondary"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>Add entry</button></div>
+                <div class="ple-thead egrid"><span></span><span class="c">#</span><span>Theme</span><span>Preset or sequence</span><span></span></div>
+            </div>
+            <div class="ple-scroll" id="pl-entries"></div>
+            <div class="modal-footer foot">
+                <span class="ple-sum" id="pl-sum"></span>
+                <span class="grow"></span>
+                <button type="button" class="btn btn-primary" id="pl-save-btn">Save</button>
+                <button type="button" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Speaker Modal (standalone only) -->
+    <!-- Add floor / Add area (Settings > Floors & Areas) -->
+    <div id="space-modal" class="modal-backdrop">
+        <div class="modal add-speaker" role="dialog" aria-labelledby="space-modal-title">
+            <div class="modal-header">
+                <h2 id="space-modal-title">Add area</h2>
+                <button class="modal-close" aria-label="Close">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="session-field">
+                    <label for="space-name">Name</label>
+                    <input type="text" id="space-name" maxlength="60" autocomplete="off">
+                </div>
+                <div class="session-field" id="space-floor-field">
+                    <label for="space-floor">Floor</label>
+                    <select id="space-floor"></select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary">Cancel</button>
+                <button class="btn btn-primary" id="space-save">Add area</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add speaker (standalone only): one card wide; related fields share a row -->
+    <div id="add-speaker-modal" class="modal-backdrop">
+        <div class="modal sp-as sp-ui" role="dialog" aria-labelledby="as-title">
+            <div class="modal-header">
+                <h2 id="as-title">Add speaker</h2>
+                <button class="modal-close" aria-label="Close">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body sp-as-body">
+                <div class="sp-frow">
+                    <div class="sp-fld sp-fill"><label class="sp-fld-label" for="as-addr">Address</label><input type="text" id="as-addr" class="sp-inp" placeholder="192.168.1.50 or speaker.local" title="IP address or network name of the speaker" autocomplete="off" spellcheck="false"></div>
+                    <div class="sp-fld sp-port"><label class="sp-fld-label" for="as-port">Port</label><input type="text" id="as-port" class="sp-inp" inputmode="numeric" placeholder="Auto" title="Default for the type"></div>
+                </div>
+                <div class="sp-frow">
+                    <div class="sp-fld sp-fill"><label class="sp-fld-label" for="as-type">Type</label>
+                        <select id="as-type" class="sp-inp">
+                            <option value="auto">Detect automatically</option>
+                            <option value="cast">Google Cast</option>
+                            <option value="sonos">Sonos</option>
+                            <option value="dlna">DLNA / UPnP</option>
+                            <option value="airplay">AirPlay</option>
+                            <option value="linkplay">LinkPlay / Arylic</option>
+                            <option value="heos">HEOS (Denon / Marantz)</option>
+                        </select>
+                    </div>
+                    <div class="sp-fld sp-fill"><label class="sp-fld-label" for="as-room">Area</label><select id="as-room" class="sp-inp"><option value="">No area</option></select></div>
+                </div>
+                <div class="sp-fld"><label class="sp-fld-label" for="as-name">Name</label><input type="text" id="as-name" class="sp-inp" maxlength="100" placeholder="Speaker's own name"></div>
+                <div id="as-result" class="check-result" style="display: none;" role="status"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" id="as-add-btn">Add speaker</button>
+                <button class="btn btn-secondary" id="as-check-btn">Check connection</button>
+                <button class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- New / Edit speaker group: name and column headers fixed, the speaker tree scrolls -->
+    <div id="group-modal" class="modal-backdrop sp-ed-back">
+        <div class="modal sp-ed sp-ui" role="dialog" aria-labelledby="group-modal-title">
+            <div class="modal-header">
+                <h2 id="group-modal-title">Add group</h2>
+                <button class="modal-close" aria-label="Close">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="sp-ed-top">
+                <div class="sp-fld sp-ed-name"><label class="sp-fld-label" for="group-name">Name</label><input type="text" id="group-name" class="sp-inp" maxlength="60" placeholder="Downstairs"></div>
+            </div>
+            <div class="sp-ed-fix"><div class="sp-ed-thead spe-grid"><span></span><span>Speakers</span><span>Type</span><span class="spe-stxt-h">Status</span></div></div>
+            <div class="sp-ed-scroll" id="group-speaker-tree"></div>
+            <div class="modal-footer sp-ed-foot">
+                <div class="sp-ed-sum" id="group-ed-sum"></div>
+                <span class="grow"></span>
+                <button class="btn btn-primary"><span id="group-save-btn-text">Add group</span></button>
+                <button class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Plugin requirements (Plugins page ⋯ menu) -->
+    <div id="plugin-req-modal" class="modal-backdrop">
+        <div class="modal sp-rq" role="dialog" aria-labelledby="plugin-req-title">
+            <div class="modal-header">
+                <h2 id="plugin-req-title">Plugin requirements</h2>
+                <button class="modal-close" aria-label="Close">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <pre>class MyPlugin(BasePlugin):
+    id = "my_plugin"           # Unique identifier
+    name = "My Plugin"         # Display name
+    version = "1.0.0"          # MAJOR.MINOR.PATCH
+    description = "..."        # Brief description
+    author = "Your Name"       # Plugin author</pre>
+                <p class="sp-rq-note">A .zip with <code>plugin.py</code>; <code>manifest.json</code> optional.</p>
+            </div>
+            <div class="modal-footer"><button class="btn btn-primary">Done</button></div>
+        </div>
+    </div>
+
+    <!-- Settings pages: one floating menu / "Are you sure?" popover -->
+    <div class="te-pop" id="sp-menu" hidden=""></div>
+
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <!-- JavaScript - dynamically loaded for ingress support -->
+    
+
+
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1600,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
