@@ -20,6 +20,7 @@ from sonorium.plugins.loader import (
     save_manifest,
     copy_builtin_plugins,
 )
+from sonorium.plugins.settings_schema import effective_settings, validate_settings
 from sonorium.obs import logger
 
 if TYPE_CHECKING:
@@ -115,6 +116,11 @@ class PluginManager:
             # Set builtin flag from manifest if present
             if manifest.get("builtin", False):
                 plugin._builtin = True
+
+            # Settings: the schema from the plugin (or its manifest), defaults applied
+            if isinstance(manifest.get("settings_schema"), dict):
+                plugin._manifest_settings_schema = manifest["settings_schema"]
+            plugin.settings = effective_settings(plugin.settings_schema(), settings)
 
             # Update manifest with plugin info if it was auto-generated
             if not manifest.get("plugin_class"):
@@ -279,32 +285,48 @@ class PluginManager:
             return {"success": False, "message": str(e)}
 
     def get_plugin_settings(self, plugin_id: str) -> dict:
-        """Get settings for a plugin."""
+        """Get settings for a plugin (defaults included once it is loaded)."""
+        plugin = self.plugins.get(plugin_id)
+        if plugin is not None:
+            return dict(plugin.settings)
         return self.state_store.settings.plugin_settings.get(plugin_id, {})
 
-    def update_plugin_settings(self, plugin_id: str, settings: dict) -> bool:
+    async def update_plugin_settings(self, plugin_id: str, settings: dict) -> dict:
         """
-        Update settings for a plugin.
+        Update settings for a plugin: the values given are checked against its
+        settings schema and merged into its current settings, which are saved;
+        then the plugin's on_settings_changed hook is called.
 
         Args:
             plugin_id: The plugin to update
-            settings: New settings dict
+            settings: Setting name -> new value (only the ones to change)
 
         Returns:
-            True if updated successfully
+            The plugin's settings after the update (defaults included)
+
+        Raises:
+            KeyError: no such plugin
+            SettingsError: a name the schema doesn't have, or a wrong value
         """
         plugin = self.plugins.get(plugin_id)
         if plugin is None:
-            return False
+            raise KeyError(plugin_id)
 
-        # Update in-memory settings
-        plugin.update_settings(settings)
+        schema = plugin.settings_schema()
+        clean = validate_settings(schema, settings)
+        updated = effective_settings(schema, {**plugin.settings, **clean})
 
-        # Persist to state
-        self.state_store.settings.plugin_settings[plugin_id] = settings
+        # Persist to state, then update in memory
+        self.state_store.settings.plugin_settings[plugin_id] = dict(updated)
         self.state_store.save()
+        plugin.settings = updated
 
-        return True
+        try:
+            await plugin.on_settings_changed(dict(updated))
+        except Exception as e:
+            logger.error(f"Error in {plugin_id}.on_settings_changed: {e}")
+
+        return dict(updated)
 
     # Theme Integration Hooks
 

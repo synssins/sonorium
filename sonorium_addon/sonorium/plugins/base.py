@@ -10,6 +10,8 @@ from abc import ABC
 from pathlib import Path
 from typing import Any, Optional
 
+from sonorium.plugins.settings_schema import normalize_schema
+
 
 class BasePlugin(ABC):
     """
@@ -51,6 +53,7 @@ class BasePlugin(ABC):
         self.audio_path = audio_path or Path("/media/sonorium")
         self._enabled = False
         self._builtin = self.builtin  # Can be overridden by manifest
+        self._manifest_settings_schema: dict = {}  # Set by the manager from manifest.json
 
     @property
     def enabled(self) -> bool:
@@ -128,22 +131,26 @@ class BasePlugin(ABC):
         """
         Return the schema for plugin settings that persist across sessions.
 
+        Setting name -> field, with the same vocabulary as get_ui_schema()
+        fields: "type" (string, url, number, boolean, select), "label",
+        "help", "default", "options" (select), "min"/"max" (number),
+        "required", "placeholder". The full format is in settings_schema.py.
+        Values sent to PUT /api/plugins/{id}/settings are checked against it,
+        and self.settings always holds the defaults of settings not set.
+
+        The default is the manifest's "settings_schema" (if any).
+
         Returns:
-            dict mapping setting names to their type info:
+            dict mapping setting names to their fields:
             {
-                "download_path": {
-                    "type": "string",
-                    "default": "/media/sonorium",
-                    "label": "Download Path"
-                },
-                "auto_create_metadata": {
+                "hash_check_duplicates": {
                     "type": "boolean",
                     "default": True,
-                    "label": "Auto-create metadata"
+                    "label": "Use hash to detect duplicate files"
                 }
             }
         """
-        return {}
+        return dict(self._manifest_settings_schema)
 
     async def handle_action(self, action: str, data: dict) -> dict:
         """
@@ -162,6 +169,16 @@ class BasePlugin(ABC):
             }
         """
         return {"success": False, "message": f"Unknown action: {action}"}
+
+    async def on_settings_changed(self, settings: dict) -> None:
+        """
+        Called after the settings were changed through the API, checked
+        against the schema and saved. self.settings already holds them.
+
+        Args:
+            settings: The plugin's settings (defaults included)
+        """
+        pass
 
     # Theme Integration Hooks
 
@@ -194,6 +211,13 @@ class BasePlugin(ABC):
         """Update plugin settings (call save separately)."""
         self.settings.update(new_settings)
 
+    def settings_schema(self) -> dict:
+        """get_settings_schema() with only well-formed fields (never raises)."""
+        try:
+            return normalize_schema(self.get_settings_schema(), self.id)
+        except Exception:
+            return {}
+
     def to_dict(self) -> dict:
         """Serialize plugin info to dict."""
         return {
@@ -206,5 +230,5 @@ class BasePlugin(ABC):
             "builtin": self._builtin,
             "settings": self.settings,
             "ui_schema": self.get_ui_schema(),
-            "settings_schema": self.get_settings_schema(),
+            "settings_schema": self.settings_schema(),
         }
