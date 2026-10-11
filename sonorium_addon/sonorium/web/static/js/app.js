@@ -8159,6 +8159,7 @@ function sqOpen(id) {
     sq.end = seq?.at_end || 'reverse';
     sq.transitions = JSON.parse(JSON.stringify(seq?.transitions || {}));
     sq.layers = {};
+    sq.whileSteps = new Set(seq?.while_steps || []);
     const d = teSeqDefaults();
     const set = (fieldId, value, placeholder) => {
         const input = document.getElementById(fieldId);
@@ -8246,7 +8247,7 @@ function sqRender() {
                 <span class="drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag ${name}" ondragstart="rowDragStart(event, 'sq', ${i})" ondragend="rowDragEnd()">${TE_ICON_GRIP}</span>
                 <span class="sq-n">${i + 1}</span>
                 <span class="sq-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${presetMarks(!!p?.is_default, !!p?.has_intrusion)}</span>
-                <button type="button" class="icon-btn sm more-btn" aria-label="More for ${name}" aria-haspopup="menu" onclick="sqMenu('row', this, ${i})">${TE_ICON_MORE}${txStepHasSet(sq.transitions[id]) ? '<span class="adv-dot" title="Advanced transition set"></span>' : ''}</button>
+                <button type="button" class="icon-btn sm more-btn" aria-label="More for ${name}" aria-haspopup="menu" onclick="sqMenu('row', this, ${i})">${TE_ICON_MORE}${sqStepChanged(id) ? '<span class="adv-dot" title="Advanced set"></span>' : ''}</button>
             </div>`;
     }).join('') : `<div class="sq-empty"><button type="button" class="link-btn" onclick="sqMenu('add', this)">${TE_ICON_PLUS}Add preset</button></div>`;
     spUpdateMarquees(rows);
@@ -8283,7 +8284,7 @@ function sqMenu(kind, button, arg = null) {
         xMenu(`sq-row:${arg}`, button, `
             ${xMenuItem('Move up', `sqMove(${arg}, ${arg - 1})`, { icon: ICON_UP, disabled: arg === 0 })}
             ${xMenuItem('Move down', `sqMove(${arg}, ${arg + 1})`, { icon: ICON_DOWN, disabled: arg === n - 1 })}
-            ${X_SEP}${xMenuItem('Advanced…', `txOpen(${arg})`, { icon: TX_ICON_ADV, note: txStepHasSet(sq.transitions[sq.presets[arg]]) ? 'On' : '' })}
+            ${X_SEP}${xMenuItem('Advanced…', `txOpen(${arg})`, { icon: TX_ICON_ADV, note: sqStepChanged(sq.presets[arg]) ? 'On' : '' })}
             ${X_SEP}${xMenuItem('Remove', `sqRemove(${arg})`, { icon: SP_ICON_TRASH, cls: 'danger' })}`, { cls: 'menu sp-menu x-menu' });
     } else if (kind === 'more') {
         xMenu('sq-more', button, `
@@ -8368,6 +8369,8 @@ async function sqSave({ keepOpen = false, quiet = false } = {}) {
         for (const [preset, layer] of Object.entries(sq.layers)) {
             if (sq.presets.includes(preset)) {
                 await api('PUT', `/themes/${te.themeId}/sequences/${encodeURIComponent(id)}/while/${encodeURIComponent(preset)}`, layer);
+                if (Object.keys(layer.tracks || {}).length || Object.keys(layer.groups || {}).length) sq.whileSteps.add(preset);
+                else sq.whileSteps.delete(preset);
             }
             delete sq.layers[preset];
         }
@@ -8550,6 +8553,14 @@ function txIsOpen() {
 }
 
 // A step's saved transitions in the sequence being edited
+// A step whose Advanced has anything set: Coming in / Leaving, or While playing (unsaved here, else as saved)
+function sqStepChanged(id) {
+    if (txStepHasSet(sq.transitions[id])) return true;
+    const layer = sq.layers[id];
+    if (layer) return Object.keys(layer.tracks || {}).length > 0 || Object.keys(layer.groups || {}).length > 0;
+    return !!sq.whileSteps?.has(id);
+}
+
 function txStepHasSet(step) {
     return !!step && ['in', 'out'].some(side => Object.keys(step[side] || {}).length > 0);
 }

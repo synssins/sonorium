@@ -751,3 +751,11 @@ def test_a_sequence_runs_while_only_a_browser_listens(tmp_path):
     assert t.manager.runner.running_sequence(sid) is not None
     run(t.manager.unlisten(sid))
     assert t.manager.runner.running_sequence(sid) is None
+
+
+def test_sequence_response_lists_the_steps_with_while_playing_changes():
+    seq = {"presets": ["a", "b", "c"], "while": {"a": {"tracks": {"Rain": {"volume": 0.5}}, "groups": {}},
+                                                 "b": {"tracks": {}, "groups": {}}}}
+    response = m.sequences.to_response("s", seq, {"hold_min": 10, "hold_max": 10, "ramp": 5})
+    assert response["while_steps"] == ["a"]
+
