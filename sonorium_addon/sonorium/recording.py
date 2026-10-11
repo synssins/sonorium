@@ -1311,8 +1311,8 @@ class SparsePlaybackStream:
                 if len(fade_in_curve) <= len(audio_data):
                     audio_data[:len(fade_in_curve)] *= fade_in_curve
 
-                # Apply fade out at end
-                if len(fade_out_curve) <= len(audio_data):
+                # Apply fade out at end (none with a Track fade of 0)
+                if 0 < len(fade_out_curve) <= len(audio_data):
                     audio_data[-len(fade_out_curve):] *= fade_out_curve
 
                 # Yield the audio in chunks
