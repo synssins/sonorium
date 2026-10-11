@@ -4,11 +4,12 @@ FROM ${BUILD_FROM}
 
 # Install Python and build dependencies
 # Note: py3-numpy from Alpine avoids segfault on some virtualized environments (qemux86-64)
+# No ffmpeg package: audio is decoded and encoded by PyAV, whose wheel brings
+# its own FFmpeg libraries, and nothing runs the ffmpeg program
 RUN apk add --no-cache \
     python3 \
     py3-pip \
-    py3-numpy \
-    ffmpeg
+    py3-numpy
 
 # Create working directory
 WORKDIR /app
