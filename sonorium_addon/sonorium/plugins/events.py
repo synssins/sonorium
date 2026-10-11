@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable, Iterable, Optional, Union
 
+from sonorium import runtime
 from sonorium.obs import logger
 
 CATALOGUE_VERSION = 1
@@ -164,6 +165,31 @@ CATALOGUE: dict[str, dict] = {
     },
 }
 
+# This run of Sonorium: event ids start again at 1 when it restarts, so the
+# event stream sends "<boot_id>:<n>" as its ids (GET /api/info has it too)
+BOOT_ID = runtime.BOOT_ID
+
+
+def stream_id(event: "Event") -> str:
+    """An event's id on the event stream: "<boot_id>:<n>"."""
+    return f"{BOOT_ID}:{event.id}"
+
+
+def replay_after(last_event_id: Optional[str]) -> Optional[int]:
+    """
+    Where a reconnecting stream picks up from its Last-Event-ID: "<boot_id>:<n>"
+    of this run, or a bare "<n>" (older clients) -> n; an id from an earlier
+    run -> 0 (everything still held of this run); none or unreadable -> None.
+    """
+    text = (last_event_id or "").strip()
+    boot, sep, number = text.rpartition(":")
+    if not number.isdigit():
+        return None
+    if sep and boot != BOOT_ID:
+        return 0
+    return int(number)
+
+
 PLUGIN_EVENT_PREFIX = "plugin."
 _NAME = re.compile(r"^[a-z0-9_][a-z0-9_.-]{0,63}$")
 _PATTERN = re.compile(r"\*|[A-Za-z0-9_-]+(\.[A-Za-z0-9_-]+)*(\.\*)?")
@@ -232,7 +258,8 @@ class Event:
     origin: str = "sonorium"
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "type": self.type, "time": self.time, "origin": self.origin, "data": self.data}
+        return {"id": self.id, "boot_id": BOOT_ID, "type": self.type, "time": self.time, "origin": self.origin,
+                "data": self.data}
 
 
 Handler = Callable[[Event], Union[None, Awaitable[None]]]

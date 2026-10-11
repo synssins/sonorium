@@ -100,6 +100,7 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
             "ports": {"http": http, "https": https_port() or None}, "host": host, "hostname": mdns_host() or None,
             "login_required": login_required(), "pair": True, "fingerprint": identity.fingerprint,
             "plugins": sorted(service.authenticators),
+            "boot_id": runtime.BOOT_ID,  # new at every start; the event stream's ids are "<boot_id>:<n>"
         }
 
     @router.get("/api/auth/me")

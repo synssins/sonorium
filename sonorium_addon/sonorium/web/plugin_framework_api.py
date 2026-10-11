@@ -141,9 +141,10 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
     @router.get("/events/stream")
     async def event_stream(request: Request, types: str = "*", max_events: int = 0):
         """
-        Server-Sent Events: each event as "id: N", "event: <type>", "data: <JSON>".
+        Server-Sent Events: each event as "id: <boot_id>:<n>", "event: <type>", "data: <JSON>".
         types: comma-separated patterns. Last-Event-ID (header or ?last_event_id)
-        replays recent events after it. max_events > 0 closes the stream after that many.
+        replays recent events after it (an id from before a restart: all of this
+        run's). max_events > 0 closes the stream after that many.
         """
         bus = _host().bus
         # A key with "Read events", a linked phone or a signed-in user; or the old events token
@@ -157,7 +158,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         if streams["open"] >= MAX_STREAMS:
             raise HTTPException(status_code=503, detail="Too many event streams open")
         last = request.headers.get("last-event-id") or request.query_params.get("last_event_id") or ""
-        last_id = int(last) if last.isdigit() else None
+        last_id = ev.replay_after(last)  # "<boot_id>:<n>"; another run's id replays all of this one
 
         queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 
@@ -170,7 +171,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         streams["open"] += 1
 
         def frame(event) -> str:
-            return f"id: {event.id}\nevent: {event.type}\ndata: {json.dumps(event.to_dict(), default=str)}\n\n"
+            return f"id: {ev.stream_id(event)}\nevent: {event.type}\ndata: {json.dumps(event.to_dict(), default=str)}\n\n"
 
         async def generate():
             sent, newest = 0, 0
