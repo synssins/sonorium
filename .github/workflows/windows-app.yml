@@ -310,6 +310,8 @@ jobs:
         shell: pwsh
         run: |
           $p = Start-Process 'C:\Program Files\Sonorium\unins000.exe' -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru; $p.WaitForExit()
+          # Inno's uninstaller hands over to a copy of itself in %TEMP% (_iu*.tmp): wait for that too
+          while (Get-Process -Name '_iu*' -ErrorAction SilentlyContinue) { Start-Sleep 1 }
           if ($p.ExitCode) { throw "Uninstall failed ($($p.ExitCode))" }
           Start-Sleep 3
           if (Get-Service Sonorium -ErrorAction SilentlyContinue) { throw 'The service is still there' }
