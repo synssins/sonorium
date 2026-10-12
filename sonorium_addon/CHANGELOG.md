@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.48 (2026-10-12)
+
+### Features
+
+- **web**: System › Servers in the Sonorium app (SONORIUM_HOST.showServers)
+  ([`020a907`](https://github.com/synssins/sonorium/commit/020a90774408d336b722325c4d2b146bcad1fbd0))
+
+
 ## v1.6.2-dev.47 (2026-10-12)
 
 ### Bug Fixes
