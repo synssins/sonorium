@@ -17,12 +17,25 @@ on:
       - 'packaging/windows/**'
       - '.github/workflows/windows-app.yml'
   workflow_dispatch:
+  # Called by the release workflow once a version is reserved: builds and tests the installer
+  # for that commit. The installer is the artifact "sonorium-setup" (Sonorium-Setup-<version>.exe,
+  # the version from sonorium_addon/sonorium/version at that ref).
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit or tag to build (default: the triggering ref)'
+        type: string
+        default: ''
+    outputs:
+      installer:
+        description: 'File name of the installer in the sonorium-setup artifact'
+        value: ${{ jobs.bundle.outputs.installer }}
 
 permissions:
   contents: read
 
 concurrency:
-  group: windows-app-${{ github.ref }}
+  group: windows-app-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,6 +46,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - name: Cache the build
@@ -84,9 +98,12 @@ jobs:
     needs: audio
     runs-on: windows-latest
     timeout-minutes: 40
+    outputs:
+      installer: ${{ steps.installer.outputs.installer }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: actions/download-artifact@v4
@@ -109,11 +126,13 @@ jobs:
           packaging/windows/build-python.ps1 -AvWheel $wheel -Out dist/Sonorium
 
       - name: Programs and installer
+        id: installer
         shell: pwsh
         run: |
           choco install innosetup --no-progress -y | Out-Null
           $version = (Get-Content sonorium_addon/sonorium/version -Raw).Trim()
           packaging/windows/build-installer.ps1 -Bundle dist/Sonorium -Version $version -Out dist/setup
+          "installer=Sonorium-Setup-$version.exe" >> $env:GITHUB_OUTPUT
 
       - uses: actions/upload-artifact@v4
         with:

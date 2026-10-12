@@ -66,7 +66,9 @@ public sealed class AppState
             Running = info is not null;
             Version = info?["version"]?.ToString();
             var boot = info?["boot_id"]?.ToString();
-            if (boot != BootId) RunningSince = boot is null ? null : DateTimeOffset.Now;
+            // When this Sonorium process started (older versions don't say: when we first saw it)
+            if (DateTimeOffset.TryParse(info?["started_at"]?.ToString(), out var started)) RunningSince = started;
+            else if (boot != BootId) RunningSince = boot is null ? null : DateTimeOffset.Now;
             BootId = boot;
             ChannelsPlaying = 0;
             PlayingLines = [];
