@@ -503,6 +503,14 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - **Channel popup.** Clicking a channel's name opens the channel as it looks on Sonorium's Channels page, with its recent changes.
 - When the cards can't be added automatically, **Settings → Connection** says why and offers the file to download (Docker).
 
+**Fixes**
+- **After a restart** from Settings or the web UI, the channels that were playing play again, with their theme, preset, sequence or playlist, and volume. After a stop or a crash they stay stopped.
+- **Max channels.** Starting a channel when the most channels are already playing is refused with a message, from the web UI, Home Assistant, MQTT, plugins and links; the channel stays stopped.
+- **New Channel** starts at the **Default volume** from **Settings → Audio Settings**.
+- **Esc** in the Theme Editor works like **Cancel**, and closes the channel editor without saving.
+- **Removing MQTT** also removes the Announce notify entities and plugins' entities from Home Assistant.
+- **Keys:** **Last used** changes only when a request with the key is accepted.
+
 #### 1.6.1
 
 **Channels**
