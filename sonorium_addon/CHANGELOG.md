@@ -2,6 +2,31 @@
 
 <!-- version list -->
 
+## v1.7.2-dev.2 (2026-10-12)
+
+### Bug Fixes
+
+- **import**: A theme zip without a top folder keeps its groups
+  ([`daa08c9`](https://github.com/synssins/sonorium/commit/daa08c9bfd171048f56ea1a560d53c0814645ac1))
+
+- **presets**: A preset's and a While playing step's Rise reach the channel
+  ([`1d3f74a`](https://github.com/synssins/sonorium/commit/1d3f74ae9777e56263580b8e148d01ca65c7ed41))
+
+- **sequences**: Check hand-written sequence values when presets.json is read
+  ([`d20ba9d`](https://github.com/synssins/sonorium/commit/d20ba9d38810e7966e845c879f69455e9104c3de))
+
+- **themes**: Convert Ebb & Flow Interval to Duration only for themes from before the change
+  ([`063dfab`](https://github.com/synssins/sonorium/commit/063dfabd3c5caf0e7a6ab7b030f81f8427792d2f))
+
+### Continuous Integration
+
+- **windows**: Documentation screenshots [screens]
+  ([`eb08cf2`](https://github.com/synssins/sonorium/commit/eb08cf29a6acc5226e2a4e7ebd88b4ad7455e73e))
+
+- **windows**: Documentation screenshots never run inside a release
+  ([`a9faa8a`](https://github.com/synssins/sonorium/commit/a9faa8a341b44d5804cd027a9c298f640c9abe30))
+
+
 ## v1.7.1-dev.11 (2026-10-12)
 
 ### Bug Fixes
