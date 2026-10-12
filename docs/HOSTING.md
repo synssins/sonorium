@@ -31,6 +31,12 @@ the MQTT broker is told Sonorium is leaving. Then:
 - **Without it:** Sonorium starts itself again in the same process
   (`python -m sonorium.entrypoint`).
 
+The channels that were playing play again once Sonorium is back, with the
+theme, preset, sequence, playlist and volume they had (Sonorium notes them in
+`resume_after_restart.json` next to `state.json` and removes the file at the
+next start). Only a restart asked for this way does that: after a stop or a
+crash, channels stay stopped.
+
 If the clean stop takes longer than 20 seconds, Sonorium goes ahead anyway.
 The log shows `Restarting Sonorium (<why>): shutting down, then ...` when it
 begins.

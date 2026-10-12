@@ -76,6 +76,7 @@ class WebApp:
         self._group_manager = None
         self._channel_manager = None
         self._background = None
+        self._resume_task = None  # channels playing again after a requested restart
         self._mqtt_manager = None
         self._theme_refresh_task = None
         self._plugin_manager = None
@@ -510,6 +511,9 @@ class WebApp:
             await self._background.start()
             logger.debug("  Background loop started")
 
+            # Channels that were playing before a requested restart play again
+            self._resume_after_restart()
+
             # Plugin scheduler and the alert bar for failures
             if self._plugin_host:
                 try:
@@ -737,6 +741,7 @@ class WebApp:
 
     async def shutdown_v2(self):
         """Shutdown v2 components gracefully."""
+        self._remember_for_restart()
         if self._background:
             await self._background.stop()
         if self._plugin_host:
@@ -746,6 +751,34 @@ class WebApp:
                 logger.warning(f"Plugin framework stop failed: {e}")
         if self._network_service:
             await self._network_service.stop()
+
+    def _remember_for_restart(self):
+        """A requested restart (not a stop or a crash): the playing channels play again afterwards."""
+        from sonorium import host
+        if host.pending() != "restart" or not self._state_store:
+            return
+        try:
+            from sonorium.core import restart_resume
+            count = restart_resume.remember(self._state_store.sessions.values(), self._state_store.state_file.parent)
+            if count:
+                logger.info(f"{count} playing channel(s) will play again after the restart")
+        except Exception as e:
+            logger.warning(f"Could not remember the playing channels for the restart: {e}")
+
+    def _resume_after_restart(self):
+        """After a requested restart: play the channels that were playing (core/restart_resume.py)."""
+        try:
+            from sonorium.core import restart_resume
+            entries = restart_resume.take(self._state_store.state_file.parent)
+        except Exception as e:
+            logger.warning(f"Could not read the channels to play again after the restart: {e}")
+            return
+        if not entries:
+            return
+        import asyncio
+        on_started = self._mqtt_manager.update_session_state if self._mqtt_manager else None
+        self._resume_task = asyncio.get_running_loop().create_task(
+            restart_resume.resume(self._session_manager, entries, on_started=on_started))
 
     # --- Sign-in (sonorium/auth) ---
 
