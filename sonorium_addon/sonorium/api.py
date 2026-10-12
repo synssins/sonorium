@@ -1371,9 +1371,11 @@ class WebApp:
                 logger.debug(f"_find_theme_folder: path {mp} does not exist")
                 continue
             # Try exact match first
-            exact_path = mp / theme_id
-            if exact_path.exists():
-                return exact_path
+            # Only a folder directly inside the audio folder: "..", "." and paths never match
+            if theme_id not in ("", ".", "..") and "/" not in theme_id and "\\" not in theme_id:
+                exact_path = mp / theme_id
+                if exact_path.is_dir():
+                    return exact_path
             # Try scanning folders and comparing normalized names
             for folder in mp.iterdir():
                 if folder.is_dir():
