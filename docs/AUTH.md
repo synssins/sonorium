@@ -2,8 +2,8 @@
 
 How Sonorium decides who may do what. Think of it as a building: the core
 is the front door with its lock and a guest list, the **Users** plugin hands
-out keycards to the people who live there, and the **Integration** plugin
-cuts spare keys that open only some rooms.
+out keycards to the people who live there, and **Keys** (part of the core)
+are spare keys that open only some rooms.
 
 ## The parts
 
@@ -11,9 +11,9 @@ cuts spare keys that open only some rooms.
 |---|---|---|
 | Core | `sonorium/auth/` | Checks every request against the route's permission, keeps tokens (as hashes), the server's identity and HTTPS certificate, Link App and phone linking, `/api/info`, mDNS |
 | Users plugin | `plugins/builtin/users/` | Accounts and roles, browser sign-in, Require login, one-time sign-in codes, Users & devices, Home Assistant's users (add-on) |
-| Integration plugin | `plugins/builtin/integration/` | Keys with only the abilities you check (Settings › Keys) |
+| Keys (core) | `sonorium/auth/keys.py` | Keys with only the abilities you check (Settings › Keys); switched on or off in Settings › Advanced |
 
-Both plugins are built in and start switched on. Without the Users plugin,
+The Users plugin is built in and starts switched on. Without the Users plugin,
 Sonorium is open to anyone on your network, the way it was before sign-in
 existed. Switching it off (or uninstalling it) asks first.
 
@@ -85,6 +85,12 @@ A key allows only the items checked on it:
 Keys never manage users or keys. A key is shown once, when it's made; only
 its hash is kept. Changing a key's boxes, name or expiry works on its next
 request. Expiry: 7, 30 or 90 days, a year, or never.
+
+Keys are part of Sonorium and on by default. **Settings › Advanced › Keys**
+switches them off at once, without a restart: no key is accepted (401 "Keys
+are off"), `/api/keys` answers 404 and **Settings › Keys** leaves the menu.
+The keys stay stored; switched back on, they work again. Keys made before
+Keys were part of the core (by the Integration plugin of 1.7.0) keep working.
 
 The plugin framework's older tokens (one per plugin, per trigger, and for the
 event stream) keep working. Triggers and the event stream always need a token
@@ -344,8 +350,8 @@ then the owner's Can leave a link, or an admin). A refused change to a channel
 answers 403 (not yours, Kid mode, outside the hours) or 409 (a speaker in use,
 a linked channel) with the reason in `detail`.
 
-Integration plugin: `GET|POST /api/keys`, `PUT|DELETE /api/keys/{id}`.
+Keys: `GET|POST /api/keys`, `PUT|DELETE /api/keys/{id}` (404 while Keys are off).
 
-Every route's permission is in `sonorium/auth/permissions.py` (or the
-plugin's `PERMISSIONS`); `tests/test_auth_routes_coverage.py` fails when a
+Every route's permission is in `sonorium/auth/permissions.py` (Keys' in
+`sonorium/auth/keys.py`, a plugin's in its `PERMISSIONS`); `tests/test_auth_routes_coverage.py` fails when a
 route has none, and the server refuses an API route it has no permission for.

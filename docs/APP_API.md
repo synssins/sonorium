@@ -299,9 +299,12 @@ not built (AUTH.md).
   "api": 1,
   "install": "windows",
   "features": {
-    "connection_settings": {"available": true, "enabled": true, "overridable": false},
-    "network_speakers":    {"available": true, "enabled": true, "overridable": false},
-    "space_editing":       {"available": true, "enabled": true, "overridable": false}
+    "connection_settings": {"available": true, "enabled": true, "overridable": false, "default": true, "live": false},
+    "network_speakers":    {"available": true, "enabled": true, "overridable": false, "default": true, "live": false},
+    "space_editing":       {"available": true, "enabled": true, "overridable": false, "default": true, "live": false},
+    "plugin_packages":     {"available": true, "enabled": false, "overridable": true, "default": false, "live": false},
+    "keys":                {"available": true, "enabled": true, "overridable": true, "default": true, "live": true},
+    "announcements":       {"available": true, "enabled": true, "overridable": true, "default": true, "live": true}
   },
   "ports": {"http": 8008, "https": 8808},
   "host": "192.0.2.25",
@@ -309,7 +312,7 @@ not built (AUTH.md).
   "login_required": true,
   "pair": true,
   "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
-  "plugins": ["integration", "users"],
+  "plugins": ["users"],
   "boot_id": "54615c1e5e5d4331a7b9cd713cd45918",
   "ui": {"version": "1.6.2-dev.24", "host_api": 1},
   "personal_channel": true
@@ -323,7 +326,7 @@ not built (AUTH.md).
 | `version` | string | Show it in server details. Don't parse it for features; use `api` and the presence of fields. |
 | `api` | int | API version, `1`. Section 11.3. |
 | `install` | `"addon"`, `"docker"`, `"windows"`, `"linux"` | Wording ("Home Assistant app", "Docker"); `addon` means: no mDNS re-discovery, floors and areas come from HA. |
-| `features.<name>` | `{available, enabled, overridable}` | `available`: offered on this install; `enabled`: running now; `overridable`: can be switched on in Settings › Advanced. `network_speakers.enabled` false: hide manual speakers and network scans. `space_editing.enabled` false: floors and areas are read-only (HA owns them). `connection_settings`: hidden on the add-on. |
+| `features.<name>` | `{available, enabled, overridable, default, live}` | `available`: offered on this install; `enabled`: running now; `overridable`: can be switched on or off in Settings › Advanced; `default`: on out of the box; `live`: a change applies at once (otherwise after a restart). `network_speakers.enabled` false: hide manual speakers and network scans. `space_editing.enabled` false: floors and areas are read-only (HA owns them). `connection_settings`: hidden on the add-on. `keys.enabled` false: keys are refused (401) and `/api/keys` answers 404; hide key controls. `announcements.enabled` false: `POST /api/announce` answers 409; hide announce controls. A feature missing from the list (an older server): treat it as on. |
 | `ports.http` | int | The HTTP port speakers use (from the stream URL). Stream URLs use it. |
 | `ports.https` | int or null | The HTTPS port as the LAN sees it. `null`: HTTPS is off (no certificate, or the add-on mapping is off); the app can't link. |
 | `host` | string | The address speakers use (the stream URL's host). Add it to the stored addresses. |
@@ -331,7 +334,7 @@ not built (AUTH.md).
 | `login_required` | bool | True when the Users plugin is on with **Require login** on (and the recovery bypass is off). Informational: the app always links and always sends its token. |
 | `pair` | bool | Always `true`: the server supports linking. |
 | `fingerprint` | string or null | Certificate SHA-256 (hex). Null when HTTPS isn't available. Compare with the pinned value; for a typed address it's the value to show as words. |
-| `plugins` | string[] | The sign-in plugins that are on: `"users"` (accounts and roles) and/or `"integration"` (keys). Sorted. |
+| `plugins` | string[] | The sign-in plugins that are on: `"users"` (accounts and roles). Sorted. Keys aren't a plugin (see `features.keys`). |
 | `boot_id` | string (32 hex) | New every time the server starts. A different value than last time = the server restarted: refetch everything; the event stream's ids carry it (8.3). Missing on servers before the field (G4). |
 | `ui` | `{version, host_api}` | The web UI the server serves: its version, and `host_api`, the version of its `window.SONORIUM_HOST` hooks (12.2.2). Missing: the server's UI has no hooks; use the bundled copy (12.3). |
 | `personal_channel` | bool | `true`: the server has the personal channel (7.11). Missing: it doesn't; hide the headphone button. |
@@ -491,7 +494,7 @@ the HA user is the one signed in.
             "pl.edit", "pl.run", "pl.view", "sp.mute", "sp.view", "th.view"],
   "bypass": false, "ingress": false, "web_ui": true,
   "words": ["forest", "candy", "award", "fancy"],
-  "plugins": ["integration", "users"],
+  "plugins": ["users"],
   "starting": false, "closed": false,
   "require_login": true, "has_users": true, "needs_setup": false, "ha_users": false
 }
@@ -652,8 +655,9 @@ answer 403 `{"detail": "Only an admin can do this"}` to a User's phone.
 Not built yet (PLAN-mobile-api.md §10): channel ownership. Today any User
 can change or delete any channel.
 
-The app needs no special handling for keys (`sk_...`, Integration plugin);
-they're for scripts and devices.
+The app needs no special handling for keys (`sk_...`, Settings › Keys, part
+of Sonorium and switched on or off in Settings › Advanced); they're for
+scripts and devices.
 
 ---
 
@@ -1055,7 +1059,7 @@ speakers for their length (the channel doesn't show as playing).
 
 | Method, path | Perm | Body / answer |
 |---|---|---|
-| `POST /announce` | an.send | `{"channels": [id] or "all", "text": "Dinner is ready", "url": "https://.../chime.mp3", "volume": 0-200, "duck": true \| false \| {"db", "attack", "release"}, "provider", "language", "start_stopped": true}` → `{"chime": result or null, "speech": result or null}`. `text` needs a text to speech provider (the Announcements plugin gives Home Assistant's): 502 when it fails |
+| `POST /announce` | an.send | `{"channels": [id] or "all", "text": "Dinner is ready", "url": "https://.../chime.mp3", "volume": 0-200, "duck": true \| false \| {"db", "attack", "release"}, "provider", "language", "start_stopped": true}` → `{"chime": result or null, "speech": result or null}`. `text` needs a text to speech provider (Sonorium gives Home Assistant's): 502 when it fails. 409 while announcements are off (`features.announcements.enabled` false) |
 | `GET /sounds` | ch.view | `{"sounds": [{sound_id, channel_id, name, state, priority, policy, length, position, volume, duck, capped, label, origin}]}` |
 | `POST /sounds` | an.send | `{"channels", "url", "volume", "duck", "policy": "now" \| "queue" \| "replace", "priority", "max_seconds", "start_stopped": false, "override": false, "label"}` → result |
 | `DELETE /sounds/{sound_id}` | an.send | `{"cancelled": true}`; 404 when it isn't playing or queued |
@@ -1651,7 +1655,7 @@ native (12.5).
 | `sonorium/web/static/js/logs.js` | 142 | The log viewer (Settings › Logs and `/logs`) |
 | `sonorium/web/static/css/styles.css` | 4210 | All styles and the design tokens (12.6) |
 | `plugins/builtin/users/web/users.js`, `users.css` | | Sign-in screens, Users & devices (loaded from the server via `/api/ui/plugins` and `/plugin-ui/users/...`) |
-| `plugins/builtin/integration/web/integration.js`, `.css` | | Settings › Keys |
+| `sonorium/web/static/js/ext/keys.js`, `static/css/keys.css` | | Settings › Keys (hidden while `features.keys.enabled` is false) |
 | `/logo.png`, `/favicon.png` (server routes), `static/img/qr-logo.png` | | Images |
 | `static/ha/sonorium-cards.js` | | Home Assistant dashboard cards; not part of the UI |
 

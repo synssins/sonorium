@@ -591,8 +591,7 @@ Run the suite with `python -m pytest -q tests`.
 
 ## 14. Built-in plugins: sign-in hooks and web UI slots
 
-Built-in plugins (shipped in `sonorium/plugins/builtin/`, like **Users** and
-**Integration**) can go further than the schema-rendered pages above: they can recognise
+Built-in plugins (shipped in `sonorium/plugins/builtin/`, like **Users**) can go further than the schema-rendered pages above: they can recognise
 callers, add HTTP routes and draw parts of the web UI. Third-party plugins keep the
 schema-rendered pages, triggers, events and actions.
 
@@ -725,12 +724,15 @@ A chime and/or the text spoken, ducking, admin-level (override), starting stoppe
 "channels", "chime", "speech", "notice"}`: `played` the channel ids it plays on, `skipped`
 those with Announcements off, `notice` why the text wasn't spoken when only the chime played
 (no text to speech). Text alone with no text to speech raises `ActionError` (`unavailable`).
+While announcements are switched off in **Settings › Advanced** (`features.announcements`
+in `GET /api/install`), `announce()` and a sound played with `announcement=True` raise
+`ActionError` (`conflict`, "Announcements are off. ...") and nothing plays.
 
 From outside, `POST /api/announce` (the ability **Make announcements**, `an.send`) takes
 `{"channels", "text", "url", "volume", "duck", "provider", "language", "start_stopped"}` and
 answers the same. A key limited to some channels may only announce on those (`"all"` means
 its channels; another channel answers 403). An unknown channel answers 404; text with no
-text to speech and no `url`, 503.
+text to speech and no `url`, 503; announcements switched off in Settings › Advanced, 409.
 
 Each channel has an **Announcements** setting (on by default; the channel's
 `announcements`, `PUT /api/sessions/{id}/announcements {"on": false}`, and a
@@ -740,8 +742,8 @@ it in `"skipped"` (nothing is spoken when every channel is off). The setting is 
 channel's own, so it holds for any channel, listed or not.
 
 **Text to speech.** A provider turns text into audio; the first one registered is the
-default. The built-in Announcements plugin provides Home Assistant's (`homeassistant`), ready
-while Home Assistant is linked. `ready` (optional) tells announcements whether the provider
+default. Sonorium provides Home Assistant's (`homeassistant`, its `plugin_id` is `null` in
+`GET /api/plugin-framework`), ready while Home Assistant is linked. `ready` (optional) tells announcements whether the provider
 can speak now; when it can't, only the chime plays:
 
 ```python
@@ -938,9 +940,10 @@ if self.homeassistant.available:
 connection (its TTS proxy), so Home Assistant's own external URL doesn't matter.
 `tts_engines()` lists the `tts.*` entities.
 
-### Announcements from Home Assistant and MQTT (built-in plugin)
+### Announcements from Home Assistant and MQTT (part of Sonorium)
 
-The Announcements plugin (on by default) gives each channel a notify entity over MQTT
+Announcements are part of Sonorium (`sonorium/ha/announcements.py`), on by default, with a
+switch in **Settings › Advanced**. Each channel gets a notify entity over MQTT
 ("Kitchen Announce"). In Home Assistant:
 
 ```yaml
@@ -963,9 +966,11 @@ An MQTT message to `sonorium/announce/set`
 does the same for any channels (`"all"` for every one), with an optional chime first; one
 without `channels` is ignored. Home
 Assistant and MQTT act as an admin: an announcement overrides a zone's owner and quiet
-hours. The plugin's settings pick the text to speech engine, the language, the volume, and
-whether stopped channels are started. It needs MQTT (for the entities) and Home Assistant
-(for the speech); a chime URL plays without Home Assistant.
+hours, and starts a stopped channel for its length. The speech uses Home Assistant's first
+`tts.*` engine. It needs MQTT (for the entities) and Home Assistant (for the speech); a
+chime URL plays without Home Assistant. Switched off in Settings › Advanced, the notify
+entities are removed from Home Assistant and the topics are ignored, at once; switched on,
+they come back.
 
 ## 21. Packages and programs a plugin brings
 

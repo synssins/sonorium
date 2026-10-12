@@ -361,9 +361,17 @@ turn it off for a nap and on again after.
 | `volume` | 0 to 200; 100 is the sound's own level | `80` |
 | `duck` | How much quieter the channel gets, in dB; `false` to not duck. Left out: **Settings → Advanced** | `18` |
 
-Text to speech comes from Home Assistant: its first `tts.*` engine, or the one set in the
-**Announcements** plugin's settings. Without Home Assistant (Docker on its own), send a
-`url`: the sound plays and the answer says the text wasn't spoken.
+Text to speech comes from Home Assistant: its first `tts.*` engine, or the one a request
+names in `provider`. Without Home Assistant (Docker on its own), send a `url`: the sound
+plays and the answer says the text wasn't spoken.
+
+**Switching announcements off.** Announcements are part of Sonorium and on by default. To
+stop them everywhere at once, turn off **Announcements** in **Settings → Advanced**. It
+works like a building's main switch next to the switch in each room: while it is off,
+nothing announces on any channel, the `notify.sonorium_<channel>_announce` entities leave
+Home Assistant, MQTT announcements are ignored and `POST /api/announce` answers 409. Each
+channel's own Announcements switch keeps its setting. Turn it back on and everything
+works again, without a restart.
 
 #### From Home Assistant
 
@@ -475,7 +483,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - **Accounts and roles.** The built-in **Users** plugin adds accounts with two roles. An **Admin** can change everything; a **User** can play and change channels, run and edit playlists and sequences, and see themes and speakers. Sonorium always keeps one Admin.
 - **New installs** ask for an admin account on the first visit and need a sign-in from then on. **Updates** change nothing until you create the account and turn on **Require login**; the banner at the top offers both.
 - **Users & devices.** **Settings → Users & devices** lists each person with the browsers and phones they use. Add users, change roles, reset passwords, and sign out one browser or every device.
-- **Keys.** The built-in **Integration** plugin adds **Settings → Keys**: keys for devices and programs, each allowed only the items checked on it, for some channels or all, with an expiry. A key is shown once.
+- **Keys.** **Settings → Keys**: keys for devices and programs, each allowed only the items checked on it, for some channels or all, with an expiry. A key is shown once. Keys are part of Sonorium; turning off **Keys** in **Settings → Advanced** stops every key at once and hides the page, and turning it on again brings them back.
 - **Link App.** The button on the **Channels** page shows a QR code that links a phone to your account. Each code works once, for 5 minutes.
 - **HTTPS.** Port 8808 serves the web UI and the API over HTTPS, with a certificate Sonorium makes itself. Port 8008 is unchanged; speakers keep using it.
 - **sonorium.local.** The Docker version announces itself on your network: `http://sonorium.local:8008`.
@@ -484,6 +492,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 **Announcements**
 - **Other systems announce through Sonorium.** Home Assistant (each channel's notify entity), MQTT (`sonorium/announce/set`), anything that can make a web request (`POST /api/announce` with a key) and plugins send a chime and/or words to speak; Sonorium plays them on the channels named. See [Announcements: let other systems use Sonorium](#announcements-let-other-systems-use-sonorium).
 - **Announcements switch** on each channel, and in Home Assistant: off, nothing announces on that channel.
+- **Announcements in Settings → Advanced** switches announcements off (or on) everywhere at once.
 
 **Plugins**
 - **Built-in plugins can be uninstalled** like any other. An uninstalled built-in plugin stays uninstalled after restarts and updates.
