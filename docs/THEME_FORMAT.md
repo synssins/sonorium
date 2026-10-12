@@ -857,7 +857,8 @@ when it is missing (`plugins/builtin/ambient_mixer/plugin.py:315-330`). Bundled 
 (`sonorium_addon/themes/*/MANIFEST.json`) use:
 
 - `source`: `site`, `url`, `template_id`, `creator`, `harvested_at`
-- `license`: `name`, `url`, `requires_attribution` (bool)
+- `license`: `name`, `url`, `requires_attribution` (bool), optional `redistributable` (bool: whether the
+  theme may be copied on; read by `GET /api/themes/packages`, APP_API.md 10.3)
 - `mix_name`, `category`
 - `channels`: list of the original source's per-sound settings (`channel_num`, `name`, `audio_id`, `url`, `volume`, `balance`, `is_random`, `random_counter`, `random_unit`, `crossfade`, `mute`, `local_filename`, `file_hash`)
 
