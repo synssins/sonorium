@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.1 (2026-10-12)
+
+### Bug Fixes
+
+- **security**: A theme id can't reach outside the audio folder [skip ci]
+  ([`48bccf4`](https://github.com/synssins/sonorium/commit/48bccf4f01281a337f87af0865f9cefdf7ce6606))
+
+
 ## v1.7.0 (2026-10-12)
 
 ### Documentation
