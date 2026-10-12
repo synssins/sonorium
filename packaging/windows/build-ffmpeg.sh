@@ -38,10 +38,13 @@ fetch "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" ffmpeg.tar.x
 tar xJf ffmpeg.tar.xz
 cd "ffmpeg-${FFMPEG_VERSION}"
 
-# zlib (permissive) goes inside the DLLs: a folder holding only MSYS2's static
-# libz.a comes first in the search path, so -lz can't pick libz.dll.a.
-mkdir -p "$SRC/zlib-static"
-cp "${MINGW_PREFIX:-/ucrt64}/lib/libz.a" "$SRC/zlib-static/"
+# zlib (permissive) and MinGW's winpthread (MIT; GCC links it even with Windows
+# threads) go inside the DLLs: a folder holding only their static archives comes
+# first in the search path, so -lz and -lpthread can't pick the .dll.a versions.
+mkdir -p "$SRC/static-libs"
+cp "${MINGW_PREFIX:-/ucrt64}/lib/libz.a" "$SRC/static-libs/"
+cp "${MINGW_PREFIX:-/ucrt64}/lib/libwinpthread.a" "$SRC/static-libs/"
+cp "${MINGW_PREFIX:-/ucrt64}/lib/libwinpthread.a" "$SRC/static-libs/libpthread.a"
 
 # Same flags as build.sh, except: no rpath (Windows finds DLLs beside the
 # module), zlib static (above), Windows' own threads instead of MinGW's
@@ -57,7 +60,7 @@ cp "${MINGW_PREFIX:-/ucrt64}/lib/libz.a" "$SRC/zlib-static/"
     --disable-everything \
     --enable-libmp3lame \
     --extra-cflags="-I$SRC/lame/include" \
-    --extra-ldflags="-L$SRC/zlib-static -L$SRC/lame/lib -static-libgcc" \
+    --extra-ldflags="-L$SRC/static-libs -L$SRC/lame/lib -static-libgcc" \
     --enable-protocol=file \
     --enable-demuxer=mp3,wav,flac,ogg,mov,aac \
     --enable-parser=mpegaudio,flac,vorbis,opus,aac \
