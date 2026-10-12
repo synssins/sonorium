@@ -2,6 +2,53 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.2 (2026-10-12)
+
+### Bug Fixes
+
+- **auth**: A key's Last used counts only accepted requests
+  ([`8dedaea`](https://github.com/synssins/sonorium/commit/8dedaeafb9f861cf6e0f6bbe302ea21d2a56683f))
+
+- **core**: Channels playing before a requested restart play again after it
+  ([`06ffc9d`](https://github.com/synssins/sonorium/commit/06ffc9d98e1ae993099ff0928d72b38b35b1bfe8))
+
+- **core**: Refuse starting a channel beyond Max channels
+  ([`e102145`](https://github.com/synssins/sonorium/commit/e10214529ac92019fba7a38b113f32ddf38172f6))
+
+- **mqtt**: Removing MQTT removes the Announce and plugin entities from Home Assistant
+  ([`bbca594`](https://github.com/synssins/sonorium/commit/bbca59401eff5f6f49f5bf504507feed61bc4801))
+
+- **settings**: Drop the unused entity_prefix setting
+  ([`fb6aa34`](https://github.com/synssins/sonorium/commit/fb6aa342c66b9a144a56f8d95236bb90ada56ac9))
+
+- **web**: Channel card keeps its Kid mode and owner marks and the countdown visible
+  ([`fad48ca`](https://github.com/synssins/sonorium/commit/fad48ca4dcb921958c13d8cbc3af1466564a3af6))
+
+- **web**: Esc cancels the Theme Editor and closes the channel editor
+  ([`2be3127`](https://github.com/synssins/sonorium/commit/2be312740b854a248bce08c69351f1096febd162))
+
+- **web**: Help points to Settings > Advanced for the stream address
+  ([`98764d7`](https://github.com/synssins/sonorium/commit/98764d7b116a6e48e1bba725283f2e3239e6f23f))
+
+- **web**: New Channel starts at the Audio Settings default volume
+  ([`4866959`](https://github.com/synssins/sonorium/commit/4866959048d9eb0d1b7b5d9f4908a18d8156d9d4))
+
+### Continuous Integration
+
+- **release**: Dev release notes list the changes when the changelog section is empty
+  ([`435cf71`](https://github.com/synssins/sonorium/commit/435cf7102035c7045fbb55d56ea3d0a38a538109))
+
+### Documentation
+
+- **readme**: List the fixes in Next release
+  ([`653dfd2`](https://github.com/synssins/sonorium/commit/653dfd226707a24d7902c83a60beedccb53233fe))
+
+### Testing
+
+- **zones**: Fake channel list answers the Max channels check without using up a channel
+  ([`952147f`](https://github.com/synssins/sonorium/commit/952147f971b491e886ca2952ef4c1543ecb04050))
+
+
 ## v1.7.2-dev.5 (2026-10-12)
 
 
