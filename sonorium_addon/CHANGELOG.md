@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.68 (2026-10-12)
+
+### Bug Fixes
+
+- Theme files use the configured audio folder, not /media/sonorium
+  ([`27fdda7`](https://github.com/synssins/sonorium/commit/27fdda7948c9e6fc98c5d5209e3d2b9fce38fc16))
+
+
 ## v1.6.2-dev.67 (2026-10-12)
 
 
