@@ -3318,6 +3318,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
   .spv-def { grid-column: 1; }
   .spv-warn { grid-column: 1 / -1; }
   .spv-num { min-height: 44px; width: 84px; }
+  .spv-url { width: 10rem; }  /* else its auto column squeezes the Default text under it */
   .spv-def::before { content: 'Default '; }
 }
 
