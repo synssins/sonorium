@@ -154,6 +154,98 @@ def to_response(playlist_id: str, playlist: dict) -> dict:
     }
 
 
+class PlaylistConflict(PlaylistError):
+    """Another playlist has the same name."""
+
+
+def same_name(items: dict, name: str, except_id: Optional[str] = None) -> bool:
+    """Another item ({id: {"name": ...}}) has this name, ignoring case and spaces at the ends."""
+    wanted = name.strip().lower()
+    return any(item_id != except_id and str((item or {}).get("name", "")).strip().lower() == wanted
+               for item_id, item in items.items())
+
+
+def create_playlist(playlists: dict, data: dict, theme_exists, theme_presets, theme_sequences) -> tuple[str, dict]:
+    """
+    A new playlist, checked (clean_playlist) and added to `playlists` ({id:
+    data}, changed in place). Returns (playlist_id, the playlist as stored).
+    Raises PlaylistError, or PlaylistConflict when the name is taken.
+    """
+    cleaned = clean_playlist(data, theme_exists, theme_presets, theme_sequences)
+    if same_name(playlists, cleaned["name"]):
+        raise PlaylistConflict("A playlist with that name already exists")
+    playlist_id = new_playlist_id(playlists)
+    playlists[playlist_id] = cleaned
+    return playlist_id, cleaned
+
+
+def update_playlist(playlists: dict, playlist_id: str, data: dict, theme_exists, theme_presets,
+                    theme_sequences) -> dict:
+    """
+    Change a playlist: only the fields in `data` change. Returns the playlist
+    as stored. Raises KeyError (no such playlist), PlaylistError or PlaylistConflict.
+    """
+    current = playlists[playlist_id]
+    cleaned = clean_playlist(data, theme_exists, theme_presets, theme_sequences, current=current)
+    if same_name(playlists, cleaned["name"], except_id=playlist_id):
+        raise PlaylistConflict("A playlist with that name already exists")
+    playlists[playlist_id] = cleaned
+    return cleaned
+
+
+def delete_playlist(playlists: dict, playlist_id: str) -> dict:
+    """Take a playlist out of `playlists`. Returns it. Raises KeyError."""
+    return playlists.pop(playlist_id)
+
+
+def folder_lookups(themes_root):
+    """
+    (theme_exists, theme_presets, theme_sequences) for clean_playlist, read
+    from the theme folders under themes_root (each theme by its metadata.json id).
+    """
+    from pathlib import Path
+    from sonorium.core import intrusions, sequences, theme_presets as presets_files
+    folder_for_id = intrusions.folder_for_id_in(Path(themes_root))
+
+    def theme_exists(theme_id):
+        return folder_for_id(theme_id) is not None
+
+    def theme_presets(theme_id):
+        folder = folder_for_id(theme_id)
+        return set(presets_files.load_presets(folder)) if folder else set()
+
+    def theme_sequences(theme_id):
+        folder = folder_for_id(theme_id)
+        return set(sequences.load_sequences(folder)) if folder else set()
+    return theme_exists, theme_presets, theme_sequences
+
+
+def load_playlists(path) -> dict:
+    """
+    The playlists in a JSON file with a "playlists" object ({id: data}): the
+    server's state.json, or a file written by save_playlists. {} if the file
+    is missing. Raises theme_presets.BrokenJsonError if it can't be read.
+    """
+    from pathlib import Path
+    from sonorium.core.theme_presets import read_json
+    doc = read_json(Path(path)) or {}
+    found = doc.get("playlists")
+    return {k: dict(v) for k, v in found.items() if isinstance(v, dict)} if isinstance(found, dict) else {}
+
+
+def save_playlists(path, playlists: dict) -> None:
+    """Write playlists under "playlists" in a JSON file, keeping its other keys. Raises OSError."""
+    from pathlib import Path
+    from sonorium.core.theme_presets import BrokenJsonError, read_json, write_json_atomic
+    path = Path(path)
+    try:
+        doc = dict(read_json(path) or {})
+    except BrokenJsonError:
+        doc = {}
+    doc["playlists"] = {k: dict(v) for k, v in playlists.items()}
+    write_json_atomic(path, doc)
+
+
 def migrate_cycling(state, all_theme_ids: list[str]) -> int:
     """
     Turn each channel's theme cycling (cycle_config) into a playlist, once.
