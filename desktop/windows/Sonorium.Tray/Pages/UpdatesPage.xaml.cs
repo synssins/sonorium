@@ -52,6 +52,10 @@ public sealed partial class UpdatesPage : Page
             Notes.Text = notes.Length == 0 ? "" : $"What's new: {notes}";
             Notes.Visibility = notes.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
+        else
+        {
+            Notes.Visibility = Visibility.Collapsed;
+        }
         LastChecked.Description = state.Settings.LastUpdateCheck is { } at
             ? char.ToUpper(Format.When(at)[0]) + Format.When(at)[1..]
             : "Not yet";
@@ -86,5 +90,5 @@ public sealed partial class UpdatesPage : Page
 
     void CheckNow_Click(object sender, RoutedEventArgs e) => _ = CheckNow();
     void UpdateNow_Click(object sender, RoutedEventArgs e) => Updater.InstallNow();
-    void Later_Click(object sender, RoutedEventArgs e) => Available.Visibility = Visibility.Collapsed;
+    void Later_Click(object sender, RoutedEventArgs e) => Available.Visibility = Notes.Visibility = Visibility.Collapsed;
 }

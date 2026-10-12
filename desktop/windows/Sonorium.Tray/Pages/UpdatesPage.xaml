@@ -7,8 +7,7 @@
     <ScrollViewer>
         <StackPanel>
             <TextBlock Text="Updates" Style="{StaticResource TitleTextBlockStyle}" Margin="0,4,0,18" />
-            <StackPanel x:Name="Available" Visibility="Collapsed">
-                <Border Background="{ThemeResource InfoBarInformationalSeverityBackgroundBrush}"
+            <Border x:Name="Available" Visibility="Collapsed" Background="{ThemeResource InfoBarInformationalSeverityBackgroundBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6" Padding="18,14" Margin="0,0,0,4">
                     <Grid ColumnSpacing="14">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -23,9 +22,14 @@
                             <Button Content="Later" Click="Later_Click" />
                         </StackPanel>
                     </Grid>
-                </Border>
-                <TextBlock x:Name="Notes" TextWrapping="Wrap" Margin="52,4,18,16" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-            </StackPanel>
+            </Border>
+            <!-- Right under the notification (Chris, 2026-10-12) -->
+            <t:SettingCard Margin="0,0,0,10">
+                <t:SettingRow x:Name="LastChecked" Glyph="&#xE946;" Title="Last checked">
+                    <Button x:Name="CheckButton" Content="Check now" Click="CheckNow_Click" />
+                </t:SettingRow>
+            </t:SettingCard>
+            <TextBlock x:Name="Notes" Visibility="Collapsed" TextWrapping="Wrap" Margin="52,0,18,14" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
             <t:SettingCard>
                 <t:SettingRow Glyph="&#xE895;" Title="Check for updates automatically">
                     <t:LabeledToggle x:Name="AutoCheck" AccessibleName="Check for updates automatically" />
@@ -35,9 +39,6 @@
                 </t:SettingRow>
                 <t:SettingRow Glyph="&#xE713;" Title="Update channel" Description="Preview gets new features first and may have problems.">
                     <t:Segmented x:Name="Channel" Items="Stable|Preview" />
-                </t:SettingRow>
-                <t:SettingRow x:Name="LastChecked" Glyph="&#xE946;" Title="Last checked">
-                    <Button x:Name="CheckButton" Content="Check now" Click="CheckNow_Click" />
                 </t:SettingRow>
             </t:SettingCard>
             <InfoBar x:Name="Problem" Severity="Warning" IsOpen="False" Margin="0,8,0,0" />
