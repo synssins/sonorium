@@ -14,10 +14,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
-from sonorium.core import intrusions, theme_presets
+from sonorium.core import intrusions, theme_edit, theme_presets
 from sonorium.core import theme_metadata as tm
 from sonorium.obs import logger
-from sonorium.recording import AudioFile, PlaybackMode
+from sonorium.recording import AudioFile
 from sonorium.theme import LoadedTheme
 from sonorium.theme_files import theme_audio_files
 from sonorium.utils import IndexList
@@ -72,35 +72,33 @@ def _convert_in_memory(folder: Path, metadata: tm.ThemeMetadata, raw: Optional[d
 
 
 def _apply_track_settings(theme: LoadedTheme, metadata: tm.ThemeMetadata) -> None:
-    """Each track's saved settings, as api.py's _apply_saved_track_settings applies them."""
-    theme.short_file_threshold = metadata.short_file_threshold
-    theme.groups = dict(getattr(metadata, "groups", None) or {})
-    for inst in theme.tracks:
-        settings = metadata.tracks.get(inst.name)
-        if not settings:
-            inst.presence = 1.0
-            inst.is_enabled = True
-            inst.volume = 1.0
-            inst.playback_mode = PlaybackMode.AUTO
-            inst.crossfade_enabled = True
-            inst.exclusive = False
-            inst.fade_in = inst.fade_out = 0.0
-            tm.reset_ebb_settings(inst)
-            if getattr(inst.meta, "link", None):
-                inst.is_enabled = False  # a linked file without settings stays off
-            continue
-        inst.presence = settings.presence
-        inst.is_enabled = not settings.muted
-        inst.volume = settings.volume
-        try:
-            inst.playback_mode = PlaybackMode(settings.playback_mode)
-        except ValueError:
-            inst.playback_mode = PlaybackMode.AUTO
-        inst.crossfade_enabled = not settings.seamless_loop
-        inst.exclusive = settings.exclusive
-        inst.fade_in, inst.fade_out = settings.fade_in, settings.fade_out
-        for key in tm.EBB_TRACK_SETTINGS:
-            setattr(inst, key, getattr(settings, key))
+    """Each track's saved settings, as api.py's _apply_saved_track_settings applies them (core/theme_edit.py)."""
+    theme_edit.apply_saved_settings(theme, metadata)
+
+
+def read_settings(folder: Path) -> tuple[tm.ThemeMetadata, Optional[dict]]:
+    """
+    A theme folder's metadata.json (with its presets from presets.json) as
+    load_theme reads it, older themes converted in memory only; and the raw
+    metadata.json (None if there is none). Call inside the engine's scope.
+    """
+    folder = Path(folder)
+    metadata, raw = _read_metadata(folder)
+    metadata.presets = theme_presets.load_presets(folder)
+    _convert_in_memory(folder, metadata, raw)
+    return metadata, raw
+
+
+def reload_settings(loaded: ThemeFolder) -> None:
+    """
+    A loaded theme takes what its metadata.json and presets.json say now: its
+    tracks' and groups' settings and its presets (its audio files and links
+    stay as loaded).
+    """
+    metadata, _ = read_settings(loaded.folder)
+    _apply_track_settings(loaded.theme, metadata)
+    loaded.metadata = metadata
+    loaded.presets = dict(metadata.presets or {})
 
 
 def load_theme(theme_dir, master_gain: float = DEFAULT_MASTER_GAIN, themes_root=None) -> ThemeFolder:
@@ -113,9 +111,7 @@ def load_theme(theme_dir, master_gain: float = DEFAULT_MASTER_GAIN, themes_root=
     folder = Path(theme_dir)
     if not folder.is_dir():
         raise FileNotFoundError(f"No theme folder at {folder}")
-    metadata, raw = _read_metadata(folder)
-    metadata.presets = theme_presets.load_presets(folder)
-    _convert_in_memory(folder, metadata, raw)
+    metadata, raw = read_settings(folder)
 
     files = [AudioFile(path, folder) for path in theme_audio_files(folder)]
     missing = []

@@ -26,7 +26,7 @@ import numpy as np
 from sonorium import decoders, playback_values, rng
 from sonorium.core.channel import THEME_CROSSFADE_DURATION, Channel
 from sonorium.engine.runner import EngineHost, EngineRunner, EngineSession, drive
-from sonorium.engine.theme_loader import DEFAULT_MASTER_GAIN, ThemeFolder, load_theme
+from sonorium.engine.theme_loader import DEFAULT_MASTER_GAIN, ThemeFolder, load_theme, reload_settings
 from sonorium.recording import (BLOCK_SAMPLES, SAMPLE_RATE, close_stream, preset_group_overrides,
                                 preset_track_overrides)
 
@@ -73,6 +73,7 @@ class Engine:
         block = eng.render(44100)     # one second, numpy int16, shape (44100,)
         eng.set_preset("storm")       # glides over 3 s, as on the server
         eng.start_sequence("gentle")  # steps through the sequence's presets
+        eng.reload_theme()            # after edits saved to the theme's files (core/theme_edit.py)
         eng.close()
 
     theme_dir         a theme folder (audio files, group folders, metadata.json, presets.json)
@@ -390,6 +391,33 @@ class Engine:
                 self._runner.start_sequence(self._session, sequence_id, apply=False)
                 self._channel.set_track_overrides(self._host.session_overrides(self._session),
                                                   glide_seconds=PRESET_GLIDE_SECONDS)
+
+    def reload_theme(self, glide_seconds: float = PRESET_GLIDE_SECONDS) -> None:
+        """
+        Re-read the theme's metadata.json and presets.json (after a change was
+        saved to them, e.g. with sonorium.core.theme_edit) and let the playing
+        mix follow, as a server channel follows the Theme Editor:
+
+        - the theme's own track and group settings change at once (a track's
+          volume eases over a quarter second, as when its slider moves);
+        - the preset playing glides to its saved values over `glide_seconds`
+          (as when a playing preset is saved), with the running sequence
+          step's While playing values on top. The preset or sequence keeps
+          playing; a preset no longer in presets.json keeps its values until
+          another one is picked, a sequence no longer there stops at its next step.
+
+        Every theme the engine has loaded (a playlist's too) is re-read; their
+        audio files and linked files stay as they were loaded.
+        """
+        self._check_open()
+        with self._scope():
+            for folder in self._folders.values():
+                reload_settings(folder)
+            self._sequence_cache.clear()
+            session = self._session
+            if session.preset_id and session.preset_id not in self._folder.presets:
+                return
+            self._channel.set_track_overrides(self._host.session_overrides(session), glide_seconds=glide_seconds)
 
     # --- changes while it plays ---
 
