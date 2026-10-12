@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.2-dev.4 (2026-10-12)
+
+### Continuous Integration
+
+- **windows**: Screenshots of the hidden-icons flyout and an available update [screens]
+  ([`fb0dd7e`](https://github.com/synssins/sonorium/commit/fb0dd7e5334eff8463817a0cce3443ed5f8087f8))
+
+
 ## v1.7.2-dev.2 (2026-10-12)
 
 ### Bug Fixes
