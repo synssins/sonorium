@@ -720,7 +720,7 @@ def group_crossfade(group_settings: dict | None) -> float:
 
 # Track settings a preset can set, as ThemeTrack attribute names
 PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive",
-                       "volume_low", "pause_between", "pause_min", "pause_max")
+                       "volume_low", "pause_between", "pause_min", "pause_max", "rise")
 # Ebb & Flow settings, saved in metadata.json and presets under the same names
 # (theme_metadata.EBB_TRACK_SETTINGS; repeated here so this module stands alone)
 EBB_TRACK_SETTINGS = ("volume_low", "pause_between", "pause_min", "pause_max", "rise")
