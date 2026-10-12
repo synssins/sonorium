@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.50 (2026-10-12)
+
+### Bug Fixes
+
+- **plugins**: Sign-in stays closed while plugins reload
+  ([`03b3d70`](https://github.com/synssins/sonorium/commit/03b3d708920208735065abaaca8b6d82b2d43755))
+
+- **users**: Unlinked_devices lists only phones without a user (Users 1.1.1)
+  ([`605c882`](https://github.com/synssins/sonorium/commit/605c8822ad5c47bae08c3b7a82d4369a015c7cf9))
+
+
 ## v1.6.2-dev.49 (2026-10-12)
 
 
