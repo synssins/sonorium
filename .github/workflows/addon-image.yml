@@ -2,15 +2,16 @@ name: Add-on Image
 
 # Builds the Home Assistant add-on (sonorium_addon/Dockerfile) for each
 # architecture and publishes it to ghcr.io/synssins/{arch}-addon-sonorium,
-# tagged with the add-on version. Called by "Add-on Version" after it releases.
+# tagged with the add-on version. config.yaml's `image:` line makes Home
+# Assistant pull these instead of building the Dockerfile on the device.
 #
-# Home Assistant only uses these when config.yaml has the `image:` line (it is
-# commented out there for now): it then pulls the image for the version in
-# config.yaml instead of building the Dockerfile on the device. Without the
-# line, nothing changes: HA builds it on the device as before.
+# Called by "Add-on Version" BEFORE the branch gets the release commit: it
+# builds the reserved addon-v<version> tag (`ref`). Every branch gets
+# :<version>; "Add-on Version" moves :latest / :dev / :branch-<name> only
+# after the branch has the release commit (`hold_branch_tag`).
 #
-# main             -> :X.Y.Z, :latest
-# any other branch -> :X.Y.Z-dev.N, :dev
+# Run by hand, it rebuilds the version already on the branch and moves the
+# branch's tag too (main -> :latest, fixes -> :dev, others -> :branch-<name>).
 
 on:
   workflow_call:
@@ -18,6 +19,14 @@ on:
       branch:
         type: string
         required: true
+      ref:
+        description: 'Commit or tag to check out (default: branch head)'
+        type: string
+        default: ''
+      hold_branch_tag:
+        description: 'Push only :<version>; the caller moves :latest / :dev / :branch-<name>'
+        type: boolean
+        default: false
   workflow_dispatch:
 
 permissions:
@@ -32,6 +41,7 @@ jobs:
   build:
     name: Build and push (${{ matrix.arch }})
     strategy:
+      # Every arch is tried; any failure stops the version from being published
       fail-fast: false
       matrix:
         include:
@@ -47,11 +57,10 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - name: Checkout branch head
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Branch head includes the release commit from "Add-on Version"
-          ref: ${{ inputs.branch || github.ref_name }}
+          ref: ${{ inputs.ref || inputs.branch || github.ref_name }}
           persist-credentials: false
 
       - name: Work out tags
@@ -59,19 +68,24 @@ jobs:
         env:
           BRANCH: ${{ inputs.branch || github.ref_name }}
           ARCH: ${{ matrix.arch }}
+          HOLD: ${{ inputs.hold_branch_tag == true }}
         run: |
           version=$(cat sonorium_addon/sonorium/version)
           image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${ARCH}-addon-sonorium
           base=$(awk -v a="$ARCH:" '$1 == a {print $2}' sonorium_addon/build.yaml)
           [ -n "$base" ] || { echo "no base image for $ARCH in build.yaml"; exit 1; }
-          if [ "$BRANCH" = "main" ]; then
-            tags="$image:$version,$image:latest"
-          elif [ "$BRANCH" = "fixes" ]; then
-            tags="$image:$version,$image:dev"
-          else
-            # Other branches get their own tag, so they never replace what :dev points at
-            slug=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
-            tags="$image:branch-$slug"
+          tags="$image:$version"
+          # The branch's tag waits until the release commit is on the branch
+          if [ "$HOLD" != "true" ]; then
+            if [ "$BRANCH" = "main" ]; then
+              tags="$tags,$image:latest"
+            elif [ "$BRANCH" = "fixes" ]; then
+              tags="$tags,$image:dev"
+            else
+              # Other branches get their own tag, so they never replace what :dev points at
+              slug=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+              tags="$tags,$image:branch-$slug"
+            fi
           fi
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
           echo "image=$image:$version" >> "$GITHUB_OUTPUT"
