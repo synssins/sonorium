@@ -36,7 +36,7 @@ from typing import Optional
 
 @dataclass
 class Principal:
-    kind: str                      # local | ingress | device | key | session | bypass | open | anonymous | <plugin's>
+    kind: str                      # local | ingress | console | device | key | session | bypass | open | anonymous | <plugin's>
     perms: frozenset = frozenset()
     listener: str = "http"         # http | https | ingress
     user_id: Optional[str] = None
