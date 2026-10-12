@@ -223,4 +223,4 @@ In addition to the packages above, it contains:
 
 ## Upstream project
 
-Sonorium is a fork of [Amniotic](https://github.com/fmtr/amniotic) by fmtr.
+Sonorium was originally based on [Amniotic](https://github.com/fmtr/amniotic) by fmtr. It has since been fully rewritten, and none of Amniotic's code remains.

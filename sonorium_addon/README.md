@@ -4,6 +4,10 @@
 
 ## Announcements
 
+> ## ⭐ Sonorium has its own repository
+>
+> Sonorium began as a fork of [Amniotic](https://github.com/fmtr/amniotic). It has since been fully rewritten: all legacy code from the original repository it was forked from is gone. Sonorium now has its own repository at the same address, [synssins/sonorium](https://github.com/synssins/sonorium). The old fork is archived as [synssins/sonorium-legacy](https://github.com/synssins/sonorium-legacy). Home Assistant and Docker installs keep working as before.
+
 > ## ⭐ 1.6.1: Refinements
 >
 > Refinements across Sonorium, with the Theme Editor and Channels page restructured.
@@ -657,7 +661,7 @@ Sonorium provides a REST API for integration and automation:
 
 ## Acknowledgements
 
-Sonorium is a fork of [Amniotic](https://github.com/fmtr/amniotic) by [fmtr](https://github.com/fmtr). The original Amniotic project laid the groundwork for this addon with its innovative approach to ambient soundscape mixing in Home Assistant. We're grateful for the time, effort, and creativity that went into building the foundation that Sonorium is built upon.
+Sonorium was originally based on [Amniotic](https://github.com/fmtr/amniotic) by [fmtr](https://github.com/fmtr). Sonorium has since been fully rewritten, and none of Amniotic's code remains.
 
 ## License
 
