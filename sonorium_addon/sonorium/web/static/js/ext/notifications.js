@@ -174,7 +174,7 @@
                     `<option value="${X.esc(o.value)}"${o.value === kind ? ' selected' : ''}>${X.esc(o.label)}</option>`).join('')}</select></label>
                 <span id="nf-side" class="nf-side">${whenSide(kind, r)}</span>
             </div>
-            <div id="nf-when">${whenFields(kind, r)}</div>
+            <div id="nf-when" class="nf-when">${whenFields(kind, r)}</div>
             <div class="sp-fld"><span class="sp-flab">Announce on</span>${checks('channels', channels, a.channels)}</div>
             <div class="sp-frow">
                 <label class="sp-fld sp-fill"><span class="sp-flab">Chime${X.tip('A sound URL, played first')}</span><input class="sp-inp" id="nf-sound" type="url" value="${X.esc(a.sound || '')}" placeholder="https://…/chime.mp3"></label>
