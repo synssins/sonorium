@@ -62,7 +62,7 @@ More manifest keys (sections 15 to 22):
 
 | Key | Meaning |
 |---|---|
-| `api_version` | The plugin API it was written for, e.g. `"1.1"` (none: `"1.0"`) |
+| `api_version` | The plugin API it was written for, e.g. `"1.2"` (none: `"1.0"`) |
 | `requires` | Capabilities it can't work without, e.g. `["audio.sounds", "mqtt"]` |
 | `requirements` | Python packages from PyPI, e.g. `["pyserial==3.5"]` |
 | `binaries` | Programs it ships, per platform, with their SHA-256 |
@@ -70,7 +70,7 @@ More manifest keys (sections 15 to 22):
 
 ## 1a. API versions and capabilities
 
-The plugin API has a version, MAJOR.MINOR (now **1.1**). Adding a service or a field raises
+The plugin API has a version, MAJOR.MINOR (now **1.2**). Adding a service or a field raises
 the minor version; a plugin written for 1.0 keeps running on 1.1 and every later 1.x,
 because nothing it uses is renamed or removed. The major version goes up only for a change
 old plugins would notice; Sonorium then keeps the old facades next to the new ones for as
@@ -80,7 +80,7 @@ Sonorium reads `api_version` and `requires` before it loads any of the plugin's 
 plugin that needs a newer API, another major version, or a capability this install doesn't
 offer is refused with a sentence that says why, for example:
 
-> Remote needs plugin API 1.3; this Sonorium has 1.1. Update Sonorium to use it.
+> Remote needs plugin API 1.3; this Sonorium has 1.2. Update Sonorium to use it.
 
 A refused plugin is listed in Settings › Plugins with that sentence (`compatible: false`,
 `problem` in `GET /api/plugins`), the web UI shows an alert, and none of its code runs.
@@ -90,7 +90,7 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `events`, `actions`, `scheduler`, `triggers`, `pages`, `connections` | 1.0 | Sections 4 to 10 |
 | `audio.sounds` | 1.1 | Sounds over channels, announcements (section 15) |
 | `audio.ramps` | 1.1 | Volume ramps (section 16) |
-| `audio.outputs` | 1.1 | Output types (section 17) |
+| `audio.outputs` | 1.1 | Output types (section 17). In 1.2 their devices are speakers, and `one_device_at_a_time` |
 | `audio.tts` | 1.1 | Text to speech providers (section 15) |
 | `commands` | 1.1 | Command maps (section 18) |
 | `mqtt` | 1.1 | MQTT (section 19) |
@@ -115,9 +115,11 @@ does.
 | `async on_unload()` | Sonorium is unloading it. |
 
 When a plugin is disabled, Sonorium removes its event subscriptions, MQTT
-subscriptions, output types, text to speech providers and sound gates. When it is
-uninstalled, its scheduled jobs, trigger tokens, saved connection values, command maps and
-Python packages go too. A plugin that fails in `on_enable` stays disabled.
+subscriptions, output types (closing their sinks), text to speech providers and sound gates.
+When it is uninstalled, its scheduled jobs, trigger tokens, saved connection values, command
+maps, Python packages and its output types' devices go too. A plugin that fails in
+`on_enable` stays disabled, and what it registered before failing (subscriptions, output
+types, text to speech providers) is removed.
 
 Everything a plugin does runs on Sonorium's event loop: use `async` code, and run slow
 blocking work with `await asyncio.to_thread(...)` so playback controls stay responsive.
@@ -272,7 +274,7 @@ with `code` `not_found`, `invalid`, `conflict` or `unavailable`, and a `message`
 | `set_playlist(id, playlist_id)` / `clear_playlist(id)` | Play or stop a playlist on the channel |
 | `next_step(id)` | Next playlist entry, or the sequence's next preset; returns `playlist`, `sequence` or `end` |
 | `list_themes()`, `list_presets(theme_id)`, `list_sequences(theme_id)`, `list_playlists()` | What there is to play |
-| `list_speakers()`, `list_speaker_groups()` | Speakers (`id`, `name`, `type`, `online`, `area_id`, `area_name`, `enabled`) and speaker groups |
+| `list_speakers()`, `list_speaker_groups()` | Speakers (`id`, `name`, `type`, `online`, `area_id`, `area_name`, `enabled`; a device of an output type also has `"type": "output"`, `output_type` and `device`, section 17) and speaker groups |
 | `play_sound(channels, source, volume=100, duck=True, policy="queue", priority=0, start_stopped=False)` / `cancel_sound(sound_id)` | A sound over channels (`self.audio` has every option, section 15) |
 
 A channel also has `entity_slug`: the part of its Home Assistant entity ids after `sonorium_`.
@@ -809,50 +811,55 @@ ends at 1.0 costs nothing afterwards. Events: `ramp.started`, `ramp.finished`,
 
 ## 17. Audio outputs
 
-A channel normally goes to speakers that pull its stream over the network. An output type
-sends it somewhere else: the sound card of the machine Sonorium runs on, a Bluetooth
-speaker, a file. The plugin registers the type; Sonorium asks it for its devices, and for a
-sink when a channel is sent to one.
+A channel normally plays on network speakers that pull its stream. An output type adds
+another kind of speaker: the sound devices of the machine Sonorium runs on, a Bluetooth
+speaker the OS exposes, a file. The plugin gives the data (which devices there are) and the
+playback (a sink that takes a channel's audio); Sonorium does everything the user sees. Each
+device is a speaker in Settings › Speakers, in a section per type, with the Use switch, a
+name, a room, Offset and Test like any speaker, and it is picked for channels like any
+speaker. A plugin doesn't add a page that lists or tests its devices, and Sonorium has no
+code for any particular plugin.
 
 ```python
-from sonorium.core.audio_outputs import OutputType, Sink
+from sonorium.core.audio_outputs import OutputError, OutputType, Sink
 
 
 class HostAudio(OutputType):
     id = "host_audio"
     title = "This computer"
+    one_device_at_a_time = False
 
-    def available(self):
-        try:
-            import sounddevice
-            sounddevice.query_devices()
-            return True, ""
-        except Exception as e:
-            return False, f"No sound card here ({e})"
+    def available(self):                 # called often, on the event loop: no I/O
+        return (True, "") if HAVE_SOUNDDEVICE else (False, "sounddevice isn't installed")
 
-    async def discover(self):
+    async def discover(self):             # 10 s at most; blocking work in a thread
         import sounddevice
-        return [{"id": str(i), "name": d["name"]} for i, d in enumerate(sounddevice.query_devices())
-                if d["max_output_channels"] > 0]
+        devices = await asyncio.to_thread(sounddevice.query_devices)
+        return [{"id": d["name"], "name": d["name"], "api": "PortAudio",
+                 "channels": d["max_output_channels"]} for d in devices if d["max_output_channels"] > 0]
 
-    def open(self, device_id, sample_rate, options):
-        return HostSink(int(device_id), sample_rate)
+    def open(self, device_id, sample_rate, options):   # quick: no device I/O here
+        return HostSink(device_id, sample_rate)
 
 
 class HostSink(Sink):
     latency = 0.1
 
     def __init__(self, device, rate):
-        import sounddevice
-        self.stream = sounddevice.OutputStream(device=device, samplerate=rate, channels=1, dtype="int16")
-        self.stream.start()
+        self.device, self.rate, self.stream = device, rate, None
 
-    def write(self, block):            # int16, shape (1, n), mono, at sample_rate
-        self.stream.write(block.reshape(-1, 1))     # may block: it runs in its own thread
+    def write(self, block):               # its own thread; int16, shape (1, n), mono, read-only
+        if self.stream is None:           # open the device here, in the writer thread
+            import sounddevice
+            self.stream = sounddevice.OutputStream(device=self.device, samplerate=self.rate,
+                                                   channels=1, dtype="int16")
+            self.stream.start()
+        self.stream.write(block.reshape(-1, 1))
 
-    def close(self):
-        self.stream.stop()
-        self.stream.close()
+    def close(self):                      # once, after the last write()
+        if self.stream is not None:
+            self.stream.stop()
+            self.stream.close()
 
 
 class HostAudioPlugin(BasePlugin):
@@ -862,27 +869,106 @@ class HostAudioPlugin(BasePlugin):
         self.audio_outputs.register_type(HostAudio())
 ```
 
-That is the first example, not part of Sonorium: `sounddevice` isn't in every install (the
-plugin brings it with `"requirements": ["sounddevice"]`, section 21). Where it can work:
+That is an example, not part of Sonorium: `sounddevice` isn't in every install (the plugin
+brings it with `"requirements": ["sounddevice"]`, section 21). A real sink keeps a buffer of
+its own and holds its level, since the device's clock drifts from the computer's.
 
-| Install | Host audio |
+**The type.** `id` (letters, digits, `_`, `.`, `-`; 1-64; unique across plugins), `title`
+(the section title; empty: the id), `one_device_at_a_time` (read at `register_type()`),
+`available()` → `(usable, why not)`, `async discover()`, `open(device_id, sample_rate,
+options)` → a new `Sink`. `OutputType` and `Sink` are plain classes with no `__init__`.
+`open()` raises `OutputError("sentence for the user")` when it can't give a sink.
+
+**Devices.** `discover()` returns dicts: `id` (str, required, stable; only ever sent in JSON
+bodies), `name` (required), `api` (shown under the name), `is_default` (the **Default**
+marker), `channels` (int) and `sample_rates` (int list), shown with the device. Entries that
+aren't dicts or have no string `id` are dropped; the first of two with the same `id` is kept.
+Sonorium calls it when the type is registered, when Settings › Speakers or the channel
+editor's speaker picker opens, on Rescan, and for `devices()` and the devices route.
+
+Every listed device is remembered (`output_devices` in the framework store: type, device,
+name, api, ...) as a speaker whose id is `output:<type id>:<first 16 hex of
+sha256(device id)>`. The user's name, room and Offset are ordinary speaker settings, Use is
+the speakers' switched-on list (a new device is off). A device missing from the latest
+`discover()`, or whose plugin is off, is offline but stays in Settings › Speakers and in the
+channels that have it; Remove on an offline device forgets it and takes it out of the
+channels; uninstalling the plugin does that for all of its devices.
+
+**Playing.** When a channel starts, Sonorium calls `open(device_id, 44100, options)` for
+each of its switched-on devices (listed now or not) and a writer thread per sink reads the
+channel's mix and calls `write(block)`: int16, `(1, 1024)`, mono, the same read-only array
+every listener gets, in real time (a 50-block buffer; a slow sink falls behind alone). The
+blocks are already scaled by the channel's volume with the device's Offset (a linear gain,
+`volume / 100`, on the samples; neither Sonorium nor the plugin changes the device's own
+volume) and ramp to silence while the speakers are muted. Stop and Pause fade the mix out,
+then the writer ends and calls `close()`; a device doesn't keep the mix running after Stop.
+`open()` is also called when the type is registered again (for playing channels) and when a
+device is added to a playing channel. An `open()` failure is logged and shown on the
+device's row (`output.error`), the channel plays on its other speakers, and there is no
+retry until the next of those occasions. When `write()` raises, Sonorium logs `Audio output
+<type>/<device> stopped: <message>`, calls `close()`, and doesn't re-open it until then
+either. `write()` and `close()` never overlap; `close()` comes exactly once per sink.
+
+**One device at a time.** With `one_device_at_a_time = True` a channel has at most one
+device of the type, never two sinks of the type are open (the old sink's `close()` has
+returned before the next `open()`), and a channel starting on the type while another plays
+on it asks to take it over: yes takes the device out of the other channel's speakers for
+good (it keeps playing on its other speakers, and stops if none are left), no starts without
+it. Over HTTP: `POST /api/sessions/{id}/play` answers 409 `<title> is playing '<channel>'`
+with the header `X-Sonorium-Take-Over: ask` unless its body has `"take_over": true` (take
+over) or `false` (start without it); a start from elsewhere (Home Assistant, MQTT, a plugin,
+a schedule) never takes over. Test is refused while the type plays.
+
+**Test** in Settings › Speakers (`POST /api/speakers/{speaker_id}/test`) calls `open(device,
+44100, {})`, writes the test chime (3 s) at 20 % in 1024-sample blocks paced in real time,
+then `close()`. 409 `This speaker is playing '<channel>'. Stop it first.` (or `<title> is
+playing '<channel>'. Stop it first.` for a one-device-at-a-time type); an error from
+`open()` answers 502 with its message.
+
+**Switching off.** `on_disable()` runs first; then the types go and every sink's writer
+finishes its `write()` and calls `close()`. If `on_enable()` raises, the types it registered
+are removed.
+
+| `self.audio_outputs` | Does |
 |---|---|
-| Windows, Linux, macOS (native) | Yes |
-| Docker on Linux | With the sound device passed in (`/dev/snd`) or the host's sound server's socket |
-| Home Assistant app | Only with `audio: true` in the app's config (false today): the Supervisor's audio |
+| `register_type(output_type)` | Register a type (`ActionError` `invalid`: a bad id, or another plugin's) |
+| `unregister_types()` | Remove the plugin's types now (Sonorium does it when the plugin is off) |
+| `await types()` | `[{"id", "title", "plugin_id", "available", "message", "one_device_at_a_time"}]` |
+| `await devices(type_id)` | The type's `discover()`, filtered; `not_found`, `invalid` (a timeout) |
+| `await attach(channel_id, type_id, device_id, options=None, take_over=False)` | Add the device to the channel's speakers; it plays at once if the channel plays. `invalid`: the type isn't usable, the device is switched off (`Switch the speaker on in Settings › Speakers first`), 8 devices already, `open()`'s `OutputError`; `conflict`: a one-device-at-a-time type another channel plays on |
+| `await detach(channel_id, attachment_id)` | Take it out of the channel's speakers, close its sink; False if the channel doesn't have it |
+| `await attachments(channel_id=None)` | `[{"attachment_id", "channel_id", "type", "device", "options", "running", "latency", "error", "speaker_id"}]` |
 
-Sending a channel to a device: `POST /api/sessions/{id}/audio-outputs {"type", "device"}`
-(the mix starts if it isn't running, as for Listen here), `DELETE .../{attachment_id}`. A
-channel's outputs are remembered and start again when it plays. Each one reads the
-channel's stream like a speaker: it keeps the channel from going idle, it hears the
-speakers-muted switch, and a slow sink only falls behind itself. A channel still needs a
-speaker for Play; one sent only to an output starts when it is sent there.
+`options` given to `attach()` (or the POST route) are kept with the channel's device and
+passed unchanged to every `open()` for it; everywhere else they are `{}`.
+
+| Route | Ability | Answer |
+|---|---|---|
+| `GET /api/audio-outputs` | Channels: View | `{"types": [...]}` as `types()` |
+| `POST /api/audio-outputs/discover` | Speakers: View | Every type lists its devices: `{"types": [type + "error", "speakers": [speaker, ...]]}` |
+| `GET /api/audio-outputs/{type_id}/devices` | Speakers: View | `{"devices": [...]}`; 404 unknown type, 400 timeout |
+| `DELETE /api/audio-outputs/speakers/{speaker_id}` | Speakers: Change | Remove an offline device (400 while online, 404 unknown) |
+| `GET /api/sessions/{id}/audio-outputs` | Channels: View | `{"attachments": [...]}` |
+| `POST /api/sessions/{id}/audio-outputs` | Channels: Change speakers | `{"type", "device", "options"?, "take_over"?}`: 201 with the output; 400, 404, 409 (with `X-Sonorium-Take-Over: ask`) |
+| `DELETE /api/sessions/{id}/audio-outputs/{attachment_id}` | Channels: Change speakers | `{"removed": true}`; 404 |
+
+A device speaker in `GET /api/speakers` and the hierarchy has `"type": "output"`,
+`output_type`, `device` and `output`: `{"type", "type_title", "plugin_id", "device", "api",
+"is_default", "channels", "sample_rates", "one_device_at_a_time", "type_available",
+"playing": [channel ids], "error"}`.
 
 Errors from your output type (`available()`, `discover()`, `open()`) on these routes:
 `OutputError` is a 400 with your message; `ActionError` keeps its code (`not_found` 404,
 `invalid` 400, `conflict` 409, `unavailable` 503) with your message; any other exception is
 logged with its traceback and answered 502 `<your type's title>: <message>` (never a 500).
 `sonorium.core.audio_outputs.CaptureOutput` is a test double that keeps what it receives.
+
+| Install | Local sound devices |
+|---|---|
+| Windows app | Yes |
+| Linux, macOS (from the Python sources) | Yes, as the user Sonorium runs as |
+| Docker on Linux | With `--device /dev/snd` or the host's sound server socket mounted; with `PUID`/`PGID` the group must be allowed to use `/dev/snd` (often `audio`) |
+| Home Assistant app | No: the app has no sound device |
 
 ## 18. Commands: remotes, MQTT topics, webhooks
 
