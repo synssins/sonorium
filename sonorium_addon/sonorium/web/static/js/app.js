@@ -405,14 +405,24 @@ function toggleSidebar() {
     document.getElementById('mobile-nav-btn')?.setAttribute('aria-expanded', String(open));
 }
 
-// The Sonorium app's server list (window.SONORIUM_HOST.showServers): its menu item shows only in the app
+// The Sonorium app's server list (window.SONORIUM_HOST.showServers, APP_API.md 12.2.2): only in the app,
+// the server button (named after SONORIUM_HOST.server) and Settings › Servers
 function hostShowServers() {
     closeSidebar();
     window.SONORIUM_HOST.showServers();
 }
 (function () {
-    const item = document.querySelector('.nav-item[data-host="servers"]');
-    if (item) item.hidden = typeof window.SONORIUM_HOST?.showServers !== 'function';
+    const host = window.SONORIUM_HOST;
+    const on = typeof host?.showServers === 'function';
+    const server = on && host.server && typeof host.server === 'object' ? host.server : null;
+    const label = server ? String(server.name || server.address || '') : '';
+    const item = document.querySelector('.nav-sub-item[data-host="servers"]');
+    if (item) item.hidden = !server;
+    document.querySelectorAll('.srv-btn').forEach(btn => {
+        btn.hidden = !server;
+        btn.title = label;
+        btn.querySelector('.srv-name').textContent = label;
+    });
 })();
 
 function closeSidebar() {

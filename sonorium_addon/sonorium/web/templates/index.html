@@ -41,6 +41,8 @@
         </button>
         <img id="mobile-topbar-logo" class="mobile-topbar-logo" src="" alt="Sonorium">
         <script>document.getElementById('mobile-topbar-logo').src = (window.SONORIUM_BASE || '') + '/logo.png';</script>
+        <!-- In the Sonorium app: the server it is connected to; opens the app's server list (APP_API.md 12.2.2) -->
+        <button type="button" class="btn btn-primary srv-btn" data-host="servers" hidden onclick="hostShowServers()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg><span class="srv-name"></span></button>
     </div>
 
     <!-- Sidebar -->
@@ -174,6 +176,14 @@
                         </svg>
                         <span>Advanced</span>
                     </div>
+                    <!-- In the Sonorium app: its list of servers (window.SONORIUM_HOST.showServers, APP_API.md 12.2.2) -->
+                    <div class="nav-sub-item" data-host="servers" hidden onclick="hostShowServers()">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/>
+                            <line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/>
+                        </svg>
+                        <span>Servers</span>
+                    </div>
                 </div>
             </div>
 
@@ -184,14 +194,6 @@
                         <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
                     </svg>
                     <span>Status</span>
-                </div>
-                <!-- In the Sonorium app: its list of servers (window.SONORIUM_HOST.showServers, APP_API.md 12.2.2) -->
-                <div class="nav-item" data-host="servers" hidden onclick="hostShowServers()">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/>
-                        <line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/>
-                    </svg>
-                    <span>Servers</span>
                 </div>
             </div>
         </nav>
@@ -233,10 +235,12 @@
                     New Channel
                 </button>
             </div>
-            <!-- Help for the page shown: always the rightmost button -->
+            <!-- Help for the page shown: the rightmost button (in the Sonorium app, the server button follows it) -->
             <button type="button" class="icon-btn sm hdr-help" id="page-help-btn" aria-label="Help" aria-expanded="false" aria-controls="page-help" onclick="pageToggleHelp()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
             </button>
+            <!-- In the Sonorium app: the server it is connected to (desktop, and the one-row header on short screens) -->
+            <button type="button" class="btn btn-primary srv-btn" data-host="servers" hidden onclick="hostShowServers()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="2" y="3" width="20" height="8" rx="2"/><rect x="2" y="13" width="20" height="8" rx="2"/><line x1="6" y1="7" x2="6.01" y2="7"/><line x1="6" y1="17" x2="6.01" y2="17"/></svg><span class="srv-name"></span></button>
         </header>
 
         <!-- Page help: the Theme Editor's help panel, under the ? button; full screen on a phone (with ×).
