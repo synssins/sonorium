@@ -2,6 +2,35 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.8 (2026-10-12)
+
+### Bug Fixes
+
+- **plugins**: A refused re-upload keeps the installed plugin
+  ([`454681b`](https://github.com/synssins/sonorium/commit/454681b026bff3c3d6b2c7b0596d2dc88d619179))
+
+- **plugins**: Audio-output routes answer a plugin's errors, never a bare 500
+  ([`db619c9`](https://github.com/synssins/sonorium/commit/db619c94cd20679fc9a9e0951ab0e3caf9b28621))
+
+- **plugins**: Uploaded zips keep subfolders and accept backslash names
+  ([`5016994`](https://github.com/synssins/sonorium/commit/50169942fbf94361f2ab595088e6bd0164848036))
+
+### Documentation
+
+- **engine**: Reload_theme and the theme editing, playlist and network speaker modules
+  ([`db7fb67`](https://github.com/synssins/sonorium/commit/db7fb670daf18e0c5a667b6ac72655a06b0f9613))
+
+### Features
+
+- **engine**: Engine.reload_theme() follows edits saved to the theme's files
+  ([`0098275`](https://github.com/synssins/sonorium/commit/009827511ac3d42702d4dbb1178b1d07dbcb5fec))
+
+### Refactoring
+
+- **core**: Theme Editor, sequence and playlist logic as plain modules
+  ([`ddb12a0`](https://github.com/synssins/sonorium/commit/ddb12a0a9160a5b7a75be2f2a35e0c9b18679c48))
+
+
 ## v1.7.3-dev.4 (2026-10-12)
 
 ### Bug Fixes
