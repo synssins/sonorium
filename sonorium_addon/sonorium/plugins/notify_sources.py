@@ -80,7 +80,11 @@ def check_when(when) -> Optional[dict]:
         state = when.get("state")
         if (state is not None and not isinstance(state, str)) or len(str(state or "")) > 255:
             raise SourceError("'state' must be text")
-        return {"type": "ha", "entity_id": entity_id, "state": (state or "").strip()}
+        clean = {"type": "ha", "entity_id": entity_id, "state": (state or "").strip()}
+        label = when.get("label")
+        if isinstance(label, str) and label.strip():
+            clean["label"] = label.strip()[:120]  # the entity's name, for the rules list
+        return clean
     if kind == "mqtt":
         from sonorium.plugins.mqtt import check_filter
         try:
@@ -189,7 +193,7 @@ def sample_fields(rule: dict) -> dict:
     """Stand-in words for trying a rule: what its source would send."""
     when = rule.get("when") or {}
     if when.get("type") == "ha":
-        return {"entity": when["entity_id"], "state": when.get("state") or "on", "entity_id": when["entity_id"]}
+        return {"entity": when.get("label") or when["entity_id"], "state": when.get("state") or "on", "entity_id": when["entity_id"]}
     if when.get("type") == "mqtt":
         return {"topic": when["topic"], "message": when.get("payload") or "", "state": when.get("payload") or ""}
     return {}

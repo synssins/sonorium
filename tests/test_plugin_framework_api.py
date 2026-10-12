@@ -472,6 +472,13 @@ def test_try_a_rule_from_the_dialog(w):
     assert w.client.post("/api/notifications/rules/door/test").json()["announced"] is True
 
 
+def test_channel_of_takes_a_session_or_its_id(w):
+    """The overlay (announcements, sounds) asks by channel id: that used to fail with AttributeError."""
+    manager, session = w.t.manager, w.t.session
+    assert manager.channel_of(session.id) is manager.channel_of(session)
+    assert manager.channel_of("no-such-channel") is None
+
+
 def test_overview_says_what_is_available(w):
     overview = w.client.get("/api/notifications").json()
     assert overview["ha"] is False and overview["mqtt"] is False and overview["tts"] is False
