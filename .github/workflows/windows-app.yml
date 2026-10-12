@@ -1,13 +1,12 @@
 name: Windows App
 
-# Builds the Windows desktop app's parts and tests Sonorium as a Windows service on a clean
-# runner. No release is made here.
+# Builds the Windows desktop app and tests it on a clean runner. No release is made here.
 #
 #   audio     Sonorium's LGPL audio-only FFmpeg (MSYS2/MinGW-w64) and PyAV built against it (MSVC)
-#   bundle    the private Python (embeddable CPython + packages + Sonorium) and the .NET programs
-#   service   installs the bundle in Program Files, registers the service as NT SERVICE\Sonorium,
-#             and checks the web API, an MP3 stream, restart and stop by a non-admin user,
-#             and removal
+#   bundle    the private Python (embeddable CPython + packages + Sonorium), the .NET programs
+#             and the installer, Sonorium-Setup-<version>.exe
+#   service   installs it silently for all users as a service (NT SERVICE\Sonorium), checks the
+#             web API, an MP3 stream, restart, stop and start by a non-admin user, and uninstalls
 
 on:
   push:
@@ -81,10 +80,10 @@ jobs:
           if-no-files-found: error
 
   bundle:
-    name: Private Python and programs
+    name: Private Python, programs and installer
     needs: audio
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
         with:
@@ -109,33 +108,29 @@ jobs:
           $wheel = (Get-ChildItem wheels -Filter 'av-*.whl')[0].FullName
           packaging/windows/build-python.ps1 -AvWheel $wheel -Out dist/Sonorium
 
-      - name: Host and secret helper
+      - name: Programs and installer
         shell: pwsh
         run: |
-          $version = (Get-Content sonorium_addon/sonorium/version -Raw).Trim() -replace '-.*$', ''
-          foreach ($p in 'SonoriumHost', 'SonoriumSecrets') {
-            dotnet publish desktop/windows/$p -c Release -o dist/Sonorium "-p:Version=$version"
-            if ($LASTEXITCODE) { throw "$p failed" }
-          }
-          Get-ChildItem dist/Sonorium -Filter *.pdb | Remove-Item
-          Get-ChildItem dist/Sonorium | Format-Table Name, Length
+          choco install innosetup --no-progress -y | Out-Null
+          $version = (Get-Content sonorium_addon/sonorium/version -Raw).Trim()
+          packaging/windows/build-installer.ps1 -Bundle dist/Sonorium -Version $version -Out dist/setup
 
       - uses: actions/upload-artifact@v4
         with:
-          name: sonorium-windows
-          path: dist/Sonorium
+          name: sonorium-setup
+          path: dist/setup/*.exe
           if-no-files-found: error
 
   service:
-    name: Service on a clean runner
+    name: Install and run as a service on a clean runner
     needs: bundle
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: sonorium-windows
-          path: C:\Program Files\Sonorium
+          name: sonorium-setup
+          path: setup
 
       - name: A standard (non-admin) user who will control the service
         shell: pwsh
@@ -148,14 +143,25 @@ jobs:
           "::add-mask::$password"
           "SONOTEST_PASSWORD=$password" >> $env:GITHUB_ENV
 
-      - name: Install the service
+      - name: Install for all users, as a service
         shell: pwsh
         run: |
+          $setup = (Get-ChildItem setup -Filter 'Sonorium-Setup-*.exe')[0].FullName
+          $log = Join-Path $env:RUNNER_TEMP 'setup.log'
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/ALLUSERS', '/TASKS=service', "/LOG=$log" -Wait -PassThru
+          Get-Content $log -Tail 25
+          if ($p.ExitCode) { throw "Setup failed ($($p.ExitCode))" }
+          if ((Get-Service Sonorium).Status -ne 'Running') { throw 'The service is not running after setup' }
+          # The tray console started after setup; not needed here
+          Get-Process Sonorium -ErrorAction SilentlyContinue | Stop-Process -Force
+          sc.exe qc Sonorium
+          # Test only: no sign-in, so the API can be checked without making an account;
+          # and the standard user is given the start/stop right the installing user got
+          Stop-Service Sonorium
+          New-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\Sonorium' -Name Environment `
+            -PropertyType MultiString -Value @('BYPASS_LOGIN=true') -Force | Out-Null
           & 'C:\Program Files\Sonorium\SonoriumHost.exe' install-service $env:SONOTEST_SID | Out-Default
           if ($LASTEXITCODE) { throw "install-service failed ($LASTEXITCODE)" }
-          sc.exe qc Sonorium
-          sc.exe sdshow Sonorium
-          # Test only: no sign-in, so the API can be checked without making an account
           New-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\Sonorium' -Name Environment `
             -PropertyType MultiString -Value @('BYPASS_LOGIN=true') -Force | Out-Null
           # A theme to stream (bundled themes are copied in by Sonorium once it supports SONORIUM_BUNDLED_THEMES)
@@ -186,11 +192,12 @@ jobs:
         shell: pwsh
         run: |
           $themes = Invoke-RestMethod http://127.0.0.1:8008/api/themes
-          $theme = $themes | Where-Object { $_.track_count -ne 0 -and $_.id -notlike 'theme_*' } | Select-Object -First 1
+          $theme = $themes | Where-Object { $_.id -notlike 'theme_*' } | Select-Object -First 1
           "Theme: $($theme.id) $($theme.name)"
           $request = [Net.HttpWebRequest]::Create("http://127.0.0.1:8008/stream/$($theme.id)")
           $request.Timeout = 30000
           $response = $request.GetResponse()
+          $type = $response.ContentType
           $stream = $response.GetResponseStream()
           $buffer = New-Object byte[] 131072; $n = 0
           $clock = [Diagnostics.Stopwatch]::StartNew()
@@ -200,8 +207,8 @@ jobs:
           $response.Close()
           $frames = 0
           for ($i = 0; $i -lt $n - 1; $i++) { if ($buffer[$i] -eq 0xFF -and ($buffer[$i + 1] -band 0xFE) -eq 0xFA) { $frames++ } }
-          "$($response.ContentType): $n bytes, $frames MPEG-1 Layer III frame headers"
-          if ($response.ContentType -ne 'audio/mpeg' -or $frames -lt 20) { throw 'No MP3 stream' }
+          "${type}: $n bytes, $frames MPEG-1 Layer III frame headers"
+          if ($type -ne 'audio/mpeg' -or $frames -lt 20) { throw 'No MP3 stream' }
 
       - name: A standard user restarts, stops and starts it
         shell: pwsh
@@ -231,15 +238,17 @@ jobs:
           (Get-Service Sonorium).WaitForStatus('Running', '00:00:30')
           "Stopped and started by a standard user"
 
-      - name: Remove the service
+      - name: Uninstall
         shell: pwsh
         run: |
-          & 'C:\Program Files\Sonorium\SonoriumHost.exe' uninstall-service | Out-Default
-          if ($LASTEXITCODE) { throw "uninstall-service failed ($LASTEXITCODE)" }
+          $p = Start-Process 'C:\Program Files\Sonorium\unins000.exe' -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          if ($p.ExitCode) { throw "Uninstall failed ($($p.ExitCode))" }
+          Start-Sleep 3
           if (Get-Service Sonorium -ErrorAction SilentlyContinue) { throw 'The service is still there' }
           $left = Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object ExecutablePath -like 'C:\Program Files\Sonorium\*'
           if ($left) { throw 'Python was left running' }
           if (Get-NetFirewallRule -DisplayName Sonorium -ErrorAction SilentlyContinue) { throw 'Firewall rules left behind' }
+          if (Test-Path 'C:\Program Files\Sonorium\python') { throw 'Program files left behind' }
           "Removed; data kept:"; Get-ChildItem C:\ProgramData\Sonorium
 
       - name: Logs

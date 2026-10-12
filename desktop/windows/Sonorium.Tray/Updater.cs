@@ -56,7 +56,14 @@ public static class Updater
     public static void InstallNow()
     {
         var channel = State.Settings.UpdateChannel == "preview" ? "preview" : "stable";
-        Process.Start(new ProcessStartInfo(Paths.UpdaterExe, $"--install --channel {channel}") { UseShellExecute = true })?.Dispose();
+        // Run from a copy: the installer replaces the one in the install folder
+        var folder = Path.Combine(Path.GetTempPath(), "SonoriumUpdate");
+        Directory.CreateDirectory(folder);
+        var copy = Path.Combine(folder, "SonoriumUpdater.exe");
+        File.Copy(Paths.UpdaterExe, copy, overwrite: true);
+        var info = new ProcessStartInfo(copy, $"--install --channel {channel}") { UseShellExecute = false, CreateNoWindow = true };
+        info.Environment["SONORIUM_HOST_ROOT"] = Paths.ProgramFolder;
+        Process.Start(info)?.Dispose();
     }
 
     static void TrySave()

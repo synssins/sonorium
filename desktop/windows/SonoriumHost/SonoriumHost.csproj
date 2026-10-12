@@ -6,11 +6,9 @@
     <AssemblyName>SonoriumHost</AssemblyName>
     <RootNamespace>Sonorium.Host</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Published into the tray console's folder, sharing its .NET runtime -->
     <SelfContained>true</SelfContained>
-    <PublishSingleFile>true</PublishSingleFile>
     <PublishTrimmed>false</PublishTrimmed>
-    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>

@@ -5,7 +5,8 @@ using Sonorium.Host;
 // SonoriumHost.exe
 //   (no arguments)              run Sonorium per user, in the background (the tray starts it at sign-in)
 //   --service                   run as the Windows service (only the Service Control Manager uses this)
-//   install-service <user SID>  register the service (admin)
+//   install-service [user SID]  register the service (admin); the SID is who may start and stop it
+//                               without elevation (default: the user running this, as in a UAC prompt)
 //   uninstall-service           remove the service (admin); data is kept
 //   env                         print the variables Sonorium would run with (diagnostics)
 
@@ -16,8 +17,8 @@ try
         case "--service":
             ServiceBase.Run(new SonoriumService());
             return 0;
-        case "install-service" when args.Length == 2:
-            ServiceSetup.Install(args[1]);
+        case "install-service" when args.Length <= 2:
+            ServiceSetup.Install(args.Length == 2 ? args[1] : System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value);
             return 0;
         case "uninstall-service":
             ServiceSetup.Uninstall();
@@ -30,7 +31,7 @@ try
         case null:
             return RunPerUser();
         default:
-            Console.Error.WriteLine("Usage: SonoriumHost [--service | install-service <user SID> | uninstall-service | env]");
+            Console.Error.WriteLine("Usage: SonoriumHost [--service | install-service [user SID] | uninstall-service | env]");
             return 2;
     }
 }
