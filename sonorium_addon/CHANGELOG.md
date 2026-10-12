@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.12 (2026-10-12)
+
+### Documentation
+
+- Plugin attributes and Sync (PLUGIN_DEVELOPMENT 23, THEME_FORMAT 2.7)
+  ([`5738c13`](https://github.com/synssins/sonorium/commit/5738c13bc80d8381acc0ab0aff5d2ef46bdbf583))
+
+### Features
+
+- **plugins**: Declared plugin attributes on core objects, per-speaker Sync
+  ([`0ac7925`](https://github.com/synssins/sonorium/commit/0ac7925efb4dab2feaae4ab9bcc1902bf0aaf00d))
+
+
 ## v1.7.3-dev.11 (2026-10-12)
 
 
