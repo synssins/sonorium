@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.15 (2026-10-12)
+
+### Bug Fixes
+
+- **plugins**: Plugin API stays 1.2; attributes are part of 1.2
+  ([`9bbc136`](https://github.com/synssins/sonorium/commit/9bbc13637bc26788775749f41ca22fcddf673183))
+
+
 ## v1.7.3-dev.13 (2026-10-12)
 
 ### Documentation
