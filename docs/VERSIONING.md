@@ -62,8 +62,7 @@ without pushing; that push has its own run, which makes the next version.
 Changes under `desktop/` or `packaging/windows/` also make a new version, since
 the installer is built from the version's tag.
 
-Config: [`releaserc.toml`](../releaserc.toml). The plain `v*` tags belong to the
-old Windows app's release workflow (`app/`, `release.yml`) and are unrelated.
+Config: [`releaserc.toml`](../releaserc.toml).
 
 ## Commit messages
 
