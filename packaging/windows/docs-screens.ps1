@@ -191,9 +191,16 @@ foreach ($page in 'Status', 'General', 'Folders', 'Connections', 'Updates', 'Log
     if ($page -eq 'Updates') { Click $console 'Check now'; Start-Sleep 6 }
     if ($page -eq 'Connections') {
         # Both switches on, so the address and login fields show (nothing is saved while they're empty)
+        # The switch, not the row title of the same name
         foreach ($name in 'Use Home Assistant', 'Use MQTT') {
-            $e = Find $console $name
-            $e.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle(); Start-Sleep 1
+            $cond = New-Object System.Windows.Automation.AndCondition (
+                (New-Object System.Windows.Automation.PropertyCondition ($UIA::NameProperty, $name)),
+                (New-Object System.Windows.Automation.PropertyCondition ($UIA::ControlTypeProperty, $Types::Button)))
+            $e = $UIA::FromHandle($console).FindFirst([System.Windows.Automation.TreeScope]::Descendants, $cond)
+            $toggle = $null
+            if ($e.TryGetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)) { $toggle.Toggle() }
+            else { $b = $e.Current.BoundingRectangle; [W]::ClickAt([int]($b.X + $b.Width / 2), [int]($b.Y + $b.Height / 2)) }
+            Start-Sleep 1
         }
         Start-Sleep 2
     }
