@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.64 (2026-10-12)
+
+### Features
+
+- Personal channel per account and live events for playlists, groups, spaces, settings
+  ([`c8dac02`](https://github.com/synssins/sonorium/commit/c8dac025da8562147654a8fec32673fb72217b67))
+
+
 ## v1.6.2-dev.61 (2026-10-12)
 
 
