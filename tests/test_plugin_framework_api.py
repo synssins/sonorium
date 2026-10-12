@@ -269,6 +269,35 @@ def test_tokens_are_masked_in_access_logs():
 
 # --- Actions API -----------------------------------------------------------------------
 
+def test_reloading_plugins_keeps_sign_in_closed(w):
+    """Installing or removing a plugin reloads them all: the Users plugin is off meanwhile, so sign-in stays closed."""
+    seen = []
+
+    class Auth:
+        ready = True
+        expected_scanned = None
+
+        def unregister(self, plugin_id):
+            pass
+
+        def find_expected_providers(self, plugins_dir):
+            self.expected_scanned = plugins_dir
+
+        def mark_ready(self):
+            self.ready = True
+
+    old, w.host.auth = w.host.auth, Auth()
+    try:
+        async def on_disable():
+            seen.append(w.host.auth.ready)
+        w.helper.on_disable = on_disable
+        w.call(w.manager.reload_plugins)
+        assert seen == [False]
+        assert w.host.auth.ready and w.host.auth.expected_scanned == w.manager.plugins_dir
+    finally:
+        w.host.auth = old
+
+
 def test_actions_facade(w):
     actions = w.host.actions_for("helper")
     session = w.t.session

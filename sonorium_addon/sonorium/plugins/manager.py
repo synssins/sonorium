@@ -210,17 +210,30 @@ class PluginManager:
             pass
 
     async def reload_plugins(self) -> None:
-        """Reload all plugins."""
-        # Unload existing plugins
-        for plugin_id in list(self.plugins.keys()):
-            await self._unload_plugin(plugin_id)
+        """
+        Reload all plugins. Sign-in stays closed meanwhile (only public routes
+        answer): the Users plugin is off between its unload and its load, and
+        without this Sonorium would be open to anyone for that time.
+        """
+        auth = getattr(self.host, "auth", None) if self.host is not None else None
+        if auth is not None:
+            auth.ready = False
+        try:
+            # Unload existing plugins
+            for plugin_id in list(self.plugins.keys()):
+                await self._unload_plugin(plugin_id)
 
-        self.plugins.clear()
-        self.refused.clear()
-        self._initialized = False
+            self.plugins.clear()
+            self.refused.clear()
+            self._initialized = False
 
-        # Reinitialize
-        await self.initialize()
+            # Reinitialize
+            await self.initialize()
+        finally:
+            if auth is not None:
+                # As at start-up: a sign-in plugin that is switched on but didn't load keeps it closed
+                auth.find_expected_providers(self.plugins_dir)
+                auth.mark_ready()
 
     async def _unload_plugin(self, plugin_id: str) -> None:
         """Unload a single plugin."""
