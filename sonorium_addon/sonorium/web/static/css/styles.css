@@ -3700,7 +3700,7 @@ button.pk-row { cursor: pointer; }
 .session-field.open { position: relative; z-index: 40; }
 /* A channel option that is one switch (Announcements): label left, switch right */
 .session-field.ch-switch { display: flex; align-items: center; justify-content: space-between; gap: .75rem; }
-.session-field.ch-switch > label:first-child { margin-bottom: 0; }
+.session-field.ch-switch > label { margin-bottom: 0; }
 
 @media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     /* Toolbar actions: two per row */
