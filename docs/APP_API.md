@@ -76,7 +76,7 @@ sonorium://pair?v=1&id=...&n=...&h=...&p=...&s=...&fp=...&c=...[&u=...]
 Real example (local test server):
 
 ```
-https://sonorium.app/link#v=1&id=f4c26f39-3512-497a-8703-62875a3d4736&n=Sonorium&h=192.168.1.25,sonorium-2.local&p=8008&s=8808&fp=43ac7768b9a7f1466231109553362e434deb751e90843f402446fc86d2e8123e&c=83KS6GG3&u=admin
+https://sonorium.app/link#v=1&id=00000000-0000-4000-8000-000000000001&n=Sonorium&h=192.0.2.25,sonorium-2.local&p=8008&s=8808&fp=0000000000000000000000000000000000000000000000000000000000000000&c=83KS6GG3&u=admin
 ```
 
 | Param | Always | Meaning | What the app does |
@@ -114,27 +114,27 @@ Docker (host networking), Linux and Windows installs announce:
 
 | TXT key | Example | Meaning |
 |---|---|---|
-| `id` | `f4c26f39-3512-497a-8703-62875a3d4736` | Server ID: match it to a stored server |
+| `id` | `00000000-0000-4000-8000-000000000001` | Server ID: match it to a stored server |
 | `name` | `Sonorium` | Always `Sonorium` |
 | `api` | `1` | API version (section 11.3) |
 | `http` | `8008` | HTTP port |
 | `https` | `8808` | HTTPS port; empty string when HTTPS is off |
 | `pair` | `1` or `0` | `1` while Require login is on (same as `/api/info.login_required`); it follows the setting within about 10 s. Older servers fixed it at start (often wrong), so the app still reads `login_required` from `/api/info` (G7). |
 | `version` | `1.6.2-dev.23` | Server version |
-| `url` | `http://192.168.1.25:8008` | The address speakers use |
+| `url` | `http://192.0.2.25:8008` | The address speakers use |
 | `host` | `sonorium-2.local` | The mDNS name it got (empty if none) |
 
 Real browse result (two servers on one LAN):
 
 ```
-Sonorium f4c26f39._sonorium._tcp.local.  sonorium-2.local.  8008  ['192.168.1.25']
-  {'id': 'f4c26f39-...', 'name': 'Sonorium', 'api': '1', 'http': '8008', 'https': '8808', 'pair': '0', 'version': '1.6.2-dev.23', 'url': 'http://192.168.1.25:8008', 'host': 'sonorium-2.local'}
-Sonorium 7ab54ced._sonorium._tcp.local.  sonorium.local.  8008  ['10.185.163.1', '192.168.1.20']
-  {'id': '7ab54ced-...', ..., 'pair': '1', 'url': 'http://192.168.1.20:8008', 'host': 'sonorium.local'}
+Sonorium f4c26f39._sonorium._tcp.local.  sonorium-2.local.  8008  ['192.0.2.25']
+  {'id': 'f4c26f39-...', 'name': 'Sonorium', 'api': '1', 'http': '8008', 'https': '8808', 'pair': '0', 'version': '1.6.2-dev.23', 'url': 'http://192.0.2.25:8008', 'host': 'sonorium-2.local'}
+Sonorium 7ab54ced._sonorium._tcp.local.  sonorium.local.  8008  ['198.51.100.1', '192.0.2.20']
+  {'id': '7ab54ced-...', ..., 'pair': '1', 'url': 'http://192.0.2.20:8008', 'host': 'sonorium.local'}
 ```
 
 Note the second server lists an address that isn't on the phone's network
-(`10.185.163.1`, another interface of the host). The app tries every address
+(`198.51.100.1`, another interface of the host). The app tries every address
 and keeps the one that answers with the pinned certificate. Prefer the
 address in `url` first.
 
@@ -293,7 +293,7 @@ not built (AUTH.md).
 
 ```json
 {
-  "id": "f4c26f39-3512-497a-8703-62875a3d4736",
+  "id": "00000000-0000-4000-8000-000000000001",
   "name": "Sonorium",
   "version": "1.6.2-dev.23",
   "api": 1,
@@ -304,11 +304,11 @@ not built (AUTH.md).
     "space_editing":       {"available": true, "enabled": true, "overridable": false}
   },
   "ports": {"http": 8008, "https": 8808},
-  "host": "192.168.1.25",
+  "host": "192.0.2.25",
   "hostname": "sonorium-2.local",
   "login_required": true,
   "pair": true,
-  "fingerprint": "43ac7768b9a7f1466231109553362e434deb751e90843f402446fc86d2e8123e",
+  "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
   "plugins": ["integration", "users"],
   "boot_id": "54615c1e5e5d4331a7b9cd713cd45918",
   "ui": {"version": "1.6.2-dev.24", "host_api": 1}
@@ -372,14 +372,14 @@ Response:
 
 ```json
 {
-  "uri": "https://sonorium.app/link#v=1&id=...&n=Sonorium&h=192.168.1.25,sonorium-2.local&p=8008&s=8808&fp=43ac...&c=83KS6GG3&u=admin",
+  "uri": "https://sonorium.app/link#v=1&id=...&n=Sonorium&h=192.0.2.25,sonorium-2.local&p=8008&s=8808&fp=43ac...&c=83KS6GG3&u=admin",
   "qr_svg": "<svg ...>",
   "code": "83KS6GG3",
   "username": "admin",
   "expires_in": 299,
   "words": ["coast", "meadow", "gecko", "ferry"],
-  "host": "192.168.1.25",
-  "hosts": ["192.168.1.25", "sonorium-2.local"],
+  "host": "192.0.2.25",
+  "hosts": ["192.0.2.25", "sonorium-2.local"],
   "http_port": 8008,
   "https_port": 8808
 }
@@ -412,7 +412,7 @@ Response 200:
   "device_id": "t_d9d7dc40fc00e64a",
   "token": "sd_MskZrrMRXSyuKdbOPwIJmKTeok_sYzkniFMFQymQS8k",
   "user": {"id": "u_e1a43c68a6633284", "username": "admin", "role": "admin", "role_label": "Admin"},
-  "server_id": "f4c26f39-3512-497a-8703-62875a3d4736"
+  "server_id": "00000000-0000-4000-8000-000000000001"
 }
 ```
 
@@ -452,7 +452,7 @@ Response 200: as `/api/pair` plus `words`:
   "device_id": "t_7418cbe1ffd04972",
   "token": "sd_YDqZXX8BdWHDBtWQBpp6H6mJMxGC3bcccNtujcTF7f8",
   "user": {"id": "u_e1a43c68a6633284", "username": "admin", "role": "admin", "role_label": "Admin"},
-  "server_id": "f4c26f39-3512-497a-8703-62875a3d4736",
+  "server_id": "00000000-0000-4000-8000-000000000001",
   "words": ["forest", "candy", "award", "fancy"]
 }
 ```
@@ -826,7 +826,7 @@ Theme summary (`GET /themes`):
   "name": "Tavern",
   "total_tracks": 8,
   "enabled_tracks": 8,
-  "url": "http://192.168.1.25:8008/stream/tavern",
+  "url": "http://192.0.2.25:8008/stream/tavern",
   "description": "A night at a medieval inn.",
   "icon": "🍺",
   "is_favorite": true,
@@ -944,8 +944,8 @@ Speaker:
 ```json
 {"entity_id": "net:chromecast:a944ea78-85c9-670a-b8bb-295712de07b1", "name": "Office display",
  "area_id": null, "area_name": null, "floor_id": null, "floor_name": null,
- "ip_address": "192.168.10.249", "source": ["discovered"], "type": "cast", "online": true,
- "address": "192.168.10.249", "original_name": "Office display", "default_area_id": null,
+ "ip_address": "192.0.2.10", "source": ["discovered"], "type": "cast", "online": true,
+ "address": "192.0.2.10", "original_name": "Office display", "default_area_id": null,
  "volume_offset": 0, "merged": [], "play_via": "ha"}
 ```
 
@@ -1203,8 +1203,8 @@ When SSE can't be used (battery saver, widget refresh):
 `GET /api/stream/url` · ch.view:
 
 ```json
-{"base": "http://192.168.1.25:8008",
- "channels": {"7c18b15c": "http://192.168.1.25:8008/stream/channel1"}}
+{"base": "http://192.0.2.25:8008",
+ "channels": {"7c18b15c": "http://192.0.2.25:8008/stream/channel1"}}
 ```
 
 - `base` is the direct HTTP address speakers use (Settings › Connection's
@@ -1305,7 +1305,7 @@ UI shows each on the channel's card with Stop casting (DELETE below).
 `POST /api/sessions/{id}/outputs` · ch.play
 
 ```json
-{"kind": "cast", "name": "Office display", "address": "192.168.10.249", "receiver_id": "a944ea78-85c9-670a-b8bb-295712de07b1"}
+{"kind": "cast", "name": "Office display", "address": "192.0.2.10", "receiver_id": "a944ea78-85c9-670a-b8bb-295712de07b1"}
 ```
 
 | Field | Type | Notes |
@@ -1326,7 +1326,7 @@ Answer 201 (live capture):
 {"output_id": "o_c4ad496bead1", "kind": "cast", "name": "Pretend display", "address": "192.0.2.10",
  "receiver_id": "verify-1", "since": "2026-10-11T22:11:21.316793+00:00", "by_device_id": "t_0ddd6ea32a01f2a7",
  "expires_in": 180, "channel_id": 1, "stream_path": "/stream/channel1",
- "stream_url": "http://192.168.1.25:8008/stream/channel1", "heartbeat_seconds": 60, "expire_seconds": 180}
+ "stream_url": "http://192.0.2.25:8008/stream/channel1", "heartbeat_seconds": 60, "expire_seconds": 180}
 ```
 
 - `by_device_id`, `by_device_name`: the linked phone that reported it and
@@ -1590,7 +1590,7 @@ and the UI behaves exactly as before. Contract version 1:
 window.SONORIUM_HOST = {
   mode: 'server',                        // informational: 'server' | 'offline'
   baseUrl: '',                           // prefix for /api, /static, /plugin-ui, /logo.png ('' = same origin, the loopback proxy)
-  streamBase: 'http://192.168.1.20:8008',// prefix for /stream/... (Listen here, theme previews); unset: baseUrl
+  streamBase: 'http://192.0.2.20:8008',// prefix for /stream/... (Listen here, theme previews); unset: baseUrl
   authHeader() { return null; },         // e.g. {Authorization: 'Bearer sd_...'}; null when the proxy adds it
   // each of these is optional; without one the page does what a browser does
   listen(sessionId, url, info) {},       // Listen here: url = streamBase + stream_path + '?local=1';
@@ -1599,7 +1599,7 @@ window.SONORIUM_HOST = {
   setListenVolume(sessionId, volume) {}, // the card's volume slider while listening (0-100)
   download(url, filename) {},            // absolute URL; filename '' = take it from Content-Disposition
   unlinked(body) {},                     // a 401 with {"pair": true} from the server (called once)
-  server: { id: '...', name: 'Living room', address: '192.168.1.20' },
+  server: { id: '...', name: 'Living room', address: '192.0.2.20' },
                                          // the server the app is connected to: name = what the user named it
                                          //   in the app (null when not named), address = the host it connects to
   showServers() {},                      // the server button and Settings › Servers: show the app's server list
@@ -1834,7 +1834,7 @@ DELETE /api/devices/{id}   now also perm device, for the phone's own id only
 ```
 POST   /api/sessions/{id}/outputs               perm: ch.play  {"kind", "name", "address", "receiver_id"}
        → 201 {"output_id": "o_c4ad496bead1", ..., "channel_id": 1, "stream_path": "/stream/channel1",
-              "stream_url": "http://192.168.1.25:8008/stream/channel1", "heartbeat_seconds": 60, "expire_seconds": 180}
+              "stream_url": "http://192.0.2.25:8008/stream/channel1", "heartbeat_seconds": 60, "expire_seconds": 180}
 PUT    /api/sessions/{id}/outputs/{output_id}   perm: ch.play  → heartbeat (every 60 s; dropped after 180 s)
 DELETE /api/sessions/{id}/outputs/{output_id}   perm: ch.play  → {"removed": true}
 GET    /api/sessions/{id}/outputs               perm: ch.view  → {"outputs": [...]}
