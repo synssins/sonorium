@@ -151,6 +151,26 @@ Start-Sleep 25
 Add-Type -AssemblyName System.Windows.Forms
 $b = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
 Shot-Screen 'tray-01-taskbar' ($b.Width - 640) ($b.Height - 120) 640 120
+# The icon starts in the hidden-icons flyout (the ^ by the clock): open it and capture it
+$taskbar = [W]::All() | Where-Object { [W]::Title($_) -eq '' -and $UIA::FromHandle($_).Current.ClassName -eq 'Shell_TrayWnd' } | Select-Object -First 1
+try {
+    $chevron = $UIA::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition ($UIA::NameProperty, 'Show Hidden Icons')))
+    $cb = $chevron.Current.BoundingRectangle
+    "  chevron at $($cb.X),$($cb.Y) $($cb.Width)x$($cb.Height)" | Out-Host
+    @{ x = [int]$cb.X - ($b.Width - 640); y = [int]$cb.Y - ($b.Height - 420); w = [int]$cb.Width; h = [int]$cb.Height } |
+        ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $Out 'tray-04-overflow-chevron.json')
+    [W]::ClickAt([int]($cb.X + $cb.Width / 2), [int]($cb.Y + $cb.Height / 2)); Start-Sleep 2
+    Shot-Screen 'tray-04-overflow' ($b.Width - 640) ($b.Height - 420) 640 420
+    $icon = $UIA::RootElement.FindFirst([System.Windows.Automation.TreeScope]::Descendants,
+        (New-Object System.Windows.Automation.PropertyCondition ($UIA::NameProperty, 'Sonorium is running')))
+    if ($icon) {
+        $ib = $icon.Current.BoundingRectangle
+        @{ x = [int]$ib.X - ($b.Width - 640); y = [int]$ib.Y - ($b.Height - 420); w = [int]$ib.Width; h = [int]$ib.Height } |
+            ConvertTo-Json | Set-Content -Encoding utf8 (Join-Path $Out 'tray-04-overflow-icon.json')
+    }
+    [W]::ClickAt([int]($cb.X + $cb.Width / 2), [int]($cb.Y + $cb.Height / 2)); Start-Sleep 1
+} catch { "  overflow: $_" | Out-Host }
 $program = 'C:\Program Files\Sonorium\Sonorium.exe'
 Get-Process Sonorium -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep 2
 [void][W]::SetCursorPos($b.Width - 200, $b.Height - 30)
@@ -168,6 +188,7 @@ foreach ($page in 'Status', 'General', 'Folders', 'Connections', 'Updates', 'Log
     $p = Start-Process $program -ArgumentList '--page', $page -PassThru
     $console = Wait-Window { param($h) [W]::Title($h) -eq 'Sonorium' -and (Rect $h).R - (Rect $h).L -gt 600 }
     Start-Sleep 6
+    if ($page -eq 'Updates') { Click $console 'Check now'; Start-Sleep 6 }
     Shot-Window $console ('console-' + $page.ToLower())
 }
 Get-Process Sonorium -ErrorAction SilentlyContinue | Stop-Process -Force
