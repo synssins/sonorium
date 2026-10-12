@@ -313,6 +313,7 @@ not built (AUTH.md).
   "pair": true,
   "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
   "plugins": ["users"],
+  "accounts": true,
   "boot_id": "54615c1e5e5d4331a7b9cd713cd45918",
   "ui": {"version": "1.6.2-dev.24", "host_api": 1},
   "personal_channel": true
@@ -331,15 +332,16 @@ not built (AUTH.md).
 | `ports.https` | int or null | The HTTPS port as the LAN sees it. `null`: HTTPS is off (no certificate, or the add-on mapping is off); the app can't link. |
 | `host` | string | The address speakers use (the stream URL's host). Add it to the stored addresses. |
 | `hostname` | string or null | The mDNS name (`sonorium.local`, `sonorium-2.local`, ...); null on the add-on or when not announced. Store it as a fallback address. |
-| `login_required` | bool | True when the Users plugin is on with **Require login** on (and the recovery bypass is off). Informational: the app always links and always sends its token. |
+| `login_required` | bool | True when **Require login** is on (and the recovery bypass is off). Informational: the app always links and always sends its token. |
 | `pair` | bool | Always `true`: the server supports linking. |
 | `fingerprint` | string or null | Certificate SHA-256 (hex). Null when HTTPS isn't available. Compare with the pinned value; for a typed address it's the value to show as words. |
-| `plugins` | string[] | The sign-in plugins that are on: `"users"` (accounts and roles). Sorted. Keys aren't a plugin (see `features.keys`). |
+| `plugins` | string[] | `["users"]` while accounts are loaded. Users are part of Sonorium now (not a plugin); `"users"` stays here for released apps. New code reads `accounts`. Keys are never listed (see `features.keys`). |
+| `accounts` | bool | User accounts are loaded: roles apply, signing in with a username and password works. Missing (an older server): use `"users" in plugins`. |
 | `boot_id` | string (32 hex) | New every time the server starts. A different value than last time = the server restarted: refetch everything; the event stream's ids carry it (8.3). Missing on servers before the field (G4). |
 | `ui` | `{version, host_api}` | The web UI the server serves: its version, and `host_api`, the version of its `window.SONORIUM_HOST` hooks (12.2.2). Missing: the server's UI has no hooks; use the bundled copy (12.3). |
 | `personal_channel` | bool | `true`: the server has the personal channel (7.11). Missing: it doesn't; hide the headphone button. |
 
-**Detecting the Users plugin:** `"users" in plugins`.
+**Detecting accounts:** `accounts` (older servers: `"users" in plugins`). Users are part of Sonorium, so a current server always has them; false only when the server runs without accounts loaded.
 - Present: accounts exist (or will on first visit), roles apply, `POST
   /api/pair/login` and `POST /api/devices/recovery-code` exist.
 - Absent: there are no accounts; the app links only by QR code, every linked
@@ -425,8 +427,7 @@ Response 200:
   the server keeps only its SHA-256. It doesn't expire; it stops working when
   the device is removed or its user is deleted.
 - `user`: the user the phone acts as (the QR `u`), or `null` when the code
-  was made with nobody signed in (Users plugin off, or Require login off and
-  nobody signed in).
+  was made with nobody signed in (Require login off and nobody signed in).
 - `server_id`: check it equals the stored `id`.
 
 Errors:
@@ -441,8 +442,7 @@ Errors:
 
 ### 4.4 POST /api/pair/login (username and password)
 
-`POST /api/pair/login` · public · **HTTPS only** · **Users plugin only**
-(404 `{"detail": "Not Found"}` without it).
+`POST /api/pair/login` · public · **HTTPS only**.
 
 Request:
 
@@ -494,14 +494,14 @@ the HA user is the one signed in.
             "pl.edit", "pl.run", "pl.view", "sp.mute", "sp.view", "th.view"],
   "bypass": false, "ingress": false, "web_ui": true,
   "words": ["forest", "candy", "award", "fancy"],
-  "plugins": ["users"],
+  "plugins": ["users"], "accounts": true,
   "starting": false, "closed": false,
   "require_login": true, "has_users": true, "needs_setup": false, "ha_users": false
 }
 ```
 
-`require_login`, `has_users`, `needs_setup` and `ha_users` are there only
-while the Users plugin is on. `ha_users` is `true` on the add-on, where
+`require_login`, `has_users`, `needs_setup` and `ha_users` are there while
+accounts are loaded (`accounts` true). `ha_users` is `true` on the add-on, where
 Home Assistant's users sign in; `user.ha` is `true` for one of them. Call `/api/auth/me` after linking, on every app start, and
 and after an unexpected 403 (an admin may have changed the user's role).
 
@@ -557,12 +557,8 @@ never answers 401, so the app can always check the server is there.
                             "platform": "android", "model": "Test", "created": "2026-10-11T22:08:11.520320+00:00",
                             "last_seen": "2026-10-11T22:08:11.549219+00:00"}
   ```
-- **Without the Users plugin:** there are no users, so "your phones" means
-  every phone, and anyone who can reach the web UI can remove any of them.
-  Phones linked earlier to a user keep their user id; while the plugin is off
-  `/api/auth/me` shows `user: null` for them and they have full access (less
-  devices and keys). When the plugin comes back they act as their user again.
-  A phone linked while the plugin was off (`user: null`) gets 401 `pair` once
+- **A phone linked with nobody signed in** (`user: null`, Require login
+  off) has full access (less devices and keys) and gets 401 `pair` once
   Require login is on.
 
 ---
@@ -570,7 +566,7 @@ never answers 401, so the app can always check the server is there.
 ## 5. Sign-in code (forgotten password)
 
 `POST /api/devices/recovery-code` · permission `device` (**only a linked
-phone**; a browser gets 403) · Users plugin only (404 without it) · no body.
+phone**; a browser gets 403) · no body.
 
 Response 200:
 
@@ -642,11 +638,10 @@ A phone always gets its user's (or the open) abilities **minus**
 
 | Situation | Phone's abilities (verified) |
 |---|---|
-| Users plugin on, phone of an **Admin** | Everything except `admin.users`, `admin.keys`, `self`: `admin.connection admin.plugins an.send ch.* device ev.read pg.use pl.* sp.* st.* th.* tr.run` |
-| Users plugin on, phone of a **User** | `ch.add ch.change ch.play ch.speakers ch.view device ev.read pl.edit pl.run pl.view sp.mute sp.view th.view` |
-| Users plugin on, phone with no user, Require login **off** | As an Admin's phone (open access) |
-| Users plugin on, phone with no user, Require login **on** | Nothing: 401 `{"pair": true}` |
-| Users plugin **off** | As an Admin's phone, whoever linked it |
+| Phone of an **Admin** | Everything except `admin.users`, `admin.keys`, `self`: `admin.connection admin.plugins an.send ch.* device ev.read pg.use pl.* sp.* st.* th.* tr.run` |
+| Phone of a **User** | `ch.add ch.change ch.play ch.speakers ch.view device ev.read pl.edit pl.run pl.view sp.mute sp.view th.view` |
+| Phone with no user, Require login **off** | As an Admin's phone (open access) |
+| Phone with no user, Require login **on** | Nothing: 401 `{"pair": true}` |
 
 So a User's phone can do everything on channels, playlists and sequences,
 but only see themes, speakers and settings. Routes marked **Admin** below
@@ -1123,11 +1118,9 @@ account hears the same mix, and no speaker ever plays it.
 | Caller | Account |
 |---|---|
 | A signed-in user, or a phone linked by (or for) a user | That user: `user:<user id>` |
-| Users plugin on, nobody signed in (Require login off), a phone with no user, a key, BYPASS_LOGIN | None: 401 `{"detail": "Sign in to use your personal channel"}` |
-| No Users plugin (no accounts): Home Assistant's sidebar | That Home Assistant user (each has their own) |
-| No Users plugin: anyone else (a phone, a key, the web UI) | The server's one shared personal channel |
+| Nobody signed in (Require login off), a phone with no user, a key, BYPASS_LOGIN | None: 401 `{"detail": "Sign in to use your personal channel"}` |
 
-On the add-on with the Users plugin, the Home Assistant user is the
+On the add-on, the Home Assistant user is the
 account (a phone linked with an HA username is that user).
 
 #### Which device: one device, counted once
@@ -1586,7 +1579,7 @@ Flags the sign-in layer adds to error bodies:
 | 403 | `"reset": true` | (Browsers only) choose a new password first |
 | 503 | `{"detail": "Sonorium is starting", "starting": true}` | Retry in a few seconds |
 | 503 | `{"detail": "Home Assistant didn't answer. Try again in a moment."}` | (Add-on) sign-in with an HA username: HA couldn't check the password |
-| 503 | `{"detail": "The sign-in plugin didn't start. See Logs.", "closed": true}` | Server misconfigured; show the message |
+| 503 | `{"detail": "Sign-in didn't start. See Logs.", "closed": true}` | Server misconfigured; show the message |
 | 404 | `{"detail": "Not Found"}` | Route of a plugin that's off (e.g. `/api/pair/login` without Users) |
 
 Exceptions to watch:
@@ -1654,7 +1647,7 @@ native (12.5).
 | `sonorium/web/static/js/app.js` | 10355 | Everything else: Channels, Theme Editor, playlists, speakers, settings pages |
 | `sonorium/web/static/js/logs.js` | 142 | The log viewer (Settings › Logs and `/logs`) |
 | `sonorium/web/static/css/styles.css` | 4210 | All styles and the design tokens (12.6) |
-| `plugins/builtin/users/web/users.js`, `users.css` | | Sign-in screens, Users & devices (loaded from the server via `/api/ui/plugins` and `/plugin-ui/users/...`) |
+| `sonorium/web/static/js/ext/users.js`, `zones.js`, `static/css/users.css`, `zones.css` | | Sign-in screens, Users & devices, Zones (loaded by `slots.js` with the other `ext/` scripts; `/api/ui/plugins` is now empty) |
 | `sonorium/web/static/js/ext/keys.js`, `static/css/keys.css` | | Settings › Keys (hidden while `features.keys.enabled` is false) |
 | `/logo.png`, `/favicon.png` (server routes), `static/img/qr-logo.png` | | Images |
 | `static/ha/sonorium-cards.js` | | Home Assistant dashboard cards; not part of the UI |
@@ -1697,7 +1690,7 @@ the `sonorium_session` cookie, with `X-CSRF-Token` added to changes.
 | `app.js:7709` | `POST /api/plugins/upload` (multipart) |
 | `app.js:9211` | `GET /api/themes/{id}/tracks/{key}/audio` (decoded with WebAudio for the transition preview) |
 | `logs.js:49` | `GET /api/logs?after=` (polled) |
-| `users.js:67`, `:103` | the Users plugin's own `fetch` for sign-in calls and `/api/auth/me` |
+| `users.js:67`, `:103` | `ext/users.js`'s own `fetch` for sign-in calls and `/api/auth/me` |
 
 Not `fetch` (the wrapper doesn't see them):
 

@@ -479,7 +479,7 @@ automations that use the entity first.
 ### Next release
 
 **Sign-in**
-- **Accounts and roles.** The built-in **Users** plugin adds accounts with two roles. An **Admin** can change everything; a **User** can play and change channels, run and edit playlists and sequences, and see themes and speakers. Sonorium always keeps one Admin.
+- **Accounts and roles.** Sonorium has accounts with two roles. An **Admin** can change everything; a **User** can play and change channels, run and edit playlists and sequences, and see themes and speakers. Sonorium always keeps one Admin.
 - **New installs** ask for an admin account on the first visit and need a sign-in from then on. **Updates** change nothing until you create the account and turn on **Require login**; the banner at the top offers both.
 - **Users & devices.** **Settings → Users & devices** lists each person with the browsers and phones they use. Add users, change roles, reset passwords, and sign out one browser or every device.
 - **Keys.** **Settings → Keys**: keys for devices and programs, each allowed only the items checked on it, for some channels or all, with an expiry. A key is shown once. Keys are part of Sonorium; turning off **Keys** in **Settings → Advanced** stops every key at once and hides the page, and turning it on again brings them back.

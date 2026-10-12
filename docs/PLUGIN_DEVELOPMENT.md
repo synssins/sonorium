@@ -552,7 +552,7 @@ owner-only file (section 11).
   readable by its owner only).
 - **The management endpoints** (making tokens, jobs, connection values) are part of
   Sonorium's API and need an Admin: Home Assistant's sidebar, or a signed-in Admin on the
-  direct ports once the Users plugin's Require login is on (docs/AUTH.md). The trigger and
+  direct ports once Require login is on (docs/AUTH.md). The trigger and
   event stream endpoints are the ones meant for other devices, and they need a token or a
   key on every call.
 - **Every API route has a permission.** A plugin's own HTTP routes (built-in plugins only,
@@ -591,7 +591,7 @@ Run the suite with `python -m pytest -q tests`.
 
 ## 14. Built-in plugins: sign-in hooks and web UI slots
 
-Built-in plugins (shipped in `sonorium/plugins/builtin/`, like **Users**) can go further than the schema-rendered pages above: they can recognise
+Built-in plugins (shipped in `sonorium/plugins/builtin/`) can go further than the schema-rendered pages above: they can recognise
 callers, add HTTP routes and draw parts of the web UI. Third-party plugins keep the
 schema-rendered pages, triggers, events and actions.
 
@@ -604,7 +604,7 @@ bundled `version` in `manifest.json` is newer: **raise it with every change**.
 |---|---|
 | `"builtin": true` | Shipped with Sonorium |
 | `"enabled_by_default": true` | Switched on the first time Sonorium sees it, never again after the user switches it off |
-| `"auth_provider": true` | Guards sign-in (Users). While it's switched on but hasn't started, only streams and public routes answer; switching it off or uninstalling it asks first |
+| `"auth_provider": true` | Guards sign-in: switching it off or uninstalling it asks first. No plugin uses it since Users became part of Sonorium (`sonorium/auth/users.py`) |
 
 ### The sign-in service (`self._host.auth`)
 
@@ -619,12 +619,13 @@ service.register_authenticator(self.id, MyAuth(), provider=False)
 
 and `service.unregister(self.id)` in `on_disable` (the host does it too). While the plugin is
 off, its routes answer 404. A plugin may register more than one UI bundle under ids of its
-own (the Users plugin: `users` and `users-zones`).
+own. Sonorium's own Users and Keys use the same service (`sonorium/auth/users.py`,
+`keys.py`), and their web UI is in `static/js/ext/` (`users.js`, `zones.js`, `keys.js`).
 
 ### Channel policy (`self._host.session_manager.policy`)
 
-A built-in plugin may decide who changes a channel and which speakers it plays on (Zones in
-the Users plugin): see `sonorium/core/channel_policy.py`. Its `check(action, session,
+A built-in plugin may decide who changes a channel and which speakers it plays on (as
+Sonorium's Zones do, `sonorium/core/zones.py`): see `sonorium/core/channel_policy.py`. Its `check(action, session,
 **details)` raises `ChannelRefused(message, status)` to refuse; the API answers with that
 status. `sonorium.auth.principal.current_caller()` is who is calling (None for MQTT,
 timers and plugins). No policy: every channel is open, as before.

@@ -1,21 +1,24 @@
 # Sign-in, linked phones and keys
 
 How Sonorium decides who may do what. Think of it as a building: the core
-is the front door with its lock and a guest list, the **Users** plugin hands
-out keycards to the people who live there, and **Keys** (part of the core)
-are spare keys that open only some rooms.
+is the front door with its lock and a guest list, **Users** hand out
+keycards to the people who live there, and **Keys** are spare keys that open
+only some rooms. All three are part of Sonorium.
 
 ## The parts
 
 | Part | Where | What it does |
 |---|---|---|
 | Core | `sonorium/auth/` | Checks every request against the route's permission, keeps tokens (as hashes), the server's identity and HTTPS certificate, Link App and phone linking, `/api/info`, mDNS |
-| Users plugin | `plugins/builtin/users/` | Accounts and roles, browser sign-in, Require login, one-time sign-in codes, Users & devices, Home Assistant's users (add-on) |
+| Users | `sonorium/auth/users.py`, `accounts.py`, `passwords.py`, `ha_users.py`; Zones in `sonorium/core/zones.py`; web UI `static/js/ext/users.js`, `zones.js` | Accounts and roles, browser sign-in, Require login, one-time sign-in codes, Users & devices, Home Assistant's users (add-on), Zones |
 | Keys (core) | `sonorium/auth/keys.py` | Keys with only the abilities you check (Settings › Keys); switched on or off in Settings › Advanced |
 
-The Users plugin is built in and starts switched on. Without the Users plugin,
-Sonorium is open to anyone on your network, the way it was before sign-in
-existed. Switching it off (or uninstalling it) asks first.
+Users have no on/off switch. Sign-in stays optional: with **Require login**
+off (and on updated installs until you turn it on) Sonorium is open to anyone
+on your network; `BYPASS_LOGIN` opens it for recovery. If the accounts
+(`users.json`) can't be loaded, sign-in stays closed: only streams and the
+public routes answer (503 "Sign-in didn't start. See Logs."), so a failure
+never leaves Sonorium open.
 
 ## Ports
 
@@ -36,19 +39,18 @@ For each request the core works out the caller, first match wins:
 1. **HA's sidebar** (add-on, port 8099, from the Supervisor): Home Assistant
    already signed the person in. The `X-Remote-User-*` headers name the HA
    user; they get their Sonorium user and the role HA gives them (see Home
-   Assistant's users). Without the Users plugin: full access. The same
+   Assistant's users). The same
    headers on any other port mean nothing.
 2. **A linked phone** (`Authorization: Bearer sd_...`): what its user may do,
-   but never managing users, devices or keys. Linked without the Users
-   plugin: full access, less those.
+   but never managing users, devices or keys. Linked with nobody signed
+   in while Require login is off: full access, less those.
 3. **A key** (`Bearer sk_...`, `X-Sonorium-Token`, or `?token=`): only the
    boxes checked on it, and only its channels if it has a list. A key made
    by a user who is now switched off in Home Assistant is refused.
 4. **A signed-in browser** (the `sonorium_session` cookie): its user's role.
 5. **BYPASS_LOGIN on:** the web UI needs no sign-in (see Recovery).
-6. **Nobody recognised:** with the Users plugin, open access while Require
-   login is off, otherwise nothing but the sign-in pages. Without it, full
-   access.
+6. **Nobody recognised:** open access while Require login is off,
+   otherwise nothing but the sign-in pages.
 
 A revoked phone or key, or a signed-out browser, is refused on its next
 request: the core looks the token up every time.
@@ -101,7 +103,7 @@ The plugin framework's older tokens (one per plugin, per trigger, and for the
 event stream) keep working. Triggers and the event stream always need a token
 or a key, even while sign-in is off.
 
-## Accounts and sign-in (Users plugin)
+## Accounts and sign-in
 
 - **New install:** the first visit shows **Create the admin account**, and
   Require login is on. Streams keep playing meanwhile.
@@ -172,7 +174,7 @@ User. A Sonorium password one of them had set is dropped: like everyone
 else, they sign in on the direct port with their Home Assistant password.
 One password per person, kept by HA.
 
-## Zones (Users plugin)
+## Zones
 
 Off by default: Settings › Advanced › **Zones** (an admin). With it off, every
 channel is open, as above. Think of each channel as a room's radio.
@@ -206,8 +208,8 @@ channel is open, as above. Think of each channel as a room's radio.
   link** for them (Users & devices, ⋯); an admin always may, and can pull a
   channel back in.
 
-Who is calling comes from the request (`current_caller()`); the Users
-plugin's `zones.py` is the session manager's policy
+Who is calling comes from the request (`current_caller()`);
+`sonorium/core/zones.py` is the session manager's policy
 (`sonorium/core/channel_policy.py`) while Zones are on. Kept in `zones.json`.
 
 ## Linking a phone (core)
@@ -245,7 +247,7 @@ platform}` and gets `{device_id, token}` once. Five pairing attempts a
 minute per address; each is logged.
 
 **Without the QR code**, the app signs in with a username and password
-(`POST /api/pair/login`, HTTPS, Users plugin). It can't check the
+(`POST /api/pair/login`, HTTPS). It can't check the
 certificate in advance, so the app and Sonorium both show four words made
 from the certificate's fingerprint (Sonorium: the Link App dialog; the app:
 from the certificate it received, with the list in `sonorium/auth/wordlist.py`,
@@ -319,8 +321,7 @@ without the extra names: the app checks the fingerprint, not the names.
 | `tls/cert.pem`, `tls/key.pem` (0600) | The HTTPS certificate (ECDSA P-256, 20 years) |
 | `plugin_secrets.json` (0600) | The plugin framework's older trigger and event-stream tokens (hashes) |
 
-All in Sonorium's config folder. Uninstalling the Users plugin keeps
-`users.json`, so switching it back on brings the accounts back.
+All in Sonorium's config folder.
 
 ## API
 
@@ -329,21 +330,21 @@ Core:
 | Route | Who |
 |---|---|
 | `GET /api/info` | anyone: server id, name, version, `api`, install type, features, ports, `host` (the speakers' address), `hostname` (the mDNS name, or null), `login_required`, fingerprint, `boot_id` (new at every start), `ui` (the web UI's version and hook version) |
-| `GET /api/auth/me` | anyone: who you are, your permissions, CSRF token, bypass |
+| `GET /api/auth/me` | anyone: who you are, your permissions, CSRF token, bypass, `accounts` |
 | `POST /api/link` | signed in (or open access): a Link App code and QR |
 | `POST /api/pair` | anyone, HTTPS: code → phone token |
 | `GET /api/devices`, `DELETE /api/devices/{id}` | your phones; an Admin: everyone's (a phone: only itself) |
 | `GET`, `PUT`, `DELETE /api/devices/self` | a linked phone: its own record, a new name, unlinking itself |
 | `GET /api/stream/url` | the stream URLs on the direct port |
 
-Users plugin: `POST /api/auth/setup`, `/api/auth/login`, `/api/auth/logout`,
+Users (`sonorium/auth/users.py`): `POST /api/auth/setup`, `/api/auth/login`, `/api/auth/logout`,
 `/api/auth/code-login`, `/api/auth/new-password`, `PUT /api/auth/require-login`,
 `POST /api/pair/login`, `POST /api/devices/recovery-code`, `GET|POST /api/users`,
 `PUT|DELETE /api/users/{id}`, `POST /api/users/{id}/password`, `POST /api/users/{id}/sign-out`,
 `DELETE /api/users/{id}/sessions/{session_id}` (signs one browser out).
 `PUT /api/users/{id}` also takes `{"can_leave_link": bool}`.
 
-Zones (Users plugin): `GET /api/zones` (anyone who sees channels: on or off,
+Zones: `GET /api/zones` (anyone who sees channels: on or off,
 owners, Kid mode, each speaker's home and the channel using it, links; for an
 admin also the users), `PUT /api/zones/switch` `{"on"}`, `PUT /api/zones/{channel_id}`
 `{"owner", "kid_mode", "schedule": {"start": "HH:MM", "end": "HH:MM"}}`,
@@ -357,6 +358,6 @@ a linked channel) with the reason in `detail`.
 
 Keys: `GET|POST /api/keys`, `PUT|DELETE /api/keys/{id}` (404 while Keys are off).
 
-Every route's permission is in `sonorium/auth/permissions.py` (Keys' in
-`sonorium/auth/keys.py`, a plugin's in its `PERMISSIONS`); `tests/test_auth_routes_coverage.py` fails when a
+Every route's permission is in `sonorium/auth/permissions.py` (those of Users
+and Keys in `sonorium/auth/users.py` and `keys.py`); `tests/test_auth_routes_coverage.py` fails when a
 route has none, and the server refuses an API route it has no permission for.
