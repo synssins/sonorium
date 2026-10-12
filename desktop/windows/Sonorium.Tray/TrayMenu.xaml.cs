@@ -48,8 +48,6 @@ public sealed partial class TrayMenu : Window
         StopStartText.Text = stopped ? "Start Sonorium" : "Stop Sonorium";
         StopStartIcon.Glyph = stopped ? "" : "";
         UpdateDot.Visibility = state.Update is null ? Visibility.Collapsed : Visibility.Visible;
-        // As a service, Quit closes only this icon (board Win_Tray_Service)
-        QuitHint.Visibility = state.Host.Mode == RunMode.User ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Shows the menu with its bottom right corner at the cursor, kept on the screen.</summary>

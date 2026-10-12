@@ -15,10 +15,10 @@ public sealed partial class UpdatesPage : Page
         InitializeComponent();
         AutoCheck.Toggled += on => Save(() => state.Settings.CheckForUpdates = on);
         AutoInstall.Toggled += on => Save(() => state.Settings.InstallUpdates = on);
-        Channel.SelectionChanged += (_, _) =>
+        Channel.SelectionChanged += index =>
         {
             if (loading) return;
-            Save(() => state.Settings.UpdateChannel = Channel.SelectedIndex == 1 ? "preview" : "stable");
+            Save(() => state.Settings.UpdateChannel = index == 1 ? "preview" : "stable");
             _ = CheckNow();
         };
     }

@@ -183,9 +183,6 @@ jobs:
           if ($LASTEXITCODE) { throw "install-service failed ($LASTEXITCODE)" }
           New-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\Sonorium' -Name Environment `
             -PropertyType MultiString -Value @('BYPASS_LOGIN=true') -Force | Out-Null
-          # A theme to stream (bundled themes are copied in by Sonorium once it supports SONORIUM_BUNDLED_THEMES)
-          $theme = Get-ChildItem 'C:\Program Files\Sonorium\app\themes' -Directory | Select-Object -First 1
-          Copy-Item -Recurse $theme.FullName 'C:\ProgramData\Sonorium\Themes\'
           icacls C:\ProgramData\Sonorium
 
       - name: Start it and check the web API
@@ -200,6 +197,10 @@ jobs:
           if (-not $info) { throw 'Sonorium did not answer' }
           $info | ConvertTo-Json -Depth 3
           if ($info.install -ne 'windows') { throw "install: $($info.install)" }
+          # The bundled themes were copied into the empty themes folder (SONORIUM_BUNDLED_THEMES)
+          $seeded = Get-ChildItem C:\ProgramData\Sonorium\Themes -Directory
+          "Themes folder: $($seeded.Name -join ', ')"
+          if ($seeded.Count -lt 2) { throw 'The bundled themes were not copied in' }
           # Python runs as the service's own account, from the private Python
           $py = Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object ExecutablePath -like 'C:\Program Files\Sonorium\python\*'
           if (-not $py) { throw 'The private Python is not running' }
@@ -256,6 +257,24 @@ jobs:
           As-User 'start Sonorium'
           (Get-Service Sonorium).WaitForStatus('Running', '00:00:30')
           "Stopped and started by a standard user"
+
+      - name: Switch to per user and back (General's "Run Sonorium as")
+        shell: pwsh
+        run: |
+          $host_ = 'C:\Program Files\Sonorium\SonoriumHost.exe'
+          $data = Join-Path $env:RUNNER_TEMP 'user\Data'; $themes = Join-Path $env:RUNNER_TEMP 'user\Themes'
+          & $host_ switch-mode user $data $themes | Out-Default
+          if ($LASTEXITCODE) { throw "switch-mode user failed ($LASTEXITCODE)" }
+          if (Get-Service Sonorium -ErrorAction SilentlyContinue) { throw 'The service is still there' }
+          if (-not (Test-Path (Join-Path $data 'state.json'))) { throw 'Data was not copied to the user folder' }
+          if (Test-Path (Join-Path $data 'console.token')) { throw 'The console token was copied' }
+          "Per user: $((Get-ChildItem $themes -Directory).Count) themes, data copied"
+          # And back: the service's folders still hold their data, so nothing is overwritten
+          & $host_ switch-mode service $env:SONOTEST_SID $data $themes | Out-Default
+          if ($LASTEXITCODE) { throw "switch-mode service failed ($LASTEXITCODE)" }
+          if ((Get-Service Sonorium).Status -ne 'Running') { throw 'The service is not running' }
+          foreach ($i in 1..60) { try { Invoke-RestMethod http://127.0.0.1:8008/api/info -TimeoutSec 3 | Out-Null; break } catch { Start-Sleep 2 } }
+          "Back as a service"
 
       - name: Uninstall
         shell: pwsh

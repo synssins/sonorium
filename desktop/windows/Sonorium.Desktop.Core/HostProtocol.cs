@@ -19,4 +19,7 @@ public static class HostProtocol
     public const string UserStopEvent = @"Local\Sonorium.Host.Stop";
     public const string UserRestartEvent = @"Local\Sonorium.Host.Restart";
     public const string UserInstanceMutex = @"Local\Sonorium.Host";
+
+    /// <summary>Where an elevated SonoriumHost command leaves its error message, in %TEMP%.</summary>
+    public const string ElevatedErrorFile = "SonoriumHost-error.txt";
 }

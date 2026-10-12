@@ -49,6 +49,7 @@
             <TextBlock Text="Moving a folder" FontWeight="SemiBold" Margin="0,18,0,8" />
             <t:SettingCard>
                 <t:SettingRow Glyph="&#xE946;" Title="Sonorium stops, moves the folder's contents to the new place, and starts again." />
+                <t:SettingRow x:Name="ServiceAccess" Glyph="&#xE946;" Title="The Sonorium service is given access to the folder you choose." />
             </t:SettingCard>
             <InfoBar x:Name="Problem" Severity="Error" IsOpen="False" Margin="0,8,0,0" />
         </StackPanel>

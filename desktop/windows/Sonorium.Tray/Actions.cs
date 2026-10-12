@@ -55,13 +55,10 @@ public static class Actions
         });
     }
 
-    /// <summary>Per user, Quit stops Sonorium too; as a service it closes only the tray icon.</summary>
+    /// <summary>Quit stops Sonorium (the service too) and closes the tray icon.</summary>
     public static void Quit()
     {
-        if (State.Host.Mode == RunMode.User)
-        {
-            try { State.Host.Stop(); } catch (Exception) { }
-        }
+        try { State.Host.Stop(); } catch (Exception) { }
         Application.Current.Exit();
     }
 }

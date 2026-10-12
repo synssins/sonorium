@@ -34,10 +34,7 @@
                     <t:LabeledToggle x:Name="AutoInstall" AccessibleName="Install updates automatically" />
                 </t:SettingRow>
                 <t:SettingRow Glyph="&#xE713;" Title="Update channel" Description="Preview gets new features first and may have problems.">
-                    <RadioButtons x:Name="Channel" MaxColumns="2" AutomationProperties.Name="Update channel">
-                        <x:String>Stable</x:String>
-                        <x:String>Preview</x:String>
-                    </RadioButtons>
+                    <t:Segmented x:Name="Channel" Items="Stable|Preview" />
                 </t:SettingRow>
                 <t:SettingRow x:Name="LastChecked" Glyph="&#xE946;" Title="Last checked">
                     <Button x:Name="CheckButton" Content="Check now" Click="CheckNow_Click" />

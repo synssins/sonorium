@@ -75,6 +75,55 @@ public static class ServiceSetup
         // Data stays: themes, channels and settings survive a reinstall
     }
 
+    /// <summary>
+    /// General's "Run Sonorium as: A service": registers the service and copies the user's
+    /// settings, data and themes into its folders (when those are still empty), then starts it.
+    /// Secrets don't move: they're encrypted for the user's account, so the Home Assistant token
+    /// and MQTT password are entered again.
+    /// </summary>
+    public static void SwitchToService(string userSid, string userData, string userThemes)
+    {
+        Install(userSid);
+        var service = DesktopSettings.Load(RunMode.Service);
+        CopyIfEmpty(userData, service.Data);
+        CopyIfEmpty(userThemes, service.Themes);
+        using var sc = new ServiceController(Paths.ServiceName);
+        sc.Start();
+        sc.WaitForStatus(ServiceControllerStatus.Running, TimeSpan.FromSeconds(30));
+    }
+
+    /// <summary>"When I sign in": the service's data and themes back to the user's folders (when empty), service removed.</summary>
+    public static void SwitchToUser(string userData, string userThemes)
+    {
+        RequireAdmin();
+        var service = DesktopSettings.Load(RunMode.Service);
+        Uninstall();
+        CopyIfEmpty(service.Data, userData);
+        CopyIfEmpty(service.Themes, userThemes);
+    }
+
+    // Not carried across: secrets (encrypted for the other account) and the console token (made anew)
+    static readonly string[] NotCopied = ["secrets", "console.token"];
+
+    static void CopyIfEmpty(string from, string to)
+    {
+        if (!Directory.Exists(from)) return;
+        Directory.CreateDirectory(to);
+        if (Directory.EnumerateFileSystemEntries(to).Any()) return;
+        Copy(from, to);
+    }
+
+    static void Copy(string from, string to)
+    {
+        Directory.CreateDirectory(to);
+        foreach (var file in Directory.EnumerateFiles(from))
+            if (!NotCopied.Contains(Path.GetFileName(file), StringComparer.OrdinalIgnoreCase))
+                File.Copy(file, Path.Combine(to, Path.GetFileName(file)), overwrite: false);
+        foreach (var dir in Directory.EnumerateDirectories(from))
+            if (!NotCopied.Contains(Path.GetFileName(dir), StringComparer.OrdinalIgnoreCase))
+                Copy(dir, Path.Combine(to, Path.GetFileName(dir)));
+    }
+
     public static bool Exists() =>
         ServiceController.GetServices().Any(s => s.ServiceName.Equals(Paths.ServiceName, StringComparison.OrdinalIgnoreCase));
 

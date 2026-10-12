@@ -28,8 +28,8 @@ public partial class App : Application
         state.Attach(ui);
         Notifications.Register();
 
-        // Per user, the tray starts Sonorium at sign-in; a service starts on its own
-        if (state.Host.Mode == RunMode.User && !state.Host.IsRunning)
+        // Starting the tray starts Sonorium: per user at sign-in, and the service when Quit stopped it
+        if (!state.Host.IsRunning)
         {
             try { state.Host.Start(); }
             catch (Exception e) { Notifications.ShowError($"Sonorium couldn't start: {e.Message}"); }
@@ -54,7 +54,11 @@ public partial class App : Application
     }
 
     /// <summary>Sonorium started again from the Start menu, or a notification was clicked.</summary>
-    public static void OnReactivated() => current?.ui?.TryEnqueue(() => Actions.ShowConsole("Status"));
+    public static void OnReactivated() => current?.ui?.TryEnqueue(() =>
+    {
+        if (!AppState.Current.Host.IsRunning) Actions.Start();
+        Actions.ShowConsole("Status");
+    });
 
     /// <summary>The icon for the taskbar's own light or dark mode (not the apps' mode).</summary>
     static IntPtr TrayIconImage()

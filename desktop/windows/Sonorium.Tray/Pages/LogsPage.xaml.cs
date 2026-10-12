@@ -27,7 +27,8 @@ public sealed partial class LogsPage : Page
         InitializeComponent();
         Lines.ItemsSource = shown;
         Search.TextChanged += (_, _) => Filter();
-        Level.SelectionChanged += (_, _) => Filter();
+        Level.SelectedIndex = 0;
+        Level.SelectionChanged += _ => Filter();
     }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)

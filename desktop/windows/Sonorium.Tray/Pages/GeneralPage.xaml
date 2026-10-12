@@ -8,9 +8,11 @@
         <StackPanel>
             <TextBlock Text="General" Style="{StaticResource TitleTextBlockStyle}" Margin="0,4,0,18" />
             <t:SettingCard>
-                <t:SettingRow Glyph="&#xE713;" Title="Start Sonorium when I sign in to Windows"
-                              Description="Sonorium and this tray icon start in the background.">
-                    <t:LabeledToggle x:Name="StartAtSignIn" AccessibleName="Start Sonorium when I sign in to Windows" />
+                <t:SettingRow Glyph="&#xE930;" Title="Run Sonorium as" Description="A service starts with Windows, before anyone signs in.">
+                    <t:Segmented x:Name="RunAs" Items="!A service|When I sign in" />
+                </t:SettingRow>
+                <t:SettingRow x:Name="SignInRow" Glyph="&#xE713;">
+                    <t:LabeledToggle x:Name="StartAtSignIn" />
                 </t:SettingRow>
                 <t:SettingRow Glyph="&#xE8A7;" Title="Open Sonorium in my browser when it starts">
                     <t:LabeledToggle x:Name="OpenBrowser" AccessibleName="Open Sonorium in my browser when it starts" />
@@ -27,6 +29,7 @@
                                AutomationProperties.Name="Channels" />
                 </t:SettingRow>
             </t:SettingCard>
+            <InfoBar x:Name="Problem" Severity="Error" IsOpen="False" Margin="0,8,0,0" />
         </StackPanel>
     </ScrollViewer>
 </Page>

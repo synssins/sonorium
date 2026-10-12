@@ -25,6 +25,7 @@ public sealed partial class FoldersPage : Page
         Data.Text = s.Data;
         Logs.Text = s.Logs;
         Program.Text = Paths.ProgramFolder;
+        ServiceAccess.Visibility = state.Host.Mode == RunMode.Service ? Visibility.Visible : Visibility.Collapsed;
     }
 
     string PathOf(string tag) => tag switch

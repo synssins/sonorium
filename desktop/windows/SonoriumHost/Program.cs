@@ -8,6 +8,10 @@ using Sonorium.Host;
 //   install-service [user SID]  register the service (admin); the SID is who may start and stop it
 //                               without elevation (default: the user running this, as in a UAC prompt)
 //   uninstall-service           remove the service (admin); data is kept
+//   switch-mode service <SID> <user data folder> <user themes folder>
+//   switch-mode user <user data folder> <user themes folder>
+//                               the console's "Run Sonorium as" (admin): the service registered
+//                               or removed, data and themes copied across
 //   env                         print the variables Sonorium would run with (diagnostics)
 
 try
@@ -23,6 +27,12 @@ try
         case "uninstall-service":
             ServiceSetup.Uninstall();
             return 0;
+        case "switch-mode" when args.Length == 5 && args[1] == "service":
+            ServiceSetup.SwitchToService(args[2], args[3], args[4]);
+            return 0;
+        case "switch-mode" when args.Length == 4 && args[1] == "user":
+            ServiceSetup.SwitchToUser(args[2], args[3]);
+            return 0;
         case "env":
             var mode = args.Contains("--service-mode") ? RunMode.Service : RunMode.User;
             foreach (var (k, v) in Supervisor.Environment(DesktopSettings.Load(mode)))
@@ -35,10 +45,12 @@ try
             return 2;
     }
 }
-catch (Exception e) when (args.FirstOrDefault() is "install-service" or "uninstall-service")
+catch (Exception e) when (args.FirstOrDefault() is "install-service" or "uninstall-service" or "switch-mode")
 {
-    // The tray shows this text when the elevated step fails
+    // The tray shows this text when the elevated step fails; an elevated process has no
+    // stderr it can read, so it's also left in %TEMP% (the same user's, elevated)
     Console.Error.WriteLine(e.Message);
+    try { File.WriteAllText(Path.Combine(Path.GetTempPath(), HostProtocol.ElevatedErrorFile), e.Message); } catch (IOException) { }
     return 1;
 }
 
