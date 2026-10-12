@@ -6,9 +6,9 @@ The plugin host: the services Sonorium gives every plugin, in one place.
     scheduler      persistent jobs (scheduler.py)
     triggers       webhook triggers and their tokens (triggers.py, tokens.py)
     connections    saved connection values, secrets apart (extensions.py)
-    auth           sign-in (sonorium/auth/service.py): built-in sign-in plugins
-                   register who is calling, their routes and their web UI there
-    session_manager  the channels (built-in plugins: Zones sets its policy,
+    auth           sign-in (sonorium/auth/service.py): Users and Keys register
+                   who is calling and their routes there
+    session_manager  the channels (Zones sets its policy,
                    core/channel_policy.py)
     overlay        sounds over channels (core/overlay_service.py)   } set by
     ramps          volume ramps (core/ramp_service.py)              } set_audio()

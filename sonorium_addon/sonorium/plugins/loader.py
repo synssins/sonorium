@@ -161,9 +161,10 @@ def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR, skip_plugins: 
             logger.error(f"Failed to copy built-in plugin {item.name}: {e}")
 
 
-# Built-in plugins that became core features (Settings > Advanced): Integration
-# is Keys (auth/keys.py), Announcements is core/announce.py and ha/announcements.py
-RETIRED_BUILTIN_PLUGINS = ("integration", "announcements")
+# Built-in plugins that became part of Sonorium: Integration is Keys
+# (auth/keys.py), Announcements is core/announce.py and ha/announcements.py,
+# Users is auth/users.py with core/zones.py
+RETIRED_BUILTIN_PLUGINS = ("integration", "announcements", "users")
 
 
 def remove_retired_plugins(plugins_dir: Path, settings=None) -> list[str]:

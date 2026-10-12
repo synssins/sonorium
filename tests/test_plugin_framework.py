@@ -406,5 +406,6 @@ def test_catalog_lists_uninstalled_builtins_and_installs_them_from_the_bundle(m,
     """An uninstalled built-in shows in the Catalog and installs again from the copy Sonorium carries."""
     from sonorium.plugins.builtin import BUILTIN_PLUGINS_DIR
     ids = sorted(p.name for p in BUILTIN_PLUGINS_DIR.iterdir() if (p / "plugin.py").exists())
-    assert "users" in ids and "integration" not in ids and "announcements" not in ids  # core features now
+    assert "ambient_mixer" in ids
+    assert not {"users", "integration", "announcements"} & set(ids)  # part of Sonorium now
     assert m.loader.parse_version("3.1.2") > m.loader.parse_version("3.0.0")  # Update only for newer versions

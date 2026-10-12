@@ -1,6 +1,6 @@
-/* Users plugin: the sign-in screens (first run, sign in, sign in with a code,
+/* Users (sonorium/auth/users.py): the sign-in screens (first run, sign in, sign in with a code,
  * choose a new password), the signed-in user in the menu, and the banner while
- * sign-in is off. Fills the core's web UI slots (static/js/slots.js). */
+ * sign-in is off. Fills the web UI's slots (static/js/slots.js). Styles: static/css/users.css. */
 (function () {
     const S = window.Sonorium;
     if (!S) return;

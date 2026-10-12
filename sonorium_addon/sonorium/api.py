@@ -132,7 +132,7 @@ class WebApp:
         from sonorium.auth.middleware import AuthMiddleware, AuthService
         from sonorium.auth.routes import create_core_auth_router
         self.auth = AuthService()
-        self.auth.app = self.app  # sign-in plugins add their routes to it
+        self.auth.app = self.app  # Users and Keys add their routes to it
         self._https_host_port = None  # the HTTPS port as the LAN sees it (add-on: its port mapping)
         self._announcer = None
         self._announce_task = None
@@ -145,6 +145,8 @@ class WebApp:
             https_host_port=self._https_port_outside,
             mdns_host=lambda: self._announcer.hostname if self._announcer is not None else None,
         ))
+        # Users (accounts, sign-in): sign-in stays closed until they have loaded (auth/users.py)
+        self.auth.expected_providers.add("users")  # auth/users.py PLUGIN_ID
         # Keys (Settings > Keys): a core feature, switched on or off in Settings > Advanced
         from sonorium.auth import keys as core_keys
         core_keys.install(self.auth)
@@ -401,6 +403,14 @@ class WebApp:
             # The framework's audio and connection services (each one failing only disables itself)
             if self._plugin_host:
                 self._init_framework_services()
+
+            # Zones (Users: Settings > Advanced > Zones) on the channels, and Kid mode's hours
+            try:
+                from sonorium.auth import users as core_users
+                core_users.attach_zones(self.auth, self._session_manager,
+                                        on_change=self._plugin_host._changed if self._plugin_host else None)
+            except Exception as e:
+                logger.warning(f"  Zones unavailable: {e}")
 
             # Initialize plugin manager
             try:
@@ -784,8 +794,8 @@ class WebApp:
         from sonorium.auth import config
         try:
             self.auth.note_install()
-            from sonorium.plugins.manager import DEFAULT_PLUGINS_DIR
-            self.auth.find_expected_providers(DEFAULT_PLUGINS_DIR)
+            from sonorium.auth import users as core_users
+            core_users.install(self.auth)  # a failure keeps sign-in closed (logged)
             identity = await asyncio.to_thread(lambda: self.auth.identity)
             from sonorium.auth import console
             console.ensure(self.auth)  # SONORIUM_CONSOLE_TOKEN_FILE: the host's credential

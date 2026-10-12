@@ -9896,7 +9896,7 @@ const PAGE_HELP = {
         ${helpTerm('Speaker Groups', 'saved sets of speakers for channels.')}
         ${helpTerm('Plugins', 'extras that add features.')}
         ${helpTerm('Logs', 'recent messages from Sonorium.')}
-        ${helpTerm('Users &amp; devices', 'who can sign in, and their phones and browsers. Shown to admins while the Users plugin is on.')}
+        ${helpTerm('Users &amp; devices', 'who can sign in, and their phones and browsers. Shown to admins.')}
         ${helpTerm('Keys', 'keys that let devices and programs use Sonorium. Shown to admins while Keys are on in Advanced.')}
         ${helpTerm('Advanced', 'features you can switch on or off, and the values playback uses.')}` },
 

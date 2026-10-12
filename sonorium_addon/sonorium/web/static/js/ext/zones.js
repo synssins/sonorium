@@ -1,4 +1,4 @@
-/* Zones (the Users plugin's zones.py): a channel's owner and Kid mode on its card and in
+/* Zones (sonorium/core/zones.py): a channel's owner and Kid mode on its card and in
  * its editor, linked channels (the bar above the cards, Link channels), a speaker in use
  * or with another home in the editor's picker, the switch on Settings › Advanced, and
  * "Can leave a link" in Users & devices (users.js). Boards: Zones_*.dc.html. */

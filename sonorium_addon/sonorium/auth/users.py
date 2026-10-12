@@ -2,61 +2,42 @@
 Users: accounts and roles, browser sign-in, Require login, one-time sign-in
 codes from a linked phone, Users & devices, and Home Assistant sidebar users.
 
-A built-in plugin on top of the core's sign-in (sonorium/auth). Switched on
-by default; switching it off or removing it makes Sonorium open to anyone on
-the network again (the web UI asks first). Its data (users.json) stays, so
-switching it back on brings the accounts back.
+Part of Sonorium's sign-in (sonorium/auth), installed by the app at startup
+(install(), then attach_zones() once channels exist). There is no switch:
+sign-in stays optional through Require login (and BYPASS_LOGIN); with no
+accounts yet it is the first run (Create the admin account). If the accounts
+can't be loaded, sign-in stays closed (AuthService.closed): only public
+routes answer, so Sonorium is never left open by a failure.
 
 Roles: Admin (everything) and User (channels, playlists and sequences, view
 themes and speakers, their own phones). A linked phone acts as its user.
 
 Add-on: Home Assistant's users are Sonorium's users, with their role from HA
-(ha.py), and sign in with their HA username and password.
+(ha_users.py), and sign in with their HA username and password.
 
-Zones (zones.py, Settings > Advanced > Zones, off by default): channels owned
-by a user, Kid mode, speaker homes and linked channels.
+Zones (core/zones.py, Settings > Advanced > Zones, off by default): channels
+owned by a user, Kid mode, speaker homes and linked channels.
 """
 from __future__ import annotations
 
 import asyncio
 import functools
-import importlib.util
-import sys
-from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from sonorium.auth import config, permissions as P
+from sonorium.auth import accounts as accounts_mod, config, ha_users as ha_mod, passwords, permissions as P
+from sonorium.auth.accounts import Accounts, AuthError
 from sonorium.auth.principal import Principal, Reject
 from sonorium.auth.ratelimit import RateLimiter
 from sonorium.auth.routes import client_of, json_body, limited
 from sonorium.core.channel_policy import ChannelRefused
+from sonorium.core import zones as zones_mod
+from sonorium.core.zones import Actor, Zones
 from sonorium.obs import logger
-from sonorium.plugins.base import BasePlugin
 
-HERE = Path(__file__).resolve().parent
-
-
-def _sibling(name: str):
-    """accounts.py / passwords.py next to this file (a plugin is loaded from its folder, not as a package)."""
-    module_name = f"sonorium_plugin_users_{name}"
-    spec = importlib.util.spec_from_file_location(module_name, HERE / f"{name}.py")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[module_name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-passwords = _sibling("passwords")
-ha_mod = _sibling("ha")
-accounts_mod = _sibling("accounts")
-zones_mod = _sibling("zones")
-Accounts, AuthError = accounts_mod.Accounts, accounts_mod.AuthError
-Zones, Actor = zones_mod.Zones, zones_mod.Actor
-
-PLUGIN_ID = "users"
+PLUGIN_ID = "users"   # its key in the authenticators and AuthService.plugin_state (not a plugin)
 ZONES_STATE = "users.zones"   # service.plugin_state key of the Zones object
 SESSION_COOKIE = "sonorium_session"
 LOGIN_RATE, LOGIN_BURST = 5 / 60, 5   # 5 failed sign-ins a minute per address
@@ -593,26 +574,17 @@ def create_router(service) -> APIRouter:
     return router
 
 
-ZONES_UI = "users-zones"  # the zones' own web UI bundle (zones.js, zones.css)
 
 
-class UsersPlugin(BasePlugin):
-    id = PLUGIN_ID
-    name = "Users"
-    version = "1.1.4"
-    description = "Accounts, sign-in and roles for Sonorium"
-    author = "Sonorium"
-    builtin = True
-
-    def _auth(self):
-        host = self._host
-        return getattr(host, "auth", None) if host is not None else None
-
-    async def on_enable(self) -> None:
-        service = self._auth()
-        if service is None:
-            logger.warning("Users: no sign-in service (running without the web app); nothing to do")
-            return
+def install(service) -> Optional[Accounts]:
+    """
+    At startup: the accounts (users.json), Home Assistant's users on the
+    add-on, the routes and the sign-in hooks. Sign-in stays closed until this
+    has worked ("users" is expected from the start); a failure is logged and
+    leaves it closed. Returns the accounts, or None when they couldn't load.
+    """
+    service.expected_providers.add(PLUGIN_ID)
+    try:
         accounts = service.plugin_state.get(PLUGIN_ID)
         if accounts is None:
             accounts = Accounts(service)
@@ -627,26 +599,22 @@ class UsersPlugin(BasePlugin):
         if zones is None:
             zones = Zones(accounts)
             service.plugin_state[ZONES_STATE] = zones
-        host = self._host
-        zones.attach(getattr(host, "session_manager", None), on_change=getattr(host, "_changed", None))
-        if zones.sm is not None and getattr(host, "bus", None) is not None:
-            zones.start()  # Kid mode's hours (with Sonorium's plugin host; not in tests)
         service.add_routes(PLUGIN_ID, create_router(service), PERMISSIONS)
-        service.register_ui(PLUGIN_ID, self.plugin_dir / "web", js="users.js", css="users.css", version=self.version)
-        service.register_ui(ZONES_UI, self.plugin_dir / "web", js="zones.js", css="zones.css", version=self.version)
         service.register_authenticator(PLUGIN_ID, UsersAuth(accounts, zones), provider=True)
-        logger.info("Users: sign-in is on" + ("" if accounts.require_login else " (Require login is off)")
-                    + ("; zones are on" if zones.enabled else ""))
+    except Exception as e:
+        logger.error(f"Users: the accounts could not be loaded ({e}). Sign-in stays closed: only streams answer. "
+                     "To get in anyway, set BYPASS_LOGIN (Docker) or bypass_login (add-on) to true.")
+        return None
+    logger.info("Users: sign-in is on" + ("" if accounts.require_login else " (Require login is off)")
+                + ("; zones are on" if zones.enabled else ""))
+    return accounts
 
-    async def on_disable(self) -> None:
-        service = self._auth()
-        if service is not None:
-            zones = service.plugin_state.get(ZONES_STATE)
-            if zones is not None:
-                zones.detach()  # channels are open again
-            service.unregister(ZONES_UI)
-            service.unregister(PLUGIN_ID)
-            if service.ready:
-                logger.warning("Users: switched off. Sonorium is open to anyone on your network.")
-            else:  # plugins reloading: sign-in stays closed until they are back (manager.reload_plugins)
-                logger.debug("Users: reloading")
+
+def attach_zones(service, session_manager, on_change=None, timers: bool = True) -> None:
+    """Once the channels exist: Zones' policy on them, and Kid mode's hours (timers)."""
+    zones = service.plugin_state.get(ZONES_STATE)
+    if zones is None:
+        return
+    zones.attach(session_manager, on_change=on_change)
+    if zones.sm is not None and timers:
+        zones.start()

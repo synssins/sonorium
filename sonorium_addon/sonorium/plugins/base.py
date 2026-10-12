@@ -416,7 +416,7 @@ class BasePlugin(ABC):
             "author": self.author,
             "enabled": self.enabled,
             "builtin": self._builtin,
-            # Guards sign-in (the Users plugin): switching it off opens Sonorium
+            # Guards sign-in (no plugin does since Users became part of Sonorium)
             "auth_provider": bool(self._manifest.get("auth_provider")),
             "settings": self.settings,
             "ui_schema": self.get_ui_schema(),

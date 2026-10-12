@@ -529,24 +529,25 @@ def test_announcements_off_refuses_every_route_and_keeps_the_channel_setting(w):
 # --- Retired built-in plugins (Integration, Announcements: core features now) ---
 
 def test_leftover_copies_of_retired_builtins_are_removed_and_never_loaded(w):
-    for plugin_id, name in (("integration", "Integration"), ("announcements", "Announcements")):
+    for plugin_id, name in (("integration", "Integration"), ("announcements", "Announcements"), ("users", "Users")):
         folder = w.plugins_dir / plugin_id
         folder.mkdir()
         (folder / "manifest.json").write_text(json.dumps({"id": plugin_id, "name": name, "version": "1.0.1",
                                                           "builtin": True, "enabled_by_default": True}))
         (folder / "plugin.py").write_text("raise SystemExit('a retired plugin must never run')\n")
     settings = w.t.store.settings
-    settings.enabled_plugins += ["integration", "announcements"]
-    settings.known_builtin_plugins += ["integration", "announcements"]
+    settings.enabled_plugins += ["integration", "announcements", "users"]
+    settings.known_builtin_plugins += ["integration", "announcements", "users"]
     settings.deleted_builtin_plugins.append("integration")
     settings.plugin_settings["announcements"] = {"tts_engine": "tts.piper"}
     alerts_before = len(m.alerts.active())
     w.call(w.manager.reload_plugins)
-    assert not (w.plugins_dir / "integration").exists() and not (w.plugins_dir / "announcements").exists()
+    for retired in ("integration", "announcements", "users"):
+        assert not (w.plugins_dir / retired).exists()
     ids = {p["id"] for p in w.manager.list_plugins()}
-    assert "integration" not in ids and "announcements" not in ids and "remote" in ids
+    assert not {"integration", "announcements", "users"} & ids and "remote" in ids
     for listed in (settings.enabled_plugins, settings.known_builtin_plugins, settings.deleted_builtin_plugins):
-        assert "integration" not in listed and "announcements" not in listed
+        assert not {"integration", "announcements", "users"} & set(listed)
     assert "announcements" not in settings.plugin_settings
     assert len(m.alerts.active()) == alerts_before and not w.manager.refused  # no errors for them
 

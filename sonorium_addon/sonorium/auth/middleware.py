@@ -5,18 +5,18 @@ The caller (auth/principal.py), first match wins:
 
     ingress    add-on only: the ingress port (8099), from the Supervisor's
                address. HA's sidebar: HA has signed the user in; full access.
-               A sign-in plugin may attach the HA user's account.
+               Users (users.py) attach the HA user's account.
     console    "Authorization: Bearer sc_..." from this computer only, when
                SONORIUM_CONSOLE_TOKEN_FILE is set (auth/console.py): full access.
     device     "Authorization: Bearer sd_..." a phone linked with Link App:
-               full access less managing users, devices and keys; with the
-               Users plugin, what its user may do.
-    plugins    their authenticate() hook: the Users plugin's browser
-               sessions; keys (auth/keys.py, a core feature) the same way.
+               full access less managing users, devices and keys; with
+               accounts (users.py), what its user may do.
+    sessions   the authenticate() hooks: browser sessions (users.py) and
+               keys (keys.py).
     bypass     BYPASS_LOGIN / bypass_login is on: the web UI needs no sign-in.
-    fallback   a plugin's fallback() (the Users plugin: open access while
-               Require login is off, else nobody), or with no sign-in plugin
-               "local": full access, Sonorium's behaviour without accounts.
+    fallback   the fallback() hook (users.py: open access while Require
+               login is off, else nobody), or with no accounts loaded "local":
+               full access, Sonorium's behaviour without accounts.
 
 Then the route's permission (auth/permissions.py) decides. Routes that by
 design need a token (plugin triggers, the event stream) check it themselves.
@@ -245,7 +245,7 @@ class AuthMiddleware:
             if not service.ready:
                 return 503, {"detail": "Sonorium is starting", "starting": True}
             if service.closed:
-                return 503, {"detail": "The sign-in plugin didn't start. See Logs.", "closed": True}
+                return 503, {"detail": "Sign-in didn't start. See Logs.", "closed": True}
             if principal.listener != "ingress" and config.web_ui_only_through_ha():
                 return 401, {"detail": "A key or a linked phone is needed"}
             body = {"detail": "Sign in first", "login": True}

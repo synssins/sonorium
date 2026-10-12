@@ -18,7 +18,7 @@ Playing sounds over channels: announcements, alerts and sound effects
 - Speakers muted is respected: a muted channel's speakers don't hear the
   sound (a browser listening does), and a stopped muted channel isn't woken.
 - Gates (add_gate) may refuse a sound on a channel, e.g. a zone's quiet hours
-  (the Users plugin). A sound with override=True (an admin, Home Assistant,
+  (core/zones.py). A sound with override=True (an admin, Home Assistant,
   MQTT) skips them.
 
 Events: sound.started and sound.ended for each channel (core events

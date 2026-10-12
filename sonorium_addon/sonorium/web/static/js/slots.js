@@ -119,8 +119,8 @@
         },
 
         // The framework's renderers (static/js/ext/), in order
-        CORE: ['core', 'pages', 'commandmaps', 'connections', 'alerts', 'outputs', 'keys'],
-        CORE_CSS: ['ext', 'keys'],
+        CORE: ['users', 'zones', 'core', 'pages', 'commandmaps', 'connections', 'alerts', 'outputs', 'keys'],
+        CORE_CSS: ['users', 'zones', 'ext', 'keys'],
 
         async loadCore() {
             for (const name of S.CORE_CSS) {
