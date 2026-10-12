@@ -18,7 +18,7 @@ Playing sounds over channels: announcements, alerts and sound effects
 - Speakers muted is respected: a muted channel's speakers don't hear the
   sound (a browser listening does), and a stopped muted channel isn't woken.
 - Gates (add_gate) may refuse a sound on a channel, e.g. a zone's quiet hours
-  (the Users plugin). A sound with override=True (an admin, Home Assistant,
+  (core/zones.py). A sound with override=True (an admin, Home Assistant,
   MQTT) skips them.
 
 Events: sound.started and sound.ended for each channel (core events
@@ -147,6 +147,9 @@ class OverlayService:
         (with the reason). An announcement skips channels with announcements
         off (ANNOUNCEMENTS_OFF). OverlayError / decode.DecodeError for a bad request.
         """
+        if announcement:
+            from sonorium.core.announce import check_on
+            check_on()  # Settings > Advanced > Announcements off: AnnouncementsOff
         if isinstance(channels, str):
             channels = [channels]
         if not isinstance(channels, (list, tuple)) or not channels or len(channels) > MAX_CHANNELS_PER_SOUND:

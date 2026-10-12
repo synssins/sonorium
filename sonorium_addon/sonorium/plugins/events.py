@@ -169,7 +169,7 @@ CATALOGUE: dict[str, dict] = {
                    "theme_id": "The entry's theme id"},
         "summary": "{name}: entry {position} of {entries}",
     },
-    # --- Zones and links (the Users plugin; Settings > Advanced > Zones) ---
+    # --- Zones and links (core/zones.py; Settings > Advanced > Zones) ---
     "zone.switched": {
         "description": "Zones were switched on or off (Settings > Advanced).",
         "fields": {"on": "True when zones are on"},

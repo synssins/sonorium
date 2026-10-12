@@ -21,7 +21,7 @@ def console_module():
 
 @pytest.fixture
 def cw(tmp_path, monkeypatch):
-    """Sign-in with the Users and Integration plugins, an admin, and a console credential."""
+    """Sign-in with accounts and Keys, an admin, and a console credential."""
     token_file = tmp_path / "host" / "console.token"
     monkeypatch.setenv("SONORIUM_CONSOLE_TOKEN_FILE", str(token_file))
     w = World(tmp_path, monkeypatch)
@@ -95,7 +95,7 @@ def test_console_never_listed_or_revocable(cw):
 
 
 def test_console_not_affected_by_switching_keys_off(cw):
-    cw.disable("integration")
+    m.keys.set_enabled(cw.service, False)  # Settings > Advanced > Keys off
     assert cw.local().get("/api/sessions", headers=H(cw.token)).json()["kind"] == "console"
 
 
@@ -122,6 +122,6 @@ def test_console_token_rotation(cw):
 
 def test_console_ensure_does_nothing_without_the_variable(tmp_path, monkeypatch):
     monkeypatch.delenv("SONORIUM_CONSOLE_TOKEN_FILE", raising=False)
-    w = World(tmp_path, monkeypatch, plugins=())
+    w = World(tmp_path, monkeypatch, users=False)
     assert console_module().ensure(w.service) is None
     assert not list(w.service.tokens.list("console"))

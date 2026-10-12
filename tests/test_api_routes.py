@@ -47,6 +47,7 @@ APP_ROUTES = [
     ('APIRoute', 'GET', '/stream/{id}', 'stream'),
     ('APIRoute', 'GET', '/api/themes', 'list_themes'),
     ('APIRoute', 'POST', '/api/themes/refresh', 'refresh_themes'),
+    ('APIRoute', 'GET', '/api/themes/packages', 'list_theme_packages'),
     ('APIRoute', 'POST', '/api/themes/{theme_id}/favorite', 'toggle_favorite'),
     ('APIRoute', 'GET', '/api/themes/{theme_id}', 'get_theme'),
     ('APIRoute', 'GET', '/api/themes/{theme_id}/tracks', 'get_theme_tracks'),
@@ -205,6 +206,10 @@ V2_ROUTES = [
     ('APIRoute', 'DELETE', '/api/sessions/{session_id}/outputs/{output_id}', 'remove_session_output'),
     ('APIRoute', 'PUT', '/api/speakers/{speaker_id}/volume', 'set_speaker_volume'),
     ('APIRoute', 'PUT', '/api/speakers/{speaker_id}/muted', 'set_speaker_muted'),
+    # Theme packages for offline playback (web/theme_package_routes.py)
+    ('APIRoute', 'GET', '/api/themes/{theme_id}/package', 'get_theme_package'),
+    ('APIRoute', 'GET', '/api/themes/{theme_id}/files/{path:path}', 'get_theme_file'),
+    ('APIRoute', 'POST', '/api/themes/{theme_id}/render', 'render_theme'),
     # The personal channel (web/personal_routes.py)
     ('APIRoute', 'GET', '/api/me/channel', 'get_personal_channel'),
     ('APIRoute', 'PUT', '/api/me/channel', 'update_personal_channel'),

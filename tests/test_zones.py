@@ -27,7 +27,6 @@ pytest.importorskip("segno")
 from playback_helpers import PACKAGE, addon_modules  # noqa: E402
 
 m = SimpleNamespace()
-BUILTIN = PACKAGE / "plugins" / "builtin"
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -37,7 +36,7 @@ def modules():
                        "sonorium.plugins.loader", "sonorium.plugins.events", "sonorium.runtime",
                        "sonorium.core.session_manager", "sonorium.core.state", "sonorium.core.channel_policy",
                        "sonorium.core.playback_runner", "sonorium.core.sequences", "sonorium.core.playlists",
-                       "sonorium.core.outputs") as mods:
+                       "sonorium.core.outputs", "sonorium.auth.users", "sonorium.core.zones") as mods:
         m.__dict__.update(mods.__dict__)
         yield
 
@@ -146,7 +145,7 @@ class World:
         store.playlists["pl"] = {"name": "Mix", "order": "in_order", "repeat": True, "play_min": 60,
                                  "play_max": 60, "entries": [{"theme_id": "forest"}]}
 
-        # Sign-in with the Users plugin
+        # Sign-in with Users (auth/users.py)
         self.service = s = m.service.AuthService(tmp_path)
         self.app = app = FastAPI()
         s.app = app
@@ -155,13 +154,9 @@ class World:
             s, stream_url=lambda: "http://192.168.1.5:8008", features=lambda: {}, version="test",
             https_host_port=lambda: 8808))
         s.note_install()
-        folder = BUILTIN / "users"
-        manifest = json.loads((folder / "manifest.json").read_text())
-        plugin = m.loader.load_plugin_class(folder, manifest)(plugin_dir=folder, settings={}, audio_path=None)
-        plugin._host = SimpleNamespace(auth=s, session_manager=sm)
-        asyncio.run(plugin.on_enable())
+        assert m.users.install(s) is not None
+        m.users.attach_zones(s, sm, timers=False)
         s.mark_ready()
-        self.plugin = plugin
         self.zones = s.plugin_state["users.zones"]
         self.clock = Clock()
         self.zones.now = self.clock

@@ -1,6 +1,6 @@
 """
 The hook a plugin uses to decide who may change a channel and which speakers
-it plays on (Zones, in the built-in Users plugin).
+it plays on (Zones, core/zones.py).
 
 SessionManager.policy is None by default: every channel is open and plays on
 every speaker it has, Sonorium's behaviour without zones. A policy is any

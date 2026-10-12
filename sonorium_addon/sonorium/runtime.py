@@ -48,10 +48,15 @@ FEATURES = {
     "space_editing": {"addon": "hidden", "default": "on"},
     # Plugins may install Python packages from the internet (plugins/packages.py)
     "plugin_packages": {"default": "off"},
+    # Keys for devices and programs (auth/keys.py): on, switched off in Advanced; applies at once
+    "keys": {"default": "on", "advanced": True, "live": True},
+    # Announcements from Home Assistant, MQTT, the API and plugins (core/announce.py,
+    # ha/announcements.py): on, switched off in Advanced; applies at once
+    "announcements": {"default": "on", "advanced": True, "live": True},
 }
 
 # "On" features that can still be switched off through PUT /api/install/features
-# (e.g. by a host's console); Settings > Advanced lists only the "off" ones
+# (e.g. by a host's console); Settings > Advanced lists the "off" ones and "advanced" ones
 SWITCH_OFF_ALLOWED = {"network_speakers"}
 
 
@@ -60,30 +65,40 @@ def feature_state(name: str) -> str:
     return states.get(INSTALL, states["default"])
 
 
+def feature_overridable(name: str) -> bool:
+    """Shown in Settings > Advanced: an "off" feature, or an "on" one marked "advanced" (Keys, Announcements)."""
+    state = feature_state(name)
+    return state == "off" or (state == "on" and bool(FEATURES[name].get("advanced")))
+
+
 def feature_switchable(name: str) -> bool:
     """Whether PUT /api/install/features may change the feature here."""
     state = feature_state(name)
-    return state == "off" or (state == "on" and name in SWITCH_OFF_ALLOWED)
+    return feature_overridable(name) or (state == "on" and name in SWITCH_OFF_ALLOWED)
 
 
 def feature_enabled(name: str, overrides: dict | None = None) -> bool:
     """Whether a feature runs: its default here, or its override (Advanced, or the install features API)."""
     state = feature_state(name)
-    if state == "off":
-        return bool((overrides or {}).get(name, False))
-    if state == "on" and name in SWITCH_OFF_ALLOWED:
-        return bool((overrides or {}).get(name, True))
+    if feature_switchable(name):
+        return bool((overrides or {}).get(name, state == "on"))
     return state == "on"
 
 
 def features(overrides: dict | None = None) -> dict:
-    """Every feature for the web UI: shown at all, running, in Advanced, and switchable through the API."""
+    """
+    Every feature for the web UI and the app: shown at all, running, shown in
+    Advanced ("overridable"), switchable through the API, on out of the box
+    ("default") and whether a change applies at once ("live") or after a restart.
+    """
     return {
         name: {
             "available": feature_state(name) != "hidden",
             "enabled": feature_enabled(name, overrides),
-            "overridable": feature_state(name) == "off",
+            "overridable": feature_overridable(name),
             "switchable": feature_switchable(name),
+            "default": feature_state(name) == "on",
+            "live": bool(FEATURES[name].get("live")),
         }
         for name in FEATURES
     }
@@ -252,7 +267,13 @@ def _helper_secret(name: str):
                     break
             value = value or None
         elif result.returncode == 1:
-            _logger().warning(f"Secret helper has no {name} (or couldn't read it): it is treated as not set")
+            # Exit 1 = nothing stored (normal on a new install). A helper that has the secret but
+            # can't read it (e.g. moved to another PC) says why on stderr: that is worth a warning.
+            reason = result.stderr.decode("utf-8", "replace").strip()
+            if reason:
+                _logger().warning(f"Secret helper couldn't read {name} ({reason}): it is treated as not set")
+            else:
+                _logger().debug(f"Secret helper has no {name}")
         else:
             _logger().error(f"Secret helper: 'get {name}' failed ({_helper_error(result)}): treated as not set")
     except Exception as e:  # no such program, timeout

@@ -20,6 +20,8 @@ from sonorium.plugins.loader import (
     instantiate_plugin,
     save_manifest,
     copy_builtin_plugins,
+    remove_retired_plugins,
+    RETIRED_BUILTIN_PLUGINS,
 )
 from sonorium.plugins.settings_schema import effective_settings, validate_settings
 from sonorium.obs import logger
@@ -80,6 +82,13 @@ class PluginManager:
 
         # Ensure plugins directory exists
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
+
+        # Built-in plugins that are part of Sonorium now (Keys, Announcements): their old copies go
+        settings = self.state_store.settings
+        had = [n for n in ("enabled_plugins", "known_builtin_plugins", "deleted_builtin_plugins")
+               if set(getattr(settings, n, None) or []) & set(RETIRED_BUILTIN_PLUGINS)]
+        if remove_retired_plugins(self.plugins_dir, settings) or had:
+            self.state_store.save()
 
         # Copy built-in plugins to user directory if not present
         # Skip plugins that the user has deliberately deleted
@@ -211,30 +220,17 @@ class PluginManager:
             pass
 
     async def reload_plugins(self) -> None:
-        """
-        Reload all plugins. Sign-in stays closed meanwhile (only public routes
-        answer): the Users plugin is off between its unload and its load, and
-        without this Sonorium would be open to anyone for that time.
-        """
-        auth = getattr(self.host, "auth", None) if self.host is not None else None
-        if auth is not None:
-            auth.ready = False
-        try:
-            # Unload existing plugins
-            for plugin_id in list(self.plugins.keys()):
-                await self._unload_plugin(plugin_id)
+        """Reload all plugins (sign-in is part of Sonorium, so it isn't touched)."""
+        # Unload existing plugins
+        for plugin_id in list(self.plugins.keys()):
+            await self._unload_plugin(plugin_id)
 
-            self.plugins.clear()
-            self.refused.clear()
-            self._initialized = False
+        self.plugins.clear()
+        self.refused.clear()
+        self._initialized = False
 
-            # Reinitialize
-            await self.initialize()
-        finally:
-            if auth is not None:
-                # As at start-up: a sign-in plugin that is switched on but didn't load keeps it closed
-                auth.find_expected_providers(self.plugins_dir)
-                auth.mark_ready()
+        # Reinitialize
+        await self.initialize()
 
     async def _unload_plugin(self, plugin_id: str) -> None:
         """Unload a single plugin."""

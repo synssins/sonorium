@@ -59,7 +59,7 @@ async function init() {
         // A page this caller can't open (another user's last page, an uninstalled plugin's page)
         if (!/^[a-z0-9-]+$/.test(savedView)) savedView = 'sessions';
         const savedNav = document.querySelector(`[onclick="showView('${savedView}')"]`);
-        if (!document.getElementById('view-' + savedView) || (savedNav && savedNav.classList.contains('perm-hidden'))) {
+        if (!document.getElementById('view-' + savedView) || (savedNav && (savedNav.classList.contains('perm-hidden') || savedNav.style.display === 'none'))) {
             savedView = 'sessions';
         }
 
@@ -5430,8 +5430,28 @@ const ADVANCED_FEATURES = {
     plugin_packages: {
         label: 'Plugin packages',
         hint: "Plugins may install Python packages from the internet. Packages run with Sonorium's rights: allow only for plugins you trust."
+    },
+    keys: {
+        label: 'Keys',
+        hint: 'Devices and programs can use keys with only the access you check.'
+    },
+    announcements: {
+        label: 'Announcements',
+        hint: 'Home Assistant, MQTT and other systems can play announcements on channels.'
     }
 };
+
+// Menu items of features switched off in Settings › Advanced (Keys)
+const FEATURE_NAV = { keys: 'nav-plugin-keys' };
+
+function applyFeatureNav() {
+    if (!installInfo) return;
+    Object.entries(FEATURE_NAV).forEach(([name, id]) => {
+        const item = document.getElementById(id);
+        if (item) item.style.display = installInfo.features[name]?.enabled === false ? 'none' : '';
+    });
+    if (window.Sonorium) Sonorium.applyPerms();
+}
 
 async function loadInstallInfo() {
     try {
@@ -5444,6 +5464,7 @@ async function loadInstallInfo() {
         label.textContent = installInfo.label;
         label.hidden = false;
     }
+    applyFeatureNav();
 }
 
 function hasAdvancedSettings() {
@@ -5470,13 +5491,14 @@ function renderAdvancedSettings() {
     body.innerHTML = names.map(name => {
         const f = ADVANCED_FEATURES[name];
         const on = !!installInfo.features[name].enabled;
-        const changed = on !== advancedRunning[name];
+        // A live feature (Keys, Announcements) applies at once: never "Restart to apply"
+        const changed = !installInfo.features[name].live && on !== advancedRunning[name];
         pending = pending || changed;
         return `
             <div class="sp-lrow spa-grid">
                 <label class="spa-name" for="adv-${name}">${escapeHtml(f.label)}</label>
                 <span class="spa-desc" title="${escapeHtml(f.hint)}">${escapeHtml(f.hint)}</span>
-                <span class="c spa-def"><span class="badge badge-type">Off</span></span>
+                <span class="c spa-def"><span class="badge badge-type">${installInfo.features[name].default ? 'On' : 'Off'}</span></span>
                 <span class="spa-pend">${changed ? '<span class="badge sp-badge-warn" title="Takes effect after a restart"><i></i>Restart to apply</span>' : ''}</span>
                 <label class="toggle-switch c spa-tog" title="${on ? 'On' : 'Off'}">
                     <input type="checkbox" id="adv-${name}" aria-label="${escapeHtml(f.label)}" ${on ? 'checked' : ''} ${advancedBusy ? 'disabled' : ''}
@@ -5499,6 +5521,7 @@ async function setAdvancedFeature(name, on) {
     } catch (error) {
         showToast(error.message, 'error');
     }
+    applyFeatureNav();
     renderAdvancedSettings();
 }
 
@@ -9873,9 +9896,9 @@ const PAGE_HELP = {
         ${helpTerm('Speaker Groups', 'saved sets of speakers for channels.')}
         ${helpTerm('Plugins', 'extras that add features.')}
         ${helpTerm('Logs', 'recent messages from Sonorium.')}
-        ${helpTerm('Users &amp; devices', 'who can sign in, and their phones and browsers. Shown to admins while the Users plugin is on.')}
-        ${helpTerm('Keys', 'keys that let devices and programs use Sonorium. Shown to admins while the Integration plugin is on.')}
-        ${helpTerm('Advanced', 'features that are off by default. Shown on installs that have them.')}` },
+        ${helpTerm('Users &amp; devices', 'who can sign in, and their phones and browsers. Shown to admins.')}
+        ${helpTerm('Keys', 'keys that let devices and programs use Sonorium. Shown to admins while Keys are on in Advanced.')}
+        ${helpTerm('Advanced', 'features you can switch on or off, and the values playback uses.')}` },
 
     'settings-connection': { title: 'Connection', html: `
         <p>Every system Sonorium connects to: Home Assistant and your MQTT broker, and the ones plugins add (marked Plugin).</p>
@@ -9974,13 +9997,15 @@ const PAGE_HELP = {
         ${helpTerm('Download', 'saves recent log messages as a text file.')}` },
 
     'settings-advanced': { title: 'Advanced', html: `
-        <p>Features this install has off by default, and the values playback uses.</p>
+        <p>Features you can switch on or off, and the values playback uses.</p>
         <h4>Features</h4>
-        ${helpTerm('On', 'turns the feature on or off. A change needs a restart.')}
+        ${helpTerm('On', 'turns the feature on or off. Keys and Announcements change at once; the others need a restart.')}
         ${helpTerm('Default', 'the setting out of the box.')}
         ${helpTerm('Restart to apply', 'marks a feature changed since the last restart.')}
         ${helpTerm('Network speakers', 'adds speakers by IP address, outside Home Assistant.')}
         ${helpTerm('Plugin packages', 'lets plugins install the Python packages they ask for. Packages come from the internet and run with the same rights as Sonorium.')}
+        ${helpTerm('Keys', 'devices and programs can use keys with only the access you check. Off: no key works and Settings › Keys is hidden; the keys are kept for when it is back on.')}
+        ${helpTerm('Announcements', 'Home Assistant, MQTT and other systems can play announcements on channels. Off: none plays, and the Announce entities leave Home Assistant.')}
         <h4>Playback values</h4>
         ${helpTerm('Value', 'used by every theme, unless a track or group sets its own. Saved as you change it; playing channels follow.')}
         ${helpTerm('Default', 'the value out of the box. The arrow puts it back.')}

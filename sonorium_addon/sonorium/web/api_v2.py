@@ -222,7 +222,7 @@ class PluginResponse(BaseModel):
     author: str
     enabled: bool
     builtin: bool = False
-    auth_provider: bool = False  # the Users plugin: switching it off opens Sonorium
+    auth_provider: bool = False  # guards sign-in (no plugin does now)
     settings: dict
     ui_schema: dict
     settings_schema: dict
@@ -2207,6 +2207,9 @@ def create_api_router(
                     # The file is there and plays as a track without settings would
                     logger.warning(f"Theme '{theme_id}': '{key}' uploaded, but it couldn't be made Unassigned ({e})")
 
+            # theme.changed even when no settings were written (a file uploaded over one)
+            from sonorium.core.theme_presets import theme_changed
+            theme_changed(theme_path)
             where = f" in group '{group_name}'" if group_name else ""
             logger.info(f"Uploaded file to theme '{theme_id}'{where}: {filename} ({len(content)} bytes)")
             if on_themes_changed:
@@ -2247,10 +2250,12 @@ def create_api_router(
             if not mp.exists():
                 continue
 
-            # Try exact match first (folder name = theme_id)
-            exact_path = mp / theme_id
-            if exact_path.exists():
-                return exact_path
+            # Try exact match first (folder name = theme_id); only a folder
+            # directly inside the audio folder ("..", "." and paths never match)
+            if theme_id not in ("", ".", "..") and "/" not in theme_id and "\\" not in theme_id:
+                exact_path = mp / theme_id
+                if exact_path.is_dir():
+                    return exact_path
 
             # Scan folders for UUID match in metadata.json or sanitized name match
             for folder in mp.iterdir():
@@ -2370,75 +2375,52 @@ def create_api_router(
     @router.get("/themes/{theme_id}/export")
     async def export_theme(theme_id: str):
         """Export a theme as a zip file containing all audio files and metadata."""
-        import zipfile
-        import io
-        from fastapi.responses import StreamingResponse
+        import os
+        import tempfile
+        from fastapi.concurrency import run_in_threadpool
+        from fastapi.responses import FileResponse
+        from starlette.background import BackgroundTask
+        from sonorium.core import theme_package
 
         theme_path = _find_theme_folder(theme_id)
         if not theme_path:
             raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
 
+        # The package's files (core/theme_package.py): the theme folder, its
+        # linked files copied in where they sit, and metadata.json (2.0 layout,
+        # links dropped, their settings kept) plus presets.json. Written to a
+        # temporary file, sent with its Content-Length, then deleted.
+        def build() -> str:
+            package = theme_package.build_package(theme_path)
+            fd, tmp = tempfile.mkstemp(prefix="sonorium-export-", suffix=".zip")
+            try:
+                with os.fdopen(fd, "wb") as out:
+                    theme_package.write_zip(package, out)
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+            return tmp
+
+        def remove(path: str) -> None:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
         try:
-            # Create zip in memory
-            zip_buffer = io.BytesIO()
-            theme_name = theme_path.name
-
-            import json
-            from sonorium.core.theme_metadata import theme_documents_for_export
-            from sonorium.core.theme_presets import METADATA_FILE, PRESETS_FILE
-
-            def is_theme_json(path):
-                # The theme's own JSON files, their backups and broken copies
-                if path.parent != theme_path:
-                    return False
-                return any(path.name == base or path.name.startswith(base + ".")
-                           for base in (METADATA_FILE, PRESETS_FILE))
-
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                # Walk through all files in the theme folder
-                for file_path in theme_path.rglob('*'):
-                    if file_path.is_file() and not is_theme_json(file_path):
-                        # Use relative path within the theme folder
-                        arcname = f"{theme_name}/{file_path.relative_to(theme_path)}"
-                        zip_file.write(file_path, arcname)
-                        logger.debug(f"Added to zip: {arcname}")
-
-                # Always the 2.0 layout: metadata.json without presets, plus presets.json
-                metadata_doc, presets_doc = theme_documents_for_export(theme_path)
-
-                # Self-contained: the linked files (they live in other themes'
-                # folders) go in as normal files where they sit (the theme folder
-                # or their group's), the links are dropped and their settings kept
-                # under the same keys
-                from sonorium.core.intrusions import export_entries
-                for relative, source in export_entries(theme_path, metadata_doc):
-                    zip_file.write(source, f"{theme_name}/{relative}")
-                    logger.debug(f"Added linked file to zip: {relative} (from {source})")
-
-                zip_file.writestr(f"{theme_name}/{METADATA_FILE}",
-                                  json.dumps(metadata_doc, indent=2, ensure_ascii=False))
-                zip_file.writestr(f"{theme_name}/{PRESETS_FILE}",
-                                  json.dumps(presets_doc, indent=2, ensure_ascii=False))
-
-            zip_buffer.seek(0)
-
-            # Generate filename
-            safe_name = "".join(c if c.isalnum() or c in "._- " else "_" for c in theme_name)
-            filename = f"{safe_name}.zip"
-
-            logger.info(f"Exported theme '{theme_name}' as {filename}")
-
-            return StreamingResponse(
-                zip_buffer,
-                media_type="application/zip",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{filename}"'
-                }
-            )
-
+            tmp = await run_in_threadpool(build)
         except Exception as e:
             logger.error(f"Failed to export theme: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+
+        safe_name = "".join(c if c.isalnum() or c in "._- " else "_" for c in theme_path.name)
+        filename = f"{safe_name}.zip"
+        logger.info(f"Exported theme '{theme_path.name}' as {filename}")
+        return FileResponse(tmp, media_type="application/zip", filename=filename,
+                            content_disposition_type="attachment", background=BackgroundTask(remove, tmp))
 
     @router.post("/themes/import")
     async def import_theme(request: Request):
@@ -3151,6 +3133,10 @@ def create_api_router(
     # The Sonorium app's routes (docs/APP_API.md section 13)
     from sonorium.web.app_routes import add_app_routes
     add_app_routes(router, session_manager=session_manager, ha_registry=ha_registry, speaker_live=speaker_live)
+
+    # Theme packages for offline playback (web/theme_package_routes.py)
+    from sonorium.web.theme_package_routes import add_theme_package_routes
+    add_theme_package_routes(router, find_theme_folder=_find_theme_folder)
 
     # The personal channel: one hidden, local-only channel per account (web/personal_routes.py)
     from sonorium.web.personal_routes import add_personal_routes

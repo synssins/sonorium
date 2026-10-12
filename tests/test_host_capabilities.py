@@ -365,7 +365,7 @@ def test_secret_helper_without_a_secret_is_not_set(secrets_env, caplog):
     with caplog.at_level(logging.WARNING):
         rt.save_connection({"ha_url": "http://ha:8123"})
         assert rt.load_connection() == {"ha_url": "http://ha:8123"}
-    assert "has no ha_token" in caplog.text
+    assert "ha_token" not in caplog.text  # nothing stored yet is normal: no warning
     # asked once per run
     rt.load_connection()
     log = (Path(str(env.store) + ".log")).read_text().split("\n")

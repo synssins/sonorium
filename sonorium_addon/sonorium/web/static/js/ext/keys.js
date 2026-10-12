@@ -1,6 +1,7 @@
-/* Integration plugin: Settings › Keys (boards: Auth_Key_List, Auth_Keys,
- * Auth_Key_Edit, Auth_Key_Made). Fills the core's web UI slots
- * (static/js/slots.js). */
+/* Keys: Settings › Keys (boards: Auth_Key_List, Auth_Keys, Auth_Key_Edit,
+ * Auth_Key_Made), a core feature (sonorium/auth/keys.py). Fills the web UI's
+ * settings page slot (static/js/slots.js); app.js hides the page while Keys
+ * are switched off in Settings › Advanced. Styles: static/css/keys.css. */
 (function () {
     const S = window.Sonorium;
     if (!S) return;
@@ -264,7 +265,7 @@
         ${term('Key issued', 'shows the key once. Copy it and keep it somewhere safe.')}
         ${term('Using a key', 'send it in the Authorization header as Bearer and the key, or in the X-Sonorium-Token header.')}` };
 
-    S.register('integration', {
+    S.register('keys', {
         settingsPages: [{
             id: 'keys', label: 'Keys', title: 'Keys', perm: 'admin.keys', icon: svg(P_KEY), help: KEYS_HELP,
             render(el) {

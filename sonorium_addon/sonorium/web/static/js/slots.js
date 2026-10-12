@@ -119,13 +119,16 @@
         },
 
         // The framework's renderers (static/js/ext/), in order
-        CORE: ['core', 'pages', 'commandmaps', 'connections', 'alerts', 'outputs'],
+        CORE: ['users', 'zones', 'core', 'pages', 'commandmaps', 'connections', 'alerts', 'outputs', 'keys'],
+        CORE_CSS: ['users', 'zones', 'ext', 'keys'],
 
         async loadCore() {
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = BASE + '/static/css/ext.css';
-            document.head.appendChild(link);
+            for (const name of S.CORE_CSS) {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = `${BASE}/static/css/${name}.css`;
+                document.head.appendChild(link);
+            }
             for (const name of S.CORE) {
                 await new Promise(resolve => {
                     const script = document.createElement('script');

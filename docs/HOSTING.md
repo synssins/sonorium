@@ -116,7 +116,8 @@ PUT /api/install/features
 
 It needs the right to change settings (`st.change`; the console has it). The answer is `GET /api/install`'s, plus `"restarting"`; each
 feature there has `"switchable": true` when this route may change it, and
-`"enabled"` says whether it will run after the restart.
+`"enabled"` says whether it will run after the restart. Features with
+`"live": true` (`keys`, `announcements`) change at once, without a restart.
 
 ## Stopping without a clean shutdown
 

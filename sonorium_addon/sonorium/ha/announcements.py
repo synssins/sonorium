@@ -1,8 +1,9 @@
 """
-Announcements from Home Assistant and MQTT (built-in plugin).
+Announcements from Home Assistant and MQTT (a core feature, with the
+Announcements switch in Settings > Advanced; on out of the box).
 
 Sonorium doesn't decide when to announce: other systems send it announcements
-and it plays them (core/announce.py). This plugin gives two of the routes:
+and it plays them (core/announce.py). This module gives two of the routes:
 
 - Home Assistant: each channel gets a notify entity over MQTT ("Kitchen
   Announce"). A message sent to it (notify.send_message) is spoken on the
@@ -15,16 +16,18 @@ and it plays them (core/announce.py). This plugin gives two of the routes:
    "url": "https://.../chime.mp3", "volume": 80, "duck": 18}: a chime and/or
   spoken text. sonorium/announce/<channel id>/set takes the text alone (or
   the same JSON without "channels") for one channel.
-- Home Assistant's text to speech is offered to the rest of Sonorium as the
-  "homeassistant" provider (POST /api/announce, plugins).
+
+Home Assistant's text to speech is offered to the rest of Sonorium as the
+"homeassistant" provider (POST /api/announce, plugins), whether the switch is
+on or off.
 
 Home Assistant and MQTT act as an admin: an announcement overrides a zone's
-owner and quiet hours, and starts a stopped channel for its length (set
-"Announce on stopped channels" off to skip stopped channels). A channel with
-its Announcements setting off is skipped.
+owner and quiet hours, and starts a stopped channel for its length. A channel
+with its Announcements setting off is skipped.
 
-Every announcement takes the same path (sonorium/core/announce.py) through
-the plugin API 1.1 services: self.audio, self.mqtt, self.homeassistant.
+Switched off (set_enabled(False), applies at once): the notify entities are
+removed from Home Assistant and the topics aren't listened to; switched back
+on, they come back.
 """
 from __future__ import annotations
 
@@ -32,34 +35,24 @@ import json
 import re
 
 from sonorium.obs import logger
-from sonorium.plugins.actions import ActionError
-from sonorium.plugins.base import BasePlugin
 
+OWNER = "core.announcements"   # its MQTT and event subscriptions (a plugin id can't contain ".")
 PROVIDER = "homeassistant"
 CHANNEL_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+VOLUME = 100
 
 
-class AnnouncementsPlugin(BasePlugin):
-    id = "announcements"
-    name = "Announcements"
-    version = "1.0.1"
-    description = "Home Assistant and MQTT announce on channels: a notify entity per channel, spoken with its text to speech"
-    author = "Sonorium"
+class Announcements:
+    """host: the plugin host's services (mqtt, homeassistant, tts, overlay, actions, bus)."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, host):
+        self.host = host
+        self.enabled = False
         self._published: set[str] = set()
 
-    def get_settings_schema(self) -> dict:
-        return {
-            "tts_engine": {"type": "string", "label": "Text to speech engine", "default": "",
-                           "placeholder": "tts.google_translate_en_com",
-                           "help": "A tts.* entity of Home Assistant. Empty: its first one."},
-            "language": {"type": "string", "label": "Language", "default": "", "placeholder": "en"},
-            "volume": {"type": "number", "label": "Volume", "min": 0, "max": 200, "default": 100},
-            "start_stopped": {"type": "boolean", "label": "Announce on stopped channels", "default": True},
-            "notify_entities": {"type": "boolean", "label": "Notify entity for each channel", "default": True},
-        }
+    @property
+    def mqtt(self):
+        return self.host.mqtt
 
     # --- Topics ---
 
@@ -69,24 +62,28 @@ class AnnouncementsPlugin(BasePlugin):
     def _discovery_topic(self, channel_id: str) -> str:
         return f"homeassistant/notify/{self.mqtt.prefix}_{channel_id}_announce/config"
 
-    # --- Lifecycle ---
+    # --- Switch ---
 
-    async def on_enable(self) -> None:
-        self.audio.register_tts(PROVIDER, "Home Assistant", self.speak, ready=lambda: self.homeassistant.available)
-        self.mqtt.subscribe(f"{self.mqtt.prefix}/announce/+/set", self.on_channel_message)
-        self.mqtt.subscribe(f"{self.mqtt.prefix}/announce/set", self.on_command)
-        # MQTT may connect after plugins start: publish then too
-        self.subscribe(["sonorium.started", "channel.created", "channel.deleted", "channel.changed"],
-                       self.on_channels_changed)
-        await self.publish_entities()
+    async def start(self, on: bool = True) -> None:
+        """At startup: Home Assistant's text to speech, then the switch as set."""
+        self.host.tts.register(OWNER, PROVIDER, "Home Assistant", self.speak, ready=self._tts_ready)
+        await self.set_enabled(on)
 
-    async def on_disable(self) -> None:
-        await self.remove_entities()
-
-    async def on_settings_changed(self, settings: dict) -> None:
-        if settings.get("notify_entities", True):
+    async def set_enabled(self, on: bool) -> None:
+        on = bool(on)
+        if on == self.enabled:
+            return
+        self.enabled = on
+        if on:
+            self.mqtt.subscribe(OWNER, f"{self.mqtt.prefix}/announce/+/set", self.on_channel_message)
+            self.mqtt.subscribe(OWNER, f"{self.mqtt.prefix}/announce/set", self.on_command)
+            # MQTT may connect after startup: publish then too
+            self.host.bus.subscribe(["sonorium.started", "channel.created", "channel.deleted", "channel.changed"],
+                                    self.on_channels_changed, owner=OWNER)
             await self.publish_entities()
         else:
+            self.mqtt.unsubscribe_owner(OWNER)
+            self.host.bus.unsubscribe_owner(OWNER)
             await self.remove_entities()
 
     # --- Home Assistant entities ---
@@ -102,10 +99,16 @@ class AnnouncementsPlugin(BasePlugin):
             return
         await self.publish_entities()
 
+    async def _channels(self) -> list[dict]:
+        try:
+            return await self.host.actions.list_channels()
+        except Exception:
+            return []
+
     async def publish_entities(self) -> None:
-        if not self.get_setting("notify_entities", True) or not self.mqtt.available:
+        if not self.enabled or not self.mqtt.available:
             return
-        for channel in await self.actions.list_channels():
+        for channel in await self._channels():
             if not CHANNEL_ID.match(str(channel["id"])):
                 continue
             slug = channel.get("entity_slug") or channel["id"]
@@ -115,7 +118,7 @@ class AnnouncementsPlugin(BasePlugin):
                 "default_entity_id": f"notify.{self.mqtt.prefix}_{slug}_announce",
                 "command_topic": self._channel_topic(channel["id"]),
                 "icon": "mdi:bullhorn",
-                "device": self.mqtt.device_info,
+                "device": dict(self.mqtt.device_info),
             }
             await self.mqtt.publish(self._discovery_topic(channel["id"]), json.dumps(config), retain=True)
             self._published.add(channel["id"])
@@ -123,11 +126,7 @@ class AnnouncementsPlugin(BasePlugin):
     async def remove_entities(self) -> None:
         if not self.mqtt.available:
             return
-        ids = set(self._published)
-        try:
-            ids |= {c["id"] for c in await self.actions.list_channels()}
-        except ActionError:
-            pass
+        ids = set(self._published) | {c["id"] for c in await self._channels()}
         for channel_id in ids:
             if CHANNEL_ID.match(str(channel_id)):
                 await self.mqtt.publish(self._discovery_topic(channel_id), "", retain=True)
@@ -157,8 +156,7 @@ class AnnouncementsPlugin(BasePlugin):
         try:
             data = json.loads(payload or "")
         except ValueError:
-            logger.warning("Announcements: sonorium/announce/set needs a JSON object (channels, text, url)")
-            return
+            data = None
         if not isinstance(data, dict):
             logger.warning("Announcements: sonorium/announce/set needs a JSON object (channels, text, url)")
             return
@@ -168,6 +166,7 @@ class AnnouncementsPlugin(BasePlugin):
         await self.announce(data["channels"], data)
 
     async def announce(self, channels, data: dict) -> None:
+        from sonorium.core.announce import announce_to
         text = data.get("text", data.get("message"))
         url = data.get("url", data.get("chime"))
         if url is not None and (not isinstance(url, str) or not url.lower().startswith(("http://", "https://"))):
@@ -177,22 +176,31 @@ class AnnouncementsPlugin(BasePlugin):
         if text is None and url is None:
             logger.warning("Announcements: nothing to announce (send 'text', a chime 'url', or both)")
             return
-        volume = data.get("volume", self.get_setting("volume", 100))
+        volume = data.get("volume", VOLUME)
         if isinstance(volume, bool) or not isinstance(volume, (int, float)):
-            volume = self.get_setting("volume", 100)
-        duck = data.get("duck", True)
+            volume = VOLUME
+        if self.host.overlay is None:
+            logger.warning("Announcements: playing sounds isn't available yet")
+            return
         try:
-            result = await self.audio.announce(channels, text, sound=url, volume=volume, duck=duck,
-                                               start_stopped=bool(self.get_setting("start_stopped", True)))
-        except ActionError as e:
-            logger.warning(f"Announcements: {e.message}")
+            result = await announce_to(self.host.overlay, self.host.tts, channels, text=text, sound=url,
+                                       volume=volume, duck=data.get("duck", True), origin="mqtt")
+        except Exception as e:  # off, unknown channel, bad value, no text to speech: logged, as before
+            logger.warning(f"Announcements: {e.args[0] if e.args else e}")
             return
         if result.get("notice"):
             logger.warning(f"Announcements: {result['notice']}")
 
     # --- Text to speech for the rest of Sonorium ---
 
+    def _tts_ready(self) -> bool:
+        ha = self.host.homeassistant
+        return ha is not None and bool(ha.available)
+
     async def speak(self, message: str, language=None, engine=None, **options) -> bytes:
-        return await self.homeassistant.tts(message, engine=engine or self.get_setting("tts_engine") or None,
-                                            language=language or self.get_setting("language") or None,
-                                            options=options.get("options"))
+        ha = self.host.homeassistant
+        if ha is None:
+            from sonorium.plugins.tts import TtsError
+            raise TtsError("Home Assistant isn't linked")
+        return await ha.tts(message, engine=engine or None, language=language or None,
+                            options=options.get("options"))

@@ -1,7 +1,7 @@
 """
 G13: every API call the web UI makes is to a route the server has (one with a
-permission in sonorium/auth/permissions.py or a built-in plugin's
-PERMISSIONS). A call to a route that's gone answers 403 every time.
+permission in sonorium/auth/permissions.py, the PERMISSIONS in
+sonorium/auth/users.py and keys.py, or a built-in plugin's). A call to a route that's gone answers 403 every time.
 """
 import re
 
@@ -16,8 +16,8 @@ FETCH_TEMPLATE = re.compile(r"""fetch\(\s*`\$\{(?:BASE_PATH|BASE)\}(/api/[^`?]*)
 def _table():
     entries = []
     blocks = [(PACKAGE / "auth" / "permissions.py").read_text(encoding="utf-8").split('_ROUTES = """', 1)[1]]
-    for name in ("users", "integration"):
-        text = (PACKAGE / "plugins" / "builtin" / name / "plugin.py").read_text(encoding="utf-8")
+    for path in (PACKAGE / "auth" / "users.py", PACKAGE / "auth" / "keys.py"):
+        text = path.read_text(encoding="utf-8")
         blocks.append(text.split('PERMISSIONS = """', 1)[1])
     for block in blocks:
         for line in block.split('"""', 1)[0].strip().splitlines():
@@ -38,7 +38,7 @@ def _known(table, method, path) -> bool:
 
 
 def _calls():
-    files = list((WEB / "static" / "js").glob("*.js")) + list((PACKAGE / "plugins" / "builtin").glob("*/web/*.js"))
+    files = list((WEB / "static" / "js").glob("*.js")) + list((WEB / "static" / "js" / "ext").glob("*.js"))         + list((PACKAGE / "plugins" / "builtin").glob("*/web/*.js"))
     for f in files:
         for n, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
             for method, quoted in CALL.findall(line):

@@ -5,7 +5,7 @@ plugin_secrets.json as before.
 
 Scopes: "plugin:<id>" (every trigger of that plugin), "trigger:<id>/<trigger>"
 (one trigger), "events" (GET /api/events/stream). Keys made on Settings >
-Keys (the Integration plugin) with "Run triggers" or "Read events" work too.
+Keys (auth/keys.py) with "Run triggers" or "Read events" work too.
 """
 
 from __future__ import annotations

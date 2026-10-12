@@ -1,13 +1,13 @@
 """
-The Users plugin's accounts: users.json (owner-only) in Sonorium's config
-folder, outside the plugin's own folder so updates and reinstalls keep it.
+Accounts (auth/users.py): users.json (owner-only) in Sonorium's config
+folder.
 
     {"require_login": bool, "ha_users": 1,
      "users": {id: {username, role, password, created, last_seen,
                     ha, ha_user_id, ha_username, disabled, can_leave_link}}}
 
 Add-on: a Home Assistant user is a Sonorium user ("ha": true), one per HA
-user, found by HA's user id. Its role follows HA (ha.py)
+user, found by HA's user id. Its role follows HA (ha_users.py)
 and it has no Sonorium password: it signs in with the HA username and
 password. A user switched off or removed in HA is "disabled": its browsers are
 signed out, its phones and the keys it made are refused. Accounts made in
@@ -21,7 +21,7 @@ Sonorium (with a Sonorium password) keep working alongside.
 New installs start with Require login on; an install that already had
 state.json (an upgrade) starts with it off until an admin turns it on.
 
-User ids never change, so channels can name an owner (zones.py). Whether a
+User ids never change, so channels can name an owner (core/zones.py). Whether a
 user may take their zone out of a link is can_leave_link (admins always may).
 """
 from __future__ import annotations
@@ -75,9 +75,9 @@ def norm(username: Optional[str]) -> str:
 
 
 def ha_mod():
-    """ha.py next to this file (loaded by plugin.py)."""
-    import sys
-    return sys.modules["sonorium_plugin_users_ha"]
+    """Home Assistant's users (ha_users.py)."""
+    from sonorium.auth import ha_users
+    return ha_users
 
 
 class AuthError(Exception):

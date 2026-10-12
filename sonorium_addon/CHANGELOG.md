@@ -2,12 +2,42 @@
 
 <!-- version list -->
 
+## v1.7.1-dev.8 (2026-10-12)
+
+### Bug Fixes
+
+- **runtime**: No warning when the secret helper simply has nothing stored
+  ([`66c4a78`](https://github.com/synssins/sonorium/commit/66c4a787f8c8f40b5c5a76b3482dd02009ab4c48))
+
+
+## v1.7.1-dev.7 (2026-10-12)
+
+
+## v1.7.1-dev.5 (2026-10-12)
+
+
 ## v1.7.1-dev.4 (2026-10-12)
 
 ### Features
 
 - **api**: /api/info started_at; ci: FFmpeg licence check also reads the configure flags
   ([`cba56c9`](https://github.com/synssins/sonorium/commit/cba56c9676b00009fea5b81ee000edebb76e9570))
+## v1.7.1-dev.3 (2026-10-12)
+
+### Bug Fixes
+
+- Console credential tests and feature docs after merging fixes
+  ([`c24f090`](https://github.com/synssins/sonorium/commit/c24f090bd06fb1ffa0ea28ac1b8296fd3407a65f))
+
+### Documentation
+
+- Users and Zones are part of Sonorium, not a plugin
+  ([`d45af0e`](https://github.com/synssins/sonorium/commit/d45af0e31074d28dd31cc8c38a454d2031d77b08))
+
+### Features
+
+- Users (accounts, sign-in, Zones) are part of Sonorium, not a plugin
+  ([`5fe0125`](https://github.com/synssins/sonorium/commit/5fe01252de62edd4e7c52cc8e1a91a2b1cb26f9f))
 
 
 ## v1.7.1-dev.2 (2026-10-12)

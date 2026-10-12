@@ -1,10 +1,10 @@
 """
-Sign-in (sonorium/auth) with the built-in Users and Integration plugins:
+Sign-in (sonorium/auth) with Users (auth/users.py) and Keys (auth/keys.py):
 passwords, browser sessions and CSRF, roles on a sample of routes per area,
 Link App pairing (single use, expiry, HTTPS), one-time sign-in codes, keys
 (abilities, channels, changes in flight, expiry, revoking), the bypass, HA
 ingress trust, web_ui_only_through_ha, upgrades (Require login off), a
-switched-off or missing sign-in plugin, and Home Assistant's users on the
+failed sign-in (closed), and Home Assistant's users on the
 add-on (the Supervisor's auth API, mocked).
 """
 import asyncio
@@ -23,7 +23,6 @@ pytest.importorskip("segno")
 from playback_helpers import PACKAGE, addon_modules  # noqa: E402
 
 m = SimpleNamespace()
-BUILTIN = PACKAGE / "plugins" / "builtin"
 CHANNEL = "ch1"
 
 
@@ -31,7 +30,9 @@ CHANNEL = "ch1"
 def modules():
     with addon_modules("sonorium.auth.service", "sonorium.auth.middleware", "sonorium.auth.routes",
                        "sonorium.auth.permissions", "sonorium.auth.config", "sonorium.auth.qr", "sonorium.auth.announce",
-                       "sonorium.auth.tokens", "sonorium.plugins.loader", "sonorium.runtime") as mods:
+                       "sonorium.auth.tokens", "sonorium.auth.keys", "sonorium.auth.users",
+                       "sonorium.auth.accounts", "sonorium.auth.passwords", "sonorium.plugins.loader",
+                       "sonorium.runtime") as mods:
         m.__dict__.update(mods.__dict__)
         yield
 
@@ -44,15 +45,8 @@ class Clock:
         return self.now
 
 
-def load_plugin(name):
-    folder = BUILTIN / name
-    manifest = json.loads((folder / "manifest.json").read_text())
-    cls = m.loader.load_plugin_class(folder, manifest)
-    return cls(plugin_dir=folder, settings={}, audio_path=None)
-
-
 class World:
-    def __init__(self, tmp_path, monkeypatch, *, plugins=("users", "integration"), existing=False, ha=None):
+    def __init__(self, tmp_path, monkeypatch, *, users=True, existing=False, ha=None, keys=True):
         from fastapi import FastAPI, Request
         from fastapi.testclient import TestClient
         monkeypatch.setenv("SONORIUM_CONFIG_DIR", str(tmp_path))
@@ -100,13 +94,10 @@ class World:
                              ("GET", "/stream/channel{channel_id:int}"), ("GET", "/api/events/catalogue")]:
             app.add_api_route(path, record(f"{method} {path}"), methods=[method])
         s.note_install()
-        self.plugins = {}
-        host = SimpleNamespace(auth=s)
-        for name in plugins:
-            plugin = load_plugin(name)
-            plugin._host = host
-            asyncio.run(plugin.on_enable())
-            self.plugins[name] = plugin
+        if users:  # Users: part of Sonorium, installed by the app at startup
+            assert m.users.install(s) is not None
+        if keys:  # Keys: a core feature, installed by the app at startup
+            m.keys.install(s)
         s.mark_ready()
         self.TestClient = TestClient
 
@@ -125,8 +116,6 @@ class World:
         assert r.status_code == 200, r.text
         return c, c.get("/api/auth/me").json()["csrf"]
 
-    def disable(self, name):
-        asyncio.run(self.plugins[name].on_disable())
 
 
 @pytest.fixture
@@ -141,15 +130,13 @@ def H(token, csrf=None):
 # --- Passwords ------------------------------------------------------------------
 
 def test_passwords_are_argon2id_hashes(w):
-    pw = w.plugins["users"].__class__.__module__
-    passwords = __import__("sys").modules["sonorium_plugin_users_passwords"]
+    passwords = m.passwords
     stored = passwords.hash_password("correct horse")
     assert stored.startswith("$argon2id$") and "correct horse" not in stored
     assert passwords.verify_password(stored, "correct horse")
     assert not passwords.verify_password(stored, "wrong horse")
     assert not passwords.verify_password(None, "anything")
     assert passwords.password_problem("short") and passwords.password_problem("long enough") is None
-    assert pw
 
 
 def test_users_file_has_hashes_only(w, tmp_path):
@@ -160,15 +147,15 @@ def test_users_file_has_hashes_only(w, tmp_path):
     assert cookie and cookie not in (tmp_path / "security.json").read_text()
 
 
-# --- No sign-in plugin: today's open access -------------------------------------
+# --- No accounts loaded (the middleware on its own): open access ------------------
 
-def test_without_plugins_everything_is_local(tmp_path, monkeypatch):
-    w = World(tmp_path, monkeypatch, plugins=())
+def test_without_accounts_everything_is_local(tmp_path, monkeypatch):
+    w = World(tmp_path, monkeypatch, users=False)
     c = w.client()
     assert c.get("/api/connection").json()["kind"] == "local"
     assert c.post("/api/sessions/x/play").status_code == 200
     me = c.get("/api/auth/me").json()
-    assert me["kind"] == "local" and me["plugins"] == []
+    assert me["kind"] == "local" and me["plugins"] == [] and me["accounts"] is False
     # A change from another site is refused even then
     assert c.post("/api/sessions/x/play", headers={"Origin": "http://evil.example"}).status_code == 403
     # The app still links and gets full access (less managing users and keys)
@@ -446,6 +433,33 @@ def test_key_allows_only_what_is_checked(w, tmp_path):
     assert k.get("/api/sessions", headers=H("sk_not-a-key")).status_code == 401
 
 
+def test_keys_switched_off_and_back_on(w, tmp_path):
+    """Settings > Advanced > Keys: off, the routes are gone and no key works; the keys are kept for later."""
+    c, csrf = w.setup_admin()
+    key = make_key(c, csrf, abilities=["ch.view"])
+    k = w.client()
+    assert m.keys.enabled(w.service)
+    m.keys.set_enabled(w.service, False)
+    assert c.get("/api/keys", headers=H(None, csrf)).status_code == 404
+    assert c.post("/api/keys", json={"name": "x"}, headers=H(None, csrf)).status_code == 404
+    r = k.get("/api/sessions", headers=H(key["key"]))
+    assert r.status_code == 401 and "Keys are off" in r.json()["detail"]
+    assert key["id"] in (tmp_path / "security.json").read_text()  # still stored
+    assert c.get("/api/sessions", headers=H(None, csrf)).status_code == 200  # signing in is untouched
+    assert w.client().get("/api/info").json()["plugins"] == ["users"]
+    m.keys.set_enabled(w.service, True)
+    assert k.get("/api/sessions", headers=H(key["key"])).json()["kind"] == "key"
+    assert [x["id"] for x in c.get("/api/keys", headers=H(None, csrf)).json()["keys"]] == [key["id"]]
+
+
+def test_keys_made_by_the_old_integration_plugin_still_work(w):
+    """Keys from before Keys were core (owner "integration" in security.json) work unchanged."""
+    w.setup_admin()
+    _, token = w.service.tokens.issue("key", prefix="sk_", name="Old bot", owner="integration",
+                                      data={"abilities": ["ch.view"], "channels": None, "created_by": None})
+    assert w.client().get("/api/sessions", headers=H(token)).json()["kind"] == "key"
+
+
 def test_key_changes_in_flight_and_revocation(w):
     c, csrf = w.setup_admin()
     key = make_key(c, csrf, abilities=["ch.view"])
@@ -555,13 +569,20 @@ def test_require_login_needs_an_admin_password(tmp_path, monkeypatch):
         accounts.set_require_login(True)
 
 
-def test_switching_users_off_opens_sonorium(w):
-    w.setup_admin()
-    assert w.client().get("/api/sessions").status_code == 401
-    w.disable("users")
-    c = w.client()
-    assert c.get("/api/sessions").json()["kind"] == "local"
-    assert c.post("/api/auth/login", json={}).status_code == 404  # its routes are gone
+def test_accounts_that_cant_load_keep_sign_in_closed(tmp_path, monkeypatch):
+    """Users are part of Sonorium: if users.json can't be loaded, only public routes answer (never open)."""
+    w = World(tmp_path, monkeypatch, users=False)
+    w.service.ready = False
+
+    def broken(service):
+        raise ValueError("users.json is damaged")
+    monkeypatch.setattr(m.users, "Accounts", broken)
+    assert m.users.install(w.service) is None
+    w.service.mark_ready()
+    r = w.client().get("/api/sessions")
+    assert r.status_code == 503 and r.json()["closed"] is True and "Sign-in didn't start" in r.json()["detail"]
+    assert w.client().get("/stream/channel1").status_code == 200
+    assert w.client().get("/api/info").status_code == 200
 
 
 def test_unbound_phone_must_relink_once_login_is_required(tmp_path, monkeypatch):
@@ -577,9 +598,9 @@ def test_unbound_phone_must_relink_once_login_is_required(tmp_path, monkeypatch)
     assert r.status_code == 401 and r.json()["pair"] is True
 
 
-def test_closed_until_the_sign_in_plugin_starts(tmp_path, monkeypatch):
-    w = World(tmp_path, monkeypatch, plugins=())
-    w.service.expected_providers = {"users"}  # switched on in state.json, but it didn't load
+def test_closed_until_sign_in_starts(tmp_path, monkeypatch):
+    w = World(tmp_path, monkeypatch, users=False)
+    w.service.expected_providers = {"users"}  # expected from the start (api.py), but it didn't load
     r = w.client().get("/api/sessions")
     assert r.status_code == 503 and r.json()["closed"] is True
     assert w.client().get("/stream/channel1").status_code == 200
@@ -590,7 +611,7 @@ def test_closed_until_the_sign_in_plugin_starts(tmp_path, monkeypatch):
 def test_info_is_public(w):
     info = w.client().get("/api/info").json()
     assert info["api"] == 1 and info["ports"] == {"http": 8008, "https": 8808} and len(info["fingerprint"]) == 64
-    assert info["login_required"] is True and set(info["plugins"]) == {"users", "integration"}
+    assert info["login_required"] is True and info["plugins"] == ["users"] and info["accounts"] is True  # "users": for released apps
     assert info["boot_id"] == m.runtime.BOOT_ID and len(info["boot_id"]) == 32  # G4: new at every start
     assert info["started_at"].endswith("+00:00")  # when this process started, UTC
     assert info["ui"] == {"version": "test", "host_api": 1}  # G14

@@ -1,29 +1,27 @@
 """
 The core of sign-in: one AuthService per Sonorium, shared by the middleware,
-the core routes and the sign-in plugins (PluginHost.auth).
+the core routes, Users (users.py), Keys (keys.py) and the plugin host
+(PluginHost.auth).
 
     security.json   owner-only: the signing secret (CSRF), and every token
-                    (linked phones, the Users plugin's sessions, the
-                    Integration plugin's keys) as hashes
+                    (linked phones, browser sessions, keys) as hashes
     server.json     the server ID;  tls/  the HTTPS certificate (identity.py)
 
-Plugins plug in with:
+Users and Keys plug in with:
 
-    register_authenticator(plugin_id, authenticator)   who is calling (principal.py)
-    add_routes(plugin_id, router, permissions)         their API, with a permission per route
-    register_ui(plugin_id, folder, js=..., css=...)    their web UI bundle (built-in plugins)
-    unregister(plugin_id)                              all of it, when the plugin is switched off
+    register_authenticator(owner, authenticator)       who is calling (principal.py)
+    add_routes(owner, router, permissions)             their API, with a permission per route
+    unregister(owner)                                  all of it (a switch turned off)
 
-A plugin marked "auth_provider" in its manifest (the Users plugin) is a
-gatekeeper: while it is switched on but hasn't registered (still starting, or
-it failed to load), nothing but public routes answers, so a broken plugin
+A gatekeeper (Users: expected from the moment the app is made) keeps sign-in
+closed until it has registered: while Sonorium starts, or for good when the
+accounts couldn't be loaded, nothing but public routes answers, so a failure
 never leaves Sonorium open.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 import secrets
 import time
 from pathlib import Path
@@ -38,6 +36,10 @@ SECURITY_FILE = "security.json"
 DEVICE_PREFIX = "sd_"
 PAIR_CODE_SECONDS = 300
 PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I
+# keys.py: part of Sonorium, so not listed as a plugin. users.py is part of Sonorium too, but "users"
+# stays in the "plugins" list of /api/info and /api/auth/me: released Sonorium apps read it to offer
+# signing in with a username and password (new apps read "accounts").
+CORE_AUTHENTICATORS = frozenset({"keys"})
 
 
 class AuthService:
@@ -103,39 +105,20 @@ class AuthService:
     # ------------------------------------------------------------ startup
 
     def note_install(self) -> None:
-        """Before state.json is written: is this a new install? (Users plugin: Require login starts on.)"""
+        """Before state.json is written: is this a new install? (Users: Require login starts on.)"""
         if self.fresh_install is None:
             self.fresh_install = not (self.folder / "state.json").exists()
-
-    def find_expected_providers(self, plugins_dir: Path) -> None:
-        """The switched-on plugins that guard sign-in, from state.json and their manifests."""
-        try:
-            state = json.loads((self.folder / "state.json").read_text(encoding="utf-8"))
-            enabled = (state.get("settings") or {}).get("enabled_plugins") or []
-        except Exception:
-            enabled = []
-        found = set()
-        for plugin_id in enabled:
-            for folder in (Path(plugins_dir) / plugin_id,):
-                try:
-                    manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
-                except Exception:
-                    continue
-                if manifest.get("auth_provider"):
-                    found.add(manifest.get("id", plugin_id))
-        self.expected_providers = found
 
     def mark_ready(self) -> None:
         self.ready = True
         missing = self.expected_providers - set(self.authenticators)
         if missing:
-            logger.error(f"Sign-in plugin {', '.join(sorted(missing))} is switched on but didn't start: only streams "
-                         "answer until it does. See the messages above. To get in anyway, set BYPASS_LOGIN (Docker) "
-                         "or bypass_login (add-on) to true.")
+            logger.error(f"Sign-in ({', '.join(sorted(missing))}) didn't start: only streams answer. See the "
+                         "messages above. To get in anyway, set BYPASS_LOGIN (Docker) or bypass_login (add-on) to true.")
 
     @property
     def closed(self) -> bool:
-        """Starting, or a gatekeeper plugin is on but missing: only public routes answer."""
+        """Starting, or a gatekeeper (Users) didn't start: only public routes answer."""
         return not self.ready or bool(self.expected_providers - set(self.authenticators))
 
     # ------------------------------------------------------------ plugins
@@ -147,6 +130,15 @@ class AuthService:
         self.registry.set_active(plugin_id, True)
         if plugin_id in self.ui_bundles:
             self.ui_bundles[plugin_id]["active"] = True
+
+    def plugin_ids(self) -> list[str]:
+        """The "plugins" list of /api/info and /api/auth/me: "users" while accounts are loaded (see CORE_AUTHENTICATORS)."""
+        return sorted(a for a in self.authenticators if a not in CORE_AUTHENTICATORS)
+
+    @property
+    def accounts_loaded(self) -> bool:
+        """Users (users.py) are up: accounts, sign-in with a username and password."""
+        return "users" in self.authenticators
 
     def add_routes(self, plugin_id: str, router, permissions) -> None:
         """A plugin's API: every route of the router must be in `permissions` ("METHOD path perm" lines)."""
@@ -174,7 +166,7 @@ class AuthService:
             self.ui_bundles[plugin_id]["active"] = False
 
     def login_required(self) -> bool:
-        """A sign-in plugin requires login (the Users plugin's Require login), and the bypass is off."""
+        """Require login is on (users.py), and the bypass is off."""
         if config.bypass_login():
             return False
         return any(bool(getattr(a, "login_required", lambda: False)()) for a in list(self.authenticators.values()))
@@ -196,7 +188,7 @@ class AuthService:
         return None
 
     def user_blocked(self, user_id: Optional[str]) -> bool:
-        """Whether a sign-in plugin has switched the user off (e.g. deactivated in Home Assistant)."""
+        """Whether the user is switched off (e.g. deactivated in Home Assistant; users.py)."""
         if not user_id:
             return False
         for _, blocked in self.provider("blocked"):
