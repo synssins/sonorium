@@ -47,12 +47,12 @@ jobs:
         if: steps.cache.outputs.cache-hit != 'true'
         uses: msys2/setup-msys2@v2
         with:
-          msystem: MINGW64
+          msystem: UCRT64
           update: false
           install: >-
             make diffutils tar xz curl
-            mingw-w64-x86_64-gcc mingw-w64-x86_64-binutils mingw-w64-x86_64-nasm
-            mingw-w64-x86_64-pkgconf mingw-w64-x86_64-zlib
+            mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-binutils mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-zlib
 
       - name: Build FFmpeg (audio only, LGPL)
         if: steps.cache.outputs.cache-hit != 'true'

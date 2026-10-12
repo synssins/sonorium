@@ -3,7 +3,7 @@
 # sonorium_addon/ffmpeg/build.sh, with the same versions and the same configure
 # flags, so the add-on, the Docker image and the desktop app play and stream alike.
 #
-# Runs in MSYS2's MINGW64 shell (CI: msys2/setup-msys2). Builds LAMER as a static
+# Runs in MSYS2's UCRT64 shell (CI: msys2/setup-msys2). Builds LAMER as a static
 # library inside libavcodec and FFmpeg as DLLs, then leaves in $PREFIX:
 #   bin/*.dll           the FFmpeg DLLs (and the MinGW runtime they need, if any)
 #   lib/*.lib           MSVC import libraries (made because lib.exe is on PATH),
@@ -38,9 +38,14 @@ fetch "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" ffmpeg.tar.x
 tar xJf ffmpeg.tar.xz
 cd "ffmpeg-${FFMPEG_VERSION}"
 
+# zlib (permissive) goes inside the DLLs: a folder holding only MSYS2's static
+# libz.a comes first in the search path, so -lz can't pick libz.dll.a.
+mkdir -p "$SRC/zlib-static"
+cp "${MINGW_PREFIX:-/ucrt64}/lib/libz.a" "$SRC/zlib-static/"
+
 # Same flags as build.sh, except: no rpath (Windows finds DLLs beside the
-# module), zlib linked statically from MinGW (permissive), and static libgcc so
-# the DLLs need no MinGW runtime DLLs.
+# module), zlib static (above), and static libgcc so the DLLs need no MinGW
+# runtime DLLs.
 ./configure \
     --prefix="$PREFIX" \
     --target-os=mingw32 --arch=x86_64 \
@@ -51,7 +56,7 @@ cd "ffmpeg-${FFMPEG_VERSION}"
     --disable-everything \
     --enable-libmp3lame \
     --extra-cflags="-I$SRC/lame/include" \
-    --extra-ldflags="-L$SRC/lame/lib -static-libgcc -Wl,-Bstatic -lz -Wl,-Bdynamic" \
+    --extra-ldflags="-L$SRC/zlib-static -L$SRC/lame/lib -static-libgcc" \
     --enable-protocol=file \
     --enable-demuxer=mp3,wav,flac,ogg,mov,aac \
     --enable-parser=mpegaudio,flac,vorbis,opus,aac \
