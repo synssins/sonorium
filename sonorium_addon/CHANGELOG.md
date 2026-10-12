@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.4 (2026-10-12)
+
+### Bug Fixes
+
+- **plugins**: Say why a plugin didn't load or switch on, and name it on upload
+  ([`8e06e49`](https://github.com/synssins/sonorium/commit/8e06e49b6da4a01ab5dfa87c9a0f1f4ee683dc06))
+
+
 ## v1.7.3-dev.3 (2026-10-12)
 
 ### Features
