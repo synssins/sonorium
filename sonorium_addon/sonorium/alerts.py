@@ -8,8 +8,8 @@ that failed or couldn't be loaded, a scheduled job or trigger handler that
 failed, a channel that couldn't start. Each alert links to its log entry
 (log_seq: the Logs page's entry number).
 
-These are not notifications: notifications are what outside things need
-attention for (plugins/notifications.py).
+These are not announcements: announcements are what other systems (Home
+Assistant, scripts, a doorbell) send Sonorium to play (core/announce.py).
 
 No imports from the rest of Sonorium, so it works whatever else failed.
 """

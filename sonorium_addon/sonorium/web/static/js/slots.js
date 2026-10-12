@@ -20,7 +20,7 @@
  *   channelCard pickers(session)                      above a card's theme pickers
  * Pages in the left menu (plugin pages, ext/pages.js): Sonorium.registerMenuPage({view, title,
  *   render(el), actions()}).
- * The framework's own renderers (static/js/ext/: plugin pages, Connection, Notifications, the
+ * The framework's own renderers (static/js/ext/: plugin pages, Connection, the
  * alert bar, casting) load after the bundles and before app.js.
  * Helpers: Sonorium.modal({...}), closeModal(id), showScreen(html), hideScreen(),
  *   api(method, path, body), esc(text), toast(message, type), can(perm).
@@ -119,7 +119,7 @@
         },
 
         // The framework's renderers (static/js/ext/), in order
-        CORE: ['core', 'pages', 'commandmaps', 'connections', 'notifications', 'alerts', 'outputs'],
+        CORE: ['core', 'pages', 'commandmaps', 'connections', 'alerts', 'outputs'],
 
         async loadCore() {
             const link = document.createElement('link');

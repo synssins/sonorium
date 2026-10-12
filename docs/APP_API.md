@@ -625,7 +625,7 @@ middleware refuses before the handler runs. The app reads its own list from
 | `pg.use` | Plugin list, plugin pages and actions |
 | `tr.run` | Plugin webhook triggers |
 | `an.send` | Announcements and sounds over channels (`/api/announce`, `/api/sounds`); Admins only by role |
-| `admin.plugins` | Install, enable, configure plugins; schedules; notifications |
+| `admin.plugins` | Install, enable, configure plugins; schedules |
 | `admin.connection` | Settings › Connection (HA URL and token, MQTT) |
 | `admin.users`, `admin.keys`, `self` | Users, keys, own devices: **never** on a phone |
 | `device` | Only a linked phone (the sign-in code) |
@@ -688,6 +688,7 @@ Errors follow section 11.1. Shapes were checked live unless marked
   "sequence": null,
   "playlist": null,
   "speakers_muted": false,
+  "announcements": true,
   "listening": true,
   "outputs": [],
   "recent": [{"at": "2026-10-11T21:03:18.046860+00:00", "text": "Speakers unmuted"}],
@@ -712,6 +713,7 @@ Errors follow section 11.1. Shapes were checked live unless marked
 | `preset_choice` | string or null | What the preset menu shows: `"seq:<id>"` while a sequence is set, else `preset_id` |
 | `sequence`, `playlist` | object or null | Status (below) |
 | `speakers_muted` | bool | The speakers' stream is silenced (listeners on the phone still hear it) |
+| `announcements` | bool | Announcements play on the channel (off: none plays, from Home Assistant, MQTT, `POST /api/announce` or a plugin) |
 | `listening` | bool | Someone listens with `?local=1` (the web UI's Listen here, or the phone) |
 | `outputs` | output[] | Devices the app reports playing the channel (G2, section 9.5); `[]` when none |
 | `recent` | `[{at, text}]` | Latest changes, newest first |
@@ -744,6 +746,7 @@ Status objects (PLAYBACK.md):
 | `POST /sessions/stop-all` | ch.play | none | `{"stopped": 2}` | |
 | `POST /sessions/{id}/volume` | ch.change | `{"volume": 40}` (0-100) | `{"volume": 40}` | 404, 422 |
 | `PUT /sessions/{id}/speakers-muted` | ch.change or sp.mute | `{"muted": true}` | `{"speakers_muted": true}` | 404 |
+| `PUT /sessions/{id}/announcements` | ch.change | `{"on": false}` | `{"announcements": false}` | 404, 400 |
 | `POST /sessions/{id}/listen` | ch.play | none, or `{"hold_seconds": 0-300}` (or `?hold_seconds=`) | `{"channel_id": 1, "stream_path": "/stream/channel1", "hold_seconds": 15}` | 404, 400 `"No theme selected"`/`"Theme not found"`/`"hold_seconds must be between 0 and 300"`, 409 `"No free channel"` |
 | `DELETE /sessions/{id}/listen` | ch.play | none | `{"status": "ok"}` | 404 |
 | `GET /sessions/{id}/outputs` | ch.view | | `{"outputs": [output]}` | 404 |
@@ -1148,7 +1151,7 @@ data: {"id": 11, "boot_id": "54615c1e5e5d4331a7b9cd713cd45918", "type": "channel
 | `theme.changed` | `theme_id` (may be null), `folder` | Refetch that theme's presets and sequences |
 | `theme.deleted` | `theme_id` | Remove it |
 | `plugin.enabled` / `plugin.disabled` | `plugin_id`, `name` | If `users`: refetch `/api/info` and `/api/auth/me` |
-| `schedule.fired`, `trigger.received`, `notification`, `error` | see PLUGIN_DEVELOPMENT.md | `notification` and `error` can be shown as in-app messages |
+| `schedule.fired`, `trigger.received`, `error` | see PLUGIN_DEVELOPMENT.md | `error` can be shown as an in-app message |
 | `sound.started` / `sound.ended` | `channel_id`, `name`, `sound_id`, `label`, `origin` (+ `reason`, `capped`, `played` on ended) | Show an "announcing" badge on the channel |
 | `ramp.started` / `ramp.finished` / `ramp.cancelled` | `channel_id`, `name`, `ramp_id`, levels and `seconds`, `curve`, `then`, `reason` | Optional: show a fade on the channel |
 | `command.received` | `plugin_id`, `map_id`, `code`, `actions`, `learned` | ignore |

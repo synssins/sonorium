@@ -11,9 +11,6 @@ Scheduler       GET  /api/schedules,  PUT /api/schedules/settings
                 GET|POST /api/plugins/{id}/schedules
                 DELETE /api/plugins/{id}/schedules/{job_id}
                 PUT  /api/plugins/{id}/schedules/{job_id}/enabled
-Notifications   GET  /api/notifications
-                PUT  /api/notifications/rules,  PUT|DELETE /api/notifications/rules/{rule_id}
-                POST /api/notifications/test
 Extensions      GET  /api/extensions
                 GET  /api/plugins/{id}/pages/{page_id}
                 POST /api/plugins/{id}/pages/{page_id}/actions/{action}
@@ -41,7 +38,6 @@ from sonorium.plugins.extensions import (
     normalize_result, normalize_status, page_actions, page_fields, check_values,
 )
 from sonorium.plugins.loader import is_valid_plugin_id
-from sonorium.plugins.notifications import NotificationError
 from sonorium.plugins.scheduler import ScheduleError, resolve_timezone
 from sonorium.plugins.tokens import install_log_redaction, token_from_request
 from sonorium.plugins.triggers import MAX_PAYLOAD_BYTES, TRIGGER_ID
@@ -346,73 +342,6 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
             raise HTTPException(status_code=404, detail="No such job")
         return job
 
-    # --- Notifications ---
-
-    @router.get("/notifications")
-    async def notifications_overview():
-        n = _host().notifications
-        from sonorium.plugins.notifications import LEVELS
-        return {"sources": n.sources(), "notifiers": n.notifiers(), "rules": n.rules(), "levels": list(LEVELS),
-                "tts": bool(host.tts.providers())}
-
-    @router.post("/notifications/rules/{rule_id}/test")
-    async def test_rule(rule_id: str):
-        """Do what the rule does, with a test message: announce it and send it to its notifiers."""
-        n = _host().notifications
-        rule = next((r for r in n.rules() if r["id"] == rule_id), None)
-        if rule is None:
-            raise HTTPException(status_code=404, detail="No such rule")
-        from datetime import datetime, timezone
-        message = {"title": rule.get("name") or "Sonorium test", "body": "A test of this rule.", "level": "info",
-                   "time": datetime.now(timezone.utc).isoformat(), "origin": "sonorium", "event": None}
-        announced, error = False, ""
-        if rule.get("announce") and n.announcer is not None:
-            try:
-                await n.announcer(rule["announce"], message)
-                announced = True
-            except Exception as e:
-                error = str(getattr(e, "message", None) or e)
-        sent = await n.send(rule["notifiers"], message) if rule.get("notifiers") else {}
-        return {"announced": announced, "error": error, "sent": sent}
-
-    @router.put("/notifications/rules")
-    async def replace_rules(request: Request):
-        body = await _json(request)
-        try:
-            return {"rules": _host().notifications.set_rules(body.get("rules"))}
-        except NotificationError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @router.put("/notifications/rules/{rule_id}")
-    async def put_rule(rule_id: str, request: Request):
-        body = await _json(request)
-        try:
-            return _host().notifications.put_rule({**body, "id": rule_id})
-        except NotificationError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @router.delete("/notifications/rules/{rule_id}")
-    async def delete_rule(rule_id: str):
-        if not _host().notifications.delete_rule(rule_id):
-            raise HTTPException(status_code=404, detail="No such rule")
-        return {"removed": True}
-
-    @router.post("/notifications/test")
-    async def test_notifier(request: Request):
-        """Send a test message: {"notifier": id, "title"?, "body"?}. Answers with the result."""
-        body = await _json(request)
-        n = _host().notifications
-        notifier_id = body.get("notifier")
-        if notifier_id not in {x["id"] for x in n.notifiers()}:
-            raise HTTPException(status_code=404, detail="No such notifier")
-        from datetime import datetime, timezone
-        message = {"title": str(body.get("title") or "Sonorium test message"),
-                   "body": str(body.get("body") or "If you can read this, notifications work."),
-                   "level": "info", "time": datetime.now(timezone.utc).isoformat(), "origin": "sonorium",
-                   "event": None}
-        result = (await n.send([notifier_id], message))[notifier_id]
-        return {"success": result == "ok", "message": result}
-
     # --- Extension points ---
 
     def _connection_decl(plugin, connection_id: str) -> dict:
@@ -544,6 +473,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 
 def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> None:
     """Sounds, announcements, ramps, audio outputs, command maps, alerts (framework phase 2)."""
+    from sonorium.core.announce import TtsUnavailable
     from sonorium.core.audio_outputs import OutputError
     from sonorium.core.decode import DecodeError
     from sonorium.core.overlay import OverlayError
@@ -559,14 +489,16 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
         return service
 
     def _channels(value) -> list:
-        if value in ("*", "all", ["*"]):
-            sessions = _svc("overlay", "Playing sounds").sessions
-            return [s.id for s in sessions.list()]
-        if isinstance(value, str):
-            return [value]
-        if not isinstance(value, list) or not value or not all(isinstance(c, str) for c in value):
-            raise HTTPException(status_code=400, detail="'channels' must list channel ids (or be \"all\")")
-        return value
+        """Channel ids from ids or names (one, a list, or "all"); 404 names an unknown one."""
+        from sonorium.core.announce import resolve_channels
+        if value is None:
+            raise HTTPException(status_code=400, detail="'channels' is needed: a channel name or id, a list, or \"all\"")
+        try:
+            return resolve_channels(getattr(_svc("overlay", "Playing sounds"), "sessions", None), value)
+        except LookupError as e:
+            raise HTTPException(status_code=404, detail=str(e.args[0] if e.args else e))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     def _number(body, key, default):
         value = body.get(key, default)
@@ -582,6 +514,8 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             return (await result) if inspect.isawaitable(result) else result
         except LookupError as e:
             raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+        except TtsUnavailable as e:
+            raise HTTPException(status_code=503, detail=str(e))
         except (OverlayError, DecodeError, RampError, OutputError, cmd.CommandError) as e:
             raise HTTPException(status_code=400, detail=str(e))
         except TtsError as e:
@@ -629,22 +563,42 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
     @router.post("/announce")
     async def announce(request: Request):
         """
-        {"channels": [...] | "all", "text": "Dinner is ready", "url": "https://.../chime.mp3",
-         "volume", "duck", "provider", "language", "start_stopped"}: a chime and/or spoken text,
-        ducking the channels' mix. Admin-level: overrides zones and quiet hours.
+        Other systems announce through Sonorium (a key with Make announcements, or signed in):
+        {"channels": "Kitchen" | ["Kitchen", "office"] | "all", "text": "Dinner is ready",
+         "url": "https://.../chime.mp3", "volume": 0-200, "duck": true | false | dB | {db, attack, release},
+         "provider", "language", "start_stopped"}. Only channels and text (or url) are needed.
+        A chime and/or spoken text, ducking the channels' mix (a stopped channel is started for it).
+        Answers which channels play it and which skipped it (Announcements off).
         """
-        from sonorium.core.announce import announce as do_announce
+        from sonorium.core.announce import announce as do_announce, parse_duck
+        from sonorium.auth.middleware import principal_of
         body = await _json(request)
         text = body.get("text", body.get("message"))
-        url = body.get("url")
+        url = body.get("url", body.get("chime"))
         if text is not None and not isinstance(text, str):
             raise HTTPException(status_code=400, detail="'text' must be text")
         if url is not None and (not isinstance(url, str) or not url.lower().startswith(("http://", "https://"))):
             raise HTTPException(status_code=400, detail="'url' must be an http(s) URL")
+        if not (text or "").strip() and not url:
+            raise HTTPException(status_code=400, detail="Send 'text' to speak, a chime 'url', or both")
         overlay = _svc("overlay", "Playing sounds")
+        caller = principal_of(request)
+        wanted = body.get("channels")
+        channels = _channels(wanted)
+        if caller.channels is not None:  # a key limited to some channels
+            if wanted in (None, "all", "*", ["all"], ["*"]):
+                channels = [c for c in channels if caller.can_channel(c)]
+            elif not all(caller.can_channel(c) for c in channels):
+                raise HTTPException(status_code=403, detail="Not allowed for this channel")
+        if not channels:
+            raise HTTPException(status_code=404, detail="No channel to announce on")
+        try:
+            duck = parse_duck(body.get("duck"))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         return await _guard(do_announce(
-            overlay, host.tts, _channels(body.get("channels")), text=(text or "").strip() or None, sound=url,
-            volume=_number(body, "volume", 100), duck=body.get("duck", True), provider=body.get("provider"),
+            overlay, host.tts, channels, text=(text or "").strip() or None, sound=url,
+            volume=_number(body, "volume", 100), duck=duck, provider=body.get("provider"),
             language=body.get("language"), start_stopped=bool(body.get("start_stopped", True)), origin="api"))
 
     @router.get("/sounds")
@@ -656,7 +610,8 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
     async def play_sound(request: Request):
         """
         {"channels", "url", "volume", "duck", "policy", "priority", "max_seconds",
-         "start_stopped", "override", "label"}: a sound over the channels' mix.
+         "start_stopped", "override", "label", "announcement"}: a sound over the channels' mix
+        ("announcement": true skips channels with announcements off).
         """
         body = await _json(request)
         url = body.get("url")
@@ -667,7 +622,7 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             _channels(body.get("channels")), url, volume=_number(body, "volume", 100), duck=body.get("duck", True),
             policy=body.get("policy", "queue"), priority=priority, max_seconds=_number(body, "max_seconds", None),
             start_stopped=bool(body.get("start_stopped", False)), override=bool(body.get("override", False)),
-            label=str(body.get("label") or "")[:80], origin="api"))
+            label=str(body.get("label") or "")[:80], origin="api", announcement=bool(body.get("announcement", False))))
 
     @router.delete("/sounds/{sound_id}")
     async def cancel_sound(sound_id: str):

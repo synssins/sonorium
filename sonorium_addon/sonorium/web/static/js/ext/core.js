@@ -4,7 +4,6 @@
  *   core.js           this file: shared helpers, loading /api/extensions, field markup
  *   pages.js          plugin pages in the left menu (section "Plugins")
  *   connections.js    Settings › Connection: one row per connection (built-in and plugins')
- *   notifications.js  Settings › Notifications: rules (announce on channels) and notifiers
  *   alerts.js         the alert bar for Sonorium's own serious problems
  *   outputs.js        a strip on a channel's card while a phone casts it
  *   ext.css           their styles (docs/UI_STYLE.md)

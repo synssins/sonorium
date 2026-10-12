@@ -320,6 +320,8 @@ class Session:
     is_playing: bool = False
     # The speakers' stream is silenced (the speaker button on the card); browsers listening still hear it
     speakers_muted: bool = False
+    # Announcements play on this channel (off: none plays, from any rule, Home Assistant, MQTT, the API or a plugin)
+    announcements: bool = True
 
     # Theme cycling configuration (retired: read from old state files for
     # the one-time conversion to a playlist, never saved)

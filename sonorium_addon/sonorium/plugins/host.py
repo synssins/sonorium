@@ -5,7 +5,6 @@ The plugin host: the services Sonorium gives every plugin, in one place.
     actions        what plugins may do (actions.py), one facade per plugin
     scheduler      persistent jobs (scheduler.py)
     triggers       webhook triggers and their tokens (triggers.py, tokens.py)
-    notifications  notifiers and routing rules (notifications.py)
     connections    saved connection values, secrets apart (extensions.py)
     auth           sign-in (sonorium/auth/service.py): built-in sign-in plugins
                    register who is calling, their routes and their web UI there
@@ -26,7 +25,7 @@ self.ramps, self.audio_outputs, self.commands, self.mqtt, self.homeassistant.
 The plugin manager hands the host to each plugin (BasePlugin uses it for
 self.actions, self.subscribe(), self.schedule(), ...) and tells it when a
 plugin is enabled, disabled or removed, so what a plugin set up goes away
-with it: its event subscriptions and notifiers when it is disabled; its
+with it: its event subscriptions when it is disabled; its
 jobs, tokens and saved connection values when it is uninstalled.
 """
 
@@ -44,7 +43,6 @@ from sonorium.plugins.mqtt import MqttRouter
 from sonorium.plugins.packages import Packages
 from sonorium.plugins.tts import TtsProviders
 from sonorium.plugins.extensions import ConnectionValues, normalize_connection_decls
-from sonorium.plugins.notifications import NOTIFIER_ID, Notifications
 from sonorium.plugins.scheduler import Scheduler
 from sonorium.plugins.store import FrameworkStore
 from sonorium.plugins.tokens import TokenStore
@@ -63,7 +61,6 @@ class PluginHost:
         self.tokens = TokenStore(self.store)
         self.actions = Actions(session_manager, state_store, registry, on_change=self._changed)
         self.triggers = Triggers(self.tokens, self.bus.publish)
-        self.notifications = Notifications(self.store, self.bus.publish)
         self.connections = ConnectionValues(self.store)
         self.scheduler = Scheduler(self.store, dispatch=self._run_job, is_enabled=self._is_enabled,
                                    publish=self.bus.publish, now=now)
@@ -79,12 +76,10 @@ class PluginHost:
         # Settings > Advanced > Plugin packages (api.py points this at the setting)
         self.packages_allowed: Callable[[], bool] = lambda: False
         self.packages = Packages(self.store.folder / "plugin_packages", allowed=lambda: self.packages_allowed())
-        self.notifications.source_provider = self.notification_sources
-        self.notifications.announcer = self._announce_notification
         self.manager = None  # the PluginManager, set by it
         self.on_change: Optional[Callable] = None  # async callback(session): Home Assistant entities
         self._job_callbacks: dict[tuple, Callable] = {}
-        self._router: Optional[events.Subscription] = None
+        self._alerting: Optional[events.Subscription] = None
         self._started = False
 
     async def _changed(self, session) -> None:
@@ -98,7 +93,7 @@ class PluginHost:
 
     def capabilities(self) -> set:
         """What this Sonorium offers plugins now (compat.CAPABILITIES names)."""
-        have = {"events", "actions", "scheduler", "triggers", "notifications", "pages", "connections",
+        have = {"events", "actions", "scheduler", "triggers", "pages", "connections",
                 "commands", "mqtt", "homeassistant", "audio.tts", "packages.pip", "packages.binaries"}
         if self.overlay is not None:
             have.add("audio.sounds")
@@ -107,46 +102,6 @@ class PluginHost:
         if self.outputs is not None:
             have.add("audio.outputs")
         return have
-
-    # --- Notifications: where they come from, and announcing them ---
-
-    def notification_sources(self) -> list[dict]:
-        """Every enabled plugin's declared notification sources and webhook triggers."""
-        result = []
-        plugins = self.manager.plugins.values() if self.manager is not None else []
-        for plugin in plugins:
-            if not plugin.enabled:
-                continue
-            try:
-                declared = plugin.get_notification_sources() or []
-            except Exception as e:
-                logger.warning(f"Plugin {plugin.id}: get_notification_sources failed: {e}")
-                declared = []
-            for decl in declared:
-                if isinstance(decl, dict) and events._NAME.match(str(decl.get("id", ""))):
-                    result.append({"id": f"plugin.{plugin.id}.{decl['id']}", "title": str(decl.get("title") or decl["id"]),
-                                   "description": str(decl.get("description") or ""), "plugin_id": plugin.id,
-                                   "plugin_name": plugin.name, "kind": "source"})
-            for trigger in self.triggers.declared(plugin):
-                result.append({"id": f"trigger:{plugin.id}/{trigger['id']}", "title": trigger["title"],
-                               "description": trigger["description"], "plugin_id": plugin.id,
-                               "plugin_name": plugin.name, "kind": "trigger"})
-        return result
-
-    async def _announce_notification(self, spec: dict, message: dict) -> None:
-        from sonorium.core.announce import announce
-        fields = {"title": message.get("title", ""), "body": message.get("body", "")}
-        text = spec.get("text")
-        if text:
-            try:
-                text = text.format_map(fields)
-            except (KeyError, ValueError, IndexError):
-                pass
-        elif not spec.get("sound"):
-            text = fields["title"]
-        await announce(self.overlay, self.tts, spec["channels"], text=text or None, sound=spec.get("sound"),
-                       volume=spec.get("volume", 100), duck=spec.get("duck", True), origin="notification",
-                       label=fields["title"][:80])
 
     def actions_for(self, plugin_id: str) -> Actions:
         return self.actions.for_plugin(plugin_id)
@@ -161,11 +116,9 @@ class PluginHost:
     # --- Start and stop ---
 
     async def start(self) -> None:
-        """Bind the bus to the running loop, route notifications, run the scheduler."""
+        """Bind the bus to the running loop, raise the alert bar for failures, run the scheduler."""
         self.bus.bind_loop()
-        if self._router is None:
-            self._router = self.bus.subscribe("*", self.notifications.route, owner=None, queue_size=1024)
-        if getattr(self, "_alerting", None) is None:
+        if self._alerting is None:
             self._alerting = self.bus.subscribe("error", self._alert, owner=None)
         await self.scheduler.start()
         self._started = True
@@ -181,31 +134,20 @@ class PluginHost:
 
     async def stop(self) -> None:
         await self.scheduler.stop()
-        if self._router is not None:
-            self.bus.unsubscribe(self._router)
-            self._router = None
+        if self._alerting is not None:
+            self.bus.unsubscribe(self._alerting)
+            self._alerting = None
         self._started = False
 
     # --- Plugin lifecycle (called by the plugin manager) ---
 
     def plugin_enabled(self, plugin) -> None:
-        for decl in self._notifier_decls(plugin):
-            notifier_id = f"{plugin.id}.{decl['id']}"
-
-            async def deliver(message, _plugin=plugin, _id=decl["id"]):
-                await _plugin.deliver_notification(_id, message)
-            try:
-                self.notifications.register(notifier_id, decl.get("title") or decl["id"], deliver, owner=plugin.id,
-                                            kind=decl.get("kind") or "")
-            except ValueError as e:
-                logger.warning(f"Plugin {plugin.id}: notifier not registered: {e}")
         self.bus.publish("plugin.enabled", {"plugin_id": plugin.id, "name": plugin.name})
 
     def plugin_disabled(self, plugin) -> None:
         if self.auth is not None:
             self.auth.unregister(plugin.id)  # its sign-in, routes and web UI go with it
         self.bus.unsubscribe_owner(plugin.id)
-        self.notifications.unregister_owner(plugin.id)
         self._release_services(plugin.id)
         for key in [k for k in self._job_callbacks if k[0] == plugin.id]:
             self._job_callbacks.pop(key, None)
@@ -224,7 +166,6 @@ class PluginHost:
     def plugin_removed(self, plugin_id: str) -> None:
         """The plugin was uninstalled: its jobs, tokens, connection values, command maps and packages go too."""
         self.bus.unsubscribe_owner(plugin_id)
-        self.notifications.unregister_owner(plugin_id)
         self._release_services(plugin_id)
         self.commands.forget_plugin(plugin_id)
         self.packages.remove(plugin_id)
@@ -232,16 +173,6 @@ class PluginHost:
         self.tokens.revoke(f"plugin:{plugin_id}")
         self.tokens.revoke_prefix(f"trigger:{plugin_id}/")
         self.connections.forget_plugin(plugin_id)
-
-    @staticmethod
-    def _notifier_decls(plugin) -> list[dict]:
-        try:
-            decls = plugin.get_notifiers() or []
-        except Exception as e:
-            logger.warning(f"Plugin {plugin.id}: get_notifiers failed: {e}")
-            return []
-        return [d for d in decls if isinstance(d, dict) and isinstance(d.get("id"), str)
-                and NOTIFIER_ID.match(f"{plugin.id}.{d['id']}")]
 
     # --- Scheduler ---
 

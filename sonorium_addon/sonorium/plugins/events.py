@@ -277,15 +277,9 @@ CATALOGUE: dict[str, dict] = {
                    "method": "GET or POST"},
         "summary": "Trigger: {plugin_id}/{trigger}",
     },
-    "notification": {
-        "description": "A plugin (or Sonorium) sent a message. Notification rules deliver it like any event.",
-        "fields": {"title": "Title", "body": "Text", "level": "info, warning or error",
-                   "data": "Extra values from the sender"},
-        "summary": "{title}",
-    },
     "error": {
         "description": "Something failed that nobody was waiting for: a plugin handler, a scheduled job, "
-                       "a trigger handler, a notifier, a channel that could not start.",
+                       "a trigger handler, a channel that could not start.",
         "fields": {"where": "What failed (e.g. 'trigger', 'schedule', 'channel.start')",
                    "message": "What went wrong", "plugin_id": "Plugin id, if a plugin's"},
         "summary": "Error ({where}): {message}",
@@ -361,7 +355,7 @@ def matches(pattern: str, event_type: str) -> bool:
 
 
 def summary(event: "Event") -> str:
-    """A one-line description of the event for notifications ("{name} started")."""
+    """A one-line description of the event ("{name} started")."""
     template = (CATALOGUE.get(event.type) or {}).get("summary")
     if not template:
         return event.type

@@ -227,7 +227,7 @@ class BasePlugin(ABC):
 
     @property
     def host(self):
-        """The PluginHost: event bus, actions, scheduler, triggers, notifications."""
+        """The PluginHost: event bus, actions, scheduler, triggers, audio and the other services."""
         if getattr(self, "_host", None) is None:
             from sonorium.plugins.host import PluginFrameworkUnavailable
             raise PluginFrameworkUnavailable(f"Plugin {self.id} has no plugin host")
@@ -298,33 +298,6 @@ class BasePlugin(ABC):
     async def on_trigger(self, trigger: str, payload: dict, context: dict) -> None:
         """A trigger was called (already authenticated). context: method, client, event_id."""
         pass
-
-    # Notifications
-
-    def notify(self, title: str, body: str = "", level: str = "info", data: Optional[dict] = None,
-               source: Optional[str] = None):
-        """
-        Raise a notification: source is one of get_notification_sources()' ids
-        (the rules the user made for it announce it and/or send it on).
-        """
-        full = f"plugin.{self.id}.{source}" if source else None
-        return self.host.notifications.notify(title, body, level, data, origin=f"plugin:{self.id}", source=full)
-
-    def get_notification_sources(self) -> list[dict]:
-        """
-        What this plugin can notify about, for the user's rules: [{"id",
-        "title", "description"}] (e.g. {"id": "doorbell", "title": "The
-        doorbell rang"}). Default: the manifest's "notification_sources".
-        """
-        return list((getattr(self, "_manifest", None) or {}).get("notification_sources") or [])
-
-    def get_notifiers(self) -> list[dict]:
-        """Notifiers this plugin delivers to: [{"id", "title"}]. Default: the manifest's "notifiers"."""
-        return list((getattr(self, "_manifest", None) or {}).get("notifiers") or [])
-
-    async def deliver_notification(self, notifier_id: str, notification: dict) -> None:
-        """Deliver a message (title, body, level, time, origin, event); raise if it fails."""
-        raise NotImplementedError(f"Plugin {self.id} has no notifier '{notifier_id}'")
 
     # Pages (a left-menu entry each; plugins/extensions.py has the schema)
 

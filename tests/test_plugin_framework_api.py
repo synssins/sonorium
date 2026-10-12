@@ -1,7 +1,7 @@
 """
 Plugin framework end to end: the example plugin in docs/examples (a webhook
 trigger plays a channel), trigger tokens and limits, the actions API,
-notifications, extension points (pages, connections with secrets), the
+extension points (pages, connections with secrets), the
 schedule endpoints and the event stream.
 """
 
@@ -44,15 +44,7 @@ class Helper(BasePlugin):
     id = "helper"
     name = "Helper"
     version = "1.0.0"
-    delivered, page_calls, tested, changed, scheduled = [], [], [], [], []
-
-    def get_notifiers(self):
-        return [{"id": "inbox", "title": "Inbox"}, {"id": "broken", "title": "Broken"}]
-
-    async def deliver_notification(self, notifier_id, notification):
-        if notifier_id == "broken":
-            raise RuntimeError("offline")
-        Helper.delivered.append(notification)
+    page_calls, tested, changed, scheduled = [], [], [], []
 
     def get_pages(self):
         return [{"id": "main", "title": "Main", "icon": "alarm"}, {"id": "bad id!"},
@@ -119,11 +111,11 @@ def w(tmp_path):
     with TestClient(app) as client:
         call = client.portal.call
         call(manager.initialize)
-        call(host.start)  # as at Sonorium's start-up: the loop, notification routing, the scheduler
+        call(host.start)  # as at Sonorium's start-up: the loop, the alert bar, the scheduler
         for plugin_id in ("trigger_play_channel", "helper"):
             assert call(manager.enable_plugin, plugin_id)
         helper = manager.get_plugin("helper")
-        for name in ("delivered", "page_calls", "tested", "changed", "scheduled"):
+        for name in ("page_calls", "tested", "changed", "scheduled"):
             getattr(type(helper), name).clear()
         yield SimpleNamespace(t=t, bus=bus, host=host, manager=manager, client=client, call=call, helper=helper,
                               config=tmp_path / "config")
@@ -362,59 +354,39 @@ def test_uninstall_removes_jobs_tokens_and_connection_values(w):
     assert "pw" not in (w.config / "plugin_secrets.json").read_text()
 
 
-# --- Notifications -------------------------------------------------------------------------
+# --- Notifications are gone: Sonorium is an endpoint others announce through --------------
 
-def test_notification_rules_route_events_to_notifiers(w):
-    c = w.client
-    overview = c.get("/api/notifications").json()
-    assert {n["id"] for n in overview["notifiers"]} == {"helper.inbox", "helper.broken"}
-    r = c.put("/api/notifications/rules", json={"rules": [
-        {"id": "starts", "events": ["channel.started"], "notifiers": ["helper.inbox"]},
-        {"id": "problems", "events": ["error"], "notifiers": ["helper.inbox", "helper.broken"], "min_level": "error"},
-    ]})
-    assert r.status_code == 200, r.text
-    w.bus.publish("channel.started", {"channel_id": "c1", "name": "Kitchen"})
-    assert wait_for(lambda: w.helper.delivered)
-    message = w.helper.delivered[0]
-    assert message["title"] == "Kitchen started" and message["event"]["type"] == "channel.started"
+@pytest.mark.parametrize("method,path", [
+    ("GET", "/api/notifications"), ("PUT", "/api/notifications/rules"), ("PUT", "/api/notifications/rules/x"),
+    ("DELETE", "/api/notifications/rules/x"), ("POST", "/api/notifications/test"),
+    ("POST", "/api/notifications/rules/x/test"), ("POST", "/api/notifications/try"),
+])
+def test_notification_rule_routes_are_gone(w, method, path):
+    assert w.client.request(method, path, json={}).status_code in (404, 405)
+    assert not hasattr(w.host, "notifications")
 
+
+def test_an_error_still_raises_the_alert_bar(w):
+    from sonorium import alerts
     w.bus.publish("error", {"where": "test", "message": "it broke"})
-    assert wait_for(lambda: len(w.helper.delivered) == 2)
-    # The broken notifier's failure is an error event that is not routed again
-    assert wait_for(lambda: any(e.data.get("where") == "notifier" for e in w.bus.history(0, ["error"])))
-    time.sleep(0.1)
-    assert len(w.helper.delivered) == 2
+    assert wait_for(lambda: any("it broke" in a.get("message", "") for a in alerts.active()))
 
 
-def test_plugin_notify_and_test_endpoint(w):
-    w.client.put("/api/notifications/rules/msgs", json={"events": ["notification"], "notifiers": ["helper.inbox"],
-                                                       "min_level": "warning"})
-    w.helper.notify("Just info")  # below the rule's level
-    w.helper.notify("Door open", "Back door", level="warning")
-    assert wait_for(lambda: w.helper.delivered)
-    time.sleep(0.05)
-    assert [d["title"] for d in w.helper.delivered] == ["Door open"]
-    assert w.helper.delivered[0]["origin"] == "plugin:helper"
-    r = w.client.post("/api/notifications/test", json={"notifier": "helper.broken"})
-    assert r.json() == {"success": False, "message": "offline"}
-    assert w.client.post("/api/notifications/test", json={"notifier": "x.y"}).status_code == 404
+def test_channel_announcements_off_is_kept_and_published(w):
+    manager, session = w.t.manager, w.t.session
+    assert manager.set_announcements(session.id, False) is True
+    assert session.announcements is False and session.recent[-1]["text"] == "Announcements off"
+    assert any(e.data.get("changes") == {"announcements": False} for e in w.bus.history(0, ["channel.changed"]))
+    assert manager.set_announcements("nope", False) is False
+    assert w.call(w.host.actions.list_channels)[0]["announcements"] is False
 
 
-def test_rules_are_checked(w):
-    c = w.client
-    assert c.put("/api/notifications/rules", json={"rules": [{"events": [], "notifiers": ["a.b"]}]}).status_code == 400
-    assert c.put("/api/notifications/rules/x", json={"events": ["bad pattern!"], "notifiers": ["a.b"]}).status_code == 400
-    assert c.put("/api/notifications/rules/x", json={"events": ["*"], "notifiers": ["nodot"]}).status_code == 400
-    assert c.delete("/api/notifications/rules/none").status_code == 404
-
-
-def test_disabling_a_plugin_removes_its_notifiers_and_subscriptions(w):
+def test_disabling_a_plugin_removes_its_subscriptions(w):
     owners = {s.owner for s in w.bus.subscriptions()}
     assert "trigger_play_channel" in owners
     w.call(w.manager.disable_plugin, "trigger_play_channel")
     w.call(w.manager.disable_plugin, "helper")
     assert "trigger_play_channel" not in {s.owner for s in w.bus.subscriptions()}
-    assert w.client.get("/api/notifications").json()["notifiers"] == []
     assert types(w, "plugin.*")[-2:] == ["plugin.disabled", "plugin.disabled"]
 
 

@@ -2,8 +2,7 @@
 Plugin API 1.1 end to end: the compatibility check (api_version, requires),
 packages and binaries, command maps (learn, run), the MQTT router, the
 Announcements plugin's notify entities with Home Assistant's text to speech
-(MQTT and HA mocked), notification rules that announce on channels, and the
-new routes.
+(MQTT and HA mocked), and the new routes.
 """
 import asyncio
 import hashlib
@@ -31,7 +30,7 @@ def modules():
                        "sonorium.core.sequences", "sonorium.core.playlists", "sonorium.plugins.events",
                        "sonorium.plugins.host", "sonorium.plugins.manager", "sonorium.plugins.loader",
                        "sonorium.plugins.compat", "sonorium.plugins.packages", "sonorium.plugins.commands",
-                       "sonorium.plugins.mqtt", "sonorium.plugins.homeassistant", "sonorium.plugins.notifications",
+                       "sonorium.plugins.mqtt", "sonorium.plugins.homeassistant",
                        "sonorium.web.plugin_framework_api", "sonorium.alerts") as mods:
         m.__dict__.update(mods.__dict__)
         runner_tests.m.__dict__.update(mods.__dict__)
@@ -49,9 +48,6 @@ class Remote(BasePlugin):
 
     def get_command_maps(self):
         return [{"id": "ir", "title": "IR remote", "codes": [{"code": "KEY_UP", "label": "Up"}]}]
-
-    def get_notification_sources(self):
-        return [{"id": "doorbell", "title": "The doorbell rang"}]
 '''
 
 
@@ -128,6 +124,7 @@ def w(tmp_path):
     t = runner_tests.build(tmp_path)
     host = m.host.PluginHost(tmp_path / "config", bus=bus, session_manager=t.manager, state_store=t.store)
     overlay = FakeOverlay()
+    overlay.sessions = t.manager  # as the real overlay: channels by id, name or "all"
     host.set_audio(overlay, None, None)
     FakeHA.calls = []
     host.homeassistant = m.homeassistant.HomeAssistant(lambda: ("http://supervisor/core/api", "tok"),
@@ -347,31 +344,6 @@ def test_announce_route(w):
     assert info["tts_providers"] == [{"id": "homeassistant", "title": "Home Assistant", "plugin_id": "announcements"}]
 
 
-# --- Notifications: sources announced on channels ---
-
-def test_rule_announces_a_source_and_lists_sources(w):
-    c = w.client
-    overview = c.get("/api/notifications").json()
-    ids = {s["id"] for s in overview["sources"]}
-    assert "plugin.remote.doorbell" in ids
-    assert c.put("/api/notifications/rules/door", json={"sources": ["plugin.remote.doorbell"]}).status_code == 400
-    r = c.put("/api/notifications/rules/door", json={
-        "name": "Doorbell", "sources": ["plugin.remote.doorbell"],
-        "announce": {"channels": [w.t.session.id], "sound": "http://x/ding.mp3", "text": "{title}", "volume": 90}})
-    assert r.status_code == 200, r.text
-    remote = w.manager.get_plugin("remote")
-    w.call(lambda: _notify(remote))
-    assert wait_for(lambda: len(w.overlay.played) == 2)
-    assert [p["source"] for p in w.overlay.played] == ["http://x/ding.mp3", b"ID3-fake-mp3"]
-    assert any(cl[2] and cl[2].get("message") == "Someone is at the door" for cl in FakeHA.calls)
-    w.overlay.played.clear()
-    assert c.post("/api/notifications/rules/door/test").json()["announced"] is True
-
-
-async def _notify(plugin):
-    plugin.notify("Someone is at the door", source="doorbell")
-
-
 def test_alerts_route():
     m.alerts.report("Something broke", "test", log=False)
     from fastapi import FastAPI
@@ -383,3 +355,120 @@ def test_alerts_route():
         mine = next(a for a in alerts if a["message"] == "Something broke")
         assert client.post(f"/api/alerts/{mine['id']}/dismiss").json() == {"dismissed": True}
         assert client.post(f"/api/alerts/{mine['id']}/dismiss").status_code == 404
+
+
+# --- Inbound announcements: other systems use Sonorium (HTTP, MQTT, Home Assistant) ---
+
+def _sources(w):
+    return [p["source"] for p in w.overlay.played]
+
+
+def test_http_announce_takes_a_channel_name_and_says_what_played(w):
+    session = w.t.session
+    r = w.client.post("/api/announce", json={"channels": session.name.upper(), "text": "Dinner is ready"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["played"] == [session.id] and body["skipped"] == [] and body["notice"] is None
+    played = w.overlay.played[-1]
+    assert played["source"] == b"ID3-fake-mp3" and played["announcement"] is True
+    assert played["duck"] is True and played["start_stopped"] is True and played["override"] is True
+    # A chime first, duck in dB, "all"
+    w.overlay.played.clear()
+    r = w.client.post("/api/announce", json={"channels": "all", "url": "http://x/ding.mp3", "text": "Hi", "duck": 12})
+    assert r.status_code == 200 and _sources(w) == ["http://x/ding.mp3", b"ID3-fake-mp3"]
+    assert all(p["duck"] == {"db": 12} for p in w.overlay.played)
+    # Wrong requests
+    r = w.client.post("/api/announce", json={"channels": "Garage", "text": "x"})
+    assert r.status_code == 404 and r.json()["detail"] == "No channel 'Garage'"
+    assert w.client.post("/api/announce", json={"text": "x"}).status_code == 400
+    assert w.client.post("/api/announce", json={"channels": "all"}).status_code == 400
+    assert w.client.post("/api/announce", json={"channels": "all", "text": "x", "duck": "loud"}).status_code == 400
+
+
+def test_http_announce_skips_a_channel_with_announcements_off(w):
+    session = w.t.session
+    assert w.t.manager.set_announcements(session.id, False)
+    r = w.client.post("/api/announce", json={"channels": session.id, "text": "Nap time"})
+    assert r.status_code == 200
+    assert r.json()["played"] == [] and r.json()["skipped"] == [session.id]
+    assert w.overlay.played == [] and not any(c[1].endswith("tts_get_url") for c in FakeHA.calls)
+
+
+def test_http_announce_without_text_to_speech(w):
+    w.host.homeassistant = None  # Docker without Home Assistant
+    session = w.t.session
+    r = w.client.post("/api/announce", json={"channels": session.id, "text": "Dinner", "url": "http://x/ding.mp3"})
+    assert r.status_code == 200 and "text to speech" in r.json()["notice"]
+    assert _sources(w) == ["http://x/ding.mp3"]
+    r = w.client.post("/api/announce", json={"channels": session.id, "text": "Dinner"})
+    assert r.status_code == 503 and "Home Assistant" in r.json()["detail"]
+
+
+def test_http_announce_respects_a_key_limited_to_some_channels(w):
+    from sonorium.auth.principal import Principal
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    app = FastAPI()
+    app.include_router(m.plugin_framework_api.create_plugin_framework_router(w.manager, w.host))
+
+    @app.middleware("http")
+    async def as_a_key(request, call_next):
+        request.scope.setdefault("state", {})["auth"] = Principal("key", frozenset({"an.send"}), channels=["other"])
+        return await call_next(request)
+    with TestClient(app) as client:
+        r = client.post("/api/announce", json={"channels": w.t.session.id, "text": "x"})
+        assert r.status_code == 403
+        assert client.post("/api/announce", json={"channels": "all", "text": "x"}).status_code == 404
+    assert w.overlay.played == []
+
+
+def test_mqtt_announce_by_name_with_duck_and_skips(w):
+    client = FakeMqtt()
+    w.host.mqtt.bind(client, None)
+    session = w.t.session
+    w.call(client.handler, "sonorium/announce/set",
+           json.dumps({"channels": [session.name], "chime": "http://x/ding.mp3", "duck": 20, "volume": 60}))
+    assert wait_for(lambda: len(w.overlay.played) == 1)
+    assert w.overlay.played[0]["duck"] == {"db": 20} and w.overlay.played[0]["volume"] == 60
+    # No channels: nothing (no accidental "every room")
+    w.call(client.handler, "sonorium/announce/set", json.dumps({"text": "Hello"}))
+    # Announcements off: skipped
+    w.t.manager.set_announcements(session.id, False)
+    w.call(client.handler, "sonorium/announce/set", json.dumps({"channels": "all", "text": "Hello"}))
+    time.sleep(0.2)
+    assert len(w.overlay.played) == 1
+
+
+def test_ha_notify_entity_message_can_carry_a_chime(w):
+    client = FakeMqtt()
+    w.host.mqtt.bind(client, None)
+    session = w.t.session
+    w.call(client.handler, f"sonorium/announce/{session.id}/set",
+           json.dumps({"message": "Someone is at the door", "url": "http://x/ding.mp3"}))
+    assert wait_for(lambda: len(w.overlay.played) == 2)
+    assert _sources(w) == ["http://x/ding.mp3", b"ID3-fake-mp3"]
+    assert all(p["channels"] == [session.id] for p in w.overlay.played)
+
+
+def test_plugins_announce_through_the_same_path(w):
+    remote = w.manager.get_plugin("remote")
+    result = w.call(lambda: remote.audio.announce("all", "From a plugin", duck=False))
+    assert result["played"] == [w.t.session.id]
+    assert w.overlay.played[-1]["origin"] == "plugin:remote" and w.overlay.played[-1]["duck"] is False
+
+
+def test_channel_announcements_setting_is_saved():
+    Session = m.state.Session
+    s = Session(id="k", name="Kids")
+    assert s.announcements is True
+    s.announcements = False
+    assert Session.from_dict(s.to_dict()).announcements is False
+    assert Session.from_dict({"id": "o", "name": "Old"}).announcements is True  # state files from before
+
+
+def test_permission_table_has_announce_and_no_notification_rules():
+    table = (PACKAGE / "auth" / "permissions.py").read_text(encoding="utf-8")
+    assert "/api/notifications" not in table
+    assert any(line.split()[:3] == ["POST", "/api/announce", "an.send"] for line in table.splitlines())
+    assert any(line.split()[:3] == ["PUT", "/api/sessions/{session_id}/announcements", "ch.change"]
+               for line in table.splitlines())

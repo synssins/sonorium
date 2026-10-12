@@ -10,6 +10,7 @@ Creates and manages Home Assistant entities via MQTT Discovery:
 - button.sonorium_{session}_next - Next playlist entry (or next sequence step)
 - number.sonorium_{session}_volume - Volume control
 - switch.sonorium_{session}_speakers_muted - The speakers' stream silenced (the card's speaker button)
+- switch.sonorium_{session}_announcements - Announcements play on the channel (off: none, e.g. a nap)
 - sensor.sonorium_{session}_status - Current status (recent changes as attributes)
 - sensor.sonorium_{session}_step - Sequence step / playlist entry (details as attributes)
 - sensor.sonorium_{session}_speakers - Speaker info
@@ -211,6 +212,8 @@ class SessionMQTTEntities:
         await asyncio.sleep(0.05)
         await self._publish_mute_switch()
         await asyncio.sleep(0.05)
+        await self._publish_announcements_switch()
+        await asyncio.sleep(0.05)
         await self._publish_volume_number()
         await asyncio.sleep(0.05)
         await self._publish_status_sensor()
@@ -229,6 +232,7 @@ class SessionMQTTEntities:
         ("select", "playlist"),
         ("button", "next"),
         ("switch", "speakers_muted"),
+        ("switch", "announcements"),
         ("number", "volume"),
         ("sensor", "status"),
         ("sensor", "step"),
@@ -319,6 +323,13 @@ class SessionMQTTEntities:
         await self.mqtt_publish(
             f"{self.state_topic_base}/speakers_muted/state",
             "ON" if getattr(self.session, "speakers_muted", False) else "OFF",
+            retain=True,
+        )
+
+        # Announcements switch
+        await self.mqtt_publish(
+            f"{self.state_topic_base}/announcements/state",
+            "ON" if getattr(self.session, "announcements", True) else "OFF",
             retain=True,
         )
 
@@ -477,6 +488,21 @@ class SessionMQTTEntities:
             "device": self.device_info,
         }
         await self.mqtt_publish(self._get_discovery_topic("switch", "speakers_muted"), json.dumps(config), retain=True)
+
+    async def _publish_announcements_switch(self):
+        """Announcements: whether announcements play on the channel (an automation can turn them off for a nap)."""
+        config = {
+            "name": f"{self.session.name} Announcements",
+            "unique_id": self._get_unique_id("announcements"),
+            "default_entity_id": f"switch.{self.prefix}_{self.slug}_announcements",
+            "state_topic": f"{self.state_topic_base}/announcements/state",
+            "command_topic": f"{self.state_topic_base}/announcements/set",
+            "payload_on": "ON",
+            "payload_off": "OFF",
+            "icon": "mdi:bullhorn",
+            "device": self.device_info,
+        }
+        await self.mqtt_publish(self._get_discovery_topic("switch", "announcements"), json.dumps(config), retain=True)
 
     async def _publish_step_sensor(self):
         """What the sequence and playlist are on now; the full status is in its attributes."""
@@ -1457,6 +1483,7 @@ class SonoriumMQTTManager:
                 f"{self.prefix}/{slug}/playlist/set",
                 f"{self.prefix}/{slug}/next/set",
                 f"{self.prefix}/{slug}/speakers_muted/set",
+                f"{self.prefix}/{slug}/announcements/set",
                 f"{self.prefix}/{slug}/volume/set",
             ])
 
@@ -1673,6 +1700,14 @@ class SonoriumMQTTManager:
 
             elif topic == f"{self.prefix}/{slug}/speakers_muted/set":
                 if not self.session_manager.set_speakers_muted(session_id, payload == "ON"):
+                    return
+                session = self.state.sessions.get(session_id)
+                if session:
+                    await self.update_session_state(session)
+                return
+
+            elif topic == f"{self.prefix}/{slug}/announcements/set":
+                if not self.session_manager.set_announcements(session_id, payload == "ON"):
                     return
                 session = self.state.sessions.get(session_id)
                 if session:

@@ -1,19 +1,27 @@
 """
-Announcements from Home Assistant (built-in plugin).
+Announcements from Home Assistant and MQTT (built-in plugin).
 
-- Each channel gets a Home Assistant notify entity over MQTT ("Kitchen
+Sonorium doesn't decide when to announce: other systems send it announcements
+and it plays them (core/announce.py). This plugin gives two of the routes:
+
+- Home Assistant: each channel gets a notify entity over MQTT ("Kitchen
   Announce"). A message sent to it (notify.send_message) is spoken on the
   channel: Home Assistant's text to speech makes the audio, Sonorium ducks
-  the channel's mix, plays it and brings the mix back.
-- The MQTT command sonorium/announce/set takes a JSON object:
-  {"channels": ["<channel id>"] or "all", "text": "...", "url": "https://.../chime.mp3",
-   "volume": 80}: a chime and/or spoken text.
+  the channel's mix, plays it and brings the mix back. A message that is a
+  JSON object takes the same fields as the MQTT command below (e.g. a chime
+  "url").
+- MQTT: sonorium/announce/set takes a JSON object:
+  {"channels": "Kitchen" | ["<name or id>", ...] | "all", "text": "...",
+   "url": "https://.../chime.mp3", "volume": 80, "duck": 18}: a chime and/or
+  spoken text. sonorium/announce/<channel id>/set takes the text alone (or
+  the same JSON without "channels") for one channel.
 - Home Assistant's text to speech is offered to the rest of Sonorium as the
-  "homeassistant" provider (POST /api/announce, notification rules).
+  "homeassistant" provider (POST /api/announce, plugins).
 
 Home Assistant and MQTT act as an admin: an announcement overrides a zone's
 owner and quiet hours, and starts a stopped channel for its length (set
-"Announce on stopped channels" off to skip stopped channels).
+"Announce on stopped channels" off to skip stopped channels). A channel with
+its Announcements setting off is skipped.
 
 Every announcement takes the same path (sonorium/core/announce.py) through
 the plugin API 1.1 services: self.audio, self.mqtt, self.homeassistant.
@@ -34,8 +42,8 @@ CHANNEL_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 class AnnouncementsPlugin(BasePlugin):
     id = "announcements"
     name = "Announcements"
-    version = "1.0.0"
-    description = "Home Assistant announces on channels: a notify entity per channel, spoken with its text to speech"
+    version = "1.0.1"
+    description = "Home Assistant and MQTT announce on channels: a notify entity per channel, spoken with its text to speech"
     author = "Sonorium"
 
     def __init__(self, *args, **kwargs):
@@ -64,7 +72,7 @@ class AnnouncementsPlugin(BasePlugin):
     # --- Lifecycle ---
 
     async def on_enable(self) -> None:
-        self.audio.register_tts(PROVIDER, "Home Assistant", self.speak)
+        self.audio.register_tts(PROVIDER, "Home Assistant", self.speak, ready=lambda: self.homeassistant.available)
         self.mqtt.subscribe(f"{self.mqtt.prefix}/announce/+/set", self.on_channel_message)
         self.mqtt.subscribe(f"{self.mqtt.prefix}/announce/set", self.on_command)
         # MQTT may connect after plugins start: publish then too
@@ -128,7 +136,7 @@ class AnnouncementsPlugin(BasePlugin):
     # --- Messages ---
 
     async def on_channel_message(self, topic: str, payload: str) -> None:
-        """A notify entity's message: speak it on its channel."""
+        """A notify entity's message: speak it on its channel (a JSON object: chime, text, volume, duck)."""
         parts = topic.split("/")
         channel_id = parts[-2] if len(parts) >= 4 else ""
         text = (payload or "").strip()
@@ -139,44 +147,48 @@ class AnnouncementsPlugin(BasePlugin):
                 data = json.loads(text)
             except ValueError:
                 data = None
-            if isinstance(data, dict):  # a command_template sending JSON
+            if isinstance(data, dict):  # a JSON message (or a command_template sending JSON)
                 await self.announce([channel_id], data)
                 return
         await self.announce([channel_id], {"text": text})
 
     async def on_command(self, topic: str, payload: str) -> None:
-        """sonorium/announce/set: {"channels", "text", "url", "volume"}."""
+        """sonorium/announce/set: {"channels", "text", "url", "volume", "duck"}."""
         try:
             data = json.loads(payload or "")
         except ValueError:
             logger.warning("Announcements: sonorium/announce/set needs a JSON object (channels, text, url)")
             return
         if not isinstance(data, dict):
+            logger.warning("Announcements: sonorium/announce/set needs a JSON object (channels, text, url)")
             return
-        channels = data.get("channels")
-        if channels in ("all", "*", None):
-            channels = [c["id"] for c in await self.actions.list_channels()]
-        elif isinstance(channels, str):
-            channels = [channels]
-        if not isinstance(channels, list) or not channels:
-            logger.warning("Announcements: 'channels' must list channel ids or be \"all\"")
+        if data.get("channels") in (None, "", []):
+            logger.warning("Announcements: sonorium/announce/set needs 'channels' (a name or id, a list, or \"all\")")
             return
-        await self.announce([str(c) for c in channels], data)
+        await self.announce(data["channels"], data)
 
-    async def announce(self, channels: list, data: dict) -> None:
+    async def announce(self, channels, data: dict) -> None:
         text = data.get("text", data.get("message"))
-        url = data.get("url")
+        url = data.get("url", data.get("chime"))
         if url is not None and (not isinstance(url, str) or not url.lower().startswith(("http://", "https://"))):
             logger.warning("Announcements: 'url' must be an http(s) URL")
             url = None
+        text = text.strip() if isinstance(text, str) and text.strip() else None
+        if text is None and url is None:
+            logger.warning("Announcements: nothing to announce (send 'text', a chime 'url', or both)")
+            return
         volume = data.get("volume", self.get_setting("volume", 100))
         if isinstance(volume, bool) or not isinstance(volume, (int, float)):
             volume = self.get_setting("volume", 100)
+        duck = data.get("duck", True)
         try:
-            await self.audio.announce(channels, text if isinstance(text, str) and text.strip() else None, sound=url,
-                                      volume=volume, start_stopped=bool(self.get_setting("start_stopped", True)))
+            result = await self.audio.announce(channels, text, sound=url, volume=volume, duck=duck,
+                                               start_stopped=bool(self.get_setting("start_stopped", True)))
         except ActionError as e:
             logger.warning(f"Announcements: {e.message}")
+            return
+        if result.get("notice"):
+            logger.warning(f"Announcements: {result['notice']}")
 
     # --- Text to speech for the rest of Sonorium ---
 

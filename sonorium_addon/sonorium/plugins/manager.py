@@ -53,7 +53,7 @@ class PluginManager:
             plugins_dir: Directory containing plugins
             audio_path: Path to audio/themes directory (from addon config)
             host: Optional PluginHost (plugins/host.py): the services plugins
-                use (events, actions, scheduler, triggers, notifications)
+                use (events, actions, scheduler, triggers)
         """
         self.host = host
         if host is not None:

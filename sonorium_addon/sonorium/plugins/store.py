@@ -1,7 +1,7 @@
 """
 Where the plugin framework keeps its data, next to state.json:
 
-  plugin_framework.json  scheduled jobs, notification rules, the non-secret
+  plugin_framework.json  scheduled jobs, the non-secret
                          values of plugin connections, framework settings
                          (time zone)
   plugin_secrets.json    owner-only file (0600): hashes of trigger and event

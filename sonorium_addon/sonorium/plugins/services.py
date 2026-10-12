@@ -31,6 +31,7 @@ def _unavailable(what: str) -> ActionError:
 async def _call(work):
     """Run a core call (a coroutine, or a function, sync or async), its errors as ActionError."""
     import inspect
+    from sonorium.core.announce import TtsUnavailable
     from sonorium.core.audio_outputs import OutputError
     from sonorium.core.decode import DecodeError
     from sonorium.core.overlay import OverlayError
@@ -45,6 +46,8 @@ async def _call(work):
         raise
     except LookupError as e:
         raise ActionError("not_found", str(e).strip("'\""))
+    except TtsUnavailable as e:
+        raise ActionError("unavailable", str(e))
     except (OverlayError, DecodeError, RampError, OutputError, CommandError, ValueError) as e:
         raise ActionError("invalid", str(e))
     except (HomeAssistantError, TtsError) as e:
@@ -63,18 +66,19 @@ class AudioV1:
     async def play(self, channels, source=None, *, samples=None, sample_rate: Optional[int] = None,
                    volume: float = 100, duck=True, policy: str = "queue", priority: int = 0,
                    max_seconds: Optional[float] = None, start_stopped: bool = False, override: bool = False,
-                   label: str = "") -> dict:
+                   label: str = "", announcement: bool = False) -> dict:
         """
         Play a sound over channels: source is a file path, an http(s) URL or the
         bytes of an audio file; or samples (numpy, -1..1 or int16) with
         sample_rate. duck: True (the Advanced defaults), False, or {"db",
         "attack", "release"}. policy: now, queue, replace. override: skip
-        zone gates (admin-level: announcements, alarms).
+        zone gates (admin-level: announcements, alarms). announcement: it is
+        one, so channels with announcements off skip it.
         """
         return await _call(self._svc().play(
             channels, source, samples=samples, sample_rate=sample_rate, volume=volume, duck=duck, policy=policy,
             priority=priority, max_seconds=max_seconds, start_stopped=start_stopped, override=override,
-            label=label, origin=f"plugin:{self._id}"))
+            label=label, origin=f"plugin:{self._id}", announcement=bool(announcement)))
 
     async def cancel(self, sound_id: str, channel: Optional[str] = None) -> bool:
         return self._svc().cancel(sound_id, channel)
@@ -89,9 +93,12 @@ class AudioV1:
     def remove_gate(self) -> None:
         self._svc().remove_gate(self._id)
 
-    def register_tts(self, provider_id: str, title: str, speak: Callable) -> None:
-        """Provide text to speech: async speak(message, language=None, voice=None, options=None) -> bytes."""
-        self._host.tts.register(self._id, provider_id, title, speak)
+    def register_tts(self, provider_id: str, title: str, speak: Callable, ready: Optional[Callable] = None) -> None:
+        """
+        Provide text to speech: async speak(message, language=None, voice=None, options=None) -> bytes.
+        ready() (optional): whether it can speak now (e.g. its service is reachable).
+        """
+        self._host.tts.register(self._id, provider_id, title, speak, ready)
 
     def tts_providers(self) -> list[dict]:
         return self._host.tts.providers()
@@ -107,7 +114,15 @@ class AudioV1:
         An announcement (core/announce.py): a chime (sound: URL, path or bytes)
         and/or text spoken, ducking the channels' mix; admin-level (overrides
         zones and quiet hours), starts stopped channels for its length.
+        channels: ids, names, or "all". Channels with Announcements off are
+        left out ("skipped"). duck: True, False, dB, or {db, attack, release}.
         """
+        from sonorium.core.announce import parse_duck, resolve_channels
+        try:
+            channels = resolve_channels(getattr(self._svc(), "sessions", None), channels)
+            duck = parse_duck(duck)
+        except (LookupError, ValueError) as e:
+            raise ActionError("not_found" if isinstance(e, LookupError) else "invalid", str(e.args[0] if e.args else e))
         from sonorium.core.announce import announce
         return await _call(announce(self._svc(), self._host.tts, channels, text=text, sound=sound, volume=volume,
                                     duck=duck, provider=provider, language=language, start_stopped=start_stopped,

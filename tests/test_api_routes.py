@@ -104,6 +104,7 @@ V2_ROUTES = [
     ('APIRoute', 'POST', '/api/sessions/{session_id}/pause', 'pause_session'),
     ('APIRoute', 'POST', '/api/sessions/{session_id}/stop', 'stop_session'),
     ('APIRoute', 'POST', '/api/sessions/{session_id}/volume', 'set_session_volume'),
+    ('APIRoute', 'PUT', '/api/sessions/{session_id}/announcements', 'set_session_announcements'),
     ('APIRoute', 'PUT', '/api/sessions/{session_id}/speakers-muted', 'mute_session_speakers'),
     ('APIRoute', 'POST', '/api/sessions/{session_id}/listen', 'listen_session'),
     ('APIRoute', 'DELETE', '/api/sessions/{session_id}/listen', 'unlisten_session'),
