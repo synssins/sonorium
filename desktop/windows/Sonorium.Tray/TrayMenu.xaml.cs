@@ -84,7 +84,7 @@ public sealed partial class TrayMenu : Window
     }
     void Updates_Click(object sender, RoutedEventArgs e) { Done(); Actions.ShowConsole("Updates", checkNow: true); }
     void Logs_Click(object sender, RoutedEventArgs e) { Done(); Actions.ShowConsole("Logs"); }
-    void Help_Click(object sender, RoutedEventArgs e) { Done(); Actions.OpenUrl("https://sonorium.app"); }
+    void Help_Click(object sender, RoutedEventArgs e) { Done(); Actions.OpenUrl("https://sonorium.app/docs.html"); }
     void Quit_Click(object sender, RoutedEventArgs e) { Done(); Actions.Quit(); }
 
     [StructLayout(LayoutKind.Sequential)]

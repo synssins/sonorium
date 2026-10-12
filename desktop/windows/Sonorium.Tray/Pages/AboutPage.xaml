@@ -26,7 +26,7 @@
             <TextBlock Text="Links" FontWeight="SemiBold" Margin="0,18,0,8" />
             <t:SettingCard>
                 <t:SettingRow Glyph="&#xE774;" Title="sonorium.app" Description="Guides and help.">
-                    <Button Content="Open" Tag="https://sonorium.app" Click="Open_Click" />
+                    <Button Content="Open" Tag="https://sonorium.app/docs.html" Click="Open_Click" />
                 </t:SettingRow>
                 <t:SettingRow Glyph="&#xE897;" Title="Report a problem" Description="On GitHub.">
                     <Button Content="Open" Tag="https://github.com/synssins/sonorium/issues" Click="Open_Click" />
