@@ -299,12 +299,12 @@ not built (AUTH.md).
   "api": 1,
   "install": "windows",
   "features": {
-    "connection_settings": {"available": true, "enabled": true, "overridable": false, "default": true, "live": false},
-    "network_speakers":    {"available": true, "enabled": true, "overridable": false, "default": true, "live": false},
-    "space_editing":       {"available": true, "enabled": true, "overridable": false, "default": true, "live": false},
-    "plugin_packages":     {"available": true, "enabled": false, "overridable": true, "default": false, "live": false},
-    "keys":                {"available": true, "enabled": true, "overridable": true, "default": true, "live": true},
-    "announcements":       {"available": true, "enabled": true, "overridable": true, "default": true, "live": true}
+    "connection_settings": {"available": true, "enabled": true, "overridable": false, "switchable": false, "default": true, "live": false},
+    "network_speakers":    {"available": true, "enabled": true, "overridable": false, "switchable": true, "default": true, "live": false},
+    "space_editing":       {"available": true, "enabled": true, "overridable": false, "switchable": false, "default": true, "live": false},
+    "plugin_packages":     {"available": true, "enabled": false, "overridable": true, "switchable": true, "default": false, "live": false},
+    "keys":                {"available": true, "enabled": true, "overridable": true, "switchable": true, "default": true, "live": true},
+    "announcements":       {"available": true, "enabled": true, "overridable": true, "switchable": true, "default": true, "live": true}
   },
   "ports": {"http": 8008, "https": 8808},
   "host": "192.0.2.25",
@@ -327,7 +327,7 @@ not built (AUTH.md).
 | `version` | string | Show it in server details. Don't parse it for features; use `api` and the presence of fields. |
 | `api` | int | API version, `1`. Section 11.3. |
 | `install` | `"addon"`, `"docker"`, `"windows"`, `"linux"` | Wording ("Home Assistant app", "Docker"); `addon` means: no mDNS re-discovery, floors and areas come from HA. |
-| `features.<name>` | `{available, enabled, overridable, default, live}` | `available`: offered on this install; `enabled`: running now; `overridable`: can be switched on or off in Settings › Advanced; `default`: on out of the box; `live`: a change applies at once (otherwise after a restart). `network_speakers.enabled` false: hide manual speakers and network scans. `space_editing.enabled` false: floors and areas are read-only (HA owns them). `connection_settings`: hidden on the add-on. `keys.enabled` false: keys are refused (401) and `/api/keys` answers 404; hide key controls. `announcements.enabled` false: `POST /api/announce` answers 409; hide announce controls. A feature missing from the list (an older server): treat it as on. |
+| `features.<name>` | `{available, enabled, overridable, switchable, default, live}` | `available`: offered on this install; `enabled`: running now; `overridable`: shown in Settings › Advanced; `switchable`: `PUT /api/install/features` may change it; `default`: on out of the box; `live`: a change applies at once (otherwise after a restart). `network_speakers.enabled` false: hide manual speakers and network scans. `space_editing.enabled` false: floors and areas are read-only (HA owns them). `connection_settings`: hidden on the add-on. `keys.enabled` false: keys are refused (401) and `/api/keys` answers 404; hide key controls. `announcements.enabled` false: `POST /api/announce` answers 409; hide announce controls. A feature missing from the list (an older server): treat it as on. |
 | `ports.http` | int | The HTTP port speakers use (from the stream URL). Stream URLs use it. |
 | `ports.https` | int or null | The HTTPS port as the LAN sees it. `null`: HTTPS is off (no certificate, or the add-on mapping is off); the app can't link. |
 | `host` | string | The address speakers use (the stream URL's host). Add it to the stored addresses. |

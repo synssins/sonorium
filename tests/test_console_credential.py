@@ -122,6 +122,6 @@ def test_console_token_rotation(cw):
 
 def test_console_ensure_does_nothing_without_the_variable(tmp_path, monkeypatch):
     monkeypatch.delenv("SONORIUM_CONSOLE_TOKEN_FILE", raising=False)
-    w = World(tmp_path, monkeypatch, plugins=())
+    w = World(tmp_path, monkeypatch, users=False)
     assert console_module().ensure(w.service) is None
     assert not list(w.service.tokens.list("console"))
