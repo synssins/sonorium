@@ -171,8 +171,15 @@ jobs:
           Get-Content $log -Tail 25
           if ($p.ExitCode) { throw "Setup failed ($($p.ExitCode))" }
           if ((Get-Service Sonorium).Status -ne 'Running') { throw 'The service is not running after setup' }
-          # The tray console started after setup; not needed here
-          Get-Process Sonorium -ErrorAction SilentlyContinue | Stop-Process -Force
+          # Setup started the tray console: it must still be running (a missing Sonorium.pri crashes it at start)
+          Start-Sleep 15
+          if (-not (Get-Process Sonorium -ErrorAction SilentlyContinue)) {
+            Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='Application Error'} -MaxEvents 3 -ErrorAction SilentlyContinue |
+              Where-Object Message -match 'Sonorium.exe' | ForEach-Object Message
+            throw 'The tray console is not running after setup'
+          }
+          "Tray console running"
+          Get-Process Sonorium | Stop-Process -Force
           sc.exe qc Sonorium
           # Test only: no sign-in, so the API can be checked without making an account;
           # and the standard user is given the start/stop right the installing user got

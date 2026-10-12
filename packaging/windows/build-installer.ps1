@@ -32,6 +32,8 @@ foreach ($project in 'SonoriumHost', 'SonoriumSecrets', 'SonoriumUpdater', 'Sono
     if ($LASTEXITCODE) { throw "$project failed ($LASTEXITCODE)" }
 }
 Get-ChildItem $Bundle -Filter *.pdb | Remove-Item
+# The tray console's pages (compiled XAML) are in Sonorium.pri; without it it can't start
+if (-not (Test-Path (Join-Path $Bundle 'Sonorium.pri'))) { throw 'Sonorium.pri is missing from the build' }
 Copy-Item (Join-Path $repo 'LICENSE.md'), (Join-Path $repo 'THIRD_PARTY_NOTICES.md') $Bundle
 
 $iscc = @(
