@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.1 (2026-10-12)
+
+### Continuous Integration
+
+- **release**: Dev release notes list the changes when the changelog section is empty
+  ([`435cf71`](https://github.com/synssins/sonorium/commit/435cf7102035c7045fbb55d56ea3d0a38a538109))
+
+### Features
+
+- **engine**: Sequences, playlists and theme crossfades in the standalone engine
+  ([`c7f4627`](https://github.com/synssins/sonorium/commit/c7f4627d967933bf2181b0c8f31a7bb775e58bc7))
+
+
 ## v1.7.2-dev.5 (2026-10-12)
 
 
