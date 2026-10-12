@@ -877,6 +877,11 @@ channel's outputs are remembered and start again when it plays. Each one reads t
 channel's stream like a speaker: it keeps the channel from going idle, it hears the
 speakers-muted switch, and a slow sink only falls behind itself. A channel still needs a
 speaker for Play; one sent only to an output starts when it is sent there.
+
+Errors from your output type (`available()`, `discover()`, `open()`) on these routes:
+`OutputError` is a 400 with your message; `ActionError` keeps its code (`not_found` 404,
+`invalid` 400, `conflict` 409, `unavailable` 503) with your message; any other exception is
+logged with its traceback and answered 502 `<your type's title>: <message>` (never a 500).
 `sonorium.core.audio_outputs.CaptureOutput` is a test double that keeps what it receives.
 
 ## 18. Commands: remotes, MQTT topics, webhooks
