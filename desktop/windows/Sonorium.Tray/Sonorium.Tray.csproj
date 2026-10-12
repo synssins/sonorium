@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The tray console: Sonorium.exe. WinUI 3, unpackaged and self-contained (needs no runtime installed). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>Sonorium</AssemblyName>
+    <RootNamespace>Sonorium.Tray</RootNamespace>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <!-- Puts the app's resources and compiled XAML (Sonorium.pri) in the publish output;
+         without it the published app has no pages and crashes at start -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <SelfContained>true</SelfContained>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Sonorium.ico</ApplicationIcon>
+    <!-- Program.cs: one instance per sign-in -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- The parts used (WinUI, windowing, notifications), not the whole SDK with its AI runtime -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.3.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.1.9" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.3.12" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+    <Page Remove="$(XamlExclude)" Condition="'$(XamlExclude)' != ''" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sonorium.Desktop.Core\Sonorium.Desktop.Core.csproj" />
+  </ItemGroup>
+</Project>

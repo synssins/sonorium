@@ -1,0 +1,383 @@
+name: Windows App
+
+# Builds the Windows desktop app and tests it on a clean runner. No release is made here.
+#
+#   audio     Sonorium's LGPL audio-only FFmpeg (MSYS2/MinGW-w64) and PyAV built against it (MSVC)
+#   bundle    the private Python (embeddable CPython + packages + Sonorium), the .NET programs
+#             and the installer, Sonorium-Setup-<version>.exe
+#   service   installs it silently for all users as a service (NT SERVICE\Sonorium), checks the
+#             web API, an MP3 stream, restart, stop and start by a non-admin user, and uninstalls
+
+on:
+  push:
+    branches:
+      - windows-app
+    paths:
+      - 'desktop/**'
+      - 'packaging/windows/**'
+      - '.github/workflows/windows-app.yml'
+  workflow_dispatch:
+  # Called by the release workflow once a version is reserved: builds and tests the installer
+  # for that commit. The installer is the artifact "sonorium-setup" (Sonorium-Setup-<version>.exe,
+  # the version from sonorium_addon/sonorium/version at that ref).
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit or tag to build (default: the triggering ref)'
+        type: string
+        default: ''
+    outputs:
+      installer:
+        description: 'File name of the installer in the sonorium-setup artifact'
+        value: ${{ jobs.bundle.outputs.installer }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-app-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audio:
+    name: LGPL FFmpeg and PyAV
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Cache the build
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: wheels
+          key: pyav-win64-${{ hashFiles('packaging/windows/build-ffmpeg.sh', 'packaging/windows/build-pyav.ps1') }}-py313
+
+      - name: Set up MSYS2 (MinGW-w64)
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: >-
+            make diffutils tar xz curl
+            mingw-w64-ucrt-x86_64-gcc mingw-w64-ucrt-x86_64-binutils mingw-w64-ucrt-x86_64-nasm
+            mingw-w64-ucrt-x86_64-pkgconf mingw-w64-ucrt-x86_64-zlib
+
+      - name: Build FFmpeg (audio only, LGPL)
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: msys2 {0}
+        env:
+          PREFIX: /c/sonorium-ffmpeg
+        run: sh packaging/windows/build-ffmpeg.sh
+
+      - uses: actions/setup-python@v5
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          python-version: '3.13.16'
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: steps.cache.outputs.cache-hit != 'true'
+
+      - name: Build PyAV against it
+        if: steps.cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: packaging/windows/build-pyav.ps1 -FFmpeg C:\sonorium-ffmpeg -Out wheels
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pyav-win64
+          path: wheels/*.whl
+          if-no-files-found: error
+
+  bundle:
+    name: Private Python, programs and installer
+    needs: audio
+    runs-on: windows-latest
+    timeout-minutes: 40
+    outputs:
+      installer: ${{ steps.installer.outputs.installer }}
+      version: ${{ steps.installer.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: pyav-win64
+          path: wheels
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.16'
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      # Test builds from windows-app ship the server as it is on fixes now (Chris, 2026-10-12): the
+      # desktop code comes from this branch, sonorium_addon/ from the latest origin/fixes. When the
+      # release workflow calls this, the given ref is built as it is.
+      - name: Server code from the latest fixes
+        id: server
+        shell: pwsh
+        run: |
+          if ('${{ github.ref }}' -eq 'refs/heads/windows-app' -and '${{ inputs.ref }}' -eq '') {
+            git fetch --no-tags --depth 1 https://github.com/${{ github.repository }}.git fixes
+            # Replaced, not overlaid: what fixes has deleted (e.g. old built-in plugins) must go too
+            Remove-Item -Recurse -Force sonorium_addon
+            git checkout FETCH_HEAD -- sonorium_addon
+            $commit = (git rev-parse --short FETCH_HEAD).Trim()
+            "Server from fixes $commit"
+          } else {
+            $commit = (git rev-parse --short HEAD).Trim()
+          }
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+
+      - name: Private Python with Sonorium (checks the LGPL build)
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem wheels -Filter 'av-*.whl')[0].FullName
+          packaging/windows/build-python.ps1 -AvWheel $wheel -Out dist/Sonorium
+          # Which server this build carries (the host logs it at every start)
+          "server ${{ steps.server.outputs.commit }}" | Set-Content -Encoding utf8 dist/Sonorium/app/BUILD.txt
+
+      - name: Programs and installer
+        id: installer
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y | Out-Null
+          $version = (Get-Content sonorium_addon/sonorium/version -Raw).Trim()
+          # Pushes to windows-app: each build its own, newer version (1.7.1-dev.4 -> 1.7.1-dev.4.w12),
+          # so the app's updater offers it
+          if ('${{ github.ref }}' -eq 'refs/heads/windows-app' -and '${{ inputs.ref }}' -eq '') {
+            $version = if ($version.Contains('-')) { "$version.w${{ github.run_number }}" } else { "$version-w${{ github.run_number }}" }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          packaging/windows/build-installer.ps1 -Bundle dist/Sonorium -Version $version -Out dist/setup
+          "installer=Sonorium-Setup-$version.exe" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sonorium-setup
+          path: dist/setup/*.exe
+          if-no-files-found: error
+
+  service:
+    name: Install and run as a service on a clean runner
+    needs: bundle
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sonorium-setup
+          path: setup
+
+      - name: A standard (non-admin) user who will control the service
+        shell: pwsh
+        run: |
+          $password = [Convert]::ToBase64String([Security.Cryptography.RandomNumberGenerator]::GetBytes(24)) + 'a1!'
+          $secure = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name sonotest -Password $secure -PasswordNeverExpires | Out-Null
+          $sid = (Get-LocalUser sonotest).SID.Value
+          "SONOTEST_SID=$sid" >> $env:GITHUB_ENV
+          "::add-mask::$password"
+          "SONOTEST_PASSWORD=$password" >> $env:GITHUB_ENV
+
+      - name: Install for all users, as a service
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem setup -Filter 'Sonorium-Setup-*.exe')[0].FullName
+          $log = Join-Path $env:RUNNER_TEMP 'setup.log'
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/ALLUSERS', '/TASKS=service', "/LOG=$log" -PassThru; $p.WaitForExit()
+          Get-Content $log -Tail 25
+          if ($p.ExitCode) { throw "Setup failed ($($p.ExitCode))" }
+          if ((Get-Service Sonorium).Status -ne 'Running') { throw 'The service is not running after setup' }
+          # Setup started the tray console: it must still be running (a missing Sonorium.pri crashes it at start)
+          Start-Sleep 15
+          if (-not (Get-Process Sonorium -ErrorAction SilentlyContinue)) {
+            Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='Application Error'} -MaxEvents 3 -ErrorAction SilentlyContinue |
+              Where-Object Message -match 'Sonorium.exe' | ForEach-Object Message
+            throw 'The tray console is not running after setup'
+          }
+          "Tray console running"
+          Get-Process Sonorium | Stop-Process -Force
+          sc.exe qc Sonorium
+          # Test only: no sign-in, so the API can be checked without making an account;
+          # and the standard user is given the start/stop right the installing user got
+          Stop-Service Sonorium
+          New-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\Sonorium' -Name Environment `
+            -PropertyType MultiString -Value @('BYPASS_LOGIN=true') -Force | Out-Null
+          & 'C:\Program Files\Sonorium\SonoriumHost.exe' install-service $env:SONOTEST_SID | Out-Default
+          if ($LASTEXITCODE) { throw "install-service failed ($LASTEXITCODE)" }
+          New-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Services\Sonorium' -Name Environment `
+            -PropertyType MultiString -Value @('BYPASS_LOGIN=true') -Force | Out-Null
+          icacls C:\ProgramData\Sonorium
+
+      - name: Start it and check the web API
+        shell: pwsh
+        run: |
+          Start-Service Sonorium
+          $info = $null
+          foreach ($i in 1..60) {
+            try { $info = Invoke-RestMethod http://127.0.0.1:8008/api/info -TimeoutSec 3; break } catch { Start-Sleep 2 }
+          }
+          Get-Content C:\ProgramData\Sonorium\Logs\*.log -Tail 40
+          if (-not $info) { throw 'Sonorium did not answer' }
+          $info | ConvertTo-Json -Depth 3
+          if ($info.install -ne 'windows') { throw "install: $($info.install)" }
+          # The bundled themes were copied into the empty themes folder (SONORIUM_BUNDLED_THEMES)
+          $seeded = Get-ChildItem C:\ProgramData\Sonorium\Themes -Directory
+          "Themes folder: $($seeded.Name -join ', ')"
+          if ($seeded.Count -lt 2) { throw 'The bundled themes were not copied in' }
+          # Python runs as the service's own account, from the private Python
+          $py = Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object ExecutablePath -like 'C:\Program Files\Sonorium\python\*'
+          if (-not $py) { throw 'The private Python is not running' }
+          $owner = Invoke-CimMethod -InputObject $py[0] -MethodName GetOwner
+          "Python runs as $($owner.Domain)\$($owner.User): $($py[0].CommandLine)"
+          if ("$($owner.Domain)\$($owner.User)" -ne 'NT SERVICE\Sonorium') { throw 'Wrong account' }
+
+      - name: Stream a theme as MP3
+        shell: pwsh
+        run: |
+          $themes = Invoke-RestMethod http://127.0.0.1:8008/api/themes
+          $theme = $themes | Where-Object { $_.id -notlike 'theme_*' } | Select-Object -First 1
+          "Theme: $($theme.id) $($theme.name)"
+          $request = [Net.HttpWebRequest]::Create("http://127.0.0.1:8008/stream/$($theme.id)")
+          $request.Timeout = 30000
+          $response = $request.GetResponse()
+          $type = $response.ContentType
+          $stream = $response.GetResponseStream()
+          $buffer = New-Object byte[] 131072; $n = 0
+          $clock = [Diagnostics.Stopwatch]::StartNew()
+          while ($n -lt $buffer.Length -and $clock.Elapsed.TotalSeconds -lt 30) {
+            $read = $stream.Read($buffer, $n, $buffer.Length - $n); if ($read -le 0) { break }; $n += $read
+          }
+          $response.Close()
+          $frames = 0
+          for ($i = 0; $i -lt $n - 1; $i++) { if ($buffer[$i] -eq 0xFF -and ($buffer[$i + 1] -band 0xFE) -eq 0xFA) { $frames++ } }
+          "${type}: $n bytes, $frames MPEG-1 Layer III frame headers"
+          if ($type -ne 'audio/mpeg' -or $frames -lt 20) { throw 'No MP3 stream' }
+
+      - name: A standard user restarts, stops and starts it
+        shell: pwsh
+        run: |
+          $credential = New-Object PSCredential('sonotest', (ConvertTo-SecureString $env:SONOTEST_PASSWORD -AsPlainText -Force))
+          function As-User($arguments) {
+            $out = Join-Path $env:RUNNER_TEMP 'sc.txt'
+            $p = Start-Process sc.exe -ArgumentList $arguments -Credential $credential -Wait -PassThru `
+              -NoNewWindow -RedirectStandardOutput $out -WorkingDirectory $env:SystemRoot
+            Get-Content $out
+            if ($p.ExitCode) { throw "sc.exe $arguments as sonotest: exit $($p.ExitCode)" }
+          }
+          $boot = (Invoke-RestMethod http://127.0.0.1:8008/api/info).boot_id
+          As-User 'control Sonorium 128'
+          $new = $null
+          foreach ($i in 1..60) {
+            Start-Sleep 2
+            try { $new = (Invoke-RestMethod http://127.0.0.1:8008/api/info -TimeoutSec 3).boot_id; if ($new -ne $boot) { break } } catch { }
+          }
+          if (-not $new -or $new -eq $boot) { throw 'Restart did not restart Sonorium' }
+          "Restarted: boot $boot -> $new"
+          As-User 'stop Sonorium'
+          (Get-Service Sonorium).WaitForStatus('Stopped', '00:00:30')
+          $left = Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object ExecutablePath -like 'C:\Program Files\Sonorium\*'
+          if ($left) { throw 'Python was left running after stop' }
+          As-User 'start Sonorium'
+          (Get-Service Sonorium).WaitForStatus('Running', '00:00:30')
+          "Stopped and started by a standard user"
+
+      - name: The updater, through the update task (no administrator prompt)
+        shell: pwsh
+        run: |
+          schtasks.exe /query /tn '\Sonorium\Update' /fo list
+          if ($LASTEXITCODE) { throw 'The update task is missing' }
+          # As the tray console runs it: a copy outside the install folder, as the installing user
+          $copy = Join-Path $env:RUNNER_TEMP 'SonoriumUpdater.exe'
+          Copy-Item 'C:\Program Files\Sonorium\SonoriumUpdater.exe' $copy
+          $env:SONORIUM_HOST_ROOT = 'C:\Program Files\Sonorium'
+          $p = Start-Process $copy -ArgumentList '--install', '--channel', 'preview' -PassThru; $p.WaitForExit()
+          Get-Content C:\ProgramData\Sonorium\Updates\updater.log -ErrorAction SilentlyContinue
+          $status = Get-Content C:\ProgramData\Sonorium\Updates\status.json -Raw | ConvertFrom-Json
+          "Update task: $($status.state), code $($status.code): $($status.message)"
+          if ($status.state -ne 'done' -or $status.code -ne 0) { throw 'The update task failed' }
+          Get-Process Sonorium -ErrorAction SilentlyContinue | Stop-Process -Force
+
+      - name: Switch to per user and back (General's "Run Sonorium as")
+        shell: pwsh
+        run: |
+          $host_ = 'C:\Program Files\Sonorium\SonoriumHost.exe'
+          $data = Join-Path $env:RUNNER_TEMP 'user\Data'; $themes = Join-Path $env:RUNNER_TEMP 'user\Themes'
+          & $host_ switch-mode user $data $themes | Out-Default
+          if ($LASTEXITCODE) { throw "switch-mode user failed ($LASTEXITCODE)" }
+          if (Get-Service Sonorium -ErrorAction SilentlyContinue) { throw 'The service is still there' }
+          if (-not (Test-Path (Join-Path $data 'state.json'))) { throw 'Data was not copied to the user folder' }
+          if (Test-Path (Join-Path $data 'console.token')) { throw 'The console token was copied' }
+          "Per user: $((Get-ChildItem $themes -Directory).Count) themes, data copied"
+          # And back: the service's folders still hold their data, so nothing is overwritten
+          & $host_ switch-mode service $env:SONOTEST_SID $data $themes | Out-Default
+          if ($LASTEXITCODE) { throw "switch-mode service failed ($LASTEXITCODE)" }
+          if ((Get-Service Sonorium).Status -ne 'Running') { throw 'The service is not running' }
+          foreach ($i in 1..60) { try { Invoke-RestMethod http://127.0.0.1:8008/api/info -TimeoutSec 3 | Out-Null; break } catch { Start-Sleep 2 } }
+          "Back as a service"
+
+      - name: Uninstall
+        shell: pwsh
+        run: |
+          $p = Start-Process 'C:\Program Files\Sonorium\unins000.exe' -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru; $p.WaitForExit()
+          # Inno's uninstaller hands over to a copy of itself in %TEMP% (_iu*.tmp): wait for that too
+          while (Get-Process -Name '_iu*' -ErrorAction SilentlyContinue) { Start-Sleep 1 }
+          if ($p.ExitCode) { throw "Uninstall failed ($($p.ExitCode))" }
+          Start-Sleep 3
+          if (Get-Service Sonorium -ErrorAction SilentlyContinue) { throw 'The service is still there' }
+          $left = Get-CimInstance Win32_Process -Filter "Name='python.exe'" | Where-Object ExecutablePath -like 'C:\Program Files\Sonorium\*'
+          if ($left) { throw 'Python was left running' }
+          if (Get-NetFirewallRule -DisplayName Sonorium -ErrorAction SilentlyContinue) { throw 'Firewall rules left behind' }
+          if (Test-Path 'C:\Program Files\Sonorium\python') { throw 'Program files left behind' }
+          "Removed; data kept:"; Get-ChildItem C:\ProgramData\Sonorium
+
+      - name: Logs
+        if: always()
+        shell: pwsh
+        run: Get-Content C:\ProgramData\Sonorium\Logs\*.log -ErrorAction SilentlyContinue | Select-Object -Last 80
+
+  # Test builds from this branch, for the app's updater (Preview channel): a pre-release
+  # windows-v<version> with the installer, once every test above has passed. The newest 5 are kept.
+  prerelease:
+    name: Publish as a pre-release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/windows-app'
+    needs: [bundle, service]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sonorium-setup
+          path: setup
+
+      - name: Pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.bundle.outputs.version }}
+        run: |
+          # What's new: the subjects of this push's commits, as a list (the Updates page shows them)
+          jq -r '.commits[].message | split("\n")[0] | select(test("^Merge|\\[skip ci\\]") | not) | "- " + .' \
+            "$GITHUB_EVENT_PATH" > notes.md
+          [ -s notes.md ] || echo "- Windows test build" > notes.md
+          cat notes.md
+          gh release create "windows-v$VERSION" setup/Sonorium-Setup-$VERSION.exe \
+            --prerelease --target "$GITHUB_SHA" \
+            --title "Sonorium for Windows $VERSION (test build)" --notes-file notes.md
+          # Keep the newest 5 test builds
+          gh release list --limit 100 --json tagName,isPrerelease,createdAt \
+            --jq '[.[] | select(.isPrerelease and (.tagName | startswith("windows-v")))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
+            while read -r tag; do gh release delete "$tag" --yes --cleanup-tag; done

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Placeholder: Sonorium as a launchd agent on macOS (not built or tested yet).
+     The same switches the Windows host sets; see packaging/windows and docs/HOSTING.md.
+     /Applications/Sonorium.app/Contents/Resources/{python,app}; data in
+     ~/Library/Application Support/Sonorium. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>app.sonorium.host</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/Sonorium.app/Contents/Resources/python/bin/python3</string>
+        <string>-m</string>
+        <string>sonorium.entrypoint</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>SONORIUM_STANDALONE</key><string>1</string>
+        <key>SONORIUM_SUPERVISED</key><string>1</string>
+        <key>SONORIUM_CONFIG_DIR</key><string>~/Library/Application Support/Sonorium/Data</string>
+        <key>SONORIUM__PATH_AUDIO</key><string>~/Music/Sonorium</string>
+        <key>SONORIUM_BUNDLED_THEMES</key><string>/Applications/Sonorium.app/Contents/Resources/app/themes</string>
+        <key>SONORIUM_HTTP_PORT</key><string>8008</string>
+        <key>SONORIUM_HTTPS_PORT</key><string>8808</string>
+        <key>PYTHONPATH</key><string>/Applications/Sonorium.app/Contents/Resources/app</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- Started again whenever it exits, including 75 (Sonorium's Restart) -->
+    <key>KeepAlive</key>
+    <true/>
+</dict>
+</plist>

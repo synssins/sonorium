@@ -204,7 +204,31 @@ theme folder has an `ATTRIBUTION.md` listing its source and files.
 
 ---
 
-## Windows app
+## Windows desktop app
+
+The Windows desktop app (`desktop/windows`, installed by `Sonorium-Setup-<version>.exe`) runs
+the same Python package with the Python packages above, in its own copy of Python. It
+contains:
+
+| Component | Licence | Source |
+|---|---|---|
+| Python 3.13 (the embeddable package for Windows) | PSF-2.0 | https://www.python.org/ |
+| Microsoft Visual C++ runtime (`vcruntime140.dll`, shipped with that Python) | Microsoft Visual C++ Redistributable licence | https://visualstudio.microsoft.com/ |
+| FFmpeg 9.0.2, LAME and zlib: the same audio-only build as the images, for Windows ([`packaging/windows/build-ffmpeg.sh`](packaging/windows/build-ffmpeg.sh)), as DLLs next to PyAV | **LGPL-2.1-or-later** (FFmpeg, LAME), Zlib | as above |
+| mingw-w64 winpthreads (linked into the FFmpeg DLLs) | MIT and BSD-3-Clause | https://www.mingw-w64.org/ |
+| GCC runtime library (libgcc, linked into the FFmpeg DLLs) | GPL-3.0-or-later WITH GCC-exception-3.1 | https://gcc.gnu.org/ |
+| .NET 10 runtime | MIT | https://github.com/dotnet/runtime |
+| Windows App SDK (WinUI 3) | MIT | https://github.com/microsoft/WindowsAppSDK |
+| Inno Setup (the installer and uninstaller) | Inno Setup licence | https://jrsoftware.org/isinfo.php |
+
+PyAV is built from source with Microsoft's C compiler against that FFmpeg
+([`packaging/windows/build-pyav.ps1`](packaging/windows/build-pyav.ps1)); the FFmpeg DLLs are
+in `python\Lib\site-packages\av.libs` and can be replaced with another build of the same
+FFmpeg version.
+
+---
+
+## Windows app (old)
 
 The Windows app (`app/windows/Sonorium.exe`) is built with PyInstaller and ships an
 embedded Python with the packages in [`app/core/requirements.txt`](app/core/requirements.txt).

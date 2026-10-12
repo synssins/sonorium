@@ -1,0 +1,35 @@
+# Placeholder: Sonorium as a systemd service on Linux (not built or tested yet).
+# The same switches the Windows host sets; see packaging/windows and docs/HOSTING.md.
+#
+#   /opt/sonorium/python    a private Python with Sonorium's packages
+#   /opt/sonorium/app       the sonorium package and bundled themes
+#   /var/lib/sonorium       data, themes and logs
+
+[Unit]
+Description=Sonorium
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+DynamicUser=yes
+StateDirectory=sonorium
+WorkingDirectory=/var/lib/sonorium/data
+Environment=SONORIUM_STANDALONE=1
+Environment=SONORIUM_SUPERVISED=1
+Environment=SONORIUM_CONFIG_DIR=/var/lib/sonorium/data
+Environment=SONORIUM_CONNECTION_FILE=/var/lib/sonorium/data/connection.json
+Environment=SONORIUM__PATH_AUDIO=/var/lib/sonorium/themes
+Environment=SONORIUM_BUNDLED_THEMES=/opt/sonorium/app/themes
+Environment=SONORIUM_HTTP_PORT=8008
+Environment=SONORIUM_HTTPS_PORT=8808
+Environment=PYTHONPATH=/opt/sonorium/app
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/sonorium/python/bin/python3 -m sonorium.entrypoint
+# 75 = Sonorium asks to be started again (its Restart)
+Restart=always
+RestartSec=2
+SuccessExitStatus=75
+
+[Install]
+WantedBy=multi-user.target
