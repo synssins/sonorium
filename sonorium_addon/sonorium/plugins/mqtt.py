@@ -42,6 +42,12 @@ def check_filter(topic_filter) -> str:
     return topic_filter
 
 
+def is_discovery_config(topic: str) -> bool:
+    """A Home Assistant MQTT discovery config: homeassistant/<component>/[<node>/]<object>/config."""
+    parts = topic.split("/")
+    return parts[0] == "homeassistant" and parts[-1] == "config" and len(parts) in (4, 5)
+
+
 class MqttRouter:
     def __init__(self, prefix: str = "sonorium"):
         self.client = None                  # sonorium.client.MQTTClient, once connected
@@ -50,6 +56,8 @@ class MqttRouter:
                             "model": "Ambient Soundscape Mixer", "manufacturer": "Sonorium"}
         self.core_handler: Optional[Callable[[str, str], Awaitable[None]]] = None
         self._subs: list[tuple[str, str, Callable]] = []   # (owner, filter, handler)
+        # Home Assistant discovery configs published through here (Announcements, plugins)
+        self._discovery: set[str] = set()
 
     @property
     def available(self) -> bool:
@@ -116,4 +124,23 @@ class MqttRouter:
             payload = json.dumps(payload)
         client = self.client
         await asyncio.get_running_loop().run_in_executor(None, lambda: client.publish(topic, payload, retain=retain))
+        if is_discovery_config(topic):
+            if retain and payload:
+                self._discovery.add(topic)
+            else:
+                self._discovery.discard(topic)
         return True
+
+    async def remove_discovery(self) -> int:
+        """
+        Remove every Home Assistant entity published through here (an empty
+        retained config each), before MQTT is removed. Returns how many.
+        """
+        topics = sorted(self._discovery)
+        for topic in topics:
+            try:
+                await self.publish(topic, "", retain=True)
+            except Exception as e:
+                logger.warning(f"MQTT: could not remove {topic}: {e}")
+        self._discovery.clear()
+        return len(topics)

@@ -1005,6 +1005,9 @@ class WebApp:
             runtime.save_connection(updates)
         except runtime.SecretStoreError as e:
             raise HTTPException(status_code=500, detail=f"Not saved: {e}")
+        if "mqtt_host" in updates and not str(updates["mqtt_host"] or "").strip():
+            # MQTT switched off: Home Assistant drops Sonorium's entities before it goes
+            await self._remove_mqtt_entities(getattr(getattr(self, "backend", None), "mqtt_client", None))
         logger.info("Connection settings saved; restarting Sonorium to apply them")
         self._restart_soon("connection settings changed")
         return {"status": "ok", "restarting": True}
@@ -1073,13 +1076,7 @@ class WebApp:
         runtime.clear_mqtt_env()
 
         mqtt_client = self.backend.mqtt_client
-        if self._mqtt_manager is not None:
-            try:
-                if mqtt_client.is_connected:
-                    await self._mqtt_manager.remove_all_entities()
-            except Exception as e:
-                logger.warning(f"Could not remove Sonorium's MQTT entities: {e}")
-            self._mqtt_manager.stop_publishing()
+        await self._remove_mqtt_entities(mqtt_client)
 
         restart_required = False
         try:
@@ -1094,6 +1091,38 @@ class WebApp:
             "connection": await self.get_connection(),
             "restart_required": restart_required,
         }
+
+    async def _remove_mqtt_entities(self, mqtt_client) -> None:
+        """
+        Remove every Home Assistant entity Sonorium published over MQTT (the
+        channels' and global controls, the Announce notify entities, plugins'
+        discovery configs) while the broker is still connected, then publish
+        nothing more.
+        """
+        connected = bool(getattr(mqtt_client, "is_connected", False))
+        manager = getattr(self, "_mqtt_manager", None)
+        if manager is not None:
+            try:
+                if connected:
+                    await manager.remove_all_entities()
+            except Exception as e:
+                logger.warning(f"Could not remove Sonorium's MQTT entities: {e}")
+            manager.stop_publishing()
+        if not connected:
+            return
+        announcements = getattr(self, "_announcements", None)
+        if announcements is not None:
+            try:
+                await announcements.remove_entities()
+            except Exception as e:
+                logger.warning(f"Could not remove the Announce entities: {e}")
+        plugin_host = getattr(self, "_plugin_host", None)
+        router = getattr(plugin_host, "mqtt", None) if plugin_host is not None else None
+        if router is not None and hasattr(router, "remove_discovery"):
+            try:
+                await router.remove_discovery()
+            except Exception as e:
+                logger.warning(f"Could not remove plugins' MQTT entities: {e}")
 
     def _restart_soon(self, reason: str = ""):
         """

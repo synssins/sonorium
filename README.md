@@ -607,7 +607,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - **Phones.** A top bar with the menu button is always there. The menu opens downward, closes when you pick a page or tap the button again, and Settings expands in place. Cards fill the screen width and nothing scrolls sideways.
 
 **Docker and standalone**
-- **Remove a connection without a restart.** The trash button on **Settings → Connection** removes Home Assistant, and its floors, areas and speakers disappear from every list at once. Removing MQTT also removes Sonorium's entities from Home Assistant.
+- **Remove a connection without a restart.** The trash button on **Settings → Connection** removes Home Assistant, and its floors, areas and speakers disappear from every list at once. Removing MQTT (or saving it without a broker) also removes Sonorium's entities from Home Assistant, the Announce notify entities and plugins' entities included.
 - **Floors & Areas** can be added and edited outside the Home Assistant app.
 - **Settings show what applies to your install.** One install check decides which settings each install shows.
 
