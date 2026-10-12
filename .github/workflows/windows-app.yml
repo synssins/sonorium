@@ -174,7 +174,7 @@ jobs:
         run: |
           $setup = (Get-ChildItem setup -Filter 'Sonorium-Setup-*.exe')[0].FullName
           $log = Join-Path $env:RUNNER_TEMP 'setup.log'
-          $p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/ALLUSERS', '/TASKS=service', "/LOG=$log" -Wait -PassThru
+          $p = Start-Process $setup -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/ALLUSERS', '/TASKS=service', "/LOG=$log" -PassThru; $p.WaitForExit()
           Get-Content $log -Tail 25
           if ($p.ExitCode) { throw "Setup failed ($($p.ExitCode))" }
           if ((Get-Service Sonorium).Status -ne 'Running') { throw 'The service is not running after setup' }
@@ -281,7 +281,7 @@ jobs:
           $copy = Join-Path $env:RUNNER_TEMP 'SonoriumUpdater.exe'
           Copy-Item 'C:\Program Files\Sonorium\SonoriumUpdater.exe' $copy
           $env:SONORIUM_HOST_ROOT = 'C:\Program Files\Sonorium'
-          $p = Start-Process $copy -ArgumentList '--install', '--channel', 'preview' -Wait -PassThru
+          $p = Start-Process $copy -ArgumentList '--install', '--channel', 'preview' -PassThru; $p.WaitForExit()
           Get-Content C:\ProgramData\Sonorium\Updates\updater.log -ErrorAction SilentlyContinue
           $status = Get-Content C:\ProgramData\Sonorium\Updates\status.json -Raw | ConvertFrom-Json
           "Update task: $($status.state), code $($status.code): $($status.message)"
@@ -309,7 +309,7 @@ jobs:
       - name: Uninstall
         shell: pwsh
         run: |
-          $p = Start-Process 'C:\Program Files\Sonorium\unins000.exe' -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -Wait -PassThru
+          $p = Start-Process 'C:\Program Files\Sonorium\unins000.exe' -ArgumentList '/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART' -PassThru; $p.WaitForExit()
           if ($p.ExitCode) { throw "Uninstall failed ($($p.ExitCode))" }
           Start-Sleep 3
           if (Get-Service Sonorium -ErrorAction SilentlyContinue) { throw 'The service is still there' }
