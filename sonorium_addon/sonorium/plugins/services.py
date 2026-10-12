@@ -122,7 +122,7 @@ class AudioV1:
             channels = resolve_channels(getattr(self._svc(), "sessions", None), channels)
             duck = parse_duck(duck)
         except (LookupError, ValueError) as e:
-            raise ActionError("not_found" if isinstance(e, LookupError) else "invalid", str(e).strip("'\""))
+            raise ActionError("not_found" if isinstance(e, LookupError) else "invalid", str(e.args[0] if e.args else e))
         from sonorium.core.announce import announce
         return await _call(announce(self._svc(), self._host.tts, channels, text=text, sound=sound, volume=volume,
                                     duck=duck, provider=provider, language=language, start_stopped=start_stopped,

@@ -378,7 +378,8 @@ def test_http_announce_takes_a_channel_name_and_says_what_played(w):
     assert r.status_code == 200 and _sources(w) == ["http://x/ding.mp3", b"ID3-fake-mp3"]
     assert all(p["duck"] == {"db": 12} for p in w.overlay.played)
     # Wrong requests
-    assert w.client.post("/api/announce", json={"channels": "Garage", "text": "x"}).status_code == 404
+    r = w.client.post("/api/announce", json={"channels": "Garage", "text": "x"})
+    assert r.status_code == 404 and r.json()["detail"] == "No channel 'Garage'"
     assert w.client.post("/api/announce", json={"text": "x"}).status_code == 400
     assert w.client.post("/api/announce", json={"channels": "all"}).status_code == 400
     assert w.client.post("/api/announce", json={"channels": "all", "text": "x", "duck": "loud"}).status_code == 400

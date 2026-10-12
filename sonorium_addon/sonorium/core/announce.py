@@ -29,8 +29,7 @@ from sonorium.obs import logger
 
 ANNOUNCE_PRIORITY = 10
 MAX_TEXT = 1000
-NO_TTS = ("No text to speech is available. It comes from Home Assistant: link it in "
-          "Settings › Connection, or send a chime url instead")
+NO_TTS = "No text to speech is available. It comes from Home Assistant: link it in Settings › Connection"
 
 
 class TtsUnavailable(OverlayError):
@@ -125,8 +124,8 @@ async def announce(overlay, tts, channels, *, text: Optional[str] = None, sound=
         return result  # nothing to play: no speech is made either
     if text and not tts_ready(tts, provider):
         if sound is None:
-            raise TtsUnavailable(NO_TTS)
-        result["notice"] = "Not spoken: " + NO_TTS[0].lower() + NO_TTS[1:]
+            raise TtsUnavailable(NO_TTS + ", or send a chime url instead")
+        result["notice"] = "Only the chime played: " + NO_TTS[0].lower() + NO_TTS[1:]
         logger.info(f"Announcement ({origin}): no text to speech, only the chime plays")
         text = None
     common = dict(volume=volume, duck=duck, policy="queue", priority=priority, start_stopped=start_stopped,

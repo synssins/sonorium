@@ -496,7 +496,7 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
         try:
             return resolve_channels(getattr(_svc("overlay", "Playing sounds"), "sessions", None), value)
         except LookupError as e:
-            raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+            raise HTTPException(status_code=404, detail=str(e.args[0] if e.args else e))
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
