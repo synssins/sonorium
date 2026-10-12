@@ -93,17 +93,272 @@ def clean_defaults(data: dict, current: Optional[dict] = None) -> dict:
 
 def load_defaults(folder: Path) -> dict:
     """The theme's sequence_defaults, with the built-in values for anything it leaves out."""
-    saved = _doc(Path(folder)).get("sequence_defaults")
+    folder = Path(folder)
+    return _defaults_from(_doc(folder), _Warnings(folder))
+
+
+# --- Checking what presets.json holds, when it is read ------------------------
+#
+# The API refuses values outside its limits, but presets.json can be written
+# by hand. When it is read, each value outside its limits is brought to the
+# nearest limit and anything unknown or of the wrong type is left out (the
+# file itself is not changed); each fix is logged once as a warning.
+
+_warned: set[tuple[str, str]] = set()
+
+
+class _Warnings:
+    """Log lines about one theme's presets.json, each said once per run."""
+
+    def __init__(self, folder: Path):
+        self.folder = Path(folder)
+
+    def __call__(self, message: str) -> None:
+        key = (str(self.folder), message)
+        if key in _warned:
+            return
+        _warned.add(key)
+        try:
+            from sonorium.obs import logger
+        except Exception:  # loaded on its own (tests, tools)
+            import logging
+            logger = logging.getLogger(__name__)
+        logger.warning(f"Theme folder '{self.folder.name}', {PRESETS_FILE}: {message}")
+
+
+def _is_number(value) -> bool:
+    return not isinstance(value, bool) and isinstance(value, (int, float)) and value == value
+
+
+def _clamped(value, low: float, high: float, where: str, warn) -> Optional[float]:
+    """A number brought within low..high (said when it changes); None for anything that isn't a number."""
+    if not _is_number(value):
+        warn(f"{where}: {value!r} is not a number, left out")
+        return None
+    clamped = min(high, max(low, float(value)))
+    if clamped != value:
+        warn(f"{where}: {value:g} is outside {low:g}-{high:g}, {clamped:g} used")
+    return clamped
+
+
+def _defaults_from(doc: dict, warn) -> dict:
+    """sequence_defaults from a presets.json document, checked."""
+    saved = doc.get("sequence_defaults")
     result = dict(DEFAULTS)
+    if saved is not None and not isinstance(saved, dict):
+        warn("sequence_defaults is not an object, the built-in defaults are used")
     if isinstance(saved, dict):
         for key in TIMING_FIELDS:
-            try:
-                if saved.get(key) is not None:
-                    result[key] = _number(saved[key], key)
-            except SequenceError:
-                pass
+            if saved.get(key) is not None:
+                value = _clamped(saved[key], 0.0, MAX_SECONDS, f"sequence_defaults.{key}", warn)
+                if value is not None:
+                    result[key] = value
+        for key in sorted(set(saved) - set(TIMING_FIELDS)):
+            warn(f"sequence_defaults: unknown setting '{key}' ignored")
     if result["hold_min"] > result["hold_max"]:
+        warn("sequence_defaults: hold_min is above hold_max, the two are swapped")
         result["hold_min"], result["hold_max"] = result["hold_max"], result["hold_min"]
+    return result
+
+
+def _checked_transition_track(data, where: str, warn) -> Optional[dict]:
+    """One track's Coming in / Leaving entry as transitions.clean_track accepts it; None when Smooth or unusable."""
+    from sonorium.core.transitions import MAX_PRE_FADE, MAX_SWELL, STYLES, VALUE_STYLES
+    if not isinstance(data, dict):
+        warn(f"{where}: not an object, left out")
+        return None
+    for key in sorted(set(data) - {"styles", "values", "max_volume", "pre_fade"}):
+        warn(f"{where}: unknown setting '{key}' left out")
+    styles = data.get("styles", [])
+    if not isinstance(styles, list):
+        warn(f"{where}: styles is not a list, left out")
+        styles = []
+    for style in styles:
+        if style not in STYLES:
+            warn(f"{where}: unknown style {style!r} left out")
+    result = {"styles": [s for s in STYLES if s in styles], "values": {}}
+    values = data.get("values") or {}
+    if not isinstance(values, dict):
+        warn(f"{where}: values is not an object, left out")
+        values = {}
+    for key, value in values.items():
+        if key not in VALUE_STYLES:
+            warn(f"{where}: unknown value '{key}' left out")
+            continue
+        value = _clamped(value, 0.0, MAX_SWELL if key == "swell" else 100.0, f"{where}: {key}", warn)
+        if value is not None:
+            result["values"][key] = value
+    pre_fade = data.get("pre_fade")
+    pre_fade = 0.0 if pre_fade is None else _clamped(pre_fade, 0.0, MAX_PRE_FADE, f"{where}: pre_fade", warn)
+    result["pre_fade"] = pre_fade or 0.0
+    if data.get("max_volume") is not None:
+        max_volume = _clamped(data["max_volume"], 0.0, 1.0, f"{where}: max_volume", warn)
+        if max_volume is not None:
+            result["max_volume"] = max_volume
+    if not result["styles"] and result["pre_fade"] <= 0:
+        return None
+    return result
+
+
+def _checked_transitions(data, presets: list, where: str, warn) -> dict:
+    """A sequence's transitions ({preset_id: {"in", "out"}}), checked."""
+    from sonorium.core.transitions import SIDES, TransitionError, clean_step
+    if not isinstance(data, dict):
+        warn(f"{where}: not an object, left out")
+        return {}
+    result = {}
+    for preset_id, step in data.items():
+        step_where = f"{where} '{preset_id}'"
+        if preset_id not in presets:
+            warn(f"{step_where}: not a preset of this sequence, left out")
+            continue
+        if not isinstance(step, dict):
+            warn(f"{step_where}: not an object, left out")
+            continue
+        for side in sorted(set(step) - set(SIDES)):
+            warn(f"{step_where}: unknown side '{side}' left out (use in, out)")
+        cleaned = {}
+        for side in SIDES:
+            tracks = step.get(side) or {}
+            if not isinstance(tracks, dict):
+                warn(f"{step_where}.{side}: not an object of tracks, left out")
+                continue
+            for key, track in tracks.items():
+                entry = _checked_transition_track(track, f"{step_where}.{side} '{key}'", warn)
+                if entry is not None and isinstance(key, str) and key:
+                    cleaned.setdefault(side, {})[key] = entry
+        try:
+            cleaned = clean_step(cleaned)
+        except TransitionError as e:  # not expected: everything above is within its limits
+            warn(f"{step_where}: {e}, left out")
+            continue
+        if cleaned:
+            result[preset_id] = cleaned
+    return result
+
+
+def _checked_while_entry(entry, fields, where: str, warn) -> Optional[dict]:
+    """One track's or group's While playing values, as clean_step_while accepts them."""
+    if not isinstance(entry, dict):
+        warn(f"{where}: not an object, left out")
+        return None
+    result = {}
+    for field in entry:
+        if field not in fields:
+            warn(f"{where}: unknown setting '{field}' left out")
+    for field in fields:
+        value = entry.get(field)
+        if value is None:
+            continue
+        if field in _STEP_FLAGS:
+            if isinstance(value, bool):
+                result[field] = value
+            else:
+                warn(f"{where}: {field} {value!r} is not true or false, left out")
+            continue
+        value = _clamped(value, 0.0, 1.0 if field in _STEP_SHARES else MAX_SECONDS, f"{where}: {field}", warn)
+        if value is not None:
+            result[field] = value
+    return result or None
+
+
+def _checked_while(data, presets: list, where: str, warn) -> dict:
+    """A sequence's While playing layers ({preset_id: {"tracks", "groups"}}), checked."""
+    if not isinstance(data, dict):
+        warn(f"{where}: not an object, left out")
+        return {}
+    result = {}
+    for preset_id, layer in data.items():
+        step_where = f"{where} '{preset_id}'"
+        if preset_id not in presets:
+            warn(f"{step_where}: not a preset of this sequence, left out")
+            continue
+        if not isinstance(layer, dict):
+            warn(f"{step_where}: not an object, left out")
+            continue
+        for part in sorted(set(layer) - {"tracks", "groups"}):
+            warn(f"{step_where}: unknown part '{part}' left out (use tracks, groups)")
+        checked = {"tracks": {}, "groups": {}}
+        for part, fields in (("tracks", STEP_TRACK_FIELDS), ("groups", STEP_GROUP_FIELDS)):
+            entries = layer.get(part) or {}
+            if not isinstance(entries, dict):
+                warn(f"{step_where}.{part}: not an object, left out")
+                continue
+            for key, entry in entries.items():
+                values = _checked_while_entry(entry, fields, f"{step_where}.{part} '{key}'", warn)
+                if values:
+                    checked[part][str(key)] = values
+        try:
+            cleaned = clean_step_while(checked)
+        except SequenceError as e:  # not expected: everything above is within its limits
+            warn(f"{step_where}: {e}, left out")
+            continue
+        if cleaned["tracks"] or cleaned["groups"]:
+            result[preset_id] = cleaned
+    return result
+
+
+KNOWN_SEQUENCE_FIELDS = ("name", "presets", "at_end", "owner", "transitions", "while") + TIMING_FIELDS
+
+
+def check_loaded_sequence(sequence_id: str, data: dict, defaults: dict, warn) -> dict:
+    """
+    A sequence as presets.json holds it, made safe to show and play: values
+    outside the API's limits brought to the nearest limit, unknown or
+    mistyped values left out, each fix passed to `warn`. Never raises.
+    """
+    where = f"sequence '{sequence_id}'"
+    result = {}
+    for key in data:
+        if key not in KNOWN_SEQUENCE_FIELDS:
+            warn(f"{where}: unknown setting '{key}' ignored")
+            result[key] = data[key]  # kept as it is: nothing reads it
+
+    name = data.get("name")
+    if not isinstance(name, str) or not name.strip():
+        warn(f"{where}: no name, the id is used")
+        name = sequence_id
+    name = name.strip()
+    if len(name) > MAX_NAME:
+        warn(f"{where}: the name is longer than {MAX_NAME} characters, cut")
+        name = name[:MAX_NAME]
+    result["name"] = name
+
+    presets = data.get("presets")
+    if not isinstance(presets, list):
+        warn(f"{where}: presets is not a list of preset ids, the sequence has none")
+        presets = []
+    for preset_id in presets:
+        if not isinstance(preset_id, str):
+            warn(f"{where}: {preset_id!r} in presets is not a preset id, left out")
+    result["presets"] = [p for p in presets if isinstance(p, str)]
+
+    at_end = data.get("at_end", DEFAULT_AT_END)
+    if at_end not in AT_END:
+        warn(f"{where}: at_end {at_end!r} is not one of {', '.join(AT_END)}, {DEFAULT_AT_END} used")
+        at_end = DEFAULT_AT_END
+    result["at_end"] = at_end
+
+    for key in TIMING_FIELDS:
+        value = data.get(key)
+        result[key] = None if value is None else _clamped(value, 0.0, MAX_SECONDS, f"{where}: {key}", warn)
+    resolved = resolve_timing(result, defaults)
+    if resolved["hold_min"] > resolved["hold_max"]:
+        warn(f"{where}: hold_min is above hold_max, the two are swapped")
+        result["hold_min"], result["hold_max"] = resolved["hold_max"], resolved["hold_min"]
+
+    if data.get("owner") is not None:
+        warn(f"{where}: owner must be null, null used")
+    result["owner"] = None
+
+    if data.get("transitions") is not None:
+        transitions = _checked_transitions(data["transitions"], result["presets"], f"{where} transitions", warn)
+        if transitions:
+            result["transitions"] = transitions
+    if data.get("while") is not None:
+        layers = _checked_while(data["while"], result["presets"], f"{where} while", warn)
+        if layers:
+            result["while"] = layers
     return result
 
 
@@ -123,11 +378,32 @@ def save_defaults(folder: Path, defaults: dict) -> dict:
 
 
 def load_sequences(folder: Path) -> dict:
-    """A theme's sequences ({sequence_id: data}); unreadable entries are skipped."""
-    saved = _doc(Path(folder)).get("sequences")
-    if not isinstance(saved, dict):
+    """
+    A theme's sequences ({sequence_id: data}), checked as they are read
+    (check_loaded_sequence): out-of-range values brought within the API's
+    limits, unknown ones left out, each logged once. Entries that aren't
+    sequences at all are skipped.
+    """
+    folder = Path(folder)
+    warn = _Warnings(folder)
+    doc = _doc(folder)
+    saved = doc.get("sequences")
+    if saved is None:
         return {}
-    return {sid: dict(data) for sid, data in saved.items() if isinstance(sid, str) and isinstance(data, dict)}
+    if not isinstance(saved, dict):
+        warn("sequences is not an object, ignored")
+        return {}
+    defaults = _defaults_from(doc, lambda message: None)  # said by load_defaults
+    result = {}
+    for sid, data in saved.items():
+        if not isinstance(data, dict):
+            warn(f"sequence '{sid}' is not an object, ignored")
+            continue
+        try:
+            result[sid] = check_loaded_sequence(sid, data, defaults, warn)
+        except Exception as e:  # never stop a theme from loading
+            warn(f"sequence '{sid}' can't be read ({e}), ignored")
+    return result
 
 
 def save_sequences(folder: Path, sequences: dict) -> None:

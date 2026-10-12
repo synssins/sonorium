@@ -760,6 +760,15 @@ Deleting a preset removes it (and its transitions) from every sequence of its th
 a sequence left with no preset can't be started. Unknown preset IDs in a sequence are skipped
 when it plays.
 
+The API refuses values outside these limits. A `presets.json` written by hand is checked when
+it is read (`core/sequences.py` `load_sequences`, `load_defaults`, `check_loaded_sequence`): a number
+outside its limit (times, transition values and `pre_fade`, While playing values) becomes the
+nearest limit; a value of the wrong type, an unknown `at_end`, style, field, side or part, and a
+transition or While playing step for a preset not in the sequence are left out (an unknown
+`at_end` becomes `reverse`, a missing name the sequence ID, `owner` null); `hold_min` above
+`hold_max` is swapped. Each fix is logged once as a warning (Settings > Logs). The file itself is
+only rewritten by the next change saved through the API.
+
 ### 5.2 How a sequence plays (`core/playback_runner.py`)
 
 - A channel runs at most one sequence, of the theme it plays. It is picked like a preset: the

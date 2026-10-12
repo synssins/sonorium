@@ -198,6 +198,62 @@ def test_unknown_or_empty_sequence_is_refused(tmp_path):
         t.manager.start_sequence(t.session.id, "empty")  # its only preset no longer exists
 
 
+def test_hand_written_sequence_values_are_checked_when_read(tmp_path, caplog):
+    """presets.json written by hand: out-of-range values clamped to the API's limits, unknown ones left out, logged."""
+    themes = json.loads(json.dumps(THEMES))
+    themes["storm"]["sequence_defaults"] = {"hold_min": -5, "hold_max": "long", "ramp": 10 ** 9}
+    themes["storm"]["sequences"]["hand"] = {
+        "name": 42, "presets": ["a", 7, "b"], "at_end": "bounce", "owner": "me",
+        "hold_min": -1, "hold_max": 1e12, "ramp": "slow",
+        "transitions": {"b": {"in": {"Rain": {"styles": ["dist", "wobble"], "values": {"dist": 250, "zap": 1},
+                                              "pre_fade": 500, "max_volume": 2, "colour": "red"},
+                                     "Wind": "loud"},
+                              "sideways": {}},
+                        "zz": {"in": {}}},
+        "while": {"b": {"tracks": {"Rain": {"volume": 3, "presence": -1, "rise": 0.5, "muted": "yes",
+                                            "pause_max": 1e12, "pitch": 2}},
+                        "groups": {"Thunder": {"gap_min": -30, "mode": "ebb_flow"}}, "extra": {}},
+                  "zz": {"tracks": {}}},
+    }
+    themes["storm"]["sequences"]["broken"] = ["not", "a", "sequence"]
+    t = build(tmp_path, themes)
+    folder = t.folders["storm"]
+    with caplog.at_level("WARNING"):
+        defaults = m.sequences.load_defaults(folder)
+        sequences = m.sequences.load_sequences(folder)
+        m.sequences.load_sequences(folder)  # read again: said once
+    week = m.sequences.MAX_SECONDS
+    assert defaults == {"hold_min": 0.0, "hold_max": 900.0, "ramp": float(week)}
+    assert "broken" not in sequences and sequences["up_down"]["presets"] == ["a", "b", "c"]
+    hand = sequences["hand"]
+    assert hand["name"] == "hand" and hand["presets"] == ["a", "b"] and hand["at_end"] == "reverse"
+    assert hand["owner"] is None
+    assert (hand["hold_min"], hand["hold_max"], hand["ramp"]) == (0.0, float(week), None)
+    assert hand["transitions"] == {"b": {"in": {"Rain": {"styles": ["dist"], "values": {"dist": 100.0},
+                                                         "pre_fade": 90.0, "max_volume": 1.0}}}}
+    rain = hand["while"]["b"]["tracks"]["Rain"]
+    assert (rain["volume"], rain["presence"], rain["rise"], rain["muted"], rain["pause_max"]) == (1.0, 0.0, 0.5, None, float(week))
+    assert "pitch" not in rain
+    assert hand["while"]["b"]["groups"]["Thunder"]["gap_min"] == 0.0 and "mode" not in hand["while"]["b"]["groups"]["Thunder"]
+    assert set(hand["while"]) == {"b"}
+    # What the API shows and what a step plays are within limits
+    assert m.sequences.step_while(hand, "b")["tracks"]["Rain"]["volume"] == 1.0
+    m.sequences.to_response("hand", hand, defaults)
+    # Each problem is in the log, once
+    lines = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("sequence 'hand': at_end 'bounce'" in line for line in lines)
+    assert any("'Rain': volume: 3 is outside 0-1, 1 used" in line for line in lines)
+    assert any("unknown style 'wobble'" in line for line in lines)
+    assert any("sequence 'broken' is not an object" in line for line in lines)
+    assert any("sequence_defaults.hold_max: 'long' is not a number" in line for line in lines)
+    assert len(lines) == len(set(lines))
+    assert all("storm" in line and "presets.json" in line for line in lines)
+    # The runner plays it as checked
+    playing = t.manager.runner.sequence("storm", "hand")
+    assert playing["presets"] == ["a", "b"] and playing["at_end"] == "reverse"
+    assert (playing["hold_min"], playing["ramp"]) == (0.0, float(week)) and playing["while"] == hand["while"]
+
+
 def test_removing_a_preset_drops_it_from_sequences(tmp_path):
     t = build(tmp_path)
     changed = m.sequences.drop_preset(t.folders["storm"], "b")
