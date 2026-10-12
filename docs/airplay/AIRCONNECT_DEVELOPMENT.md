@@ -162,7 +162,6 @@ Check AirConnect logs for:
 
 | File | Purpose |
 |------|---------|
-| `app/core/sonorium/pyatv_patches.py` | pyatv compatibility patches |
 | `tests/test_airplay_airconnect.py` | AirConnect test harness |
 | `docs/airplay/AIRCONNECT_DEVELOPMENT.md` | This documentation |
 

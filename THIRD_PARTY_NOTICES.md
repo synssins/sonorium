@@ -228,23 +228,6 @@ FFmpeg version.
 
 ---
 
-## Windows app (old)
-
-The Windows app (`app/windows/Sonorium.exe`) is built with PyInstaller and ships an
-embedded Python with the packages in [`app/core/requirements.txt`](app/core/requirements.txt).
-In addition to the packages above, it contains:
-
-| Component | Licence | Source |
-|---|---|---|
-| Python (embedded) | PSF-2.0 | https://www.python.org/ |
-| PyInstaller bootloader | GPL-2.0-or-later WITH Bootloader exception | https://github.com/pyinstaller/pyinstaller |
-| PyQt6 (the launcher window) | **GPL-3.0-only** (or a commercial licence from Riverbank Computing) | https://www.riverbankcomputing.com/software/pyqt/ |
-| Qt 6 (used by PyQt6) | **LGPL-3.0-only** | https://www.qt.io/download-open-source |
-| sounddevice | MIT (bundles PortAudio, MIT) | https://github.com/spatialaudio/python-sounddevice |
-| aiofiles | Apache-2.0 | https://github.com/Tinche/aiofiles |
-
----
-
 ## Upstream project
 
 Sonorium was originally based on [Amniotic](https://github.com/fmtr/amniotic) by fmtr. It has since been fully rewritten, and none of Amniotic's code remains.

@@ -44,6 +44,9 @@ public partial class App : Application
         Updater.Start();
         var startArgs = Environment.GetCommandLineArgs();
         if (startArgs.Contains("--settings")) Actions.ShowConsole("Status");
+        // Development (documentation screenshots): --page Updates opens the console on that page
+        var page = Array.IndexOf(startArgs, "--page");
+        if (page >= 0 && page + 1 < startArgs.Length) Actions.ShowConsole(startArgs[page + 1]);
         // Development: open the menu as a right click would (screenshots, tests)
         if (startArgs.Contains("--menu"))
         {
