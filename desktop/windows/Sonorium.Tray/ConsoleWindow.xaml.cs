@@ -38,7 +38,7 @@ public sealed partial class ConsoleWindow : Window
     public void Navigate(string page, bool checkNow = false)
     {
         var item = Nav.MenuItems.OfType<NavigationViewItem>().First(i => (string)i.Tag == page);
-        if (Nav.SelectedItem == item)
+        if (ReferenceEquals(Nav.SelectedItem, item))
         {
             if (checkNow && Pages.Content is Pages.UpdatesPage updates) _ = updates.CheckNow();
             return;
