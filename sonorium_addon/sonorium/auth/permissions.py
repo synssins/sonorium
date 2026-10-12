@@ -351,6 +351,8 @@ POST    /api/sessions/{session_id}/ramp                 ch.change
 DELETE  /api/sessions/{session_id}/ramp                 ch.change
 GET     /api/audio-outputs                              ch.view
 GET     /api/audio-outputs/{type_id}/devices            sp.view
+POST    /api/audio-outputs/discover                     sp.view
+DELETE  /api/audio-outputs/speakers/{speaker_id}        sp.set
 GET     /api/sessions/{session_id}/audio-outputs        ch.view
 POST    /api/sessions/{session_id}/audio-outputs        ch.speakers
 DELETE  /api/sessions/{session_id}/audio-outputs/{attachment_id}    ch.speakers

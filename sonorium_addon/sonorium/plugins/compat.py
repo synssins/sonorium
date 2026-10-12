@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from typing import Iterable, Optional
 
-API_VERSION = "1.1"
+API_VERSION = "1.2"
 API_MAJOR, API_MINOR = (int(p) for p in API_VERSION.split("."))
 
 # capability -> (the API version it came with, what it is)
@@ -37,7 +37,7 @@ CAPABILITIES: dict[str, tuple[str, str]] = {
     "connections": ("1.0", "Sections in Settings > Connection"),
     "audio.sounds": ("1.1", "Play sounds over channels, with ducking"),
     "audio.ramps": ("1.1", "Gradual volume ramps on channels"),
-    "audio.outputs": ("1.1", "Register audio output types"),
+    "audio.outputs": ("1.1", "Audio output types; in 1.2 their devices are speakers, one_device_at_a_time"),
     "audio.tts": ("1.1", "Text to speech providers"),
     "commands": ("1.1", "Command maps for remotes and other inputs"),
     "mqtt": ("1.1", "Publish and subscribe on Sonorium's MQTT broker"),

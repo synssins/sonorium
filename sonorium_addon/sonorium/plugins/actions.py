@@ -139,9 +139,13 @@ class Actions:
         enabled = set(getattr(self._state.settings, "enabled_speakers", []) or [])
         result = []
         for speaker in self._registry.hierarchy.get_all_speakers():
-            result.append({"id": speaker.entity_id, "name": speaker.name, "type": speaker.type,
-                           "online": bool(speaker.online), "area_id": speaker.area_id,
-                           "area_name": speaker.area_name, "enabled": speaker.entity_id in enabled})
+            item = {"id": speaker.entity_id, "name": speaker.name, "type": speaker.type,
+                    "online": bool(speaker.online), "area_id": speaker.area_id,
+                    "area_name": speaker.area_name, "enabled": speaker.entity_id in enabled}
+            output = getattr(speaker, "output", None)
+            if output is not None:  # a device of an audio output type
+                item.update({"type": "output", "output_type": output.get("type"), "device": output.get("device")})
+            result.append(item)
         return result
 
     async def list_speaker_groups(self) -> list[dict]:

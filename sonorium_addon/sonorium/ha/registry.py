@@ -76,9 +76,12 @@ class Speaker:
     # speaker: [{"id": "net:dlna:x", "type": "dlna", "source": "discovered"}]
     merged: list[dict] = field(default_factory=list)
     play_via: str = "ha"
+    # A plugin's audio output device (type "output"): its live details, a
+    # dict core/audio_outputs.py keeps up to date (type, device, api, error, ...)
+    output: Optional[dict] = None
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "entity_id": self.entity_id,
             "name": self.name,
             "area_id": self.area_id,
@@ -96,6 +99,11 @@ class Speaker:
             "merged": [dict(m) for m in self.merged],
             "play_via": self.play_via,
         }
+        if self.output is not None:
+            result["output"] = dict(self.output)
+            result["output_type"] = self.output.get("type")
+            result["device"] = self.output.get("device")
+        return result
 
 
 @dataclass
@@ -208,6 +216,8 @@ class HARegistry:
         # Speakers from outside Home Assistant (standalone network speakers).
         # None in the HA add-on.
         self._extra_speaker_source: Optional[Callable[[], list[dict]]] = None
+        # More speakers of other kinds (a plugin's audio output devices): add_speaker_source
+        self._speaker_sources: list[Callable[[], list[dict]]] = []
 
         # Per-speaker settings (name, room, volume_offset, play_via) by speaker ID
         self._settings_source: Optional[Callable[[], dict]] = None
@@ -236,6 +246,13 @@ class HARegistry:
         source (list); it's read on every refresh() and merge_extra_speakers().
         """
         self._extra_speaker_source = source
+
+    def add_speaker_source(self, source: Callable[[], list[dict]]):
+        """
+        Another source of speakers, read with the extra speakers. Its dicts may
+        also have "output" (Speaker.output); they're never merged by IP.
+        """
+        self._speaker_sources.append(source)
 
     def set_local_spaces_source(self, source: Optional[Callable[[], dict]]):
         """Sonorium's own floors and areas ({"floors": [...], "areas": [...]}), read on every rebuild."""
@@ -342,13 +359,18 @@ class HARegistry:
         return self._rebuild()
 
     def _read_extras(self) -> list[dict]:
-        if self._extra_speaker_source is None:
-            return []
-        try:
-            return list(self._extra_speaker_source())
-        except Exception as e:
-            logger.warning(f"Could not list network speakers: {e}")
-            return []
+        extras = []
+        if self._extra_speaker_source is not None:
+            try:
+                extras = list(self._extra_speaker_source())
+            except Exception as e:
+                logger.warning(f"Could not list network speakers: {e}")
+        for source in getattr(self, "_speaker_sources", None) or []:
+            try:
+                extras.extend(source())
+            except Exception as e:
+                logger.warning(f"Could not list speakers: {e}")
+        return extras
 
     def _read_settings(self) -> dict:
         if self._settings_source is None:
@@ -403,6 +425,7 @@ class HARegistry:
                 type=item.get("type") or "other",
                 online=bool(item.get("online", True)),
                 address=ip or entity_id,
+                output=item.get("output"),
             )
 
         for speaker in speakers.values():
