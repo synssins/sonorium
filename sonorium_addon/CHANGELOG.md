@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.46 (2026-10-12)
+
+### Continuous Integration
+
+- First build from the new repository
+  ([`532d8f9`](https://github.com/synssins/sonorium/commit/532d8f92a520131d8bc34caabb494f51483f7337))
+
+
 ## v1.6.2-dev.45 (2026-10-12)
 
 
