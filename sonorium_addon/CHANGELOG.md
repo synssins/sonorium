@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.1-dev.2 (2026-10-12)
+
+### Documentation
+
+- HOSTING.md for the host switches, exit code 75 and the console credential
+  ([`bd844b2`](https://github.com/synssins/sonorium/commit/bd844b220b64ec8d1240b4027dd45c79544026ca))
+
+
 ## v1.6.2-dev.68 (2026-10-12)
 
 ### Bug Fixes
