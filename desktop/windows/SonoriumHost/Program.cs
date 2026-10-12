@@ -74,7 +74,7 @@ static int RunPerUser()
     using var stopEvent = new EventWaitHandle(false, EventResetMode.AutoReset, HostProtocol.UserStopEvent);
     using var restartEvent = new EventWaitHandle(false, EventResetMode.AutoReset, HostProtocol.UserRestartEvent);
     using var supervisor = new Supervisor(RunMode.User, log);
-    log.Host("Running per user");
+    log.Host($"Running per user ({BuildInfo.Describe()})");
     supervisor.Start();
     while (true)
     {
@@ -101,7 +101,7 @@ sealed class SonoriumService : ServiceBase
     {
         var settings = DesktopSettings.Load(RunMode.Service);
         log = new LogWriter(settings.Logs);
-        log.Host("Running as the Windows service");
+        log.Host($"Running as the Windows service ({BuildInfo.Describe()})");
         supervisor = new Supervisor(RunMode.Service, log);
         supervisor.Start();
     }

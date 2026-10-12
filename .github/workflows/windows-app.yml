@@ -120,11 +120,32 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # Test builds from windows-app ship the server as it is on fixes now (Chris, 2026-10-12): the
+      # desktop code comes from this branch, sonorium_addon/ from the latest origin/fixes. When the
+      # release workflow calls this, the given ref is built as it is.
+      - name: Server code from the latest fixes
+        id: server
+        shell: pwsh
+        run: |
+          if ('${{ github.ref }}' -eq 'refs/heads/windows-app' -and '${{ inputs.ref }}' -eq '') {
+            git fetch --no-tags --depth 1 https://github.com/${{ github.repository }}.git fixes
+            # Replaced, not overlaid: what fixes has deleted (e.g. old built-in plugins) must go too
+            Remove-Item -Recurse -Force sonorium_addon
+            git checkout FETCH_HEAD -- sonorium_addon
+            $commit = (git rev-parse --short FETCH_HEAD).Trim()
+            "Server from fixes $commit"
+          } else {
+            $commit = (git rev-parse --short HEAD).Trim()
+          }
+          "commit=$commit" >> $env:GITHUB_OUTPUT
+
       - name: Private Python with Sonorium (checks the LGPL build)
         shell: pwsh
         run: |
           $wheel = (Get-ChildItem wheels -Filter 'av-*.whl')[0].FullName
           packaging/windows/build-python.ps1 -AvWheel $wheel -Out dist/Sonorium
+          # Which server this build carries (the host logs it at every start)
+          "server ${{ steps.server.outputs.commit }}" | Set-Content -Encoding utf8 dist/Sonorium/app/BUILD.txt
 
       - name: Programs and installer
         id: installer

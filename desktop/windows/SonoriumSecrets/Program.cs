@@ -54,8 +54,9 @@ try
 }
 catch (CryptographicException)
 {
-    // Made by another account or on another PC
-    return Fail(Failed, $"{name} can't be decrypted by this account; enter it again");
+    // Made by another account or on another PC. Exit 1 with a reason: Sonorium logs it as a
+    // warning and treats the secret as not set (exit 1 without a reason is just "nothing stored")
+    return Fail(NotFound, $"{name} can't be decrypted by this account; enter it again");
 }
 catch (Exception e) when (e is IOException or UnauthorizedAccessException)
 {
