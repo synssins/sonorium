@@ -826,10 +826,9 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Theme not found")
         return folder
 
-    def _same_name(items: dict, name: str, except_id: Optional[str] = None) -> bool:
-        wanted = name.strip().lower()
-        return any(item_id != except_id and str((item or {}).get("name", "")).strip().lower() == wanted
-                   for item_id, item in items.items())
+    def _theme_edit_error(error):
+        """A core/theme_edit.py error as the HTTP error it stands for."""
+        return HTTPException(status_code=error.status, detail=str(error))
 
     @router.get("/themes/{theme_id}/sequences")
     async def list_theme_sequences(theme_id: str) -> dict:
@@ -847,23 +846,16 @@ def create_api_router(
     async def create_theme_sequence(theme_id: str, request: Request) -> dict:
         """New sequence: {"name", "presets": [ids], "at_end", "hold_min", "hold_max", "ramp"} (timing null = theme default)."""
         from sonorium.core import sequences as seq
+        from sonorium.core import theme_edit
         folder = _theme_folder_or_404(theme_id)
         data = await _json_body(request)
-        defaults = seq.load_defaults(folder)
-        existing = seq.load_sequences(folder)
         try:
-            cleaned = seq.clean_sequence(data, session_manager._theme_presets(theme_id).keys())
-            seq.check_timing(cleaned, defaults)
+            sequence_id, cleaned, defaults = theme_edit.create_sequence(
+                folder, data, session_manager._theme_presets(theme_id).keys())
         except seq.SequenceError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        if _same_name(existing, cleaned["name"]):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This theme already has a sequence with that name")
-        sequence_id = seq.new_sequence_id(cleaned["name"], existing)
-        existing[sequence_id] = cleaned
-        try:
-            seq.save_sequences(folder, existing)
-        except OSError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        except theme_edit.EditError as e:
+            raise _theme_edit_error(e)
         await _sync_mqtt(theme_id=theme_id)
         return seq.to_response(sequence_id, cleaned, defaults)
 
@@ -880,40 +872,28 @@ def create_api_router(
     async def update_theme_sequence(theme_id: str, sequence_id: str, request: Request) -> dict:
         """Change a sequence: only the fields sent change. A channel running it uses the new version from its next step."""
         from sonorium.core import sequences as seq
+        from sonorium.core import theme_edit
         folder = _theme_folder_or_404(theme_id)
         data = await _json_body(request)
-        existing = seq.load_sequences(folder)
-        if sequence_id not in existing:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found")
-        defaults = seq.load_defaults(folder)
         try:
-            cleaned = seq.clean_sequence(data, session_manager._theme_presets(theme_id).keys(), existing[sequence_id])
-            seq.check_timing(cleaned, defaults)
+            cleaned, defaults = theme_edit.update_sequence(
+                folder, sequence_id, data, session_manager._theme_presets(theme_id).keys())
         except seq.SequenceError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        if _same_name(existing, cleaned["name"], except_id=sequence_id):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This theme already has a sequence with that name")
-        existing[sequence_id] = cleaned
-        try:
-            seq.save_sequences(folder, existing)
-        except OSError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        except theme_edit.EditError as e:
+            raise _theme_edit_error(e)
         await _sync_mqtt(theme_id=theme_id)
         return seq.to_response(sequence_id, cleaned, defaults)
 
     @router.delete("/themes/{theme_id}/sequences/{sequence_id}")
     async def delete_theme_sequence(theme_id: str, sequence_id: str) -> dict:
         """Delete a sequence; channels running it stop it (they stay on their current preset)."""
-        from sonorium.core import sequences as seq
+        from sonorium.core import theme_edit
         folder = _theme_folder_or_404(theme_id)
-        existing = seq.load_sequences(folder)
-        if sequence_id not in existing:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found")
-        del existing[sequence_id]
         try:
-            seq.save_sequences(folder, existing)
-        except OSError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+            theme_edit.delete_sequence(folder, sequence_id)
+        except theme_edit.EditError as e:
+            raise _theme_edit_error(e)
         stopped = session_manager.forget_sequence(theme_id, sequence_id)
         await _sync_mqtt(theme_id=theme_id)
         return {"status": "ok", "sequence_id": sequence_id, "stopped_on": [s.id for s in stopped]}
@@ -1103,16 +1083,14 @@ def create_api_router(
     @router.post("/playlists", status_code=status.HTTP_201_CREATED)
     async def create_playlist(request: Request) -> dict:
         """New playlist: {"name", "entries": [{"theme_id", "preset_id", "sequence_id"}], "order", "repeat", "play_min", "play_max"}."""
-        from sonorium.core.playlists import PlaylistError, clean_playlist, new_playlist_id, to_response
+        from sonorium.core.playlists import PlaylistConflict, PlaylistError, create_playlist, to_response
         data = await _json_body(request)
         try:
-            cleaned = clean_playlist(data, *_playlist_lookups())
+            playlist_id, cleaned = create_playlist(state_store.playlists, data, *_playlist_lookups())
+        except PlaylistConflict as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
         except PlaylistError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        if _same_name(state_store.playlists, cleaned["name"]):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A playlist with that name already exists")
-        playlist_id = new_playlist_id(state_store.playlists)
-        state_store.playlists[playlist_id] = cleaned
         state_store.save()
         await _sync_mqtt(playlists=True)
         _publish("playlist.created", {"playlist_id": playlist_id, "playlist_name": cleaned.get("name")})
@@ -1126,16 +1104,15 @@ def create_api_router(
     @router.put("/playlists/{playlist_id}")
     async def update_playlist(playlist_id: str, request: Request) -> dict:
         """Change a playlist: only the fields sent change. Channels playing it carry on with the new version."""
-        from sonorium.core.playlists import PlaylistError, clean_playlist, to_response
-        current = _playlist_or_404(playlist_id)
+        from sonorium.core.playlists import PlaylistConflict, PlaylistError, to_response, update_playlist
+        _playlist_or_404(playlist_id)
         data = await _json_body(request)
         try:
-            cleaned = clean_playlist(data, *_playlist_lookups(), current=current)
+            cleaned = update_playlist(state_store.playlists, playlist_id, data, *_playlist_lookups())
+        except PlaylistConflict as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
         except PlaylistError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        if _same_name(state_store.playlists, cleaned["name"], except_id=playlist_id):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A playlist with that name already exists")
-        state_store.playlists[playlist_id] = cleaned
         session_manager.runner.playlist_changed(playlist_id)
         state_store.save()
         await _sync_mqtt(playlists=True)
@@ -1146,8 +1123,9 @@ def create_api_router(
     @router.delete("/playlists/{playlist_id}")
     async def delete_playlist(playlist_id: str) -> dict:
         """Delete a playlist; channels playing it stop playing it (they keep their current theme)."""
+        from sonorium.core.playlists import delete_playlist
         name = _playlist_or_404(playlist_id).get("name")
-        del state_store.playlists[playlist_id]
+        delete_playlist(state_store.playlists, playlist_id)
         cleared = session_manager.forget_playlist(playlist_id)
         state_store.save()
         await _sync_mqtt(playlists=True)
