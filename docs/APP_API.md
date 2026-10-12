@@ -1002,7 +1002,7 @@ created_at, updated_at}`.
 
 | Method, path | Perm | Answer |
 |---|---|---|
-| `GET /settings` | ch.view | `{"default_volume": 60, "crossfade_duration": 3.0, "max_groups": 20, "entity_prefix": "sonorium", "show_in_sidebar": true, "auto_create_quick_play": true, "master_gain": 60}` |
+| `GET /settings` | ch.view | `{"default_volume": 60, "crossfade_duration": 3.0, "max_groups": 20, "show_in_sidebar": true, "auto_create_quick_play": true, "master_gain": 60}` |
 | `PUT /settings` | st.change, **Admin** | any of those fields → the same object |
 | `GET /stream/url` | ch.view | section 9 |
 | `GET /install` | ch.view | `{"install", "label", "version", "features"}` |
