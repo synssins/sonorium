@@ -7,7 +7,8 @@ Sign-in, users, linked devices and keys (docs/AUTH.md).
     store.py        users, browser sessions, linked devices, keys (auth.json)
     identity.py     server ID and the HTTPS certificate the app pins
     middleware.py   who is calling, and whether they may
-    routes.py       sign-in, Users & devices, Keys, Link App, pairing
+    routes.py       sign-in, Users & devices, Link App, pairing
+    keys.py         Keys (Settings > Keys), switched on or off in Settings > Advanced
     qr.py           the Link App QR code
     announce.py     mDNS (sonorium.local, _sonorium._tcp) and the LAN addresses for the QR code
 """

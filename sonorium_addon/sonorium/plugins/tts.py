@@ -1,6 +1,6 @@
 """
 Text to speech providers: plugins that turn a message into audio
-(Home Assistant's TTS through the Announcements plugin, a local Piper, a
+(Home Assistant's TTS, which Sonorium registers itself, a local Piper, a
 cloud voice). Every announcement with text uses them (core/announce.py).
 
     self.audio.register_tts("piper", "Piper (local)", self.speak, ready=lambda: True)
@@ -54,11 +54,13 @@ class TtsProviders:
             self._providers.pop(pid, None)
 
     def providers(self) -> list[dict]:
-        return [{"id": pid, "title": v["title"], "plugin_id": v["owner"]} for pid, v in self._providers.items()]
+        """plugin_id: the plugin that gave it; None for Sonorium's own (owner "core.*": Home Assistant's)."""
+        return [{"id": pid, "title": v["title"], "plugin_id": None if str(v["owner"]).startswith("core.") else v["owner"]}
+                for pid, v in self._providers.items()]
 
     async def speak(self, message: str, provider: Optional[str] = None, **options) -> bytes:
         if not self._providers:
-            raise TtsError("No text to speech is available (the Announcements plugin provides Home Assistant's)")
+            raise TtsError("No text to speech is available (Home Assistant's needs Home Assistant linked)")
         if provider is None:
             provider = next(iter(self._providers))
         entry = self._providers.get(provider)

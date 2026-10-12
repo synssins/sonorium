@@ -31,7 +31,7 @@ def _unavailable(what: str) -> ActionError:
 async def _call(work):
     """Run a core call (a coroutine, or a function, sync or async), its errors as ActionError."""
     import inspect
-    from sonorium.core.announce import TtsUnavailable
+    from sonorium.core.announce import AnnouncementsOff, TtsUnavailable
     from sonorium.core.audio_outputs import OutputError
     from sonorium.core.decode import DecodeError
     from sonorium.core.overlay import OverlayError
@@ -46,6 +46,8 @@ async def _call(work):
         raise
     except LookupError as e:
         raise ActionError("not_found", str(e).strip("'\""))
+    except AnnouncementsOff as e:
+        raise ActionError("conflict", str(e))
     except TtsUnavailable as e:
         raise ActionError("unavailable", str(e))
     except (OverlayError, DecodeError, RampError, OutputError, CommandError, ValueError) as e:
@@ -116,17 +118,12 @@ class AudioV1:
         zones and quiet hours), starts stopped channels for its length.
         channels: ids, names, or "all". Channels with Announcements off are
         left out ("skipped"). duck: True, False, dB, or {db, attack, release}.
+        Announcements switched off in Settings > Advanced: ActionError "conflict".
         """
-        from sonorium.core.announce import parse_duck, resolve_channels
-        try:
-            channels = resolve_channels(getattr(self._svc(), "sessions", None), channels, personal=True)
-            duck = parse_duck(duck)
-        except (LookupError, ValueError) as e:
-            raise ActionError("not_found" if isinstance(e, LookupError) else "invalid", str(e.args[0] if e.args else e))
-        from sonorium.core.announce import announce
-        return await _call(announce(self._svc(), self._host.tts, channels, text=text, sound=sound, volume=volume,
-                                    duck=duck, provider=provider, language=language, start_stopped=start_stopped,
-                                    origin=f"plugin:{self._id}"))
+        from sonorium.core.announce import announce_to
+        return await _call(announce_to(self._svc(), self._host.tts, channels, text=text, sound=sound, volume=volume,
+                                       duck=duck, provider=provider, language=language,
+                                       start_stopped=start_stopped, origin=f"plugin:{self._id}"))
 
 
 class RampsV1:

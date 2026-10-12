@@ -4,8 +4,8 @@ Announcements: the one path every announcement takes, whatever sent it.
 Sonorium doesn't decide when to announce. Other systems send it an
 announcement and it plays it:
 
-    Home Assistant   each channel's notify entity (Announcements plugin)
-    MQTT             sonorium/announce/set (Announcements plugin)
+    Home Assistant   each channel's notify entity (ha/announcements.py)
+    MQTT             sonorium/announce/set (ha/announcements.py)
     HTTP             POST /api/announce (a key with Make announcements, or signed in)
     plugins          self.audio.announce()
 
@@ -20,13 +20,20 @@ play, then stopped again. Announcements are admin-level: they override zones
 and quiet hours. A channel with its Announcements setting off is left out
 (the check is on the channel itself, so every channel has it).
 
+Announcements are a core feature with a switch in Settings > Advanced
+("announcements", runtime.FEATURES; on out of the box). Switched off, no
+announcement plays from anywhere: announce() and every sound marked as an
+announcement raise AnnouncementsOff (POST /api/announce answers 409, plugins
+get an ActionError "conflict"). Each channel's own Announcements setting is
+kept either way.
+
 Personal channels (one per account, core/session_manager.py) can't be named
 or addressed by id: an announcement to "all" reaches the ones being listened
 to right now whose Announcements setting is on, and no other.
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Callable, Optional
 
 from sonorium.core.overlay import OverlayError
 from sonorium.obs import logger
@@ -36,8 +43,40 @@ MAX_TEXT = 1000
 NO_TTS = "No text to speech is available. It comes from Home Assistant: link it in Settings › Connection"
 
 
+FEATURE_OFF = "Announcements are off. Switch them on in Settings › Advanced."
+
+
 class TtsUnavailable(OverlayError):
     """Text was sent, no chime, and nothing can speak it."""
+
+
+class AnnouncementsOff(OverlayError):
+    """Settings > Advanced > Announcements is off: no announcement plays."""
+
+    def __init__(self, message: str = FEATURE_OFF):
+        super().__init__(message)
+
+
+_enabled: Callable[[], bool] = lambda: True
+
+
+def set_enabled_source(source: Optional[Callable[[], bool]]) -> None:
+    """Where the Announcements switch is read (the app: the Advanced setting). None: always on."""
+    global _enabled
+    _enabled = source or (lambda: True)
+
+
+def announcements_on() -> bool:
+    try:
+        return bool(_enabled())
+    except Exception:
+        return True
+
+
+def check_on() -> None:
+    """AnnouncementsOff while the Announcements switch is off."""
+    if not announcements_on():
+        raise AnnouncementsOff()
 
 
 def resolve_channels(sessions, wanted, personal: bool = False) -> list[str]:
@@ -112,6 +151,7 @@ async def announce(overlay, tts, channels, *, text: Optional[str] = None, sound=
     was sent and nothing can speak it; other TTS errors pass through when
     there was no chime.
     """
+    check_on()
     if overlay is None:
         raise OverlayError("Playing sounds isn't available yet")
     if isinstance(channels, str):
@@ -160,3 +200,20 @@ async def announce(overlay, tts, channels, *, text: Optional[str] = None, sound=
     result["played"] = [c for c, s in result["channels"].items() if s.get("state") != "skipped"]
     logger.info(f"Announcement ({origin}): {label or (text or 'chime')[:60]!r} on {len(result['played'])} channel(s)")
     return result
+
+
+async def announce_to(overlay, tts, channels, *, duck=True, origin: str = "sonorium", **options) -> dict:
+    """
+    announce() for what a caller sent (plugins, MQTT, Home Assistant):
+    channels as ids, names or "all" (resolve_channels, the personal channels
+    listened to included), duck as parse_duck takes it. AnnouncementsOff first
+    when the switch is off; LookupError for an unknown channel; ValueError or
+    OverlayError for a bad value.
+    """
+    check_on()
+    try:
+        channels = resolve_channels(getattr(overlay, "sessions", None), channels, personal=True)
+    except LookupError as e:
+        raise LookupError(str(e.args[0] if e.args else e))
+    return await announce(overlay, tts, channels, duck=parse_duck(duck), origin=origin, **options)
+

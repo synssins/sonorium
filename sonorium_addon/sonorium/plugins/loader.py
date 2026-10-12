@@ -160,6 +160,43 @@ def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR, skip_plugins: 
             logger.error(f"Failed to copy built-in plugin {item.name}: {e}")
 
 
+# Built-in plugins that became core features (Settings > Advanced): Integration
+# is Keys (auth/keys.py), Announcements is core/announce.py and ha/announcements.py
+RETIRED_BUILTIN_PLUGINS = ("integration", "announcements")
+
+
+def remove_retired_plugins(plugins_dir: Path, settings=None) -> list[str]:
+    """
+    Delete the copies of retired built-in plugins from the plugins folder (only
+    Sonorium's own: manifest "builtin"), and forget them in the plugin state
+    lists, so they're never loaded or listed. Returns the ids removed.
+    """
+    removed = []
+    for plugin_id in RETIRED_BUILTIN_PLUGINS:
+        folder = Path(plugins_dir) / plugin_id
+        if not (folder / "plugin.py").exists():
+            continue
+        manifest = load_manifest(folder)
+        if not manifest.get("builtin") or manifest.get("id", plugin_id) != plugin_id:
+            continue  # someone's own plugin with that name: theirs to keep
+        try:
+            shutil.rmtree(folder)
+            removed.append(plugin_id)
+            logger.info(f"Removed the old {manifest.get('name') or plugin_id} plugin: it is part of Sonorium now")
+        except OSError as e:
+            logger.debug(f"Could not remove the old plugin folder {folder}: {e}")
+    if settings is not None:
+        for name in ("enabled_plugins", "known_builtin_plugins", "deleted_builtin_plugins"):
+            values = getattr(settings, name, None)
+            if isinstance(values, list):
+                values[:] = [v for v in values if v not in RETIRED_BUILTIN_PLUGINS]
+        plugin_settings = getattr(settings, "plugin_settings", None)
+        if isinstance(plugin_settings, dict):
+            for plugin_id in RETIRED_BUILTIN_PLUGINS:
+                plugin_settings.pop(plugin_id, None)
+    return removed
+
+
 def get_builtin_plugin_ids() -> list[str]:
     """
     Get a list of all built-in plugin IDs.

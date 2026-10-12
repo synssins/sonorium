@@ -1,5 +1,5 @@
 """
-Sign-in (sonorium/auth) with the built-in Users and Integration plugins:
+Sign-in (sonorium/auth) with the built-in Users plugin and Keys (a core feature):
 passwords, browser sessions and CSRF, roles on a sample of routes per area,
 Link App pairing (single use, expiry, HTTPS), one-time sign-in codes, keys
 (abilities, channels, changes in flight, expiry, revoking), the bypass, HA
@@ -31,7 +31,8 @@ CHANNEL = "ch1"
 def modules():
     with addon_modules("sonorium.auth.service", "sonorium.auth.middleware", "sonorium.auth.routes",
                        "sonorium.auth.permissions", "sonorium.auth.config", "sonorium.auth.qr", "sonorium.auth.announce",
-                       "sonorium.auth.tokens", "sonorium.plugins.loader", "sonorium.runtime") as mods:
+                       "sonorium.auth.tokens", "sonorium.auth.keys", "sonorium.plugins.loader",
+                       "sonorium.runtime") as mods:
         m.__dict__.update(mods.__dict__)
         yield
 
@@ -52,7 +53,7 @@ def load_plugin(name):
 
 
 class World:
-    def __init__(self, tmp_path, monkeypatch, *, plugins=("users", "integration"), existing=False, ha=None):
+    def __init__(self, tmp_path, monkeypatch, *, plugins=("users",), existing=False, ha=None, keys=True):
         from fastapi import FastAPI, Request
         from fastapi.testclient import TestClient
         monkeypatch.setenv("SONORIUM_CONFIG_DIR", str(tmp_path))
@@ -101,6 +102,8 @@ class World:
             app.add_api_route(path, record(f"{method} {path}"), methods=[method])
         s.note_install()
         self.plugins = {}
+        if keys:  # Keys: a core feature, installed by the app at startup
+            m.keys.install(s)
         host = SimpleNamespace(auth=s)
         for name in plugins:
             plugin = load_plugin(name)
@@ -446,6 +449,33 @@ def test_key_allows_only_what_is_checked(w, tmp_path):
     assert k.get("/api/sessions", headers=H("sk_not-a-key")).status_code == 401
 
 
+def test_keys_switched_off_and_back_on(w, tmp_path):
+    """Settings > Advanced > Keys: off, the routes are gone and no key works; the keys are kept for later."""
+    c, csrf = w.setup_admin()
+    key = make_key(c, csrf, abilities=["ch.view"])
+    k = w.client()
+    assert m.keys.enabled(w.service)
+    m.keys.set_enabled(w.service, False)
+    assert c.get("/api/keys", headers=H(None, csrf)).status_code == 404
+    assert c.post("/api/keys", json={"name": "x"}, headers=H(None, csrf)).status_code == 404
+    r = k.get("/api/sessions", headers=H(key["key"]))
+    assert r.status_code == 401 and "Keys are off" in r.json()["detail"]
+    assert key["id"] in (tmp_path / "security.json").read_text()  # still stored
+    assert c.get("/api/sessions", headers=H(None, csrf)).status_code == 200  # signing in is untouched
+    assert w.client().get("/api/info").json()["plugins"] == ["users"]
+    m.keys.set_enabled(w.service, True)
+    assert k.get("/api/sessions", headers=H(key["key"])).json()["kind"] == "key"
+    assert [x["id"] for x in c.get("/api/keys", headers=H(None, csrf)).json()["keys"]] == [key["id"]]
+
+
+def test_keys_made_by_the_old_integration_plugin_still_work(w):
+    """Keys from before Keys were core (owner "integration" in security.json) work unchanged."""
+    w.setup_admin()
+    _, token = w.service.tokens.issue("key", prefix="sk_", name="Old bot", owner="integration",
+                                      data={"abilities": ["ch.view"], "channels": None, "created_by": None})
+    assert w.client().get("/api/sessions", headers=H(token)).json()["kind"] == "key"
+
+
 def test_key_changes_in_flight_and_revocation(w):
     c, csrf = w.setup_admin()
     key = make_key(c, csrf, abilities=["ch.view"])
@@ -590,7 +620,7 @@ def test_closed_until_the_sign_in_plugin_starts(tmp_path, monkeypatch):
 def test_info_is_public(w):
     info = w.client().get("/api/info").json()
     assert info["api"] == 1 and info["ports"] == {"http": 8008, "https": 8808} and len(info["fingerprint"]) == 64
-    assert info["login_required"] is True and set(info["plugins"]) == {"users", "integration"}
+    assert info["login_required"] is True and info["plugins"] == ["users"]
     assert info["boot_id"] == m.runtime.BOOT_ID and len(info["boot_id"]) == 32  # G4: new at every start
     assert info["ui"] == {"version": "test", "host_api": 1}  # G14
     assert info["personal_channel"] is True  # GET/PUT /api/me/channel

@@ -3,7 +3,7 @@ Tokens: one implementation for every secret Sonorium hands out.
 
     linked phones      "sd_..."   (core pairing)
     browser sessions   "ss_..."   (the Users plugin)
-    keys               "sk_..."   (the Integration plugin)
+    keys               "sk_..."   (auth/keys.py)
     plugin triggers and the event stream: older tokens without a prefix,
                        one per scope ("plugin:<id>", "trigger:<id>/<trigger>", "events")
 

@@ -1,6 +1,7 @@
 """
-Every route has a permission (sonorium/auth/permissions.py, or the plugin's
-PERMISSIONS): a new route without one fails here (and is refused at runtime).
+Every route has a permission (sonorium/auth/permissions.py, Keys' PERMISSIONS
+in sonorium/auth/keys.py, or the plugin's PERMISSIONS): a new route without one
+fails here (and is refused at runtime).
 """
 import importlib.util
 import json
@@ -28,17 +29,27 @@ def _routes(routes):
     return out
 
 
-def _plugin_permissions(name):
-    text = (PACKAGE / "plugins" / "builtin" / name / "plugin.py").read_text(encoding="utf-8")
+def _permissions_in(path):
+    text = path.read_text(encoding="utf-8")
     block = text.split('PERMISSIONS = """', 1)[1].split('"""', 1)[0]
     return {tuple(line.split()[:2]) for line in block.strip().splitlines() if line.strip()}
 
 
+def _plugin_permissions(name):
+    return _permissions_in(PACKAGE / "plugins" / "builtin" / name / "plugin.py")
+
+
+def _keys_permissions():
+    return _permissions_in(PACKAGE / "auth" / "keys.py")
+
+
 def test_every_route_has_a_permission(m):
     permissions = _exec("sonorium.auth.permissions", PACKAGE / "auth" / "permissions.py")
-    table = set(permissions.ROUTES)
+    table = set(permissions.ROUTES) | _keys_permissions()
     app = m.api.WebApp(MagicMock()).app
     routes = _routes(app.routes)
+    keys = _exec("sonorium.auth.keys", PACKAGE / "auth" / "keys.py")  # installed by the app at startup
+    routes |= _routes(keys.create_router(MagicMock()).routes)
     routes |= _routes(m.v2.create_api_router(
         session_manager=MagicMock(), group_manager=MagicMock(), ha_registry=MagicMock(), state_store=MagicMock(),
         channel_manager=MagicMock(), plugin_manager=MagicMock(), mqtt_manager=MagicMock()).routes)
@@ -54,7 +65,12 @@ def test_every_route_has_a_permission(m):
     assert not stale, f"Permissions for routes that don't exist: {stale}"
 
 
-@pytest.mark.parametrize("name", ["users", "integration"])
+def test_keys_routes_have_permissions(m):
+    keys = _exec("sonorium.auth.keys", PACKAGE / "auth" / "keys.py")
+    assert _routes(keys.create_router(MagicMock()).routes) == _keys_permissions()
+
+
+@pytest.mark.parametrize("name", ["users"])
 def test_plugin_routes_have_permissions(m, name):
     pytest.importorskip("argon2")
     folder = PACKAGE / "plugins" / "builtin" / name
@@ -72,5 +88,5 @@ def test_core_and_plugins_never_share_a_route():
     text = (PACKAGE / "auth" / "permissions.py").read_text(encoding="utf-8")
     core = {tuple(line.split()[:2]) for line in text.split('_ROUTES = """', 1)[1].split('"""', 1)[0].strip().splitlines()
             if line.strip()}
-    for name in ("users", "integration"):
-        assert not core & _plugin_permissions(name)
+    assert not core & _plugin_permissions("users")
+    assert not core & _keys_permissions() and not _keys_permissions() & _plugin_permissions("users")

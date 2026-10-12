@@ -46,6 +46,11 @@ FEATURES = {
     "space_editing": {"addon": "hidden", "default": "on"},
     # Plugins may install Python packages from the internet (plugins/packages.py)
     "plugin_packages": {"default": "off"},
+    # Keys for devices and programs (auth/keys.py): on, and can be switched off; applies at once
+    "keys": {"default": "on", "switchable": True, "live": True},
+    # Announcements from Home Assistant, MQTT, the API and plugins (core/announce.py,
+    # ha/announcements.py): on, and can be switched off; applies at once
+    "announcements": {"default": "on", "switchable": True, "live": True},
 }
 
 
@@ -54,21 +59,33 @@ def feature_state(name: str) -> str:
     return states.get(INSTALL, states["default"])
 
 
-def feature_enabled(name: str, overrides: dict | None = None) -> bool:
-    """Whether a feature runs: its default here, or the Advanced override for an "off" one."""
+def feature_overridable(name: str) -> bool:
+    """Switchable in Settings > Advanced: an "off" feature, or an "on" one marked switchable."""
     state = feature_state(name)
-    if state == "off":
-        return bool((overrides or {}).get(name, False))
+    return state == "off" or (state == "on" and bool(FEATURES[name].get("switchable")))
+
+
+def feature_enabled(name: str, overrides: dict | None = None) -> bool:
+    """Whether a feature runs: its default here, or the Advanced override for a switchable one."""
+    state = feature_state(name)
+    if feature_overridable(name):
+        return bool((overrides or {}).get(name, state == "on"))
     return state == "on"
 
 
 def features(overrides: dict | None = None) -> dict:
-    """Every feature for the web UI: shown at all, running, and switchable in Advanced."""
+    """
+    Every feature for the web UI and the app: shown at all, running, switchable
+    in Advanced, on out of the box ("default") and whether a change applies at
+    once ("live") or after a restart.
+    """
     return {
         name: {
             "available": feature_state(name) != "hidden",
             "enabled": feature_enabled(name, overrides),
-            "overridable": feature_state(name) == "off",
+            "overridable": feature_overridable(name),
+            "default": feature_state(name) == "on",
+            "live": bool(FEATURES[name].get("live")),
         }
         for name in FEATURES
     }

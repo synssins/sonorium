@@ -3,8 +3,8 @@ The core of sign-in: one AuthService per Sonorium, shared by the middleware,
 the core routes and the sign-in plugins (PluginHost.auth).
 
     security.json   owner-only: the signing secret (CSRF), and every token
-                    (linked phones, the Users plugin's sessions, the
-                    Integration plugin's keys) as hashes
+                    (linked phones, the Users plugin's sessions, keys)
+                    as hashes
     server.json     the server ID;  tls/  the HTTPS certificate (identity.py)
 
 Plugins plug in with:
@@ -38,6 +38,7 @@ SECURITY_FILE = "security.json"
 DEVICE_PREFIX = "sd_"
 PAIR_CODE_SECONDS = 300
 PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I
+CORE_AUTHENTICATORS = frozenset({"keys"})  # auth/keys.py: registered like a plugin, listed as none
 
 
 class AuthService:
@@ -147,6 +148,10 @@ class AuthService:
         self.registry.set_active(plugin_id, True)
         if plugin_id in self.ui_bundles:
             self.ui_bundles[plugin_id]["active"] = True
+
+    def plugin_ids(self) -> list[str]:
+        """The sign-in plugins registered (core features such as Keys register the same way, but aren't plugins)."""
+        return sorted(a for a in self.authenticators if a not in CORE_AUTHENTICATORS)
 
     def add_routes(self, plugin_id: str, router, permissions) -> None:
         """A plugin's API: every route of the router must be in `permissions` ("METHOD path perm" lines)."""

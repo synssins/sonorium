@@ -98,7 +98,7 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
             "install": runtime.INSTALL, "features": features(),
             "ports": {"http": http, "https": https_port() or None}, "host": host, "hostname": mdns_host() or None,
             "login_required": login_required(), "pair": True, "fingerprint": identity.fingerprint,
-            "plugins": sorted(service.authenticators),
+            "plugins": service.plugin_ids(),
             "boot_id": runtime.BOOT_ID,  # new at every start; the event stream's ids are "<boot_id>:<n>"
             # the web UI's version, and of its window.SONORIUM_HOST hooks for the app (static/js/api.js)
             "ui": {"version": version, "host_api": UI_HOST_API},
@@ -114,7 +114,7 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
             "kind": p.kind, "user": service.describe_user(p.user_id), "csrf": p.csrf, "reset": p.reset,
             "perms": sorted(p.perms), "bypass": config.bypass_login() and not ingress, "ingress": ingress,
             "web_ui": ingress or not config.web_ui_only_through_ha(), "words": service.identity.words,
-            "plugins": sorted(service.authenticators), "starting": not service.ready, "closed": service.closed,
+            "plugins": service.plugin_ids(), "starting": not service.ready, "closed": service.closed,
         }
         for _, hook in service.provider("me"):
             try:

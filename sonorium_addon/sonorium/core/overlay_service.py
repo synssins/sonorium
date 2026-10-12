@@ -147,6 +147,9 @@ class OverlayService:
         (with the reason). An announcement skips channels with announcements
         off (ANNOUNCEMENTS_OFF). OverlayError / decode.DecodeError for a bad request.
         """
+        if announcement:
+            from sonorium.core.announce import check_on
+            check_on()  # Settings > Advanced > Announcements off: AnnouncementsOff
         if isinstance(channels, str):
             channels = [channels]
         if not isinstance(channels, (list, tuple)) or not channels or len(channels) > MAX_CHANNELS_PER_SOUND:

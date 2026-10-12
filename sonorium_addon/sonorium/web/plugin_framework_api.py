@@ -476,7 +476,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 
 def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> None:
     """Sounds, announcements, ramps, audio outputs, command maps, alerts (framework phase 2)."""
-    from sonorium.core.announce import TtsUnavailable
+    from sonorium.core.announce import AnnouncementsOff, TtsUnavailable
     from sonorium.core.audio_outputs import OutputError
     from sonorium.core.decode import DecodeError
     from sonorium.core.overlay import OverlayError
@@ -522,6 +522,8 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             return (await result) if inspect.isawaitable(result) else result
         except LookupError as e:
             raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+        except AnnouncementsOff as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except TtsUnavailable as e:
             raise HTTPException(status_code=503, detail=str(e))
         except (OverlayError, DecodeError, RampError, OutputError, cmd.CommandError) as e:
@@ -577,9 +579,11 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
          "provider", "language", "start_stopped"}. Only channels and text (or url) are needed.
         A chime and/or spoken text, ducking the channels' mix (a stopped channel is started for it).
         Answers which channels play it and which skipped it (Announcements off).
+        409 while Announcements are switched off in Settings > Advanced.
         """
-        from sonorium.core.announce import announce as do_announce, parse_duck
+        from sonorium.core.announce import announce as do_announce, check_on, parse_duck
         from sonorium.auth.middleware import principal_of
+        await _guard(check_on)
         body = await _json(request)
         text = body.get("text", body.get("message"))
         url = body.get("url", body.get("chime"))

@@ -10,7 +10,7 @@ The caller (auth/principal.py), first match wins:
                full access less managing users, devices and keys; with the
                Users plugin, what its user may do.
     plugins    their authenticate() hook: the Users plugin's browser
-               sessions, the Integration plugin's keys.
+               sessions; keys (auth/keys.py, a core feature) the same way.
     bypass     BYPASS_LOGIN / bypass_login is on: the web UI needs no sign-in.
     fallback   a plugin's fallback() (the Users plugin: open access while
                Require login is off, else nobody), or with no sign-in plugin

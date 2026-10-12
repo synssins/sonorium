@@ -19,6 +19,8 @@ from sonorium.plugins.loader import (
     instantiate_plugin,
     save_manifest,
     copy_builtin_plugins,
+    remove_retired_plugins,
+    RETIRED_BUILTIN_PLUGINS,
 )
 from sonorium.plugins.settings_schema import effective_settings, validate_settings
 from sonorium.obs import logger
@@ -79,6 +81,13 @@ class PluginManager:
 
         # Ensure plugins directory exists
         self.plugins_dir.mkdir(parents=True, exist_ok=True)
+
+        # Built-in plugins that are part of Sonorium now (Keys, Announcements): their old copies go
+        settings = self.state_store.settings
+        had = [n for n in ("enabled_plugins", "known_builtin_plugins", "deleted_builtin_plugins")
+               if set(getattr(settings, n, None) or []) & set(RETIRED_BUILTIN_PLUGINS)]
+        if remove_retired_plugins(self.plugins_dir, settings) or had:
+            self.state_store.save()
 
         # Copy built-in plugins to user directory if not present
         # Skip plugins that the user has deliberately deleted

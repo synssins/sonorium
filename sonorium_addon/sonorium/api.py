@@ -80,6 +80,7 @@ class WebApp:
         self._theme_refresh_task = None
         self._plugin_manager = None
         self._plugin_host = None  # plugins/host.py: events, actions, scheduler, triggers
+        self._announcements = None  # ha/announcements.py: HA notify entities and MQTT topics
         self._theme_metadata_manager = None
         self._network_service = None  # standalone only
         self._cards = None  # Home Assistant dashboard cards (ha/cards.py)
@@ -144,6 +145,9 @@ class WebApp:
             https_host_port=self._https_port_outside,
             mdns_host=lambda: self._announcer.hostname if self._announcer is not None else None,
         ))
+        # Keys (Settings > Keys): a core feature, switched on or off in Settings > Advanced
+        from sonorium.auth import keys as core_keys
+        core_keys.install(self.auth)
 
         # Mount static files (CSS, JS) for the web UI
         if STATIC_DIR.exists():
@@ -274,6 +278,11 @@ class WebApp:
             # Settings > Advanced's playback values: the mixer reads them from the store
             from sonorium import playback_values
             playback_values.set_source(lambda: self._state_store.settings.playback_values)
+            # Settings > Advanced > Keys and Announcements (core features, on out of the box)
+            from sonorium.auth import keys as core_keys
+            from sonorium.core import announce as core_announce
+            core_keys.set_enabled(self.auth, self._feature_on("keys"))
+            core_announce.set_enabled_source(lambda: self._feature_on("announcements"))
             logger.debug(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
 
             # Initialize theme metadata manager
@@ -472,6 +481,15 @@ class WebApp:
                 self._session_manager.runner.on_change = self._mqtt_manager.update_session_state
                 if self._plugin_host:  # plugins' changes reach Home Assistant like the UI's
                     self._plugin_host.on_change = self._mqtt_manager.update_session_state
+
+            # Announcements from Home Assistant (notify entities) and MQTT, once MQTT is set up
+            if self._plugin_host:
+                try:
+                    from sonorium.ha.announcements import Announcements
+                    self._announcements = Announcements(self._plugin_host)
+                    await self._announcements.start(self._feature_on("announcements"))
+                except Exception as e:
+                    logger.warning(f"  Announcements from Home Assistant and MQTT unavailable: {e}")
 
             # Home Assistant dashboard cards: installed once both HA and MQTT are linked
             self._init_dashboard_cards(stream_base_url)
@@ -1035,6 +1053,19 @@ class WebApp:
     def _feature_overrides(self) -> dict:
         return dict(self._state_store.settings.feature_overrides) if self._state_store else {}
 
+    def _feature_on(self, name: str) -> bool:
+        return runtime.feature_enabled(name, self._feature_overrides())
+
+    async def _apply_live_feature(self, name: str) -> None:
+        """A feature that applies at once (runtime.FEATURES "live"): Keys, Announcements."""
+        on = self._feature_on(name)
+        if name == "keys":
+            from sonorium.auth import keys as core_keys
+            core_keys.set_enabled(self.auth, on)
+        elif name == "announcements" and self._announcements is not None:
+            await self._announcements.set_enabled(on)
+        logger.info(f"{name.capitalize()} switched {'on' if on else 'off'}")
+
     async def get_install(self):
         """How Sonorium is installed, and which features that install shows and runs."""
         return {
@@ -1046,9 +1077,10 @@ class WebApp:
 
     async def put_install_features(self, request: Request):
         """
-        Settings > Advanced: switch on (or back off) features that are off by
-        default for this install. Takes effect after a restart.
-        Body: {"network_speakers": true, "restart": true}
+        Settings > Advanced: switch features on or off (the ones this install
+        lets you change, "overridable"). A "live" one (Keys, Announcements)
+        applies at once; the others after a restart.
+        Body: {"network_speakers": true, "keys": false, "restart": true}
         """
         try:
             body = await request.json()
@@ -1060,15 +1092,21 @@ class WebApp:
         for name, value in body.items():
             if name == "restart":
                 continue
-            if name not in runtime.FEATURES or runtime.feature_state(name) != "off":
+            if name not in runtime.FEATURES or not runtime.feature_overridable(name):
                 raise HTTPException(status_code=400, detail=f"'{name}' can't be changed here")
-            if value:
-                overrides[name] = True
+            if bool(value) == (runtime.feature_state(name) == "on"):
+                overrides.pop(name, None)  # back to the default: nothing stored
             else:
-                overrides.pop(name, None)
+                overrides[name] = bool(value)
         self._state_store.settings.feature_overrides = overrides
         self._state_store.save()
         logger.info(f"Advanced settings changed: {overrides or 'all defaults'}")
+        for name in body:
+            if name in runtime.FEATURES and runtime.FEATURES[name].get("live"):
+                try:
+                    await self._apply_live_feature(name)
+                except Exception as e:
+                    logger.warning(f"Could not switch {name}: {e}")
         try:
             from sonorium.plugins import events
             events.publish("settings.changed", {"section": "features", "keys": sorted(k for k in body if k != "restart")})

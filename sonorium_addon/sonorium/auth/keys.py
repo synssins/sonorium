@@ -1,5 +1,6 @@
 """
-Integration: keys for devices, programs and people (Settings > Keys).
+Keys for devices, programs and people (Settings > Keys): a core feature with
+a switch in Settings > Advanced ("keys", runtime.FEATURES, on out of the box).
 
 A key ("sk_...") allows only the abilities checked on it (permissions.AREAS:
 channels, themes and presets, playlists and sequences, speakers, triggers,
@@ -9,9 +10,13 @@ and takes effect on its next request; revoking it does too.
 
 Plugin triggers and the event stream accept a key with "Run triggers" or
 "Read events"; the older per-plugin, per-trigger and event-stream tokens keep
-working without this plugin.
+working whether keys are on or off.
 
 Keys are core tokens (kind "key"), kept as hashes in security.json.
+
+Switched off (set_enabled(service, False)): the /api/keys routes answer 404
+and no key is accepted; the keys stay stored and work again once switched
+back on. The switch applies at once.
 """
 from __future__ import annotations
 
@@ -23,9 +28,8 @@ from sonorium.auth import permissions as P
 from sonorium.auth.principal import Principal, Reject
 from sonorium.auth.routes import json_body
 from sonorium.obs import logger
-from sonorium.plugins.base import BasePlugin
 
-PLUGIN_ID = "integration"
+OWNER = "keys"   # in the permission registry and the authenticators (never a plugin id: those can't clash)
 KEY_PREFIX = "sk_"
 EXPIRY_CHOICES = {"7d": 7, "30d": 30, "90d": 90, "1y": 365, "never": None}
 
@@ -54,6 +58,15 @@ class KeysAuth:
             return Reject(401, {"detail": "The user who made this key is switched off. Make a new key."})
         return Principal("key", frozenset(P.clean_abilities(data.get("abilities"))), key_id=key_id,
                          channels=data.get("channels"))
+
+
+class KeysOff:
+    """Keys switched off: a key is refused (it stays stored), so it never falls through to other sign-in."""
+
+    def authenticate(self, ctx) -> Optional[Principal]:
+        if ctx.token and ctx.token.startswith(KEY_PREFIX):
+            return Reject(401, {"detail": "Keys are off. Switch them on in Settings › Advanced."})
+        return None
 
 
 def key_row(service, key_id: str, record: dict) -> dict:
@@ -109,7 +122,7 @@ def create_router(service) -> APIRouter:
         """A new key; its value is in this answer only."""
         data = await json_body(request)
         key_id, token = service.tokens.issue(
-            "key", prefix=KEY_PREFIX, name=name_of(data), owner=PLUGIN_ID, expires=expiry(data.get("expires", "90d")),
+            "key", prefix=KEY_PREFIX, name=name_of(data), owner=OWNER, expires=expiry(data.get("expires", "90d")),
             data={"abilities": P.clean_abilities(data.get("abilities")), "channels": channels_of(data),
                   "created_by": p_of(request).user_id})
         logger.info(f"Keys: {service.tokens.get(key_id)['name']} made")
@@ -145,30 +158,18 @@ def create_router(service) -> APIRouter:
     return router
 
 
-class IntegrationPlugin(BasePlugin):
-    id = PLUGIN_ID
-    name = "Integration"
-    version = "1.0.3"
-    description = "Keys for devices, programs and people, with only the access you check"
-    author = "Sonorium"
-    builtin = True
+def install(service) -> None:
+    """At startup: the routes (in the app and the permission table) and keys accepted (switched on)."""
+    service.add_routes(OWNER, create_router(service), PERMISSIONS)
+    set_enabled(service, True)
 
-    def _auth(self):
-        return getattr(self._host, "auth", None) if self._host is not None else None
 
-    async def on_enable(self) -> None:
-        service = self._auth()
-        if service is None:
-            return
-        service.add_routes(PLUGIN_ID, create_router(service), PERMISSIONS)
-        web = self.plugin_dir / "web"
-        if (web / "integration.js").exists():
-            service.register_ui(PLUGIN_ID, web, js="integration.js",
-                                css="integration.css" if (web / "integration.css").exists() else None,
-                                version=self.version)
-        service.register_authenticator(PLUGIN_ID, KeysAuth(service))
+def set_enabled(service, on: bool) -> None:
+    """Settings > Advanced > Keys: applies at once (routes 404 and keys refused while off)."""
+    service.authenticators.pop(OWNER, None)
+    service.register_authenticator(OWNER, KeysAuth(service) if on else KeysOff())
+    service.registry.set_active(OWNER, bool(on))
 
-    async def on_disable(self) -> None:
-        service = self._auth()
-        if service is not None:
-            service.unregister(PLUGIN_ID)
+
+def enabled(service) -> bool:
+    return isinstance(service.authenticators.get(OWNER), KeysAuth)
