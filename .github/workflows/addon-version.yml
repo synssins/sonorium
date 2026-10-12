@@ -36,6 +36,8 @@ on:
       # The Windows app is built from the same tag, so its changes need a version too
       - 'desktop/**'
       - 'packaging/windows/**'
+      - '!packaging/windows/docs-screens.ps1'  # CI screenshot script, not shipped
+      - '!packaging/windows/README.md'
   workflow_dispatch:
     inputs:
       bump:
