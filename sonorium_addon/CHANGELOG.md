@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.66 (2026-10-12)
+
+### Continuous Integration
+
+- **addon**: Fetch the branch head before moving the branch
+  ([`d0da05c`](https://github.com/synssins/sonorium/commit/d0da05c712d701e76ccfeda45c2c9c63e9213ef2))
+
+- **addon**: Push add-on images before the version commit; HA pulls them
+  ([`6baf5b9`](https://github.com/synssins/sonorium/commit/6baf5b93e20221a9a7fb02b6ff4de5bc237aef29))
+
+- **addon**: Reserve the version tag before building the add-on images
+  ([`584e34c`](https://github.com/synssins/sonorium/commit/584e34cb57b779dd65c8bbb0fddf034d4363aae5))
+
+### Documentation
+
+- **app-api**: Documentation addresses instead of LAN addresses
+  ([`15a7458`](https://github.com/synssins/sonorium/commit/15a74581cb874b079a1fc5e869aae55affdef9cc))
+
+
 ## v1.6.2-dev.61 (2026-10-12)
 
 
