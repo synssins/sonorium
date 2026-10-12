@@ -2,6 +2,32 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.54 (2026-10-12)
+
+### Bug Fixes
+
+- **notifications**: A Say whose fields are all empty speaks the title instead of failing
+  ([`a89b8e3`](https://github.com/synssins/sonorium/commit/a89b8e3cbbdd859c99c4e16abc4fc452ba6d30ee))
+
+- **notifications**: HA entity name for the rules list; channel_of regression test
+  ([`e7672e6`](https://github.com/synssins/sonorium/commit/e7672e6dce87281cebcfe6ff3580fb2444eff4c9))
+
+- **web**: No empty gap under When for a plugin's source
+  ([`d021702`](https://github.com/synssins/sonorium/commit/d021702adfce67c3cf7a8ddc578d9ff8ff4efdd0))
+
+### Features
+
+- **channels**: Announcements on/off per channel (default on)
+  ([`13485b6`](https://github.com/synssins/sonorium/commit/13485b66ff5f955215cba394158dd812a08d9da2))
+
+- **notifications**: Built-in sources: Home Assistant entity, webhook, MQTT topic
+  ([`5ae98cb`](https://github.com/synssins/sonorium/commit/5ae98cbb82e35d494784808a1a2417ea2aa16516))
+
+- **web**: Notifications dialog picks When: HA entity, webhook, MQTT topic, plugin source (awaits
+  board approval)
+  ([`e8bcb56`](https://github.com/synssins/sonorium/commit/e8bcb566660ffae553983748c262d896a9470b9c))
+
+
 ## v1.6.2-dev.50 (2026-10-12)
 
 ### Bug Fixes
