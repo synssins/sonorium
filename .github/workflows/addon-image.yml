@@ -2,15 +2,17 @@ name: Add-on Image
 
 # Builds the Home Assistant add-on (sonorium_addon/Dockerfile) for each
 # architecture and publishes it to ghcr.io/synssins/{arch}-addon-sonorium,
-# tagged with the add-on version. Called by "Add-on Version" after it releases.
+# tagged with the add-on version. config.yaml's `image:` line makes Home
+# Assistant pull these instead of building the Dockerfile on the device.
 #
-# Home Assistant only uses these when config.yaml has the `image:` line (it is
-# commented out there for now): it then pulls the image for the version in
-# config.yaml instead of building the Dockerfile on the device. Without the
-# line, nothing changes: HA builds it on the device as before.
+# Called by "Add-on Version" BEFORE the release commit is pushed: it checks out
+# the commit below the release (`ref`) and lays the release commit's files
+# over it (`release_artifact`), so the image is the new version. Every branch
+# gets :<version>; "Add-on Version" moves :latest / :dev / :branch-<name> only
+# after the release commit is pushed.
 #
-# main             -> :X.Y.Z, :latest
-# any other branch -> :X.Y.Z-dev.N, :dev
+# Run by hand, it rebuilds the version already on the branch and moves the
+# branch's tag too (main -> :latest, fixes -> :dev, others -> :branch-<name>).
 
 on:
   workflow_call:
@@ -18,6 +20,14 @@ on:
       branch:
         type: string
         required: true
+      ref:
+        description: 'Commit to check out (default: branch head)'
+        type: string
+        default: ''
+      release_artifact:
+        description: 'Artifact with files.tar, the release commit''s files'
+        type: string
+        default: ''
   workflow_dispatch:
 
 permissions:
@@ -32,6 +42,7 @@ jobs:
   build:
     name: Build and push (${{ matrix.arch }})
     strategy:
+      # Every arch is tried; any failure stops the version from being published
       fail-fast: false
       matrix:
         include:
@@ -47,31 +58,48 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - name: Checkout branch head
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          # Branch head includes the release commit from "Add-on Version"
-          ref: ${{ inputs.branch || github.ref_name }}
+          ref: ${{ inputs.ref || inputs.branch || github.ref_name }}
           persist-credentials: false
+
+      - name: Get the release commit's files
+        if: inputs.release_artifact != ''
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.release_artifact }}
+          path: ${{ runner.temp }}/release
+
+      - name: Apply the release commit's files
+        if: inputs.release_artifact != ''
+        run: |
+          tar -xvf "$RUNNER_TEMP/release/files.tar"
+          echo "Building version $(cat sonorium_addon/sonorium/version)"
 
       - name: Work out tags
         id: meta
         env:
           BRANCH: ${{ inputs.branch || github.ref_name }}
           ARCH: ${{ matrix.arch }}
+          PRE_RELEASE: ${{ inputs.release_artifact != '' }}
         run: |
           version=$(cat sonorium_addon/sonorium/version)
           image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${ARCH}-addon-sonorium
           base=$(awk -v a="$ARCH:" '$1 == a {print $2}' sonorium_addon/build.yaml)
           [ -n "$base" ] || { echo "no base image for $ARCH in build.yaml"; exit 1; }
-          if [ "$BRANCH" = "main" ]; then
-            tags="$image:$version,$image:latest"
-          elif [ "$BRANCH" = "fixes" ]; then
-            tags="$image:$version,$image:dev"
-          else
-            # Other branches get their own tag, so they never replace what :dev points at
-            slug=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
-            tags="$image:branch-$slug"
+          tags="$image:$version"
+          # The moving tag waits for the release commit, unless that is already pushed
+          if [ "$PRE_RELEASE" != "true" ]; then
+            if [ "$BRANCH" = "main" ]; then
+              tags="$tags,$image:latest"
+            elif [ "$BRANCH" = "fixes" ]; then
+              tags="$tags,$image:dev"
+            else
+              # Other branches get their own tag, so they never replace what :dev points at
+              slug=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+              tags="$tags,$image:branch-$slug"
+            fi
           fi
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
           echo "image=$image:$version" >> "$GITHUB_OUTPUT"

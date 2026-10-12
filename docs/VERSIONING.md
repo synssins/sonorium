@@ -18,6 +18,27 @@ push that touches `sonorium_addon/` gets a new one:
 3. It commits that as `github-actions[bot]`, tags it `addon-vX.Y.Z`, and updates
    `sonorium_addon/CHANGELOG.md` (shown in HA's update dialog).
 
+## Release order
+
+Home Assistant doesn't build the add-on on the device: `config.yaml` has
+`image: ghcr.io/synssins/{arch}-addon-sonorium`, so HA downloads the ready-made
+image for the version in `config.yaml`. That image has to exist before HA hears
+about the version, so the workflow runs in this order:
+
+1. **Make release commit**: the version commit and its `addon-v*` tag are made
+   on the runner. Nothing is pushed yet.
+2. **Add-on images**: the add-on is built from that commit for each
+   architecture (`amd64`, `aarch64`) and pushed as `:<version>`.
+3. **Push release commit**: runs only if every image was pushed. The version
+   commit and tag go to the branch, and HA can now offer the update. If a build
+   failed, the branch keeps its old version and nothing is offered.
+4. **Tags and the standalone image**: `:latest` (main), `:dev` (`fixes`) or
+   `:branch-<name>` (any other branch) is moved to the new version, and the
+   standalone image `ghcr.io/synssins/sonorium` is built as before.
+
+If someone pushes to the branch while the images are building, step 3 stops
+without pushing; that push has its own run, which makes the next version.
+
 | Branch | Versions | Use |
 |---|---|---|
 | `main` | `1.2.89`, `1.3.0`, `2.0.0` | Releases |
