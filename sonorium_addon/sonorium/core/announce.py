@@ -28,16 +28,25 @@ async def announce(overlay, tts, channels, *, text: Optional[str] = None, sound=
                    origin: str = "sonorium", label: str = "") -> dict:
     """
     Play the chime and/or speak the text on the channels. Returns
-    {"chime": play() result or None, "speech": play() result or None}.
+    {"chime": play() result or None, "speech": play() result or None,
+     "skipped": the channels with announcements off (nothing plays there)}.
     OverlayError when there's nothing to play; TTS errors pass through.
     """
     if overlay is None:
         raise OverlayError("Playing sounds isn't available yet")
     if not text and sound is None:
         raise OverlayError("An announcement needs text to speak or a sound to play")
+    sessions = getattr(overlay, "sessions", None)
+    off = [c for c in channels if sessions is not None and sessions.get(str(c)) is not None
+           and not getattr(sessions.get(str(c)), "announcements", True)]
+    result = {"chime": None, "speech": None, "skipped": off}
+    if off:
+        logger.info(f"Announcement ({origin}): announcements are off on {len(off)} channel(s), skipped")
+    channels = [c for c in channels if c not in off]
+    if not channels:
+        return result  # nothing to play: no speech is made either
     common = dict(volume=volume, duck=duck, policy="queue", priority=priority, start_stopped=start_stopped,
-                  override=override, origin=origin)
-    result = {"chime": None, "speech": None}
+                  override=override, origin=origin, announcement=True)
     if sound is not None:
         result["chime"] = await overlay.play(channels, sound, label=label or "Chime", **common)
     if text:

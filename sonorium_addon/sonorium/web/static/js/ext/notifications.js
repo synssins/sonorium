@@ -85,7 +85,7 @@
     function checks(name, options, chosen) {
         const on = new Set(chosen || []);
         return `<div class="ext-multi" data-nf="${name}">${options.map(o =>
-            `<label class="ext-opt"><input type="checkbox" value="${X.esc(o.value)}"${on.has(o.value) ? ' checked' : ''}><span>${X.esc(o.label)}</span></label>`).join('')}</div>`;
+            `<label class="ext-opt${o.off ? ' nf-off' : ''}"><input type="checkbox" value="${X.esc(o.value)}"${on.has(o.value) ? ' checked' : ''}><span>${X.esc(o.label)}${o.off ? ' <small>off</small>' : ''}</span></label>`).join('')}</div>`;
     }
 
     // The When choices: Sonorium's own (Home Assistant and MQTT only while connected), then plugins' sources
@@ -162,7 +162,8 @@
     function dialog(rule) {
         const r = rule || { id: '', name: '', when: null, sources: [], announce: { channels: [], sound: null, text: null, volume: 100, duck: true }, notifiers: [], enabled: true };
         const a = r.announce || { channels: [], sound: null, text: null, volume: 100, duck: true };
-        const channels = (typeof sessions !== 'undefined' ? sessions : []).map(s => ({ value: s.id, label: s.name }));
+        // A channel with Announcements off (channel editor) is greyed: nothing plays there while it's off
+        const channels = (typeof sessions !== 'undefined' ? sessions : []).map(s => ({ value: s.id, label: s.name, off: s.announcements === false }));
         const notifiers = data.notifiers.map(n => ({ value: n.id, label: n.title }));
         const duckDb = typeof a.duck === 'object' && a.duck ? a.duck.db : '';
         const kind = whenValue(r);
@@ -251,6 +252,15 @@
         }
     }
 
+    // What a Test did: "Done", the channels it skipped (Announcements off), or the error
+    function outcome(r) {
+        const failed = r.error || Object.values(r.sent || {}).find(v => v !== 'ok');
+        const skipped = (r.skipped || []).map(X.channelName).join(', ');
+        if (failed) return { bad: true, text: failed };
+        if (skipped && !r.announced && !Object.keys(r.sent || {}).length) return { bad: true, text: `Announcements off: ${skipped}` };
+        return { bad: false, text: skipped ? `Done · announcements off: ${skipped}` : 'Done' };
+    }
+
     async function search(q) {
         try {
             const r = await api('GET', `/notifications/ha-entities?q=${encodeURIComponent(q || '')}&limit=100`);
@@ -324,10 +334,9 @@
             out.className = '';
             out.textContent = '';
             try {
-                const r = await api('POST', '/notifications/try', rule);
-                const failed = r.error || Object.values(r.sent || {}).find(v => v !== 'ok');
-                out.className = failed ? 'bad' : 'ok';
-                out.textContent = failed || 'Done';
+                const o = outcome(await api('POST', '/notifications/try', rule));
+                out.className = o.bad ? 'bad' : 'ok';
+                out.textContent = o.text;
             } catch (e) {
                 out.className = 'bad';
                 out.textContent = e.message;
@@ -358,9 +367,8 @@
         async tryRule(id) {
             spClosePop();
             try {
-                const r = await api('POST', `/notifications/rules/${encodeURIComponent(id)}/test`);
-                const failed = r.error || Object.values(r.sent || {}).find(v => v !== 'ok');
-                Sonorium.toast(failed || 'Done', failed ? 'error' : 'success');
+                const o = outcome(await api('POST', `/notifications/rules/${encodeURIComponent(id)}/test`));
+                Sonorium.toast(o.text, o.bad ? 'error' : 'success');
             } catch (e) {
                 Sonorium.toast(e.message, 'error');
             }

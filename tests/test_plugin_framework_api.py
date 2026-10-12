@@ -479,6 +479,15 @@ def test_channel_of_takes_a_session_or_its_id(w):
     assert manager.channel_of("no-such-channel") is None
 
 
+def test_channel_announcements_off_is_kept_and_published(w):
+    manager, session = w.t.manager, w.t.session
+    assert manager.set_announcements(session.id, False) is True
+    assert session.announcements is False and session.recent[-1]["text"] == "Announcements off"
+    assert any(e.data.get("changes") == {"announcements": False} for e in w.bus.history(0, ["channel.changed"]))
+    assert manager.set_announcements("nope", False) is False
+    assert w.call(w.host.actions.list_channels)[0]["announcements"] is False
+
+
 def test_overview_says_what_is_available(w):
     overview = w.client.get("/api/notifications").json()
     assert overview["ha"] is False and overview["mqtt"] is False and overview["tts"] is False

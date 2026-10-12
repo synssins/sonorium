@@ -332,3 +332,44 @@ def test_without_text_to_speech_only_the_chime_plays(tmp_path):
     rule["announce"]["sound"] = None
     result = asyncio.run(host.notifications.fire(rule, ns().message_for_rule(rule, {}, "webhook")))
     assert not result["announced"] and "Home Assistant" in result["error"]
+
+
+# --- Announcements off on a channel (a nap) ------------------------------------------------
+
+class SessionsWith:
+    def __init__(self, **announcements):
+        self.s = {k: SimpleNamespace(id=k, announcements=v) for k, v in announcements.items()}
+
+    def get(self, sid):
+        return self.s.get(sid)
+
+
+def test_rule_skips_channels_with_announcements_off(tmp_path):
+    host = m.host.PluginHost(tmp_path, bus=m.events.EventBus())
+    host.overlay = FakeOverlay()
+    host.overlay.sessions = SessionsWith(kitchen=True, kids=False)
+    said = []
+
+    async def speak(message, **options):
+        said.append(message)
+        return b"ID3audio"
+    host.tts.register("t", "piper", "Piper", speak)
+    rule = {"id": "r", "name": "Dinner", "announce": {"channels": ["kitchen", "kids"], "text": "Dinner"}}
+    result = asyncio.run(host.notifications.fire(rule, ns().message_for_rule(rule, {}, "webhook")))
+    assert result["announced"] is True and result["skipped"] == ["kids"]
+    assert [p[0] for p in host.overlay.played] == [["kitchen"]]
+    assert host.overlay.played[0][2]["announcement"] is True
+    # Every channel off: nothing plays and nothing is spoken
+    rule["announce"]["channels"] = ["kids"]
+    result = asyncio.run(host.notifications.fire(rule, ns().message_for_rule(rule, {}, "webhook")))
+    assert result["announced"] is False and result["skipped"] == ["kids"] and said == ["Dinner"]
+
+
+def test_channel_announcements_setting_is_saved():
+    with addon_modules("sonorium.core.state") as mods:
+        Session = mods.state.Session
+        s = Session(id="k", name="Kids")
+        assert s.announcements is True
+        s.announcements = False
+        assert Session.from_dict(s.to_dict()).announcements is False
+        assert Session.from_dict({"id": "o", "name": "Old"}).announcements is True  # state files from before

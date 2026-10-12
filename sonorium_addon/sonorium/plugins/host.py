@@ -144,7 +144,7 @@ class PluginHost:
         ha_up = bool(ha is not None and ha.available)
         return any(p["id"] != "homeassistant" or ha_up for p in self.tts.providers())
 
-    async def _announce_notification(self, spec: dict, message: dict) -> None:
+    async def _announce_notification(self, spec: dict, message: dict) -> Optional[dict]:
         from sonorium.core.announce import announce
         from sonorium.core.overlay import OverlayError
         fields = {"title": message.get("title", ""), "body": message.get("body", ""),
@@ -154,14 +154,19 @@ class PluginHost:
             text = render(text, fields)
         elif not spec.get("sound"):
             text = fields["title"]
+        sessions = getattr(self.overlay, "sessions", None)
+        if sessions is not None and not any(getattr(sessions.get(c), "announcements", True) is not False
+                                            for c in spec["channels"]):
+            logger.info("Notification: announcements are off on every channel of the rule")
+            return {"chime": None, "speech": None, "skipped": list(spec["channels"])}
         if text and not self.tts_ready():
             if not spec.get("sound"):
                 raise OverlayError("Say needs Home Assistant (text to speech)")
             logger.info("Notification: no text to speech, only the chime plays")
             text = None
-        await announce(self.overlay, self.tts, spec["channels"], text=text or None, sound=spec.get("sound"),
-                       volume=spec.get("volume", 100), duck=spec.get("duck", True), origin="notification",
-                       label=str(fields["title"])[:80])
+        return await announce(self.overlay, self.tts, spec["channels"], text=text or None, sound=spec.get("sound"),
+                              volume=spec.get("volume", 100), duck=spec.get("duck", True), origin="notification",
+                              label=str(fields["title"])[:80])
 
     def actions_for(self, plugin_id: str) -> Actions:
         return self.actions.for_plugin(plugin_id)

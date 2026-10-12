@@ -63,18 +63,19 @@ class AudioV1:
     async def play(self, channels, source=None, *, samples=None, sample_rate: Optional[int] = None,
                    volume: float = 100, duck=True, policy: str = "queue", priority: int = 0,
                    max_seconds: Optional[float] = None, start_stopped: bool = False, override: bool = False,
-                   label: str = "") -> dict:
+                   label: str = "", announcement: bool = False) -> dict:
         """
         Play a sound over channels: source is a file path, an http(s) URL or the
         bytes of an audio file; or samples (numpy, -1..1 or int16) with
         sample_rate. duck: True (the Advanced defaults), False, or {"db",
         "attack", "release"}. policy: now, queue, replace. override: skip
-        zone gates (admin-level: announcements, alarms).
+        zone gates (admin-level: announcements, alarms). announcement: it is
+        one, so channels with announcements off skip it.
         """
         return await _call(self._svc().play(
             channels, source, samples=samples, sample_rate=sample_rate, volume=volume, duck=duck, policy=policy,
             priority=priority, max_seconds=max_seconds, start_stopped=start_stopped, override=override,
-            label=label, origin=f"plugin:{self._id}"))
+            label=label, origin=f"plugin:{self._id}", announcement=bool(announcement)))
 
     async def cancel(self, sound_id: str, channel: Optional[str] = None) -> bool:
         return self._svc().cancel(sound_id, channel)

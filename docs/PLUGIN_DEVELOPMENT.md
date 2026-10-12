@@ -805,6 +805,7 @@ await self.audio.play(["kitchen", "office"], "https://example.com/ghost.mp3",
 | `start_stopped` | A stopped channel is started for the sound: its stream runs silent, its speakers are started, the sound plays once they are connected (at most Advanced › Wait for speakers, then Lead), and after it (and Tail) the speakers stop again. The channel never shows as playing. Default false: a stopped channel is skipped |
 | `override` | Skip gates (zones, quiet hours): admin-level. For announcements and alarms |
 | `label` | A name for it in events and lists |
+| `announcement` | It is an announcement: a channel with Announcements off skips it (`skipped`, "Announcements are off") |
 
 It returns `{"sound_id", "length", "capped", "channels": {id: {"state", "message"}}}`; a
 channel's state is `playing`, `queued`, `starting` or `skipped` (with the reason). A channel
@@ -820,6 +821,13 @@ await self.audio.announce(["kids_room"], "Dinner is ready", sound="https://.../c
 ```
 
 A chime and/or the text spoken, ducking, admin-level (override), starting stopped channels.
+
+Each channel has an **Announcements** setting (on by default; the channel's
+`announcements`, `PUT /api/sessions/{id}/announcements {"on": false}`, and a
+`switch.sonorium_<channel>_announcements` in Home Assistant, e.g. for a nap). With it off,
+no announcement plays there, from any path: `announce()` leaves the channel out and returns
+it in `"skipped"` (nothing is spoken when every channel is off), and a rule's Test answers
+with the channels it skipped.
 
 **Text to speech.** A provider turns text into audio; the first one registered is the
 default. The built-in Announcements plugin provides Home Assistant's (`homeassistant`):

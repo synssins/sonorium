@@ -355,13 +355,15 @@ class Notifications:
     async def fire(self, rule: dict, message: dict) -> dict:
         """
         Do what a rule does with a message: announce it on its channels, then
-        send it to its notifiers. Returns {"announced", "error", "sent"}.
+        send it to its notifiers. Returns {"announced", "error", "sent", "skipped": the
+        channels with announcements off}.
         """
-        result = {"announced": False, "error": "", "sent": {}}
+        result = {"announced": False, "error": "", "sent": {}, "skipped": []}
         if rule.get("announce") and self.announcer is not None:
             try:
-                await self.announcer(rule["announce"], message)
-                result["announced"] = True
+                played = await self.announcer(rule["announce"], message)
+                result["skipped"] = list((played or {}).get("skipped") or [])
+                result["announced"] = len(result["skipped"]) < len(rule["announce"]["channels"])
             except Exception as e:
                 result["error"] = str(getattr(e, "message", None) or e)
                 logger.warning(f"Announcing a notification failed: {result['error']}")

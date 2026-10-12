@@ -53,6 +53,7 @@ class CreateSessionRequest(BaseModel):
     adhoc_selection: Optional[SpeakerSelectionModel] = None
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
+    announcements: Optional[bool] = None  # announcements play on it (default on)
 
 
 class UpdateSessionRequest(BaseModel):
@@ -63,6 +64,7 @@ class UpdateSessionRequest(BaseModel):
     adhoc_selection: Optional[SpeakerSelectionModel] = None
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
+    announcements: Optional[bool] = None  # announcements play on this channel
 
 
 class SessionResponse(BaseModel):
@@ -85,6 +87,7 @@ class SessionResponse(BaseModel):
     sequence: Optional[dict] = None  # Sequence status: name, step, current preset, next change
     playlist: Optional[dict] = None  # Playlist status: name, entry, theme, next change
     speakers_muted: bool = False  # the speakers' stream is silenced
+    announcements: bool = True  # announcements play on it (off: none plays, from anywhere)
     listening: bool = False  # a browser listens (its mix runs even with the speakers stopped)
     outputs: list[dict] = Field(default_factory=list)  # devices the app reports playing it (core/outputs.py)
     recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
@@ -291,6 +294,7 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         sequence=playback.get("sequence"),
         playlist=playback.get("playlist"),
         speakers_muted=session.speakers_muted,
+        announcements=getattr(session, "announcements", True),
         listening=session_manager.is_listened(session),
         outputs=_outputs_of(session, session_manager),
         recent=list(reversed(session.recent)),
@@ -484,6 +488,9 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e).strip("'\""))
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        if request.announcements is False:
+            session.announcements = False
+            session_manager.state.save()
 
         if mqtt_manager:
             try:
@@ -532,6 +539,8 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        if request.announcements is not None and request.announcements != session.announcements:
+            session_manager.set_announcements(session_id, request.announcements)
 
         # Apply live speaker changes if session is playing
         if added_speakers or removed_speakers:
@@ -639,6 +648,17 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         return {"volume": request.volume}
     
+    @router.put("/sessions/{session_id}/announcements")
+    async def set_session_announcements(session_id: str, request: dict) -> dict:
+        """{"on": true|false}: whether announcements play on the channel (rules, Home Assistant, MQTT, API, plugins)."""
+        on = request.get("on")
+        if not isinstance(on, bool):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="'on' must be true or false")
+        if not session_manager.set_announcements(session_id, on):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        await _sync_mqtt(session_manager.get(session_id))  # the Announcements switch and Recent changes
+        return {"announcements": on}
+
     @router.put("/sessions/{session_id}/speakers-muted")
     async def mute_session_speakers(session_id: str, request: dict) -> dict:
         """Silence (or not) what the speakers get; a browser listening keeps hearing it."""

@@ -98,6 +98,7 @@ class Actions:
             "volume": session.volume,
             "is_playing": bool(session.is_playing),
             "speakers_muted": bool(session.speakers_muted),
+            "announcements": bool(getattr(session, "announcements", True)),
             "speakers": list(speakers),
             "speaker_group_id": session.speaker_group_id,
             "entity_slug": session.get_entity_slug() if hasattr(session, "get_entity_slug") else None,
