@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.63 (2026-10-12)
+
+### Bug Fixes
+
+- Read text files as UTF-8 everywhere (themes failed on Windows)
+  ([`ce8e21c`](https://github.com/synssins/sonorium/commit/ce8e21cab78c19615bcd0b0153c8a011cd3352b1))
+
+
 ## v1.6.2-dev.62 (2026-10-12)
 
 ### Features
