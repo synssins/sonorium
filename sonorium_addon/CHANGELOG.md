@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v1.7.1-dev.11 (2026-10-12)
+
+### Bug Fixes
+
+- **windows**: The installer follows Windows' dark mode; screenshot script clicks command links
+  [screens]
+  ([`f7e325f`](https://github.com/synssins/sonorium/commit/f7e325f61bcb0ef15f1129092d2c940f963d6b57))
+
+### Chores
+
+- Retire the old Windows app
+  ([`9c95dc6`](https://github.com/synssins/sonorium/commit/9c95dc609ff73b8cd7b4fa29046956adebce1a8b))
+
+### Continuous Integration
+
+- **windows**: Documentation screenshots on a runner [screens]
+  ([`5c849ec`](https://github.com/synssins/sonorium/commit/5c849ec43b4b7db96bab27052399ee7775d467a6))
+
+### Documentation
+
+- **versioning**: The old Windows app's v* tags are gone
+  ([`b18a22e`](https://github.com/synssins/sonorium/commit/b18a22e1151f325270e4fc31f606a97085dc4c6d))
+
+
 ## v1.7.1-dev.10 (2026-10-12)
 
 ### Bug Fixes
