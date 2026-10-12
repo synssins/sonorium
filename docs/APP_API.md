@@ -688,6 +688,7 @@ Errors follow section 11.1. Shapes were checked live unless marked
   "sequence": null,
   "playlist": null,
   "speakers_muted": false,
+  "announcements": true,
   "listening": true,
   "outputs": [],
   "recent": [{"at": "2026-10-11T21:03:18.046860+00:00", "text": "Speakers unmuted"}],
@@ -712,6 +713,7 @@ Errors follow section 11.1. Shapes were checked live unless marked
 | `preset_choice` | string or null | What the preset menu shows: `"seq:<id>"` while a sequence is set, else `preset_id` |
 | `sequence`, `playlist` | object or null | Status (below) |
 | `speakers_muted` | bool | The speakers' stream is silenced (listeners on the phone still hear it) |
+| `announcements` | bool | Announcements play on the channel (off: none plays, from any rule, Home Assistant, MQTT or plugin) |
 | `listening` | bool | Someone listens with `?local=1` (the web UI's Listen here, or the phone) |
 | `outputs` | output[] | Devices the app reports playing the channel (G2, section 9.5); `[]` when none |
 | `recent` | `[{at, text}]` | Latest changes, newest first |
@@ -744,6 +746,7 @@ Status objects (PLAYBACK.md):
 | `POST /sessions/stop-all` | ch.play | none | `{"stopped": 2}` | |
 | `POST /sessions/{id}/volume` | ch.change | `{"volume": 40}` (0-100) | `{"volume": 40}` | 404, 422 |
 | `PUT /sessions/{id}/speakers-muted` | ch.change or sp.mute | `{"muted": true}` | `{"speakers_muted": true}` | 404 |
+| `PUT /sessions/{id}/announcements` | ch.change | `{"on": false}` | `{"announcements": false}` | 404, 400 |
 | `POST /sessions/{id}/listen` | ch.play | none, or `{"hold_seconds": 0-300}` (or `?hold_seconds=`) | `{"channel_id": 1, "stream_path": "/stream/channel1", "hold_seconds": 15}` | 404, 400 `"No theme selected"`/`"Theme not found"`/`"hold_seconds must be between 0 and 300"`, 409 `"No free channel"` |
 | `DELETE /sessions/{id}/listen` | ch.play | none | `{"status": "ok"}` | 404 |
 | `GET /sessions/{id}/outputs` | ch.view | | `{"outputs": [output]}` | 404 |

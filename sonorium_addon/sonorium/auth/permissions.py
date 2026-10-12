@@ -211,6 +211,7 @@ POST    /api/sessions/{session_id}/pause                ch.play
 POST    /api/sessions/{session_id}/stop                 ch.play
 POST    /api/sessions/{session_id}/volume               ch.change
 PUT     /api/sessions/{session_id}/speakers-muted       ch.change|sp.mute
+PUT     /api/sessions/{session_id}/announcements        ch.change
 POST    /api/sessions/{session_id}/listen               ch.play
 DELETE  /api/sessions/{session_id}/listen               ch.play
 POST    /api/sessions/stop-all                          ch.play

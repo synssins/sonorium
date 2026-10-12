@@ -656,7 +656,8 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
     async def play_sound(request: Request):
         """
         {"channels", "url", "volume", "duck", "policy", "priority", "max_seconds",
-         "start_stopped", "override", "label"}: a sound over the channels' mix.
+         "start_stopped", "override", "label", "announcement"}: a sound over the channels' mix
+        ("announcement": true skips channels with announcements off).
         """
         body = await _json(request)
         url = body.get("url")
@@ -667,7 +668,7 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             _channels(body.get("channels")), url, volume=_number(body, "volume", 100), duck=body.get("duck", True),
             policy=body.get("policy", "queue"), priority=priority, max_seconds=_number(body, "max_seconds", None),
             start_stopped=bool(body.get("start_stopped", False)), override=bool(body.get("override", False)),
-            label=str(body.get("label") or "")[:80], origin="api"))
+            label=str(body.get("label") or "")[:80], origin="api", announcement=bool(body.get("announcement", False))))
 
     @router.delete("/sounds/{sound_id}")
     async def cancel_sound(sound_id: str):

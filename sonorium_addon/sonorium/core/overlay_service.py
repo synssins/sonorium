@@ -46,6 +46,8 @@ def _now() -> float:
     return time.monotonic()
 
 
+ANNOUNCEMENTS_OFF = "Announcements are off"
+
 class OverlayService:
     def __init__(self, session_manager, publish: Optional[Callable] = None, rate: int = 44100):
         self.sessions = session_manager
@@ -129,12 +131,13 @@ class OverlayService:
     async def play(self, channels, source=None, *, samples=None, sample_rate: Optional[int] = None,
                    volume: float = 100, duck=True, policy: str = "queue", priority: int = 0,
                    max_seconds: Optional[float] = None, start_stopped: bool = False, override: bool = False,
-                   label: str = "", origin: str = "sonorium") -> dict:
+                   label: str = "", origin: str = "sonorium", announcement: bool = False) -> dict:
         """
         Play a sound on channels (session ids). Returns {"sound_id", "length",
         "capped", "channels": {id: {"state", "message"}}}; state is playing,
         queued, starting (a stopped channel being started for it), or skipped
-        (with the reason). OverlayError / decode.DecodeError for a bad request.
+        (with the reason). An announcement skips channels with announcements
+        off (ANNOUNCEMENTS_OFF). OverlayError / decode.DecodeError for a bad request.
         """
         if isinstance(channels, str):
             channels = [channels]
@@ -151,7 +154,7 @@ class OverlayService:
                                                  max_seconds=max_seconds)
         sound_id = "s_" + secrets.token_hex(6)
         request = {"sound_id": sound_id, "label": label, "origin": origin, "override": override,
-                   "priority": priority, "start_stopped": start_stopped}
+                   "priority": priority, "start_stopped": start_stopped, "announcement": bool(announcement)}
         results = {}
         for channel_id in dict.fromkeys(str(c) for c in channels):
             results[channel_id] = self._play_on(channel_id, pcm, capped, volume / 100.0, duck, policy, priority,
@@ -166,6 +169,9 @@ class OverlayService:
         session = sessions.get(channel_id) if sessions is not None else None
         if session is None:
             return {"state": "skipped", "message": "No such channel"}
+        if request.get("announcement") and not getattr(session, "announcements", True):
+            logger.info(f"  '{session.name}': announcements are off, skipped")
+            return {"state": "skipped", "message": ANNOUNCEMENTS_OFF}
         if not override:
             reason = self._refused(session, request)
             if reason:

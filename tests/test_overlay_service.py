@@ -174,6 +174,19 @@ def test_muted_stopped_channel_is_not_woken_gates_and_override():
     asyncio.run(main())
 
 
+def test_announcements_off_skips_announcements_only():
+    async def main():
+        svc, sessions, events = service()
+        sessions.add("kids", playing=True).announcements = False
+        result = await svc.play(["kids"], samples=beep(0.1), sample_rate=RATE, override=True, announcement=True)
+        assert result["channels"]["kids"] == {"state": "skipped", "message": m.overlay_service.ANNOUNCEMENTS_OFF}
+        result = await svc.play(["kids"], samples=beep(0.1), sample_rate=RATE)  # a sound that isn't one plays
+        assert result["channels"]["kids"]["state"] == "playing"
+        await svc.wait_idle()
+        sessions.channels["kids"].stop()
+    asyncio.run(main())
+
+
 def test_max_length_caps_and_per_call_lowers_it():
     async def main():
         svc, sessions, events = service()

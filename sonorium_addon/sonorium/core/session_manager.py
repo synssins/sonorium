@@ -348,6 +348,18 @@ class SessionManager:
             logger.info(f"  Preset '{preset_id}' saved: {count} playing channel(s) follow it")
         return count
 
+    def set_announcements(self, session_id: str, on: bool) -> bool:
+        """Let announcements play on the channel, or not (e.g. a nap). False: no such channel."""
+        session = self.state.sessions.get(session_id)
+        if session is None:
+            return False
+        self.guard("mute", session)
+        session.announcements = bool(on)
+        self.note(session, "Announcements on" if on else "Announcements off")
+        self.publish("channel.changed", session, changes={"announcements": session.announcements})
+        self.state.save()
+        return True
+
     def set_speakers_muted(self, session_id: str, muted: bool) -> bool:
         """Silence (or not) the speakers' stream; browsers listening keep hearing it. False: no such channel."""
         session = self.state.sessions.get(session_id)

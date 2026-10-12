@@ -408,6 +408,15 @@ def test_rules_are_checked(w):
     assert c.delete("/api/notifications/rules/none").status_code == 404
 
 
+def test_channel_announcements_off_is_kept_and_published(w):
+    manager, session = w.t.manager, w.t.session
+    assert manager.set_announcements(session.id, False) is True
+    assert session.announcements is False and session.recent[-1]["text"] == "Announcements off"
+    assert any(e.data.get("changes") == {"announcements": False} for e in w.bus.history(0, ["channel.changed"]))
+    assert manager.set_announcements("nope", False) is False
+    assert w.call(w.host.actions.list_channels)[0]["announcements"] is False
+
+
 def test_disabling_a_plugin_removes_its_notifiers_and_subscriptions(w):
     owners = {s.owner for s in w.bus.subscriptions()}
     assert "trigger_play_channel" in owners

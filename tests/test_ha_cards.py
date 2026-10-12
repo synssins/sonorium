@@ -78,6 +78,28 @@ def test_speakers_muted_switch_and_status_attributes():
     assert [e["text"] for e in recent] == ["Speakers muted", "Played"]  # newest first
 
 
+def test_announcements_switch_per_channel():
+    session = m.state.Session(id="abc", name="Office", announcements=False)
+    publish = AsyncMock()
+    entities = make_entities(session, publish)
+    run(entities.publish_discovery())
+    run(entities.update_state())
+    sent = published(publish)
+    switch = json.loads(sent["homeassistant/switch/sonorium_office_announcements/config"])
+    assert switch["command_topic"] == "sonorium/office/announcements/set"
+    assert switch["default_entity_id"] == "switch.sonorium_office_announcements"
+    assert sent["sonorium/office/announcements/state"] == "OFF"
+    # Removing the channel removes it; Home Assistant turning it on calls the session manager
+    publish = AsyncMock()
+    run(make_entities(session, publish).remove_discovery())
+    assert published(publish)["homeassistant/switch/sonorium_office_announcements/config"] == ""
+    manager = make_manager([session])
+    manager._session_entities["abc"] = make_entities(session, AsyncMock())
+    manager.update_session_state = AsyncMock()
+    run(manager.handle_command("sonorium/office/announcements/set", "ON"))
+    manager.session_manager.set_announcements.assert_called_once_with("abc", True)
+
+
 def test_removing_a_channel_removes_its_speakers_muted_switch():
     publish = AsyncMock()
     run(make_entities(m.state.Session(id="abc", name="Office"), publish).remove_discovery())

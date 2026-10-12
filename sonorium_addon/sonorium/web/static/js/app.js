@@ -1178,6 +1178,7 @@ function openNewSessionModal() {
     document.getElementById('session-name').value = '';
     document.getElementById('session-volume').value = 60;
     document.getElementById('volume-display').textContent = '60%';
+    document.getElementById('session-announcements').checked = true;
 
     selectedTheme = null;
     selectedSpeakerGroupId = null;
@@ -1210,6 +1211,7 @@ function editSession(sessionId) {
     document.getElementById('session-name').value = session.name;
     document.getElementById('session-volume').value = session.volume;
     document.getElementById('volume-display').textContent = `${session.volume}%`;
+    document.getElementById('session-announcements').checked = session.announcements !== false;
 
     selectedTheme = session.theme_id;
     selectedSpeakerGroupId = session.speaker_group_id || null;
@@ -1275,7 +1277,7 @@ async function saveSession() {
         return;
     }
 
-    const data = { volume: volume };
+    const data = { volume: volume, announcements: document.getElementById('session-announcements').checked };
     if (!playlistMode) {
         data.theme_id = selectedTheme;
         // Only a preset picked here: saving must not restart a running sequence
