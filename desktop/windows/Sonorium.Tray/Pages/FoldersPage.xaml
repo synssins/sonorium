@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Sonorium.Tray.Pages.FoldersPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:t="using:Sonorium.Tray">
+    <Page.Resources>
+        <Style x:Key="PathBox" TargetType="TextBox">
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
+            <Setter Property="FontSize" Value="13" />
+        </Style>
+    </Page.Resources>
+    <ScrollViewer>
+        <StackPanel>
+            <TextBlock Text="Folders" Style="{StaticResource TitleTextBlockStyle}" Margin="0,4,0,18" />
+            <t:SettingCard>
+                <t:SettingRow Glyph="&#xE8B7;" Title="Themes" Description="Where your themes and their sound files are kept." Stacked="True">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBox x:Name="Themes" Style="{StaticResource PathBox}" AutomationProperties.Name="Themes" />
+                        <Button Grid.Column="1" Content="Browse…" Tag="themes" Click="Browse_Click" />
+                        <Button Grid.Column="2" Content="Open" Tag="themes" Click="Open_Click" />
+                    </Grid>
+                </t:SettingRow>
+                <t:SettingRow Glyph="&#xE8B7;" Title="Settings and data" Description="Channels, playlists, speakers and plugins." Stacked="True">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBox x:Name="Data" Style="{StaticResource PathBox}" AutomationProperties.Name="Settings and data" />
+                        <Button Grid.Column="1" Content="Browse…" Tag="data" Click="Browse_Click" />
+                        <Button Grid.Column="2" Content="Open" Tag="data" Click="Open_Click" />
+                    </Grid>
+                </t:SettingRow>
+                <t:SettingRow Glyph="&#xE8A5;" Title="Logs" Description="Kept for 7 days." Stacked="True">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBox x:Name="Logs" Style="{StaticResource PathBox}" AutomationProperties.Name="Logs" />
+                        <Button Grid.Column="1" Content="Open" Tag="logs" Click="Open_Click" />
+                    </Grid>
+                </t:SettingRow>
+                <t:SettingRow Glyph="&#xE8B7;" Title="Program" Description="Where Sonorium is installed." Stacked="True">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBox x:Name="Program" Style="{StaticResource PathBox}" IsEnabled="False" AutomationProperties.Name="Program" />
+                        <Button Grid.Column="1" Content="Open" Tag="program" Click="Open_Click" />
+                    </Grid>
+                </t:SettingRow>
+            </t:SettingCard>
+            <TextBlock Text="Moving a folder" FontWeight="SemiBold" Margin="0,18,0,8" />
+            <t:SettingCard>
+                <t:SettingRow Glyph="&#xE946;" Title="Sonorium stops, moves the folder's contents to the new place, and starts again." />
+            </t:SettingCard>
+            <InfoBar x:Name="Problem" Severity="Error" IsOpen="False" Margin="0,8,0,0" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

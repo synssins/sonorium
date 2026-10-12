@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The tray console: Sonorium.exe. WinUI 3, unpackaged and self-contained (needs no runtime installed). -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>Sonorium</AssemblyName>
+    <RootNamespace>Sonorium.Tray</RootNamespace>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\Sonorium.ico</ApplicationIcon>
+    <!-- Program.cs: one instance per sign-in -->
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="Assets\**" CopyToOutputDirectory="PreserveNewest" />
+    <Page Remove="$(XamlExclude)" Condition="'$(XamlExclude)' != ''" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sonorium.Desktop.Core\Sonorium.Desktop.Core.csproj" />
+  </ItemGroup>
+</Project>

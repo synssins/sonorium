@@ -14,7 +14,8 @@ public sealed class Supervisor : IDisposable
     static readonly TimeSpan MaxBackoff = TimeSpan.FromSeconds(60);
     static readonly TimeSpan StableRun = TimeSpan.FromMinutes(5);
 
-    readonly DesktopSettings settings;
+    readonly RunMode mode;
+    DesktopSettings settings;
     readonly LogWriter log;
     readonly JobObject job = new();
     readonly CancellationTokenSource stop = new();
@@ -23,9 +24,10 @@ public sealed class Supervisor : IDisposable
     bool restartRequested;
     Thread? thread;
 
-    public Supervisor(DesktopSettings settings, LogWriter log)
+    public Supervisor(RunMode mode, LogWriter log)
     {
-        this.settings = settings;
+        this.mode = mode;
+        settings = DesktopSettings.Load(mode);
         this.log = log;
     }
 
@@ -105,6 +107,8 @@ public sealed class Supervisor : IDisposable
 
     int RunOnce()
     {
+        // The console may have changed the port, folders or channels since the last start
+        settings = DesktopSettings.Load(mode);
         foreach (var dir in new[] { settings.Data, settings.Themes, settings.Logs })
             Directory.CreateDirectory(dir);
 
@@ -159,7 +163,6 @@ public sealed class Supervisor : IDisposable
         ["SONORIUM__PATH_AUDIO"] = s.Themes,
         ["SONORIUM_BUNDLED_THEMES"] = Paths.BundledThemes,
         ["SONORIUM_HTTP_PORT"] = s.Port.ToString(),
-        ["SONORIUM__STREAM_PORT"] = s.Port.ToString(),
         ["SONORIUM_HTTPS_PORT"] = s.HttpsPort.ToString(),
         ["SONORIUM__MAX_CHANNELS"] = s.MaxChannels.ToString(),
         ["SONORIUM_CONSOLE_TOKEN_FILE"] = s.ConsoleTokenFile,

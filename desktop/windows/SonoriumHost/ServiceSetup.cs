@@ -91,14 +91,11 @@ public static class ServiceSetup
         foreach (var dir in new[] { settings.Data, settings.Themes, settings.Logs })
         {
             Directory.CreateDirectory(dir);
-            if (!IsUnder(dir, root)) GrantService(dir);
+            if (!IsUnder(dir, root)) FolderAccess.GrantService(dir);
         }
         if (!File.Exists(DesktopSettings.FilePath(RunMode.Service))) settings.Save();
     }
 
-    /// <summary>Lets the service account read and change a folder outside ProgramData\Sonorium (e.g. a themes folder the user chose).</summary>
-    public static void GrantService(string dir) =>
-        Run("icacls.exe", dir, "/grant", $"{Paths.ServiceAccount}:(OI)(CI)M");
 
     static bool IsUnder(string path, string root) =>
         Path.GetFullPath(path).TrimEnd('\\').StartsWith(Path.GetFullPath(root).TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase);
