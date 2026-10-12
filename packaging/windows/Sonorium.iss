@@ -48,6 +48,9 @@ SolidCompression=yes
 WizardStyle=modern dynamic
 WizardSmallImageFile=wizard-small.png,wizard-small@2x.png
 WizardImageFile=wizard-large.png,wizard-large@2x.png
+; The dynamic style has separate pictures for dark mode
+WizardSmallImageFileDynamicDark=wizard-small.png,wizard-small@2x.png
+WizardImageFileDynamicDark=wizard-large.png,wizard-large@2x.png
 CloseApplications=yes
 RestartApplications=no
 
