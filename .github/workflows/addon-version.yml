@@ -172,6 +172,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ needs.version.outputs.commit }}
+          # The release commit and its parent: git needs the parent (the
+          # branch head) to see that the push is a fast-forward
+          fetch-depth: 2
 
       - name: Move the branch to the release commit
         env:
