@@ -712,27 +712,40 @@ whose speakers are muted plays the sound to browsers only, and isn't started for
 `await self.audio.cancel(sound_id)` stops it; `await self.audio.sounds()` lists what plays.
 With nothing playing over a channel, the mixer skips this step.
 
-**Announcements** take one path, whoever sends them (a notification rule, Home Assistant,
-MQTT, `POST /api/announce`, a plugin):
+**Announcements** take one path, whoever sends them (Home Assistant, MQTT,
+`POST /api/announce`, a plugin):
 
 ```python
-await self.audio.announce(["kids_room"], "Dinner is ready", sound="https://.../chime.mp3")
+result = await self.audio.announce("Kids Room", "Dinner is ready", sound="https://.../chime.mp3")
 ```
 
 A chime and/or the text spoken, ducking, admin-level (override), starting stopped channels.
+`channels` takes ids, names (not case-sensitive), a list, or `"all"`; `duck` takes `True`,
+`False`, a number of dB, or `{"db", "attack", "release"}`. It returns `{"played", "skipped",
+"channels", "chime", "speech", "notice"}`: `played` the channel ids it plays on, `skipped`
+those with Announcements off, `notice` why the text wasn't spoken when only the chime played
+(no text to speech). Text alone with no text to speech raises `ActionError` (`unavailable`).
+
+From outside, `POST /api/announce` (the ability **Make announcements**, `an.send`) takes
+`{"channels", "text", "url", "volume", "duck", "provider", "language", "start_stopped"}` and
+answers the same. A key limited to some channels may only announce on those (`"all"` means
+its channels; another channel answers 403). An unknown channel answers 404; text with no
+text to speech and no `url`, 503.
 
 Each channel has an **Announcements** setting (on by default; the channel's
 `announcements`, `PUT /api/sessions/{id}/announcements {"on": false}`, and a
 `switch.sonorium_<channel>_announcements` in Home Assistant, e.g. for a nap). With it off,
 no announcement plays there, from any path: `announce()` leaves the channel out and returns
-it in `"skipped"` (nothing is spoken when every channel is off), and a rule's Test answers
-with the channels it skipped.
+it in `"skipped"` (nothing is spoken when every channel is off). The setting is the
+channel's own, so it holds for any channel, listed or not.
 
 **Text to speech.** A provider turns text into audio; the first one registered is the
-default. The built-in Announcements plugin provides Home Assistant's (`homeassistant`):
+default. The built-in Announcements plugin provides Home Assistant's (`homeassistant`), ready
+while Home Assistant is linked. `ready` (optional) tells announcements whether the provider
+can speak now; when it can't, only the chime plays:
 
 ```python
-self.audio.register_tts("piper", "Piper (local)", self.speak)
+self.audio.register_tts("piper", "Piper (local)", self.speak, ready=lambda: True)
 
 async def speak(self, message, language=None, **options) -> bytes:
     return wav_bytes
@@ -925,7 +938,7 @@ if self.homeassistant.available:
 connection (its TTS proxy), so Home Assistant's own external URL doesn't matter.
 `tts_engines()` lists the `tts.*` entities.
 
-### Announcements from Home Assistant (built-in plugin)
+### Announcements from Home Assistant and MQTT (built-in plugin)
 
 The Announcements plugin (on by default) gives each channel a notify entity over MQTT
 ("Kitchen Announce"). In Home Assistant:
@@ -940,13 +953,15 @@ data:
 
 The message is spoken on that channel with Home Assistant's text to speech: the channel
 ducks, the message plays, the channel comes back. A stopped channel is started for it and
-stopped again. An MQTT message to `sonorium/announce/set`
+stopped again. A message that is a JSON object takes the fields below (e.g. a chime `url`).
+An MQTT message to `sonorium/announce/set`
 
 ```json
-{"channels": ["<channel id>"], "text": "Someone is at the door", "url": "https://.../chime.mp3", "volume": 80}
+{"channels": ["Kitchen", "<channel id>"], "text": "Someone is at the door", "url": "https://.../chime.mp3", "volume": 80, "duck": 18}
 ```
 
-does the same for any channels (`"all"` for every one), with an optional chime first. Home
+does the same for any channels (`"all"` for every one), with an optional chime first; one
+without `channels` is ignored. Home
 Assistant and MQTT act as an admin: an announcement overrides a zone's owner and quiet
 hours. The plugin's settings pick the text to speech engine, the language, the volume, and
 whether stopped channels are started. It needs MQTT (for the entities) and Home Assistant

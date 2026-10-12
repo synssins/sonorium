@@ -189,7 +189,7 @@ Fine-tune how each audio file plays within a theme:
 - **Human-Readable Names** - Theme and preset dropdowns show names instead of UUIDs
 - **Status Sensors** - See playback status and assigned speakers from your dashboard
 - **Automation Support** - Use HA automations to trigger soundscapes (morning alarms, schedules, etc.)
-- **Announcements** - Each channel has a notify entity (`notify.sonorium_<channel>_announce`): `notify.send_message` speaks the message on that channel with Home Assistant's text to speech. The channel gets quieter, the message plays, the channel comes back; a stopped channel is started for it. The MQTT topic `sonorium/announce/set` takes `{"channels": [...] or "all", "text": "...", "url": "<chime>"}`. Announcements override zones and quiet hours. Details: [docs/PLUGIN_DEVELOPMENT.md, section 20](docs/PLUGIN_DEVELOPMENT.md#20-home-assistant)
+- **Announcements** - Each channel has a notify entity (`notify.sonorium_<channel>_announce`) that speaks a message on that channel, and an Announcements switch (`switch.sonorium_<channel>_announcements`). See [Announcements: let other systems use Sonorium](#announcements-let-other-systems-use-sonorium)
 
 #### Modern Web Interface
 - **Responsive Design**: Works on desktop and mobile; on a phone the menu opens from a top bar that's always there
@@ -335,6 +335,119 @@ older version changes nothing until you create an account and turn on **Require 
 Details: the [Sign-in and Users](https://github.com/synssins/sonorium/wiki/Sign-in-and-Users)
 wiki page and [docs/AUTH.md](docs/AUTH.md).
 
+### Announcements: let other systems use Sonorium
+
+Home Assistant, Node-RED, a script or a doorbell can send Sonorium an announcement: a chime,
+words to speak, or both. Sonorium plays it on the channels named. A playing channel gets
+quieter while it plays and comes back after it, the way a radio presenter talks over the
+music. A stopped channel has its speakers started for it and stopped again after it.
+
+The other system decides when to announce and what to say; Sonorium only plays it, so there
+is nothing to set up in Sonorium. Announcements play even on a channel with an owner or in
+its quiet hours.
+
+**Announcements on a channel.** Each channel has an **Announcements** switch in its editor,
+on by default. Off, nothing announces on that channel, whichever way it is sent. Home
+Assistant has it too, as `switch.sonorium_<channel>_announcements`, so an automation can
+turn it off for a nap and on again after.
+
+**What to send.** Only `channels` and `text` (or `url`) are needed:
+
+| Field | | Example |
+|---|---|---|
+| `channels` | A channel's name or id, a list of them, or `"all"`. Names are not case-sensitive | `"Kitchen"`, `["Kitchen", "Office"]` |
+| `text` | Words to speak, with Home Assistant's text to speech | `"Dinner is ready"` |
+| `url` | A sound to play first (an http or https link to MP3, WAV, OGG, ...) | `"http://192.168.1.10/ding.mp3"` |
+| `volume` | 0 to 200; 100 is the sound's own level | `80` |
+| `duck` | How much quieter the channel gets, in dB; `false` to not duck. Left out: **Settings → Advanced** | `18` |
+
+Text to speech comes from Home Assistant: its first `tts.*` engine, or the one set in the
+**Announcements** plugin's settings. Without Home Assistant (Docker on its own), send a
+`url`: the sound plays and the answer says the text wasn't spoken.
+
+#### From Home Assistant
+
+Each channel has a notify entity, `notify.sonorium_<channel>_announce`:
+
+```yaml
+alias: Doorbell
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.doorbell
+    to: "on"
+actions:
+  - action: notify.send_message
+    target:
+      entity_id: notify.sonorium_kitchen_announce
+    data:
+      message: Someone is at the door
+```
+
+For a chime first, send the message as JSON:
+
+```yaml
+    data:
+      message: '{"text": "Someone is at the door", "url": "http://192.168.1.10/ding.mp3"}'
+```
+
+Several channels at once, through MQTT:
+
+```yaml
+action: mqtt.publish
+data:
+  topic: sonorium/announce/set
+  payload: '{"channels": ["Kitchen", "Office"], "text": "Dinner is ready"}'
+```
+
+#### With a key (scripts, curl, other programs)
+
+1. **Settings → Keys → New key**.
+2. Name it and check **Make announcements**.
+3. **Make key**, then copy the key. It is shown once.
+
+A key limited to some channels announces only on those.
+
+```bash
+curl -X POST http://sonorium.local:8008/api/announce \
+  -H "Authorization: Bearer sk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"channels": "Kitchen", "text": "Dinner is ready"}'
+```
+
+Use Sonorium's address in place of `sonorium.local` when that name doesn't work on your
+network. The answer lists the channels it plays on (`played`), the channels with
+Announcements off (`skipped`), and a `notice` when only the chime played. An unknown channel
+answers 404; text with no text to speech and no `url` answers 503.
+
+#### From MQTT
+
+On the broker Sonorium uses (**Settings → Connection**), publish to `sonorium/announce/set`:
+
+```bash
+mosquitto_pub -h 192.168.1.5 -u mqtt_user -P mqtt_password -t sonorium/announce/set \
+  -m '{"channels": "all", "url": "http://192.168.1.10/ding.mp3", "text": "The washer is done"}'
+```
+
+A message without `channels` is ignored, so a mistake doesn't wake every room.
+
+#### From Node-RED
+
+A **function** node, then an **http request** node:
+
+```javascript
+msg.headers = {
+    "Authorization": "Bearer sk_your_key",
+    "Content-Type": "application/json"
+};
+msg.payload = { channels: "Kitchen", text: "Dinner is ready" };
+return msg;
+```
+
+In the **http request** node: **Method** `POST`, **URL**
+`http://sonorium.local:8008/api/announce`, **Return** `a parsed JSON object`.
+Node-RED with an MQTT broker can publish to `sonorium/announce/set` with an **mqtt out**
+node instead, without a key.
+
 ### Documentation
 
 **Which version am I on?** The version and the install type (Home Assistant app or Docker) are at the bottom left of the menu. On a phone, open the menu from the top bar to see them. Include both when you report a problem.
@@ -367,6 +480,10 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - **HTTPS.** Port 8808 serves the web UI and the API over HTTPS, with a certificate Sonorium makes itself. Port 8008 is unchanged; speakers keep using it.
 - **sonorium.local.** The Docker version announces itself on your network: `http://sonorium.local:8008`.
 - **Forgotten password.** `BYPASS_LOGIN=true` (Docker) or `bypass_login` (Home Assistant app) opens the web UI without a sign-in, to reset the account.
+
+**Announcements**
+- **Other systems announce through Sonorium.** Home Assistant (each channel's notify entity), MQTT (`sonorium/announce/set`), anything that can make a web request (`POST /api/announce` with a key) and plugins send a chime and/or words to speak; Sonorium plays them on the channels named. See [Announcements: let other systems use Sonorium](#announcements-let-other-systems-use-sonorium).
+- **Announcements switch** on each channel, and in Home Assistant: off, nothing announces on that channel.
 
 **Plugins**
 - **Built-in plugins can be uninstalled** like any other. An uninstalled built-in plugin stays uninstalled after restarts and updates.
@@ -657,6 +774,8 @@ Sonorium provides a REST API for integration:
 - `POST /api/sessions/{id}/volume` - Set volume
 - `POST /api/sessions/{id}/next` - Skip to the sequence's next step or the playlist's next entry
 - `PUT /api/sessions/{id}/speakers-muted` - Mute or unmute the speakers (`{"muted": true}`)
+- `PUT /api/sessions/{id}/announcements` - Turn the channel's Announcements on or off (`{"on": false}`)
+- `POST /api/announce` - Play a chime and/or speak text on channels (`{"channels": "Kitchen", "text": "Dinner is ready"}`; see [Announcements](#announcements-let-other-systems-use-sonorium))
 - `POST /api/sessions/{id}/listen` / `DELETE` - Start or stop listening in a browser (the stream is `stream_path` with `?local=1`)
 
 #### Themes

@@ -78,6 +78,7 @@ A key allows only the items checked on it:
 | Speakers | View · Mute and volume · Change settings |
 | Triggers | Run triggers |
 | Events | Read events |
+| Announcements | Make announcements (`POST /api/announce`, sounds over channels) |
 | Plugins | Use plugin pages and buttons |
 | Settings | View · Change |
 

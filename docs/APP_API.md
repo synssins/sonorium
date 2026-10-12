@@ -713,7 +713,7 @@ Errors follow section 11.1. Shapes were checked live unless marked
 | `preset_choice` | string or null | What the preset menu shows: `"seq:<id>"` while a sequence is set, else `preset_id` |
 | `sequence`, `playlist` | object or null | Status (below) |
 | `speakers_muted` | bool | The speakers' stream is silenced (listeners on the phone still hear it) |
-| `announcements` | bool | Announcements play on the channel (off: none plays, from any rule, Home Assistant, MQTT or plugin) |
+| `announcements` | bool | Announcements play on the channel (off: none plays, from Home Assistant, MQTT, `POST /api/announce` or a plugin) |
 | `listening` | bool | Someone listens with `?local=1` (the web UI's Listen here, or the phone) |
 | `outputs` | output[] | Devices the app reports playing the channel (G2, section 9.5); `[]` when none |
 | `recent` | `[{at, text}]` | Latest changes, newest first |
