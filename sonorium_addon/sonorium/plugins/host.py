@@ -6,6 +6,8 @@ The plugin host: the services Sonorium gives every plugin, in one place.
     scheduler      persistent jobs (scheduler.py)
     triggers       webhook triggers and their tokens (triggers.py, tokens.py)
     notifications  notifiers and routing rules (notifications.py)
+    notify_sources the rules' own sources: Home Assistant entities, webhook
+                   URLs, MQTT topics (notify_sources.py)
     connections    saved connection values, secrets apart (extensions.py)
     auth           sign-in (sonorium/auth/service.py): built-in sign-in plugins
                    register who is calling, their routes and their web UI there
@@ -45,6 +47,7 @@ from sonorium.plugins.packages import Packages
 from sonorium.plugins.tts import TtsProviders
 from sonorium.plugins.extensions import ConnectionValues, normalize_connection_decls
 from sonorium.plugins.notifications import NOTIFIER_ID, Notifications
+from sonorium.plugins.notify_sources import BuiltinSources, render
 from sonorium.plugins.scheduler import Scheduler
 from sonorium.plugins.store import FrameworkStore
 from sonorium.plugins.tokens import TokenStore
@@ -81,6 +84,8 @@ class PluginHost:
         self.packages = Packages(self.store.folder / "plugin_packages", allowed=lambda: self.packages_allowed())
         self.notifications.source_provider = self.notification_sources
         self.notifications.announcer = self._announce_notification
+        self.notify_sources = BuiltinSources(self.notifications, self.store, self.mqtt, lambda: self.homeassistant)
+        self.notifications.on_rules_changed = self.notify_sources.sync
         self.manager = None  # the PluginManager, set by it
         self.on_change: Optional[Callable] = None  # async callback(session): Home Assistant entities
         self._job_callbacks: dict[tuple, Callable] = {}
@@ -133,20 +138,30 @@ class PluginHost:
                                "plugin_name": plugin.name, "kind": "trigger"})
         return result
 
+    def tts_ready(self) -> bool:
+        """Whether something can speak now (Home Assistant's text to speech needs Home Assistant linked)."""
+        ha = self.homeassistant
+        ha_up = bool(ha is not None and ha.available)
+        return any(p["id"] != "homeassistant" or ha_up for p in self.tts.providers())
+
     async def _announce_notification(self, spec: dict, message: dict) -> None:
         from sonorium.core.announce import announce
-        fields = {"title": message.get("title", ""), "body": message.get("body", "")}
+        from sonorium.core.overlay import OverlayError
+        fields = {"title": message.get("title", ""), "body": message.get("body", ""),
+                  "message": message.get("body", ""), **(message.get("fields") or {})}
         text = spec.get("text")
         if text:
-            try:
-                text = text.format_map(fields)
-            except (KeyError, ValueError, IndexError):
-                pass
+            text = render(text, fields)
         elif not spec.get("sound"):
             text = fields["title"]
+        if text and not self.tts_ready():
+            if not spec.get("sound"):
+                raise OverlayError("Say needs Home Assistant (text to speech)")
+            logger.info("Notification: no text to speech, only the chime plays")
+            text = None
         await announce(self.overlay, self.tts, spec["channels"], text=text or None, sound=spec.get("sound"),
                        volume=spec.get("volume", 100), duck=spec.get("duck", True), origin="notification",
-                       label=fields["title"][:80])
+                       label=str(fields["title"])[:80])
 
     def actions_for(self, plugin_id: str) -> Actions:
         return self.actions.for_plugin(plugin_id)
@@ -168,6 +183,10 @@ class PluginHost:
         if getattr(self, "_alerting", None) is None:
             self._alerting = self.bus.subscribe("error", self._alert, owner=None)
         await self.scheduler.start()
+        try:
+            self.notify_sources.start()
+        except Exception as e:
+            logger.warning(f"Notification sources could not start: {e}")
         self._started = True
 
     @staticmethod
@@ -181,6 +200,7 @@ class PluginHost:
 
     async def stop(self) -> None:
         await self.scheduler.stop()
+        self.notify_sources.stop()
         if self._router is not None:
             self.bus.unsubscribe(self._router)
             self._router = None

@@ -587,6 +587,22 @@ def test_closed_until_the_sign_in_plugin_starts(tmp_path, monkeypatch):
     assert w.client().get("/api/sessions").json()["starting"] is True
 
 
+def test_notification_webhook_needs_no_sign_in(w):
+    """A rule's webhook: the secret in its URL is the credential (the route checks it), even with Require login on."""
+    async def hook(secret: str):
+        return {"secret": secret}
+    w.app.add_api_route("/api/notify/{secret}", hook, methods=["GET", "POST"])
+    w.setup_admin()
+    c = w.client()
+    assert c.get("/api/sessions").status_code == 401  # login is required
+    assert c.post("/api/notify/abc").json() == {"secret": "abc"}
+    assert c.get("/api/notify/abc").status_code == 200
+    # Not from another site's page in a browser
+    assert c.post("/api/notify/abc", headers={"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"}
+                  ).status_code == 403
+    assert m.tokens.redact("POST /api/notify/AbC_123-x HTTP/1.1") == "POST /api/notify/*** HTTP/1.1"
+
+
 def test_info_is_public(w):
     info = w.client().get("/api/info").json()
     assert info["api"] == 1 and info["ports"] == {"http": 8008, "https": 8808} and len(info["fingerprint"]) == 64

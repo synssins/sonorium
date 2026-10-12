@@ -13,7 +13,11 @@ Scheduler       GET  /api/schedules,  PUT /api/schedules/settings
                 PUT  /api/plugins/{id}/schedules/{job_id}/enabled
 Notifications   GET  /api/notifications
                 PUT  /api/notifications/rules,  PUT|DELETE /api/notifications/rules/{rule_id}
+                POST /api/notifications/rules/{rule_id}/test,  POST /api/notifications/try
+                POST /api/notifications/rules/{rule_id}/webhook    (a new webhook URL)
+                GET  /api/notifications/ha-entities?q=&limit=      (the entity picker)
                 POST /api/notifications/test
+                GET|POST /api/notify/{secret}    a rule's webhook (the secret is the credential)
 Extensions      GET  /api/extensions
                 GET  /api/plugins/{id}/pages/{page_id}
                 POST /api/plugins/{id}/pages/{page_id}/actions/{action}
@@ -348,32 +352,103 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 
     # --- Notifications ---
 
+    def _base_url() -> str:
+        """The direct address of Sonorium (Settings > Connection's stream URL): webhooks are called there."""
+        try:
+            from sonorium.settings import settings
+            base = str(settings.stream_url or "")
+        except Exception:
+            base = ""
+        return base.rstrip("/") if base.lower().startswith(("http://", "https://")) else ""
+
+    def _with_urls(rules: list) -> list:
+        """Rules with their webhook URL (only admins see this list)."""
+        sources = host.notify_sources
+        out = []
+        for rule in rules:
+            when = rule.get("when")
+            if when and when.get("type") == "webhook":
+                path = sources.webhook_path(rule["id"])
+                rule = {**rule, "when": {**when, "path": path, "url": f"{_base_url()}{path}" if path else None}}
+            out.append(rule)
+        return out
+
     @router.get("/notifications")
     async def notifications_overview():
         n = _host().notifications
         from sonorium.plugins.notifications import LEVELS
-        return {"sources": n.sources(), "notifiers": n.notifiers(), "rules": n.rules(), "levels": list(LEVELS),
-                "tts": bool(host.tts.providers())}
+        return {"sources": n.sources(), "notifiers": n.notifiers(), "rules": _with_urls(n.rules()),
+                "levels": list(LEVELS), "tts": host.tts_ready(), "ha": host.notify_sources.ha_available(),
+                "mqtt": bool(host.mqtt.available)}
+
+    async def _try(rule: dict) -> dict:
+        from sonorium.plugins.notify_sources import message_for_rule, sample_fields
+        message = message_for_rule(rule, sample_fields(rule), "test")
+        return await host.notifications.fire(rule, message)
 
     @router.post("/notifications/rules/{rule_id}/test")
     async def test_rule(rule_id: str):
-        """Do what the rule does, with a test message: announce it and send it to its notifiers."""
+        """Do what the rule does now, with stand-in words: announce it and send it to its notifiers."""
         n = _host().notifications
         rule = next((r for r in n.rules() if r["id"] == rule_id), None)
         if rule is None:
             raise HTTPException(status_code=404, detail="No such rule")
-        from datetime import datetime, timezone
-        message = {"title": rule.get("name") or "Sonorium test", "body": "A test of this rule.", "level": "info",
-                   "time": datetime.now(timezone.utc).isoformat(), "origin": "sonorium", "event": None}
-        announced, error = False, ""
-        if rule.get("announce") and n.announcer is not None:
-            try:
-                await n.announcer(rule["announce"], message)
-                announced = True
-            except Exception as e:
-                error = str(getattr(e, "message", None) or e)
-        sent = await n.send(rule["notifiers"], message) if rule.get("notifiers") else {}
-        return {"announced": announced, "error": error, "sent": sent}
+        return await _try(rule)
+
+    @router.post("/notifications/try")
+    async def try_rule(request: Request):
+        """A rule from the dialog, not saved: do what it would do now (Test)."""
+        body = await _json(request)
+        try:
+            rule = _host().notifications.check_rule({**body, "id": body.get("id") or "test"})
+        except NotificationError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        return await _try(rule)
+
+    @router.post("/notifications/rules/{rule_id}/webhook")
+    async def new_webhook(rule_id: str):
+        """A new secret for the rule's webhook: the old URL stops working."""
+        n = _host().notifications
+        rule = next((r for r in n.rules() if r["id"] == rule_id), None)
+        if rule is None or (rule.get("when") or {}).get("type") != "webhook":
+            raise HTTPException(status_code=404, detail="No such webhook")
+        host.notify_sources.new_webhook_secret(rule_id)
+        return _with_urls([rule])[0]["when"]
+
+    @router.get("/notifications/ha-entities")
+    async def ha_entities(q: str = "", limit: int = 100):
+        """Home Assistant entities for a rule's When: entity_id, name, state, domain."""
+        sources = _host().notify_sources
+        if not sources.ha_available():
+            return {"available": False, "entities": []}
+        try:
+            return {"available": True, "entities": await sources.ha_entities(q[:100], limit)}
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Home Assistant: {getattr(e, 'message', None) or e}")
+
+    @router.api_route("/notify/{secret}", methods=["GET", "POST"])
+    async def call_webhook(secret: str, request: Request):
+        """A rule's webhook. Optional {"title", "message"} (JSON, a form or the query string). 202 at once."""
+        sources = _host().notify_sources
+        client = request.client.host if request.client else "unknown"
+        blocked, wait = sources.auth_limiter.blocked(client)
+        if blocked:
+            raise HTTPException(status_code=429, detail="Too many failed attempts",
+                                headers={"Retry-After": str(int(wait) + 1)})
+        rule = sources.rule_for_secret(secret)
+        if rule is None:
+            sources.auth_limiter.allow(client)
+            raise HTTPException(status_code=404, detail="Not Found")
+        allowed, wait = sources.webhook_limiter.allow(rule["id"])
+        if not allowed:
+            raise HTTPException(status_code=429, detail="Too many calls", headers={"Retry-After": str(int(wait) + 1)})
+        payload = dict(request.query_params)
+        if request.method == "POST":
+            payload.update(await _trigger_body(request))
+        if not rule.get("enabled", True):
+            return JSONResponse(status_code=202, content={"accepted": True, "enabled": False})
+        sources.fire_soon(rule, payload, "webhook")
+        return JSONResponse(status_code=202, content={"accepted": True})
 
     @router.put("/notifications/rules")
     async def replace_rules(request: Request):

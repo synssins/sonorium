@@ -331,6 +331,12 @@ GET     /api/plugins/{plugin_id}/connections/{connection_id}        admin.plugin
 PUT     /api/plugins/{plugin_id}/connections/{connection_id}        admin.plugins
 POST    /api/plugins/{plugin_id}/connections/{connection_id}/test   admin.plugins
 POST    /api/notifications/rules/{rule_id}/test         admin.plugins
+POST    /api/notifications/try                          admin.plugins
+POST    /api/notifications/rules/{rule_id}/webhook      admin.plugins
+GET     /api/notifications/ha-entities                  admin.plugins
+# A rule's webhook: the secret in the path is the credential, checked by the route
+GET     /api/notify/{secret}                            public
+POST    /api/notify/{secret}                            public
 
 GET     /api/plugin-framework                           pg.use|admin.plugins
 GET     /api/plugins/{plugin_id}/packages               admin.plugins

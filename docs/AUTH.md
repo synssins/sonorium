@@ -89,6 +89,12 @@ The plugin framework's older tokens (one per plugin, per trigger, and for the
 event stream) keep working. Triggers and the event stream always need a token
 or a key, even while sign-in is off.
 
+A notification rule's webhook (`GET|POST /api/notify/{secret}`) needs no
+sign-in: the secret in its URL is the credential, made for that rule alone and
+compared in constant time. Wrong secrets are limited per client address (10,
+then one every 6 seconds) and answer 404; each rule takes bursts of 10 calls,
+then 2 a second. The secret is masked in the log.
+
 ## Accounts and sign-in (Users plugin)
 
 - **New install:** the first visit shows **Create the admin account**, and
@@ -305,7 +311,7 @@ without the extra names: the app checks the fingerprint, not the names.
 | `zones.json` | Zones: on or off, owners, Kid mode and hours, speaker homes, links |
 | `server.json` | The server ID |
 | `tls/cert.pem`, `tls/key.pem` (0600) | The HTTPS certificate (ECDSA P-256, 20 years) |
-| `plugin_secrets.json` (0600) | The plugin framework's older trigger and event-stream tokens (hashes) |
+| `plugin_secrets.json` (0600) | The plugin framework's older trigger and event-stream tokens (hashes), notification rules' webhook secrets |
 
 All in Sonorium's config folder. Uninstalling the Users plugin keeps
 `users.json`, so switching it back on brings the accounts back.

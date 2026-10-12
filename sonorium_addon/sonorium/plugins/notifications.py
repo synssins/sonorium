@@ -6,8 +6,10 @@ plays, a chime and/or the message spoken, then restore), as an admin, over
 zones and quiet hours. Sending them to an outside notifier (Discord, a
 phone) is an optional extra on a rule.
 
-They come from outside sources that plugins declare (their notification
-sources and webhook triggers). Sonorium's own problems (a speaker offline, a
+They come from Sonorium's own sources (a rule's "when": a Home Assistant
+entity changing, a webhook URL of the rule's own, an MQTT topic; see
+notify_sources.py) and from outside sources that plugins declare (their
+notification sources and webhook triggers). Sonorium's own problems (a speaker offline, a
 plugin error, a lost connection) are not notifications: they go to the log,
 and serious ones show an alert bar in the web UI (sonorium/alerts.py).
 
@@ -18,12 +20,13 @@ Sources (GET /api/notifications lists them):
     trigger:<plugin_id>/<trigger>  a webhook trigger being called
 
 A rule:
-    {"id", "name", "sources": [...],
+    {"id", "name", "when": {"type": "ha" | "webhook" | "mqtt", ...}, "sources": [...],
      "announce": {"channels": [...], "sound": "https://.../chime.mp3",
                   "text": "Someone is at the door", "volume": 80,
                   "duck": {"db": 15, "attack": 0.5, "release": 1.5}},
      "notifiers": ["discord.main"], "enabled": true}
-"text" may use the message's fields: {title}, {body}. An announcement with
+"text" may use the message's fields: {title}, {message} (or {body}), and from
+Sonorium's own sources {entity}, {state}, {topic}. An announcement with
 neither "text" nor "sound" speaks the title. "duck" left out: the Advanced
 page's values. Rules may also list raw event patterns in "events" (and a
 "min_level"); the web UI doesn't offer that.
@@ -140,6 +143,8 @@ class Notifications:
         # Set by the plugin host: the sources plugins declare, and announcing on channels
         self.source_provider: Callable[[], list] = lambda: []
         self.announcer: Optional[Callable[[dict, dict], Awaitable[None]]] = None
+        # Called after the rules change (the built-in sources follow them: notify_sources.py)
+        self.on_rules_changed: Optional[Callable[[], None]] = None
 
     # --- Notifiers ---
 
@@ -193,7 +198,12 @@ class Notifications:
             events = [check_pattern(e) for e in events]
         except ValueError as e:
             raise NotificationError(str(e))
-        if not sources and not events:
+        from sonorium.plugins.notify_sources import SourceError, check_when
+        try:
+            when = check_when(rule.get("when"))
+        except SourceError as e:
+            raise NotificationError(str(e))
+        if not sources and not events and when is None:
             raise NotificationError("A rule needs a source")
         notifiers = rule.get("notifiers") or []
         if not isinstance(notifiers, list) or \
@@ -205,6 +215,7 @@ class Notifications:
         return {
             "id": str(rule_id),
             "name": str(rule.get("name") or rule_id)[:120],
+            "when": when,
             "sources": list(dict.fromkeys(sources)),
             "events": events,
             "announce": announce,
@@ -251,6 +262,7 @@ class Notifications:
             raise NotificationError("Two rules have the same id")
         self.store.main.data["notification_rules"] = clean
         self.store.main.save()
+        self._changed()
         return self.rules()
 
     def put_rule(self, rule: dict) -> dict:
@@ -261,6 +273,7 @@ class Notifications:
         rules.append(clean)
         self.store.main.data["notification_rules"] = rules
         self.store.main.save()
+        self._changed()
         return clean
 
     def delete_rule(self, rule_id: str) -> bool:
@@ -270,7 +283,15 @@ class Notifications:
             return False
         self.store.main.data["notification_rules"] = kept
         self.store.main.save()
+        self._changed()
         return True
+
+    def _changed(self) -> None:
+        if self.on_rules_changed is not None:
+            try:
+                self.on_rules_changed()
+            except Exception as e:
+                logger.warning(f"Notification sources could not follow the rules: {e}")
 
     # --- Sending ---
 
@@ -330,6 +351,23 @@ class Notifications:
         if targets:
             await self.send(targets, message)
         return targets
+
+    async def fire(self, rule: dict, message: dict) -> dict:
+        """
+        Do what a rule does with a message: announce it on its channels, then
+        send it to its notifiers. Returns {"announced", "error", "sent"}.
+        """
+        result = {"announced": False, "error": "", "sent": {}}
+        if rule.get("announce") and self.announcer is not None:
+            try:
+                await self.announcer(rule["announce"], message)
+                result["announced"] = True
+            except Exception as e:
+                result["error"] = str(getattr(e, "message", None) or e)
+                logger.warning(f"Announcing a notification failed: {result['error']}")
+        if rule.get("notifiers"):
+            result["sent"] = await self.send(rule["notifiers"], message)
+        return result
 
     async def _announce(self, announce: dict, message: dict) -> None:
         if self.announcer is None:

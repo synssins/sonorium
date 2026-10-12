@@ -435,8 +435,35 @@ ones also show a small alert bar at the top of the web UI that links to the log.
 that fails is reported there for it; a plugin logs its own problems with the standard
 `logging` module (the logger `sonorium`).
 
-**Sources.** A plugin declares what it can notify about; the user picks from these when
-making a rule:
+**Sonorium's own sources.** A rule works without any plugin: its `when` is one of
+
+| `when` | Fires when |
+|---|---|
+| `{"type": "ha", "entity_id": "binary_sensor.front_doorbell", "state": "on"}` | A Home Assistant entity changes to that state. `state` empty: any change of its state (an `input_button` or `button` pressed). For an `event` entity the state may be its event type (`pressed`). Coming back from `unavailable` doesn't count. |
+| `{"type": "webhook"}` | Its own URL is called: `GET` or `POST /api/notify/<secret>` (see below) |
+| `{"type": "mqtt", "topic": "home/doorbell", "payload": "ON"}` | A message arrives on the topic (wildcards allowed); with `payload`, only that exact message. Needs MQTT. |
+
+Home Assistant entities use the connection Sonorium already has (the Supervisor on the
+add-on, the linked URL and token on Docker): one WebSocket subscribed to the entities rules
+use (a state trigger; a token that may not do that gets every state change, filtered by
+Sonorium). `GET /api/notifications/ha-entities?q=door` lists the entities a rule can use
+(`entity_id`, `name`, `state`, `domain`; binary sensors, events, buttons, switches, sensors
+and a few more), searched by id and name.
+
+A webhook rule gets a secret of its own when it's saved; `GET /api/notifications` shows
+its `url` (on Settings › Connection's stream address, the one other devices reach) and
+`POST /api/notifications/rules/{rule_id}/webhook` makes a new one (the old URL stops
+working). The secret is the only credential, so it works with Require login on; keep the URL
+private. The call answers `202` at once. Words for the announcement, all optional, as JSON, a
+form or the query string:
+
+```
+curl -X POST http://<sonorium>:8008/api/notify/<secret> -H 'Content-Type: application/json' \
+     -d '{"title": "Front door", "message": "Someone is at the door"}'
+```
+
+**Plugin sources.** A plugin declares what it can notify about; the user picks from these
+when making a rule:
 
 ```python
 def get_notification_sources(self):
@@ -465,8 +492,15 @@ PUT /api/notifications/rules/{rule_id}
 ```
 
 - `announce.sound`: a chime (an http(s) URL), played first. `announce.text`: spoken with a
-  text to speech provider (section 15); `{title}` and `{body}` are the notification's words.
-  Neither: the title is spoken. `duck`: true (the Advanced values) or `{db, attack, release}`.
+  text to speech provider (section 15). Neither: the title is spoken. `duck`: true (the
+  Advanced values) or `{db, attack, release}`.
+- The text is a template: `{title}` (the webhook's or MQTT JSON's `title`, a plugin's
+  title, else the rule's name), `{message}` (or `{body}`: the webhook's `message`, the MQTT
+  payload), `{entity}` (the Home Assistant entity's name), `{state}` (its new state, or an
+  event entity's event type), `{topic}` (the MQTT topic). A field a source doesn't have is
+  empty. `"{entity} is {state}"` says "Front Door is on".
+- Without text to speech (Docker without Home Assistant), a rule with a chime plays only
+  the chime; one with only text fails with "Say needs Home Assistant".
 - A rule announces, sends to notifiers, or both.
 - Rules may also list raw event patterns in `events` (and a `min_level`), as before; the
   web UI doesn't offer them.
@@ -487,10 +521,14 @@ Settings › Notifications shows each with Working or Not answering (its last de
 
 | Endpoint | |
 |---|---|
-| `GET /api/notifications` | Sources, notifiers (with `kind`, `state`), rules |
+| `GET /api/notifications` | Sources, notifiers (with `kind`, `state`), rules (a webhook's `url`), and whether `ha`, `mqtt` and `tts` are available |
 | `PUT /api/notifications/rules` `{"rules": [...]}` | Replace all rules |
 | `PUT` / `DELETE /api/notifications/rules/{rule_id}` | Add or change, or remove one rule |
-| `POST /api/notifications/rules/{rule_id}/test` | Do what the rule does with a test message |
+| `POST /api/notifications/rules/{rule_id}/test` | Do what the rule does now, with stand-in words |
+| `POST /api/notifications/try` (a rule, not saved) | The same for the rule in the dialog (Test) |
+| `POST /api/notifications/rules/{rule_id}/webhook` | A new webhook URL for the rule |
+| `GET /api/notifications/ha-entities?q=&limit=` | Home Assistant entities for `when` |
+| `GET` / `POST /api/notify/{secret}` | A rule's webhook (no sign-in: the secret is the credential) |
 | `POST /api/notifications/test` `{"notifier": id}` | Send a test message; answers with the result |
 
 A notifier that fails (or takes over 30 s) is logged and reported as an `error` event with

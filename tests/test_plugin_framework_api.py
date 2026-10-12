@@ -408,6 +408,76 @@ def test_rules_are_checked(w):
     assert c.delete("/api/notifications/rules/none").status_code == 404
 
 
+def record_announcements(w):
+    heard = []
+
+    async def announcer(spec, message):
+        heard.append((spec, message))
+    w.host.notifications.announcer = announcer
+    return heard
+
+
+def test_webhook_rule_end_to_end(w):
+    c = w.client
+    heard = record_announcements(w)
+    r = c.put("/api/notifications/rules/bell", json={
+        "name": "Doorbell", "when": {"type": "webhook"},
+        "announce": {"channels": [w.t.session.id], "text": "{title}: {message}"}})
+    assert r.status_code == 200, r.text
+    rule = next(x for x in c.get("/api/notifications").json()["rules"] if x["id"] == "bell")
+    path = rule["when"]["path"]
+    assert path.startswith("/api/notify/") and rule["when"]["url"].endswith(path)
+    r = c.post(path, json={"title": "Pizza", "message": "at the door"})
+    assert r.status_code == 202, r.text
+    assert wait_for(lambda: heard)
+    spec, message = heard[0]
+    assert spec["channels"] == [w.t.session.id] and message["title"] == "Pizza" and message["body"] == "at the door"
+    # GET with the words in the query string (simple devices)
+    assert c.get(path + "?message=back").status_code == 202
+    assert wait_for(lambda: len(heard) == 2) and heard[1][1]["title"] == "Doorbell"
+    # A new URL: the old one stops working
+    new = c.post("/api/notifications/rules/bell/webhook").json()["path"]
+    assert new != path and c.post(path).status_code == 404 and c.post(new).status_code == 202
+    assert c.post("/api/notifications/rules/none/webhook").status_code == 404
+
+
+def test_webhook_wrong_secrets_are_limited_per_client(w):
+    c = w.client
+    for _ in range(10):
+        assert c.post("/api/notify/" + "x" * 32).status_code == 404
+    r = c.post("/api/notify/" + "y" * 32)
+    assert r.status_code == 429 and "Retry-After" in r.headers
+
+
+def test_webhook_calls_are_limited_per_rule(w):
+    c = w.client
+    record_announcements(w)
+    c.put("/api/notifications/rules/bell", json={"when": {"type": "webhook"}, "announce": {"channels": ["k"]}})
+    path = w.host.notify_sources.webhook_path("bell")
+    codes = [c.get(path).status_code for _ in range(12)]
+    assert codes[:10] == [202] * 10 and 429 in codes[10:]
+
+
+def test_try_a_rule_from_the_dialog(w):
+    heard = record_announcements(w)
+    r = w.client.post("/api/notifications/try", json={
+        "name": "Doorbell", "when": {"type": "ha", "entity_id": "binary_sensor.door", "state": "on"},
+        "announce": {"channels": ["k"], "text": "{entity} is {state}"}})
+    assert r.status_code == 200 and r.json()["announced"] is True
+    assert heard[0][1]["fields"]["state"] == "on"
+    assert w.client.post("/api/notifications/try", json={"when": {"type": "ha"}}).status_code == 400
+    # The saved rule's Try
+    w.client.put("/api/notifications/rules/door", json={"when": {"type": "mqtt", "topic": "home/bell"},
+                                                       "announce": {"channels": ["k"]}})
+    assert w.client.post("/api/notifications/rules/door/test").json()["announced"] is True
+
+
+def test_overview_says_what_is_available(w):
+    overview = w.client.get("/api/notifications").json()
+    assert overview["ha"] is False and overview["mqtt"] is False and overview["tts"] is False
+    assert w.client.get("/api/notifications/ha-entities?q=door").json() == {"available": False, "entities": []}
+
+
 def test_disabling_a_plugin_removes_its_notifiers_and_subscriptions(w):
     owners = {s.owner for s in w.bus.subscriptions()}
     assert "trigger_play_channel" in owners

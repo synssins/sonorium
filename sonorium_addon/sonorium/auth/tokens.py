@@ -35,6 +35,7 @@ from typing import Callable, Iterable, Optional
 TOKEN_BYTES = 32
 TOUCH_SAVE_SECONDS = 60
 _REDACT = re.compile(r"((?:^|[?&])token=)[^&\s\"']+", re.IGNORECASE)
+_REDACT_PATH = re.compile(r"(/api/notify/)[A-Za-z0-9_-]+")  # a notification rule's webhook secret
 
 
 def hash_token(token: str) -> str:
@@ -239,7 +240,7 @@ def token_from_request(request) -> Optional[str]:
 
 
 def redact(text: str) -> str:
-    return _REDACT.sub(r"\1***", text)
+    return _REDACT_PATH.sub(r"\1***", _REDACT.sub(r"\1***", text))
 
 
 class RedactTokens(logging.Filter):
@@ -249,7 +250,7 @@ class RedactTokens(logging.Filter):
         try:
             if isinstance(record.args, tuple):
                 record.args = tuple(redact(a) if isinstance(a, str) else a for a in record.args)
-            if isinstance(record.msg, str) and "token=" in record.msg.lower():
+            if isinstance(record.msg, str) and ("token=" in record.msg.lower() or "/api/notify/" in record.msg):
                 record.msg = redact(record.msg)
         except Exception:
             pass
