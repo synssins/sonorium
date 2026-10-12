@@ -34,7 +34,12 @@ public sealed class DesktopSettings
     public bool OpenBrowserOnStart { get; set; }
     public bool CheckForUpdates { get; set; } = true;
     public bool InstallUpdates { get; set; }
-    /// <summary>"stable" or "preview"; unset: a pre-release build follows Preview, a release Stable.</summary>
+    /// <summary>
+    /// "stable" or "preview" when chosen on the Updates page; unset, a pre-release build follows
+    /// Preview and a release Stable. Saved as "chosenUpdateChannel": the first builds saved
+    /// "updateChannel": "stable" as a plain default, which must not count as a choice.
+    /// </summary>
+    [JsonPropertyName("chosenUpdateChannel")]
     public string? UpdateChannel { get; set; }
 
     [JsonIgnore]

@@ -1,7 +1,6 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
-using Microsoft.Win32;
 using Sonorium.Desktop;
 
 namespace Sonorium.Tray;
@@ -60,12 +59,13 @@ public partial class App : Application
         Actions.ShowConsole("Status");
     });
 
-    /// <summary>The icon for the taskbar's own light or dark mode (not the apps' mode).</summary>
+    /// <summary>
+    /// The Sonorium icon (the app's own, in colour: it reads on a light and a dark taskbar alike),
+    /// at the notification area's size for the current display scale.
+    /// </summary>
     static IntPtr TrayIconImage()
     {
-        var light = Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-            "SystemUsesLightTheme", 0) is int v && v == 1;
-        var file = Path.Combine(AppContext.BaseDirectory, "Assets", light ? "tray-light.ico" : "tray-dark.ico");
+        var file = Path.Combine(AppContext.BaseDirectory, "Assets", "Sonorium.ico");
         var size = GetSystemMetricsForDpi(49 /* SM_CXSMICON */, GetDpiForSystem());
         return LoadImage(IntPtr.Zero, file, 1 /* IMAGE_ICON */, size, size, 0x10 /* LR_LOADFROMFILE */);
     }

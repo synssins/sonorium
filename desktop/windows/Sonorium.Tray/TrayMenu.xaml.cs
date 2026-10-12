@@ -59,11 +59,14 @@ public sealed partial class TrayMenu : Window
         GetDpiForMonitor(MonitorFromPoint(cursor, 2 /* nearest */), 0 /* effective */, out var dpi, out _);
         var scale = dpi / 96.0;
         Root.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var w = (int)Math.Ceiling(Root.DesiredSize.Width * scale);
-        var h = (int)Math.Ceiling(Root.DesiredSize.Height * scale);
-        var x = Math.Clamp(cursor.X - w, area.X, area.X + area.Width - w);
-        var y = Math.Clamp(cursor.Y - h, area.Y, area.Y + area.Height - h);
-        AppWindow.MoveAndResize(new RectInt32(x, y, w, h));
+        // The content area gets the menu's full size; the window's border comes on top of it
+        AppWindow.ResizeClient(new SizeInt32(
+            (int)Math.Ceiling(Root.DesiredSize.Width * scale),
+            (int)Math.Ceiling(Root.DesiredSize.Height * scale)));
+        var outer = AppWindow.Size;
+        var x = Math.Clamp(cursor.X - outer.Width, area.X, area.X + area.Width - outer.Width);
+        var y = Math.Clamp(cursor.Y - outer.Height, area.Y, area.Y + area.Height - outer.Height);
+        AppWindow.Move(new PointInt32(x, y));
         AppWindow.Show();
         Activate();
         SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));
