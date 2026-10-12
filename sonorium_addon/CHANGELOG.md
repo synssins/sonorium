@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.52 (2026-10-12)
+
+### Bug Fixes
+
+- **web**: Advanced › Stream URL's default isn't covered by its field on phones
+  ([`79f7a61`](https://github.com/synssins/sonorium/commit/79f7a619a16395ddc7a7d7fbfc45e9270072b76f))
+
+
 ## v1.6.2-dev.50 (2026-10-12)
 
 ### Bug Fixes
