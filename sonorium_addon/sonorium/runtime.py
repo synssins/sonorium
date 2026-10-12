@@ -267,7 +267,13 @@ def _helper_secret(name: str):
                     break
             value = value or None
         elif result.returncode == 1:
-            _logger().warning(f"Secret helper has no {name} (or couldn't read it): it is treated as not set")
+            # Exit 1 = nothing stored (normal on a new install). A helper that has the secret but
+            # can't read it (e.g. moved to another PC) says why on stderr: that is worth a warning.
+            reason = result.stderr.decode("utf-8", "replace").strip()
+            if reason:
+                _logger().warning(f"Secret helper couldn't read {name} ({reason}): it is treated as not set")
+            else:
+                _logger().debug(f"Secret helper has no {name}")
         else:
             _logger().error(f"Secret helper: 'get {name}' failed ({_helper_error(result)}): treated as not set")
     except Exception as e:  # no such program, timeout
