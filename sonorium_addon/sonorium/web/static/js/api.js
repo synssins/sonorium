@@ -42,7 +42,11 @@ async function api(method, endpoint, body = null) {
     const response = await fetch(url, options);
     if (!response.ok) {
         const error = await response.json().catch(() => ({ detail: 'Request failed' }));
-        throw new Error(error.detail || error.error || 'Request failed');
+        const failure = new Error(error.detail || error.error || 'Request failed');
+        failure.status = response.status;
+        // A local audio output device another channel plays: the UI asks to take it over
+        failure.takeOver = response.headers.get('X-Sonorium-Take-Over') === 'ask';
+        throw failure;
     }
     if (response.status === 204) return null;
     const result = await response.json();

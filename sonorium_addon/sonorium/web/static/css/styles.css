@@ -1010,6 +1010,13 @@ label.p-row, .p-label { cursor: pointer; }
 .tri:checked { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f172a' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E"); }
 .tri:indeterminate { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f172a' stroke-width='3.5' stroke-linecap='round'%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E"); }
 .tri:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+/* Choose-one (local audio output devices, one at a time): a round box */
+.tri[type=radio] { border-radius: 50%; }
+.tri[type=radio]:indeterminate { background: transparent; border-color: var(--text-muted); }  /* none of the group picked */
+.tri[type=radio]:checked { background-image: radial-gradient(circle, #0f172a 0 4px, transparent 4.5px); }
+/* An output type's header without a box (choose-one, or unavailable), and why it can't be used */
+.p-spacer.p-box-spacer { width: 20px; flex-basis: 20px; }
+.picker-empty.p-reason { padding-left: 2.75rem; }
 .badge { display: inline-flex; align-items: center; height: 20px; padding: 0 .4rem; border-radius: 4px; font-size: .6875rem; font-weight: 600; letter-spacing: .02em; white-space: nowrap; }
 .badge-ha { background: rgba(59, 130, 246, .18); color: #93c5fd; }
 .badge-disc { background: rgba(139, 92, 246, .2); color: #c4b5fd; }
@@ -1045,6 +1052,8 @@ label.p-row, .p-label { cursor: pointer; }
     .channel-editor .collapse { width: 32px; height: 32px; flex-basis: 32px; }
     .channel-editor .p-spacer { width: 32px; flex-basis: 32px; }
     .channel-editor .tri { width: 22px; height: 22px; flex: 0 0 22px; }
+    .channel-editor .p-spacer.p-box-spacer { width: 22px; flex-basis: 22px; }
+    .channel-editor .picker-empty.p-reason { padding-left: 2.25rem; }
     .channel-editor .p-speaker .badges { width: 100%; padding-left: calc(22px + .5rem + 8px + .5rem); margin-top: -.5rem; padding-bottom: .375rem; }
     .channel-editor .p-speaker .badges:empty { display: none; }
 }
@@ -3191,6 +3200,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .sps-addr { min-width: 0; font-size: .75rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sps-addr.eid { color: var(--text-muted); }
 .sps-test, .sps-use { justify-self: center; }
+.sps-reason { padding: .75rem 0 .75rem 2.75rem; font-size: .875rem; }
 .sps-more { position: relative; }
 .modal.sp-as { width: var(--sp-card); max-width: 100%; min-width: 0; box-sizing: border-box; }
 .sp-as .modal-header { padding: .625rem .75rem .625rem 1.25rem; }

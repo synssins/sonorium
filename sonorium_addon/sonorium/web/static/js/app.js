@@ -374,6 +374,8 @@ function showView(viewName) {
     if (viewName === 'settings-audio') renderAudioSettings();
     if (viewName === 'settings-speakers') {
         renderSettingsSpeakerTree();
+        // Plugins' output types list their devices again
+        loadOutputTypes().then(() => { if (currentView === 'settings-speakers') renderSettingsSpeakerTree(); });
     }
     if (viewName === 'settings-groups') renderSettingsGroupsList();
     if (viewName === 'settings-plugins') renderPluginsView();
@@ -524,7 +526,7 @@ function renderSessionCard(session) {
             </div>
             ${chRecentHtml(session)}
             <div class="ch-foot">
-                <button type="button" class="btn ${isPlaying ? 'btn-danger' : 'btn-primary'} ch-play" onclick="togglePlayback(${spArg(id)})">${isPlaying ? `${CH_ICON_STOP}Stop` : `${CH_ICON_PLAY}Play`}</button>
+                <button type="button" class="btn ${isPlaying ? 'btn-danger' : 'btn-primary'} ch-play" onclick="togglePlayback(${spArg(id)}, this)">${isPlaying ? `${CH_ICON_STOP}Stop` : `${CH_ICON_PLAY}Play`}</button>
             </div>
             </div>
         </div>
@@ -910,7 +912,7 @@ const availableIcons = [
     '✨', '🌈', '💎', '🕯️', '🔔'
 ];
 
-async function togglePlayback(sessionId) {
+async function togglePlayback(sessionId, button = null) {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
 
@@ -923,8 +925,31 @@ async function togglePlayback(sessionId) {
         await loadSessions();
         renderSessions();
     } catch (error) {
+        if (error.takeOver && button && await askPlayTakeOver(session, button)) return;
         showToast(error.message, 'error');
     }
+}
+
+// Play on a local device while another channel plays one: Move asks first, then plays with take_over
+async function askPlayTakeOver(session, button) {
+    await loadSpeakerHierarchy();
+    const inUse = localInUse(session.id);
+    const device = (session.speakers || []).map(findHierarchySpeaker).find(s => s && localChooseOne(s) && isSpeakerEnabled(s.entity_id));
+    if (!inUse || !device || !button.isConnected) return false;
+    spConfirm(`play-move:${session.id}`, button, {
+        title: `Move “${device.name}” to ${session.name}?`,
+        sub: `${inUse.channel.name} stops playing on it and keeps its other speakers.`,
+        ok: 'Move'
+    }, async () => {
+        try {
+            await api('POST', `/sessions/${session.id}/play`, { take_over: true });
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+        await loadSessions();
+        renderSessions();
+    });
+    return true;
 }
 
 async function updateSessionTheme(sessionId, themeId) {
@@ -1207,7 +1232,9 @@ function openNewSessionModal() {
 
     resetChannelEditorSearch();
     renderThemeSelector();
+    chTakeOver = false;
     renderSpeakerTree();
+    refreshPickerOutputs();
     renderSpeakerGroupSelect();
     Sonorium.channelEditorOpen(null);  // plugins' fields (slots.js)
 
@@ -1248,7 +1275,9 @@ function editSession(sessionId) {
 
     resetChannelEditorSearch();
     renderThemeSelector();
+    chTakeOver = false;
     renderSpeakerTree();
+    refreshPickerOutputs();
     renderSpeakerGroupSelect();
 
     // Load presets for the selected theme
@@ -1261,6 +1290,12 @@ function editSession(sessionId) {
 
     document.getElementById('session-modal').classList.add('active');
     scrollSelectedThemeIntoView();
+}
+
+// The picker's output device sections: listed again, then shown again while the editor is open
+async function refreshPickerOutputs() {
+    await loadOutputTypes();
+    if (document.getElementById('session-modal')?.classList.contains('active') && spm.id === null) renderSpeakerTree();
 }
 
 function resetChannelEditorSearch() {
@@ -1328,6 +1363,8 @@ async function saveSession() {
 
     // Only set custom_name if user provided one (otherwise auto-generate)
     if (customName) data.custom_name = customName;
+    // Move: its local device is taken from the channel playing one
+    if (chTakeOver && !selectedSpeakerGroupId) data.take_over = true;
 
     try {
         let sessionId = editId;
@@ -1596,9 +1633,28 @@ function isSpeakerEnabled(entityId) {
     return (enabledSpeakers || []).includes(entityId);
 }
 
-// Channel picker: switched-on speakers that are online
+// Channel picker: switched-on speakers that are online (a plugin's output devices have their own sections)
 function getEnabledSpeakersInArea(area) {
-    return (area.speakers || []).filter(s => isSpeakerEnabled(s.entity_id) && s.online !== false);
+    return (area.speakers || []).filter(s => isSpeakerEnabled(s.entity_id) && s.online !== false && !isOutputDevice(s));
+}
+
+// Output devices put in an area: a channel playing the area plays them too
+function areaDeviceIds(area) {
+    return (area.speakers || []).filter(s => isOutputDevice(s) && isSpeakerEnabled(s.entity_id)).map(s => s.entity_id);
+}
+
+// The areas a stored selection plays: its areas and its floors' areas, less the excluded areas
+function selectionAreas(sel) {
+    const areas = [];
+    for (const floor of speakerHierarchy?.floors || []) {
+        for (const area of floor.areas || []) {
+            if (sel.floors.includes(floor.floor_id) || sel.areas.includes(area.area_id)) areas.push(area);
+        }
+    }
+    for (const area of speakerHierarchy?.unassigned_areas || []) {
+        if (sel.areas.includes(area.area_id)) areas.push(area);
+    }
+    return areas.filter(area => !sel.excludeAreas.includes(area.area_id));
 }
 
 function getEnabledAreasInFloor(floor) {
@@ -1633,6 +1689,7 @@ function getEffectiveSpeakerSelection() {
     for (const area of allPickerAreas()) {
         if (selectedSpeakers.areas.includes(area.area_id)) areaSpeakerIds(area).forEach(id => selected.add(id));
     }
+    selectionAreas(selectedSpeakers).forEach(area => areaDeviceIds(area).forEach(id => selected.add(id)));
     selectedSpeakers.speakers.forEach(id => selected.add(id));
     for (const area of allPickerAreas()) {
         if (selectedSpeakers.excludeAreas.includes(area.area_id)) areaSpeakerIds(area).forEach(id => selected.delete(id));
@@ -1666,6 +1723,13 @@ function setEffectiveSpeakerSelection(selected) {
         }
     }
     (speakerHierarchy?.unassigned_areas || []).forEach(takeArea);
+    // Output devices in a stored area: excluded unless picked (they're picked in their own sections)
+    for (const area of selectionAreas(result)) {
+        for (const id of areaDeviceIds(area)) {
+            if (remaining.has(id)) remaining.delete(id);
+            else result.excludeSpeakers.push(id);
+        }
+    }
     result.speakers = [...remaining];
     selectedSpeakers = result;
 }
@@ -1688,6 +1752,8 @@ const SPEAKER_TYPE_LABELS = {
 };
 
 function speakerBadges(speaker, long = false) {
+    // A plugin's output device: its audio system, as the plugin names it
+    if (isOutputDevice(speaker)) return speaker.output.api ? `<span class="badge badge-type">${escapeHtml(speaker.output.api)}</span>` : '';
     const sources = (speaker.source || []).map(source => {
         const badge = SOURCE_BADGES[source];
         return badge ? `<span class="${badge.cls}">${long ? badge.long : badge.short}</span>` : '';
@@ -1713,6 +1779,71 @@ function allHierarchySpeakers() {
 
 function findHierarchySpeaker(entityId) {
     return allHierarchySpeakers().find(s => s.entity_id === entityId) || null;
+}
+
+// ---------- Plugins' audio output devices (core/audio_outputs.py) ----------
+// Each output type a plugin registers is a section in Settings › Speakers and in the channel
+// editor's picker; its devices are speakers with an "output" dict. Devices of a local type are
+// hardware of the machine Sonorium runs on: one of them plays at a time (choose-one), unless
+// Settings › Plugins ⋯ › Allow output to more than one local device is on.
+let outputTypes = [];             // POST /api/audio-outputs/discover
+let allowMultipleLocal = false;   // GET /api/settings: allow_multiple_local_outputs
+let outputsLoading = null;
+
+function isOutputDevice(speaker) {
+    return !!(speaker && speaker.output);
+}
+
+function localChooseOne(speaker) {
+    return !!(speaker && speaker.output && speaker.output.local) && !allowMultipleLocal;
+}
+
+// Every type lists its devices again, then the speakers are read again (online, playing)
+async function loadOutputTypes() {
+    if (!outputsLoading) {
+        outputsLoading = (async () => {
+            try {
+                outputTypes = (await api('POST', '/audio-outputs/discover')).types || [];
+                await loadSpeakerHierarchy();
+            } catch (error) {
+                outputTypes = [];  // no audio outputs here, or not allowed to list them
+            }
+        })().finally(() => { outputsLoading = null; });
+    }
+    return outputsLoading;
+}
+
+// The sections: each registered type, then devices remembered from a type that isn't registered now
+function outputSections() {
+    // The system's default device first, then by name
+    const devices = allHierarchySpeakers().filter(isOutputDevice)
+        .sort((a, b) => (b.output.is_default - a.output.is_default) || (a.name || '').localeCompare(b.name || ''));
+    const sections = outputTypes.map(t => ({
+        id: t.id, title: t.title || t.id, local: !!t.local, available: t.available !== false,
+        reason: t.available === false ? (t.message || '') : (t.error || ''),
+        devices: devices.filter(d => d.output.type === t.id)
+    }));
+    for (const d of devices) {
+        if (sections.some(s => s.id === d.output.type)) continue;
+        sections.push({ id: d.output.type, title: d.output.type_title || d.output.type, local: !!d.output.local,
+            available: true, reason: '', devices: devices.filter(x => x.output.type === d.output.type) });
+    }
+    return sections;
+}
+
+// The other channel playing on a device now (null: none, or only this channel)
+function deviceInUseBy(speaker, sessionId) {
+    const other = (speaker.output?.playing || []).find(id => id !== sessionId);
+    return other ? (sessions.find(s => s.id === other) || { id: other, name: other }) : null;
+}
+
+// One local device at a time: the local device another channel plays now, and that channel
+function localInUse(sessionId) {
+    for (const speaker of allHierarchySpeakers().filter(s => localChooseOne(s))) {
+        const other = deviceInUseBy(speaker, sessionId);
+        if (other) return { speaker, channel: other };
+    }
+    return null;
 }
 
 // Floors collapsed in the channel speaker picker, remembered in this browser
@@ -1832,7 +1963,7 @@ function renderSpeakerTree() {
     html += renderPickerFloor(OTHER_AREAS_ID, 'Other areas', otherAreas, pickerFloorIds(OTHER_AREAS_ID), selected, query);
 
     const unassigned = (speakerHierarchy.unassigned_speakers || [])
-        .filter(s => isSpeakerEnabled(s.entity_id) && pickerMatches(s, query));
+        .filter(s => isSpeakerEnabled(s.entity_id) && pickerMatches(s, query) && !isOutputDevice(s));
     if (unassigned.length > 0) {
         html += `
             <div class="p-unassigned">
@@ -1840,6 +1971,9 @@ function renderSpeakerTree() {
                 ${unassigned.map(s => renderPickerSpeaker(s, selected)).join('')}
             </div>`;
     }
+
+    // A section per plugin output type, below the floors
+    html += outputSections().map(section => renderPickerOutputs(section, selected, query)).join('');
 
     if (!html) {
         html = query
@@ -1859,10 +1993,99 @@ function renderSpeakerTree() {
     updateSpeakerSummary(selected);
 }
 
+// The editor's channel: the one being edited, or the name typed for a new one
+function editorChannel() {
+    const id = document.getElementById('edit-session-id')?.value || '';
+    const name = (document.getElementById('session-name')?.value || '').trim()
+        || (sessions.find(s => s.id === id)?.name) || 'this channel';
+    return { id, name };
+}
+
+// A plugin output type's section: its switched-on, online devices; local ones choose-one (round boxes)
+function renderPickerOutputs(section, selected, query) {
+    const key = `out:${section.id}`;
+    const open = !collapsedPickerFloors[key] || !!query;
+    const chooseOne = section.local && !allowMultipleLocal;
+    const collapse = `<button type="button" class="collapse${open ? '' : ' closed'}" data-floor="${escapeHtml(key)}"
+                aria-label="${open ? 'Collapse' : 'Expand'} ${escapeHtml(section.title)}" aria-expanded="${open}"
+                onclick="togglePickerFloor(this.dataset.floor)">${COLLAPSE_ICON}</button>`;
+    const spacer = '<span class="p-spacer p-box-spacer"></span>';
+    if (!section.available || !section.devices.length) {
+        if (!section.reason || query) return '';
+        return `
+            <div class="p-unassigned p-out">
+                <div class="p-row p-floor">${collapse}${spacer}<span class="p-name">${escapeHtml(section.title)}</span></div>
+                ${open ? `<div class="picker-empty p-reason">${escapeHtml(section.reason)}</div>` : ''}
+            </div>`;
+    }
+    const shown = section.devices.filter(s => isSpeakerEnabled(s.entity_id) && pickerMatches(s, query));
+    if (!shown.length) return '';
+    const ids = section.devices.filter(s => isSpeakerEnabled(s.entity_id) && s.online !== false).map(s => s.entity_id);
+    const channel = editorChannel();
+    const head = chooseOne
+        ? `${spacer}<span class="p-name">${escapeHtml(section.title)}</span>`
+        : `<label class="p-label">${pickerCheckbox(selectionState(ids, selected), 'otype', section.id, section.title)}
+                <span class="p-name">${escapeHtml(section.title)}</span></label>`;
+    const rows = shown.map(speaker => {
+        const id = speaker.entity_id;
+        const picked = selected.has(id);
+        const busy = chooseOne && !picked ? deviceInUseBy(speaker, channel.id) : null;
+        const box = chooseOne
+            ? `<input type="radio" class="tri" name="p-local" data-kind="device" data-id="${escapeHtml(id)}" aria-label="${escapeHtml(speaker.name)}"
+                      ${picked ? 'checked' : ''} onchange="onPickerLocal(this)">`
+            : pickerCheckbox(picked ? 'all' : 'none', 'speaker', id, speaker.name);
+        return `
+            <label class="p-row p-speaker" data-id="${escapeHtml(id)}">
+                ${box}
+                ${onlineDot(speaker)}
+                <span class="p-name">${escapeHtml(speaker.name)}</span>
+                ${busy ? `<span class="p-busy">${escapeHtml(`In use by ${busy.name}`)}</span>` : `<span class="badges">${speakerBadges(speaker)}</span>`}
+            </label>`;
+    }).join('');
+    return `
+        <div class="p-unassigned p-out">
+            <div class="p-row p-floor">${collapse}${head}${pickerCount(ids, selected)}</div>
+            ${open ? rows : ''}
+        </div>`;
+}
+
+// The channel editor's Move: saving takes the local device from the channel playing one
+let chTakeOver = false;
+
+// A local device picked (choose-one): it replaces the channel's other local device. While another
+// channel plays a local device, Move asks first.
+function onPickerLocal(radio) {
+    const id = radio.dataset.id;
+    const pick = () => {
+        const selected = getEffectiveSpeakerSelection();
+        allHierarchySpeakers().filter(s => localChooseOne(s)).forEach(s => selected.delete(s.entity_id));
+        selected.add(id);
+        setEffectiveSpeakerSelection(selected);
+        renderSpeakerTree();
+    };
+    const channel = editorChannel();
+    const inUse = chTakeOver ? null : localInUse(channel.id);
+    if (!inUse) {
+        pick();
+        return;
+    }
+    const speaker = findHierarchySpeaker(id);
+    spConfirm(`out-move:${id}`, radio.closest('.p-row'), {
+        title: `Move “${speaker ? speaker.name : id}” to ${channel.name}?`,
+        sub: `${inUse.channel.name} stops playing on it and keeps its other speakers.`,
+        ok: 'Move',
+        onCancel: () => renderSpeakerTree()
+    }, () => {
+        chTakeOver = true;
+        pick();
+    });
+}
+
 function renderSpeakerChips(selected) {
     const container = document.getElementById('speaker-chips');
     if (!container) return;
-    const known = allHierarchySpeakers();
+    // Output devices after the speakers
+    const known = allHierarchySpeakers().sort((a, b) => isOutputDevice(a) - isOutputDevice(b));
     const knownIds = new Set(known.map(s => s.entity_id));
     const chips = known.filter(s => selected.has(s.entity_id) && s.online !== false).map(s => [s.entity_id, s.name])
         .concat([...selected].filter(id => !knownIds.has(id)).map(id => [id, id]));
@@ -1875,7 +2098,14 @@ function onPickerToggle(checkbox) {
     const { kind, id } = checkbox.dataset;
     if (kind === 'floor') toggleSpeakerIds(pickerFloorIds(id), checkbox.checked);
     else if (kind === 'area') toggleArea(id, checkbox.checked);
+    else if (kind === 'otype') toggleSpeakerIds(outputTypeIds(id), checkbox.checked);
     else toggleSpeaker(id, checkbox.checked);
+}
+
+// A non-local output type's header box: its switched-on, online devices
+function outputTypeIds(typeId) {
+    const section = outputSections().find(s => s.id === typeId);
+    return section ? section.devices.filter(s => isSpeakerEnabled(s.entity_id) && s.online !== false).map(s => s.entity_id) : [];
 }
 
 function toggleSpeakerIds(ids, checked) {
@@ -1905,8 +2135,14 @@ function clearSpeakerSelection() {
 
 function updateSpeakerSummary(selected = getEffectiveSpeakerSelection()) {
     const count = selected.size;
+    const devices = [...selected].filter(id => isOutputDevice(findHierarchySpeaker(id))).length;
+    const speakers = count - devices;
     const summary = document.getElementById('speaker-summary');
-    if (summary) summary.textContent = `${count} speaker${count === 1 ? '' : 's'} selected`;
+    if (summary) {
+        summary.textContent = devices
+            ? `${speakers} speaker${speakers === 1 ? '' : 's'} and ${devices} device${devices === 1 ? '' : 's'} selected`
+            : `${count} speaker${count === 1 ? '' : 's'} selected`;
+    }
     const label = document.getElementById('speaker-label-summary');
     if (label) {
         const group = selectedSpeakerGroupId && speakerGroups.find(g => g.id === selectedSpeakerGroupId);
@@ -5192,6 +5428,7 @@ async function loadAudioSettings() {
                 master_gain: result.master_gain ?? AUDIO_DEFAULTS.master_gain
             };
             audioDraft = { ...audioSettings };
+            allowMultipleLocal = !!result.allow_multiple_local_outputs;
         }
     } catch (error) {
         console.log('Could not load audio settings, using defaults');
@@ -5909,19 +6146,55 @@ function allSpeakerRooms() {
 }
 
 function settingsSpeakerGroups() {
+    // A plugin's output devices are in their type's section (after the areas), whatever their area
     const groups = [];
+    const add = (key, title, speakers) => {
+        const list = (speakers || []).filter(s => !isOutputDevice(s));
+        if (list.length) groups.push({ key, title, speakers: list });
+    };
     for (const floor of speakerHierarchy?.floors || []) {
-        for (const area of floor.areas || []) {
-            if ((area.speakers || []).length) groups.push({ key: area.area_id, title: `${floor.name} · ${area.name}`, speakers: area.speakers });
-        }
+        for (const area of floor.areas || []) add(area.area_id, `${floor.name} · ${area.name}`, area.speakers);
     }
-    for (const area of speakerHierarchy?.unassigned_areas || []) {
-        if ((area.speakers || []).length) groups.push({ key: area.area_id, title: area.name, speakers: area.speakers });
-    }
-    if ((speakerHierarchy?.unassigned_speakers || []).length) {
-        groups.push({ key: '__none__', title: 'No area', speakers: speakerHierarchy.unassigned_speakers });
-    }
+    for (const area of speakerHierarchy?.unassigned_areas || []) add(area.area_id, area.name, area.speakers);
+    add('__none__', 'No area', speakerHierarchy?.unassigned_speakers);
     return groups;
+}
+
+// Settings › Speakers: a plugin output type's section (its devices as speaker rows, or why it can't be used)
+function renderSettingsOutputSection(section, query, rooms) {
+    const key = `out:${section.id}`;
+    const open = !spkClosed[key];
+    const title = escapeHtml(section.title);
+    const chev = `<button type="button" class="chev-btn${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${title}" onclick="toggleSpeakerSection(${spArg(key)})">${SP_ICON_CHEV}</button>
+                    <span class="trk-name sps-gtitle" title="${title}"><span class="mq-in">${title}</span></span>`;
+    if (!section.available || !section.devices.length) {
+        if (!section.reason || query || speakerSourceFilter !== 'all') return '';
+        return `
+            <div class="sps-sec${open ? ' open' : ''}">
+                <div class="sps-fhead sps-grid">
+                    ${chev}
+                    <span class="sp-muted sps-fh-count"></span>
+                    <span class="sps-fh-gap"></span><span class="sps-fh-gap"></span>
+                    <span class="sp-muted c sps-fh-on"></span>
+                    <span class="sps-fh-gap"></span>
+                </div>
+                ${open ? `<div class="sp-muted sps-reason">${escapeHtml(section.reason)}</div>` : ''}
+            </div>`;
+    }
+    const rows = section.devices.filter(s => speakerMatchesSettingsFilter(s, query));
+    if (!rows.length) return '';
+    const on = rows.filter(s => isSpeakerEnabled(s.entity_id)).length;
+    return `
+        <div class="sps-sec${open ? ' open' : ''}">
+            <div class="sps-fhead sps-grid">
+                ${chev}
+                <span class="sp-muted sps-fh-count">${spPlural(rows.length, 'speaker')}</span>
+                <span class="sps-fh-gap"></span><span class="sps-fh-gap"></span>
+                <span class="sp-muted c sps-fh-on">${on} of ${rows.length} on</span>
+                <span class="sps-fh-gap"></span>
+            </div>
+            ${open ? rows.map(s => renderSettingsSpeakerRow(s, rooms)).join('') : ''}
+        </div>`;
 }
 
 // Settings > Speakers view option: hide offline devices (view only; doesn't
@@ -6004,7 +6277,7 @@ function renderSettingsSpeakerTree() {
                 </div>
                 ${open ? rows.map(s => renderSettingsSpeakerRow(s, rooms)).join('') : ''}
             </div>`;
-    }).join('');
+    }).join('') + outputSections().map(section => renderSettingsOutputSection(section, query, rooms)).join('');
 
     lhead.hidden = !html;
     if (html) {
@@ -6069,7 +6342,8 @@ function renderSettingsSpeakerRow(speaker, rooms) {
     }
     const offsetOptions = offsets.map(v => `<option value="${v}" ${v === offset ? 'selected' : ''}>${formatOffset(v)}</option>`).join('');
     const testing = !!spkTesting[id];
-    const address = escapeHtml(speaker.address || id);
+    const device = isOutputDevice(speaker);
+    const address = device ? (speaker.output.is_default ? 'Default' : '') : escapeHtml(speaker.address || id);
     const nameCell = spkEditId === id
         ? `<input class="sp-inp sm sps-nm-inp" type="text" maxlength="100" enterkeyhint="done" aria-label="Name"
                   placeholder="${escapeHtml(speaker.original_name || speaker.name)}" value="${name}"
@@ -6082,7 +6356,7 @@ function renderSettingsSpeakerRow(speaker, rooms) {
             <span class="channel-status${online ? ' active' : ''} sps-dot" title="${online ? 'Online' : 'Offline'}" role="img" aria-label="${online ? 'Online' : 'Offline'}"></span>
             <div class="sps-namecell">${nameCell}</div>
             <div class="badges sps-src">${speakerBadges(speaker)}</div>
-            <span class="sps-addr${speaker.address ? '' : ' eid'}" title="${address}">${address}</span>
+            <span class="sps-addr${speaker.address || device ? '' : ' eid'}" title="${address}">${address}</span>
             <select class="sp-inp sm sps-area" aria-label="Area for ${name}" onchange="saveSpeakerRoom(this)">${roomOptions}</select>
             <select class="sp-inp sm sps-off" aria-label="Volume offset for ${name}" title="Volume offset" onchange="saveSpeakerOffset(this)">${offsetOptions}</select>
             <button type="button" class="icon-btn sm sps-test${testing ? ' busy' : ''}" title="${testing ? 'Playing…' : 'Play a short test sound'}"
@@ -6208,6 +6482,9 @@ function openSpeakerMenu(button) {
             `<button type="button" class="mi${value === via ? ' cur' : ''}" role="menuitemradio" aria-checked="${value === via}" onclick="setSpeakerPlayVia(${spArg(id)}, ${spArg(value)})"><span class="rad">${value === via ? '●' : ''}</span>${escapeHtml(label)}</button>`
         ).join('');
     }
+    if (isOutputDevice(speaker) && speaker.online === false) {
+        html += `<div class="msep"></div><button type="button" class="mi danger" role="menuitem" onclick="askRemoveOutputDevice(${spArg(id)})">${SP_ICON_TRASH}Remove…</button>`;
+    }
     if (manualIds.length) {
         html += '<div class="msep"></div>' + manualIds.map(manualId =>
             `<button type="button" class="mi danger" role="menuitem" onclick="askRemoveManualSpeaker(${spArg(id)}, ${spArg(manualId)})">${SP_ICON_TRASH}${isManual ? 'Remove…' : 'Remove the address added manually…'}</button>`
@@ -6233,6 +6510,23 @@ function askRemoveManualSpeaker(id, manualId) {
     }, () => removeManualSpeaker(manualId));
 }
 
+// An offline output device: forgotten, and taken out of the channels that have it
+function askRemoveOutputDevice(id) {
+    const speaker = findHierarchySpeaker(id);
+    spConfirm(`spk-rm:${id}`, spMenuAnchor(), { title: `Remove “${speaker ? speaker.name : id}”?`, ok: 'Remove', danger: true },
+        () => removeOutputDevice(id));
+}
+
+async function removeOutputDevice(id) {
+    try {
+        await api('DELETE', `/audio-outputs/speakers/${encodeURIComponent(id)}`);
+        await Promise.all([loadSpeakerHierarchy(), loadEnabledSpeakers()]);
+    } catch (error) {
+        showToast(error.message || 'Failed to remove speaker', 'error');
+    }
+    renderSettingsSpeakerTree();
+}
+
 async function removeManualSpeaker(manualId) {
     try {
         await api('DELETE', `/speakers/manual/${encodeURIComponent(manualId)}`);
@@ -6250,7 +6544,8 @@ async function rescanSpeakers() {
     renderSpeakerToolbar();
     try {
         const result = await api('POST', '/speakers/refresh');
-        await Promise.all([loadSpeakerHierarchy(), loadEnabledSpeakers(), loadNetworkInfo()]);
+        await Promise.all([loadOutputTypes(), loadEnabledSpeakers(), loadNetworkInfo()]);
+        await loadSpeakerHierarchy();
         const total = result.total_speakers || 0;
         showToast(`Found ${total} speaker${total === 1 ? '' : 's'}`, 'success');
     } catch (error) {
@@ -7352,7 +7647,23 @@ function askUninstallPlugin(pluginId) {
 }
 
 function openPluginsPageMenu(button) {
-    spMenu('plg-page', button, `<button type="button" class="mi" role="menuitem" onclick="openPluginRequirements()">${SP_ICON_DOC}Plugin requirements…</button>`);
+    spMenu('plg-page', button, `<button type="button" class="mi" role="menuitem" onclick="openPluginRequirements()">${SP_ICON_DOC}Plugin requirements…</button>
+        <div class="msep"></div>
+        <button type="button" class="mi" role="menuitemcheckbox" aria-checked="${allowMultipleLocal}" onclick="toggleMultipleLocal(this)">Allow output to more than one local device<span class="sw${allowMultipleLocal ? ' on' : ''}"></span></button>`);
+}
+
+async function toggleMultipleLocal(item) {
+    const on = !allowMultipleLocal;
+    try {
+        const result = await api('PUT', '/settings', { allow_multiple_local_outputs: on });
+        allowMultipleLocal = !!result.allow_multiple_local_outputs;
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+    if (item && item.isConnected) {
+        item.setAttribute('aria-checked', String(allowMultipleLocal));
+        item.querySelector('.sw')?.classList.toggle('on', allowMultipleLocal);
+    }
 }
 
 function openPluginRequirements() {
@@ -7508,7 +7819,7 @@ function spUpdateMarquees(root) {
 }
 
 // ---------- Floating menu / confirm ----------
-const spm = { id: null, btn: null, onOk: null };
+const spm = { id: null, btn: null, onOk: null, onCancel: null };
 
 function spPlacePop(pop, button) {
     const r = button.getBoundingClientRect();
@@ -7546,6 +7857,8 @@ function spOpenPop(id, button, cls, html, role) {
 }
 
 function spClosePop() {
+    const onCancel = spm.onCancel;
+    spm.onCancel = null;
     const pop = document.getElementById('sp-menu');
     if (pop && !pop.hidden) {
         pop.hidden = true;
@@ -7556,6 +7869,7 @@ function spClosePop() {
     spm.id = null;
     spm.btn = null;
     spm.onOk = null;
+    if (onCancel) onCancel();
 }
 
 function spMenu(id, button, html) {
@@ -7564,7 +7878,7 @@ function spMenu(id, button, html) {
 }
 
 // Small "Are you sure?" popover next to the button that asked
-function spConfirm(id, button, { title, sub = '', ok, danger = false }, onOk) {
+function spConfirm(id, button, { title, sub = '', ok, danger = false, onCancel = null }, onOk) {
     const pop = spOpenPop(id, button, 'sp-confirm', `
         <span class="pop-title">${escapeHtml(title)}</span>
         ${sub ? `<span class="pop-sub">${escapeHtml(sub)}</span>` : ''}
@@ -7574,11 +7888,13 @@ function spConfirm(id, button, { title, sub = '', ok, danger = false }, onOk) {
         </div>`, 'alertdialog');
     if (!pop) return;
     spm.onOk = onOk;
+    spm.onCancel = onCancel;
     pop.querySelector('.pop-acts .btn:last-child').focus();
 }
 
 function spConfirmOk() {
     const onOk = spm.onOk;
+    spm.onCancel = null;
     spClosePop();
     if (onOk) onOk();
 }
