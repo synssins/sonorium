@@ -25,13 +25,15 @@ Home Assistant doesn't build the add-on on the device: `config.yaml` has
 image for the version in `config.yaml`. That image has to exist before HA hears
 about the version, so the workflow runs in this order:
 
-1. **Make release commit**: the version commit and its `addon-v*` tag are made
-   on the runner. Nothing is pushed yet.
-2. **Add-on images**: the add-on is built from that commit for each
-   architecture (`amd64`, `aarch64`) and pushed as `:<version>`.
-3. **Push release commit**: runs only if every image was pushed. The version
-   commit and tag go to the branch, and HA can now offer the update. If a build
-   failed, the branch keeps its old version and nothing is offered.
+1. **Make release commit**: the version commit is made, and only its
+   `addon-v*` tag is pushed. The tag reserves the number (all branches share
+   the `-dev.N` count); HA reads branches, not tags, so nobody sees it yet.
+2. **Add-on images**: the add-on is built from that tag for each architecture
+   (`amd64`, `aarch64`) and pushed as `:<version>`.
+3. **Push release commit**: runs only if every image was pushed. The branch
+   moves to the version commit, and HA can now offer the update. If a build
+   failed, the branch keeps its old version, nothing is offered, and the tag
+   is deleted again.
 4. **Tags and the standalone image**: `:latest` (main), `:dev` (`fixes`) or
    `:branch-<name>` (any other branch) is moved to the new version, and the
    standalone image `ghcr.io/synssins/sonorium` is built as before.

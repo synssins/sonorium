@@ -5,11 +5,10 @@ name: Add-on Image
 # tagged with the add-on version. config.yaml's `image:` line makes Home
 # Assistant pull these instead of building the Dockerfile on the device.
 #
-# Called by "Add-on Version" BEFORE the release commit is pushed: it checks out
-# the commit below the release (`ref`) and lays the release commit's files
-# over it (`release_artifact`), so the image is the new version. Every branch
-# gets :<version>; "Add-on Version" moves :latest / :dev / :branch-<name> only
-# after the release commit is pushed.
+# Called by "Add-on Version" BEFORE the branch gets the release commit: it
+# builds the reserved addon-v<version> tag (`ref`). Every branch gets
+# :<version>; "Add-on Version" moves :latest / :dev / :branch-<name> only
+# after the branch has the release commit (`hold_branch_tag`).
 #
 # Run by hand, it rebuilds the version already on the branch and moves the
 # branch's tag too (main -> :latest, fixes -> :dev, others -> :branch-<name>).
@@ -21,13 +20,13 @@ on:
         type: string
         required: true
       ref:
-        description: 'Commit to check out (default: branch head)'
+        description: 'Commit or tag to check out (default: branch head)'
         type: string
         default: ''
-      release_artifact:
-        description: 'Artifact with files.tar, the release commit''s files'
-        type: string
-        default: ''
+      hold_branch_tag:
+        description: 'Push only :<version>; the caller moves :latest / :dev / :branch-<name>'
+        type: boolean
+        default: false
   workflow_dispatch:
 
 permissions:
@@ -64,33 +63,20 @@ jobs:
           ref: ${{ inputs.ref || inputs.branch || github.ref_name }}
           persist-credentials: false
 
-      - name: Get the release commit's files
-        if: inputs.release_artifact != ''
-        uses: actions/download-artifact@v4
-        with:
-          name: ${{ inputs.release_artifact }}
-          path: ${{ runner.temp }}/release
-
-      - name: Apply the release commit's files
-        if: inputs.release_artifact != ''
-        run: |
-          tar -xvf "$RUNNER_TEMP/release/files.tar"
-          echo "Building version $(cat sonorium_addon/sonorium/version)"
-
       - name: Work out tags
         id: meta
         env:
           BRANCH: ${{ inputs.branch || github.ref_name }}
           ARCH: ${{ matrix.arch }}
-          PRE_RELEASE: ${{ inputs.release_artifact != '' }}
+          HOLD: ${{ inputs.hold_branch_tag == true }}
         run: |
           version=$(cat sonorium_addon/sonorium/version)
           image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${ARCH}-addon-sonorium
           base=$(awk -v a="$ARCH:" '$1 == a {print $2}' sonorium_addon/build.yaml)
           [ -n "$base" ] || { echo "no base image for $ARCH in build.yaml"; exit 1; }
           tags="$image:$version"
-          # The moving tag waits for the release commit, unless that is already pushed
-          if [ "$PRE_RELEASE" != "true" ]; then
+          # The branch's tag waits until the release commit is on the branch
+          if [ "$HOLD" != "true" ]; then
             if [ "$BRANCH" = "main" ]; then
               tags="$tags,$image:latest"
             elif [ "$BRANCH" = "fixes" ]; then
