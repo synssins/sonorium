@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.47 (2026-10-12)
+
+### Bug Fixes
+
+- **web**: No dashboard-cards line without Home Assistant; Advanced tables share a column
+  ([`ebd9b59`](https://github.com/synssins/sonorium/commit/ebd9b59cf6f368be6de8576d3110b5908e3dcd8a))
+
+
 ## v1.6.2-dev.46 (2026-10-12)
 
 ### Continuous Integration
