@@ -1186,8 +1186,9 @@ function openNewSessionModal() {
     document.getElementById('modal-title').textContent = 'New Channel';
     document.getElementById('save-btn-text').textContent = 'Create Channel';
     document.getElementById('session-name').value = '';
-    document.getElementById('session-volume').value = 60;
-    document.getElementById('volume-display').textContent = '60%';
+    const startVolume = audioSettings.default_volume ?? AUDIO_DEFAULTS.default_volume;
+    document.getElementById('session-volume').value = startVolume;
+    document.getElementById('volume-display').textContent = `${startVolume}%`;
     document.getElementById('session-announcements').checked = true;
 
     selectedTheme = null;
