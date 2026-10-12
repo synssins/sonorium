@@ -591,6 +591,20 @@ class SessionManager:
         
         return channel
     
+    def channel_limit_refusal(self, session: Session) -> Optional[str]:
+        """
+        Why the session can't start now: every channel (Max channels) is in
+        use by other channels. None when it has a channel or one is free.
+        """
+        if not self.channel_manager or session.id in self._session_channels:
+            return None
+        if self.channel_manager.get_available_channel() is not None:
+            return None
+        limit = getattr(self.channel_manager, "max_channels", None) or len(self._session_channels)
+        if limit == 1:
+            return "1 channel is already playing (the most at once is 1). Stop it first."
+        return f"{limit} channels are already playing (the most at once is {limit}). Stop one first."
+
     def _release_channel(self, session_id: str):
         """Release a channel from a session."""
         channel_id = self._session_channels.pop(session_id, None)
@@ -1441,6 +1455,14 @@ class SessionManager:
                 logger.warning(f"  '{session.name}' not started: {e}")
                 self._start_failed(session, str(e))
                 return False
+        refusal = self.channel_limit_refusal(session)
+        if refusal:  # Max channels: never "playing" without a channel of its own
+            logger.warning(f"  '{session.name}' not started: {refusal}")
+            self._start_failed(session, refusal)
+            if session.is_playing:
+                session.is_playing = False
+                self.state.save()
+            return False
         self._fading.pop(session_id, None)# cancels a stop or pause still fading out
 
         # Not playing yet as far as the runner is concerned, so this only sets

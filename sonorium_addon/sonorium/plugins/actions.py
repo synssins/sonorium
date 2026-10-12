@@ -188,6 +188,9 @@ class Actions:
         self._theme(session.theme_id)
         if not self._sessions.get_resolved_speakers(session):
             raise ActionError("invalid", "The channel has no speakers")
+        refusal = self._sessions.channel_limit_refusal(session)
+        if refusal:
+            raise ActionError("conflict", refusal)
         with self._as_origin():
             ok = await self._sessions.play(channel_id)
         if not ok:
