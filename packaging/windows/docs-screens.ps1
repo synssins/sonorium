@@ -184,7 +184,7 @@ Shot-Screen 'tray-03-menu-on-screen' ($b.Width - 640) ($b.Height - 700) 640 700
 foreach ($page in 'Status', 'General', 'Folders', 'Connections', 'Updates', 'Logs', 'About') {
     Get-Process Sonorium -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep 2
     # The Updates page shows an available update: the console acts as an older version
-    $env:SONORIUM_PRETEND_VERSION = if ($page -eq 'Updates') { '1.7.0' } else { '' }
+    $env:SONORIUM_PRETEND_VERSION = if ($page -eq 'Updates') { '1.7.0-dev.1' } else { '' }
     $p = Start-Process $program -ArgumentList '--page', $page -PassThru
     $console = Wait-Window { param($h) [W]::Title($h) -eq 'Sonorium' -and (Rect $h).R - (Rect $h).L -gt 600 }
     Start-Sleep 6

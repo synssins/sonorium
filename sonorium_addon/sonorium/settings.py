@@ -110,9 +110,10 @@ def get_local_ip() -> str:
         ip = s.getsockname()[0]
         s.close()
         logger.debug(f"UDP socket returned IP: {ip}")
-        # Check if it's a Docker internal IP (172.x.x.x or 10.x.x.x ranges often used)
-        # These won't be reachable from external devices
-        if ip.startswith("172.") or ip.startswith("10."):
+        # Docker's own networks (172.16.0.0/12) aren't reachable from speakers; 10.x and
+        # 192.168.x are ordinary home networks
+        import ipaddress
+        if ipaddress.ip_address(ip) in ipaddress.ip_network("172.16.0.0/12"):
             if not runtime.STANDALONE:  # standalone explains this with the stream URL warning
                 logger.warning(f"Detected Docker internal IP: {ip} - speakers won't be able to reach this")
             return None  # Let caller handle fallback
@@ -198,7 +199,7 @@ class Settings(BaseSettings):
                 # Fallback if IP detection fails
                 self.stream_url = f"http://127.0.0.1:{self.stream_port}"
                 if runtime.STANDALONE:
-                    logger.warning("Stream URL not set. Set it under Settings -> Connection (e.g. http://<docker host IP>:<published port>) so speakers can reach Sonorium.")
+                    logger.warning("Couldn't find this computer's network address. Set the Stream URL under Settings -> Advanced (e.g. http://<this computer's address>:<port>) so speakers can reach Sonorium.")
                 else:
                     logger.error(f"IP detection failed! Using fallback: {self.stream_url}")
                     logger.error("Network speakers will NOT be able to connect. Check Supervisor API access.")
