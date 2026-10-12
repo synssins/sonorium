@@ -119,7 +119,7 @@ function Tick($hwnd, $name) {
     Start-Sleep 1
 }
 
-# --- installer wizard: for me only (up to the tasks page, then Cancel) ----------------------
+# --- installer wizard: for me only (up to the Ready page, then Cancel) ----------------------
 "Installer, for me only"
 $setup = Start-Process $Installer -PassThru
 $mode = Wait-Window { param($h) [W]::Title($h) -match 'Select Setup Install Mode' }
@@ -130,6 +130,8 @@ Click $wizard 'Next'
 Shot-Window $wizard 'install-me-03-location'
 Click $wizard 'Next'
 Shot-Window $wizard 'install-me-04-tasks'
+Click $wizard 'Next'
+Shot-Window $wizard 'install-me-05-ready'
 Click $wizard 'Cancel'
 $confirm = Wait-Window { param($h) [W]::Title($h) -match 'Exit Setup' }
 Click $confirm 'Yes'
