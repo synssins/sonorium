@@ -53,6 +53,12 @@ RestartApplications=no
 Name: "startup"; Description: "Start Sonorium when I sign in to Windows"
 Name: "service"; Description: "Run Sonorium as a Windows service (starts with Windows, before anyone signs in)"; Check: IsAdminInstallMode; Flags: unchecked
 
+[InstallDelete]
+; An update installs the program fresh: files a newer Sonorium no longer has (e.g. the old built-in
+; plugins) must not stay behind. Settings and data are elsewhere (ProgramData, the user's folders).
+Type: filesandordirs; Name: "{app}\app"
+Type: filesandordirs; Name: "{app}\python"
+
 [Files]
 Source: "{#Source}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
