@@ -13,6 +13,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from sonorium.paths import audio_dir
 from typing import Optional, Type
 
 from sonorium.plugins.base import BasePlugin
@@ -348,7 +349,7 @@ def instantiate_plugin(
         instance = plugin_class(
             plugin_dir=plugin_dir,
             settings=settings,
-            audio_path=audio_path or Path("/media/sonorium"),
+            audio_path=audio_path or audio_dir(),
         )
         logger.debug(f"Instantiated plugin: {instance.name} v{instance.version}")
         return instance

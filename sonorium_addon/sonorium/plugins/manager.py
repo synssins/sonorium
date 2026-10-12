@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from sonorium.paths import audio_dir
 from typing import TYPE_CHECKING, Optional
 
 from sonorium.plugins.base import BasePlugin
@@ -60,7 +61,7 @@ class PluginManager:
             host.manager = self
         self.state_store = state_store
         self.plugins_dir = plugins_dir
-        self.audio_path = audio_path or Path("/media/sonorium")
+        self.audio_path = audio_path or audio_dir()
         self.plugins: dict[str, BasePlugin] = {}
         # Plugins that can't run here (API version, capabilities, packages): id -> what Settings > Plugins shows
         self.refused: dict[str, dict] = {}
