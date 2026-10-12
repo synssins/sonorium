@@ -2,6 +2,26 @@
 
 <!-- version list -->
 
+> ## ⭐ 1.7.0: Sign-in, announcements and plugins
+>
+> Sonorium gets users and sign-in, plays announcements sent by other systems, and runs plugins that play sounds over channels. Sign-in is optional: an update changes nothing until you turn on Require login.
+
+### Highlights
+
+- **Sign-in:** users with two roles (Admin and User), Settings › Users & devices, keys for devices and programs (Settings › Keys), and Link App, a QR code that links the Sonorium app. In the Home Assistant app, Home Assistant's users are Sonorium's users: every Home Assistant user sees Sonorium in the sidebar with the role of their Home Assistant account. Require login is on for new installs and off after an update until you turn it on.
+- **HTTPS:** port 8808 serves the web UI and the API over HTTPS for the Sonorium app (self-signed certificate). Port 8008 is unchanged; speakers keep using it. Docker announces itself as `sonorium.local`.
+- **Announcements:** Home Assistant (a notify entity per channel), MQTT (`sonorium/announce/set`) and anything that can send a web request (`POST /api/announce` with a key) send a chime and/or words to speak; Sonorium plays them on the channels named, and a playing channel gets quieter while they play. Each channel has an Announcements switch, in Home Assistant too.
+- **Zones** (Settings › Advanced, off by default): channels that belong to a user, Kid mode and its hours, a home channel for each speaker, and linked channels that play one theme or playlist.
+- **Plugins:** plugin API 1.1 with sounds and announcements over channels, volume ramps, audio outputs, commands from remotes, MQTT and webhooks, and plugin packages (Settings › Advanced, off by default). Built-in plugins can be uninstalled; Theme Merge 2.0 and Ambient Mixer Importer 3.1 for the current theme format.
+- **Status:** Now playing shows each playing channel's tracks, with countdowns and levels; As heard follows the speakers' delay.
+- **Home Assistant dashboard cards:** added when Home Assistant and MQTT are linked; Tile, Channel, Player and All channels layouts.
+- **Settings › Advanced:** the playback values every theme is built on, each with its default.
+- **Layout:** phones, tablets and short screens each get a layout that fits; Settings tables follow the window width. In the Sonorium app, a Servers button in the top bar.
+- **Under the hood:** Sonorium is fully rewritten (no Amniotic code, no fmtr.tools), has its own repository, uses its own audio-only LGPL FFmpeg build with PyAV, and is licensed under PolyForm Noncommercial 1.0.0.
+- **Fixes:** hidden folders are no longer themes; an Ambient Mixer import keeps an edit saved during its download; Sonorium opens on Channels when the remembered page can't be opened.
+
+The full list is in the README under What's new.
+
 ## v1.6.2-dev.61 (2026-10-12)
 
 
