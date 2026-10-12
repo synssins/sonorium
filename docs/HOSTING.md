@@ -21,8 +21,8 @@ host decides which sockets are live.
 ## Restart: `SONORIUM_SUPERVISED`
 
 Restart in Settings > Advanced, and every setting that needs one (a change
-under Settings > Connection, the stream URL), stops Sonorium cleanly first:
-channels stop, plugins stop, open streams are closed after 5 seconds, and
+under Settings > Connection, the stream URL under Settings > Advanced), stops
+Sonorium cleanly first: channels stop, plugins stop, open streams are closed after 5 seconds, and
 the MQTT broker is told Sonorium is leaving. Then:
 
 - **With `SONORIUM_SUPERVISED=1`:** Sonorium exits with code **75**

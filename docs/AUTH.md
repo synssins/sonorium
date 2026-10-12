@@ -232,7 +232,7 @@ sonorium://pair?v=1&id=<server id>&n=Sonorium&h=<host>[,<host2>,...]&p=<http por
 ```
 
 - `h` lists the addresses to try, in order: first the one speakers use
-  (Settings › Connection's stream URL, or the detected one), never an ingress
+  (Settings › Advanced's stream URL, or the detected one), never an ingress
   address; then the server's other LAN IPv4 addresses (not loopback or
   Docker's internal networks); last its mDNS name (`sonorium.local`) when it
   is announced. `p` is the HTTP port speakers use.

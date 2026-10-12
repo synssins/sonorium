@@ -9906,7 +9906,7 @@ const PAGE_HELP = {
     settings: { title: 'Settings', html: `
         <p>Settings are split into pages. Pick one from the Settings menu.</p>
         <h4>Pages</h4>
-        ${helpTerm('Connection', 'Home Assistant, MQTT and the stream address. Shown when Sonorium runs outside Home Assistant.')}
+        ${helpTerm('Connection', 'Home Assistant and MQTT. Shown when Sonorium runs outside Home Assistant.')}
         ${helpTerm('Audio Settings', 'crossfade, default volume and output gain.')}
         ${helpTerm('Floors &amp; Areas', 'where your speakers are.')}
         ${helpTerm('Speakers', 'every speaker, with its area, volume offset and on/off switch.')}
@@ -9915,7 +9915,7 @@ const PAGE_HELP = {
         ${helpTerm('Logs', 'recent messages from Sonorium.')}
         ${helpTerm('Users &amp; devices', 'who can sign in, and their phones and browsers. Shown to admins.')}
         ${helpTerm('Keys', 'keys that let devices and programs use Sonorium. Shown to admins while Keys are on in Advanced.')}
-        ${helpTerm('Advanced', 'features you can switch on or off, and the values playback uses.')}` },
+        ${helpTerm('Advanced', 'features you can switch on or off, the values playback uses, and the stream address.')}` },
 
     'settings-connection': { title: 'Connection', html: `
         <p>Every system Sonorium connects to: Home Assistant and your MQTT broker, and the ones plugins add (marked Plugin).</p>
