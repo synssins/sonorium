@@ -80,6 +80,7 @@ body {
 }
 
 .nav-item[hidden] { display: none; }
+.nav-sub-item[hidden] { display: none; }
 
 .nav-item {
     display: flex;
@@ -174,7 +175,7 @@ body {
 }
 
 .nav-section.expanded .nav-sub-items {
-    max-height: 480px;  /* room for every Settings page */
+    max-height: 640px;  /* room for every Settings page (and Servers in the app) */
 }
 
 .nav-sub-item {
@@ -4292,6 +4293,22 @@ body.screen-on .sidebar, body.screen-on .main-wrapper, body.screen-on .mobile-to
     .main-header h2 { font-size: 1rem; }
     .main-header { order: -1; }  /* banners (e.g. Sign-in is off) go under the header row, clear of the menu and logo */
     body.tp-on .main-header { padding-top: 0; padding-bottom: 0; padding-left: calc(.75rem + 44px + .75rem + 106px + 1rem); }  /* Themes */
+}
+
+/* In the Sonorium app: the server button (APP_API.md 12.2.2). Desktop: last in the page header;
+   phone: right end of the top bar; short screens: last in the one-row header */
+.srv-btn { flex: 0 1 auto; min-width: 0; max-width: 260px; white-space: nowrap; }
+.srv-btn[hidden] { display: none !important; }
+.srv-btn svg { flex: none; }
+.srv-btn .srv-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mobile-topbar .srv-btn { display: none; }
+@media (max-width: 768px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
+    .main-header .srv-btn { display: none; }
+    .mobile-topbar .srv-btn { display: inline-flex; margin-left: auto; }
+}
+@media (max-height: 480px) {
+    .mobile-topbar .srv-btn { display: none; }
+    .main-header .srv-btn { display: inline-flex; order: 6; }  /* after the ? (order 5) */
 }
 
 /* Wide phone screens (foldable, landscape, portrait tablet): the card in two halves, one card per row */

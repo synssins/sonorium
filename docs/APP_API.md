@@ -1599,7 +1599,10 @@ window.SONORIUM_HOST = {
   setListenVolume(sessionId, volume) {}, // the card's volume slider while listening (0-100)
   download(url, filename) {},            // absolute URL; filename '' = take it from Content-Disposition
   unlinked(body) {},                     // a 401 with {"pair": true} from the server (called once)
-  showServers() {},                      // System › Servers in the menu: show the app's server list
+  server: { id: '...', name: 'Living room', address: '192.168.1.20' },
+                                         // the server the app is connected to: name = what the user named it
+                                         //   in the app (null when not named), address = the host it connects to
+  showServers() {},                      // the server button and Settings › Servers: show the app's server list
   on(event, handler) {},                 // the page registers: 'listening' {sessionId, playing}, 'refresh'
 };
 ```
@@ -1615,7 +1618,12 @@ What the page does with it:
 | Log download, theme export, HA cards download | `download(url, filename)` | `<a href>` / blob link |
 | `on('listening', {sessionId, playing})` | the card's Listen button follows the native player (e.g. paused from the lock screen) | |
 | `on('refresh')` | reloads the channels and redraws | |
-| Menu, System › Servers (after Status, `data-host="servers"`) | shown; a click closes the menu and calls `showServers()` | hidden |
+| Server button (`server` and `showServers()` both set) | a green button labelled `server.name`, or `server.address` when the name is null; a long label ends in "…" (the full label is its tooltip). Phone: right end of the top bar; short screens (height ≤ 480): last in the one-row header; desktop: last in the page header, after New Channel and ?. A click closes the menu and calls `showServers()` | hidden |
+| Menu, Settings › Servers (the last Settings item; same condition) | shown; a click closes the menu and calls `showServers()` | hidden |
+
+Both the button and Settings › Servers carry `data-host="servers"`: when the
+page has an element with that attribute, the app doesn't add its own Servers
+item.
 
 When the native player stops by itself, the app sends `DELETE
 /api/sessions/{id}/listen` itself and tells the page with
