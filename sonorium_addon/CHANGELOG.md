@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.2 (2026-10-12)
+
+### Bug Fixes
+
+- **security**: A theme zip can't write outside its theme folder [skip ci]
+  ([`4db752f`](https://github.com/synssins/sonorium/commit/4db752fb918c9a8956c72a32e8a2cf525fc7f20b))
+
+
 ## v1.7.1 (2026-10-12)
 
 ### Bug Fixes
