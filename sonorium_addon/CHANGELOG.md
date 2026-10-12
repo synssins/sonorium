@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.7.1-dev.10 (2026-10-12)
+
+### Bug Fixes
+
+- **windows**: Help opens the documentation (sonorium.app/docs.html)
+  ([`79c74a2`](https://github.com/synssins/sonorium/commit/79c74a2830aa59ee81112bd0cf08bbb73847cfca))
+
+### Continuous Integration
+
+- Build the Windows installer from the add-on's tag and release it
+  ([`26313e2`](https://github.com/synssins/sonorium/commit/26313e28f9557bd9c472dded8b12049c4a646a6b))
+
+### Documentation
+
+- **network**: Drop references to the retired Windows app
+  ([`ebd9d08`](https://github.com/synssins/sonorium/commit/ebd9d08edf31a9ce1612a6d450a8df20bf69624f))
+
+
 ## v1.7.1-dev.9 (2026-10-12)
 
 ### Bug Fixes
