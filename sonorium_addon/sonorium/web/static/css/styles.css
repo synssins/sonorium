@@ -28,7 +28,7 @@ body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
     background: var(--bg-primary);
     color: var(--text-primary);
-    min-height: 100vh;
+    min-height: calc(100vh / var(--zoom, 1));
     display: flex;
 }
 
@@ -40,7 +40,7 @@ body {
     display: flex;
     flex-direction: column;
     position: fixed;
-    height: 100vh;
+    height: calc(100vh / var(--zoom, 1));
     z-index: 100;
 }
 
@@ -219,7 +219,7 @@ body {
     min-width: 0;  /* never wider than the screen (e.g. a long row of chips) */
     display: flex;
     flex-direction: column;
-    min-height: 100vh;
+    min-height: calc(100vh / var(--zoom, 1));
 }
 
 .main-header {
@@ -900,7 +900,7 @@ body {
     width: auto;
     min-width: 400px;
     max-width: 90vw;
-    max-height: 90vh;
+    max-height: calc(90vh / var(--zoom, 1));
     overflow: hidden;
     display: flex;
     flex-direction: column;
@@ -947,13 +947,15 @@ body {
 
 /* New/Edit Channel: wide two-column editor. The dialog body doesn't scroll;
    only the theme list and the speaker list do. */
-.modal.channel-editor { width: min(1040px, 100%); height: min(760px, 92vh); min-width: 0; }
+.modal.channel-editor { width: min(1040px, 100%); height: min(760px, calc(92vh / var(--zoom, 1))); min-width: 0; }
 .channel-editor .modal-body { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 1.5rem; overflow: hidden; padding: 1.25rem; }
 .channel-editor .col { min-height: 0; display: flex; flex-direction: column; }
-.channel-editor .col-left { overflow: hidden; }
+.channel-editor .col-left { overflow: hidden auto; }
 .channel-editor .col .session-field { flex: 0 0 auto; }
 .channel-editor .col .session-field.grow { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin-bottom: 0; }
 .channel-editor .col-left .session-field.grow { margin-bottom: 1rem; }
+/* Short dialogs (e.g. tablets, 12.5 % larger): the theme list keeps its room; the column scrolls */
+.channel-editor .col-left .session-field.grow { min-height: 160px; }
 .channel-editor .picker-label-summary { display: none; }
 
 /* Theme panel: same box as the speaker picker; its list scrolls when it overflows */
@@ -1015,14 +1017,14 @@ label.p-row, .p-label { cursor: pointer; }
 .picker-foot { display: flex; justify-content: space-between; align-items: center; padding: .5rem .75rem; border-top: 1px solid var(--border-color); font-size: .8125rem; color: var(--text-secondary); }
 .link-btn { background: none; border: 0; color: var(--accent-primary); font: inherit; font-size: .8125rem; cursor: pointer; min-height: 32px; padding: 0 .25rem; }
 
-/* Phones: the editor becomes a full-screen sheet; one page scroll, header and save bar pinned */
-@media (max-width: 600px) {
+/* Phones and short screens: the editor becomes a full-screen sheet; one page scroll, header and save bar pinned */
+@media (max-width: 600px), (max-height: 480px) {
     #session-modal.modal-backdrop { padding: 0; }
     .modal.channel-editor { display: block; width: 100%; height: 100%; max-width: none; max-height: none; border-radius: 0; overflow-y: auto; }
     .channel-editor .modal-header { position: sticky; top: 0; z-index: 2; padding: .75rem 1rem; background: var(--bg-card); }
     .channel-editor .modal-body { display: block; overflow: visible; padding: 1rem; }
     .channel-editor .col, .channel-editor .col-left { display: block; overflow: visible; }
-    .channel-editor .col .session-field.grow { display: block; margin-bottom: 1rem; }
+    .channel-editor .col .session-field.grow { display: block; min-height: 0; margin-bottom: 1rem; }
     .channel-editor .picker-label-summary { display: inline; }
     .channel-editor .modal-footer { position: sticky; bottom: 0; display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; padding: .75rem 1rem; background: var(--bg-card); }
     .channel-editor .modal-footer .btn { min-height: 44px; justify-content: center; }
@@ -2178,7 +2180,7 @@ body.sidebar-open .sidebar-overlay {
 }
 
 /* Mobile */
-@media (max-width: 768px) {
+@media (max-width: 768px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .sidebar {
         transform: translateX(-100%);
         transition: transform 0.2s;
@@ -2243,7 +2245,7 @@ body.sidebar-open .sidebar-overlay {
 
 /* Settings > Logs (also used by the standalone /logs page) */
 .log-view {
-    height: calc(100vh - 14rem);
+    height: calc(100vh / var(--zoom, 1) - 14rem);
     min-height: 300px;
     overflow: auto;
     background: var(--bg-sidebar);
@@ -2419,7 +2421,7 @@ body.sidebar-open .sidebar-overlay {
     height: 32px;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .space-row {
         grid-template-columns: 1fr auto;
     }
@@ -2439,7 +2441,7 @@ body.sidebar-open .sidebar-overlay {
    track cards. Menus/popovers share one fixed-position element (.te-pop).
    ========================================================================== */
 .te-backdrop { padding: 1.5rem 2rem; }
-.modal.te { position: relative; width: min(960px, 100%); height: calc(100vh - 3rem); height: calc(100dvh - 3rem); max-width: none; max-height: none; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.modal.te { position: relative; width: min(960px, 100%); height: calc(100vh / var(--zoom, 1) - 3rem); height: calc(100dvh / var(--zoom, 1) - 3rem); max-width: none; max-height: none; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
 .te [hidden] { display: none !important; }
 .te .grow { flex: 1; }
 
@@ -2652,9 +2654,9 @@ body.sidebar-open .sidebar-overlay {
 }
 
 /* Phone: full-screen sheet, same sections; rows become stacked cards */
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .te-backdrop { padding: 0; }
-    .modal.te { width: 100%; height: 100vh; height: 100dvh; border-radius: 0; }
+    .modal.te { width: 100%; height: calc(100vh / var(--zoom, 1)); height: calc(100dvh / var(--zoom, 1)); border-radius: 0; }
     .te .modal-header { height: 52px; box-sizing: border-box; padding: 0 .5rem 0 1rem; }
     .te .modal-header h2 { font-size: 1.0625rem; }
     .te .modal-header .sub { display: none; }
@@ -2799,7 +2801,7 @@ body.sidebar-open .sidebar-overlay {
 .te-help-body p.hi.lv2 { margin-left: 1.5rem; }
 .te-help-body p.hi.lv3 { margin-left: 2.25rem; }
 .te-help-body p.hi.ex.lv3 { margin-left: 3rem; }
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .te-help { top: 0; right: 0; width: 100%; max-height: none; height: 100%; border-radius: 0; border: 0; }
     .te-help-x { display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; }
 }
@@ -2815,7 +2817,7 @@ body.sidebar-open .sidebar-overlay {
    Menus/popovers reuse the Theme Editor's floating .te-pop look (#tp-menu).
    Under 760px: one-column cards, chips scroll sideways, no Cards/List toggle.
    ========================================================================== */
-body.tp-on .main-wrapper { height: 100vh; height: 100dvh; min-height: 0; }
+body.tp-on .main-wrapper { height: calc(100vh / var(--zoom, 1)); height: calc(100dvh / var(--zoom, 1)); min-height: 0; }
 body.tp-on .main-content { padding: 0; overflow: hidden; }
 #view-themes.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 body.tp-on .main-header { gap: .75rem; padding-top: .75rem; padding-bottom: .75rem; }
@@ -2925,7 +2927,7 @@ body.preview-active .tp-scroll { padding-bottom: calc(1.5rem + 56px); }
 .tp-empty .btn { margin-top: .5rem; }
 
 /* Manage categories dialog */
-.modal.tp-cm { width: min(460px, 100%); min-width: 0; max-height: 80vh; }
+.modal.tp-cm { width: min(460px, 100%); min-width: 0; max-height: calc(80vh / var(--zoom, 1)); }
 .tp-cm .modal-header { padding: .625rem .75rem .625rem 1.25rem; }
 .tp-cm .modal-header h2 { margin: 0; }
 .tp-cm .modal-close { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; }
@@ -2942,7 +2944,7 @@ body.preview-active .tp-scroll { padding-bottom: calc(1.5rem + 56px); }
 .tp-cm .modal-footer { padding: .75rem 1.25rem; }
 
 /* Title bar on small screens: title stays readable, buttons keep their size */
-@media (max-width: 768px) {
+@media (max-width: 768px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     body.tp-on .main-header { padding: .5rem .75rem; gap: .5rem; }
     body.tp-on .main-header h2 { font-size: 1.125rem; }
     body.tp-on .header-actions { width: auto; flex-wrap: nowrap; gap: .375rem; }
@@ -2955,7 +2957,7 @@ body.preview-active .tp-scroll { padding-bottom: calc(1.5rem + 56px); }
 }
 
 /* Phone: same order; one-column cards; everything a tap away */
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .tp-bar { padding: .625rem .75rem; gap: .5rem; }
     .tp-search { flex: 1 0 100%; }
     .tp-search .inp { min-height: 44px; font-size: 1rem; }
@@ -3029,7 +3031,7 @@ body.preview-active .tp-scroll { padding-bottom: calc(1.5rem + 56px); }
    Plugins, Advanced, Status). Fixed: top bar, toolbar / column headers;
    only the list scrolls; the action row stays at the bottom of the column.
    ========================================================================== */
-body.sp-on .main-wrapper { height: 100vh; height: 100dvh; min-height: 0; }
+body.sp-on .main-wrapper { height: calc(100vh / var(--zoom, 1)); height: calc(100dvh / var(--zoom, 1)); min-height: 0; }
 body.sp-on .main-content { padding: 0; overflow: hidden; }
 body.sp-on .view.sp.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .sp-ui [hidden] { display: none !important; }
@@ -3310,7 +3312,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .spv-grid .spv-num.bad { border-color: var(--accent-danger); }
 #advanced-values-form > .spv-sec:first-child { margin-top: .5rem; }
 .sp-lhead.spv-after { margin-top: 1.5rem; }
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
   .spv-grid { grid-template-columns: minmax(0, 1fr) auto 36px; row-gap: .25rem; }
   .sp-lhead.spv-grid { display: none; }
   .spv-name { grid-column: 1 / -1; }
@@ -3397,11 +3399,11 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
    Phone (<= 768px): a top bar with the menu button is always there; the menu
    opens as a panel below it. Page title bar sits under it; actions top right.
    ========================================================================== */
-@media (max-width: 768px) {
+@media (max-width: 768px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .mobile-topbar { display: flex; align-items: center; gap: .75rem; position: fixed; top: 0; left: 0; right: 0; z-index: 150; height: var(--mobile-bar-h); padding: 0 .75rem; background: var(--bg-sidebar); border-bottom: 1px solid var(--border-color); }
     .mobile-topbar .mobile-nav-btn { width: 44px; height: 44px; flex: none; }
     .mobile-topbar-logo { height: 28px; width: auto; }
-    .sidebar { display: none; top: var(--mobile-bar-h); left: 0; right: 0; bottom: auto; width: 100%; height: auto; max-height: calc(100vh - var(--mobile-bar-h)); max-height: calc(100dvh - var(--mobile-bar-h)); overflow-y: auto; transform: none; transition: none; border-right: 0; border-bottom: 1px solid var(--border-color); z-index: 140; }
+    .sidebar { display: none; top: var(--mobile-bar-h); left: 0; right: 0; bottom: auto; width: 100%; height: auto; max-height: calc(100vh / var(--zoom, 1) - var(--mobile-bar-h)); max-height: calc(100dvh / var(--zoom, 1) - var(--mobile-bar-h)); overflow-y: auto; transform: none; transition: none; border-right: 0; border-bottom: 1px solid var(--border-color); z-index: 140; }
     .sidebar.open { display: flex; transform: none; }
     .sidebar .sidebar-header { display: none; }
     .sidebar-nav { flex: none; overflow: visible; }
@@ -3416,7 +3418,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
     :root { --page-pad: .75rem; --page-top: .75rem; --box-gap: 12px; }
 }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     /* Header buttons with a label become icon buttons */
     .header-actions .sp-hbtn { width: 44px; height: 44px; min-height: 44px; padding: 0; justify-content: center; }
     .header-actions .sp-hbtn .lbl { display: none; }
@@ -3579,9 +3581,9 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 
 /* Page help: the Theme Editor's panel, hung under the ? (position set by pageToggleHelp) */
 .te-help.page-help { position: fixed; top: var(--help-top, 72px); right: var(--help-right, 12px); z-index: 160;
-    width: min(440px, calc(100vw - 24px)); max-height: calc(100vh - var(--help-top, 72px) - 16px); max-height: calc(100dvh - var(--help-top, 72px) - 16px); }
+    width: min(440px, calc(100vw - 24px)); max-height: calc(100vh / var(--zoom, 1) - var(--help-top, 72px) - 16px); max-height: calc(100dvh / var(--zoom, 1) - var(--help-top, 72px) - 16px); }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .main-header { flex-wrap: wrap; row-gap: .5rem; }
     .hdr-pacts.on:not([hidden]) { order: 10; flex: 1 0 100%; justify-content: flex-end; flex-wrap: wrap; }
     .hdr-pacts .sp-foot-state { margin-right: auto; }
@@ -3591,7 +3593,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
     /* Floors & Areas: Add floor / Add area don't fit beside the title; they get the second row */
     .main-header[data-view="settings-spaces"] #view-actions { order: 10; flex: 1 0 100%; justify-content: flex-end; }
 }
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .te-help.page-help { top: 0; right: 0; width: 100%; height: 100%; max-height: none; border-radius: 0; border: 0; z-index: 200; }
 }
 #view-actions:empty { display: none; }
@@ -3696,12 +3698,12 @@ button.pk-row { cursor: pointer; }
 .psel .def-star { flex: none; color: var(--accent-warning); }
 .session-field.open { position: relative; z-index: 40; }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     /* Toolbar actions: two per row */
     .te .tbar { grid-template-columns: 1fr 1fr; }
     /* Picker: full screen; rows become cards with a meta line */
     .pk-backdrop { padding: 0; }
-    .modal.pk { width: 100%; height: 100%; height: 100dvh; border-radius: 0; border: 0; }
+    .modal.pk { width: 100%; height: 100%; height: calc(100dvh / var(--zoom, 1)); border-radius: 0; border: 0; }
     .pk .modal-header { height: 52px; box-sizing: border-box; padding: 0 .5rem 0 1rem; }
     .pk .modal-header h2 { font-size: 1.0625rem; }
     .pk .modal-close { width: 44px; height: 44px; }
@@ -3827,7 +3829,7 @@ button.pk-row { cursor: pointer; }
 .ch-recent li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-foot { display: flex; }
 .ch-play { flex: 1; justify-content: center; min-height: 40px; gap: .375rem; }
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .session-grid.ch-grid { grid-template-columns: minmax(0, 1fr); }
     .ch-card { height: 472px; }  /* the larger touch targets need room for three Recent changes lines */
     .ch-src { grid-template-columns: 56px minmax(0, 1fr) 44px; grid-template-rows: 44px 44px; }
@@ -3981,7 +3983,7 @@ button.pk-row { cursor: pointer; }
 #view-playlists .sp-empty span { font-size: .875rem; }
 
 /* Phone: the editors fill the screen; the Playlists rows become cards */
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .sq-back.active, .pl-back.active { padding: 0; }
     .modal.sq, .modal.ple { width: 100%; height: 100%; max-height: none; border-radius: 0; border: 0; }
     .sq .modal-header, .ple .modal-header { height: 52px; box-sizing: border-box; padding: 0 .5rem 0 1rem; }
@@ -4063,7 +4065,7 @@ button.pk-row { cursor: pointer; }
 .ad-back { z-index: 230; }
 .ad-back.active { padding: 1.5rem 2rem; }
 /* The Theme Editor's size: its first tab, While playing, lists the tracks as the Theme Editor does */
-.modal.ad { position: relative; display: flex; flex-direction: column; width: min(960px, 100%); height: calc(100vh - 3rem); height: calc(100dvh - 3rem); max-width: none; max-height: none; min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border-color); }
+.modal.ad { position: relative; display: flex; flex-direction: column; width: min(960px, 100%); height: calc(100vh / var(--zoom, 1) - 3rem); height: calc(100dvh / var(--zoom, 1) - 3rem); max-width: none; max-height: none; min-width: 0; padding: 0; overflow: hidden; border: 1px solid var(--border-color); }
 .ad .grow { flex: 1; }
 .ad .modal-header { flex: none; padding: .625rem 1rem .625rem 1.5rem; }
 .ad .modal-header h2 { display: flex; align-items: baseline; gap: .625rem; min-width: 0; margin: 0; white-space: nowrap; }
@@ -4176,7 +4178,7 @@ button.pk-row { cursor: pointer; }
 .log-pause-btn[aria-pressed="true"] { border-color: var(--accent-primary); color: var(--accent-primary); }
 
 /* Phone: the Advanced dialog fills the screen; rows become cards */
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .ad-back.active { padding: 0; }
     .modal.ad { width: 100%; height: 100%; border-radius: 0; border: 0; }
     .ad .modal-header { height: 52px; box-sizing: border-box; padding: 0 .5rem 0 1rem; }
@@ -4243,9 +4245,67 @@ body.screen-on .sidebar, body.screen-on .main-wrapper, body.screen-on .mobile-to
 .by-banner b { color: #fff; }
 .by-banner code { background: rgba(0,0,0,.25); padding: .05rem .35rem; border-radius: .25rem; color: #fff; }
 .ch-plugin-fields { padding: 0 1.5rem 1rem; }
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .lk-btn { display: none; }
     .au-page { padding: 1rem; }
     .au-card { width: 100%; }
     .by-banner { padding: .625rem 1rem; font-size: .8125rem; }
+}
+
+/* ===== Screen sizes (boards: Main, Small_Phone_Landscape, Phone_Landscape, Foldable_Inner,
+   Tablet_Portrait, Tablet_Landscape, Settings_Advanced). Every phone rule above,
+   "(max-width: 768px)" and "(max-width: 760px)", also applies to short screens (height <= 480,
+   landscape phones) and to touch screens narrower than 1000 px (portrait tablets). ===== */
+
+/* The card's two halves: no box of their own, except in the wide card */
+.ch-a, .ch-b { display: contents; }
+
+/* Narrow phones: Theme and Preset labels above their fields, so names fit */
+@media (max-width: 400px) {
+    .ch-src { grid-template-columns: minmax(0, 1fr) 44px; grid-template-rows: auto 44px auto 44px; row-gap: .25rem; column-gap: .5rem; }
+    .ch-src > :nth-child(1) { grid-area: 1 / 1; }
+    .ch-src > :nth-child(2) { grid-area: 2 / 1; }
+    .ch-src > :nth-child(3) { grid-area: 3 / 1; margin-top: .25rem; }
+    .ch-src > :nth-child(4) { grid-area: 4 / 1; }
+    .ch-src .ch-modes { display: contents; }
+    .ch-src .ch-mode:first-child { grid-area: 2 / 2; }
+    .ch-src .ch-mode:last-child { grid-area: 4 / 2; }
+    .ch-now { padding-left: 0; }
+    .ch-card { height: 481px; }
+}
+/* Narrow, short phones: Play stays on screen; Recent changes shows one line */
+@media (max-width: 400px) and (max-height: 600px) {
+    .ch-card { height: 445px; }
+}
+
+/* Short screens (landscape phones): one header row - menu, logo, page title, actions */
+@media (max-height: 480px) {
+    :root { --mobile-bar-h: 48px; --page-top: .5rem; }
+    .mobile-topbar { right: auto; border-bottom: 0; background: transparent; }
+    .main-wrapper { padding-top: 0; }
+    .main-header { top: 0; min-height: var(--mobile-bar-h); padding-top: 0; padding-bottom: 0; padding-left: calc(.75rem + 44px + .75rem + 106px + 1rem); }
+    .mobile-topbar-logo { width: 106px; object-fit: contain; }
+    .main-header h2 { font-size: 1rem; }
+    .main-header { order: -1; }  /* banners (e.g. Sign-in is off) go under the header row, clear of the menu and logo */
+    body.tp-on .main-header { padding-top: 0; padding-bottom: 0; padding-left: calc(.75rem + 44px + .75rem + 106px + 1rem); }  /* Themes */
+}
+
+/* Wide phone screens (foldable, landscape, portrait tablet): the card in two halves, one card per row */
+@media (min-width: 600px) and (max-width: 768px), (min-width: 600px) and (max-height: 480px), (pointer: coarse) and (min-width: 600px) and (max-width: 999px) {
+    .ch-card { --ch-h: 251px; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 1rem; row-gap: .5rem; height: var(--ch-h); max-width: var(--sp-col); }
+    /* A linked channel's link row (zones) adds its own height, so Recent changes keeps its room */
+    .ch-card:has(> .ch-link) { grid-template-rows: auto auto minmax(0, 1fr); height: calc(var(--ch-h) + 42px); }
+    .ch-card > :not(.ch-a):not(.ch-b) { grid-column: 1 / -1; }
+    .ch-a, .ch-b { display: flex; flex-direction: column; gap: .5rem; min-height: 0; }
+    .ch-b { gap: .25rem; }
+    .ch-b .ch-recent { flex: 1 1 auto; }
+}
+@media (min-width: 600px) and (max-width: 768px) and (min-height: 481px), (pointer: coarse) and (min-width: 600px) and (max-width: 999px) and (min-height: 481px) {
+    .ch-card { --ch-h: 287px; }
+}
+
+/* Tablets (touch screen, desktop layout): everything one size larger.
+   Heights in vh / dvh above divide by --zoom, so they still fit the screen. */
+@media (pointer: coarse) and (min-width: 1000px) and (min-height: 481px) {
+    html { zoom: 1.125; --zoom: 1.125; }
 }

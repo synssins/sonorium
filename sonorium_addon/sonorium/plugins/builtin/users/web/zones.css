@@ -32,7 +32,7 @@
 .ln-row .ic { font-size: 1.125rem; }
 .ln-note { font-size: .8125rem; color: var(--text-secondary); margin: .75rem 0 0; }
 .ln .au-err { margin-top: .5rem; }
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .lk-bar { flex-wrap: wrap; }
     .lk-bar > div { flex: 1; min-width: 0; }
     .lk-bar .sp { display: none; }

@@ -25,6 +25,9 @@ let sessionDefaultIntrusion = {};
 let sessionSequencesCache = {};
 // Every playlist (GET /playlists)
 let playlists = [];
+// The phone layout (styles.css): narrow windows, short screens (landscape phones) and
+// touch screens narrower than 1000 px (portrait tablets)
+const PHONE_QUERY = '(max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px)';
 
 async function init() {
     console.log('Sonorium init() starting...');
@@ -481,6 +484,7 @@ function renderSessionCard(session) {
                 <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
                 <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
             </div>
+            <div class="ch-a">
             ${Sonorium.cardPickers(session)}
             <div class="ch-src">
                 ${playlistMode ? chPlaylistPickers(session) : chThemePickers(session)}
@@ -491,6 +495,8 @@ function renderSessionCard(session) {
             </div>
             ${chNowHtml(session)}
             ${Sonorium.cardStrips(session)}
+            </div>
+            <div class="ch-b">
             <div class="ch-vol" title="Volume on the speakers">
                 <button type="button" class="ch-vol-ic ch-mute${session.speakers_muted ? ' muted' : (isPlaying ? ' on' : '')}" aria-pressed="${!!session.speakers_muted}"
                         aria-label="${session.speakers_muted ? 'Unmute the speakers' : 'Mute the speakers'}" title="${session.speakers_muted ? 'Unmute the speakers' : 'Mute the speakers'}"
@@ -509,6 +515,7 @@ function renderSessionCard(session) {
             ${chRecentHtml(session)}
             <div class="ch-foot">
                 <button type="button" class="btn ${isPlaying ? 'btn-danger' : 'btn-primary'} ch-play" onclick="togglePlayback(${spArg(id)})">${isPlaying ? `${CH_ICON_STOP}Stop` : `${CH_ICON_PLAY}Play`}</button>
+            </div>
             </div>
         </div>
     `;
@@ -2085,7 +2092,7 @@ async function loadCategories() {
 
 const TP_VIEW_KEY = 'sonorium_themesView';
 const TP_SORTS = [['name', 'Name'], ['tracks', 'Most tracks']];
-const TP_PHONE = window.matchMedia('(max-width: 760px)');
+const TP_PHONE = window.matchMedia(PHONE_QUERY);
 const TP_ICON_PLAY = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
 const TP_ICON_STOP = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>';
 const TP_ICON_EDIT = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
@@ -7396,7 +7403,7 @@ async function uninstallPlugin(pluginId, pluginName) {
 const SP_VIEWS = ['playlists', 'settings-connection', 'settings-audio', 'settings-speakers', 'settings-groups', 'settings-plugins', 'settings-advanced', 'status'];
 // Pages whose title row lines up with the settings column (Logs keeps the full width)
 const SP_COL_VIEWS = SP_VIEWS.concat(['settings-spaces']);
-const SP_PHONE = window.matchMedia('(max-width: 760px)');
+const SP_PHONE = window.matchMedia(PHONE_QUERY);
 
 const SP_ICON_MORE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
 const SP_ICON_TRASH = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>';
@@ -9671,7 +9678,7 @@ function teRestartMixPreview() {
 // (cancelled if the pointer comes back). Esc closes it.
 
 function helpFullScreen() {
-    return window.matchMedia('(max-width: 760px)').matches;
+    return window.matchMedia(PHONE_QUERY).matches;
 }
 
 function makeHelpPanel(panelId, buttonId) {

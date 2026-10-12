@@ -11,6 +11,12 @@
 
 - **users**: Unlinked_devices lists only phones without a user (Users 1.1.1)
   ([`605c882`](https://github.com/synssins/sonorium/commit/605c8822ad5c47bae08c3b7a82d4369a015c7cf9))
+## v1.6.2-dev.51 (2026-10-12)
+
+### Features
+
+- **ui**: Screen-size layout (approved boards)
+  ([`abd591f`](https://github.com/synssins/sonorium/commit/abd591faef64fd726b734e0a9d05f866e40b70be))
 
 
 ## v1.6.2-dev.49 (2026-10-12)
