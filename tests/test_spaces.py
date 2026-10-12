@@ -8,7 +8,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1] / "sonorium_addon" / "sonorium"
+ADDON = Path(__file__).resolve().parents[1] / "sonorium_addon"
+if str(ADDON) not in sys.path:
+    sys.path.insert(0, str(ADDON))  # the modules below import sonorium.*
+ROOT = ADDON / "sonorium"
 
 
 def load(relative, name):
