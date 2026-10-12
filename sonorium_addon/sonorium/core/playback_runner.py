@@ -119,6 +119,16 @@ class PlaybackRunner:
         live = getattr(self.manager, "_live", None)
         return live(session) if live is not None else session.is_playing
 
+    def _session(self, session_id: str) -> Optional[Session]:
+        """A channel by id, a personal one included."""
+        find = getattr(self.manager, "_find", None)
+        return find(session_id) if callable(find) else self.manager.state.sessions.get(session_id)
+
+    def _sessions(self) -> list:
+        """Every channel, personal ones included."""
+        every = getattr(self.manager, "_all_sessions", None)
+        return every() if callable(every) else list(self.manager.state.sessions.values())
+
     def playlist(self, playlist_id: Optional[str]) -> Optional[dict]:
         if not playlist_id:
             return None
@@ -400,6 +410,7 @@ class PlaybackRunner:
             raise ValueError(f"Playlist '{playlist.get('name', playlist_id)}' has no playable entry")
         self.manager.note(session, f"Started: {playlist.get('name', playlist_id)}")
         self._publish("channel.changed", session, changes={"playlist_id": playlist_id})
+        self._publish("playlist.started", session, playlist_id=playlist_id, playlist_name=playlist.get("name"))
         self._note_entry(session, playlist)
         self.manager.state.save()
         logger.info(f"  Channel '{session.name}': playlist '{playlist.get('name', playlist_id)}' started")
@@ -410,7 +421,7 @@ class PlaybackRunner:
         playlist = self.playlist(playlist_id)
         if playlist is None:
             return
-        for session in self.manager.state.sessions.values():
+        for session in self._sessions():
             if session.playlist_id == playlist_id and not self._order_ok(session, playlist):
                 session.playlist_order = self._new_order(len(playlist.get("entries") or []),
                                                          playlist.get("order") == "shuffle",
@@ -424,6 +435,7 @@ class PlaybackRunner:
         True if it had one.
         """
         had = session.playlist_id is not None
+        had_id = session.playlist_id
         if had:
             self.manager.note(session, f"Stopped: {(self.playlist(session.playlist_id) or {}).get('name', session.playlist_id)}")
         self._playlists.pop(session.id, None)
@@ -440,6 +452,7 @@ class PlaybackRunner:
         if had:
             logger.info(f"  Channel '{session.name}': playlist stopped")
             self._publish("channel.changed", session, changes={"playlist_id": None})
+            self._publish("playlist.stopped", session, playlist_id=had_id)
         return had
 
     def _entry(self, session: Session, playlist: dict) -> dict:
@@ -648,7 +661,7 @@ class PlaybackRunner:
         now = self.clock()
         changed, ended = {}, []
         for session_id, run in list(self._playlists.items()):
-            session = self.manager.state.sessions.get(session_id)
+            session = self._session(session_id)
             if session is None or not self._live(session):
                 self.on_stop(session_id)
                 continue
@@ -657,7 +670,7 @@ class PlaybackRunner:
                     ended.append(session)
                 changed[session_id] = session
         for session_id, run in list(self._sequences.items()):
-            session = self.manager.state.sessions.get(session_id)
+            session = self._session(session_id)
             if session is None or not self._live(session):
                 self._sequences.pop(session_id, None)
                 continue

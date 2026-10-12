@@ -163,7 +163,10 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
                 queue.get_nowait()  # a stalled reader loses the oldest
             queue.put_nowait(event)
 
-        sub = bus.subscribe(patterns, collect, owner=None, queue_size=500)
+        # A personal channel's events go only to its account's streams
+        from sonorium.web.personal_routes import audience_of
+        audience = audience_of(request)
+        sub = bus.subscribe(patterns, collect, owner=None, queue_size=500, audience=audience)
         streams["open"] += 1
 
         def frame(event) -> str:
@@ -174,7 +177,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
             try:
                 yield "retry: 5000\n\n"
                 if last_id is not None:
-                    for event in bus.history(last_id, patterns):
+                    for event in bus.history(last_id, patterns, audience=audience):
                         yield frame(event)
                         newest, sent = event.id, sent + 1
                         if max_events and sent >= max_events:
@@ -488,13 +491,18 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             raise HTTPException(status_code=503, detail=f"{what} isn't available yet")
         return service
 
-    def _channels(value) -> list:
-        """Channel ids from ids or names (one, a list, or "all"); 404 names an unknown one."""
+    def _channels(value, personal: bool = False) -> list:
+        """
+        Channel ids from ids or names (one, a list, or "all"); 404 names an
+        unknown one. personal: "all" also takes the personal channels being
+        listened to (announcements).
+        """
         from sonorium.core.announce import resolve_channels
         if value is None:
             raise HTTPException(status_code=400, detail="'channels' is needed: a channel name or id, a list, or \"all\"")
         try:
-            return resolve_channels(getattr(_svc("overlay", "Playing sounds"), "sessions", None), value)
+            return resolve_channels(getattr(_svc("overlay", "Playing sounds"), "sessions", None), value,
+                                    personal=personal)
         except LookupError as e:
             raise HTTPException(status_code=404, detail=str(e.args[0] if e.args else e))
         except ValueError as e:
@@ -584,7 +592,7 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
         overlay = _svc("overlay", "Playing sounds")
         caller = principal_of(request)
         wanted = body.get("channels")
-        channels = _channels(wanted)
+        channels = _channels(wanted, personal=caller.channels is None)
         if caller.channels is not None:  # a key limited to some channels
             if wanted in (None, "all", "*", ["all"], ["*"]):
                 channels = [c for c in channels if caller.can_channel(c)]

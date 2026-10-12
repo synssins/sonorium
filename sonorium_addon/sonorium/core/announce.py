@@ -19,6 +19,10 @@ the mix comes back. A channel that is stopped is started for the time they
 play, then stopped again. Announcements are admin-level: they override zones
 and quiet hours. A channel with its Announcements setting off is left out
 (the check is on the channel itself, so every channel has it).
+
+Personal channels (one per account, core/session_manager.py) can't be named
+or addressed by id: an announcement to "all" reaches the ones being listened
+to right now whose Announcements setting is on, and no other.
 """
 from __future__ import annotations
 
@@ -36,15 +40,21 @@ class TtsUnavailable(OverlayError):
     """Text was sent, no chime, and nothing can speak it."""
 
 
-def resolve_channels(sessions, wanted) -> list[str]:
+def resolve_channels(sessions, wanted, personal: bool = False) -> list[str]:
     """
     Channel ids from what a caller sent: "all" (or "*", or nothing), one id or
     name, or a list of them. Names match without regard to case, as do Home
     Assistant entity slugs ("kids_room"). LookupError names the first unknown.
+    personal: "all" also takes the personal channels listened to now with
+    Announcements on (for announcements; never by name or id).
     """
     listed = list(sessions.list()) if sessions is not None else []
     if wanted is None or wanted in ("all", "*") or wanted in (["all"], ["*"]):
-        return [s.id for s in listed]
+        ids = [s.id for s in listed]
+        listened = getattr(sessions, "listened_personal", None) if personal else None
+        if callable(listened):
+            ids += [s.id for s in listened() if getattr(s, "announcements", True)]
+        return ids
     if isinstance(wanted, str):
         wanted = [part.strip() for part in wanted.split(",")] if "," in wanted else [wanted]
     if not isinstance(wanted, list) or not wanted or \
@@ -112,8 +122,9 @@ async def announce(overlay, tts, channels, *, text: Optional[str] = None, sound=
     if not text and sound is None:
         raise OverlayError("An announcement needs text to speak or a sound to play")
     sessions = getattr(overlay, "sessions", None)
-    off = [c for c in channels if sessions is not None and sessions.get(str(c)) is not None
-           and not getattr(sessions.get(str(c)), "announcements", True)]
+    find = getattr(sessions, "get_any", None) or getattr(sessions, "get", None)
+    off = [c for c in channels if find is not None and find(str(c)) is not None
+           and not getattr(find(str(c)), "announcements", True)]
     result = {"played": [], "skipped": off, "channels": {c: {"state": "skipped", "message": "Announcements are off"}
                                                           for c in off},
               "chime": None, "speech": None, "notice": None}

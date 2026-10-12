@@ -707,7 +707,8 @@ def test_listen_hold_seconds_keeps_the_mix_through_a_dropout(tmp_path):
     assert released(t) and not t.manager.is_listened(t.session)
     assert t.manager.listen_hold(sid) == m.session_manager.LISTEN_RELEASE_SECONDS  # back to the default
     assert [e for e in events if e[0] == "channel.listening"] == [
-        ("channel.listening", {"listening": True}), ("channel.listening", {"listening": False})]
+        ("channel.listening", {"listening": True, "devices": 1, "playing": True}),
+        ("channel.listening", {"listening": False, "devices": 0, "playing": False})]
 
 
 def test_listen_hold_seconds_bounds_and_the_longest_counts(tmp_path):

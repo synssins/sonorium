@@ -215,6 +215,11 @@ PUT     /api/sessions/{session_id}/announcements        ch.change
 POST    /api/sessions/{session_id}/listen               ch.play
 DELETE  /api/sessions/{session_id}/listen               ch.play
 POST    /api/sessions/stop-all                          ch.play
+# the caller's own personal channel (web/personal_routes.py): hidden, local only, one per account
+GET     /api/me/channel                                 ch.view
+PUT     /api/me/channel                                 ch.change
+POST    /api/me/channel/listen                          ch.play
+DELETE  /api/me/channel/listen                          ch.play
 GET     /api/sessions/{session_id}/playback             ch.view
 POST    /api/sessions/{session_id}/sequence             pl.run
 DELETE  /api/sessions/{session_id}/sequence             pl.run

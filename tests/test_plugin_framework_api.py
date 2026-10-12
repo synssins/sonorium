@@ -488,3 +488,16 @@ def test_event_stream_needs_a_token_and_replays(w):
     assert replay(f"0123abcd:{first.id + 50}")[0]["id"] == first.id  # another run: from the start of this one
     c.delete("/api/events/token")
     assert c.get("/api/events/stream", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+
+
+def test_event_stream_leaves_out_other_accounts_personal_channel_events(w):
+    c = w.client
+    token = c.post("/api/events/token").json()["token"]
+    first = w.bus.publish("channel.listening", {"channel_id": "p1", "name": "Personal", "listening": True,
+                                                "personal": True}, audience="user:someone")
+    w.bus.publish("channel.listening", {"channel_id": "x", "name": "X", "listening": True})
+    with c.stream("GET", f"/api/events/stream?types=channel.*&max_events=1&last_event_id={first.id - 1}",
+                  headers={"Authorization": f"Bearer {token}"}) as r:
+        text = "".join(r.iter_text())
+    frames = [json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")]
+    assert [f["data"]["channel_id"] for f in frames] == ["x"]
