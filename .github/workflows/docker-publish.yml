@@ -6,7 +6,8 @@ name: Docker Image
 # change docker/.
 #
 # main             -> :latest, :X.Y.Z
-# any other branch -> :dev,    :X.Y.Z-dev.N
+# fixes            -> :dev,    :X.Y.Z-dev.N
+# any other branch -> :branch-<name>
 
 on:
   workflow_call:
@@ -51,8 +52,12 @@ jobs:
           image=ghcr.io/${GITHUB_REPOSITORY,,}
           if [ "$BRANCH" = "main" ]; then
             tags="$image:latest,$image:$version"
-          else
+          elif [ "$BRANCH" = "fixes" ]; then
             tags="$image:dev,$image:$version"
+          else
+            # Other branches get their own tag, so they never replace what :dev points at
+            slug=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+            tags="$image:branch-$slug"
           fi
           echo "tags=$tags" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"

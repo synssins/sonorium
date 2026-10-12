@@ -599,7 +599,7 @@ ZONES_UI = "users-zones"  # the zones' own web UI bundle (zones.js, zones.css)
 class UsersPlugin(BasePlugin):
     id = PLUGIN_ID
     name = "Users"
-    version = "1.1.2"
+    version = "1.1.3"
     description = "Accounts, sign-in and roles for Sonorium"
     author = "Sonorium"
     builtin = True
@@ -646,4 +646,7 @@ class UsersPlugin(BasePlugin):
                 zones.detach()  # channels are open again
             service.unregister(ZONES_UI)
             service.unregister(PLUGIN_ID)
-            logger.warning("Users: switched off. Sonorium is open to anyone on your network.")
+            if service.ready:
+                logger.warning("Users: switched off. Sonorium is open to anyone on your network.")
+            else:  # plugins reloading: sign-in stays closed until they are back (manager.reload_plugins)
+                logger.debug("Users: reloading")
