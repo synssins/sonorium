@@ -163,6 +163,7 @@ written first, so a failed save never loses presets.
 | `links` | object: track key -> link | absent | Linked files (2.6), ungrouped or in any group. Written only when non-empty. | `core/theme_metadata.py` `links` |
 | `ebb_duration`, `intrusions_retired`, `auto_retired` | bool | absent | Markers of the one-time conversions done on load (1.4). Written only when true. A generator writing a new theme can set all three (it has no Interval values, intrusion groups or `auto` modes). | `core/theme_metadata.py` `load_theme_folder` |
 | `attribution` | object or absent | absent | Source and licence info (6.3). Written only when non-empty. | `:94`, `:139-140` |
+| `plugins` | object: plugin id -> {attribute: value} | absent | Plugin attributes on the theme (2.7). Written only when non-empty. | `core/plugin_data.py` |
 | `presets` | object | absent | **Version 1 only.** Moved to `presets.json` by the conversion (1.4); never written back. | `:91`, `:124-141` |
 
 ### 2.2 TrackSettings (one entry in `tracks`)
@@ -179,6 +180,7 @@ written first, so a failed save never loses presets.
 | `volume_low` | number 0.0-1.0 | `0.2` | Ebb & Flow: the lower knob of the Volume slider (`volume` is the upper one). The level moves between them. Saved in presets. | `recording.py` `ebb_level` |
 | `pause_between` | bool | `false` | Ebb & Flow: play the file once from start to end, fade out, pause, come back. An Ebb & Flow group's own `pause_between` overrides it when on. Saved in presets. | `recording.py` `PresenceMixingStream._gen_wander` |
 | `pause_min`, `pause_max` | number, seconds | `30`, `300` | Ebb & Flow: the pause, uniform in this range each time; also the stagger before the first start when `pause_between` is on. Saved in presets. | same |
+| `plugins` | object: plugin id -> {attribute: value} | absent | Plugin attributes on the track, and on the file when it is in a group (2.7). Not mix settings: not in presets, kept by Reset. Written only when non-empty. | `core/plugin_data.py` |
 
 A track with no entry in `tracks` uses all defaults (`api.py:489-497`, `:1249-1255`).
 Entries whose key matches no track are kept in the file but ignored (the bundled Tavern
@@ -209,6 +211,69 @@ first save through the metadata manager (any track or group setting change, pres
 create/update/delete) and by the conversion. Each group's settings object is stored as-is,
 so unknown keys inside a group entry survive. Inside `presets.json`, each preset dict is kept
 as-is, so unknown preset fields survive, and other top-level keys of `presets.json` survive too.
+
+`plugins` blocks (top level, each track entry, each preset) are the one exception to "unknown
+is removed" and to "kept as-is": they are kept through every save, but only with the
+attributes an installed plugin declares (2.7). Everything else in them is left out when the
+theme loads.
+
+### 2.7 Plugin attributes (built)
+
+A plugin can keep its own values on a theme, a track, a file in a group and a preset: for
+example a light cue on each thunder file. Think of a luggage tag: the suitcase (the track)
+belongs to Sonorium, the tag belongs to the plugin, and Sonorium carries both without
+reading the tag. The plugin declares each attribute first (docs/PLUGIN_DEVELOPMENT.md
+section 23); Sonorium stores only declared attributes and checks every value.
+
+Where they live. On every object the values sit under the plugin's id, so two plugins can
+both have a `cue`:
+
+```json
+// metadata.json
+{
+  "plugins": { "wled": { "scene": "storm" } },
+  "tracks": {
+    "Rain":            { "volume": 0.6, "plugins": { "wled": { "cue": "auto" } } },
+    "Thunder/Close":   { "volume": 1.0, "plugins": { "wled": { "cue": "flash", "intensity": 90 } } }
+  }
+}
+// presets.json
+{ "presets": { "calm": { "name": "Calm", "tracks": { }, "plugins": { "wled": { "palette": ["#203040"] } } } } }
+```
+
+| Object | Where |
+|---|---|
+| Theme | `metadata.json` top-level `plugins` |
+| Track | its entry in `tracks`, `plugins` |
+| File in a group | the same entry (key `"Group/Name"`); track and file attributes share it, so a file moved into or out of a group keeps its values |
+| Preset | the preset in `presets.json`, `plugins` |
+
+What is kept, and when:
+
+- **Every save and edit keeps them**: Theme Editor saves, track and group changes, presets
+  (new, save, load, rename), Reset, moving a file between groups, the `theme_edit` module
+  functions and themes made by plugins.
+- **Export carries them.** The zip and the theme package (`GET /api/themes/{id}/export`) hold
+  the files as stored, `plugins` blocks included.
+- **Import keeps only what this Sonorium knows.** Before an imported theme loads, every value
+  of a plugin that isn't installed here, of an attribute the plugin doesn't declare, or that
+  doesn't fit its declaration, is removed from the files. The theme imports without errors;
+  one info line in the log lists what went. Importing the same theme into a Sonorium that has
+  the plugin keeps the values.
+- **Loading drops the same things** (logged at debug), so a theme copied into the folder by
+  hand ends up like an imported one once it is saved.
+- **A plugin switched off** keeps its declaration and its values; nothing is shown for it.
+- **A plugin uninstalled** loses its declaration, and its values are removed from every
+  theme Sonorium has loaded.
+- **Size**: at most 4096 bytes of compact JSON per plugin per object by default
+  (`plugin_data_limit` in the Settings › Advanced values, `PUT /api/settings/playback-values`;
+  0 = no limit). A change over the limit is refused with a message; values already over it
+  (an import, a lowered limit) are kept and a warning is logged. Big data (a cue track with
+  hundreds of points) belongs in a file in the theme folder, with its name stored as an
+  attribute.
+
+A Sonorium from before plugin attributes (plugin API below 1.3) does not know `plugins` and
+removes the blocks the next time it saves the theme (2.4). The theme still plays there.
 
 ### 2.5 groups (built)
 
@@ -677,6 +742,7 @@ In `presets.json` (inside `metadata.json` in version 1 themes, converted on load
 - `is_default`: the first preset created becomes default (`api.py:1853`); setting a default clears the flag on the others (`api.py:2046-2081`); deleting the default makes the first remaining preset default (`api.py:2012-2018`). Imported presets are never default (`api.py:2173`, `:2206`). Only one should have it; if several do, the first in file order wins (`core/session_manager.py:133-135`).
 - `tracks`: track key -> any of the six TrackSettings fields (2.2). A preset saved from the UI lists every track with all six fields (`api.py:1721-1737`). Import drops keys that match no track, fills missing fields with defaults and coerces types (`api.py:2128-2147`).
 - `groups` (optional): group name -> any of `volume`, `presence`, `muted` (2.5); other keys (including the gap) are ignored (`recording.py:399-407`). Saving a preset (create or update) captures the groups' current master settings, and loading one in the theme editor applies them.
+- `plugins` (optional): plugin attributes on the preset (2.7). Saving the preset's settings again keeps them.
 
 ### 4.2 How a preset applies to a channel (built)
 
@@ -903,7 +969,8 @@ written, a theme without `id` gets a new random ID on every scan.
 
 Q2. **Unknown fields are dropped on save** through the metadata manager and by the
 conversion (2.4): any top-level `metadata.json` field other than the known ones, and any
-unknown field in a track entry. `spec_version` and `groups` are now kept.
+unknown field in a track entry. `spec_version` and `groups` are now kept, and so are
+`plugins` blocks with declared attributes (2.7): a plugin's own data goes there.
 
 Q3. **Two paths write `metadata.json` directly**, bypassing the manager's cache
 (`api.py:962-982` `_write_theme_metadata`, used only when the manager is unavailable, and

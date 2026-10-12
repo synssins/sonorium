@@ -39,6 +39,7 @@ Installed plugins live in `/config/sonorium/plugins/` (kept across updates).
 | `plugin_class` | The class name (default: the first `BasePlugin` subclass in the file). |
 | `settings_schema` | Settings fields (section 3), if the class doesn't give them. |
 | `triggers`, `pages`, `connections` | Declarations (sections 7, 9, 10), if the class doesn't give them. |
+| `attributes` | Attributes the plugin keeps on Sonorium's objects (section 23), if the class doesn't give them. |
 
 `plugin.py`:
 
@@ -70,7 +71,7 @@ More manifest keys (sections 15 to 22):
 
 ## 1a. API versions and capabilities
 
-The plugin API has a version, MAJOR.MINOR (now **1.2**). Adding a service or a field raises
+The plugin API has a version, MAJOR.MINOR (now **1.3**). Adding a service or a field raises
 the minor version; a plugin written for 1.0 keeps running on 1.1 and every later 1.x,
 because nothing it uses is renamed or removed. The major version goes up only for a change
 old plugins would notice; Sonorium then keeps the old facades next to the new ones for as
@@ -96,6 +97,7 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `mqtt` | 1.1 | MQTT (section 19) |
 | `homeassistant` | 1.1 | Home Assistant's API (section 20) |
 | `packages.pip`, `packages.binaries` | 1.1 | Packages and programs (section 21) |
+| `attributes` | 1.3 | Declared attributes on themes, tracks, files, presets, channels, speakers and users (section 23) |
 
 `GET /api/plugin-framework` gives the version, every capability and the ones this install
 offers now.
@@ -210,6 +212,7 @@ All events of a channel have `channel_id` and `name` (the channel's name).
 | `theme.changed` | A theme's files changed (several saves within a second are one event) | `theme_id`, `folder` |
 | `theme.deleted` | A theme was deleted | `theme_id` |
 | `plugin.enabled` / `plugin.disabled` | A plugin was enabled or disabled | `plugin_id`, `name` |
+| `attribute.changed` | A plugin's attributes on an object changed (section 23) | `kind`, `id`, `theme_id` (theme objects), `plugin_id`, `keys` (null: all removed) |
 | `schedule.fired` | A scheduled job ran | `plugin_id`, `job_id`, `name`, `data`, `scheduled_for`, `missed` |
 | `trigger.received` | A webhook trigger was called (and authenticated) | `plugin_id`, `trigger`, `payload`, `method` |
 | `error` | Something failed that nobody was waiting for | `where` (`event_handler`, `schedule`, `trigger`, `channel.start`, a plugin method), `message`, `plugin_id` |
@@ -1133,3 +1136,137 @@ The config folder is kept across updates on every install, so packages are insta
 | Alerts | A bar at the top when something has failed | errors, refused plugins |
 
 The renderers are one module each in `web/static/js/ext/`, styled in `web/static/css/ext.css`.
+
+## 23. Attributes on Sonorium's objects
+
+A plugin can keep its own values on Sonorium's objects: a light cue on a thunder file, a
+strip name on a channel, a light delay on a speaker. It works like extended attributes in a
+directory service: the plugin declares a schema, Sonorium stores values only for declared
+attributes, checks each one against its declaration, and carries them wherever the object
+goes. Sonorium never reads what they mean. Capability `attributes`, plugin API 1.3.
+
+### Declaring
+
+In `manifest.json` (`"attributes"`), from `get_attributes()`, or with
+`self.attributes.declare(...)` in `on_load`. Each call replaces the plugin's whole schema.
+
+```json
+"attributes": {
+  "track":   {"cue": {"type": "enum", "options": ["flash", "rumble", "auto"], "default": "auto",
+                      "label": "Light cue", "help": "What the lights do when this file plays"},
+              "intensity": {"type": "number", "min": 0, "max": 100, "integer": true}},
+  "file":    {"cue": {"type": "enum", "options": ["flash", "rumble", "auto"], "default": "auto"}},
+  "speaker": {"light_sync": {"type": "number", "min": 0, "label": "Light sync",
+                             "help": "Milliseconds the lights wait for this speaker"}}
+}
+```
+
+| Object class | What | Stored in |
+|---|---|---|
+| `theme` | A theme | `metadata.json`, top-level `plugins` |
+| `track` | A track of a theme (top level or in a group) | its entry in `metadata.json` `tracks` |
+| `file` | A file in a group (`"Group/Name"`) | the same entry: a track's and a file's attributes share it, so declare a name the same way for both |
+| `preset` | A theme's preset | the preset in `presets.json` |
+| `channel` | A channel (not a personal one) | `state.json`, the channel |
+| `speaker` | A speaker | `state.json`, its speaker settings |
+| `user` | An account | `users.json`, the user |
+
+Theme files: docs/THEME_FORMAT.md 2.7.
+
+| Type | Limits (all optional unless said) |
+|---|---|
+| `string` | `max_length`, `pattern` (a regular expression the whole text must match) |
+| `number` | `min`, `max`, `integer: true` (whole numbers only) |
+| `bool` | |
+| `enum` | `options` (required): values, or `{"value", "label"}` |
+| `list` | `items` (required: a declaration for each item), `min_items`, `max_items` |
+| `object` | `fields` (required: name -> declaration). Only declared fields are kept |
+
+Every attribute may have `default`, `label` and `help`; Sonorium will use label and help when
+it draws attribute fields (Plugin Framework 2, phase 1). Names are letters, digits and `_`
+(up to 64), starting with a letter. `boolean` and `select` are accepted for `bool` and
+`enum`. A malformed attribute is left out with a warning in the log; the others still count.
+`GET /api/attributes` lists every installed plugin's schema and the size limit.
+
+### Reading and writing
+
+An object reference is a small dict:
+
+```python
+{"kind": "theme",   "id": theme_id}
+{"kind": "track",   "theme": theme_id, "id": "Thunder/Close"}
+{"kind": "file",    "theme": theme_id, "id": "Thunder/Close"}   # a file in a group only
+{"kind": "preset",  "theme": theme_id, "id": "calm"}
+{"kind": "channel", "id": channel_id}
+{"kind": "speaker", "id": "media_player.living_room"}
+{"kind": "user",    "id": user_id}
+```
+
+```python
+ref = {"kind": "track", "theme": theme_id, "id": "Thunder/Close"}
+self.attributes.get(ref)                         # {"cue": "auto"}: defaults filled in
+self.attributes.set(ref, {"cue": "flash", "intensity": 90})
+self.attributes.set(ref, {"intensity": None})    # None removes one value
+self.attributes.clear(ref)                       # removes all of this plugin's values there
+self.attributes.schema()                         # what the plugin declared, as kept
+```
+
+A plugin reads and writes only under its own id. A value that doesn't fit, a name the
+plugin didn't declare for that class, or a change over the size limit raises `ActionError`
+(`invalid`, every problem in one message); an unknown object raises `not_found`. Each change
+publishes `attribute.changed` (`kind`, `id`, `theme_id` for theme objects, `plugin_id`,
+`keys`), so a plugin can follow changes made elsewhere without polling.
+
+Outside programs and the web UI use the HTTP API:
+
+| Route | Permission | What |
+|---|---|---|
+| `GET /api/attributes` | any of Themes view, Channels view, Speakers view, admin | Every plugin's schema, the classes and the size limit |
+| `GET /api/attributes/{kind}?id=..&theme=..` | by kind, below | `{"plugins": {plugin_id: {name: value}}}` with defaults |
+| `PUT /api/attributes/{kind}/{plugin_id}?id=..&theme=..` | by kind, below | Body `{name: value or null}`. 400 with every problem; returns the plugin's values |
+
+| Kind | Read | Change |
+|---|---|---|
+| theme, track, file, preset | Themes: view | Themes: edit |
+| channel | Channels: view (and the key's channels) | Channels: change |
+| speaker | Speakers: view | Speakers: change settings |
+| user | Admin (users), or the user themself | the same |
+
+Speaker attributes can also be changed with the speaker's settings:
+`PUT /api/speakers/{id}/settings` with `{"plugins": {"wled": {"light_sync": 300}}}` (null for a
+plugin removes its values; other plugins' values stay).
+
+### What is kept, and when it goes
+
+- **Only the schema counts.** A value of a plugin that isn't installed, of an attribute it
+  doesn't declare, or that doesn't fit its declaration is discarded. A theme imported into a
+  Sonorium without your plugin loses your values on import, without errors, with an info line
+  in the log. Values that no longer fit after an update of your schema are left out when
+  read, and removed when the theme is next saved or your values on that object next change.
+- **Every save keeps the rest**: Theme Editor saves, Reset, presets, moving a file between
+  groups, speaker settings, channel changes, theme export and import.
+- **Switched off**: the schema and the values stay. Nothing is shown for the plugin; switch
+  it on again and everything is there.
+- **Uninstalled**: the schema goes and the plugin's values are removed from every theme,
+  track, preset, channel, speaker and user Sonorium knows.
+- **Size**: 4096 bytes of compact JSON per plugin per object by default. It is adjustable
+  (`plugin_data_limit` in the Settings › Advanced values, `PUT /api/settings/playback-values`;
+  0 = no limit). A change over it is refused with a message naming the limit; values already
+  stored over it are kept, with a warning in the log. Keep big data (hundreds of cue points)
+  in a file in the theme folder and store the file's name.
+
+### Sync: when a speaker is heard
+
+Each speaker has a **Sync** setting: how many milliseconds it plays behind Sonorium's mixer
+(its own buffer of the stream). Without a setting it is the estimate for its kind (Cast 5000,
+DLNA, HEOS and Denon 4000, Sonos and LinkPlay 3000, AirPlay 2000, ESPHome 1500, others 3000).
+The Status page's "as heard" and anything timed to the sound use this one number.
+
+- `GET /api/speakers/{id}/settings` and the speaker lists: `speaker.sync_ms` (its Sync now)
+  and `speaker.sync_estimate_ms` (the estimate for its kind); `settings.sync` when set.
+- `PUT /api/speakers/{id}/settings` with `{"sync": 4200}` (a whole number, 0 or more), or
+  `{"sync": null}` to go back to the estimate.
+
+A plugin that needs its own timing per speaker declares a speaker attribute for it and names
+it after the feature, for example `light_sync` labelled "Light sync". Settings › Speakers
+has no Sync field yet: it is set through the API until the speaker editor gets one.
