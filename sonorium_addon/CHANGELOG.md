@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.1-dev.9 (2026-10-12)
+
+### Bug Fixes
+
+- **security**: Guard the other exact-match theme lookup too (as in 1.7.1)
+  ([`0236d4c`](https://github.com/synssins/sonorium/commit/0236d4ceab46312104a77ebf5f6cafd9be562c18))
+
+
 ## v1.7.1-dev.8 (2026-10-12)
 
 ### Bug Fixes
