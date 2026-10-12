@@ -34,6 +34,8 @@ public static class W {
   [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, int dx, int dy, uint data, IntPtr extra);
+  public static void ClickAt(int x, int y) { SetCursorPos(x, y); mouse_event(2, 0, 0, 0, IntPtr.Zero); mouse_event(4, 0, 0, 0, IntPtr.Zero); }
   [DllImport("user32.dll")] public static extern bool SetProcessDpiAwarenessContext(IntPtr v);
   [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
   public struct RECT { public int L, T, R, B; }
@@ -97,7 +99,18 @@ function Find($hwnd, $name) {
     if (-not $e) { throw "No '$name' in $([W]::Title($hwnd))" }
     $e
 }
-function Click($hwnd, $name) { (Find $hwnd $name).GetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern).Invoke(); Start-Sleep 2 }
+# Invoke when the control offers it; else a mouse click in its middle (Windows command links)
+function Click($hwnd, $name) {
+    $e = Find $hwnd $name
+    $pattern = $null
+    if ($e.TryGetCurrentPattern([System.Windows.Automation.InvokePattern]::Pattern, [ref]$pattern)) { $pattern.Invoke() }
+    else {
+        [void][W]::SetForegroundWindow($hwnd); Start-Sleep -Milliseconds 300
+        $b = $e.Current.BoundingRectangle
+        [W]::ClickAt([int]($b.X + $b.Width / 2), [int]($b.Y + $b.Height / 2))
+    }
+    Start-Sleep 2
+}
 function Pick($hwnd, $name) { (Find $hwnd $name).GetCurrentPattern([System.Windows.Automation.SelectionItemPattern]::Pattern).Select(); Start-Sleep 1 }
 function Tick($hwnd, $name) {
     $t = (Find $hwnd $name).GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern)

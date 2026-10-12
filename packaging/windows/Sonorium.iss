@@ -45,7 +45,7 @@ UninstallDisplayName=Sonorium
 LicenseFile={#Source}\LICENSE.md
 Compression=lzma2/max
 SolidCompression=yes
-WizardStyle=modern
+WizardStyle=modern dynamic
 CloseApplications=yes
 RestartApplications=no
 
