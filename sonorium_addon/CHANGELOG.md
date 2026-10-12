@@ -2,6 +2,20 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.7 (2026-10-12)
+
+### Bug Fixes
+
+- **plugins**: A refused re-upload keeps the installed plugin
+  ([`454681b`](https://github.com/synssins/sonorium/commit/454681b026bff3c3d6b2c7b0596d2dc88d619179))
+
+- **plugins**: Audio-output routes answer a plugin's errors, never a bare 500
+  ([`db619c9`](https://github.com/synssins/sonorium/commit/db619c94cd20679fc9a9e0951ab0e3caf9b28621))
+
+- **plugins**: Uploaded zips keep subfolders and accept backslash names
+  ([`5016994`](https://github.com/synssins/sonorium/commit/50169942fbf94361f2ab595088e6bd0164848036))
+
+
 ## v1.7.3-dev.4 (2026-10-12)
 
 ### Bug Fixes
