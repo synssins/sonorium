@@ -170,6 +170,21 @@ def make_session_manager(tmp_path, tones, crossfade):
     return manager, session, channels.get_channel(1), events
 
 
+def test_channel_of_takes_an_id_or_the_session(tmp_path, tones):
+    """Sounds, ramps and outputs pass a channel id, zones pass the Session: both find the mix's Channel."""
+    manager, session, channel, events = make_session_manager(tmp_path, tones, crossfade=0.1)
+
+    async def run():
+        assert manager.channel_of(session.id) is None and manager.channel_of(session) is None
+        await manager.play(session.id)
+        assert manager.channel_of(session.id) is channel
+        assert manager.channel_of(session) is channel
+        from sonorium.core.overlay_service import OverlayService
+        assert OverlayService(manager).sounds() == []  # GET /api/sounds
+        channel.stop()
+    asyncio.run(run())
+
+
 def test_session_stop_tells_speakers_only_after_the_fade(tmp_path, tones):
     manager, session, channel, events = make_session_manager(tmp_path, tones, crossfade=0.6)
 

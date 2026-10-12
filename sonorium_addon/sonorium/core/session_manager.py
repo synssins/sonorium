@@ -392,8 +392,9 @@ class SessionManager:
                 pass
         return False
 
-    def channel_of(self, session_id: str):
-        """The Channel a channel's mix runs on now, or None."""
+    def channel_of(self, session_id):
+        """The Channel a channel's mix runs on now, or None (takes a channel id or its Session)."""
+        session_id = getattr(session_id, "id", session_id)
         channel_id = self._session_channels.get(session_id)
         return self.channel_manager.get_channel(channel_id) if channel_id and self.channel_manager else None
 
@@ -1153,10 +1154,6 @@ class SessionManager:
         """The switched on speakers a group or a selection names (before a channel is given it)."""
         probe = Session(id="", name="", speaker_group_id=speaker_group_id, adhoc_selection=selection)
         return self._only_enabled(self._resolve_selection(probe))
-
-    def channel_of(self, session: Session):
-        """The mixer channel the session plays on, or None."""
-        return self._channel_for(session)
 
     def _only_enabled(self, speaker_ids: list[str]) -> list[str]:
         return [speaker_id for speaker_id in speaker_ids if self.state.settings.speaker_enabled(speaker_id)]
