@@ -106,10 +106,10 @@ HEOS Speaker -> HTTP GET -> Sonorium:8008/stream/channel1
 HEOS players pull the HTTP audio stream, same model as DLNA and Sonos.
 
 ### 4. Code Structure
-Add to `app/core/sonorium/`:
-- `heos_speaker.py` - HEOS device handling
-- Update `network_speakers.py` - Add HEOS discovery
-- Update `streaming.py` - Add HEOS streaming support
+In `sonorium_addon/sonorium/network/`:
+- `heos.py` - HEOS device handling
+- `discovery.py` - HEOS discovery
+- `streaming.py` - HEOS streaming
 
 ### 5. Dependencies
 - `pyheos` - Primary library (async, well-maintained)

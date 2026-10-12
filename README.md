@@ -208,15 +208,7 @@ Single-file themes loop seamlessly using crossfade blending—no jarring restart
 
 ### Supported Speakers
 
-#### Standalone App
-- Local audio output (default speakers)
-- DLNA/UPnP network speakers
-- Sonos speakers (via SoCo library)
-- Arylic/Linkplay speakers (via HTTP API)
-- **HEOS speakers (Denon/Marantz)** - Beta, via CLI protocol
-- *Coming soon: AirPlay (other devices), Chromecast*
-
-#### Docker
+#### Windows App and Docker
 - Google Cast (Chromecast, Nest Hub, Google Home)
 - Sonos
 - DLNA/UPnP speakers
@@ -235,16 +227,17 @@ Single-file themes loop seamlessly using crossfade blending—no jarring restart
 
 ### Ways to Use Sonorium
 
-#### Standalone Windows App
+#### Windows App
 
-Download and run without any dependencies. Perfect for desktop ambient sound.
+Runs on Windows 10 and 11, with or without Home Assistant.
 
-**[Download Latest Release](https://github.com/synssins/sonorium/releases)** | **[Installation Guide](https://github.com/synssins/sonorium/wiki/Standalone-App)**
+**[Download](https://github.com/synssins/sonorium/releases)**: `Sonorium-Setup-<version>.exe`
 
-- Single portable executable—no installation required
-- Local audio playback through your default speakers
-- Stream to DLNA network speakers
-- Automatic updates built-in
+- Install it for yourself, or for all users with Sonorium running as a Windows service that starts with Windows
+- Finds Google Cast, Sonos, DLNA, AirPlay, LinkPlay and HEOS speakers on your network
+- Home Assistant and MQTT are optional, set up in the app's Connections page
+- A tray icon and settings window for the port, folders, connections, updates and logs
+- Updates itself from the GitHub releases
 
 #### Home Assistant Addon
 
@@ -267,12 +260,13 @@ Runs on any Docker host, with or without Home Assistant.
 
 ### Quick Start
 
-#### Standalone App
+#### Windows App
 
-1. **Download** `Sonorium.exe` from the [Releases page](https://github.com/synssins/sonorium/releases)
-2. **Run** the executable (click "More info" → "Run anyway" if Windows SmartScreen appears)
-3. **Create** a session, select a theme and speakers
-4. **Play** and enjoy your ambient soundscape
+1. **Download** `Sonorium-Setup-<version>.exe` from the [Releases page](https://github.com/synssins/sonorium/releases)
+2. **Run** it. If Windows SmartScreen appears, click **More info**, then **Run anyway** (the installer isn't signed yet)
+3. **Choose** Install for me only, or Install for all users (needed to run Sonorium as a service)
+4. **Open Sonorium**: right-click the Sonorium icon by the clock, then click **Open Sonorium**
+5. **Create a Channel**: Select a theme and speakers, then hit play
 
 #### Home Assistant Addon
 
@@ -463,7 +457,6 @@ node instead, without a key.
 Full documentation is available in the **[Wiki](https://github.com/synssins/sonorium/wiki)**:
 
 - [Getting Started](https://github.com/synssins/sonorium/wiki/Getting-Started) - Home Assistant installation
-- [Standalone App](https://github.com/synssins/sonorium/wiki/Standalone-App) - Windows app guide with architecture details
 - [Themes](https://github.com/synssins/sonorium/wiki/Themes) - Creating and organizing themes
 - [Track Settings](https://github.com/synssins/sonorium/wiki/Track-Settings) - Playback modes explained
 - [Presets](https://github.com/synssins/sonorium/wiki/Presets) - Saving track configurations
