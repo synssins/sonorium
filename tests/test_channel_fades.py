@@ -144,6 +144,31 @@ def test_glide_back_to_theme_value_and_mute_is_immediate(tones):
     assert not channel.is_gliding
 
 
+def test_a_presets_rise_and_a_steps_rise_reach_the_channels_ebb_flow_track(tones):
+    from sonorium.core.sequences import merge_step
+    theme = make_theme(tones, ["A"], "a")
+    theme.tracks[0].playback_mode = m.recording.PlaybackMode.PRESENCE
+    theme.tracks[0].rise = 0.0  # the theme: Gradual
+    preset = {"tracks": {"A": {"rise": 0.9}}}
+    channel = channel_without_thread()
+    channel.set_theme(theme, m.recording.preset_track_overrides(preset["tracks"]))
+    pull(channel, 0.2)
+
+    def rise_played():
+        stream = next(s for s in channel._theme_stream.sources if s.instance.name == "A")
+        assert isinstance(stream, m.recording.PresenceMixingStream)
+        return stream.instance.rise
+
+    assert rise_played() == 0.9  # the preset's, not the theme's
+    # A sequence step's While playing rise goes on top of the preset's
+    step = merge_step(preset, {"tracks": {"A": {"rise": 0.3, "volume": None}}})
+    channel.set_track_overrides(m.recording.preset_track_overrides(step["tracks"]))
+    assert rise_played() == 0.3
+    # A preset that leaves rise out: the theme's
+    channel.set_track_overrides(m.recording.preset_track_overrides({"A": {"volume": 0.5}}))
+    assert rise_played() == 0.0
+
+
 def make_session_manager(tmp_path, tones, crossfade):
     state = m.state.StateStore(tmp_path / "state.json")
     state.settings.crossfade_duration = crossfade
