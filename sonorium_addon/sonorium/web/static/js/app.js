@@ -7407,8 +7407,12 @@ async function uploadPlugin(file) {
             throw new Error(result.detail || 'Upload failed');
         }
 
-        const pluginName = result.plugin?.name || 'Unknown';
-        showToast(`Plugin "${pluginName}" installed successfully!`, 'success');
+        if (result.status === 'warning') {
+            showToast(result.message, 'warning');
+        } else {
+            const pluginName = result.plugin?.name || result.plugin_id || 'Plugin';
+            showToast(`Plugin "${pluginName}" installed successfully!`, 'success');
+        }
 
         await loadPlugins();
         pluginCatalog = null;

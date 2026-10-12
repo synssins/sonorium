@@ -2816,9 +2816,13 @@ def create_api_router(
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
 
+        refused = plugin_manager.refused.get(plugin_id)
+        if refused and plugin_id not in plugin_manager.plugins:
+            raise HTTPException(status_code=409, detail=f"{refused['name']} can't be switched on: {refused['problem']}")
         success = await plugin_manager.enable_plugin(plugin_id)
         if not success:
-            raise HTTPException(status_code=400, detail=f"Failed to enable plugin: {plugin_id}")
+            reason = plugin_manager.last_enable_error.get(plugin_id)
+            raise HTTPException(status_code=400, detail=f"Failed to enable plugin: {plugin_id}" + (f" ({reason})" if reason else ""))
 
         return {"status": "ok", "plugin_id": plugin_id, "enabled": True}
 
@@ -3032,12 +3036,20 @@ def create_api_router(
                     "message": f"Plugin '{plugin.name}' installed successfully",
                     "plugin": plugin.to_dict()
                 }
-            else:
+            refused = plugin_manager.refused.get(plugin_id)
+            if refused:
+                # Installed, but it can't run here yet (packages switched off, an API it needs, ...)
                 return {
                     "status": "warning",
-                    "message": f"Plugin files installed but failed to load. Check logs for errors.",
+                    "message": f"Plugin '{refused['name']}' installed, but not loaded: {refused['problem']}",
+                    "plugin": refused,
                     "plugin_id": plugin_id
                 }
+            return {
+                "status": "warning",
+                "message": "Plugin files installed but failed to load. Check logs for errors.",
+                "plugin_id": plugin_id
+            }
 
         except HTTPException:
             raise

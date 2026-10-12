@@ -67,6 +67,7 @@ class PluginManager:
         self.plugins: dict[str, BasePlugin] = {}
         # Plugins that can't run here (API version, capabilities, packages): id -> what Settings > Plugins shows
         self.refused: dict[str, dict] = {}
+        self.last_enable_error: dict[str, str] = {}  # why switching a plugin on failed (shown to the user)
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -308,6 +309,7 @@ class PluginManager:
 
         except Exception as e:
             logger.error(f"Failed to enable plugin {plugin_id}: {e}")
+            self.last_enable_error[plugin_id] = str(e) or type(e).__name__
             if self.host is not None:  # what it subscribed to before failing
                 self.host.bus.unsubscribe_owner(plugin_id)
             return False
