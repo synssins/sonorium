@@ -2,6 +2,36 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.56 (2026-10-12)
+
+### Bug Fixes
+
+- **announce**: An unknown channel's message keeps its quotes; the chime-only notice doesn't ask for
+  a chime
+  ([`664b2b5`](https://github.com/synssins/sonorium/commit/664b2b5de455005033c1eff82fc222aabd5447f6))
+
+- **web**: The channel editor's Announcements switch lines up with its label
+  ([`ca79ae7`](https://github.com/synssins/sonorium/commit/ca79ae78174d0149dccf7ad4cb6b4f738f49a061))
+
+### Documentation
+
+- Announcements: let other systems use Sonorium (HA, key + curl, MQTT, Node-RED)
+  ([`74eb5c9`](https://github.com/synssins/sonorium/commit/74eb5c9b5c2db2d1f0d080a08b2ff24dfa143093))
+
+### Features
+
+- **announce**: Other systems announce through Sonorium (HTTP, MQTT, Home Assistant)
+  ([`de2bb61`](https://github.com/synssins/sonorium/commit/de2bb6125257eb1175f171560edbeef320418a6c))
+
+- **channels**: Announcements on/off per channel (default on)
+  ([`9bc9e6a`](https://github.com/synssins/sonorium/commit/9bc9e6a17a24f85cb83b6ee1eec12b6315acc1d0))
+
+### Refactoring
+
+- Remove notification rules, notifiers and Settings › Notifications
+  ([`1e83a4f`](https://github.com/synssins/sonorium/commit/1e83a4fe4408875584f1d4c5ad942ee5f7846031))
+
+
 ## v1.6.2-dev.53 (2026-10-12)
 
 
