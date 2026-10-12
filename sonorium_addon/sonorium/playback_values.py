@@ -9,7 +9,8 @@ it can, otherwise on the next play or loop.
 The values the user changed live in the settings store
 (SonoriumSettings.playback_values, only the changed ones); set_source() points
 this module at them. Without a source (tests, code without a store) every
-value is its default.
+value is its default. use_values() gives one thread its own values for a
+while (an engine's render, sonorium/engine), leaving every other thread's alone.
 
 No dependencies on the rest of the package, so recording.py can load it even
 when it's loaded on its own.
@@ -17,7 +18,9 @@ when it's loaded on its own.
 
 from __future__ import annotations
 
+import contextlib
 import math
+import threading
 from typing import Callable, Optional
 
 # key -> default. Chances and randomness are fractions (0.30 = 30%); times are seconds.
@@ -52,6 +55,7 @@ RANGES = (("sparse_min_interval", "sparse_max_interval"), ("group_crossfade_min"
 FRACTIONS = ("sparse_interval_variance", "ebb_long_rest", "ebb_turn")
 
 _source: Optional[Callable[[], dict]] = None
+_local = threading.local()
 
 
 def set_source(source: Optional[Callable[[], dict]]) -> None:
@@ -60,7 +64,24 @@ def set_source(source: Optional[Callable[[], dict]]) -> None:
     _source = source
 
 
+@contextlib.contextmanager
+def use_values(values: Optional[dict]):
+    """In this thread, inside the with block, the changed values are `values` (None: no change)."""
+    if values is None:
+        yield
+        return
+    previous = getattr(_local, "values", None)
+    _local.values = dict(values)
+    try:
+        yield
+    finally:
+        _local.values = previous
+
+
 def _stored() -> dict:
+    scoped = getattr(_local, "values", None)
+    if scoped is not None:
+        return scoped
     if _source is None:
         return {}
     try:

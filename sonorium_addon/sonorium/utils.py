@@ -4,9 +4,16 @@ Shared utility functions for Sonorium
 import os
 import re
 
-import httpx
-
 from sonorium.obs import logger
+
+
+def __getattr__(name):
+    # utils.httpx: imported when first needed (only the Home Assistant calls
+    # below use it), so the playback engine can use IndexList without it
+    if name == "httpx":
+        import httpx
+        return httpx
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 class IndexList(list):
@@ -69,6 +76,7 @@ class HomeAssistantClient:
 
     def get_states(self) -> list[dict]:
         """Every entity's state, as Home Assistant returns it (entity_id, state, attributes, ...)."""
+        import httpx
         response = httpx.get(
             f"{self.api_url}/states",
             headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
@@ -80,6 +88,7 @@ class HomeAssistantClient:
 
 def call_ha_service(domain: str, service: str, service_data: dict):
     """Call Home Assistant service using direct REST API"""
+    import httpx
     from sonorium.settings import settings
     token = settings.token
 

@@ -330,7 +330,7 @@ API (`api.py`):
 | Item | Value | Code |
 |---|---|---|
 | Sample rate | 44100 Hz | `recording.py:199` |
-| Channels | mono. Every file is decoded and resampled to s16 mono 44100 Hz by ffmpeg's resampler (PyAV `AudioResampler`), so stereo is down-mixed by libswresample defaults | `recording.py:488`, `:545`, `:771` |
+| Channels | mono. Every file is decoded and resampled to s16 mono 44100 Hz by ffmpeg's resampler (PyAV `AudioResampler`), so stereo is down-mixed by libswresample defaults | `decoders.py` `PyAvDecoder` (every read goes through `recording.AudioReader`) |
 | Chunk size | 1024 samples (about 23.2 ms) for every stream and the mix | `recording.py:484`, `:537`, `:719`, `:932`; `theme.py:123` |
 | Per-track chunk type | int16, shape (1, 1024). Float results are clipped to [-32768, 32767] and cast with truncation toward zero | `recording.py:682`, `:891`, `:1088` |
 | Stream output | MP3, 128 kbit/s, 44100 Hz, mono | `core/channel.py` `ChannelStream`, `theme.py:156-158` |
