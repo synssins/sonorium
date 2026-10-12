@@ -77,8 +77,10 @@ def test_install_type_and_features_addon(monkeypatch, tmp_path):
     runtime = load_runtime(monkeypatch, tmp_path, standalone=False)
     assert (runtime.INSTALL, runtime.INSTALL_LABEL) == ("addon", "HA App")
     features = runtime.features()
-    assert features["connection_settings"] == {"available": False, "enabled": False, "overridable": False}
-    assert features["network_speakers"] == {"available": True, "enabled": False, "overridable": True}
+    assert features["connection_settings"] == {"available": False, "enabled": False, "overridable": False,
+                                               "switchable": False}
+    assert features["network_speakers"] == {"available": True, "enabled": False, "overridable": True,
+                                            "switchable": True}
     assert runtime.feature_enabled("network_speakers", {"network_speakers": True})
     assert not runtime.feature_enabled("connection_settings", {"connection_settings": True})  # hidden stays off
 
@@ -89,5 +91,10 @@ def test_install_type_and_features_docker(monkeypatch, tmp_path):
     assert (runtime.INSTALL, runtime.INSTALL_LABEL) == ("docker", "Docker")
     features = runtime.features()
     # Plugin packages: off on every install until switched on in Settings > Advanced
-    assert features.pop("plugin_packages") == {"available": True, "enabled": False, "overridable": True}
-    assert all(f == {"available": True, "enabled": True, "overridable": False} for f in features.values())
+    assert features.pop("plugin_packages") == {"available": True, "enabled": False, "overridable": True,
+                                               "switchable": True}
+    # Speaker discovery is on, and can be switched off through PUT /api/install/features
+    assert features.pop("network_speakers") == {"available": True, "enabled": True, "overridable": False,
+                                                "switchable": True}
+    assert all(f == {"available": True, "enabled": True, "overridable": False, "switchable": False}
+               for f in features.values())

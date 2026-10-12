@@ -196,7 +196,8 @@ class Announcer:
         except ImportError:
             logger.debug("mDNS: zeroconf isn't installed; Sonorium isn't announced")
             return False
-        http_port = url.port or 8008
+        from sonorium import runtime
+        http_port = url.port or runtime.stream_port()
         try:
             self._zc = Zeroconf(interfaces=ips)
             hostname = self._pick_hostname(set(ips))
