@@ -23,6 +23,8 @@ public static class Updates
     {
         get
         {
+            // Documentation screenshots only: act as an older version so an update shows
+            if (Environment.GetEnvironmentVariable("SONORIUM_PRETEND_VERSION") is { Length: > 0 } pretend) return pretend;
             var info = Assembly.GetEntryAssembly()?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
                        ?? "0.0.0";
             var plus = info.IndexOf('+');
