@@ -318,6 +318,7 @@ jobs:
         with:
           ref: ${{ needs.version.outputs.commit }}
           persist-credentials: false
+          fetch-depth: 0  # the tags, for the notes' fallback below
 
       - uses: actions/download-artifact@v4
         with:
@@ -342,6 +343,13 @@ jobs:
 
           # Release notes: this version's section of the add-on changelog
           awk -v h="## v$VERSION " 'index($0, h) == 1 { on = 1; next } on && /^## v/ { exit } on'             sonorium_addon/CHANGELOG.md > notes.md
+          # A version whose changes have no fix:/feat: entry (merges, CI) has an empty section:
+          # list the commit subjects since the previous version instead
+          if ! grep -q '[^[:space:]]' notes.md; then
+            prev=$(git tag --list 'addon-v*' --sort=-creatordate | grep -vx "$tag" | head -1 || true)
+            range="${prev:+$prev..}$tag"
+            git log --no-merges --format='- %s' "$range" --               | grep -v -e '^- chore(release)' -e '\[skip ci\]' | head -40 > notes.md || true
+          fi
           grep -q '[^[:space:]]' notes.md || echo "Sonorium $VERSION" > notes.md
           cat notes.md
 
