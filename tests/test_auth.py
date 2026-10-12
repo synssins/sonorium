@@ -493,6 +493,32 @@ def test_key_for_some_channels_only(w):
     assert k.post("/api/sessions", headers=H(key["key"])).status_code == 403  # a new channel isn't one of its own
 
 
+def test_key_last_used_counts_only_accepted_requests(w):
+    """A refused request (an ability or channel the key lacks, Keys off) doesn't change "Last used"."""
+    c, csrf = w.setup_admin()
+    key = make_key(c, csrf, abilities=["ch.view", "ch.play"], channels=[CHANNEL])
+    k = w.client()
+
+    def last_used():
+        return w.service.tokens.get(key["id"])["last_used"]
+
+    assert last_used() is None
+    w.clock.now += 61
+    assert k.get("/api/themes", headers=H(key["key"])).status_code == 403  # no such ability
+    assert k.post("/api/sessions/other/play", headers=H(key["key"])).status_code == 403  # not its channel
+    m.keys.set_enabled(w.service, False)
+    assert k.get("/api/sessions", headers=H(key["key"])).status_code == 401  # Keys off
+    m.keys.set_enabled(w.service, True)
+    assert last_used() is None
+    assert k.get("/api/sessions", headers=H(key["key"])).status_code == 200
+    used = last_used()
+    assert used is not None
+    w.clock.now += 61
+    assert k.get("/api/themes", headers=H(key["key"])).status_code == 403
+    assert last_used() == used
+    assert [x["last_used"] for x in c.get("/api/keys", headers=H(None, csrf)).json()["keys"]] == [used]
+
+
 # --- Bypass ------------------------------------------------------------------------
 
 def test_bypass_login(w, monkeypatch):
