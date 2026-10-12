@@ -12,10 +12,16 @@ name: Add-on Version
 #                  tag reserves the number (branches share the -dev.N count)
 #                  and HA doesn't read tags, so nobody is offered it yet.
 #   2. addon-image build every arch from that tag and push :<version>
-#   3. publish     only when every image was pushed: move the branch to the
-#                  release commit, so HA never sees a version it can't pull
+#      windows     build the Windows installer from the same tag and test it
+#                  on a clean runner (windows-app.yml)
+#   3. publish     only when every image was pushed and the installer passed:
+#                  move the branch to the release commit, so HA never sees a
+#                  version it can't pull
 #   4. addon-tags  move :latest (main), :dev (fixes) or :branch-<name>;
-#      docker      the standalone image, as before
+#      docker      the standalone image, as before;
+#      windows-release  attach Sonorium-Setup-<version>.exe to the GitHub
+#                  release addon-v<version>: pre-release on fixes, full
+#                  release on main, none on other branches
 #   cleanup        if 2 or 3 failed, delete the tag again
 #
 # The release commit is pushed with GITHUB_TOKEN and tagged "[skip ci]",
@@ -27,6 +33,9 @@ on:
     paths:
       - 'sonorium_addon/**'
       - '!sonorium_addon/README.md'  # docs only: no new version
+      # The Windows app is built from the same tag, so its changes need a version too
+      - 'desktop/**'
+      - 'packaging/windows/**'
   workflow_dispatch:
     inputs:
       bump:
@@ -158,10 +167,23 @@ jobs:
       ref: addon-v${{ needs.version.outputs.version }}
       hold_branch_tag: true
 
+  windows:
+    name: Windows installer
+    needs: version
+    # The called workflow only reads; its own pre-release job (skipped here, it
+    # runs only on pushes to windows-app) declares contents: write, and GitHub
+    # refuses the call if a nested job asks for more than the caller grants.
+    permissions:
+      contents: write
+    uses: ./.github/workflows/windows-app.yml
+    with:
+      ref: addon-v${{ needs.version.outputs.version }}
+
   publish:
     name: Push release commit
     # needs: skips this job unless every add-on image was built and pushed
-    needs: [version, addon-image]
+    # and the Windows installer was built and passed its tests
+    needs: [version, addon-image, windows]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -202,7 +224,7 @@ jobs:
     name: Release the version number
     # The version was reserved but not published: delete its tag, so the
     # next run can use the number (its images are rebuilt by that run)
-    needs: [version, addon-image, publish]
+    needs: [version, addon-image, windows, publish]
     if: failure() && needs.version.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -277,3 +299,59 @@ jobs:
     uses: ./.github/workflows/docker-publish.yml
     with:
       branch: ${{ github.ref_name }}
+
+  windows-release:
+    name: Windows installer release
+    # Only fixes (pre-release) and main (full release) publish the installer
+    if: github.ref_name == 'fixes' || github.ref_name == 'main'
+    needs: [version, windows, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout the release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.commit }}
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: sonorium-setup
+          path: setup
+
+      - name: Create or update the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+          INSTALLER: ${{ needs.windows.outputs.installer }}
+        run: |
+          set -euo pipefail
+          tag="addon-v$VERSION"
+          asset="Sonorium-Setup-$VERSION.exe"
+          # The app's updater only takes an asset with exactly this name
+          if [ "$INSTALLER" != "$asset" ] || [ ! -f "setup/$asset" ]; then
+            echo "::error::expected setup/$asset, the build made '$INSTALLER'"; ls -l setup; exit 1
+          fi
+
+          # Release notes: this version's section of the add-on changelog
+          awk -v h="## v$VERSION " 'index($0, h) == 1 { on = 1; next } on && /^## v/ { exit } on'             sonorium_addon/CHANGELOG.md > notes.md
+          grep -q '[^[:space:]]' notes.md || echo "Sonorium $VERSION" > notes.md
+          cat notes.md
+
+          if [ "$BRANCH" = "main" ]; then
+            kind=(--latest); title="Sonorium $VERSION"
+          else
+            kind=(--prerelease --latest=false); title="Sonorium $VERSION (preview)"
+          fi
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release edit "$tag" --title "$title" --notes-file notes.md "${kind[@]}"
+            gh release upload "$tag" "setup/$asset" --clobber
+          else
+            gh release create "$tag" "setup/$asset" --verify-tag               --title "$title" --notes-file notes.md "${kind[@]}"
+          fi
+          echo "Release $tag: $asset" >> "$GITHUB_STEP_SUMMARY"

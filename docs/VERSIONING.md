@@ -30,13 +30,26 @@ about the version, so the workflow runs in this order:
    the `-dev.N` count); HA reads branches, not tags, so nobody sees it yet.
 2. **Add-on images**: the add-on is built from that tag for each architecture
    (`amd64`, `aarch64`) and pushed as `:<version>`.
-3. **Push release commit**: runs only if every image was pushed. The branch
-   moves to the version commit, and HA can now offer the update. If a build
-   failed, the branch keeps its old version, nothing is offered, and the tag
-   is deleted again.
+   **Windows installer**, at the same time: the
+   [Windows App](../.github/workflows/windows-app.yml) workflow builds
+   `Sonorium-Setup-<version>.exe` from the same tag, then installs it on a
+   clean Windows runner and tests it as a service (web API, an MP3 stream,
+   restart/stop/start, the updater, uninstall).
+3. **Push release commit**: runs only if every image was pushed and the
+   installer passed its tests. The branch moves to the version commit, and HA
+   can now offer the update. If a build or the installer test failed, the
+   branch keeps its old version, nothing is offered, and the tag is deleted
+   again.
 4. **Tags and the standalone image**: `:latest` (main), `:dev` (`fixes`) or
    `:branch-<name>` (any other branch) is moved to the new version, and the
    standalone image `ghcr.io/synssins/sonorium` is built as before.
+5. **Windows release**: the installer is attached, named exactly
+   `Sonorium-Setup-<version>.exe`, to the GitHub release for the tag
+   `addon-v<version>`, with that version's changelog section as notes. On
+   `fixes` it is a **pre-release** (the app's Preview channel); on `main` a
+   **full release**, marked latest (the Stable channel). Other branches build
+   and test the installer but publish no release. The app's updater picks the
+   newest release with that asset name and checks GitHub's SHA-256 of it.
 
 If someone pushes to the branch while the images are building, step 3 stops
 without pushing; that push has its own run, which makes the next version.
@@ -46,8 +59,11 @@ without pushing; that push has its own run, which makes the next version.
 | `main` | `1.2.89`, `1.3.0`, `2.0.0` | Releases |
 | anything else | `1.2.89-dev.1`, `1.2.89-dev.2`, … | Testing a branch in HA |
 
+Changes under `desktop/` or `packaging/windows/` also make a new version, since
+the installer is built from the version's tag.
+
 Config: [`releaserc.toml`](../releaserc.toml). The plain `v*` tags belong to the
-Windows app release workflow and are unrelated.
+old Windows app's release workflow (`app/`, `release.yml`) and are unrelated.
 
 ## Commit messages
 
