@@ -100,6 +100,7 @@ jobs:
     timeout-minutes: 40
     outputs:
       installer: ${{ steps.installer.outputs.installer }}
+      version: ${{ steps.installer.outputs.version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -131,6 +132,12 @@ jobs:
         run: |
           choco install innosetup --no-progress -y | Out-Null
           $version = (Get-Content sonorium_addon/sonorium/version -Raw).Trim()
+          # Pushes to windows-app: each build its own, newer version (1.7.1-dev.4 -> 1.7.1-dev.4.w12),
+          # so the app's updater offers it
+          if ('${{ github.ref }}' -eq 'refs/heads/windows-app' -and '${{ inputs.ref }}' -eq '') {
+            $version = if ($version.Contains('-')) { "$version.w${{ github.run_number }}" } else { "$version-w${{ github.run_number }}" }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
           packaging/windows/build-installer.ps1 -Bundle dist/Sonorium -Version $version -Out dist/setup
           "installer=Sonorium-Setup-$version.exe" >> $env:GITHUB_OUTPUT
 
@@ -265,6 +272,22 @@ jobs:
           (Get-Service Sonorium).WaitForStatus('Running', '00:00:30')
           "Stopped and started by a standard user"
 
+      - name: The updater, through the update task (no administrator prompt)
+        shell: pwsh
+        run: |
+          schtasks.exe /query /tn '\Sonorium\Update' /fo list
+          if ($LASTEXITCODE) { throw 'The update task is missing' }
+          # As the tray console runs it: a copy outside the install folder, as the installing user
+          $copy = Join-Path $env:RUNNER_TEMP 'SonoriumUpdater.exe'
+          Copy-Item 'C:\Program Files\Sonorium\SonoriumUpdater.exe' $copy
+          $env:SONORIUM_HOST_ROOT = 'C:\Program Files\Sonorium'
+          $p = Start-Process $copy -ArgumentList '--install', '--channel', 'preview' -Wait -PassThru
+          Get-Content C:\ProgramData\Sonorium\Updates\updater.log -ErrorAction SilentlyContinue
+          $status = Get-Content C:\ProgramData\Sonorium\Updates\status.json -Raw | ConvertFrom-Json
+          "Update task: $($status.state), code $($status.code): $($status.message)"
+          if ($status.state -ne 'done' -or $status.code -ne 0) { throw 'The update task failed' }
+          Get-Process Sonorium -ErrorAction SilentlyContinue | Stop-Process -Force
+
       - name: Switch to per user and back (General's "Run Sonorium as")
         shell: pwsh
         run: |
@@ -300,3 +323,38 @@ jobs:
         if: always()
         shell: pwsh
         run: Get-Content C:\ProgramData\Sonorium\Logs\*.log -ErrorAction SilentlyContinue | Select-Object -Last 80
+
+  # Test builds from this branch, for the app's updater (Preview channel): a pre-release
+  # windows-v<version> with the installer, once every test above has passed. The newest 5 are kept.
+  prerelease:
+    name: Publish as a pre-release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/windows-app'
+    needs: [bundle, service]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sonorium-setup
+          path: setup
+
+      - name: Pre-release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.bundle.outputs.version }}
+        run: |
+          # What's new: the subjects of this push's commits, as a list (the Updates page shows them)
+          jq -r '.commits[].message | split("\n")[0] | select(test("^Merge|\\[skip ci\\]") | not) | "- " + .' \
+            "$GITHUB_EVENT_PATH" > notes.md
+          [ -s notes.md ] || echo "- Windows test build" > notes.md
+          cat notes.md
+          gh release create "windows-v$VERSION" setup/Sonorium-Setup-$VERSION.exe \
+            --prerelease --target "$GITHUB_SHA" \
+            --title "Sonorium for Windows $VERSION (test build)" --notes-file notes.md
+          # Keep the newest 5 test builds
+          gh release list --limit 100 --json tagName,isPrerelease,createdAt \
+            --jq '[.[] | select(.isPrerelease and (.tagName | startswith("windows-v")))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
+            while read -r tag; do gh release delete "$tag" --yes --cleanup-tag; done

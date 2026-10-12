@@ -12,6 +12,9 @@ using Sonorium.Host;
 //   switch-mode user <user data folder> <user themes folder>
 //                               the console's "Run Sonorium as" (admin): the service registered
 //                               or removed, data and themes copied across
+//   install-update-task [SID]   all-users installs (admin): the SYSTEM task that installs updates
+//                               without a prompt, which that user may start (default: the user running this)
+//   uninstall-update-task       remove it (admin)
 //   env                         print the variables Sonorium would run with (diagnostics)
 
 try
@@ -26,6 +29,12 @@ try
             return 0;
         case "uninstall-service":
             ServiceSetup.Uninstall();
+            return 0;
+        case "install-update-task" when args.Length <= 2:
+            UpdateTask.Install(args.Length == 2 ? args[1] : UpdateTask.CurrentUserSid());
+            return 0;
+        case "uninstall-update-task":
+            UpdateTask.Uninstall();
             return 0;
         case "switch-mode" when args.Length == 5 && args[1] == "service":
             ServiceSetup.SwitchToService(args[2], args[3], args[4]);
@@ -45,7 +54,7 @@ try
             return 2;
     }
 }
-catch (Exception e) when (args.FirstOrDefault() is "install-service" or "uninstall-service" or "switch-mode")
+catch (Exception e) when (args.FirstOrDefault() is "install-service" or "uninstall-service" or "switch-mode" or "install-update-task" or "uninstall-update-task")
 {
     // The tray shows this text when the elevated step fails; an elevated process has no
     // stderr it can read, so it's also left in %TEMP% (the same user's, elevated)

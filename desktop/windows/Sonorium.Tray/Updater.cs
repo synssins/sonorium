@@ -41,7 +41,7 @@ public static class Updater
     {
         try
         {
-            var update = await Updates.CheckAsync(State.Settings.UpdateChannel == "preview");
+            var update = await Updates.CheckAsync(State.Settings.Channel == "preview");
             State.Settings.LastUpdateCheck = DateTimeOffset.Now;
             TrySave();
             State.SetUpdate(update);
@@ -55,7 +55,7 @@ public static class Updater
 
     public static void InstallNow()
     {
-        var channel = State.Settings.UpdateChannel == "preview" ? "preview" : "stable";
+        var channel = State.Settings.Channel;
         // Run from a copy: the installer replaces the one in the install folder
         var folder = Path.Combine(Path.GetTempPath(), "SonoriumUpdate");
         Directory.CreateDirectory(folder);

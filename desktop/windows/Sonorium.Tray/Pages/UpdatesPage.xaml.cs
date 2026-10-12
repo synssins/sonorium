@@ -28,7 +28,7 @@ public sealed partial class UpdatesPage : Page
         loading = true;
         AutoCheck.IsOn = state.Settings.CheckForUpdates;
         AutoInstall.IsOn = state.Settings.InstallUpdates;
-        Channel.SelectedIndex = state.Settings.UpdateChannel == "preview" ? 1 : 0;
+        Channel.SelectedIndex = state.Settings.Channel == "preview" ? 1 : 0;
         loading = false;
         state.Changed += Refresh;
         Refresh();

@@ -50,4 +50,16 @@ public static class Paths
 
     /// <summary>The service's own folder (ProgramData\Sonorium), whose ACL the service install sets.</summary>
     public static string ServiceRoot => ProgramData;
+
+    /// <summary>
+    /// All-users installs: the scheduled task that installs updates as SYSTEM (no administrator
+    /// prompt per update), which the installing user may start; and its folder, where the user's
+    /// updater leaves the request (the channel) and the task leaves its result and log.
+    /// </summary>
+    public const string UpdateTaskName = @"\Sonorium\Update";
+    public static string UpdatesFolder => Path.Combine(ProgramData, "Updates");
+
+    /// <summary>Installed for all users (Program Files) rather than for one user (%LOCALAPPDATA%\Programs).</summary>
+    public static bool AllUsersInstall =>
+        ProgramFolder.StartsWith(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), StringComparison.OrdinalIgnoreCase);
 }

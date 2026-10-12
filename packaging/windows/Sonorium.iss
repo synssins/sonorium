@@ -64,15 +64,19 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
   ValueData: """{app}\Sonorium.exe"""; Tasks: startup; Flags: uninsdeletevalue
 
 [Run]
-; As a service: registered (with its folder ACL, the start/stop right for you and the firewall
-; rules), then started
-Filename: "{app}\SonoriumHost.exe"; Parameters: "install-service"; Check: WantService; Flags: runhidden waituntilterminated; StatusMsg: "Setting up the Sonorium service..."
+; As a service: registered (its folder ACL, the start/stop right for you, the firewall rules)
+; on a new install; an update keeps the registration it has, then the service starts again
+Filename: "{app}\SonoriumHost.exe"; Parameters: "install-service"; Check: NewService; Flags: runhidden waituntilterminated; StatusMsg: "Setting up the Sonorium service..."
 Filename: "{sys}\sc.exe"; Parameters: "start Sonorium"; Check: WantService; Flags: runhidden waituntilterminated
-; The tray console (it starts Sonorium per user); also after a silent update
-Filename: "{app}\Sonorium.exe"; Description: "Start Sonorium"; Flags: postinstall nowait runasoriginaluser
+; All users: the task that installs updates without an administrator prompt (kept on updates)
+Filename: "{app}\SonoriumHost.exe"; Parameters: "install-update-task"; Check: NewUpdateTask; Flags: runhidden waituntilterminated
+; The tray console (it starts Sonorium per user); also after a silent update, except when the
+; update task (SYSTEM) runs this with /NOTRAY=1: the user's updater starts it then
+Filename: "{app}\Sonorium.exe"; Description: "Start Sonorium"; Check: WantTray; Flags: postinstall nowait runasoriginaluser
 
 [UninstallRun]
 Filename: "{app}\SonoriumHost.exe"; Parameters: "uninstall-service"; Flags: runhidden waituntilterminated; Check: IsAdminInstallMode; RunOnceId: "RemoveService"
+Filename: "{app}\SonoriumHost.exe"; Parameters: "uninstall-update-task"; Flags: runhidden waituntilterminated; Check: IsAdminInstallMode; RunOnceId: "RemoveUpdateTask"
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\python"
@@ -99,20 +103,38 @@ begin
 end;
 
 var
-  HadService: Boolean;
+  HadService, HadUpdateTask: Boolean;
 
-// An update of an all-users install keeps the service if it was there, even when silent
+// An update of an all-users install keeps the service and the update task as they were, even
+// when silent (run by the update task as SYSTEM, re-registering them would hand their
+// permissions to SYSTEM instead of the user who installed Sonorium)
 function InitializeSetup: Boolean;
 var
   Code: Integer;
 begin
   HadService := Exec(ExpandConstant('{sys}\sc.exe'), 'query Sonorium', '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
+  HadUpdateTask := Exec(ExpandConstant('{sys}\schtasks.exe'), '/query /tn \Sonorium\Update', '', SW_HIDE, ewWaitUntilTerminated, Code) and (Code = 0);
   Result := True;
 end;
 
 function WantService: Boolean;
 begin
   Result := IsAdminInstallMode and (HadService or WizardIsTaskSelected('service'));
+end;
+
+function NewService: Boolean;
+begin
+  Result := WantService and not HadService;
+end;
+
+function NewUpdateTask: Boolean;
+begin
+  Result := IsAdminInstallMode and not HadUpdateTask;
+end;
+
+function WantTray: Boolean;
+begin
+  Result := ExpandConstant('{param:NOTRAY|0}') <> '1';
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

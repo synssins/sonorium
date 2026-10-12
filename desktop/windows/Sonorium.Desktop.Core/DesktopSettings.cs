@@ -34,8 +34,12 @@ public sealed class DesktopSettings
     public bool OpenBrowserOnStart { get; set; }
     public bool CheckForUpdates { get; set; } = true;
     public bool InstallUpdates { get; set; }
-    /// <summary>"stable" or "preview".</summary>
-    public string UpdateChannel { get; set; } = "stable";
+    /// <summary>"stable" or "preview"; unset: a pre-release build follows Preview, a release Stable.</summary>
+    public string? UpdateChannel { get; set; }
+
+    [JsonIgnore]
+    public string Channel => UpdateChannel is "stable" or "preview" ? UpdateChannel
+        : Updates.CurrentVersion.Contains('-') ? "preview" : "stable";
     public DateTimeOffset? LastUpdateCheck { get; set; }
 
     [JsonIgnore] public RunMode Mode { get; private set; }
