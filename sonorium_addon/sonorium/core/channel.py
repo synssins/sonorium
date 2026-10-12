@@ -367,11 +367,15 @@ class Channel:
         if stream is not None and hasattr(stream, "label"):
             stream.label = f"{self.name}: {theme.name}"
 
+    def _transition_clock(self) -> float:
+        """Time for transitions planned while a theme change is queued (the engine counts audio instead)."""
+        return time.monotonic()
+
     def schedule_transitions(self, plans: list) -> None:
         """Plan tracks' advanced transitions on the playing mix (see theme.ThemeMix.schedule_transitions)."""
         with self._lock:
             if self._pending_theme is not None:
-                self._pending_transitions = (time.monotonic(), [dict(p) for p in plans])
+                self._pending_transitions = (self._transition_clock(), [dict(p) for p in plans])
                 return
             stream = self._theme_stream
         if stream is not None and hasattr(stream, "schedule_transitions"):
@@ -447,7 +451,7 @@ class Channel:
         self._label_stream(new_stream, theme)
         planned, self._pending_transitions = self._pending_transitions, None
         if planned is not None and hasattr(new_stream, "schedule_transitions"):
-            elapsed = time.monotonic() - planned[0]
+            elapsed = self._transition_clock() - planned[0]
             new_stream.schedule_transitions([{**p, "delay": max(0.0, p.get("delay", 0.0) - elapsed)}
                                              for p in planned[1]])
         old_generator = self._chunk_generator

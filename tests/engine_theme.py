@@ -6,6 +6,9 @@ on the spot, with metadata.json and presets.json, so no real theme is needed.
     Wind.wav        noise, 8 s, Ebb & Flow (drifts at random)
     Chirp.wav       2 kHz sine, 0.6 s, Intermittent (waits at random)
     Birds/*.wav     three short tones in a group (takes turns)
+
+Presets calm, busy (default) and quiet; sequences walk, bounce and once
+(SEQUENCES). make_second_theme() writes another theme for playlists.
 """
 import json
 import wave
@@ -39,6 +42,35 @@ def noise(seconds: float, amp: float = 6000.0, seed: int = 7):
 FAST_VALUES = {"sparse_min_interval": 1.0, "sparse_max_interval": 4.0, "group_gap": 2.0}
 
 
+# Sequences with holds of seconds, so steps happen within a short render
+SEQUENCES = {
+    "walk": {"name": "Walk", "presets": ["calm", "busy", "quiet"], "at_end": "restart",
+             "hold_min": 1.0, "hold_max": 2.0, "ramp": 0.5,
+             "while": {"busy": {"tracks": {"Drone": {"volume": 0.05}}}},
+             "transitions": {"busy": {"in": {"Wind": {"styles": ["gusts"], "values": {"gusts": 80},
+                                                       "pre_fade": 0.5}}}}},
+    "bounce": {"name": "Bounce", "presets": ["calm", "busy", "quiet"], "at_end": "reverse",
+               "hold_min": 1.0, "hold_max": 1.0, "ramp": 0.0},
+    "once": {"name": "Once", "presets": ["calm", "busy"], "at_end": "stop",
+             "hold_min": 1.0, "hold_max": 1.0, "ramp": 0.0},
+}
+
+
+def make_second_theme(root: Path, name: str = "Second Theme") -> Path:
+    """Another theme beside the first (a playlist's other entry): one loud 440 Hz loop, no preset."""
+    folder = Path(root) / name
+    write_wav(folder / "Tone.wav", sine(440.0, 5.0, 12000.0))
+    metadata = {"spec_version": 2, "id": "engine-second-theme", "name": name, "ebb_duration": True,
+                "auto_retired": True, "intrusions_retired": True,
+                "tracks": {"Tone": {"volume": 1.0, "presence": 1.0, "playback_mode": "continuous"}}}
+    (folder / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    presets = {"presets": {"soft": {"name": "Soft", "tracks": {"Tone": {"volume": 0.2}}}},
+               "sequences": {"pair": {"name": "Pair", "presets": ["soft"], "hold_min": 2.0, "hold_max": 2.0,
+                                      "ramp": 0.0}}}
+    (folder / "presets.json").write_text(json.dumps(presets, indent=2), encoding="utf-8")
+    return folder
+
+
 def make_theme(root: Path, name: str = "Test Theme") -> Path:
     folder = Path(root) / name
     write_wav(folder / "Drone.wav", sine(220.0, 6.0))
@@ -63,6 +95,7 @@ def make_theme(root: Path, name: str = "Test Theme") -> Path:
     presets = {"presets": {
         "calm": {"name": "Calm", "tracks": {"Drone": {"volume": 0.3}, "Wind": {"muted": True}}},
         "busy": {"name": "Busy", "is_default": True, "tracks": {"Chirp": {"presence": 1.0, "volume": 0.9}}},
-    }}
+        "quiet": {"name": "Quiet", "tracks": {"Drone": {"volume": 0.1}, "Chirp": {"muted": True}}},
+    }, "sequences": SEQUENCES}
     (folder / "presets.json").write_text(json.dumps(presets, indent=2), encoding="utf-8")
     return folder

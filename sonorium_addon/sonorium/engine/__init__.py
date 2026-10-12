@@ -2,6 +2,8 @@
 Sonorium's playback engine on its own: a theme folder (plus a preset,
 playback values and a seed) in, mono PCM out, pulled by the caller. No web
 server, Home Assistant, MQTT, speakers or MP3 encoder; no threads.
+Sequences, playlists and theme crossfades run as on a server channel,
+timed in audio rendered (start_sequence, start_playlist, set_theme, status).
 
     from sonorium.engine import Engine, PyAvDecoder
 

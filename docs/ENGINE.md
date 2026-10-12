@@ -1,10 +1,12 @@
 # The playback engine (developer note)
 
 `sonorium.engine` runs Sonorium's mixer on its own: a theme folder in, mono
-PCM out, pulled by the caller. It uses the same mixing code as the server
-(`theme.ThemeMix` for the tracks, `core.channel.Channel` for preset glides and
-fades) without the web server, Home Assistant, MQTT, speakers, the MP3 encoder
-or any thread. Use it for offline renders, tests and comparisons.
+PCM out, pulled by the caller. It uses the same code as the server
+(`theme.ThemeMix` for the tracks, `core.channel.Channel` for preset glides,
+theme crossfades and fades, `core.playback_runner.PlaybackRunner` for
+sequences and playlists) without the web server, Home Assistant, MQTT,
+speakers, the MP3 encoder or any thread. Use it for offline playback,
+embedding, offline renders, tests and comparisons.
 
 ```python
 from sonorium.engine import Engine, PyAvDecoder
@@ -13,6 +15,7 @@ eng = Engine("media/Tavern", preset_id=None, seed=1234, decoder=PyAvDecoder())
 pcm = eng.render(44100)      # numpy int16, shape (44100,): one second, mono, 44100 Hz
 eng.set_preset("busy")       # glides over 3 s, as a preset picked on a playing channel
 eng.set_volume(0.5)          # output volume 0..1, after the mix
+eng.start_sequence("evening")  # steps through a sequence of the theme
 eng.close()
 ```
 
@@ -29,14 +32,41 @@ eng.close()
 | `clock` | A `SampleClock` that counts rendered samples. |
 | `master_gain` | Settings > Audio Settings > Master output gain, 0-100 (default 60). |
 | `volume`, `fade_in` | Output volume 0..1; seconds to fade the mix in at the start. |
-| `step` | A sequence step's While playing values laid over the preset. |
+| `step` | A sequence step's While playing values laid over the preset (by hand; a running sequence sets its own). |
+| `themes_root` | Where other themes are: linked files, playlist entries, `set_theme`. Default: the theme folder's parent. |
+| `crossfade` | Settings > Audio Settings > Crossfade: seconds a theme change crossfades (default 3). |
+| `sequence_id` | A sequence of the theme to run from the start, on its first preset. |
 
 `render(n, dtype="int16" | "float32")` returns the next `n` samples, any
 length. Other calls: `set_preset(id, glide_seconds=3.0, fade_seconds=None,
 step=None)`, `set_volume`, `set_master_gain`, `fade_in`, `fade_out`,
 `schedule_transitions` / `cancel_transitions` (advanced transitions,
-`core/transitions.py`), `close`. Read-only: `presets`, `tracks`, `theme_id`,
-`preset_id`, `missing_links`, `clock`.
+`core/transitions.py`), `close`. Read-only: `presets`, `sequences`, `tracks`,
+`theme_id`, `theme_dir`, `preset_id`, `sequence_id`, `missing_links`, `clock`.
+
+## Sequences, playlists and theme changes
+
+These run as on a server channel, with the server's runner, timed in audio
+mixed: a step or an entry changes between two 1024-sample blocks once its
+time has come, so `render()` moves them on and nothing runs between calls.
+
+| Call | What it does |
+|---|---|
+| `start_sequence(id, glide_seconds=3.0)` | Runs a sequence of the theme from its first preset: each preset holds for a random time in hold_min..hold_max, then glides to the next over the ramp, with the step's While playing values and its Coming in / Leaving transitions. At the end it restarts, reverses or stops (on its last preset). Returns the sequence as it plays. `LookupError` if unknown, `ValueError` if it has no presets. |
+| `stop_sequence()` | Stops it; the mix stays on the preset it is on. |
+| `start_playlist(playlist, themes_root=None)` | Plays a playlist given as the server's playlist JSON (`name`, `entries` of `theme_id` plus `preset_id` or `sequence_id`, `order` `in_order`/`shuffle`, `repeat`, `play_min`/`play_max`, `fit_sequences`; `id` optional). Each entry's theme is found by its id under `themes_root`; a theme that isn't there is skipped. A new theme crossfades in; an entry with a sequence plays one pass of it. A playlist that doesn't repeat fades out after its last entry (`status()["playing"]` is then false; starting something new fades back in). `ValueError` if the playlist isn't valid or nothing in it can be played. |
+| `stop_playlist()` | Stops it; the mix keeps the theme it is on (an entry's sequence carries on as an ordinary run). |
+| `next()` | The next playlist entry if a playlist runs, else the sequence's next step (3 s glide). Returns `"playlist"`, `"sequence"`, `"end"` or `None`. |
+| `previous()` | The previous playlist entry (from the first one of a repeating playlist: the last one), else the sequence's previous step. Before a sequence's first step it wraps to the last when At the end is restart, else the step starts again. |
+| `set_theme(theme_dir, preset_id=None, sequence_id=None)` | Changes the theme while playing: the old one crossfades into the new one (equal power, `crossfade` seconds), no gap. As on the server, it stops the playlist and sequence that were running. The same theme glides to the preset. |
+| `status()` | A JSON-serialisable dict: `playing`, `ended`, `seconds_rendered`, `theme_id`, `theme_name`, `preset_id`, `preset_name`, `crossfading`, `sequence` (`id`, `name`, `step`, `steps`, `at_end`, `single_pass`, `current_preset_id`, `seconds_left`, ...) or null, `playlist` (`id`, `name`, `position`, `entries`, `entry`, `theme_id`, `theme_name`, `seconds_left`, ...) or null, and `recent` (the changes made, with the second of audio each happened at). |
+
+`seconds_left` counts audio mixed, which is ahead of the samples handed out
+by at most one `render()` call's leftover (less than 1024 samples).
+
+The runner's random choices (hold times, play times, shuffled order) come
+from their own `random.Random` made from the seed, so the same calls at the
+same positions give the same steps and entries.
 
 ## Decoders
 
@@ -72,24 +102,29 @@ python -m sonorium.engine.render <theme_dir> --preset X --seconds 30 --seed 1 --
 
 Writes a 16-bit mono WAV. Options: `--decoder pyav|pcm`, `--pcm-cache DIR`
 with `--predecode`, `--values '{"group_gap": 30}'`, `--master-gain 60`,
-`--float`. Run from `sonorium_addon/` (or with it on `PYTHONPATH`).
+`--float`, `--sequence ID`, `--playlist FILE.json` with `--themes-root DIR`,
+`--crossfade 3`. Run from `sonorium_addon/` (or with it on `PYTHONPATH`).
 
 ## Determinism
 
 The same theme files, settings, seed, decoder and calls (at the same sample
 positions) give the same samples: the mix's time is the count of samples
 rendered (never the wall clock), and the result doesn't depend on how
-`render` is sliced or on Python's hash seed (`tests/test_engine.py` checks
-both). Bit-exact results assume the same numpy version and CPU architecture;
+`render` is sliced or on Python's hash seed (`tests/test_engine.py` and
+`tests/test_engine_runners.py` check both, with a sequence and a playlist
+running too). Bit-exact results assume the same numpy version and CPU architecture;
 the two decoders give the same samples for 16-bit mono 44100 Hz WAV files, not
 for compressed files.
 
 ## Limits
 
 - 44100 Hz mono only.
-- One theme per engine: no theme crossfade, sequence or playlist runner (pass
-  `step` and call `set_preset` / `schedule_transitions` yourself). Sounds over
-  the mix (announcements, alerts) and volume ramps are not included.
+- Sounds over the mix (announcements, alerts) and volume ramps are not included.
+- Sequence and playlist timers are checked before every 1024-sample block (the
+  server checks them about once a second), so a step can come up to a second
+  sooner than on a server channel with the same draws.
+- Themes are read once per engine: edits to a theme's presets or sequences
+  while it plays are not picked up (make a new engine).
 - Older themes are converted in memory as the server converts them on load,
   except an old intrusion group (that conversion moves files): it plays as it is.
 - Log lines go to the `sonorium` logger (stdout) at `SONORIUM_LOG_LEVEL`.

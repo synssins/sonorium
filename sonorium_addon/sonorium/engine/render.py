@@ -6,7 +6,10 @@ every time for the same theme files, preset, values and seed.
 
 Options: --decoder pyav|pcm (pcm reads WAV copies from --pcm-cache, made
 with --predecode), --values '{"group_gap": 30}' (Settings > Advanced),
---master-gain 60, --float (32-bit float WAV instead of 16-bit).
+--master-gain 60, --float (32-bit float WAV instead of 16-bit),
+--sequence ID (run a sequence of the theme), --playlist FILE (play a
+playlist, the server's playlist JSON; its themes are found under
+--themes-root, default the theme folder's parent), --crossfade 3.
 """
 from __future__ import annotations
 
@@ -40,14 +43,20 @@ def write_float_wav(path, samples: np.ndarray, rate: int) -> None:
 
 
 def render_to_file(theme_dir, out, seconds: float, seed: int = 0, preset=None, decoder=None,
-                   playback_values=None, master_gain=None, as_float: bool = False, block: int = 4096) -> dict:
+                   playback_values=None, master_gain=None, as_float: bool = False, block: int = 4096,
+                   sequence=None, playlist=None, themes_root=None, crossfade=None) -> dict:
     """Render `seconds` of the theme to `out`; returns {"samples", "cpu_seconds", "wall_seconds"}."""
+    from sonorium.core.channel import THEME_CROSSFADE_DURATION
     from sonorium.engine import DEFAULT_MASTER_GAIN, Engine, SAMPLE_RATE
     total = int(round(seconds * SAMPLE_RATE))
     wall, cpu = time.perf_counter(), time.process_time()
     engine = Engine(theme_dir, preset_id=preset, playback_values=playback_values, seed=seed, decoder=decoder,
-                    master_gain=DEFAULT_MASTER_GAIN if master_gain is None else master_gain)
+                    master_gain=DEFAULT_MASTER_GAIN if master_gain is None else master_gain,
+                    themes_root=themes_root, sequence_id=sequence,
+                    crossfade=THEME_CROSSFADE_DURATION if crossfade is None else crossfade)
     try:
+        if playlist is not None:
+            engine.start_playlist(playlist)
         parts, done = [], 0
         while done < total:
             n = min(block, total - done)
@@ -75,6 +84,10 @@ def main(argv=None) -> int:
     parser.add_argument("--values", default=None, help="Settings > Advanced values as JSON")
     parser.add_argument("--master-gain", type=float, default=None, help="Master output gain, 0-100 (default 60)")
     parser.add_argument("--float", action="store_true", help="write 32-bit float samples")
+    parser.add_argument("--sequence", default=None, help="run this sequence of the theme")
+    parser.add_argument("--playlist", default=None, help="play this playlist (a JSON file)")
+    parser.add_argument("--themes-root", default=None, help="where the playlist's themes are")
+    parser.add_argument("--crossfade", type=float, default=None, help="theme change crossfade, seconds (default 3)")
     args = parser.parse_args(argv)
 
     from sonorium.decoders import PcmFileDecoder, PyAvDecoder, mirror_lookup
@@ -88,8 +101,10 @@ def main(argv=None) -> int:
         else:
             decoder = PcmFileDecoder()
     values = json.loads(args.values) if args.values else None
+    playlist = json.loads(Path(args.playlist).read_text(encoding="utf-8-sig")) if args.playlist else None
     stats = render_to_file(args.theme_dir, args.out, args.seconds, args.seed, args.preset, decoder, values,
-                           args.master_gain, args.float)
+                           args.master_gain, args.float, sequence=args.sequence, playlist=playlist,
+                           themes_root=args.themes_root, crossfade=args.crossfade)
     print(f"{args.out}: {stats['samples']} samples, {stats['cpu_seconds']:.2f}s CPU, "
           f"{stats['wall_seconds']:.2f}s wall", file=sys.stderr)
     return 0
