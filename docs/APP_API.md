@@ -1596,6 +1596,7 @@ window.SONORIUM_HOST = {
   setListenVolume(sessionId, volume) {}, // the card's volume slider while listening (0-100)
   download(url, filename) {},            // absolute URL; filename '' = take it from Content-Disposition
   unlinked(body) {},                     // a 401 with {"pair": true} from the server (called once)
+  showServers() {},                      // System › Servers in the menu: show the app's server list
   on(event, handler) {},                 // the page registers: 'listening' {sessionId, playing}, 'refresh'
 };
 ```
@@ -1611,6 +1612,7 @@ What the page does with it:
 | Log download, theme export, HA cards download | `download(url, filename)` | `<a href>` / blob link |
 | `on('listening', {sessionId, playing})` | the card's Listen button follows the native player (e.g. paused from the lock screen) | |
 | `on('refresh')` | reloads the channels and redraws | |
+| Menu, System › Servers (after Status, `data-host="servers"`) | shown; a click closes the menu and calls `showServers()` | hidden |
 
 When the native player stops by itself, the app sends `DELETE
 /api/sessions/{id}/listen` itself and tells the page with

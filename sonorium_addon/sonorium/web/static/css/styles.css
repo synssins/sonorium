@@ -79,6 +79,8 @@ body {
     padding: 0.75rem 1.25rem 0.5rem;
 }
 
+.nav-item[hidden] { display: none; }
+
 .nav-item {
     display: flex;
     align-items: center;
