@@ -49,7 +49,7 @@ BY_HAND = "by_hand"
 LINES = {
     INSTALLED: "Dashboard cards: installed",
     INSTALLING: "Dashboard cards: installing…",
-    NEEDS_HA: "Dashboard cards need Home Assistant",
+    NEEDS_HA: "",  # not shown: Settings › Connection hides the line without Home Assistant
     NEEDS_MQTT: "Dashboard cards need MQTT",
     BY_HAND: "Dashboard cards: add by hand",
 }

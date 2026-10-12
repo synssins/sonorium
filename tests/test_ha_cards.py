@@ -266,9 +266,9 @@ def test_standalone_registers_sonoriums_own_url(tmp_path):
 
 
 @pytest.mark.parametrize("ha,mqtt,state,line", [
-    (False, True, "needs_ha", "Dashboard cards need Home Assistant"),
+    (False, True, "needs_ha", ""),
     (True, False, "needs_mqtt", "Dashboard cards need MQTT"),
-    (False, False, "needs_ha", "Dashboard cards need Home Assistant"),
+    (False, False, "needs_ha", ""),
 ])
 def test_needs_both_links(tmp_path, ha, mqtt, state, line):
     ws = FakeWs()

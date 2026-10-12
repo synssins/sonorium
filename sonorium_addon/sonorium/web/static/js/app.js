@@ -5713,6 +5713,11 @@ async function renderDashboardCardsStatus() {
         row.hidden = true;
         return;
     }
+    // Without Home Assistant there's nothing to say about its cards
+    if (status.state === 'needs_ha') {
+        row.hidden = true;
+        return;
+    }
     const line = document.getElementById('conn-cards-line');
     line.textContent = status.line;
     line.title = status.reason || '';

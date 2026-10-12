@@ -3288,7 +3288,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .sp-rq code { color: var(--text-primary); }
 
 /* Advanced */
-.spa-grid { display: grid; grid-template-columns: 180px minmax(0, 1fr) 64px 132px 44px; column-gap: .875rem; align-items: center; }
+.spa-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr) 64px 132px 44px; column-gap: .875rem; align-items: center; }
 .spa-name { font-size: .875rem; font-weight: 500; cursor: pointer; }
 .spa-desc { min-width: 0; font-size: .8125rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
