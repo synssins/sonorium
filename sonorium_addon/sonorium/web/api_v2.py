@@ -2457,6 +2457,13 @@ def create_api_router(
                 if not namelist:
                     raise HTTPException(status_code=400, detail="Zip file is empty")
 
+                # Refuse entries that would land outside the theme folder ("..",
+                # absolute paths, drive letters), before anything is written
+                for entry in namelist:
+                    entry_parts = entry.replace(chr(92), '/').split('/')
+                    if entry.startswith(('/', chr(92))) or ':' in entry_parts[0] or '..' in entry_parts:
+                        raise HTTPException(status_code=400, detail=f"Zip entry not allowed: {entry}")
+
                 # Determine theme folder name from zip structure
                 # Expected: theme_name/file1.mp3, theme_name/metadata.json, etc.
                 first_entry = namelist[0]
@@ -2465,6 +2472,9 @@ def create_api_router(
                 else:
                     # No folder structure, use zip filename without extension
                     theme_folder_name = filename.rsplit('.', 1)[0]
+                theme_folder_name = theme_folder_name.replace(chr(92), '_').replace('/', '_')
+                if theme_folder_name in ('', '.', '..'):
+                    raise HTTPException(status_code=400, detail="Zip has no usable theme folder name")
 
                 # Check if theme already exists
                 target_path = audio_path / theme_folder_name
@@ -2496,8 +2506,10 @@ def create_api_router(
                     if not relative_path:
                         continue
 
-                    # Determine output path
+                    # Determine output path (never outside the theme folder)
                     output_path = target_path / relative_path
+                    if not output_path.resolve().is_relative_to(target_path.resolve()):
+                        raise HTTPException(status_code=400, detail=f"Zip entry not allowed: {zip_info.filename}")
 
                     # Create parent directories if needed
                     output_path.parent.mkdir(parents=True, exist_ok=True)
