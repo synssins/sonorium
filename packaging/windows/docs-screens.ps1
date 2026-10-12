@@ -189,6 +189,14 @@ foreach ($page in 'Status', 'General', 'Folders', 'Connections', 'Updates', 'Log
     $console = Wait-Window { param($h) [W]::Title($h) -eq 'Sonorium' -and (Rect $h).R - (Rect $h).L -gt 600 }
     Start-Sleep 6
     if ($page -eq 'Updates') { Click $console 'Check now'; Start-Sleep 6 }
+    if ($page -eq 'Connections') {
+        # Both switches on, so the address and login fields show (nothing is saved while they're empty)
+        foreach ($name in 'Use Home Assistant', 'Use MQTT') {
+            $e = Find $console $name
+            $e.GetCurrentPattern([System.Windows.Automation.TogglePattern]::Pattern).Toggle(); Start-Sleep 1
+        }
+        Start-Sleep 2
+    }
     Shot-Window $console ('console-' + $page.ToLower())
 }
 Get-Process Sonorium -ErrorAction SilentlyContinue | Stop-Process -Force

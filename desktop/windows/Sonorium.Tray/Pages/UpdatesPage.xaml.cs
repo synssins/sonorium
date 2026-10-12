@@ -49,7 +49,10 @@ public sealed partial class UpdatesPage : Page
             var items = update.Notes.Split('\n').Select(l => l.Trim())
                 .Where(l => l.StartsWith("- ") || l.StartsWith("* "))
                 .Select(l => l[2..].Trim()).Where(l => l.Length > 0).Take(6).ToList();
-            var notes = items.Count > 0 ? string.Join(" · ", items) : update.Notes.Trim().Split('\n')[0].Trim();
+            // Otherwise the first line that says something: not a heading, not just "Sonorium <version>"
+            var first = update.Notes.Split('\n').Select(l => l.Trim())
+                .FirstOrDefault(l => l.Length > 0 && !l.StartsWith('#') && l != $"Sonorium {update.Version}") ?? "";
+            var notes = items.Count > 0 ? string.Join(" · ", items) : first;
             Notes.Text = notes.Length == 0 ? "" : $"What's new: {notes}";
             Notes.Visibility = notes.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         }
