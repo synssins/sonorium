@@ -490,7 +490,7 @@ def test_plugin_facade_and_manifest_declaration(world, tmp_path):
     plugins_dir = tmp_path / "plugins"
     (plugins_dir / "lights").mkdir(parents=True)
     (plugins_dir / "lights" / "manifest.json").write_text(json.dumps({
-        "id": "lights", "name": "Lights", "version": "1.0.0", "api_version": "1.3", "plugin_class": "Lights",
+        "id": "lights", "name": "Lights", "version": "1.0.0", "api_version": "1.2", "plugin_class": "Lights",
         "requires": ["attributes"],
         "attributes": {"channel": {"zone": {"type": "string", "default": "all"}}}}), encoding="utf-8")
     (plugins_dir / "lights" / "plugin.py").write_text(

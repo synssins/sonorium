@@ -71,7 +71,7 @@ More manifest keys (sections 15 to 22):
 
 ## 1a. API versions and capabilities
 
-The plugin API has a version, MAJOR.MINOR (now **1.3**). Adding a service or a field raises
+The plugin API has a version, MAJOR.MINOR (now **1.2**). Adding a service or a field raises
 the minor version; a plugin written for 1.0 keeps running on 1.1 and every later 1.x,
 because nothing it uses is renamed or removed. The major version goes up only for a change
 old plugins would notice; Sonorium then keeps the old facades next to the new ones for as
@@ -81,7 +81,7 @@ Sonorium reads `api_version` and `requires` before it loads any of the plugin's 
 plugin that needs a newer API, another major version, or a capability this install doesn't
 offer is refused with a sentence that says why, for example:
 
-> Remote needs plugin API 1.3; this Sonorium has 1.2. Update Sonorium to use it.
+> Remote needs plugin API 1.2; this Sonorium has 1.1. Update Sonorium to use it.
 
 A refused plugin is listed in Settings › Plugins with that sentence (`compatible: false`,
 `problem` in `GET /api/plugins`), the web UI shows an alert, and none of its code runs.
@@ -97,7 +97,7 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `mqtt` | 1.1 | MQTT (section 19) |
 | `homeassistant` | 1.1 | Home Assistant's API (section 20) |
 | `packages.pip`, `packages.binaries` | 1.1 | Packages and programs (section 21) |
-| `attributes` | 1.3 | Declared attributes on themes, tracks, files, presets, channels, speakers and users (section 23) |
+| `attributes` | 1.2 | Declared attributes on themes, tracks, files, presets, channels, speakers and users (section 23) |
 
 `GET /api/plugin-framework` gives the version, every capability and the ones this install
 offers now.
@@ -1143,7 +1143,7 @@ A plugin can keep its own values on Sonorium's objects: a light cue on a thunder
 strip name on a channel, a light delay on a speaker. It works like extended attributes in a
 directory service: the plugin declares a schema, Sonorium stores values only for declared
 attributes, checks each one against its declaration, and carries them wherever the object
-goes. Sonorium never reads what they mean. Capability `attributes`, plugin API 1.3.
+goes. Sonorium never reads what they mean. Capability `attributes`, plugin API 1.2.
 
 ### Declaring
 

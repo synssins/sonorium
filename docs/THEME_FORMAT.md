@@ -272,7 +272,7 @@ What is kept, and when:
   hundreds of points) belongs in a file in the theme folder, with its name stored as an
   attribute.
 
-A Sonorium from before plugin attributes (plugin API below 1.3) does not know `plugins` and
+A Sonorium from before plugin attributes (plugin API below 1.2) does not know `plugins` and
 removes the blocks the next time it saves the theme (2.4). The theme still plays there.
 
 ### 2.5 groups (built)
