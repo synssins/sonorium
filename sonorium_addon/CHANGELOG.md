@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.62 (2026-10-12)
+
+### Features
+
+- **engine**: Standalone playback engine with golden render
+  ([`95d4b38`](https://github.com/synssins/sonorium/commit/95d4b38434271b4289af26b2bb9df001aaf60814))
+
+### Refactoring
+
+- **playback**: Decoder seam, scoped randomness, lighter imports
+  ([`1d49788`](https://github.com/synssins/sonorium/commit/1d497885c4c6bf86eca532af07a991b77fdf5829))
+
+
 ## v1.6.2-dev.61 (2026-10-12)
 
 

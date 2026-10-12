@@ -21,7 +21,6 @@ from typing import Optional, TYPE_CHECKING, Generator
 import numpy as np
 
 from sonorium.obs import logger
-from sonorium.mp3_out import Mp3Encoder, RealtimePacer
 from sonorium.recording import SAMPLE_RATE, CROSSFADE_SAMPLES
 
 if TYPE_CHECKING:
@@ -581,6 +580,7 @@ class Channel:
         """Background thread that generates audio chunks, paced in real time."""
         logger.debug(f"Channel {self.id}: Generator loop started")
 
+        from sonorium.mp3_out import RealtimePacer  # here: the mix itself never needs the MP3 side
         pacer = RealtimePacer()
         try:
             while self._generator_running and self.state == ChannelState.PLAYING:
@@ -707,6 +707,7 @@ class ChannelStream:
 
     def __iter__(self):
         """This listener's MP3 stream: every chunk the channel broadcasts from now on, as it is made."""
+        from sonorium.mp3_out import Mp3Encoder
         encoder = Mp3Encoder()
         try:
             while self.channel.state == ChannelState.PLAYING or self.channel._generator_running:

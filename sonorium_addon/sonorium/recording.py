@@ -1,32 +1,53 @@
 import itertools
 from collections import deque
 from enum import Enum
-import random
 import threading
 import time
 import numpy as np
 
 from sonorium.obs import logger
-import av
+
+
+def _load_sibling(name: str):
+    """
+    sonorium.<name>, a module with no imports from the rest of Sonorium
+    (playback_values, decoders, rng), also when this file is loaded on its own.
+    """
+    import importlib
+    import sys
+    try:
+        return importlib.import_module(f"sonorium.{name}")
+    except ImportError:
+        import importlib.util
+        from pathlib import Path
+        module = sys.modules.get(f"sonorium.{name}")
+        if module is None:
+            spec = importlib.util.spec_from_file_location(
+                f"sonorium.{name}", Path(__file__).with_name(f"{name}.py"))
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[f"sonorium.{name}"] = module
+            spec.loader.exec_module(module)
+        return module
 
 
 def _load_playback_values():
     """Settings > Advanced's playback values (sonorium/playback_values.py), also when this file is loaded on its own."""
-    try:
-        from sonorium import playback_values as module
-        return module
-    except ImportError:
-        import importlib.util
-        import sys
-        from pathlib import Path
-        module = sys.modules.get("sonorium.playback_values")
-        if module is None:
-            spec = importlib.util.spec_from_file_location(
-                "sonorium.playback_values", Path(__file__).with_name("playback_values.py"))
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            sys.modules["sonorium.playback_values"] = module
-        return module
+    return _load_sibling("playback_values")
+
+
+# How files are decoded (sonorium/decoders.py: PyAV unless a decoder is set)
+decoders = _load_sibling("decoders")
+# The random numbers playback draws: the random module's, or a seeded
+# generator in an engine's render (sonorium/rng.py)
+random = _load_sibling("rng").ScopedRandom()
+
+
+def __getattr__(name):
+    # recording.av: PyAV, imported only when asked for (PyAvDecoder decodes with it)
+    if name == "av":
+        import av
+        return av
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # The global playback values (Settings > Advanced); the constants below are their defaults
@@ -317,10 +338,10 @@ def track_fade_samples() -> int:
 
 class AudioReader:
     """
-    One read of an audio file through PyAV (no ffmpeg program needed): the
-    file's first audio stream, converted to what the mixer works in, 16-bit
-    mono at SAMPLE_RATE, whatever the file was recorded as (any rate, any
-    number of channels, MP3, WAV, FLAC, Ogg...).
+    One read of an audio file through the decoder in use (sonorium/decoders.py;
+    PyAV unless an engine sets another): the file's audio converted to what
+    the mixer works in, 16-bit mono at SAMPLE_RATE, whatever the file was
+    recorded as (any rate, any number of channels, MP3, WAV, FLAC, Ogg...).
 
     Every place that reads audio goes through here: the players (decode_mono),
     an Intermittent play (whole file at once) and the length check.
@@ -328,42 +349,28 @@ class AudioReader:
 
     def __init__(self, source):
         self.path = source
-        self._file = av.open(source)
-        audio = self._file.streams.audio
-        self._audio = audio[0] if len(audio) else None
-        self._to_mixer_format = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
-        self._closed = False
+        self._audio = decoders.open_audio(source)
 
     @property
     def has_audio(self) -> bool:
-        return self._audio is not None
+        return bool(self._audio.has_audio)
 
     def header_length(self) -> int | None:
         """The length the file's header gives, in samples at SAMPLE_RATE; None if it gives none."""
-        audio = self._audio
-        if audio is None or not (audio.duration and audio.time_base):
-            return None
-        return int(float(audio.duration * audio.time_base) * SAMPLE_RATE)
+        return self._audio.header_length()
 
     def blocks(self, flush: bool = True):
         """
-        The audio as float32 arrays, one per decoded frame. `flush` also takes
+        The audio as float32 arrays, one per decoded block. `flush` also takes
         the few samples the rate converter still holds at the end of the file.
         The file is closed after the last block, or when the reading is
         abandoned.
         """
-        end_of_file = [None] if flush else []  # None asks the converter for what it holds
-        try:
-            for frame in itertools.chain(self._file.decode(self._audio), end_of_file):
-                for converted in self._to_mixer_format.resample(frame):
-                    yield converted.to_ndarray().reshape(-1).astype(np.float32)
-        finally:
-            self.close()
+        for block in self._audio.blocks(flush):
+            yield block if block.dtype == np.float32 else np.asarray(block).reshape(-1).astype(np.float32)
 
     def close(self) -> None:
-        if not self._closed:
-            self._closed = True
-            self._file.close()
+        self._audio.close()
 
 
 def decode_mono(path):
@@ -1217,8 +1224,6 @@ class SparsePlaybackStream(BlockSource):
 
 
     def _blocks(self):
-        import random
-
         presence = self.instance.presence
         file_duration_samples = self.instance.meta.duration_samples
         file_duration_seconds = self.instance.meta.duration_seconds
@@ -1788,8 +1793,6 @@ class PresenceMixingStream(BlockSource):
 
     def _turn_blocks(self):
         """In a group (the old Exclusive switch): fades in on its turn, plays a while, fades out, hands the turn back."""
-        import random
-
         # State for presence fading
         is_active = True  # Start active
         current_gain = 1.0 if self.instance.presence >= 1.0 else 0.0
