@@ -87,6 +87,12 @@ Editor design "C — Aligned table".
   phones) and by touch screens narrower than 1000 px (`pointer: coarse`,
   portrait tablets). The JS checks (`PHONE_QUERY` in app.js) use the same
   conditions. A new phone rule uses the same three conditions.
+- **Settings tables in a narrow page:** a settings page is a size container
+  (`sp-col`). When the page beside the sidebar is narrower than a table needs
+  (mouse windows about 769–1120 px), that table uses its phone layout through an
+  `@container sp-col` copy of its phone rule (without the touch sizes): Advanced,
+  Plugins and Status below 880 px, the other tables below 740 px. A new table
+  with a phone layout gets a copy too.
 - **Width ≤ 400:** on a channel card the Theme and Preset labels go above their
   fields, so preset names fit. **Width ≤ 400 and height ≤ 600:** the card is
   445 px tall so Play stays on screen; Recent changes shows one line.
