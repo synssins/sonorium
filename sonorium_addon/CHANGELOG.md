@@ -2,6 +2,29 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.5 (2026-10-12)
+
+### Bug Fixes
+
+- **plugins**: Say why a plugin didn't load or switch on, and name it on upload
+  ([`8e06e49`](https://github.com/synssins/sonorium/commit/8e06e49b6da4a01ab5dfa87c9a0f1f4ee683dc06))
+
+### Documentation
+
+- **engine**: Reload_theme and the theme editing, playlist and network speaker modules
+  ([`db7fb67`](https://github.com/synssins/sonorium/commit/db7fb670daf18e0c5a667b6ac72655a06b0f9613))
+
+### Features
+
+- **engine**: Engine.reload_theme() follows edits saved to the theme's files
+  ([`0098275`](https://github.com/synssins/sonorium/commit/009827511ac3d42702d4dbb1178b1d07dbcb5fec))
+
+### Refactoring
+
+- **core**: Theme Editor, sequence and playlist logic as plain modules
+  ([`ddb12a0`](https://github.com/synssins/sonorium/commit/ddb12a0a9160a5b7a75be2f2a35e0c9b18679c48))
+
+
 ## v1.7.3-dev.3 (2026-10-12)
 
 ### Features
