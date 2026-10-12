@@ -133,6 +133,11 @@ jobs:
           lic = c.library_meta['libavcodec']['license']
           print('PyAV', av.__version__, 'FFmpeg', av.ffmpeg_version_info, lic)
           assert lic.startswith('LGPL'), lic
+          cfg = c.library_meta['libavcodec']['configuration']
+          for bad in ('--enable-gpl', '--enable-nonfree', 'libx264', 'libx265'):
+              assert bad not in cfg, bad
+          for need in ('--disable-gpl', '--disable-everything'):
+              assert need in cfg, need
           assert av.codec.Codec('mp3', 'w').name == 'libmp3lame'
           import sonorium.mp3_out
           "

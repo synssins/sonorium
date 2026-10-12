@@ -6,6 +6,8 @@ import asyncio
 import sys
 import traceback
 
+from sonorium import host
+
 
 async def start_sonorium() -> None:
     """Load the theme library, find the MQTT broker, then run until the web server stops."""
@@ -24,6 +26,13 @@ async def start_sonorium() -> None:
     library = Library(client_ha=home_assistant, audio_dir=settings.path_audio)
     backend = Backend(library, find_mqtt_broker(settings))
     await backend.run()
+    if host.pending():
+        # A restart: the web server has shut down cleanly; leave the broker cleanly too
+        try:
+            await asyncio.wait_for(backend.stop(), timeout=5)
+        except BaseException as e:
+            logger.debug(f"MQTT disconnect before the restart: {e!r}")
+        host.finish()
 
 
 def main():
@@ -33,6 +42,7 @@ def main():
         print(f"FATAL: Failed to start Sonorium: {e}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(1)
+    host.finish()  # a restart asked for while starting up
 
 
 if __name__ == '__main__':

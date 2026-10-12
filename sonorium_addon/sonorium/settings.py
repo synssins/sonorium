@@ -154,8 +154,9 @@ class Settings(BaseSettings):
 
     # The address speakers fetch streams from ("auto": found by resolve_stream_url)
     stream_url: str = "auto"
-    # Port in that address when it is found automatically (config.yaml's port mapping)
-    stream_port: int = 8008
+    # Port in that address when it is found automatically (config.yaml's port mapping,
+    # or SONORIUM_HTTP_PORT)
+    stream_port: int = Field(default_factory=runtime.stream_port)
 
     # How many channels there are (1-10, an add-on option)
     max_channels: int = 6

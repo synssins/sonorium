@@ -16,6 +16,7 @@ The core's sign-in routes (they work with or without the sign-in plugins).
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Callable, Optional
 from urllib.parse import urlsplit
 
@@ -68,7 +69,7 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
 
     def link_address() -> tuple[str, int]:
         url = urlsplit(stream_url() or "")
-        return url.hostname or "", url.port or (443 if url.scheme == "https" else 8008)
+        return url.hostname or "", url.port or (443 if url.scheme == "https" else runtime.stream_port())
 
     def https_port() -> int:
         return https_host_port() if service.identity.tls_ready else 0
@@ -99,6 +100,7 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
             "ports": {"http": http, "https": https_port() or None}, "host": host, "hostname": mdns_host() or None,
             "login_required": login_required(), "pair": True, "fingerprint": identity.fingerprint,
             "plugins": sorted(service.authenticators),
+            "started_at": datetime.fromtimestamp(runtime.STARTED_AT, timezone.utc).isoformat(timespec="seconds"),  # UTC
             "boot_id": runtime.BOOT_ID,  # new at every start; the event stream's ids are "<boot_id>:<n>"
             # the web UI's version, and of its window.SONORIUM_HOST hooks for the app (static/js/api.js)
             "ui": {"version": version, "host_api": UI_HOST_API},

@@ -521,9 +521,12 @@ class StateStore:
             # Ensure directory exists
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             
-            # Write with pretty formatting
+            # Write with pretty formatting, atomically (a temp file, then replaced):
+            # a hard stop while writing never leaves a cut-off state.json
             data = self.state.to_dict()
-            self.state_file.write_text(json.dumps(data, indent=2))
+            tmp = self.state_file.with_name(self.state_file.name + ".tmp")
+            tmp.write_text(json.dumps(data, indent=2))
+            os.replace(tmp, self.state_file)
             
             logger.debug(f"  Saved {len(self.state.sessions)} sessions, {len(self.state.speaker_groups)} groups")
         except Exception as e:

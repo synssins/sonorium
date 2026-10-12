@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v1.7.1-dev.4 (2026-10-12)
+
+### Features
+
+- **api**: /api/info started_at; ci: FFmpeg licence check also reads the configure flags
+  ([`cba56c9`](https://github.com/synssins/sonorium/commit/cba56c9676b00009fea5b81ee000edebb76e9570))
+
+
+## v1.7.1-dev.2 (2026-10-12)
+
+### Documentation
+
+- HOSTING.md for the host switches, exit code 75 and the console credential
+  ([`bd844b2`](https://github.com/synssins/sonorium/commit/bd844b220b64ec8d1240b4027dd45c79544026ca))
+
+
+## v1.6.2-dev.68 (2026-10-12)
+
+### Bug Fixes
+
+- Theme files use the configured audio folder, not /media/sonorium
+  ([`27fdda7`](https://github.com/synssins/sonorium/commit/27fdda7948c9e6fc98c5d5209e3d2b9fce38fc16))
+
+
 ## v1.6.2-dev.67 (2026-10-12)
 
 
