@@ -224,6 +224,18 @@ foreach ($page in 'Status', 'General', 'Folders', 'Connections', 'Updates', 'Log
         Start-Sleep 2
     }
     Shot-Window $console ('console-' + $page.ToLower())
+    if ($page -eq 'Folders') {
+        # The folder picker that Browse opens next to Themes
+        try {
+            $browse = (Find $console "Browse$([char]0x2026)").Current.BoundingRectangle
+            [void][W]::SetForegroundWindow($console); Start-Sleep -Milliseconds 300
+            [W]::ClickAt([int]($browse.X + $browse.Width / 2), [int]($browse.Y + $browse.Height / 2))
+            $picker = Wait-Window { param($h) [W]::Title($h) -eq 'Select Folder' } 20
+            Start-Sleep 2
+            Shot-Window $picker 'folders-picker'
+            Click $picker 'Cancel'
+        } catch { "  folder picker: $_" | Out-Host }
+    }
 }
 Get-Process Sonorium -ErrorAction SilentlyContinue | Stop-Process -Force
 "Done"
