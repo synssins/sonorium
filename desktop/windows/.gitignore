@@ -1,0 +1,6 @@
+bin/
+obj/
+*.user
+.vs/
+# The repo root ignores *.manifest (PyInstaller); the desktop apps need theirs
+!*.manifest
