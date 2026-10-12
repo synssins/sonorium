@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.6.2-dev.55 (2026-10-12)
+
+### Continuous Integration
+
+- Only fixes publishes :dev; Users 1.1.3: no 'open to anyone' warning while plugins reload
+  ([`151fd49`](https://github.com/synssins/sonorium/commit/151fd49dcc83e1251c8cbe8acb8b7ce89ec3e6d5))
+
+
 ## v1.6.2-dev.53 (2026-10-12)
 
 
