@@ -347,46 +347,12 @@ jobs:
         shell: pwsh
         run: Get-Content C:\ProgramData\Sonorium\Logs\*.log -ErrorAction SilentlyContinue | Select-Object -Last 80
 
-  # Test builds from this branch, for the app's updater (Preview channel): a pre-release
-  # windows-v<version> with the installer, once every test above has passed. The newest 5 are kept.
-  prerelease:
-    name: Publish as a pre-release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/windows-app'
-    needs: [bundle, service]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: sonorium-setup
-          path: setup
-
-      - name: Pre-release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ needs.bundle.outputs.version }}
-        run: |
-          # What's new: the subjects of this push's commits, as a list (the Updates page shows them)
-          jq -r '.commits[].message | split("\n")[0] | select(test("^Merge|\\[skip ci\\]") | not) | "- " + .' \
-            "$GITHUB_EVENT_PATH" > notes.md
-          [ -s notes.md ] || echo "- Windows test build" > notes.md
-          cat notes.md
-          gh release create "windows-v$VERSION" setup/Sonorium-Setup-$VERSION.exe \
-            --prerelease --target "$GITHUB_SHA" \
-            --title "Sonorium for Windows $VERSION (test build)" --notes-file notes.md
-          # Keep the newest 5 test builds
-          gh release list --limit 100 --json tagName,isPrerelease,createdAt \
-            --jq '[.[] | select(.isPrerelease and (.tagName | startswith("windows-v")))] | sort_by(.createdAt) | reverse | .[5:] | .[].tagName' |
-            while read -r tag; do gh release delete "$tag" --yes --cleanup-tag; done
-
   # Documentation screenshots (commit message with [screens]): the installer wizard, the tray menu
   # and every console page, on a runner in dark mode at 1920x1080. Artifact "docs-screens".
   screens:
     name: Documentation screenshots
-    if: contains(github.event.head_commit.message, '[screens]')
+    # Never when the release workflow calls this (inputs.ref is set then)
+    if: inputs.ref == '' && contains(github.event.head_commit.message, '[screens]')
     needs: bundle
     runs-on: windows-latest
     timeout-minutes: 30
