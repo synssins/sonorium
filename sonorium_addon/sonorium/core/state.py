@@ -479,7 +479,7 @@ class StateStore:
             return self.state
 
         try:
-            data = json.loads(self.state_file.read_text())
+            data = json.loads(self.state_file.read_text(encoding='utf-8'))
             self.state = SonoriumState.from_dict(data)
 
             # Reset all sessions to stopped state on startup

@@ -227,7 +227,7 @@ def load_manifest(plugin_dir: Path) -> dict:
 
     if manifest_path.exists():
         try:
-            return json.loads(manifest_path.read_text())
+            return json.loads(manifest_path.read_text(encoding='utf-8'))
         except Exception as e:
             logger.warning(f"Failed to read manifest from {manifest_path}: {e}")
 

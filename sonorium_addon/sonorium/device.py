@@ -52,7 +52,7 @@ def _saved_theme_id(folder: Path) -> str | None:
     if not metadata.exists():
         return None
     try:
-        return json.loads(metadata.read_text()).get("id")
+        return json.loads(metadata.read_text(encoding='utf-8')).get("id")
     except Exception:
         return None
 

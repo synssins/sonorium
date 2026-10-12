@@ -1089,14 +1089,14 @@ class WebApp:
         """Serve the main web UI (v2 if available, else v1)."""
         template_path = TEMPLATES_DIR / "index.html"
         if template_path.exists() and self._v2_initialized:
-            return HTMLResponse(content=template_path.read_text(), headers={"Cache-Control": "no-cache"})
+            return HTMLResponse(content=template_path.read_text(encoding='utf-8'), headers={"Cache-Control": "no-cache"})
         if (TEMPLATES_DIR / "logs.html").exists():
             return await self.logs_page()  # startup failed: show why
         return await self.legacy_ui()
 
     async def logs_page(self):
         """Standalone log viewer, independent of the main web UI."""
-        html = (TEMPLATES_DIR / "logs.html").read_text()
+        html = (TEMPLATES_DIR / "logs.html").read_text(encoding='utf-8')
         if not self._v2_initialized:
             html = html.replace("<!--STARTUP_NOTICE-->", '<p class="notice">Sonorium didn&#39;t finish starting. The logs below show why.</p>')
         return HTMLResponse(content=html, headers={"Cache-Control": "no-cache"})
@@ -1705,7 +1705,7 @@ class WebApp:
             if metadata_path.exists():
                 try:
                     import json
-                    metadata = json.loads(metadata_path.read_text())
+                    metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
                     theme_id = metadata.get("id")
                 except Exception:
                     pass  # Fall back to sanitized folder name

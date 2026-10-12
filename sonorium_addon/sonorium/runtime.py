@@ -83,7 +83,7 @@ SECRET_FIELDS = ("ha_token", "mqtt_password")
 def load_connection() -> dict:
     """Saved standalone connection settings (empty dict if none yet)."""
     try:
-        data = json.loads(CONNECTION_FILE.read_text())
+        data = json.loads(CONNECTION_FILE.read_text(encoding='utf-8'))
     except (FileNotFoundError, ValueError):
         return {}
     return {k: data[k] for k in CONNECTION_FIELDS if data.get(k) not in (None, "")}

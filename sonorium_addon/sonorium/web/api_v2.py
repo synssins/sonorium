@@ -2237,7 +2237,7 @@ def create_api_router(
                     metadata_path = folder / "metadata.json"
                     if metadata_path.exists():
                         try:
-                            metadata = json.loads(metadata_path.read_text())
+                            metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
                             if metadata.get("id") == theme_id:
                                 return folder
                         except Exception:
@@ -2969,7 +2969,7 @@ def create_api_router(
                 manifest = {}
                 if manifest_file.exists():
                     import json
-                    manifest = json.loads(manifest_file.read_text())
+                    manifest = json.loads(manifest_file.read_text(encoding='utf-8'))
                     plugin_id = manifest.get('id', plugin_source_dir.name)
                 else:
                     # Generate ID from directory name or zip filename
@@ -2991,7 +2991,7 @@ def create_api_router(
                     logger.info(f"Replacing existing plugin: {plugin_id}")
 
                 # Validate required plugin attributes by parsing the plugin.py file
-                plugin_py_content = plugin_file.read_text()
+                plugin_py_content = plugin_file.read_text(encoding='utf-8')
 
                 # Check for version attribute (required)
                 import re

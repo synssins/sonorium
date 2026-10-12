@@ -219,7 +219,7 @@ class SessionManager:
                     metadata_path = folder / "metadata.json"
                     if folder.is_dir() and metadata_path.exists():
                         try:
-                            metadata = json.loads(metadata_path.read_text())
+                            metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
                         except Exception:
                             continue
                         if isinstance(metadata, dict) and metadata.get("id") == theme_id:
@@ -521,7 +521,7 @@ class SessionManager:
                     metadata_path = folder / "metadata.json"
                     if metadata_path.exists():
                         try:
-                            metadata = json.loads(metadata_path.read_text())
+                            metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
                             if metadata.get("id") == theme_id:
                                 # Found the folder, now find the theme by folder name
                                 from sonorium.utils import sanitize
