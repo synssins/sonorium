@@ -46,6 +46,8 @@ LicenseFile={#Source}\LICENSE.md
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern dynamic
+WizardSmallImageFile=wizard-small.png,wizard-small@2x.png
+WizardImageFile=wizard-large.png,wizard-large@2x.png
 CloseApplications=yes
 RestartApplications=no
 
