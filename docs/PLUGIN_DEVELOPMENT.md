@@ -583,6 +583,16 @@ Run the suite with `python -m pytest -q tests`.
   `trigger_play_channel/manifest.json`) and upload it in Settings > Plugins (or
   `POST /api/plugins/upload`). A plugin with the same id is replaced; its settings, jobs and
   connection values are kept.
+  - **Layout:** the plugin's files inside one top folder, or straight at the zip's root.
+    Subfolders (your own modules, data files) are kept in both. `plugin.py` must be at the
+    root of that folder (or of the zip); anything else (two top folders, `plugin.py` only
+    deeper down) is refused with `No plugin.py found in archive`.
+  - **Entry names:** forward slashes, or backslashes (zips made by Windows PowerShell 5.1
+    `Compress-Archive`): both are read as folders. A name with `..`, an absolute path, a drive
+    letter or a `:` is refused (`Invalid path in zip: ...`).
+  - **Checked first:** the whole zip (entry names, `plugin.py`, `manifest.json`, id, version)
+    is checked before anything is installed. A refused upload (400 with the reason) leaves the
+    installed plugin exactly as it was; a plugin that passes is swapped in whole.
 - **Catalog:** plugins offered in Settings > Plugins > Catalog are listed in
   [`plugins/catalog.json`](../plugins/catalog.json) with their zip next to it:
   `{"id", "name", "description", "version", "author", "category", "zip_file"}`.

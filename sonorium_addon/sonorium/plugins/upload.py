@@ -7,6 +7,8 @@ replaces the installed one, and the swap puts the installed folder back if
 it fails. A refused upload leaves the installed plugin as it was.
 
 Layouts: the plugin's files inside one top folder, or at the zip's root.
+Subfolders are kept in both. Entry names with backslashes (zips made by
+Windows PowerShell 5.1 Compress-Archive) are read as forward slashes.
 """
 
 import json
@@ -29,13 +31,14 @@ class UploadError(ValueError):
 def entry_parts(name: str) -> list[str]:
     """
     A zip entry name as path parts ([] for a folder entry like "a/").
-    UploadError for ".." or an absolute path.
+    Backslashes count as "/". UploadError for "..", an absolute path or a
+    drive letter.
     """
-    clean = name
-    if clean.startswith("/"):
+    clean = name.replace("\\", "/")
+    if clean.startswith("/") or re.match(r"^[A-Za-z]:", clean):
         raise UploadError(f"Invalid path in zip: {name}")
     parts = [p for p in clean.split("/") if p not in ("", ".")]
-    if any(p == ".." for p in parts):
+    if any(p == ".." or ":" in p for p in parts):
         raise UploadError(f"Invalid path in zip: {name}")
     return parts
 
@@ -48,13 +51,13 @@ def _plugin_files(zf: zipfile.ZipFile) -> tuple[dict, Optional[str]]:
     files = {}
     for info in zf.infolist():
         parts = entry_parts(info.filename)
-        if not parts or info.is_dir():
+        if not parts or info.is_dir() or info.filename.replace("\\", "/").endswith("/"):
             continue
         if parts[0] in IGNORED_TOP:
             continue
         files[tuple(parts)] = info
     if ("plugin.py",) in files:
-        return {parts: info for parts, info in files.items() if len(parts) == 1}, None
+        return files, None
     tops = {parts[0] for parts in files}
     if len(tops) == 1 and all(len(parts) > 1 for parts in files):
         top = tops.pop()

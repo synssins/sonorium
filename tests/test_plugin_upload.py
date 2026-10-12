@@ -131,3 +131,42 @@ def test_failed_swap_puts_installed_plugin_back(m, tmp_path, monkeypatch):
         m.upload.install(staged, target)
     assert (target / "plugin.py").read_text() == "old"
     assert sorted(p.name for p in target.parent.iterdir()) == ["demo"]
+
+
+# --- layouts and entry names ----------------------------------------------------
+
+def nested_files(prefix="", sep="/"):
+    files = demo_files("1.0.0", prefix=prefix)
+    files[f"{prefix}mypkg/__init__.py"] = ""
+    files[f"{prefix}mypkg/x.py"] = "X = 1\n"
+    files[f"{prefix}data/deep/sound.txt"] = "hi"
+    return {name.replace("/", sep): text for name, text in files.items()}
+
+
+@pytest.mark.parametrize("prefix", ["", "demo/", "some-folder/"])
+@pytest.mark.parametrize("sep", ["/", "\\"])
+def test_both_layouts_keep_subfolders(api, prefix, sep):
+    r = api.upload(nested_files(prefix, sep))
+    assert r.status_code == 200, r.text
+    folder = api.plugins_dir / "demo"
+    assert (folder / "plugin.py").exists() and (folder / "manifest.json").exists()
+    assert (folder / "mypkg" / "__init__.py").exists()
+    assert (folder / "mypkg" / "x.py").read_text() == "X = 1\n"
+    assert (folder / "data" / "deep" / "sound.txt").read_text() == "hi"
+    assert sorted(p.name for p in api.plugins_dir.iterdir()) == ["demo"]
+
+
+@pytest.mark.parametrize("name", [
+    "..\\evil.py", "demo\\..\\..\\evil.py", "\\evil.py", "C:\\evil.py", "C:evil.py", "/evil.py",
+    "demo/../../evil.py", "demo/a:b.py",
+])
+def test_unsafe_entry_names_are_refused(api, name):
+    r = api.upload({**demo_files("1.0.0"), name: "x"})
+    assert r.status_code == 400, r.text
+    assert "Invalid path in zip" in r.json()["detail"]
+    assert not (api.plugins_dir / "demo").exists()
+
+
+def test_two_top_folders_is_refused(api):
+    r = api.upload({**demo_files("1.0.0", prefix="a/"), "b/other.txt": "x"})
+    assert r.status_code == 400 and "No plugin.py" in r.json()["detail"]
