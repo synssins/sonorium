@@ -337,8 +337,10 @@ def test_phone_acts_as_its_user_and_is_ejected_at_once(w):
     assert phone.post("/api/sessions/a/play", headers=H(token)).json()["kind"] == "device"
     for path in ("/api/users", "/api/keys"):  # never users, devices or keys
         assert phone.get(path, headers=H(token)).status_code == 403
-    users = c.get("/api/users").json()["users"]
+    listing = c.get("/api/users").json()
+    users = listing["users"]
     assert [d["name"] for d in users[0]["devices"] if d["kind"] == "phone"] == ["Pixel 8"]
+    assert listing["unlinked_devices"] == []  # the phone is its user's, not unlinked
     assert c.delete(f"/api/devices/{device_id}", headers=H(None, csrf)).status_code == 200
     r = phone.get("/api/sessions", headers=H(token))
     assert r.status_code == 401 and r.json()["pair"] is True

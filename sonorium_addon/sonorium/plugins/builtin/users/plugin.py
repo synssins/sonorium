@@ -406,7 +406,7 @@ def create_router(service) -> APIRouter:
                           "can_leave_link": u["role"] == "admin" or bool(u.get("can_leave_link")),
                           "devices": devices, "last_seen": seen, "created": u.get("created")})
         users.sort(key=lambda u: (not u["you"], u["username"].lower()))
-        unbound = [d for d in service.devices(None)]
+        unbound = [d for d in service.devices() if d.get("user_id") not in a.users]  # no (or a removed) user
         return {"users": users, "unlinked_devices": unbound, "require_login": a.require_login,
                 "words": service.identity.words, "bypass": config.bypass_login()}
 
@@ -599,7 +599,7 @@ ZONES_UI = "users-zones"  # the zones' own web UI bundle (zones.js, zones.css)
 class UsersPlugin(BasePlugin):
     id = PLUGIN_ID
     name = "Users"
-    version = "1.1.0"
+    version = "1.1.1"
     description = "Accounts, sign-in and roles for Sonorium"
     author = "Sonorium"
     builtin = True
