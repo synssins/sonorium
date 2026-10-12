@@ -9,7 +9,7 @@ opens a sink on one for each channel that plays there:
     class HostAudio(OutputType):
         id = "host_audio"
         title = "This computer's audio"
-        one_device_at_a_time = False
+        local = True                    # devices of the machine Sonorium runs on
         def available(self):            return (True, "") or (False, "why not")
         async def discover(self):       return [{"id": "hw:0", "name": "Built-in speakers", "api": "ALSA"}]
         def open(self, device_id, sample_rate, options):  return MySink(...)
@@ -36,6 +36,14 @@ the samples, never the device's own volume), and calling write() with
 each. Options given with attach() are kept per channel and device (store
 section "audio_outputs") and passed to every open() for it.
 
+Local devices: a type with local = True lists hardware of the machine
+Sonorium runs on (its sound cards, USB and HDMI audio, Bluetooth paired to
+it). At most one local device plays at a time, across every local type and
+every channel; a channel that wants one while another channel plays a
+local device asks first (take_over). The setting "Allow output to more than
+one local device" (allow_multiple_local_outputs) lifts this: local devices
+then play like network speakers.
+
 Sonorium ships no output type of its own except CaptureOutput below (a test
 double that keeps what it was sent).
 """
@@ -60,7 +68,7 @@ SPEAKER_PREFIX = "output:"
 SPEAKER_TYPE = "output"
 TEST_VOLUME = 0.2  # the test sound's level, as for network speakers
 TEST_BLOCK = 1024
-JOIN_SECONDS = 5.0  # how long a one-device-at-a-time type's old sink may take to close
+JOIN_SECONDS = 5.0  # how long the old local device's sink may take to close
 SWITCHED_OFF = "Switch the speaker on in Settings › Speakers first"
 
 
@@ -76,8 +84,9 @@ class OutputError(ValueError):
 
 class OutputBusy(Exception):
     """
-    The device, or a one-device-at-a-time type, plays another channel (409,
-    ActionError "conflict"). take_over: answering with take_over would move it.
+    The device, or another local device (one plays at a time), plays
+    another channel (409, ActionError "conflict"). take_over: answering
+    with take_over would move it.
     """
 
     def __init__(self, message: str, take_over: bool = False):
@@ -131,7 +140,7 @@ class OutputType:
     """A kind of output a plugin provides."""
     id: str = ""
     title: str = ""
-    one_device_at_a_time: bool = False  # read at register_type()
+    local: bool = False  # devices of the machine Sonorium runs on (read at register_type())
 
     def available(self) -> tuple[bool, str]:
         """(usable here, why not): e.g. no sound card in this container."""
@@ -280,7 +289,7 @@ class AudioOutputs:
         self.sessions = session_manager
         self.store = store
         self.rate = rate
-        self._types: dict[str, tuple[str, OutputType, bool]] = {}  # type id -> (owner, type, one at a time)
+        self._types: dict[str, tuple[str, OutputType, bool]] = {}  # type id -> (owner, type, local)
         self._live: dict[tuple, Attachment] = {}                   # (session id, speaker id) -> Attachment
         self._failed: dict[tuple, str] = {}                        # (session id, speaker id) -> why open() failed
         self._online: dict[str, set] = {}                          # type id -> device ids of the last discover()
@@ -358,8 +367,8 @@ class AudioOutputs:
             raise OutputError("An output type needs an id: letters, digits, '_', '-', '.'")
         if type_id in self._types and self._types[type_id][0] != owner:
             raise OutputError(f"The output type '{type_id}' is already registered by {self._types[type_id][0]}")
-        one = bool(getattr(output_type, "one_device_at_a_time", False))
-        self._types[type_id] = (owner, output_type, one)
+        local = bool(getattr(output_type, "local", False))
+        self._types[type_id] = (owner, output_type, local)
         for sid, record in self._devices().items():
             if record.get("type") == type_id:
                 record["owner"] = owner
@@ -420,13 +429,13 @@ class AudioOutputs:
 
     def types(self) -> list[dict]:
         result = []
-        for type_id, (owner, output_type, one) in sorted(self._types.items()):
+        for type_id, (owner, output_type, local) in sorted(self._types.items()):
             try:
                 ok, why = output_type.available()
             except Exception as e:
                 ok, why = False, str(e)
             result.append({"id": type_id, "title": output_type.title or type_id, "plugin_id": owner,
-                           "available": bool(ok), "message": why or "", "one_device_at_a_time": one})
+                           "available": bool(ok), "message": why or "", "local": local})
         return result
 
     def _type(self, type_id: str) -> OutputType:
@@ -444,9 +453,17 @@ class AudioOutputs:
                 return record["type_title"]
         return type_id
 
-    def _one(self, type_id: str) -> bool:
-        entry = self._types.get(type_id)
+    def _local(self, type_id: Optional[str]) -> bool:
+        entry = self._types.get(type_id) if type_id else None
         return bool(entry and entry[2])
+
+    def _multiple_local(self) -> bool:
+        """The setting "Allow output to more than one local device"."""
+        return bool(getattr(self._settings(), "allow_multiple_local_outputs", False))
+
+    def _one_local(self, type_id: Optional[str]) -> bool:
+        """The type's devices are local and only one local device may play at a time."""
+        return self._local(type_id) and not self._multiple_local()
 
     def _available(self, type_id: str) -> None:
         """OutputError when the type can't be used here (available() False); its own errors as raised."""
@@ -560,7 +577,7 @@ class AudioOutputs:
             "plugin_id": record.get("owner", ""), "device": record.get("device", ""),
             "api": record.get("api", ""), "is_default": bool(record.get("is_default")),
             "channels": record.get("channels"), "sample_rates": record.get("sample_rates"),
-            "one_device_at_a_time": self._one(type_id), "type_available": type_id in self._types,
+            "local": self._local(type_id), "type_available": type_id in self._types,
             "playing": sorted({a.session_id for a in live if a.playing}),
             "error": errors[-1] if errors else "",
         })
@@ -690,39 +707,45 @@ class AudioOutputs:
         if attachment.speaker_id in self._rows:
             self._update_row(attachment.speaker_id)
 
-    # --- One device at a time ---
+    # --- One local device at a time ---
 
-    def _playing_on_type(self, type_id: str, other_than: Optional[str] = None) -> list[Attachment]:
+    def _name(self, speaker_id: str) -> str:
+        """The device's name as Settings > Speakers shows it (renamed or its own)."""
+        registry = getattr(self.sessions, "registry", None)
+        speaker = registry.get_speaker(speaker_id) if registry is not None and hasattr(registry, "get_speaker") else None
+        if speaker is not None and getattr(speaker, "name", None):
+            return speaker.name
+        record = self._devices().get(speaker_id) or {}
+        return record.get("name") or record.get("device") or speaker_id
+
+    def _playing_local(self, other_than: Optional[str] = None) -> list[Attachment]:
+        """The local devices playing a channel (other than this one)."""
         return [a for a in self._live.values()
-                if a.type_id == type_id and a.playing and a.session_id != other_than]
+                if self._local(a.type_id) and a.playing and a.session_id != other_than]
 
     def _busy_message(self, attachment: Attachment) -> str:
-        session = self.sessions.get(attachment.session_id) if self.sessions is not None else None
-        name = session.name if session is not None else attachment.session_id
-        return f"{self._title(attachment.type_id)} is playing '{name}'"
+        return f"{self._name(attachment.speaker_id)} is playing '{self._session_name(attachment)}'"
 
     def conflicts(self, session, speaker_ids: Optional[list] = None) -> list[str]:
         """
-        For a channel about to play: a sentence for each one-device-at-a-time
-        type of its (switched on) devices that another channel plays on now.
+        For a channel about to play: when one of its (switched on) devices is
+        local and another channel plays a local device now, a sentence saying
+        which (only one local device plays at a time).
         """
         ids = speaker_ids if speaker_ids is not None else self._enabled_devices(session)
-        messages = []
-        for type_id in dict.fromkeys(self._type_of(sid) for sid in ids if self.claims(sid)):
-            if type_id and self._one(type_id):
-                busy = self._playing_on_type(type_id, other_than=session.id)
-                if busy:
-                    messages.append(self._busy_message(busy[0]))
-        return messages
+        if not any(self._one_local(self._type_of(sid)) for sid in ids if self.claims(sid)):
+            return []
+        busy = self._playing_local(other_than=session.id)
+        return [self._busy_message(busy[0])] if busy else []
 
-    async def _take_over(self, session, type_id: str) -> None:
-        """Another channel plays on the type: its device leaves its speakers for good, its sink closes."""
-        for attachment in self._playing_on_type(type_id, other_than=session.id):
+    async def _take_over(self, session) -> None:
+        """Other channels play local devices: each leaves its channel's speakers for good, its sink closes."""
+        for attachment in self._playing_local(other_than=session.id):
             other = self.sessions.get(attachment.session_id)
             attachment.stop()
             if other is None:
                 continue
-            logger.info(f"  '{session.name}' takes {self._title(type_id)} over from '{other.name}'")
+            logger.info(f"  '{session.name}' takes over from '{other.name}' ({self._name(attachment.speaker_id)})")
             try:
                 self._take_out(other, attachment.speaker_id)
             except Exception as e:
@@ -734,10 +757,23 @@ class AudioOutputs:
                 except Exception as e:
                     logger.warning(f"  '{other.name}' not stopped: {e}")
 
-    async def _closed_on_type(self, type_id: str, other_than: Optional[str] = None) -> bool:
-        """Every other sink of the type has closed (a one-device-at-a-time type opens one at a time)."""
+    async def take_over(self, session) -> None:
+        """
+        The channel editor's Move: the channel has a local device, so the
+        other channels playing a local device lose it (and stop when it was
+        their last speaker); a playing channel starts on its devices.
+        """
+        ids = self._enabled_devices(session)
+        if not any(self._one_local(self._type_of(sid)) for sid in ids):
+            return
+        await self._take_over(session)
+        if session.is_playing:
+            await self.start(session, ids, take_over=True)
+
+    async def _closed_local(self, other_than: Optional[str] = None) -> bool:
+        """Every other local sink has closed (one local device plays at a time)."""
         pending = [a for a in list(self._live.values()) + list(self._tests.values())
-                   if a.type_id == type_id and a.running and a.session_id != other_than]
+                   if self._local(a.type_id) and a.running and a.session_id != other_than]
         for attachment in pending:
             attachment.stop()
             await asyncio.to_thread(attachment.join, JOIN_SECONDS)
@@ -749,8 +785,9 @@ class AudioOutputs:
         """
         The channel plays: open a sink on each of these device speakers that
         isn't playing it already. A failure is logged and shown on the
-        speaker (no retry until the next start). A one-device-at-a-time type
-        another channel plays on is taken over only with take_over=True.
+        speaker (no retry until the next start). A local device while
+        another channel plays a local device: taken over only with
+        take_over=True (one local device at a time).
         """
         for sid in speaker_ids:
             try:
@@ -774,22 +811,22 @@ class AudioOutputs:
             if raise_errors:
                 raise LookupError(f"No output type '{type_id}'")
             return None
-        if self._one(type_id):
-            busy = self._playing_on_type(type_id, other_than=session.id)
+        if self._one_local(type_id):
+            busy = self._playing_local(other_than=session.id)
             if busy:
                 if not take_over:
                     message = self._busy_message(busy[0])
                     if raise_errors:
                         raise OutputBusy(message, take_over=True)
                     return self._fail(key, message, False)
-                await self._take_over(session, type_id)
-            mine = [a for a in self._live.values() if a.session_id == session.id and a.type_id == type_id
+                await self._take_over(session)
+            mine = [a for a in self._live.values() if a.session_id == session.id and self._local(a.type_id)
                     and a.playing and a.speaker_id != sid]
-            if mine:  # choose-one: the channel already plays a device of the type
-                return self._fail(key, f"'{session.name}' already plays on {self._title(type_id)}", raise_errors)
-            if not await self._closed_on_type(type_id, other_than=session.id):
-                return self._fail(key, f"{self._title(type_id)} didn't close its other device in time",
+            if mine:  # choose-one: the channel already plays a local device
+                return self._fail(key, f"'{session.name}' already plays on {self._name(mine[0].speaker_id)}",
                                   raise_errors)
+            if not await self._closed_local(other_than=session.id):
+                return self._fail(key, "The other local device didn't close in time", raise_errors)
         return self._open(session, sid, raise_errors)
 
     def _fail(self, key: tuple, message: str, raise_errors: bool) -> None:
@@ -859,7 +896,7 @@ class AudioOutputs:
         """
         Play the test sound (the chime at TEST_VOLUME) through the device:
         open(device, rate, {}), real-time blocks from a writer thread, close().
-        OutputBusy: it (or its one-device-at-a-time type) plays a channel.
+        OutputBusy: it plays a channel (or, being local, another local device does).
         """
         from sonorium.core.speaker_test_tone import DURATION, tone_samples
         record = self._devices().get(speaker_id)
@@ -874,13 +911,14 @@ class AudioOutputs:
         test = self._tests.get(speaker_id)
         if test is not None and test.running:
             raise OutputBusy("A test sound is already playing on this speaker")
-        if self._one(type_id):
-            busy = self._playing_on_type(type_id)
+        if self._one_local(type_id):
+            busy = self._playing_local()
             if busy:
-                raise OutputBusy(f"{self._title(type_id)} is playing '{self._session_name(busy[0])}'. Stop it first.")
-            if any(t.type_id == type_id and t.running for t in self._tests.values()):
-                raise OutputBusy(f"A test sound is already playing on {self._title(type_id)}")
-            await self._closed_on_type(type_id)
+                raise OutputBusy(f"{self._busy_message(busy[0])}. Stop it first.")
+            testing = [t for t in self._tests.values() if self._local(t.type_id) and t.running]
+            if testing:
+                raise OutputBusy(f"A test sound is already playing on {self._name(testing[0].speaker_id)}")
+            await self._closed_local()
         self._available(type_id)
         output_type = self._type(type_id)
         try:
@@ -952,8 +990,8 @@ class AudioOutputs:
         """
         Add the device to the channel's speakers; it plays at once if the
         channel is playing. LookupError: no such channel or type;
-        OutputError: it can't be used; OutputBusy: a one-device-at-a-time
-        type another channel plays on (unless take_over).
+        OutputError: it can't be used; OutputBusy: it is local and another
+        channel plays a local device (unless take_over).
         """
         session = self.sessions.get(session_id) if self.sessions is not None else None
         if session is None:

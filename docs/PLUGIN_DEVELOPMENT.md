@@ -90,7 +90,7 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `events`, `actions`, `scheduler`, `triggers`, `pages`, `connections` | 1.0 | Sections 4 to 10 |
 | `audio.sounds` | 1.1 | Sounds over channels, announcements (section 15) |
 | `audio.ramps` | 1.1 | Volume ramps (section 16) |
-| `audio.outputs` | 1.1 | Output types (section 17). In 1.2 their devices are speakers, and `one_device_at_a_time` |
+| `audio.outputs` | 1.1 | Output types (section 17). In 1.2 their devices are speakers, and `local` |
 | `audio.tts` | 1.1 | Text to speech providers (section 15) |
 | `commands` | 1.1 | Command maps (section 18) |
 | `mqtt` | 1.1 | MQTT (section 19) |
@@ -827,7 +827,7 @@ from sonorium.core.audio_outputs import OutputError, OutputType, Sink
 class HostAudio(OutputType):
     id = "host_audio"
     title = "This computer"
-    one_device_at_a_time = False
+    local = True                          # sound devices of the machine Sonorium runs on
 
     def available(self):                 # called often, on the event loop: no I/O
         return (True, "") if HAVE_SOUNDDEVICE else (False, "sounddevice isn't installed")
@@ -874,7 +874,7 @@ brings it with `"requirements": ["sounddevice"]`, section 21). A real sink keeps
 its own and holds its level, since the device's clock drifts from the computer's.
 
 **The type.** `id` (letters, digits, `_`, `.`, `-`; 1-64; unique across plugins), `title`
-(the section title; empty: the id), `one_device_at_a_time` (read at `register_type()`),
+(the section title; empty: the id), `local` (read at `register_type()`),
 `available()` → `(usable, why not)`, `async discover()`, `open(device_id, sample_rate,
 options)` → a new `Sink`. `OutputType` and `Sink` are plain classes with no `__init__`.
 `open()` raises `OutputError("sentence for the user")` when it can't give a sink.
@@ -909,20 +909,32 @@ retry until the next of those occasions. When `write()` raises, Sonorium logs `A
 <type>/<device> stopped: <message>`, calls `close()`, and doesn't re-open it until then
 either. `write()` and `close()` never overlap; `close()` comes exactly once per sink.
 
-**One device at a time.** With `one_device_at_a_time = True` a channel has at most one
-device of the type, never two sinks of the type are open (the old sink's `close()` has
-returned before the next `open()`), and a channel starting on the type while another plays
-on it asks to take it over: yes takes the device out of the other channel's speakers for
-good (it keeps playing on its other speakers, and stops if none are left), no starts without
-it. Over HTTP: `POST /api/sessions/{id}/play` answers 409 `<title> is playing '<channel>'`
-with the header `X-Sonorium-Take-Over: ask` unless its body has `"take_over": true` (take
-over) or `false` (start without it); a start from elsewhere (Home Assistant, MQTT, a plugin,
-a schedule) never takes over. Test is refused while the type plays.
+**Local devices.** Set `local = True` when the type's devices are hardware of the machine
+Sonorium runs on: its sound cards, USB and HDMI audio, Bluetooth paired to that machine.
+Leave it `False` for devices on the network. One local device plays at a time, across every
+local type (every plugin's) and every channel: a channel has at most one local device, never
+two local sinks are open (the old sink's `close()` has returned before the next `open()`),
+and a channel starting on a local device while another channel plays a local device asks to
+take over: yes takes that device out of the other channel's speakers for good (it keeps
+playing on its other speakers, and stops if none are left), no starts without it. Over HTTP:
+`POST /api/sessions/{id}/play` answers 409 `<device> is playing '<channel>'` with the header
+`X-Sonorium-Take-Over: ask` unless its body has `"take_over": true` (take over) or `false`
+(start without it); a start from elsewhere (Home Assistant, MQTT, a plugin, a schedule) never
+takes over. `PUT /api/sessions/{id}` and `POST /api/sessions` take `"take_over": true` too
+(the channel editor's Move): the channels playing a local device lose it, and a playing
+channel starts on its own. Test on a local device is refused while a local device plays.
+In the channel editor local devices are picked with round (choose-one) buttons across all
+local sections, a device playing elsewhere shows `In use by <channel>`, and picking one asks
+`Move “<device>” to <channel>?` first.
+
+The setting **Allow output to more than one local device** (Settings › Plugins, ⋯; off by
+default; `allow_multiple_local_outputs` in `GET`/`PUT /api/settings`) lifts this: local
+devices then play like network speakers (checkboxes, several at once, no take-over).
 
 **Test** in Settings › Speakers (`POST /api/speakers/{speaker_id}/test`) calls `open(device,
 44100, {})`, writes the test chime (3 s) at 20 % in 1024-sample blocks paced in real time,
-then `close()`. 409 `This speaker is playing '<channel>'. Stop it first.` (or `<title> is
-playing '<channel>'. Stop it first.` for a one-device-at-a-time type); an error from
+then `close()`. 409 `This speaker is playing '<channel>'. Stop it first.` (or `<device> is
+playing '<channel>'. Stop it first.` for a local device while one plays); an error from
 `open()` answers 502 with its message.
 
 **Switching off.** `on_disable()` runs first; then the types go and every sink's writer
@@ -933,9 +945,9 @@ are removed.
 |---|---|
 | `register_type(output_type)` | Register a type (`ActionError` `invalid`: a bad id, or another plugin's) |
 | `unregister_types()` | Remove the plugin's types now (Sonorium does it when the plugin is off) |
-| `await types()` | `[{"id", "title", "plugin_id", "available", "message", "one_device_at_a_time"}]` |
+| `await types()` | `[{"id", "title", "plugin_id", "available", "message", "local"}]` |
 | `await devices(type_id)` | The type's `discover()`, filtered; `not_found`, `invalid` (a timeout) |
-| `await attach(channel_id, type_id, device_id, options=None, take_over=False)` | Add the device to the channel's speakers; it plays at once if the channel plays. `invalid`: the type isn't usable, the device is switched off (`Switch the speaker on in Settings › Speakers first`), 8 devices already, `open()`'s `OutputError`; `conflict`: a one-device-at-a-time type another channel plays on |
+| `await attach(channel_id, type_id, device_id, options=None, take_over=False)` | Add the device to the channel's speakers; it plays at once if the channel plays. `invalid`: the type isn't usable, the device is switched off (`Switch the speaker on in Settings › Speakers first`), 8 devices already, `open()`'s `OutputError`; `conflict`: a local device while another channel plays one |
 | `await detach(channel_id, attachment_id)` | Take it out of the channel's speakers, close its sink; False if the channel doesn't have it |
 | `await attachments(channel_id=None)` | `[{"attachment_id", "channel_id", "type", "device", "options", "running", "latency", "error", "speaker_id"}]` |
 
@@ -954,7 +966,7 @@ passed unchanged to every `open()` for it; everywhere else they are `{}`.
 
 A device speaker in `GET /api/speakers` and the hierarchy has `"type": "output"`,
 `output_type`, `device` and `output`: `{"type", "type_title", "plugin_id", "device", "api",
-"is_default", "channels", "sample_rates", "one_device_at_a_time", "type_available",
+"is_default", "channels", "sample_rates", "local", "type_available",
 "playing": [channel ids], "error"}`.
 
 Errors from your output type (`available()`, `discover()`, `open()`) on these routes:

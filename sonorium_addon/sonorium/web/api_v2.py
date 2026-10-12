@@ -54,6 +54,7 @@ class CreateSessionRequest(BaseModel):
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
     announcements: Optional[bool] = None  # announcements play on it (default on)
+    take_over: Optional[bool] = None  # true: its local device is taken from the channel playing one (Move)
 
 
 class UpdateSessionRequest(BaseModel):
@@ -65,6 +66,7 @@ class UpdateSessionRequest(BaseModel):
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
     announcements: Optional[bool] = None  # announcements play on this channel
+    take_over: Optional[bool] = None  # true: its local device is taken from the channel playing one (Move)
 
 
 class SessionResponse(BaseModel):
@@ -147,6 +149,7 @@ class SettingsResponse(BaseModel):
     show_in_sidebar: bool
     auto_create_quick_play: bool
     master_gain: int
+    allow_multiple_local_outputs: bool = False  # more than one local audio output device plays at a time
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -157,6 +160,7 @@ class UpdateSettingsRequest(BaseModel):
     show_in_sidebar: Optional[bool] = None
     auto_create_quick_play: Optional[bool] = None
     master_gain: Optional[int] = Field(default=None, ge=0, le=100)
+    allow_multiple_local_outputs: Optional[bool] = None
 
 
 class SpeakerSettingsResponse(BaseModel):
@@ -496,6 +500,8 @@ def create_api_router(
         if request.announcements is False:
             session.announcements = False
             session_manager.state.save()
+        if request.take_over is True:
+            await session_manager.take_over_speakers(session)
 
         if mqtt_manager:
             try:
@@ -547,13 +553,16 @@ def create_api_router(
         if request.announcements is not None and request.announcements != session.announcements:
             session_manager.set_announcements(session_id, request.announcements)
 
+        if request.take_over is True:  # Move: its local device is taken from the channel playing one
+            await session_manager.take_over_speakers(session)
+
         # Apply live speaker changes if session is playing
         if added_speakers or removed_speakers:
             await session_manager.apply_speaker_changes(session, added_speakers, removed_speakers)
 
         # Apply volume to speakers if changed and session is playing
         if request.volume is not None and session.is_playing:
-            speakers = session_manager.get_resolved_speakers(session)
+            speakers = session_manager.media_speakers(session_manager.get_resolved_speakers(session))
             if speakers and session_manager.media_controller:
                 volume_level = session.volume / 100.0
                 await session_manager.media_controller.set_volume_multi(speakers, volume_level)
@@ -585,10 +594,10 @@ def create_api_router(
     async def play_session(session_id: str, request: Request) -> dict:
         """
         Start playback for a session (fire-and-forget, returns immediately).
-        Optional body {"take_over": true|false}: a speaker of a one-device-at-
-        a-time audio output type that another channel plays on is taken over
-        (true) or left out (false); without it such a start answers 409 with
-        the X-Sonorium-Take-Over header, for the UI to ask.
+        Optional body {"take_over": true|false}: its local audio output device,
+        while another channel plays a local device (one at a time), is taken
+        over (true) or left out (false); without it such a start answers 409
+        with the X-Sonorium-Take-Over header, for the UI to ask.
         """
         take_over = None
         if await request.body():
@@ -1812,6 +1821,7 @@ def create_api_router(
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
+            allow_multiple_local_outputs=settings.allow_multiple_local_outputs,
         )
 
     @router.put("/settings")
@@ -1833,6 +1843,8 @@ def create_api_router(
             settings.master_gain = request.master_gain
             if on_master_gain:
                 on_master_gain()
+        if request.allow_multiple_local_outputs is not None:
+            settings.allow_multiple_local_outputs = request.allow_multiple_local_outputs
 
         state_store.save()
         _settings_changed("general", [k for k in request.model_fields_set if getattr(request, k) is not None])
@@ -1844,6 +1856,7 @@ def create_api_router(
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
+            allow_multiple_local_outputs=settings.allow_multiple_local_outputs,
         )
 
     # --- Settings > Advanced: playback values ---

@@ -458,7 +458,7 @@ class SessionManager:
         return groups
 
     def speaker_conflicts(self, session: Session) -> list[str]:
-        """Why some of the channel's speakers can't play it now unless taken over (one device at a time)."""
+        """Why some of the channel's speakers can't play it now unless taken over (one local device at a time)."""
         messages = []
         for kind, ids in self._kind_speakers(self.get_resolved_speakers(session)):
             try:
@@ -466,6 +466,20 @@ class SessionManager:
             except Exception as e:
                 logger.debug(f"  Speaker conflicts not checked: {e}")
         return messages
+
+    async def take_over_speakers(self, session: Session) -> None:
+        """
+        The channel takes its speakers of other kinds over from the channels
+        playing them now (kind.take_over(session); the channel editor's Move).
+        """
+        for kind in self._speaker_kinds:
+            take = getattr(kind, "take_over", None)
+            if take is None:
+                continue
+            try:
+                await take(session)
+            except Exception as e:
+                logger.warning(f"  '{session.name}': speakers not taken over: {e}")
 
     async def _stop_kinds(self, session: Session) -> None:
         """The channel stopped or paused: speakers of other kinds stop playing it."""
@@ -1470,11 +1484,18 @@ class SessionManager:
         - "Bedroom Level (2 excluded)"
         - "Office Echo"
         """
-        speakers = self.get_resolved_speakers(session)
-        
-        if not speakers:
+        resolved = self.get_resolved_speakers(session)
+        if not resolved:
             return "No speakers"
-        
+        # Speakers of other kinds (a plugin's audio output devices) by name, after the others
+        speakers = self.media_speakers(resolved)
+        devices = ", ".join(self.registry.get_speaker_name(s) for s in resolved if s not in speakers)
+        if not speakers:
+            return devices
+        summary = self._media_summary(session, speakers)
+        return f"{summary}, {devices}" if devices else summary
+
+    def _media_summary(self, session: Session, speakers: list[str]) -> str:
         if len(speakers) == 1:
             return self.registry.get_speaker_name(speakers[0])
         
@@ -1504,9 +1525,9 @@ class SessionManager:
         The mix fades in over the Crossfade setting. A playlist carries on
         with its current entry; a sequence starts from its first preset.
 
-        take_over: a speaker of a one-device-at-a-time kind that another
-        channel plays on is taken from it when True; otherwise this channel
-        starts without it.
+        take_over: a local device while another channel plays a local
+        device (one at a time) is taken from it when True; otherwise this
+        channel starts without it.
 
         Returns:
             True if started successfully, False otherwise

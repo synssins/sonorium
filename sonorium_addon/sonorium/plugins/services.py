@@ -170,7 +170,7 @@ class OutputsV1:
         self._svc().unregister_owner(self._id)
 
     async def types(self) -> list[dict]:
-        """[{"id", "title", "plugin_id", "available", "message", "one_device_at_a_time"}]"""
+        """[{"id", "title", "plugin_id", "available", "message", "local"}]"""
         return self._svc().types()
 
     async def devices(self, type_id: str) -> list[dict]:

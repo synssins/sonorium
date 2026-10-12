@@ -157,6 +157,11 @@ class SonoriumSettings:
     # this install (see runtime.FEATURES). Format: {"network_speakers": true}
     feature_overrides: dict[str, bool] = field(default_factory=dict)
 
+    # Settings > Plugins, ⋯: "Allow output to more than one local device". Off:
+    # one device of the machine Sonorium runs on plays at a time (output types
+    # with local = True, core/audio_outputs.py); on: they play like network speakers
+    allow_multiple_local_outputs: bool = False
+
     # Settings > Advanced: playback values changed from their defaults (see
     # sonorium/playback_values.py). Format: {"loop_crossfade": 2.0}
     playback_values: dict[str, float] = field(default_factory=dict)

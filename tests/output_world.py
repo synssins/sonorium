@@ -54,15 +54,16 @@ class FakeSink:
         self.output.events.append(("close", self.device_id))
 
 
-def make_output_type(m, type_id="fake", title="Fake devices", one=False):
+def make_output_type(m, type_id="fake", title="Fake devices", local=False, prefix="dev"):
     base = m.audio_outputs.OutputType
 
     class FakeOutput(base):
         def __init__(self):
-            self.id, self.title, self.one_device_at_a_time = type_id, title, one
-            self.devices = [{"id": "dev/1", "name": "Device one", "api": "Fake API", "is_default": True,
-                             "channels": 2, "sample_rates": [44100, 48000]},
-                            {"id": "dev/2", "name": "Device two", "api": "Fake API"}]
+            self.id, self.title, self.local = type_id, title, local
+            self.devices = [{"id": f"{prefix}/1", "name": "Device one" if prefix == "dev" else f"{title} one",
+                             "api": "Fake API", "is_default": True, "channels": 2, "sample_rates": [44100, 48000]},
+                            {"id": f"{prefix}/2", "name": "Device two" if prefix == "dev" else f"{title} two",
+                             "api": "Fake API"}]
             self.ok = (True, "")
             self.open_error = {}     # device id -> exception open() raises
             self.fail_writes = {}    # device id -> blocks written before write() raises
@@ -136,7 +137,7 @@ def wait_for(predicate, seconds=3.0):
 
 
 class World:
-    def __init__(self, m, tmp_path, store_data=None, one=False):
+    def __init__(self, m, tmp_path, store_data=None, local=False):
         self.m = m
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self.loop.run_forever, daemon=True)
@@ -162,7 +163,7 @@ class World:
         sm._theme_presets = lambda theme_id: {}
         self.store = Store(store_data)
         self.outputs = self.call(lambda: m.audio_outputs.AudioOutputs(sm, self.store, rate=44100))
-        self.fake = make_output_type(m, one=one)
+        self.fake = make_output_type(m, local=local)
 
     # --- Running things on the world's loop ---
 

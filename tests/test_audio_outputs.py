@@ -3,7 +3,8 @@ Audio output devices as speakers (core/audio_outputs.py, plugin API 1.2):
 a plugin registers an output type, its devices become speakers (remembered,
 online/offline, Use switch, Offset), a channel plays on them like on any
 speaker (open at start, blocks scaled by volume and Offset, close after
-Stop), open()/write() failures, one device at a time with take-over, the
+Stop), open()/write() failures, one local device at a time (across local
+types and channels) with take-over and the setting that lifts it, the
 Test sound, attach/detach in speaker terms, uninstall and a failed
 on_enable(). A fake output type stands in for real audio.
 """
@@ -39,7 +40,7 @@ def w(tmp_path):
 
 @pytest.fixture
 def w1(tmp_path):
-    world = World(m, tmp_path, one=True)
+    world = World(m, tmp_path, local=True)
     yield world
     world.close()
 
@@ -59,7 +60,7 @@ def test_registered_devices_are_speakers(w):
     w.register()
     assert w.fake.discovered == 1  # listed when registered
     assert w.outputs.types() == [{"id": "fake", "title": "Fake devices", "plugin_id": "fakeplugin",
-                                  "available": True, "message": "", "one_device_at_a_time": False}]
+                                  "available": True, "message": "", "local": False}]
     one = w.registry.get_speaker(w.sid("dev/1"))
     assert one.type == "output" and one.online and one.name == "Device one"
     d = one.to_dict()
@@ -213,29 +214,30 @@ def test_device_in_a_room_taken_out_by_exclusion(w):
     assert dev1 in w.sm._resolve_selection(den) and dev1 not in den.adhoc_selection.exclude_speakers
 
 
-def test_one_device_at_a_time_take_over(w1):
+def test_one_local_device_at_a_time_take_over(w1):
     w = w1
     w.register()
     dev1, dev2 = w.sid("dev/1"), w.sid("dev/2")
     w.enable(dev1, dev2)
-    assert w.outputs.types()[0]["one_device_at_a_time"] is True
+    assert w.outputs.types()[0]["local"] is True
+    assert w.registry.get_speaker(dev1).to_dict()["output"]["local"] is True
     den = w.channel("Den", ["net:a", dev1])
     office = w.channel("Office", [dev1])
     hall = w.channel("Hall", [dev2])
     assert w.play(den)
-    assert w.sm.speaker_conflicts(hall) == ["Fake devices is playing 'Den'"]
+    assert w.sm.speaker_conflicts(hall) == ["Device one is playing 'Den'"]
 
     # No take-over: Hall starts without its device
     assert w.play(hall)
     assert [s.device_id for s in w.fake.sinks] == ["dev/1"]
-    assert w.outputs.attachments(hall.id)[0]["error"] == "Fake devices is playing 'Den'"
+    assert w.outputs.attachments(hall.id)[0]["error"] == "Device one is playing 'Den'"
     w.stop(hall)
 
     # Through the API: 409 (conflict) unless take_over; a stopped channel just gets the device
     w.call(lambda: w.outputs.attach(office.id, "fake", "dev/1"))
     office_2 = w.channel("Office 2", ["net:a"])
     w.play(office_2)
-    with pytest.raises(m.audio_outputs.OutputBusy, match="Fake devices is playing 'Den'"):
+    with pytest.raises(m.audio_outputs.OutputBusy, match="Device one is playing 'Den'"):
         w.call(lambda: w.outputs.attach(office_2.id, "fake", "dev/2"))
     assert dev2 not in w.sm._resolve_selection(office_2)
 
@@ -254,7 +256,7 @@ def test_one_device_at_a_time_take_over(w1):
     assert dev2 not in w.sm._resolve_selection(hall)
 
     # Test is refused while the type plays
-    with pytest.raises(m.audio_outputs.OutputBusy, match="Fake devices is playing 'Solo'. Stop it first."):
+    with pytest.raises(m.audio_outputs.OutputBusy, match="Device one is playing 'Solo'. Stop it first."):
         w.call(lambda: w.outputs.test(dev2))
 
 
@@ -374,7 +376,7 @@ def test_routes(w1, tmp_path):
     r = client.post("/api/audio-outputs/discover")
     assert r.status_code == 200, r.text
     [kind] = r.json()["types"]
-    assert kind["title"] == "Fake devices" and kind["one_device_at_a_time"] and kind["error"] == ""
+    assert kind["title"] == "Fake devices" and kind["local"] and kind["error"] == ""
     assert [s["entity_id"] for s in kind["speakers"]] == sorted([dev1, dev2])
     assert kind["speakers"][0]["type"] == "output" and "output" in kind["speakers"][0]
     listed = {s["entity_id"]: s for s in client.get("/api/speakers").json()}
@@ -384,7 +386,7 @@ def test_routes(w1, tmp_path):
     hall = w.channel("Hall", ["net:a", dev2])
     assert w.play(den)
     r = client.post(f"/api/sessions/{hall.id}/play")
-    assert r.status_code == 409 and r.json()["detail"] == "Fake devices is playing 'Den'"
+    assert r.status_code == 409 and r.json()["detail"] == "Device one is playing 'Den'"
     assert r.headers["X-Sonorium-Take-Over"] == "ask"
     assert client.post(f"/api/sessions/{hall.id}/play", json={"take_over": "yes"}).status_code == 400
     r = client.post(f"/api/sessions/{hall.id}/play", json={"take_over": False})
@@ -393,7 +395,7 @@ def test_routes(w1, tmp_path):
     assert wait_for(lambda: hall.is_playing)
 
     r = client.post(f"/api/speakers/{dev2}/test")
-    assert r.status_code == 409 and r.json()["detail"] == "Fake devices is playing 'Den'. Stop it first."
+    assert r.status_code == 409 and r.json()["detail"] == "Device one is playing 'Den'. Stop it first."
 
     office = w.channel("Office", ["net:a"])
     w.play(office)
@@ -418,3 +420,113 @@ def test_routes(w1, tmp_path):
     assert not w.registry.get_speaker(dev1).online
     assert client.delete(f"/api/audio-outputs/speakers/{dev1}").json() == {"removed": True}
     assert client.delete(f"/api/audio-outputs/speakers/{dev1}").status_code == 404
+
+
+def test_one_local_device_across_local_types(w):
+    """Two local types (sound cards, Bluetooth): one local device plays, whichever type it is."""
+    from output_world import make_output_type
+    w.fake.local = True
+    bt = make_output_type(m, type_id="bt", title="Bluetooth", local=True, prefix="bt")
+    net = make_output_type(m, type_id="cast", title="Cast", prefix="cast")  # not local
+    w.register()
+    w.register(bt, owner="btplugin")
+    w.register(net, owner="castplugin")
+    card, phone, cast1, cast2 = w.sid("dev/1"), w.sid("bt/1", "bt"), w.sid("cast/1", "cast"), w.sid("cast/2", "cast")
+    w.enable(card, phone, cast1, cast2)
+    den = w.channel("Den", [card, cast1])
+    hall = w.channel("Hall", [phone, cast2])
+    assert w.play(den)
+    assert w.sm.speaker_conflicts(hall) == ["Device one is playing 'Den'"]
+    with pytest.raises(m.audio_outputs.OutputBusy, match="Device one is playing 'Den'. Stop it first."):
+        w.call(lambda: w.outputs.test(phone))
+
+    # Without take-over Hall plays its network device only; with it, Den loses its sound card
+    assert w.play(hall)
+    assert not bt.sinks and len(net.sinks_of("cast/2")) == 1
+    w.stop(hall)
+    assert w.play(hall, take_over=True)
+    assert wait_for(lambda: w.fake.sinks_of("dev/1")[0].closed == 1) and len(bt.sinks) == 1
+    assert card not in w.sm._resolve_selection(den) and den.is_playing  # keeps its network device
+
+    # A channel plays one local device: the second of its own is refused
+    both = w.channel("Both", [card, w.sid("bt/2", "bt")])
+    w.enable(w.sid("bt/2", "bt"))
+    w.stop(hall)
+    opened = len(w.fake.opens) + len(bt.opens)
+    assert w.play(both)
+    assert len(w.fake.opens) + len(bt.opens) == opened + 1
+    errors = [o["error"] for o in w.outputs.attachments(both.id)]
+    assert errors.count("") == 1 and any("'Both' already plays on" in e for e in errors)
+
+
+def test_setting_allows_more_than_one_local_device(w1):
+    w = w1
+    w.state.settings.allow_multiple_local_outputs = True
+    w.register()
+    dev1, dev2 = w.sid("dev/1"), w.sid("dev/2")
+    w.enable(dev1, dev2)
+    den = w.channel("Den", [dev1])
+    hall = w.channel("Hall", [dev2])
+    assert w.play(den)
+    assert w.sm.speaker_conflicts(hall) == []
+    assert w.play(hall)
+    assert wait_for(lambda: all(s.blocks for s in w.fake.sinks)) and len(w.fake.sinks) == 2
+    assert dev1 in w.sm._resolve_selection(den)
+    both = w.channel("Both", [dev1, dev2])
+    assert w.play(both) and wait_for(lambda: len(w.fake.sinks) == 4)
+    assert [o["error"] for o in w.outputs.attachments(both.id)] == ["", ""]
+
+
+def test_move_takes_the_local_device_from_the_other_channel(w1):
+    """The channel editor's Move (PUT /sessions/{id} with take_over): the other channel loses its local device."""
+    from unittest.mock import MagicMock
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    w = w1
+    w.register()
+    dev1, dev2 = w.sid("dev/1"), w.sid("dev/2")
+    w.enable(dev1, dev2)
+    app = FastAPI()
+    app.include_router(m.api_v2.create_api_router(session_manager=w.sm, group_manager=MagicMock(),
+                                                  ha_registry=w.registry, state_store=w.state))
+
+    @app.middleware("http")
+    async def signed_in(request, call_next):  # may change a channel's speakers
+        from sonorium.auth.principal import Principal
+        request.state.auth = Principal("local", perms=frozenset({"ch.speakers"}))
+        return await call_next(request)
+    client = TestClient(app)
+    kitchen = w.channel("Kitchen", ["net:a", dev1])
+    office = w.channel("Office", ["net:a"])
+    assert w.play(kitchen)
+    assert w.registry.get_speaker(dev1).to_dict()["output"]["playing"] == [kitchen.id]
+    # The channel card's line: the device by name after the speakers
+    assert client.get(f"/api/sessions/{kitchen.id}").json()["speaker_summary"] == "Kitchen, Device one"
+    # The setting is in the settings API, off by default
+    assert client.get("/api/settings").json()["allow_multiple_local_outputs"] is False
+    assert client.put("/api/settings", json={"allow_multiple_local_outputs": True}).json()["allow_multiple_local_outputs"]
+    assert w.state.settings.allow_multiple_local_outputs is True
+    assert w.sm.speaker_conflicts(w.channel("Hall", [dev2])) == []
+    client.put("/api/settings", json={"allow_multiple_local_outputs": False})
+
+    # Saved without take_over: Office gets the device; Kitchen keeps playing on its own
+    selection = {"include_speakers": ["net:a", dev2]}
+    r = client.put(f"/api/sessions/{office.id}", json={"adhoc_selection": selection})
+    assert r.status_code == 200, r.text
+    assert dev1 in w.sm._resolve_selection(kitchen)
+    # Move: Kitchen loses its device for good and keeps its network speaker
+    r = client.put(f"/api/sessions/{office.id}", json={"adhoc_selection": selection, "take_over": True})
+    assert r.status_code == 200, r.text
+    assert wait_for(lambda: w.fake.sinks_of("dev/1")[0].closed == 1)
+    assert dev1 not in w.sm._resolve_selection(kitchen) and kitchen.is_playing
+    assert w.registry.get_speaker(dev1).to_dict()["output"]["playing"] == []
+
+    # A playing channel starts on its device at once; a new channel can Move too
+    w.play(office)
+    assert wait_for(lambda: len(w.fake.sinks_of("dev/2")) == 1)
+    r = client.post("/api/sessions", json={"custom_name": "Den", "theme_id": "storm", "take_over": True,
+                                           "adhoc_selection": {"include_speakers": [dev1]}})
+    assert r.status_code == 201, r.text
+    assert wait_for(lambda: w.fake.sinks_of("dev/2")[0].closed == 1)
+    assert dev2 not in w.sm._resolve_selection(office)
+    assert office.is_playing  # still has its network speaker

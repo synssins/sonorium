@@ -37,7 +37,7 @@ CAPABILITIES: dict[str, tuple[str, str]] = {
     "connections": ("1.0", "Sections in Settings > Connection"),
     "audio.sounds": ("1.1", "Play sounds over channels, with ducking"),
     "audio.ramps": ("1.1", "Gradual volume ramps on channels"),
-    "audio.outputs": ("1.1", "Audio output types; in 1.2 their devices are speakers, one_device_at_a_time"),
+    "audio.outputs": ("1.1", "Audio output types; in 1.2 their devices are speakers, local types"),
     "audio.tts": ("1.1", "Text to speech providers"),
     "commands": ("1.1", "Command maps for remotes and other inputs"),
     "mqtt": ("1.1", "Publish and subscribe on Sonorium's MQTT broker"),
