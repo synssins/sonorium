@@ -67,7 +67,7 @@ def _convert_in_memory(folder: Path, metadata: tm.ThemeMetadata, raw: Optional[d
     """The server's load-time conversions (theme_metadata.load_theme_folder), without writing."""
     if raw is not None and tm._is_legacy(raw):
         tm._convert_fields(metadata)
-    tm._flip_ebb_duration(metadata)
+    tm._convert_ebb_duration(metadata, raw)
     tm._retire_auto(folder, metadata)
 
 

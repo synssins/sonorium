@@ -104,7 +104,7 @@ writes (`core/theme_metadata.py` `load_theme_folder`):
 
 | Conversion | Marker | Backup | What it does |
 |---|---|---|---|
-| Ebb & Flow Interval -> Duration | `"ebb_duration": true` | `*.pre-duration.bak` | Every Ebb & Flow track's `presence` (its own mode `presence`, or in an Ebb & Flow group), in the theme and in each preset, becomes `1 - presence`: the slider now means Duration, higher is longer (`_flip_ebb_duration`). |
+| Ebb & Flow Interval -> Duration | `"ebb_duration": true` | `*.pre-duration.bak` | Every Ebb & Flow track's `presence` (its own mode `presence`, or in an Ebb & Flow group), in the theme and in each preset, becomes `1 - presence`: the slider now means Duration, higher is longer (`_flip_ebb_duration`). Only for a theme from before that change: a version 1 theme (`spec_version` missing or below 2, or presets inside `metadata.json`), or a version 2 `metadata.json` exactly as Sonorium 1.5.0 - 1.6.0 saved it (`is_favorite`, `categories`, `short_file_threshold` and `groups` present, and every `tracks` entry holding `presence`, `muted`, `volume`, `playback_mode`, `seamless_loop` and `exclusive`, with no field added since, such as `rise`). Any other theme without the marker is already in Duration: it is only marked (`_written_before_duration`, `_convert_ebb_duration`). |
 | Intrusion groups retired | `"intrusions_retired": true` | `*.pre-links.bak` | For each group with `"mode": "intrusion"`: its linked files become ungrouped (key `"<name>"`, `" (2)"` on a clash; they keep their own `playback_mode`), then the group is removed as `DELETE .../groups/{name}` removes one: its own files move up to the theme folder (renamed `"x (2)"` on a clash), its entry leaves `groups` and every preset's `groups`. Every key follows in `tracks`, `links`, each preset's `tracks` and each sequence's `transitions` and `while` (`_retire_intrusions`, `core/intrusions.py` `retire_intrusion_groups`). The backup is made before any file moves; if a file can't be moved, that group is tried again on the next load. |
 | Auto retired | `"auto_retired": true` | `*.pre-auto.bak` | Every track whose `playback_mode` is `"auto"` in `tracks` or in a preset gets the mode it played as (3.2): a file shorter than `short_file_threshold` `sparse` when its presence is below 1, a longer one `presence`, else `continuous`. Becoming `presence` (Ebb & Flow), a track that plays its own mode (not in a group) gets `presence = 1 - presence` (Duration, as above); a grouped track keeps its value, since its group decides how it plays. A preset entry whose own presence makes it play differently from the theme's track gets its own `playback_mode` (and flipped presence). Lengths come from the files (a linked file's from its source); a track whose file is missing keeps `auto`. When lengths can't be read nothing changes and the theme isn't marked (`_retire_auto`). |
 
@@ -759,6 +759,15 @@ are 0 to 604800 s (a week) and `hold_min` must not be above `hold_max` once defa
 Deleting a preset removes it (and its transitions) from every sequence of its theme (`core/sequences.py` `drop_preset`);
 a sequence left with no preset can't be started. Unknown preset IDs in a sequence are skipped
 when it plays.
+
+The API refuses values outside these limits. A `presets.json` written by hand is checked when
+it is read (`core/sequences.py` `load_sequences`, `load_defaults`, `check_loaded_sequence`): a number
+outside its limit (times, transition values and `pre_fade`, While playing values) becomes the
+nearest limit; a value of the wrong type, an unknown `at_end`, style, field, side or part, and a
+transition or While playing step for a preset not in the sequence are left out (an unknown
+`at_end` becomes `reverse`, a missing name the sequence ID, `owner` null); `hold_min` above
+`hold_max` is swapped. Each fix is logged once as a warning (Settings > Logs). The file itself is
+only rewritten by the next change saved through the API.
 
 ### 5.2 How a sequence plays (`core/playback_runner.py`)
 

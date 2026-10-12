@@ -351,7 +351,7 @@ jobs:
   # and every console page, on a runner in dark mode at 1920x1080. Artifact "docs-screens".
   screens:
     name: Documentation screenshots
-    # Never when the release workflow calls this (inputs.ref is set then)
+    # Only on windows-app pushes, never when the release workflow calls this one
     if: inputs.ref == '' && contains(github.event.head_commit.message, '[screens]')
     needs: bundle
     runs-on: windows-latest

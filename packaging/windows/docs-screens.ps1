@@ -134,7 +134,9 @@ Click $wizard 'Next'
 Shot-Window $wizard 'install-03-location'
 Click $wizard 'Next'
 Shot-Window $wizard 'install-04-tasks'
-Click $wizard 'Run Sonorium as a Windows service (starts with Windows, before anyone signs in)'
+# The task list isn't exposed to UI Automation: its second row, by position in the window
+$r = Rect $wizard; [void][W]::SetForegroundWindow($wizard); Start-Sleep -Milliseconds 300
+[W]::ClickAt($r.L + 57, $r.T + 177); Start-Sleep 1
 Shot-Window $wizard 'install-04b-tasks-ticked'
 Click $wizard 'Next'
 Shot-Window $wizard 'install-05-ready'

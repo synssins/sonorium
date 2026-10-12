@@ -138,7 +138,8 @@ class ThemeMetadata:
 
     # Ebb & Flow's slider is Duration (higher is longer). False: the stored
     # values still mean the old Interval (higher was quicker) and are flipped
-    # once when the theme loads (see _flip_ebb_duration).
+    # once when the theme loads, if it is from before the change (see
+    # _convert_ebb_duration). Any other theme is marked True when it loads.
     ebb_duration: bool = False
 
     # One-time conversions done when the theme loads (see load_theme_folder):
@@ -254,6 +255,50 @@ def _convert_fields(metadata: ThemeMetadata) -> None:
 
 
 PRE_DURATION_SUFFIX = ".pre-duration.bak"
+
+# What Sonorium 1.5.0 - 1.6.0 wrote to metadata.json: the 2.0 layout from
+# before Ebb & Flow's Interval became Duration (_written_before_duration).
+# Every save wrote these top-level keys and each track entry in full.
+_OLD_WRITER_KEYS = ("is_favorite", "categories", "short_file_threshold", "groups")
+_OLD_TRACK_FIELDS = frozenset(("presence", "muted", "volume", "playback_mode", "seamless_loop", "exclusive"))
+# Added by the builds just before the Duration change (Rise came with it)
+_OLD_TRACK_EXTRAS = frozenset(("fade_in", "fade_out", "volume_low", "pause_between", "pause_min", "pause_max"))
+
+
+def _written_before_duration(raw: Optional[dict]) -> bool:
+    """
+    True when a metadata.json is from before Ebb & Flow's Interval became
+    Duration, so its Ebb & Flow values still mean Interval: a 1.0 theme
+    (spec_version missing or below 2, or presets inside metadata.json), or a
+    2.0 theme exactly as Sonorium 1.5.0 - 1.6.0 saved it (every track entry
+    written in full, without the fields the Duration change added). A theme
+    written by hand in the 2.0 layout is already in Duration, flag or not.
+    """
+    if not isinstance(raw, dict) or raw.get("ebb_duration"):
+        return False
+    if _is_legacy(raw) or "presets" in raw:
+        return True
+    if raw.get("intrusions_retired") or raw.get("auto_retired"):
+        return False  # written after the change
+    if any(key not in raw for key in _OLD_WRITER_KEYS):
+        return False
+    tracks = raw.get("tracks")
+    if not isinstance(tracks, dict) or not tracks:
+        return False
+    return all(isinstance(entry, dict) and _OLD_TRACK_FIELDS <= set(entry) <= _OLD_TRACK_FIELDS | _OLD_TRACK_EXTRAS
+               for entry in tracks.values())
+
+
+def _convert_ebb_duration(metadata: ThemeMetadata, raw: Optional[dict]) -> bool:
+    """
+    The Interval -> Duration conversion, only for a theme from before the
+    change (_written_before_duration); any other theme is just marked done.
+    Returns True when values changed.
+    """
+    if not metadata.ebb_duration and not _written_before_duration(raw):
+        metadata.ebb_duration = True
+        return False
+    return _flip_ebb_duration(metadata)
 
 
 def _flip_ebb_duration(metadata: ThemeMetadata) -> bool:
@@ -541,7 +586,8 @@ def load_theme_folder(folder: Path) -> ThemeMetadata:
         metadata.json.pre-presets.bak, then "presets" is removed from it
       - spec_version becomes 2; exclusive tracks are recorded in an "Exclusive" group
     Once per theme, each with a backup of both files made before it writes:
-      - Ebb & Flow Interval values become Duration (_flip_ebb_duration, *.pre-duration.bak)
+      - Ebb & Flow Interval values become Duration, for a theme from before that
+        change (_convert_ebb_duration, *.pre-duration.bak)
       - intrusion groups are retired (_retire_intrusions, *.pre-links.bak)
       - "auto" playback modes become the mode they play as (_retire_auto, *.pre-auto.bak)
     A broken metadata.json/presets.json is kept as <name>.broken-<time> and
@@ -571,7 +617,7 @@ def load_theme_folder(folder: Path) -> ThemeMetadata:
 
     if legacy:
         _convert_fields(metadata)
-    flipped = _flip_ebb_duration(metadata)
+    flipped = _convert_ebb_duration(metadata, raw)
     # Moves files, so it backs up (and checks the folder can be written) first
     regrouped = _retire_intrusions(folder, metadata, doc)
     presets = metadata.presets

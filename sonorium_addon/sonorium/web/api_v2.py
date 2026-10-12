@@ -2458,14 +2458,22 @@ def create_api_router(
                 if not namelist:
                     raise HTTPException(status_code=400, detail="Zip file is empty")
 
-                # Determine theme folder name from zip structure
-                # Expected: theme_name/file1.mp3, theme_name/metadata.json, etc.
-                first_entry = namelist[0]
-                if '/' in first_entry:
-                    theme_folder_name = first_entry.split('/')[0]
-                else:
-                    # No folder structure, use zip filename without extension
-                    theme_folder_name = filename.rsplit('.', 1)[0]
+                # One top folder, or the theme's files at the root of the zip
+                # (then the folder is named after the theme); groups keep their place
+                from sonorium.core.theme_import import ZipLayoutError, plan_import, root_metadata_member
+                theme_name = None
+                meta_member = root_metadata_member(namelist)
+                if meta_member is not None:
+                    try:
+                        with zip_file.open(meta_member) as src:
+                            name = json.loads(src.read().decode("utf-8-sig")).get("name")
+                        theme_name = name if isinstance(name, str) else None
+                    except Exception:
+                        pass  # a broken metadata.json is dealt with when the theme loads
+                try:
+                    theme_folder_name, members = plan_import(namelist, filename, theme_name)
+                except ZipLayoutError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
                 # Check if theme already exists
                 target_path = audio_path / theme_folder_name
@@ -2480,31 +2488,14 @@ def create_api_router(
                 # Extract files
                 target_path.mkdir(parents=True, exist_ok=True)
                 files_extracted = 0
-                audio_extensions = {'.mp3', '.wav', '.flac', '.ogg'}
+                root = target_path.resolve()
 
-                for zip_info in zip_file.infolist():
-                    if zip_info.is_dir():
-                        continue
-
-                    # Get the path relative to the theme folder in the zip
-                    parts = zip_info.filename.split('/')
-                    if len(parts) > 1:
-                        # Remove the original theme folder prefix
-                        relative_path = '/'.join(parts[1:])
-                    else:
-                        relative_path = zip_info.filename
-
-                    if not relative_path:
-                        continue
-
-                    # Determine output path
+                for member, relative_path in members:
                     output_path = target_path / relative_path
-
-                    # Create parent directories if needed
+                    if root not in output_path.resolve().parents:
+                        raise HTTPException(status_code=400, detail=f"Invalid path in zip: {member}")
                     output_path.parent.mkdir(parents=True, exist_ok=True)
-
-                    # Extract file
-                    with zip_file.open(zip_info) as src:
+                    with zip_file.open(member) as src:
                         output_path.write_bytes(src.read())
                     files_extracted += 1
                     logger.debug(f"Extracted: {relative_path}")
