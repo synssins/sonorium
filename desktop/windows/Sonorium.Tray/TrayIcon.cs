@@ -14,7 +14,11 @@ public sealed class TrayIcon : IDisposable
     const int NIF_MESSAGE = 1, NIF_ICON = 2, NIF_TIP = 4, NIF_SHOWTIP = 0x80;
     const int NOTIFYICON_VERSION_4 = 4;
 
-    static readonly Guid IconGuid = new("6d1b3c5e-6a52-4f0a-9a43-5e8b1f3d2c71");
+    // A plain id, not a GUID: Windows ties a GUID icon to the first program path that used it, so
+    // a second copy of Sonorium.exe (another install folder) could never show its icon
+    const int IconId = 1;
+    const int WM_TIMER = 0x0113, RetryTimer = 1;
+    int retries;
     readonly WndProc proc;
     readonly IntPtr hwnd;
     readonly uint taskbarCreated;
@@ -57,12 +61,18 @@ public sealed class TrayIcon : IDisposable
         Shell_NotifyIcon(NIM_MODIFY, ref data);
     }
 
+    /// <summary>Adds the icon; while the taskbar isn't ready (early at sign-in) it tries again every 2 s for a minute.</summary>
     void Add()
     {
         var data = Data(NIF_MESSAGE | NIF_ICON | NIF_TIP | NIF_SHOWTIP);
-        // A stale icon with our GUID (from a crash) would make NIM_ADD fail
         Shell_NotifyIcon(NIM_DELETE, ref data);
-        Shell_NotifyIcon(NIM_ADD, ref data);
+        if (!Shell_NotifyIcon(NIM_ADD, ref data))
+        {
+            if (retries++ < 30) SetTimer(hwnd, RetryTimer, 2000, IntPtr.Zero);
+            return;
+        }
+        KillTimer(hwnd, RetryTimer);
+        retries = 0;
         data.uVersion = NOTIFYICON_VERSION_4;
         Shell_NotifyIcon(NIM_SETVERSION, ref data);
     }
@@ -71,11 +81,11 @@ public sealed class TrayIcon : IDisposable
     {
         cbSize = Marshal.SizeOf<NOTIFYICONDATA>(),
         hWnd = hwnd,
-        uFlags = flags | 0x20, // NIF_GUID
+        uID = IconId,
+        uFlags = flags,
         uCallbackMessage = WM_TRAY,
         hIcon = icon,
         szTip = tip,
-        guidItem = IconGuid,
     };
 
     IntPtr WindowProc(IntPtr h, uint msg, IntPtr w, IntPtr l)
@@ -90,6 +100,11 @@ public sealed class TrayIcon : IDisposable
             return IntPtr.Zero;
         }
         if (msg == taskbarCreated) Add();
+        if (msg == WM_TIMER && w == RetryTimer)
+        {
+            KillTimer(hwnd, RetryTimer);
+            Add();
+        }
         if (msg == 0x001A /* WM_SETTINGCHANGE */ || msg == 0x02E0 /* WM_DPICHANGED */) SettingsChanged?.Invoke();
         return DefWindowProc(h, msg, w, l);
     }
@@ -129,6 +144,8 @@ public sealed class TrayIcon : IDisposable
     static extern IntPtr CreateWindowEx(int exStyle, string cls, string name, int style, int x, int y, int w, int h, IntPtr parent, IntPtr menu, IntPtr instance, IntPtr param);
     [DllImport("user32.dll")] static extern IntPtr DefWindowProc(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] static extern bool DestroyWindow(IntPtr hwnd);
+    [DllImport("user32.dll")] static extern IntPtr SetTimer(IntPtr hwnd, IntPtr id, uint ms, IntPtr func);
+    [DllImport("user32.dll")] static extern bool KillTimer(IntPtr hwnd, IntPtr id);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern uint RegisterWindowMessage(string name);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern IntPtr GetModuleHandle(string? name);
 }
