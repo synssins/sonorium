@@ -17,8 +17,7 @@ namespace Sonorium.Host;
 ///   control     the installing user may start, stop and restart it without elevation
 ///   folders     C:\ProgramData\Sonorium: SYSTEM and Administrators full control, the service
 ///               account and the installing user modify
-///   firewall    the private Python may accept the web UI/stream port, the HTTPS port and mDNS
-///               on private and domain networks
+///   firewall    the private Python may accept connections on private and domain networks
 /// </summary>
 public static class ServiceSetup
 {
@@ -50,7 +49,7 @@ public static class ServiceSetup
 
         var settings = DesktopSettings.Load(RunMode.Service);
         PrepareFolders(settings, userSid);
-        AddFirewallRules(settings);
+        AddFirewallRules();
     }
 
     public static void Uninstall(bool keepFirewall = false)
@@ -97,7 +96,7 @@ public static class ServiceSetup
     {
         RequireAdmin();
         var service = DesktopSettings.Load(RunMode.Service);
-        Uninstall();
+        Uninstall(keepFirewall: true);
         CopyIfEmpty(service.Data, userData);
         CopyIfEmpty(service.Themes, userThemes);
     }
@@ -149,17 +148,22 @@ public static class ServiceSetup
     static bool IsUnder(string path, string root) =>
         Path.GetFullPath(path).TrimEnd('\\').StartsWith(Path.GetFullPath(root).TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase);
 
-    static void AddFirewallRules(DesktopSettings settings)
+    /// <summary>
+    /// Lets Sonorium's Python accept connections on private and domain networks (web page, streams,
+    /// the app's HTTPS port, discovery replies): by program, not port, so a port changed on General
+    /// stays covered.
+    /// </summary>
+    public static void AddFirewallRules()
     {
+        RequireAdmin();
         RemoveFirewallRules();
         var program = $"program={Paths.PythonExe}";
-        Run("netsh.exe", "advfirewall", "firewall", "add", "rule", $"name={FirewallRule}", "dir=in", "action=allow",
-            program, "protocol=TCP", $"localport={settings.Port},{settings.HttpsPort}", "profile=private,domain");
-        Run("netsh.exe", "advfirewall", "firewall", "add", "rule", $"name={FirewallRule}", "dir=in", "action=allow",
-            program, "protocol=UDP", "localport=5353", "profile=private,domain");
+        foreach (var protocol in new[] { "TCP", "UDP" })
+            Run("netsh.exe", "advfirewall", "firewall", "add", "rule", $"name={FirewallRule}", "dir=in", "action=allow",
+                program, $"protocol={protocol}", "profile=private,domain");
     }
 
-    static void RemoveFirewallRules()
+    public static void RemoveFirewallRules()
     {
         // Fails harmlessly when there's no such rule
         Capture("netsh.exe", "advfirewall", "firewall", "delete", "rule", $"name={FirewallRule}");

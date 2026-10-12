@@ -12,6 +12,8 @@ using Sonorium.Host;
 //   switch-mode user <user data folder> <user themes folder>
 //                               the console's "Run Sonorium as" (admin): the service registered
 //                               or removed, data and themes copied across
+//   install-firewall            all-users installs (admin): Windows Firewall rules for Sonorium's Python
+//   uninstall-firewall          remove them (admin)
 //   install-update-task [SID]   all-users installs (admin): the SYSTEM task that installs updates
 //                               without a prompt, which that user may start (default: the user running this)
 //   uninstall-update-task       remove it (admin)
@@ -29,6 +31,12 @@ try
             return 0;
         case "uninstall-service":
             ServiceSetup.Uninstall();
+            return 0;
+        case "install-firewall":
+            ServiceSetup.AddFirewallRules();
+            return 0;
+        case "uninstall-firewall":
+            ServiceSetup.RemoveFirewallRules();
             return 0;
         case "install-update-task" when args.Length <= 2:
             UpdateTask.Install(args.Length == 2 ? args[1] : UpdateTask.CurrentUserSid());
@@ -54,7 +62,7 @@ try
             return 2;
     }
 }
-catch (Exception e) when (args.FirstOrDefault() is "install-service" or "uninstall-service" or "switch-mode" or "install-update-task" or "uninstall-update-task")
+catch (Exception e) when (args.FirstOrDefault() is "install-service" or "uninstall-service" or "switch-mode" or "install-update-task" or "uninstall-update-task" or "install-firewall" or "uninstall-firewall")
 {
     // The tray shows this text when the elevated step fails; an elevated process has no
     // stderr it can read, so it's also left in %TEMP% (the same user's, elevated)

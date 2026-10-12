@@ -3,6 +3,7 @@
 <!-- version list -->
 
 ## v1.7.1-dev.12 (2026-10-12)
+## v1.7.2-dev.2 (2026-10-12)
 
 ### Bug Fixes
 
@@ -19,6 +20,9 @@
   ([`063dfab`](https://github.com/synssins/sonorium/commit/063dfabd3c5caf0e7a6ab7b030f81f8427792d2f))
 
 ### Continuous Integration
+
+- **windows**: Documentation screenshots [screens]
+  ([`eb08cf2`](https://github.com/synssins/sonorium/commit/eb08cf29a6acc5226e2a4e7ebd88b4ad7455e73e))
 
 - **windows**: Documentation screenshots never run inside a release
   ([`a9faa8a`](https://github.com/synssins/sonorium/commit/a9faa8a341b44d5804cd027a9c298f640c9abe30))

@@ -99,7 +99,8 @@ function Find($hwnd, $name) {
     if (-not $e) { throw "No '$name' in $([W]::Title($hwnd))" }
     $e
 }
-# Invoke when the control offers it; else a mouse click in its middle (Windows command links)
+# Invoke when the control offers it; else a mouse click in its middle (Windows command links, and
+# the installer's dark-mode controls, which UI Automation sees as plain panes)
 function Click($hwnd, $name) {
     $e = Find $hwnd $name
     $pattern = $null
@@ -127,15 +128,17 @@ Click $mode 'Install for all users'
 
 $wizard = Wait-Window { param($h) [W]::Title($h) -match '^Setup - Sonorium' }
 Shot-Window $wizard 'install-02-license'
-Pick $wizard 'I accept the agreement'
+Click $wizard 'I accept the agreement'
 Shot-Window $wizard 'install-02b-license-accepted'
-Click $wizard 'Next >'
+Click $wizard 'Next'
 Shot-Window $wizard 'install-03-location'
-Click $wizard 'Next >'
+Click $wizard 'Next'
 Shot-Window $wizard 'install-04-tasks'
-Tick $wizard 'Run Sonorium as a Windows service (starts with Windows, before anyone signs in)'
+# The task list isn't exposed to UI Automation: its second row (the service task), by position in the window
+$r = Rect $wizard; [void][W]::SetForegroundWindow($wizard); Start-Sleep -Milliseconds 300
+[W]::ClickAt($r.L + 57, $r.T + 177); Start-Sleep 1
 Shot-Window $wizard 'install-04b-tasks-ticked'
-Click $wizard 'Next >'
+Click $wizard 'Next'
 Shot-Window $wizard 'install-05-ready'
 Click $wizard 'Install'
 for ($i = 0; $i -lt 240; $i++) { try { [void](Find $wizard 'Finish'); break } catch { Start-Sleep 1 } }

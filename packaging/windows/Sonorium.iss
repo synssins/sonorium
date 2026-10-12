@@ -46,6 +46,8 @@ LicenseFile={#Source}\LICENSE.md
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern dynamic
+WizardSmallImageFile=wizard-small.png,wizard-small@2x.png
+WizardImageFile=wizard-large.png,wizard-large@2x.png
 CloseApplications=yes
 RestartApplications=no
 
@@ -74,7 +76,10 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 ; on a new install; an update keeps the registration it has, then the service starts again
 Filename: "{app}\SonoriumHost.exe"; Parameters: "install-service"; Check: NewService; Flags: runhidden waituntilterminated; StatusMsg: "Setting up the Sonorium service..."
 Filename: "{sys}\sc.exe"; Parameters: "start Sonorium"; Check: WantService; Flags: runhidden waituntilterminated
-; All users: the task that installs updates without an administrator prompt (kept on updates)
+; All users: firewall rules for Sonorium's Python (a per-account install gets Windows Firewall's prompt
+; the first time Sonorium listens), and the task that installs updates without an administrator
+; prompt (kept on updates)
+Filename: "{app}\SonoriumHost.exe"; Parameters: "install-firewall"; Check: IsAdminInstallMode; Flags: runhidden waituntilterminated
 Filename: "{app}\SonoriumHost.exe"; Parameters: "install-update-task"; Check: NewUpdateTask; Flags: runhidden waituntilterminated
 ; The tray console (it starts Sonorium per user); also after a silent update, except when the
 ; update task (SYSTEM) runs this with /NOTRAY=1: the user's updater starts it then
@@ -82,6 +87,7 @@ Filename: "{app}\Sonorium.exe"; Description: "Start Sonorium"; Check: WantTray; 
 
 [UninstallRun]
 Filename: "{app}\SonoriumHost.exe"; Parameters: "uninstall-service"; Flags: runhidden waituntilterminated; Check: IsAdminInstallMode; RunOnceId: "RemoveService"
+Filename: "{app}\SonoriumHost.exe"; Parameters: "uninstall-firewall"; Flags: runhidden waituntilterminated; Check: IsAdminInstallMode; RunOnceId: "RemoveFirewall"
 Filename: "{app}\SonoriumHost.exe"; Parameters: "uninstall-update-task"; Flags: runhidden waituntilterminated; Check: IsAdminInstallMode; RunOnceId: "RemoveUpdateTask"
 
 [UninstallDelete]
