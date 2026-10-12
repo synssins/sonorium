@@ -1,5 +1,5 @@
 name: Sonorium
-version: "1.6.2-dev.61"
+version: "1.6.2-dev.66"
 slug: sonorium
 description: "Multi-zone ambient soundscape mixer for Home Assistant"
 url: https://github.com/synssins/sonorium
@@ -8,11 +8,12 @@ arch:
   - aarch64
   - amd64
 
-# Prebuilt images: CI publishes one per architecture for every version
-# (.github/workflows/addon-image.yml). With this line, Home Assistant pulls
-# the image for the version above instead of building the Dockerfile (and
-# compiling FFmpeg) on the device. Without it, HA builds it on the device.
-# image: ghcr.io/synssins/{arch}-addon-sonorium
+# Prebuilt images: Home Assistant pulls {arch}-addon-sonorium:<version above>
+# instead of building the Dockerfile (and compiling FFmpeg) on the device.
+# The version above is only ever pushed after CI has pushed that image for
+# every arch listed (.github/workflows/addon-version.yml, docs/VERSIONING.md),
+# so HA never offers a version it can't pull.
+image: ghcr.io/synssins/{arch}-addon-sonorium
 
 init: false
 homeassistant_api: true
