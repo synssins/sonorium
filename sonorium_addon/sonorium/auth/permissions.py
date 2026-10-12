@@ -2,15 +2,15 @@
 The permission every route needs, and the abilities callers have.
 
 Abilities are the boxes on a key (Settings > Keys), grouped by area exactly
-as the Keys dialog shows them; roles (the Users plugin) are sets of them.
+as the Keys dialog shows them; roles (auth/users.py) are sets of them.
 Permissions no key can have:
 
-    admin.users       users and everyone's devices (the Users plugin)
+    admin.users       users and everyone's devices (auth/users.py)
     admin.keys        keys, and the plugin framework's older token endpoints
     admin.plugins     install, configure and remove plugins, schedules
     admin.connection  Settings > Connection (Home Assistant and MQTT credentials)
     self              link a phone, see and remove your own phones
-    device            only a linked phone (e.g. the Users plugin's one-time sign-in code)
+    device            only a linked phone (e.g. the one-time sign-in code, auth/users.py)
 
 Every route is listed with one of:
 

@@ -4,7 +4,7 @@ atomically (temp file, then replace). A private file is created owner-only
 (0600) before anything is written into it.
 
 Used by the core (security.json), the plugin framework (plugin_framework.json,
-plugin_secrets.json) and the built-in sign-in plugins (users.json).
+plugin_secrets.json) and Users (users.json).
 """
 from __future__ import annotations
 

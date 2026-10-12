@@ -13,8 +13,8 @@ sonorium/auth/permissions.py.
 The account (account_of):
 
     a signed-in user, or a linked phone or browser of a user   "user:<user id>"
-    Users plugin on, nobody signed in (or a key)                refused (401)
-    no accounts (Users plugin off): Home Assistant's sidebar    "ha:<HA user id>" (each HA user their own)
+    accounts loaded, nobody signed in (or a key)                refused (401)
+    no accounts loaded: Home Assistant's sidebar                "ha:<HA user id>" (each HA user their own)
     no accounts: anyone else (local, BYPASS, phones, keys)      "local" (one shared personal channel)
 
 The device (device_of): a linked phone's id, else the browser session, else
@@ -38,7 +38,7 @@ def _principal(request: Request):
 
 
 def _accounts_on(request: Request) -> bool:
-    """The Users plugin is on: accounts exist."""
+    """Users (accounts) have loaded: a caller without an account has no personal channel."""
     service = (getattr(request, "scope", None) or {}).get("state", {}).get("auth_service")
     authenticators = getattr(service, "authenticators", None) or {}
     return "users" in authenticators

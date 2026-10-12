@@ -1,4 +1,4 @@
-/* Integration plugin: Settings › Keys (boards: Auth_Key_List, Auth_Keys, Auth_Key_Edit, Auth_Key_Made) */
+/* Keys (static/js/ext/keys.js): Settings › Keys (boards: Auth_Key_List, Auth_Keys, Auth_Key_Edit, Auth_Key_Made) */
 .ky-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.6fr) 90px 110px 36px; column-gap: .875rem; align-items: center; }
 .ky-name { font-weight: 600; font-size: .875rem; color: var(--text-primary); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ky-chips { display: flex; flex-wrap: wrap; gap: .375rem; padding: .25rem 0; }

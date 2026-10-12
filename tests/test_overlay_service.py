@@ -187,6 +187,25 @@ def test_announcements_off_skips_announcements_only():
     asyncio.run(main())
 
 
+def test_announcements_switched_off_in_advanced_refuse_announcements_only():
+    async def main():
+        svc, sessions, events = service()
+        sessions.add("hall", playing=True)
+        m.announce.set_enabled_source(lambda: False)
+        try:
+            with pytest.raises(m.announce.AnnouncementsOff):
+                await svc.play(["hall"], samples=beep(0.1), sample_rate=RATE, override=True, announcement=True)
+            with pytest.raises(m.announce.AnnouncementsOff):
+                await m.announce.announce(svc, FakeTts(), ["hall"], text="Dinner is ready")
+            result = await svc.play(["hall"], samples=beep(0.1), sample_rate=RATE)  # a sound that isn't one plays
+            assert result["channels"]["hall"]["state"] == "playing"
+        finally:
+            m.announce.set_enabled_source(None)
+        await svc.wait_idle()
+        sessions.channels["hall"].stop()
+    asyncio.run(main())
+
+
 def test_max_length_caps_and_per_call_lowers_it():
     async def main():
         svc, sessions, events = service()

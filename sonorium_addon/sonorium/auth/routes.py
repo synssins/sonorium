@@ -1,5 +1,5 @@
 """
-The core's sign-in routes (they work with or without the sign-in plugins).
+The core's sign-in routes (Users and Keys add theirs: users.py, keys.py).
 
     GET    /api/info                     public: server id, version, ports, login required, mDNS name
     GET    /api/auth/me                  public: who you are, CSRF token, bypass, plugins' fields
@@ -99,7 +99,8 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
             "install": runtime.INSTALL, "features": features(),
             "ports": {"http": http, "https": https_port() or None}, "host": host, "hostname": mdns_host() or None,
             "login_required": login_required(), "pair": True, "fingerprint": identity.fingerprint,
-            "plugins": sorted(service.authenticators),
+            "plugins": service.plugin_ids(),  # "users" kept for released apps; use "accounts"
+            "accounts": service.accounts_loaded,  # user accounts: sign in with a username and password
             "started_at": datetime.fromtimestamp(runtime.STARTED_AT, timezone.utc).isoformat(timespec="seconds"),  # UTC
             "boot_id": runtime.BOOT_ID,  # new at every start; the event stream's ids are "<boot_id>:<n>"
             # the web UI's version, and of its window.SONORIUM_HOST hooks for the app (static/js/api.js)
@@ -116,7 +117,8 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
             "kind": p.kind, "user": service.describe_user(p.user_id), "csrf": p.csrf, "reset": p.reset,
             "perms": sorted(p.perms), "bypass": config.bypass_login() and not ingress, "ingress": ingress,
             "web_ui": ingress or not config.web_ui_only_through_ha(), "words": service.identity.words,
-            "plugins": sorted(service.authenticators), "starting": not service.ready, "closed": service.closed,
+            "plugins": service.plugin_ids(), "accounts": service.accounts_loaded,
+            "starting": not service.ready, "closed": service.closed,
         }
         for _, hook in service.provider("me"):
             try:

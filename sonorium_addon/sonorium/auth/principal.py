@@ -1,5 +1,5 @@
 """
-Who is calling (a Principal), and the hooks sign-in plugins provide.
+Who is calling (a Principal), and the hooks Users and Keys provide.
 
 An authenticator is any object a plugin registers with
 AuthService.register_authenticator(plugin_id, authenticator). Every method is
@@ -24,7 +24,7 @@ full access, which is Sonorium's behaviour without accounts.
 
 current_caller() is the Principal of the request being handled (set by the
 middleware for the request and the tasks it starts), or None for what no
-request started: MQTT, timers, plugins' own tasks. Zones (the Users plugin)
+request started: MQTT, timers, plugins' own tasks. Zones (core/zones.py)
 read it to know who changes a channel.
 """
 from __future__ import annotations
@@ -46,7 +46,7 @@ class Principal:
     key_id: Optional[str] = None
     channels: Optional[list] = None  # only these channels (None = all)
     csrf: Optional[str] = None     # set for browsers: changes must send it as X-CSRF-Token
-    reset: bool = False            # the Users plugin: signed in with a one-time code
+    reset: bool = False            # signed in with a one-time code (users.py)
     token_given: bool = False      # a bearer token came with the request
     ha_user: dict = field(default_factory=dict)
     extra: dict = field(default_factory=dict)

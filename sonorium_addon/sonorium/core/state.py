@@ -164,8 +164,8 @@ class SonoriumSettings:
     # When a user deletes a builtin plugin, its ID is added here so it won't be restored
     deleted_builtin_plugins: list[str] = field(default_factory=list)
 
-    # Built-in plugins already seen once: one marked "enabled_by_default" (the
-    # sign-in plugins) is switched on the first time only, never again after
+    # Built-in plugins already seen once: one marked "enabled_by_default" is
+    # switched on the first time only, never again after
     # the user switched it off
     known_builtin_plugins: list[str] = field(default_factory=list)
 
