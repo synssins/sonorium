@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.1-dev.8 (2026-10-12)
+
+### Bug Fixes
+
+- **runtime**: No warning when the secret helper simply has nothing stored
+  ([`66c4a78`](https://github.com/synssins/sonorium/commit/66c4a787f8c8f40b5c5a76b3482dd02009ab4c48))
+
+
 ## v1.7.1-dev.7 (2026-10-12)
 
 
