@@ -83,7 +83,7 @@
 .ch-out-txt span { color: var(--text-secondary); }
 .ch-out .btn { flex: none; white-space: nowrap; }
 
-@media (max-width: 760px) {
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
   .pg-grid { grid-template-columns: minmax(0, 1fr) auto 36px; row-gap: .125rem; }
   .pg-grid .pg-dim.d, .sp-lhead.pg-grid { display: none; }
   .pg-sub { display: block; font-weight: 400; font-size: .75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

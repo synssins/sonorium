@@ -148,7 +148,7 @@ def create_router(service) -> APIRouter:
 class IntegrationPlugin(BasePlugin):
     id = PLUGIN_ID
     name = "Integration"
-    version = "1.0.1"
+    version = "1.0.2"
     description = "Keys for devices, programs and people, with only the access you check"
     author = "Sonorium"
     builtin = True
