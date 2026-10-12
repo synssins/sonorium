@@ -32,7 +32,7 @@ BLOCKED_PACKAGES = ("fastapi", "uvicorn", "starlette", "pydantic_settings", "pyd
 BLOCKED_SONORIUM = ("sonorium.mp3_out", "sonorium.web", "sonorium.web_server", "sonorium.api", "sonorium.plugins",
                     "sonorium.auth", "sonorium.ha", "sonorium.settings", "sonorium.network", "sonorium.device",
                     "sonorium.core.session_manager", "sonorium.core.group_manager", "sonorium.core.state",
-                    "sonorium.core.playback_runner", "sonorium.client", "sonorium.alerts")
+                    "sonorium.client", "sonorium.alerts")
 
 
 def _env(**extra):
@@ -93,11 +93,18 @@ sys.meta_path.insert(0, Blocker())
 for name in BLOCKED:
     sys.modules[name] = None  # a sentinel: importing it raises ImportError
 
-from engine_theme import make_theme, FAST_VALUES
+from engine_theme import make_theme, make_second_theme, FAST_VALUES
 from sonorium.engine import Engine, PcmFileDecoder
 folder = make_theme(sys.argv[1])
-engine = Engine(folder, playback_values=FAST_VALUES, seed=3, decoder=PcmFileDecoder())
+second = make_second_theme(sys.argv[1])
+engine = Engine(folder, playback_values=FAST_VALUES, seed=3, decoder=PcmFileDecoder(), sequence_id="walk")
 pcm = engine.render(5 * 44100)
+engine.set_theme(second)
+engine.render(4 * 44100)
+engine.start_playlist({{"name": "P", "play_min": 1, "play_max": 2, "entries": [
+    {{"theme_id": "engine-test-theme", "sequence_id": "bounce"}}, {{"theme_id": "engine-second-theme"}}]}})
+engine.render(8 * 44100)
+engine.next(); engine.previous(); engine.status()
 engine.close()
 assert pcm.dtype.name == "int16" and pcm.shape == (5 * 44100,), (pcm.dtype, pcm.shape)
 assert abs(pcm.astype("float64")).mean() > 100, "silent"
@@ -124,7 +131,7 @@ def test_only_the_pyav_decoder_imports_av():
                                          "decoders.py", "rng.py", "theme_files.py", "utils.py", "obs.py")]
     files += [package / "core" / name for name in ("__init__.py", "channel.py", "transitions.py", "theme_groups.py",
                                                    "theme_metadata.py", "theme_presets.py", "sequences.py",
-                                                   "intrusions.py")]
+                                                   "intrusions.py", "playback_runner.py", "playlists.py")]
     files += sorted((package / "engine").glob("*.py"))
     for path in files:
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -211,7 +218,7 @@ def test_presets_volume_and_close(theme):
     engine = _engine_modules()
     e = engine.Engine(theme, preset_id="", playback_values=FAST_VALUES, seed=4, decoder=engine.PcmFileDecoder())
     assert e.preset_id is None
-    assert e.presets == {"calm": "Calm", "busy": "Busy"}
+    assert e.presets == {"calm": "Calm", "busy": "Busy", "quiet": "Quiet"}
     assert e.tracks == ["Chirp", "Drone", "Wind", "Birds/Bird 1", "Birds/Bird 2", "Birds/Bird 3"]
     assert e.theme_id == "engine-test-theme"
     pcm = e.render(RATE, dtype="float32")
