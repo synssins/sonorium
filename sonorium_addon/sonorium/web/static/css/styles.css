@@ -3875,7 +3875,10 @@ button.pk-row { cursor: pointer; }
 .ch-icon { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; font-size: 1.375rem; }
 .ch-title { display: flex; flex-direction: column; min-width: 0; }
 .ch-name { font-size: .9375rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ch-sub { font-size: .75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-sub { display: flex; align-items: center; min-width: 0; font-size: .75rem; color: var(--text-muted); white-space: pre; overflow: hidden; }
+/* The speakers are cut short; the marks after them (Kid mode, owner) always show */
+.ch-sub > * { flex: none; }
+.ch-sub > .ch-sub-txt { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ch-state { padding: .125rem .5rem; border-radius: 999px; font-size: .6875rem; color: var(--text-muted); background: var(--bg-secondary); }
 .ch-state.on { color: var(--accent-primary); background: rgba(6, 214, 160, .12); }
 /* Theme and Preset (or Playlist and Playing), with the buttons that choose between them */
@@ -3897,7 +3900,9 @@ button.pk-row { cursor: pointer; }
 .ch-pick .wl { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
 .ch-pick .wl.dflt { font-style: italic; color: var(--text-muted); }
 .ch-now { display: flex; align-items: center; gap: .5rem; min-height: 32px; padding: 0 .125rem 0 64px; font-size: .8125rem; color: var(--text-secondary); }
-.ch-now-txt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-now-txt { flex: 1 1 auto; display: flex; min-width: 0; overflow: hidden; white-space: pre; }
+.ch-now-main { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ch-now-cd { flex: none; }
 .ch-now b { color: var(--text-primary); font-weight: 600; }
 .ch-cd { font-variant-numeric: tabular-nums; }
 .ch-none { color: var(--text-muted); }

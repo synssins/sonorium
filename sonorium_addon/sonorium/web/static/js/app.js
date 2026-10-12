@@ -489,7 +489,7 @@ function renderSessionCard(session) {
             ${Sonorium.cardTop(session)}
             <div class="ch-head">
                 <span class="ch-icon" aria-hidden="true">${themeIconOf(session.theme_id)}</span>
-                <div class="ch-title"><span class="ch-name">${name}</span>${Sonorium.cardBadges(session)}<span class="ch-sub" title="Speakers">${escapeHtml(speakers)}${Sonorium.cardSub(session)}</span></div>
+                <div class="ch-title"><span class="ch-name">${name}</span>${Sonorium.cardBadges(session)}<span class="ch-sub" title="Speakers"><span class="ch-sub-txt">${escapeHtml(speakers)}</span>${Sonorium.cardSub(session)}</span></div>
                 <span class="ch-state${isPlaying ? ' on' : ''}">${isPlaying ? 'Playing' : 'Stopped'}</span>
                 <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
                 <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
@@ -580,14 +580,17 @@ function chNowHtml(session) {
     const playlist = session.playlist_id ? session.playlist : null;
     const sequence = session.playlist_id ? null : session.sequence;
     let text = '';
+    let countdown = '';  // always shown in full: the step's name is cut short instead
     if (playlist) {
-        text = `Entry ${(playlist.position ?? 0) + 1} of ${playlist.entries ?? 0}${playlist.running ? chNextIn(playlist) : ''}`;
+        text = `Entry ${(playlist.position ?? 0) + 1} of ${playlist.entries ?? 0}`;
+        countdown = playlist.running ? chNextIn(playlist) : '';
     } else if (sequence) {
-        text = `Step ${sequence.step ?? 1} of ${sequence.steps}: <b>${escapeHtml(sequence.current_preset_name || 'Default settings')}</b>${sequence.running ? chNextIn(sequence) : ''}`;
+        text = `Step ${sequence.step ?? 1} of ${sequence.steps}: <b>${escapeHtml(sequence.current_preset_name || 'Default settings')}</b>`;
+        countdown = sequence.running ? chNextIn(sequence) : '';
     }
     if (!text) return '<div class="ch-now"><span class="ch-now-txt"><span class="ch-none">No sequence or playlist</span></span></div>';
     const title = session.is_playing ? (playlist ? 'Next entry' : 'Next step') : 'Play the channel first';
-    return `<div class="ch-now"><span class="ch-now-txt">${text}</span><button type="button" class="btn btn-sm btn-secondary ch-next" title="${title}"
+    return `<div class="ch-now"><span class="ch-now-txt"><span class="ch-now-main">${text}</span>${countdown ? `<span class="ch-now-cd">${countdown}</span>` : ''}</span><button type="button" class="btn btn-sm btn-secondary ch-next" title="${title}"
                     ${session.is_playing || session.listening ? '' : 'disabled'} onclick="chNext(${spArg(session.id)})">${ICON_NEXT}Next</button></div>`;
 }
 
