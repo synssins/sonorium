@@ -473,6 +473,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 
 def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> None:
     """Sounds, announcements, ramps, audio outputs, command maps, alerts (framework phase 2)."""
+    from sonorium.core.announce import TtsUnavailable
     from sonorium.core.audio_outputs import OutputError
     from sonorium.core.decode import DecodeError
     from sonorium.core.overlay import OverlayError
@@ -488,14 +489,16 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
         return service
 
     def _channels(value) -> list:
-        if value in ("*", "all", ["*"]):
-            sessions = _svc("overlay", "Playing sounds").sessions
-            return [s.id for s in sessions.list()]
-        if isinstance(value, str):
-            return [value]
-        if not isinstance(value, list) or not value or not all(isinstance(c, str) for c in value):
-            raise HTTPException(status_code=400, detail="'channels' must list channel ids (or be \"all\")")
-        return value
+        """Channel ids from ids or names (one, a list, or "all"); 404 names an unknown one."""
+        from sonorium.core.announce import resolve_channels
+        if value is None:
+            raise HTTPException(status_code=400, detail="'channels' is needed: a channel name or id, a list, or \"all\"")
+        try:
+            return resolve_channels(getattr(_svc("overlay", "Playing sounds"), "sessions", None), value)
+        except LookupError as e:
+            raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     def _number(body, key, default):
         value = body.get(key, default)
@@ -511,6 +514,8 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             return (await result) if inspect.isawaitable(result) else result
         except LookupError as e:
             raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+        except TtsUnavailable as e:
+            raise HTTPException(status_code=503, detail=str(e))
         except (OverlayError, DecodeError, RampError, OutputError, cmd.CommandError) as e:
             raise HTTPException(status_code=400, detail=str(e))
         except TtsError as e:
@@ -558,22 +563,42 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
     @router.post("/announce")
     async def announce(request: Request):
         """
-        {"channels": [...] | "all", "text": "Dinner is ready", "url": "https://.../chime.mp3",
-         "volume", "duck", "provider", "language", "start_stopped"}: a chime and/or spoken text,
-        ducking the channels' mix. Admin-level: overrides zones and quiet hours.
+        Other systems announce through Sonorium (a key with Make announcements, or signed in):
+        {"channels": "Kitchen" | ["Kitchen", "office"] | "all", "text": "Dinner is ready",
+         "url": "https://.../chime.mp3", "volume": 0-200, "duck": true | false | dB | {db, attack, release},
+         "provider", "language", "start_stopped"}. Only channels and text (or url) are needed.
+        A chime and/or spoken text, ducking the channels' mix (a stopped channel is started for it).
+        Answers which channels play it and which skipped it (Announcements off).
         """
-        from sonorium.core.announce import announce as do_announce
+        from sonorium.core.announce import announce as do_announce, parse_duck
+        from sonorium.auth.middleware import principal_of
         body = await _json(request)
         text = body.get("text", body.get("message"))
-        url = body.get("url")
+        url = body.get("url", body.get("chime"))
         if text is not None and not isinstance(text, str):
             raise HTTPException(status_code=400, detail="'text' must be text")
         if url is not None and (not isinstance(url, str) or not url.lower().startswith(("http://", "https://"))):
             raise HTTPException(status_code=400, detail="'url' must be an http(s) URL")
+        if not (text or "").strip() and not url:
+            raise HTTPException(status_code=400, detail="Send 'text' to speak, a chime 'url', or both")
         overlay = _svc("overlay", "Playing sounds")
+        caller = principal_of(request)
+        wanted = body.get("channels")
+        channels = _channels(wanted)
+        if caller.channels is not None:  # a key limited to some channels
+            if wanted in (None, "all", "*", ["all"], ["*"]):
+                channels = [c for c in channels if caller.can_channel(c)]
+            elif not all(caller.can_channel(c) for c in channels):
+                raise HTTPException(status_code=403, detail="Not allowed for this channel")
+        if not channels:
+            raise HTTPException(status_code=404, detail="No channel to announce on")
+        try:
+            duck = parse_duck(body.get("duck"))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
         return await _guard(do_announce(
-            overlay, host.tts, _channels(body.get("channels")), text=(text or "").strip() or None, sound=url,
-            volume=_number(body, "volume", 100), duck=body.get("duck", True), provider=body.get("provider"),
+            overlay, host.tts, channels, text=(text or "").strip() or None, sound=url,
+            volume=_number(body, "volume", 100), duck=duck, provider=body.get("provider"),
             language=body.get("language"), start_stopped=bool(body.get("start_stopped", True)), origin="api"))
 
     @router.get("/sounds")

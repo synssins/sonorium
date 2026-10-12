@@ -1,8 +1,8 @@
 {
   "id": "announcements",
   "name": "Announcements",
-  "version": "1.0.0",
-  "description": "Home Assistant announces on channels: a notify entity per channel, spoken with its text to speech",
+  "version": "1.0.1",
+  "description": "Home Assistant and MQTT announce on channels: a notify entity per channel, spoken with its text to speech",
   "author": "Sonorium",
   "entry_point": "plugin.py",
   "plugin_class": "AnnouncementsPlugin",
