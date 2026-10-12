@@ -152,8 +152,8 @@ class PluginHost:
         text = spec.get("text")
         if text:
             text = render(text, fields)
-        elif not spec.get("sound"):
-            text = fields["title"]
+        if not text and not spec.get("sound"):
+            text = fields["title"]  # nothing else to play (no Say, or its fields were empty): the title
         sessions = getattr(self.overlay, "sessions", None)
         if sessions is not None and not any(getattr(sessions.get(c), "announcements", True) is not False
                                             for c in spec["channels"]):
