@@ -119,7 +119,24 @@ function Tick($hwnd, $name) {
     Start-Sleep 1
 }
 
-# --- installer wizard -------------------------------------------------------------------------
+# --- installer wizard: for me only (up to the tasks page, then Cancel) ----------------------
+"Installer, for me only"
+$setup = Start-Process $Installer -PassThru
+$mode = Wait-Window { param($h) [W]::Title($h) -match 'Select Setup Install Mode' }
+Click $mode 'Install for me only (recommended)'
+$wizard = Wait-Window { param($h) [W]::Title($h) -match '^Setup - Sonorium' }
+Click $wizard 'I accept the agreement'
+Click $wizard 'Next'
+Shot-Window $wizard 'install-me-03-location'
+Click $wizard 'Next'
+Shot-Window $wizard 'install-me-04-tasks'
+Click $wizard 'Cancel'
+$confirm = Wait-Window { param($h) [W]::Title($h) -match 'Exit Setup' }
+Click $confirm 'Yes'
+$setup.WaitForExit(30000) | Out-Null
+Start-Sleep 2
+
+# --- installer wizard: for all users, as a service --------------------------------------------
 "Installer"
 $setup = Start-Process $Installer -PassThru
 $mode = Wait-Window { param($h) [W]::Title($h) -match 'Select Setup Install Mode' }
