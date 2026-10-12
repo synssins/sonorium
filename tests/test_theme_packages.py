@@ -293,3 +293,73 @@ def test_render_is_admin_only_and_the_rest_is_view():
     assert render.any_of & P.device_perms(accounts.role_perms("admin"))  # an admin's phone can
     for path in ("/api/themes/packages", "/api/themes/{theme_id}/package", "/api/themes/{theme_id}/files/{path:path}"):
         assert P.for_route("GET", path).any_of == {"th.view"}
+
+
+# --- import ---------------------------------------------------------------------
+
+def _zip(entries: dict) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for name, data in entries.items():
+            zf.writestr(name, data)
+    return buf.getvalue()
+
+
+def _import(client, data: bytes, filename="Storm.zip"):
+    return client.post("/api/themes/import", files={"file": (filename, data, "application/zip")})
+
+
+def _storm(prefix=""):
+    meta = json.dumps({"spec_version": 2, "id": "storm-id", "name": "Thunder Storm",
+                       "tracks": {"Rain": {"playback_mode": "continuous"}, "Wind/Gust": {"volume": 0.5}}})
+    return {f"{prefix}metadata.json": meta, f"{prefix}Rain.wav": b"rain",
+            f"{prefix}Wind/Gust.wav": b"gust", f"{prefix}Wind/Breeze.wav": b"breeze"}
+
+
+def test_import_a_zip_with_one_top_folder(client, library):
+    root = library[0]
+    r = _import(client, _zip({"Storm folder/": b"", **_storm("Storm folder/")}))
+    assert r.status_code == 200 and r.json()["theme_folder"] == "Storm folder"
+    theme = root / "Storm folder"
+    assert (theme / "Rain.wav").read_bytes() == b"rain"
+    assert (theme / "Wind" / "Gust.wav").read_bytes() == b"gust" and (theme / "Wind" / "Breeze.wav").exists()
+    assert not (theme / "Gust.wav").exists()
+    assert r.json()["files_extracted"] == 4
+
+
+def test_import_a_zip_with_the_files_at_its_root_keeps_the_groups(client, library):
+    root = library[0]
+    r = _import(client, _zip({"__MACOSX/._Rain.wav": b"junk", ".DS_Store": b"junk", **_storm()}), "download (3).zip")
+    assert r.status_code == 200
+    assert r.json()["theme_folder"] == "Thunder Storm"  # named after the theme, not the zip
+    theme = root / "Thunder Storm"
+    assert (theme / "Rain.wav").read_bytes() == b"rain"
+    assert (theme / "Wind" / "Gust.wav").read_bytes() == b"gust" and (theme / "Wind" / "Breeze.wav").exists()
+    assert not (theme / "Gust.wav").exists() and not (theme / "__MACOSX").exists() and not (theme / ".DS_Store").exists()
+    assert json.loads((theme / "metadata.json").read_text(encoding="utf-8"))["tracks"]["Wind/Gust"]["volume"] == 0.5
+    # Again: a new folder beside it; without metadata.json the zip's name is used
+    assert _import(client, _zip(_storm())).json()["theme_folder"] == "Thunder Storm_1"
+    r = _import(client, _zip({"Rain.wav": b"rain", "Wind/Gust.wav": b"gust"}), "Night rain.zip")
+    assert r.json()["theme_folder"] == "Night rain" and (root / "Night rain" / "Wind" / "Gust.wav").exists()
+
+
+@pytest.mark.parametrize("bad", ["../evil.wav", "Storm/../../evil.wav", "/abs.wav", "C:/x.wav", "Storm/a:b.wav"])
+def test_import_refuses_paths_leaving_the_theme_folder(client, library, bad):
+    root = library[0]
+    before = sorted(p.name for p in root.iterdir())
+    r = _import(client, _zip({"Storm/Rain.wav": b"rain", bad: b"x"}))
+    assert r.status_code == 400
+    assert sorted(p.name for p in root.iterdir()) == before
+    assert not (root.parent / "evil.wav").exists()
+
+
+def test_import_plan_names_and_layouts():
+    from sonorium.core.theme_import import ZipLayoutError, folder_name, plan_import
+    assert plan_import(["T/", "T/a.wav", "T/G/b.wav"], "x.zip") == ("T", [("T/a.wav", "a.wav"), ("T/G/b.wav", "G/b.wav")])
+    # A single group folder with metadata.json beside it is the root layout
+    assert plan_import(["metadata.json", "G/b.wav"], "My theme.zip")[0] == "My theme"
+    assert plan_import(["a.wav"], "x.zip", 'Rain: "heavy"/light') == ("Rain_ _heavy__light", [("a.wav", "a.wav")])
+    assert folder_name("..hidden") == "hidden" and folder_name(" . ") == "" and folder_name("a. ") == "a"
+    assert plan_import(["a.wav"], "...zip", "")[0] == "Imported theme"
+    with pytest.raises(ZipLayoutError):
+        plan_import(["T/"], "x.zip")
