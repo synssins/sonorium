@@ -1271,6 +1271,19 @@ function closeSessionModal() {
     document.getElementById('session-modal').classList.remove('active');
 }
 
+// Esc in the New Channel / Edit Channel editor: like Cancel (nothing saved). An open
+// list inside it (the preset picker, a menu) closes first; a search box with text clears first.
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    if (!document.getElementById('session-modal')?.classList.contains('active')) return;
+    if (spm.id) return;  // its own Esc handler closes the menu
+    if (document.getElementById('channel-preset-picker')?.dataset.open === '1') { event.preventDefault(); dpselClose(true); return; }
+    const target = event.target;
+    if (target && target.type === 'search' && target.value) return;
+    event.preventDefault();
+    closeSessionModal();
+});
+
 function closeModalOnBackdrop(event) {
     if (event.target.classList.contains('modal-backdrop')) {
         closeSessionModal();
@@ -4501,7 +4514,7 @@ document.addEventListener('keydown', event => {
         te.confirmDel = null;
         teRenderTracks();
     } else {
-        closeThemeEditModal();
+        teCancel();  // like Cancel: the mix goes back to how it was
     }
 });
 
