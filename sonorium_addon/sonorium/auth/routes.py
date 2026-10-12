@@ -68,7 +68,7 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
 
     def link_address() -> tuple[str, int]:
         url = urlsplit(stream_url() or "")
-        return url.hostname or "", url.port or (443 if url.scheme == "https" else 8008)
+        return url.hostname or "", url.port or (443 if url.scheme == "https" else runtime.stream_port())
 
     def https_port() -> int:
         return https_host_port() if service.identity.tls_ready else 0

@@ -7592,17 +7592,22 @@ document.addEventListener('scroll', event => {
     if (spm.id && !document.getElementById('sp-menu').contains(event.target)) spClosePop();
 }, true);
 
-// After a restart: wait until Sonorium answers again, then reload the page
+// After a restart: wait until a new Sonorium answers (GET /api/info's boot_id changes)
+// and has started (GET /api/install answers), then reload the page
 async function spWaitForRestart() {
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    for (let i = 0; i < 30; i++) {
+    let before = null;
+    try { before = (await api('GET', '/info')).boot_id || null; } catch (error) { /* already stopping */ }
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    for (let i = 0; i < 45; i++) {
         try {
-            await api('GET', '/install');
-            window.location.reload();
-            return;
-        } catch (error) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        }
+            const info = await api('GET', '/info');
+            if (!before || info.boot_id !== before) {
+                await api('GET', '/install');
+                window.location.reload();
+                return;
+            }
+        } catch (error) { /* not back yet */ }
+        await new Promise(resolve => setTimeout(resolve, 2000));
     }
     showToast('Sonorium is taking a while to restart. Refresh the page in a moment.', 'error');
 }

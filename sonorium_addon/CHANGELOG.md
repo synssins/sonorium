@@ -2,17 +2,20 @@
 
 <!-- version list -->
 
-## v1.7.1-dev.1 (2026-10-12)
+## v1.7.1-dev.2 (2026-10-12)
 
 ### Documentation
 
-- Keys and Announcements are core features with a switch in Settings > Advanced
-  ([`162da02`](https://github.com/synssins/sonorium/commit/162da02d5e3b766da8d1e070a2c5c0b9d954c5a9))
+- HOSTING.md for the host switches, exit code 75 and the console credential
+  ([`bd844b2`](https://github.com/synssins/sonorium/commit/bd844b220b64ec8d1240b4027dd45c79544026ca))
 
-### Features
 
-- Keys and Announcements are core features with switches in Settings > Advanced
-  ([`cf154d9`](https://github.com/synssins/sonorium/commit/cf154d91d72b5b83d06648ebf78c9d1f8794fc2f))
+## v1.6.2-dev.68 (2026-10-12)
+
+### Bug Fixes
+
+- Theme files use the configured audio folder, not /media/sonorium
+  ([`27fdda7`](https://github.com/synssins/sonorium/commit/27fdda7948c9e6fc98c5d5209e3d2b9fce38fc16))
 
 
 ## v1.6.2-dev.67 (2026-10-12)

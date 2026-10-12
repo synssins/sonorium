@@ -2097,21 +2097,10 @@ def create_api_router(
         if not folder_name:
             raise HTTPException(status_code=400, detail="Invalid theme name - could not generate folder name")
 
-        # Find the media path
-        media_paths = [
-            Path("/media/sonorium"),
-            Path("/share/sonorium"),
-        ]
-
-        media_path = None
-        for mp in media_paths:
-            if mp.exists():
-                media_path = mp
-                break
-
-        if not media_path:
-            # Try to create the default media path
-            media_path = Path("/media/sonorium")
+        # The folder of theme folders Sonorium was started with
+        from sonorium.paths import audio_dir
+        media_path = audio_dir()
+        if not media_path.exists():
             try:
                 media_path.mkdir(parents=True, exist_ok=True)
             except Exception as e:
@@ -2251,10 +2240,8 @@ def create_api_router(
         from pathlib import Path
         from sonorium.utils import sanitize_id as sanitize
 
-        media_paths = [
-            Path("/media/sonorium"),
-            Path("/share/sonorium"),
-        ]
+        from sonorium.paths import audio_dir
+        media_paths = [audio_dir()]
 
         for mp in media_paths:
             if not mp.exists():
@@ -2462,9 +2449,8 @@ def create_api_router(
         from pathlib import Path
 
         # Get the audio path
-        audio_path = Path("/media/sonorium")
-        if not audio_path.exists():
-            audio_path = Path("/share/sonorium")
+        from sonorium.paths import audio_dir
+        audio_path = audio_dir()
         if not audio_path.exists():
             raise HTTPException(status_code=500, detail="No valid audio path found")
 

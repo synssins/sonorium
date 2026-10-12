@@ -50,8 +50,8 @@ class RevalidatingStaticFiles(StaticFiles):
 
 # The web app's main port. Standalone listens on 8008 directly (one port for
 # UI and streams); the add-on keeps 8080, which HA ingress and its 8008 port
-# mapping point at.
-WEB_PORT = 8008 if runtime.STANDALONE else 8080
+# mapping point at. SONORIUM_HTTP_PORT changes it (runtime.http_port).
+WEB_PORT = runtime.http_port()
 
 
 class WebApp:
@@ -787,6 +787,8 @@ class WebApp:
             from sonorium.plugins.manager import DEFAULT_PLUGINS_DIR
             self.auth.find_expected_providers(DEFAULT_PLUGINS_DIR)
             identity = await asyncio.to_thread(lambda: self.auth.identity)
+            from sonorium.auth import console
+            console.ensure(self.auth)  # SONORIUM_CONSOLE_TOKEN_FILE: the host's credential
             if config.bypass_login():
                 logger.warning("BYPASS_LOGIN is on: anyone on your network can use and change Sonorium without signing in. "
                                "Reset your account under Settings > Users & devices, then set it back to false.")
@@ -954,9 +956,12 @@ class WebApp:
             value = (updates.get(key) or "").strip()
             if value and not value.startswith(("http://", "https://")):
                 raise HTTPException(status_code=400, detail=f"{key} must start with http:// or https://")
-        runtime.save_connection(updates)
+        try:
+            runtime.save_connection(updates)
+        except runtime.SecretStoreError as e:
+            raise HTTPException(status_code=500, detail=f"Not saved: {e}")
         logger.info("Connection settings saved; restarting Sonorium to apply them")
-        self._restart_soon()
+        self._restart_soon("connection settings changed")
         return {"status": "ok", "restarting": True}
 
     async def delete_connection_ha(self):
@@ -969,7 +974,10 @@ class WebApp:
         """
         if not runtime.features()["connection_settings"]["available"]:
             raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
-        runtime.clear_connection(runtime.HA_FIELDS)
+        try:
+            runtime.clear_connection(runtime.HA_FIELDS)
+        except runtime.SecretStoreError as e:
+            raise HTTPException(status_code=500, detail=f"Not removed: {e}")
         runtime.clear_ha_env()
 
         targets = {}
@@ -1013,7 +1021,10 @@ class WebApp:
         """
         if not runtime.features()["connection_settings"]["available"]:
             raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
-        runtime.clear_connection(runtime.MQTT_FIELDS)
+        try:
+            runtime.clear_connection(runtime.MQTT_FIELDS)
+        except runtime.SecretStoreError as e:
+            raise HTTPException(status_code=500, detail=f"Not removed: {e}")
         runtime.clear_mqtt_env()
 
         mqtt_client = self.backend.mqtt_client
@@ -1039,16 +1050,16 @@ class WebApp:
             "restart_required": restart_required,
         }
 
-    def _restart_soon(self):
-        """Restart Sonorium in place a moment after the current response is sent."""
+    def _restart_soon(self, reason: str = ""):
+        """
+        Restart Sonorium a moment after the current response is sent: a clean
+        shutdown, then exit code 75 for the host (SONORIUM_SUPERVISED) or a
+        restart in place (sonorium/host.py).
+        """
         import asyncio
-        import os
-        import sys
+        from sonorium import host
 
-        def restart():
-            os.execv(sys.executable, [sys.executable, "-m", "sonorium.entrypoint"])
-
-        asyncio.get_running_loop().call_later(1.0, restart)
+        asyncio.get_running_loop().call_later(1.0, host.request_restart, reason)
 
     def _feature_overrides(self) -> dict:
         return dict(self._state_store.settings.feature_overrides) if self._state_store else {}
@@ -1078,8 +1089,9 @@ class WebApp:
     async def put_install_features(self, request: Request):
         """
         Settings > Advanced: switch features on or off (the ones this install
-        lets you change, "overridable"). A "live" one (Keys, Announcements)
-        applies at once; the others after a restart.
+        lets you change, "switchable"; Advanced lists the "overridable" ones).
+        A "live" one (Keys, Announcements) applies at once; the others after a
+        restart ("restart": true restarts straight away).
         Body: {"network_speakers": true, "keys": false, "restart": true}
         """
         try:
@@ -1092,10 +1104,10 @@ class WebApp:
         for name, value in body.items():
             if name == "restart":
                 continue
-            if name not in runtime.FEATURES or not runtime.feature_overridable(name):
+            if name not in runtime.FEATURES or not runtime.feature_switchable(name):
                 raise HTTPException(status_code=400, detail=f"'{name}' can't be changed here")
             if bool(value) == (runtime.feature_state(name) == "on"):
-                overrides.pop(name, None)  # back to the default: nothing stored
+                overrides.pop(name, None)  # back to this install's default
             else:
                 overrides[name] = bool(value)
         self._state_store.settings.feature_overrides = overrides
@@ -1114,7 +1126,7 @@ class WebApp:
             pass
         restarting = bool(body.get("restart"))
         if restarting:
-            self._restart_soon()
+            self._restart_soon("Settings > Advanced")
         return {**(await self.get_install()), "restarting": restarting}
 
     def _log_startup_summary(self):

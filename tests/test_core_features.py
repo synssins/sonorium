@@ -45,8 +45,8 @@ def test_both_are_on_out_of_the_box_and_switch_at_once(m):
     from sonorium.auth import keys as core_keys
     features = asyncio.run(app.get_install())["features"]
     for name in ("keys", "announcements"):
-        assert features[name] == {"available": True, "enabled": True, "overridable": True, "default": True,
-                                  "live": True}
+        assert features[name] == {"available": True, "enabled": True, "overridable": True, "switchable": True,
+                                  "default": True, "live": True}
     assert core_keys.enabled(app.auth)
 
     body = asyncio.run(app.put_install_features(FakeRequest({"keys": False, "announcements": False})))

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from abc import ABC
 from pathlib import Path
+from sonorium.paths import audio_dir
 from typing import Any, Optional
 
 from sonorium.plugins.settings_schema import normalize_schema
@@ -50,7 +51,7 @@ class BasePlugin(ABC):
         """
         self.plugin_dir = plugin_dir
         self.settings = settings
-        self.audio_path = audio_path or Path("/media/sonorium")
+        self.audio_path = audio_path or audio_dir()
         self._enabled = False
         self._builtin = self.builtin  # Can be overridden by manifest
         self._manifest_settings_schema: dict = {}  # Set by the manager from manifest.json

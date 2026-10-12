@@ -6,6 +6,8 @@ The caller (auth/principal.py), first match wins:
     ingress    add-on only: the ingress port (8099), from the Supervisor's
                address. HA's sidebar: HA has signed the user in; full access.
                A sign-in plugin may attach the HA user's account.
+    console    "Authorization: Bearer sc_..." from this computer only, when
+               SONORIUM_CONSOLE_TOKEN_FILE is set (auth/console.py): full access.
     device     "Authorization: Bearer sd_..." a phone linked with Link App:
                full access less managing users, devices and keys; with the
                Users plugin, what its user may do.
@@ -33,7 +35,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from starlette.responses import JSONResponse, PlainTextResponse
 
-from sonorium.auth import config, permissions as P
+from sonorium.auth import config, console, permissions as P
 from sonorium.auth.principal import CALLER, Principal, Reject, RequestContext
 from sonorium.auth.service import DEVICE_PREFIX, AuthService
 from sonorium.obs import logger
@@ -95,6 +97,12 @@ def resolve(service: AuthService, scope, headers: dict) -> tuple[Principal, Opti
         for _, hook in service.provider("ingress"):
             principal = hook(ctx, principal) or principal
         return principal, None
+
+    if token and token.startswith(console.PREFIX):  # the host's console (auth/console.py)
+        result = console.resolve(service, client, listener, token)
+        if isinstance(result, Reject):
+            return Principal("anonymous", listener=listener, token_given=True), result
+        return result, None
 
     if token and token.startswith(DEVICE_PREFIX):
         found = service.tokens.verify(token, "device")

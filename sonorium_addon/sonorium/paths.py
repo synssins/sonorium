@@ -11,3 +11,9 @@ def default_audio_dir() -> Path:
     """The folder of theme folders when SONORIUM__PATH_AUDIO names none."""
     share = ADDON_SHARE if ADDON_SHARE.exists() else PACKAGE_DIR / "data"
     return share / "audio"
+
+
+def audio_dir() -> Path:
+    """The folder of theme folders Sonorium was started with (SONORIUM__PATH_AUDIO)."""
+    from sonorium.settings import settings
+    return Path(settings.path_audio)

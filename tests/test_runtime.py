@@ -78,15 +78,15 @@ def test_install_type_and_features_addon(monkeypatch, tmp_path):
     assert (runtime.INSTALL, runtime.INSTALL_LABEL) == ("addon", "HA App")
     features = runtime.features()
     assert features["connection_settings"] == {"available": False, "enabled": False, "overridable": False,
-                                               "default": False, "live": False}
+                                               "switchable": False, "default": False, "live": False}
     assert features["network_speakers"] == {"available": True, "enabled": False, "overridable": True,
-                                            "default": False, "live": False}
+                                            "switchable": True, "default": False, "live": False}
     assert runtime.feature_enabled("network_speakers", {"network_speakers": True})
     assert not runtime.feature_enabled("connection_settings", {"connection_settings": True})  # hidden stays off
     # Keys and Announcements: core features, on out of the box, switched off (and on) at once
     for name in ("keys", "announcements"):
-        assert features[name] == {"available": True, "enabled": True, "overridable": True, "default": True,
-                                  "live": True}
+        assert features[name] == {"available": True, "enabled": True, "overridable": True, "switchable": True,
+                                  "default": True, "live": True}
         assert not runtime.feature_enabled(name, {name: False})
         assert runtime.feature_enabled(name, {})
 
@@ -98,10 +98,14 @@ def test_install_type_and_features_docker(monkeypatch, tmp_path):
     features = runtime.features()
     # Plugin packages: off on every install until switched on in Settings > Advanced
     assert features.pop("plugin_packages") == {"available": True, "enabled": False, "overridable": True,
-                                               "default": False, "live": False}
-    # Keys and Announcements: on, and switchable on every install
+                                               "switchable": True, "default": False, "live": False}
+    # Speaker discovery is on, and can be switched off through PUT /api/install/features
+    assert features.pop("network_speakers") == {"available": True, "enabled": True, "overridable": False,
+                                                "switchable": True, "default": True, "live": False}
+    # Keys and Announcements: on, and switchable in Advanced on every install
     for name in ("keys", "announcements"):
-        assert features.pop(name) == {"available": True, "enabled": True, "overridable": True, "default": True,
-                                      "live": True}
-    assert all(f == {"available": True, "enabled": True, "overridable": False, "default": True, "live": False}
+        assert features.pop(name) == {"available": True, "enabled": True, "overridable": True,
+                                      "switchable": True, "default": True, "live": True}
+    assert all(f == {"available": True, "enabled": True, "overridable": False, "switchable": False,
+                     "default": True, "live": False}
                for f in features.values())

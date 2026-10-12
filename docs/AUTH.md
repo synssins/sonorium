@@ -53,6 +53,11 @@ For each request the core works out the caller, first match wins:
 A revoked phone or key, or a signed-out browser, is refused on its next
 request: the core looks the token up every time.
 
+When the program running Sonorium sets `SONORIUM_CONSOLE_TOKEN_FILE`, one
+more caller is checked before linked phones: its console (`Bearer sc_...`),
+from this computer only, with an admin's rights. See
+[HOSTING.md](HOSTING.md#console-credential-sonorium_console_token_file).
+
 ## Roles
 
 | | Admin | User |
