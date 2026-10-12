@@ -2912,16 +2912,14 @@ def create_api_router(
         """
         Upload and install a plugin from a ZIP file.
 
-        The ZIP file should contain either:
-        - A single plugin.py file (minimal plugin)
-        - A plugin.py file with optional manifest.json
-        - A directory containing plugin.py (and optionally manifest.json)
+        The plugin's files (plugin.py, optional manifest.json, any
+        subfolders) at the zip's root or inside one top folder. The zip is
+        checked in full before the installed plugin (if any) is replaced.
 
         Returns the installed plugin info.
         """
         import zipfile
         import tempfile
-        import shutil
         from pathlib import Path
 
         if not plugin_manager:
@@ -2931,6 +2929,9 @@ def create_api_router(
         if not file.filename or not file.filename.lower().endswith('.zip'):
             raise HTTPException(status_code=400, detail="File must be a .zip archive")
 
+        from sonorium.plugins import upload as plugin_upload
+
+        tmp_path = None
         try:
             # Save uploaded file to temp location
             with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
@@ -2938,92 +2939,21 @@ def create_api_router(
                 tmp.write(content)
                 tmp_path = Path(tmp.name)
 
-            # Extract and validate
+            # Read and check the whole zip in a folder of its own first: a
+            # refused upload leaves the installed plugin as it was
             with tempfile.TemporaryDirectory() as extract_dir:
-                extract_path = Path(extract_dir)
+                staging = Path(extract_dir) / 'plugin'
+                staging.mkdir()
+                try:
+                    plugin_id = plugin_upload.prepare(tmp_path, staging, file.filename)
+                except plugin_upload.UploadError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
-                with zipfile.ZipFile(tmp_path, 'r') as zf:
-                    # Security: Check for path traversal
-                    for member in zf.namelist():
-                        if '..' in member or member.startswith('/'):
-                            raise HTTPException(status_code=400, detail=f"Invalid path in zip: {member}")
-                    zf.extractall(extract_path)
-
-                # Find plugin.py - could be at root or in a subdirectory
-                plugin_files = list(extract_path.rglob('plugin.py'))
-
-                if not plugin_files:
-                    raise HTTPException(status_code=400, detail="No plugin.py found in archive")
-
-                # Use the first plugin.py found
-                plugin_file = plugin_files[0]
-                plugin_source_dir = plugin_file.parent
-
-                # Get plugin ID from manifest or directory name
-                manifest_file = plugin_source_dir / 'manifest.json'
-                manifest = {}
-                if manifest_file.exists():
-                    import json
-                    manifest = json.loads(manifest_file.read_text(encoding='utf-8'))
-                    plugin_id = manifest.get('id', plugin_source_dir.name)
-                else:
-                    # Generate ID from directory name or zip filename
-                    plugin_id = plugin_source_dir.name
-                    if plugin_id in ('.', extract_path.name):
-                        # Plugin files at root of zip - use zip filename
-                        plugin_id = Path(file.filename).stem.lower().replace(' ', '_').replace('-', '_')
-
-                # Sanitize plugin ID
-                plugin_id = ''.join(c for c in plugin_id if c.isalnum() or c == '_').lower()
-                if not plugin_id:
-                    plugin_id = 'imported_plugin'
-
-                # Check if plugin already exists
                 target_dir = _plugin_dir(plugin_id)
                 if target_dir.exists():
-                    # Remove old version
-                    shutil.rmtree(target_dir)
                     logger.info(f"Replacing existing plugin: {plugin_id}")
-
-                # Validate required plugin attributes by parsing the plugin.py file
-                plugin_py_content = plugin_file.read_text(encoding='utf-8')
-
-                # Check for version attribute (required)
-                import re
-                version_match = re.search(r'^\s*version\s*[=:]\s*["\']([^"\']+)["\']', plugin_py_content, re.MULTILINE)
-                manifest_version = manifest.get('version')
-
-                if not version_match and not manifest_version:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Plugin must define a 'version' attribute (e.g., version = \"1.0.0\"). "
-                               "Use semantic versioning: MAJOR.MINOR.PATCH"
-                    )
-
-                # Validate semantic versioning format
-                version_str = version_match.group(1) if version_match else manifest_version
-                if version_str and not re.match(r'^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$', version_str):
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid version format '{version_str}'. "
-                               f"Use semantic versioning: MAJOR.MINOR.PATCH (e.g., 1.0.0, 2.1.3-beta)"
-                    )
-
-                # Copy plugin files to plugins directory
-                if plugin_source_dir == extract_path:
-                    # Files at root - create directory
-                    target_dir.mkdir(parents=True, exist_ok=True)
-                    for item in extract_path.iterdir():
-                        if item.is_file():
-                            shutil.copy2(item, target_dir / item.name)
-                else:
-                    # Copy the directory
-                    shutil.copytree(plugin_source_dir, target_dir)
-
+                plugin_upload.install(staging, target_dir)
                 logger.info(f"Installed plugin to: {target_dir}")
-
-            # Clean up temp file
-            tmp_path.unlink()
 
             # Reload plugins to pick up the new one
             await plugin_manager.reload_plugins()
@@ -3058,6 +2988,9 @@ def create_api_router(
         except Exception as e:
             logger.error(f"Failed to install plugin: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to install plugin: {str(e)}")
+        finally:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
 
     @router.delete("/plugins/{plugin_id}")
     async def uninstall_plugin(plugin_id: str):

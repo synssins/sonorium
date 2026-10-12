@@ -76,18 +76,30 @@ def plugin_version(plugin_dir: Path) -> Optional[str]:
 
 
 def _replace_plugin_dir(source: Path, target_dir: Path) -> None:
-    """Replace target_dir with a copy of source: copied beside it first, so a failed copy changes nothing."""
+    """
+    Replace (or create) target_dir with a copy of source: copied beside it
+    first, so a failed copy changes nothing; the installed folder is put
+    back if the swap fails.
+    """
     staging = target_dir.with_name(f".{target_dir.name}.updating")
     old = target_dir.with_name(f".{target_dir.name}.old")
     for leftover in (staging, old):
         if leftover.exists():
             shutil.rmtree(leftover)
-    shutil.copytree(source, staging, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    os.replace(target_dir, old)
+    try:
+        shutil.copytree(source, staging, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    had_old = target_dir.exists()
+    if had_old:
+        os.replace(target_dir, old)
     try:
         os.replace(staging, target_dir)
     except OSError:
-        os.replace(old, target_dir)  # put the installed one back
+        if had_old:
+            os.replace(old, target_dir)  # put the installed one back
+        shutil.rmtree(staging, ignore_errors=True)
         raise
     shutil.rmtree(old, ignore_errors=True)
 
