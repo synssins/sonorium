@@ -33,7 +33,6 @@ CAPABILITIES: dict[str, tuple[str, str]] = {
     "actions": ("1.0", "Control channels, themes and speakers"),
     "scheduler": ("1.0", "Persistent scheduled jobs"),
     "triggers": ("1.0", "Webhook triggers with tokens"),
-    "notifications": ("1.0", "Send and deliver notifications"),
     "pages": ("1.0", "Left-menu pages drawn from a schema"),
     "connections": ("1.0", "Sections in Settings > Connection"),
     "audio.sounds": ("1.1", "Play sounds over channels, with ducking"),

@@ -63,7 +63,7 @@ Combine two themes into a new theme, or one theme into the other.
 ## Creating Your Own Plugins
 
 The developer guide is [docs/PLUGIN_DEVELOPMENT.md](../docs/PLUGIN_DEVELOPMENT.md): events,
-the actions API, the scheduler, webhook triggers, notifications, pages and connections, with
+the actions API, the scheduler, webhook triggers, announcements, pages and connections, with
 a complete example in [docs/examples](../docs/examples/trigger_play_channel/plugin.py).
 
 Plugins are ZIP files containing:

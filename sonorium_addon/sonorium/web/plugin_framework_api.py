@@ -11,9 +11,6 @@ Scheduler       GET  /api/schedules,  PUT /api/schedules/settings
                 GET|POST /api/plugins/{id}/schedules
                 DELETE /api/plugins/{id}/schedules/{job_id}
                 PUT  /api/plugins/{id}/schedules/{job_id}/enabled
-Notifications   GET  /api/notifications
-                PUT  /api/notifications/rules,  PUT|DELETE /api/notifications/rules/{rule_id}
-                POST /api/notifications/test
 Extensions      GET  /api/extensions
                 GET  /api/plugins/{id}/pages/{page_id}
                 POST /api/plugins/{id}/pages/{page_id}/actions/{action}
@@ -41,7 +38,6 @@ from sonorium.plugins.extensions import (
     normalize_result, normalize_status, page_actions, page_fields, check_values,
 )
 from sonorium.plugins.loader import is_valid_plugin_id
-from sonorium.plugins.notifications import NotificationError
 from sonorium.plugins.scheduler import ScheduleError, resolve_timezone
 from sonorium.plugins.tokens import install_log_redaction, token_from_request
 from sonorium.plugins.triggers import MAX_PAYLOAD_BYTES, TRIGGER_ID
@@ -345,73 +341,6 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         if job is None:
             raise HTTPException(status_code=404, detail="No such job")
         return job
-
-    # --- Notifications ---
-
-    @router.get("/notifications")
-    async def notifications_overview():
-        n = _host().notifications
-        from sonorium.plugins.notifications import LEVELS
-        return {"sources": n.sources(), "notifiers": n.notifiers(), "rules": n.rules(), "levels": list(LEVELS),
-                "tts": bool(host.tts.providers())}
-
-    @router.post("/notifications/rules/{rule_id}/test")
-    async def test_rule(rule_id: str):
-        """Do what the rule does, with a test message: announce it and send it to its notifiers."""
-        n = _host().notifications
-        rule = next((r for r in n.rules() if r["id"] == rule_id), None)
-        if rule is None:
-            raise HTTPException(status_code=404, detail="No such rule")
-        from datetime import datetime, timezone
-        message = {"title": rule.get("name") or "Sonorium test", "body": "A test of this rule.", "level": "info",
-                   "time": datetime.now(timezone.utc).isoformat(), "origin": "sonorium", "event": None}
-        announced, error = False, ""
-        if rule.get("announce") and n.announcer is not None:
-            try:
-                await n.announcer(rule["announce"], message)
-                announced = True
-            except Exception as e:
-                error = str(getattr(e, "message", None) or e)
-        sent = await n.send(rule["notifiers"], message) if rule.get("notifiers") else {}
-        return {"announced": announced, "error": error, "sent": sent}
-
-    @router.put("/notifications/rules")
-    async def replace_rules(request: Request):
-        body = await _json(request)
-        try:
-            return {"rules": _host().notifications.set_rules(body.get("rules"))}
-        except NotificationError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @router.put("/notifications/rules/{rule_id}")
-    async def put_rule(rule_id: str, request: Request):
-        body = await _json(request)
-        try:
-            return _host().notifications.put_rule({**body, "id": rule_id})
-        except NotificationError as e:
-            raise HTTPException(status_code=400, detail=str(e))
-
-    @router.delete("/notifications/rules/{rule_id}")
-    async def delete_rule(rule_id: str):
-        if not _host().notifications.delete_rule(rule_id):
-            raise HTTPException(status_code=404, detail="No such rule")
-        return {"removed": True}
-
-    @router.post("/notifications/test")
-    async def test_notifier(request: Request):
-        """Send a test message: {"notifier": id, "title"?, "body"?}. Answers with the result."""
-        body = await _json(request)
-        n = _host().notifications
-        notifier_id = body.get("notifier")
-        if notifier_id not in {x["id"] for x in n.notifiers()}:
-            raise HTTPException(status_code=404, detail="No such notifier")
-        from datetime import datetime, timezone
-        message = {"title": str(body.get("title") or "Sonorium test message"),
-                   "body": str(body.get("body") or "If you can read this, notifications work."),
-                   "level": "info", "time": datetime.now(timezone.utc).isoformat(), "origin": "sonorium",
-                   "event": None}
-        result = (await n.send([notifier_id], message))[notifier_id]
-        return {"success": result == "ok", "message": result}
 
     # --- Extension points ---
 

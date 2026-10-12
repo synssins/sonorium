@@ -7,7 +7,7 @@ Permissions no key can have:
 
     admin.users       users and everyone's devices (the Users plugin)
     admin.keys        keys, and the plugin framework's older token endpoints
-    admin.plugins     install, configure and remove plugins, schedules, notifications
+    admin.plugins     install, configure and remove plugins, schedules
     admin.connection  Settings > Connection (Home Assistant and MQTT credentials)
     self              link a phone, see and remove your own phones
     device            only a linked phone (e.g. the Users plugin's one-time sign-in code)
@@ -320,18 +320,12 @@ GET     /api/plugins/{plugin_id}/schedules              admin.plugins
 POST    /api/plugins/{plugin_id}/schedules              admin.plugins
 DELETE  /api/plugins/{plugin_id}/schedules/{job_id}     admin.plugins
 PUT     /api/plugins/{plugin_id}/schedules/{job_id}/enabled     admin.plugins
-GET     /api/notifications                              admin.plugins
-PUT     /api/notifications/rules                        admin.plugins
-PUT     /api/notifications/rules/{rule_id}              admin.plugins
-DELETE  /api/notifications/rules/{rule_id}              admin.plugins
-POST    /api/notifications/test                         admin.plugins
 GET     /api/extensions                                 pg.use
 GET     /api/plugins/{plugin_id}/pages/{page_id}        pg.use
 POST    /api/plugins/{plugin_id}/pages/{page_id}/actions/{action}   pg.use
 GET     /api/plugins/{plugin_id}/connections/{connection_id}        admin.plugins
 PUT     /api/plugins/{plugin_id}/connections/{connection_id}        admin.plugins
 POST    /api/plugins/{plugin_id}/connections/{connection_id}/test   admin.plugins
-POST    /api/notifications/rules/{rule_id}/test         admin.plugins
 
 GET     /api/plugin-framework                           pg.use|admin.plugins
 GET     /api/plugins/{plugin_id}/packages               admin.plugins

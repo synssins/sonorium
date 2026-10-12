@@ -3,8 +3,8 @@ Trigger Plays a Channel: an example Sonorium plugin.
 
 Calling its webhook trigger (a motion sensor, an ESP32 button, curl...)
 plays a channel; another trigger stops it. It shows the main parts of the
-plugin framework: settings, webhook triggers, the actions API, events, a
-notification and a page. docs/PLUGIN_DEVELOPMENT.md walks through it.
+plugin framework: settings, webhook triggers, the actions API, events and
+a page. docs/PLUGIN_DEVELOPMENT.md walks through it.
 
     curl -X POST http://sonorium.local:8008/api/triggers/trigger_play_channel/play \
          -H "Authorization: Bearer <token>" -H "Content-Type: application/json" \
@@ -40,7 +40,6 @@ class TriggerPlayChannel(BasePlugin):
             "channel": {"type": "string", "label": "Channel", "default": "",
                         "help": "Channel name or id played when the call names none"},
             "volume": {"type": "number", "label": "Volume", "min": 0, "max": 100, "default": 40},
-            "notify": {"type": "boolean", "label": "Send a notification when it plays", "default": False},
         }
 
     # --- Lifecycle ---
@@ -73,8 +72,6 @@ class TriggerPlayChannel(BasePlugin):
             if isinstance(volume, (int, float)):
                 await self.actions.set_volume(channel["id"], volume)
             await self.actions.start_channel(channel["id"])
-            if self.get_setting("notify"):
-                self.notify(f"{channel['name']} is playing", f"Started by the '{trigger}' trigger")
         elif trigger == "stop":
             await self.actions.stop_channel(channel["id"])
         self._remember(trigger, channel["name"], context)

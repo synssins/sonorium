@@ -373,7 +373,7 @@ class WebApp:
             )
 
             # Plugin host: the services plugins use (events, actions, scheduler,
-            # triggers, notifications), next to state.json
+            # triggers), next to state.json
             try:
                 from sonorium.plugins.host import PluginHost
                 from sonorium.plugins import events as plugin_events
@@ -458,7 +458,7 @@ class WebApp:
             )
             self.app.include_router(api_router)
 
-            # Plugin framework endpoints (events, triggers, schedules, notifications, extensions)
+            # Plugin framework endpoints (events, triggers, schedules, extensions, sounds, announcements)
             try:
                 from sonorium.web.plugin_framework_api import create_plugin_framework_router
                 self.app.include_router(create_plugin_framework_router(self._plugin_manager, self._plugin_host))
@@ -480,7 +480,7 @@ class WebApp:
             await self._background.start()
             logger.debug("  Background loop started")
 
-            # Plugin scheduler and notification routing
+            # Plugin scheduler and the alert bar for failures
             if self._plugin_host:
                 try:
                     await self._plugin_host.start()

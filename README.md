@@ -373,7 +373,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - **Plugin settings** show under each plugin's form on **Settings → Plugins**, and are saved as you change them.
 - **Theme Merge 2.0** merges two themes into a new theme or into either one, with their tracks, groups, linked files and presets.
 - **Ambient Mixer Importer 3.1** imports mixes with the current playback modes and gapless loops. Its random sounds follow **Wait between plays** on **Settings → Advanced**.
-- **For plugin authors:** events, an actions API for channels, a scheduler, webhook triggers, notifications, menu pages and Connections sections. See [docs/PLUGIN_DEVELOPMENT.md](docs/PLUGIN_DEVELOPMENT.md).
+- **For plugin authors:** events, an actions API for channels, a scheduler, webhook triggers, announcements, menu pages and Connections sections. See [docs/PLUGIN_DEVELOPMENT.md](docs/PLUGIN_DEVELOPMENT.md).
 
 **Settings → Advanced**
 - **Playback values.** The values every theme's playback is built on, until now fixed: **Wait between plays**, **Wait randomness**, **Gap after a group's track**, **Loop crossfade**, **Merry-go-round crossfade range**, **Track fade**, **Switch fade**, **Long pause chance**, **Turn chance** and **Short file threshold**. Each is saved as you change it, playing channels follow it, and the arrow on its row puts the default back. **Advanced** is now always in the menu.

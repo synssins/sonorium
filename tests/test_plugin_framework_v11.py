@@ -2,8 +2,7 @@
 Plugin API 1.1 end to end: the compatibility check (api_version, requires),
 packages and binaries, command maps (learn, run), the MQTT router, the
 Announcements plugin's notify entities with Home Assistant's text to speech
-(MQTT and HA mocked), notification rules that announce on channels, and the
-new routes.
+(MQTT and HA mocked), and the new routes.
 """
 import asyncio
 import hashlib
@@ -31,7 +30,7 @@ def modules():
                        "sonorium.core.sequences", "sonorium.core.playlists", "sonorium.plugins.events",
                        "sonorium.plugins.host", "sonorium.plugins.manager", "sonorium.plugins.loader",
                        "sonorium.plugins.compat", "sonorium.plugins.packages", "sonorium.plugins.commands",
-                       "sonorium.plugins.mqtt", "sonorium.plugins.homeassistant", "sonorium.plugins.notifications",
+                       "sonorium.plugins.mqtt", "sonorium.plugins.homeassistant",
                        "sonorium.web.plugin_framework_api", "sonorium.alerts") as mods:
         m.__dict__.update(mods.__dict__)
         runner_tests.m.__dict__.update(mods.__dict__)
@@ -49,9 +48,6 @@ class Remote(BasePlugin):
 
     def get_command_maps(self):
         return [{"id": "ir", "title": "IR remote", "codes": [{"code": "KEY_UP", "label": "Up"}]}]
-
-    def get_notification_sources(self):
-        return [{"id": "doorbell", "title": "The doorbell rang"}]
 '''
 
 
@@ -345,31 +341,6 @@ def test_announce_route(w):
     info = c.get("/api/plugin-framework").json()
     assert info["api_version"] == "1.1" and "audio.sounds" in info["offered"]
     assert info["tts_providers"] == [{"id": "homeassistant", "title": "Home Assistant", "plugin_id": "announcements"}]
-
-
-# --- Notifications: sources announced on channels ---
-
-def test_rule_announces_a_source_and_lists_sources(w):
-    c = w.client
-    overview = c.get("/api/notifications").json()
-    ids = {s["id"] for s in overview["sources"]}
-    assert "plugin.remote.doorbell" in ids
-    assert c.put("/api/notifications/rules/door", json={"sources": ["plugin.remote.doorbell"]}).status_code == 400
-    r = c.put("/api/notifications/rules/door", json={
-        "name": "Doorbell", "sources": ["plugin.remote.doorbell"],
-        "announce": {"channels": [w.t.session.id], "sound": "http://x/ding.mp3", "text": "{title}", "volume": 90}})
-    assert r.status_code == 200, r.text
-    remote = w.manager.get_plugin("remote")
-    w.call(lambda: _notify(remote))
-    assert wait_for(lambda: len(w.overlay.played) == 2)
-    assert [p["source"] for p in w.overlay.played] == ["http://x/ding.mp3", b"ID3-fake-mp3"]
-    assert any(cl[2] and cl[2].get("message") == "Someone is at the door" for cl in FakeHA.calls)
-    w.overlay.played.clear()
-    assert c.post("/api/notifications/rules/door/test").json()["announced"] is True
-
-
-async def _notify(plugin):
-    plugin.notify("Someone is at the door", source="doorbell")
 
 
 def test_alerts_route():

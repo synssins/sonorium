@@ -625,7 +625,7 @@ middleware refuses before the handler runs. The app reads its own list from
 | `pg.use` | Plugin list, plugin pages and actions |
 | `tr.run` | Plugin webhook triggers |
 | `an.send` | Announcements and sounds over channels (`/api/announce`, `/api/sounds`); Admins only by role |
-| `admin.plugins` | Install, enable, configure plugins; schedules; notifications |
+| `admin.plugins` | Install, enable, configure plugins; schedules |
 | `admin.connection` | Settings › Connection (HA URL and token, MQTT) |
 | `admin.users`, `admin.keys`, `self` | Users, keys, own devices: **never** on a phone |
 | `device` | Only a linked phone (the sign-in code) |
@@ -1151,7 +1151,7 @@ data: {"id": 11, "boot_id": "54615c1e5e5d4331a7b9cd713cd45918", "type": "channel
 | `theme.changed` | `theme_id` (may be null), `folder` | Refetch that theme's presets and sequences |
 | `theme.deleted` | `theme_id` | Remove it |
 | `plugin.enabled` / `plugin.disabled` | `plugin_id`, `name` | If `users`: refetch `/api/info` and `/api/auth/me` |
-| `schedule.fired`, `trigger.received`, `notification`, `error` | see PLUGIN_DEVELOPMENT.md | `notification` and `error` can be shown as in-app messages |
+| `schedule.fired`, `trigger.received`, `error` | see PLUGIN_DEVELOPMENT.md | `error` can be shown as an in-app message |
 | `sound.started` / `sound.ended` | `channel_id`, `name`, `sound_id`, `label`, `origin` (+ `reason`, `capped`, `played` on ended) | Show an "announcing" badge on the channel |
 | `ramp.started` / `ramp.finished` / `ramp.cancelled` | `channel_id`, `name`, `ramp_id`, levels and `seconds`, `curve`, `then`, `reason` | Optional: show a fade on the channel |
 | `command.received` | `plugin_id`, `map_id`, `code`, `actions`, `learned` | ignore |

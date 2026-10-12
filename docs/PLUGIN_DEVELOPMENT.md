@@ -4,7 +4,7 @@ A plugin adds a feature to Sonorium without changing Sonorium: a connector to an
 system, a scheduler, a chat bot, an importer. It is a folder with a Python file. Sonorium
 loads it, and through a set of services the plugin can follow what happens (events), act on
 channels (the actions API), run at set times (the scheduler), be called from other devices
-(webhook triggers), raise notifications, add pages and settings to the web UI (extension
+(webhook triggers), add pages and settings to the web UI (extension
 points), play sounds over channels and ramp their volume, add audio outputs, take commands
 from remotes, use MQTT and Home Assistant, and bring the packages and programs it needs.
 
@@ -38,7 +38,7 @@ Installed plugins live in `/config/sonorium/plugins/` (kept across updates).
 | `entry_point` | The Python file (default `plugin.py`). |
 | `plugin_class` | The class name (default: the first `BasePlugin` subclass in the file). |
 | `settings_schema` | Settings fields (section 3), if the class doesn't give them. |
-| `triggers`, `notifiers`, `pages`, `connections` | Declarations (sections 7-10), if the class doesn't give them. |
+| `triggers`, `pages`, `connections` | Declarations (sections 7, 9, 10), if the class doesn't give them. |
 
 `plugin.py`:
 
@@ -66,7 +66,7 @@ More manifest keys (sections 15 to 22):
 | `requires` | Capabilities it can't work without, e.g. `["audio.sounds", "mqtt"]` |
 | `requirements` | Python packages from PyPI, e.g. `["pyserial==3.5"]` |
 | `binaries` | Programs it ships, per platform, with their SHA-256 |
-| `notification_sources`, `command_maps` | Declarations, if the class doesn't give them |
+| `command_maps` | Declarations, if the class doesn't give them |
 
 ## 1a. API versions and capabilities
 
@@ -87,7 +87,7 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 
 | Capability | Since | What it is |
 |---|---|---|
-| `events`, `actions`, `scheduler`, `triggers`, `notifications`, `pages`, `connections` | 1.0 | Sections 4 to 10 |
+| `events`, `actions`, `scheduler`, `triggers`, `pages`, `connections` | 1.0 | Sections 4 to 10 |
 | `audio.sounds` | 1.1 | Sounds over channels, announcements (section 15) |
 | `audio.ramps` | 1.1 | Volume ramps (section 16) |
 | `audio.outputs` | 1.1 | Output types (section 17) |
@@ -114,7 +114,7 @@ does.
 | `async on_disable()` | The user disabled it. Stop what you started. |
 | `async on_unload()` | Sonorium is unloading it. |
 
-When a plugin is disabled, Sonorium removes its event subscriptions, notifiers, MQTT
+When a plugin is disabled, Sonorium removes its event subscriptions, MQTT
 subscriptions, output types, text to speech providers and sound gates. When it is
 uninstalled, its scheduled jobs, trigger tokens, saved connection values, command maps and
 Python packages go too. A plugin that fails in `on_enable` stays disabled.
@@ -132,7 +132,6 @@ def get_settings_schema(self):
     return {
         "channel": {"type": "string", "label": "Channel", "default": ""},
         "volume": {"type": "number", "label": "Volume", "min": 0, "max": 100, "default": 40},
-        "notify": {"type": "boolean", "label": "Send a notification when it plays", "default": False},
     }
 ```
 
@@ -211,8 +210,7 @@ All events of a channel have `channel_id` and `name` (the channel's name).
 | `plugin.enabled` / `plugin.disabled` | A plugin was enabled or disabled | `plugin_id`, `name` |
 | `schedule.fired` | A scheduled job ran | `plugin_id`, `job_id`, `name`, `data`, `scheduled_for`, `missed` |
 | `trigger.received` | A webhook trigger was called (and authenticated) | `plugin_id`, `trigger`, `payload`, `method` |
-| `notification` | A message was sent with `notify()` | `title`, `body`, `level`, `data` |
-| `error` | Something failed that nobody was waiting for | `where` (`event_handler`, `schedule`, `trigger`, `notifier`, `channel.start`, a plugin method), `message`, `plugin_id` |
+| `error` | Something failed that nobody was waiting for | `where` (`event_handler`, `schedule`, `trigger`, `channel.start`, a plugin method), `message`, `plugin_id` |
 
 | `sound.started` / `sound.ended` | A sound started or ended over a channel (section 15) | `sound_id`, `label`, `origin`; ended: `reason` (`finished`, `replaced`, `cancelled`, `stopped`, `error`), `capped`, `played` |
 | `ramp.started` / `ramp.finished` / `ramp.cancelled` | A channel's volume ramp (section 16) | `ramp_id`, `from`, `to`, `seconds`, `curve`, `then`; `level`; cancelled: `reason` |
@@ -420,81 +418,20 @@ Home Assistant's sidebar link need a Home Assistant login, which devices don't h
 Each accepted call publishes `trigger.received`. A handler that raises (or runs over 60 s)
 is reported as an `error` event.
 
-## 8. Notifications
+## 8. Announcements, and Sonorium's own problems
 
-A notification is "something on the network needs your attention": the doorbell rang, a
-camera saw motion, a leak sensor is wet, dinner is ready. Its main job is to take over the
-audio: the user's rules **announce** it on channels (the channels duck, a chime plays and/or
-the message is spoken, then they come back), as an admin, over zones and quiet hours.
-Sending it to an outside notifier (Discord, a phone) is an optional extra on a rule.
+Sonorium has no notification rules and nothing to set up for announcements. It is an
+endpoint: other systems (Home Assistant, Node-RED, a script, a doorbell) send it an
+announcement and it plays it (README, "Announcements: let other systems use Sonorium").
+A plugin is one of those systems: it announces with `self.audio.announce()` (section 15),
+the same path every other route takes.
 
-Sonorium's own problems are not notifications. A speaker going offline, a lost Home
+Sonorium's own problems are not announcements. A speaker going offline, a lost Home
 Assistant or MQTT connection, a plugin error, a channel stopping on its own, an import that
 failed, low disk space, sign-in events: these go to the log at their level, and the serious
 ones also show a small alert bar at the top of the web UI that links to the log. A plugin
 that fails is reported there for it; a plugin logs its own problems with the standard
 `logging` module (the logger `sonorium`).
-
-**Sources.** A plugin declares what it can notify about; the user picks from these when
-making a rule:
-
-```python
-def get_notification_sources(self):
-    return [{"id": "doorbell", "title": "The doorbell rang"},
-            {"id": "motion", "title": "Motion at the front door"}]
-
-async def on_ring(self):
-    self.notify("Someone is at the door", source="doorbell")
-```
-
-Every webhook trigger (section 7) is a source too (`trigger:<plugin_id>/<trigger>`): a
-trigger called with `{"title": "..."}` or `{"message": "..."}` in its payload gives the
-notification its words. `self.emit("doorbell", {"title": ..., "body": ...})` works as well.
-
-`self.notify(title, body="", level="info", data=None, source=None)`; `level` is `info`,
-`warning` or `error`.
-
-**Rules** (Settings › Notifications, or the API):
-
-```
-PUT /api/notifications/rules/{rule_id}
-{"name": "Doorbell", "sources": ["plugin.ring.doorbell"],
- "announce": {"channels": ["kitchen", "office"], "sound": "https://.../chime.mp3",
-              "text": "{title}", "volume": 90, "duck": {"db": 18}},
- "notifiers": ["discord.main"], "enabled": true}
-```
-
-- `announce.sound`: a chime (an http(s) URL), played first. `announce.text`: spoken with a
-  text to speech provider (section 15); `{title}` and `{body}` are the notification's words.
-  Neither: the title is spoken. `duck`: true (the Advanced values) or `{db, attack, release}`.
-- A rule announces, sends to notifiers, or both.
-- Rules may also list raw event patterns in `events` (and a `min_level`), as before; the
-  web UI doesn't offer them.
-
-**Delivering.** A notifier plugin delivers messages somewhere (Discord, a phone, e-mail):
-
-```python
-def get_notifiers(self):
-    return [{"id": "main", "title": "Family Discord", "kind": "Discord channel"}]
-
-async def deliver_notification(self, notifier_id, notification):
-    # notification: title, body, level, time, origin, event (the event as a dict, or None)
-    await post_to_discord(notification["title"], notification["body"])   # raise if it fails
-```
-
-Its notifiers are available as `<plugin_id>.<notifier_id>` while the plugin is enabled.
-Settings › Notifications shows each with Working or Not answering (its last delivery).
-
-| Endpoint | |
-|---|---|
-| `GET /api/notifications` | Sources, notifiers (with `kind`, `state`), rules |
-| `PUT /api/notifications/rules` `{"rules": [...]}` | Replace all rules |
-| `PUT` / `DELETE /api/notifications/rules/{rule_id}` | Add or change, or remove one rule |
-| `POST /api/notifications/rules/{rule_id}/test` | Do what the rule does with a test message |
-| `POST /api/notifications/test` `{"notifier": id}` | Send a test message; answers with the result |
-
-A notifier that fails (or takes over 30 s) is logged and reported as an `error` event with
-`where: notifier`; that event is never routed again, so a broken notifier can't start a loop.
 
 ## 9. Pages
 
@@ -610,10 +547,10 @@ owner-only file (section 11).
   token and timing doesn't either. A wrong token and a plugin that doesn't exist get the same
   answer. Tokens never appear in logs: `token=` in logged URLs is masked.
 - **Where things are kept**, next to `state.json` in `/config/sonorium/`:
-  `plugin_framework.json` (jobs, notification rules, plain connection values, the scheduler
+  `plugin_framework.json` (jobs, plain connection values, the scheduler
   time zone, command maps, which channels are sent to which audio outputs) and `plugin_secrets.json` (token hashes, secret connection values; created
   readable by its owner only).
-- **The management endpoints** (making tokens, rules, jobs, connection values) are part of
+- **The management endpoints** (making tokens, jobs, connection values) are part of
   Sonorium's API and need an Admin: Home Assistant's sidebar, or a signed-in Admin on the
   direct ports once the Users plugin's Require login is on (docs/AUTH.md). The trigger and
   event stream endpoints are the ones meant for other devices, and they need a token or a
@@ -1057,7 +994,6 @@ The config folder is kept across updates on every install, so packages are insta
 |---|---|---|
 | Pages | The Plugins section of the left menu | `get_pages()`, `get_page()` (section 9) |
 | Connections | A row each in Settings › Connection | `get_connections()` (section 10) |
-| Notifications | Settings › Notifications: rules and notifiers | sources and notifiers (section 8) |
 | Command maps | On the plugin's page | `{"type": "command_map"}` (section 18) |
 | Casting | A strip on a channel's card while a phone casts it | the app's outputs |
 | Alerts | A bar at the top when something has failed | errors, refused plugins |
