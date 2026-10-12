@@ -144,7 +144,6 @@ class SettingsResponse(BaseModel):
     default_volume: int
     crossfade_duration: float
     max_groups: int
-    entity_prefix: str
     show_in_sidebar: bool
     auto_create_quick_play: bool
     master_gain: int
@@ -155,7 +154,6 @@ class UpdateSettingsRequest(BaseModel):
     default_volume: Optional[int] = Field(default=None, ge=0, le=100)
     crossfade_duration: Optional[float] = Field(default=None, ge=0, le=10.0)
     max_groups: Optional[int] = Field(default=None, ge=1, le=50)
-    entity_prefix: Optional[str] = None
     show_in_sidebar: Optional[bool] = None
     auto_create_quick_play: Optional[bool] = None
     master_gain: Optional[int] = Field(default=None, ge=0, le=100)
@@ -595,6 +593,9 @@ def create_api_router(
         if not session_manager.get_theme(session.theme_id):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Theme not found")
         session_manager.guard("play", session)  # Zones: may refuse (ChannelRefused)
+        refusal = session_manager.channel_limit_refusal(session)
+        if refusal:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=refusal)
 
         speakers = session_manager.get_resolved_speakers(session)
         if not speakers:
@@ -1783,7 +1784,6 @@ def create_api_router(
             default_volume=settings.default_volume,
             crossfade_duration=settings.crossfade_duration,
             max_groups=settings.max_groups,
-            entity_prefix=settings.entity_prefix,
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
@@ -1800,8 +1800,6 @@ def create_api_router(
             settings.crossfade_duration = request.crossfade_duration
         if request.max_groups is not None:
             settings.max_groups = request.max_groups
-        if request.entity_prefix is not None:
-            settings.entity_prefix = request.entity_prefix
         if request.show_in_sidebar is not None:
             settings.show_in_sidebar = request.show_in_sidebar
         if request.auto_create_quick_play is not None:
@@ -1818,7 +1816,6 @@ def create_api_router(
             default_volume=settings.default_volume,
             crossfade_duration=settings.crossfade_duration,
             max_groups=settings.max_groups,
-            entity_prefix=settings.entity_prefix,
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,

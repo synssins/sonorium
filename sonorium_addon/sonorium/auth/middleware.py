@@ -235,6 +235,8 @@ class AuthMiddleware:
             if principal.kind == "ingress":
                 logger.debug(f"{method} {path} by Home Assistant user "
                              f"{principal.ha_user.get('name') or principal.ha_user.get('id') or '?'}")
+        if principal.kind == "key" and principal.key_id:  # a key's "Last used": accepted requests only
+            service.tokens.touch(principal.key_id)
         return await self.app(scope, receive, send)
 
     def _refusal(self, principal: Principal) -> tuple[int, dict]:

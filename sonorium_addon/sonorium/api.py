@@ -76,6 +76,7 @@ class WebApp:
         self._group_manager = None
         self._channel_manager = None
         self._background = None
+        self._resume_task = None  # channels playing again after a requested restart
         self._mqtt_manager = None
         self._theme_refresh_task = None
         self._plugin_manager = None
@@ -510,6 +511,9 @@ class WebApp:
             await self._background.start()
             logger.debug("  Background loop started")
 
+            # Channels that were playing before a requested restart play again
+            self._resume_after_restart()
+
             # Plugin scheduler and the alert bar for failures
             if self._plugin_host:
                 try:
@@ -737,6 +741,7 @@ class WebApp:
 
     async def shutdown_v2(self):
         """Shutdown v2 components gracefully."""
+        self._remember_for_restart()
         if self._background:
             await self._background.stop()
         if self._plugin_host:
@@ -746,6 +751,34 @@ class WebApp:
                 logger.warning(f"Plugin framework stop failed: {e}")
         if self._network_service:
             await self._network_service.stop()
+
+    def _remember_for_restart(self):
+        """A requested restart (not a stop or a crash): the playing channels play again afterwards."""
+        from sonorium import host
+        if host.pending() != "restart" or not self._state_store:
+            return
+        try:
+            from sonorium.core import restart_resume
+            count = restart_resume.remember(self._state_store.sessions.values(), self._state_store.state_file.parent)
+            if count:
+                logger.info(f"{count} playing channel(s) will play again after the restart")
+        except Exception as e:
+            logger.warning(f"Could not remember the playing channels for the restart: {e}")
+
+    def _resume_after_restart(self):
+        """After a requested restart: play the channels that were playing (core/restart_resume.py)."""
+        try:
+            from sonorium.core import restart_resume
+            entries = restart_resume.take(self._state_store.state_file.parent)
+        except Exception as e:
+            logger.warning(f"Could not read the channels to play again after the restart: {e}")
+            return
+        if not entries:
+            return
+        import asyncio
+        on_started = self._mqtt_manager.update_session_state if self._mqtt_manager else None
+        self._resume_task = asyncio.get_running_loop().create_task(
+            restart_resume.resume(self._session_manager, entries, on_started=on_started))
 
     # --- Sign-in (sonorium/auth) ---
 
@@ -972,6 +1005,9 @@ class WebApp:
             runtime.save_connection(updates)
         except runtime.SecretStoreError as e:
             raise HTTPException(status_code=500, detail=f"Not saved: {e}")
+        if "mqtt_host" in updates and not str(updates["mqtt_host"] or "").strip():
+            # MQTT switched off: Home Assistant drops Sonorium's entities before it goes
+            await self._remove_mqtt_entities(getattr(getattr(self, "backend", None), "mqtt_client", None))
         logger.info("Connection settings saved; restarting Sonorium to apply them")
         self._restart_soon("connection settings changed")
         return {"status": "ok", "restarting": True}
@@ -1040,13 +1076,7 @@ class WebApp:
         runtime.clear_mqtt_env()
 
         mqtt_client = self.backend.mqtt_client
-        if self._mqtt_manager is not None:
-            try:
-                if mqtt_client.is_connected:
-                    await self._mqtt_manager.remove_all_entities()
-            except Exception as e:
-                logger.warning(f"Could not remove Sonorium's MQTT entities: {e}")
-            self._mqtt_manager.stop_publishing()
+        await self._remove_mqtt_entities(mqtt_client)
 
         restart_required = False
         try:
@@ -1061,6 +1091,38 @@ class WebApp:
             "connection": await self.get_connection(),
             "restart_required": restart_required,
         }
+
+    async def _remove_mqtt_entities(self, mqtt_client) -> None:
+        """
+        Remove every Home Assistant entity Sonorium published over MQTT (the
+        channels' and global controls, the Announce notify entities, plugins'
+        discovery configs) while the broker is still connected, then publish
+        nothing more.
+        """
+        connected = bool(getattr(mqtt_client, "is_connected", False))
+        manager = getattr(self, "_mqtt_manager", None)
+        if manager is not None:
+            try:
+                if connected:
+                    await manager.remove_all_entities()
+            except Exception as e:
+                logger.warning(f"Could not remove Sonorium's MQTT entities: {e}")
+            manager.stop_publishing()
+        if not connected:
+            return
+        announcements = getattr(self, "_announcements", None)
+        if announcements is not None:
+            try:
+                await announcements.remove_entities()
+            except Exception as e:
+                logger.warning(f"Could not remove the Announce entities: {e}")
+        plugin_host = getattr(self, "_plugin_host", None)
+        router = getattr(plugin_host, "mqtt", None) if plugin_host is not None else None
+        if router is not None and hasattr(router, "remove_discovery"):
+            try:
+                await router.remove_discovery()
+            except Exception as e:
+                logger.warning(f"Could not remove plugins' MQTT entities: {e}")
 
     def _restart_soon(self, reason: str = ""):
         """

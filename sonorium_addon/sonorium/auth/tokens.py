@@ -141,6 +141,16 @@ class TokenService:
             self._touched()
         return token_id, record
 
+    def touch(self, token_id: str) -> None:
+        """Note that the token was used now (an accepted request; at most every 30 seconds)."""
+        record = self.records.get(token_id)
+        if record is None:
+            return
+        now = self.clock()
+        if now - (ts(record.get("last_used")) or 0) > 30:
+            record["last_used"] = iso(now)
+            self._touched()
+
     def get(self, token_id: str) -> Optional[dict]:
         return self.records.get(token_id)
 

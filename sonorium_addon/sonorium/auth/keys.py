@@ -49,7 +49,8 @@ class KeysAuth:
         token = ctx.token
         if not token or not token.startswith(KEY_PREFIX):
             return None
-        found = self.service.tokens.verify(token, "key")
+        # "Last used" is noted only when the request is accepted (middleware)
+        found = self.service.tokens.verify(token, "key", touch=False)
         if not found:
             return Reject(401, {"detail": "This key is not valid. It may have expired or been revoked."})
         key_id, record = found

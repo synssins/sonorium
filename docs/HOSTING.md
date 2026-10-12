@@ -21,8 +21,8 @@ host decides which sockets are live.
 ## Restart: `SONORIUM_SUPERVISED`
 
 Restart in Settings > Advanced, and every setting that needs one (a change
-under Settings > Connection, the stream URL), stops Sonorium cleanly first:
-channels stop, plugins stop, open streams are closed after 5 seconds, and
+under Settings > Connection, the stream URL under Settings > Advanced), stops
+Sonorium cleanly first: channels stop, plugins stop, open streams are closed after 5 seconds, and
 the MQTT broker is told Sonorium is leaving. Then:
 
 - **With `SONORIUM_SUPERVISED=1`:** Sonorium exits with code **75**
@@ -30,6 +30,12 @@ the MQTT broker is told Sonorium is leaving. Then:
   while the host isn't stopping it is a crash: restart it with a back-off.
 - **Without it:** Sonorium starts itself again in the same process
   (`python -m sonorium.entrypoint`).
+
+The channels that were playing play again once Sonorium is back, with the
+theme, preset, sequence, playlist and volume they had (Sonorium notes them in
+`resume_after_restart.json` next to `state.json` and removes the file at the
+next start). Only a restart asked for this way does that: after a stop or a
+crash, channels stay stopped.
 
 If the clean stop takes longer than 20 seconds, Sonorium goes ahead anyway.
 The log shows `Restarting Sonorium (<why>): shutting down, then ...` when it

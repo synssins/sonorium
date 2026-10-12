@@ -76,7 +76,8 @@ class SonoriumSettings:
     default_volume: int = 60
     crossfade_duration: float = 3.0
     max_groups: int = 20
-    entity_prefix: str = "sonorium"
+    # (entity_prefix was never used: every entity id starts with "sonorium_";
+    # from_dict drops it from older state files)
     show_in_sidebar: bool = True
     auto_create_quick_play: bool = True
 

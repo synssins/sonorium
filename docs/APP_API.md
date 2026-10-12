@@ -741,7 +741,7 @@ Status objects (PLAYBACK.md):
 | `GET /sessions/{id}` | ch.view | | channel | 404 `"Session not found"` |
 | `PUT /sessions/{id}` | ch.change (+ ch.speakers to change speakers) | any of the POST fields; only those sent change | channel | 404, 409 sequence with no presets, 403 `"Not allowed to change speakers"` |
 | `DELETE /sessions/{id}` | ch.add | | 204, no body | 404 |
-| `POST /sessions/{id}/play` | ch.play | none | `{"status": "playing", "channel_id": 1, "sequence_id": null, "playlist_id": null}` | 400 `"No theme selected"`, `"Theme not found"`, `"No speakers selected"`, 404 |
+| `POST /sessions/{id}/play` | ch.play | none | `{"status": "playing", "channel_id": 1, "sequence_id": null, "playlist_id": null}` | 400 `"No theme selected"`, `"Theme not found"`, `"No speakers selected"`, 404, 409 `"6 channels are already playing (the most at once is 6). Stop one first."` (Max channels) |
 | `POST /sessions/{id}/pause` | ch.play | none | `{"status": "paused"}` | 404 |
 | `POST /sessions/{id}/stop` | ch.play | none | `{"status": "stopped"}` | 404 |
 | `POST /sessions/stop-all` | ch.play | none | `{"stopped": 2}` | |
@@ -1002,7 +1002,7 @@ created_at, updated_at}`.
 
 | Method, path | Perm | Answer |
 |---|---|---|
-| `GET /settings` | ch.view | `{"default_volume": 60, "crossfade_duration": 3.0, "max_groups": 20, "entity_prefix": "sonorium", "show_in_sidebar": true, "auto_create_quick_play": true, "master_gain": 60}` |
+| `GET /settings` | ch.view | `{"default_volume": 60, "crossfade_duration": 3.0, "max_groups": 20, "show_in_sidebar": true, "auto_create_quick_play": true, "master_gain": 60}` |
 | `PUT /settings` | st.change, **Admin** | any of those fields → the same object |
 | `GET /stream/url` | ch.view | section 9 |
 | `GET /install` | ch.view | `{"install", "label", "version", "features"}` |
