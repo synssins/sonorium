@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.0 (2026-10-12)
+
+### Documentation
+
+- Sonorium has its own repository; fully rewritten, no Amniotic code remains [skip ci]
+  ([`9bb4389`](https://github.com/synssins/sonorium/commit/9bb438970333b68ce21a3f28f6d119d629ae43ea))
+
+
 > ## ⭐ 1.7.0: Sign-in, announcements and plugins
 >
 > Sonorium gets users and sign-in, plays announcements sent by other systems, and runs plugins that play sounds over channels. Sign-in is optional: an update changes nothing until you turn on Require login.
