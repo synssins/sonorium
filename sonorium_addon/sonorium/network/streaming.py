@@ -1,6 +1,5 @@
 """
-Playing Sonorium streams on network speakers, ported from the Windows app
-(app/core/sonorium/streaming.py).
+Playing Sonorium streams on network speakers.
 
 Most speakers pull the stream themselves: Sonorium hands them the channel
 URL (Chromecast, Sonos, DLNA, LinkPlay HTTP API, HEOS). AirPlay is the
