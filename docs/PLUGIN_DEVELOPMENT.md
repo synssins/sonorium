@@ -583,6 +583,16 @@ Run the suite with `python -m pytest -q tests`.
   `trigger_play_channel/manifest.json`) and upload it in Settings > Plugins (or
   `POST /api/plugins/upload`). A plugin with the same id is replaced; its settings, jobs and
   connection values are kept.
+  - **Layout:** the plugin's files inside one top folder, or straight at the zip's root.
+    Subfolders (your own modules, data files) are kept in both. `plugin.py` must be at the
+    root of that folder (or of the zip); anything else (two top folders, `plugin.py` only
+    deeper down) is refused with `No plugin.py found in archive`.
+  - **Entry names:** forward slashes, or backslashes (zips made by Windows PowerShell 5.1
+    `Compress-Archive`): both are read as folders. A name with `..`, an absolute path, a drive
+    letter or a `:` is refused (`Invalid path in zip: ...`).
+  - **Checked first:** the whole zip (entry names, `plugin.py`, `manifest.json`, id, version)
+    is checked before anything is installed. A refused upload (400 with the reason) leaves the
+    installed plugin exactly as it was; a plugin that passes is swapped in whole.
 - **Catalog:** plugins offered in Settings > Plugins > Catalog are listed in
   [`plugins/catalog.json`](../plugins/catalog.json) with their zip next to it:
   `{"id", "name", "description", "version", "author", "category", "zip_file"}`.
@@ -867,6 +877,11 @@ channel's outputs are remembered and start again when it plays. Each one reads t
 channel's stream like a speaker: it keeps the channel from going idle, it hears the
 speakers-muted switch, and a slow sink only falls behind itself. A channel still needs a
 speaker for Play; one sent only to an output starts when it is sent there.
+
+Errors from your output type (`available()`, `discover()`, `open()`) on these routes:
+`OutputError` is a 400 with your message; `ActionError` keeps its code (`not_found` 404,
+`invalid` 400, `conflict` 409, `unavailable` 503) with your message; any other exception is
+logged with its traceback and answered 502 `<your type's title>: <message>` (never a 500).
 `sonorium.core.audio_outputs.CaptureOutput` is a test double that keeps what it receives.
 
 ## 18. Commands: remotes, MQTT topics, webhooks

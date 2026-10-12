@@ -50,6 +50,32 @@ class OutputError(ValueError):
     """An output that can't be used (the message is shown to the caller)."""
 
 
+class OutputFailed(Exception):
+    """
+    A plugin's output type raised something other than OutputError or
+    ActionError: "<type title>: <message>" (the route answers 502).
+    """
+
+    def __init__(self, title: str, error: BaseException):
+        self.title = title
+        self.error = error
+        super().__init__(f"{title}: {str(error) or type(error).__name__}")
+
+
+def _raise_plugin_failure(type_id: str, output_type, what: str, error: Exception) -> None:
+    """
+    Raise what a plugin's output code raised as the caller should see it:
+    OutputError and ActionError as they are, anything else (logged with its
+    traceback) as OutputFailed.
+    """
+    from sonorium.plugins.actions import ActionError
+    if isinstance(error, (OutputError, ActionError)):
+        raise error
+    title = getattr(output_type, "title", "") or type_id
+    logger.error(f"Audio output {type_id}: {what} failed: {error}", exc_info=error)
+    raise OutputFailed(title, error) from error
+
+
 class Sink:
     """Where an attachment writes the channel's audio."""
     latency: float = 0.0  # seconds the device adds (shown to the user)
@@ -226,6 +252,8 @@ class AudioOutputs:
             devices = await asyncio.wait_for(output_type.discover(), DISCOVER_TIMEOUT)
         except asyncio.TimeoutError:
             raise OutputError("The output didn't list its devices in time")
+        except Exception as e:
+            _raise_plugin_failure(type_id, output_type, "discover()", e)
         return [d for d in (devices or []) if isinstance(d, dict) and isinstance(d.get("id"), str)]
 
     # --- Attachments ---
@@ -260,7 +288,10 @@ class AudioOutputs:
         if session is None:
             raise LookupError(f"No channel '{session_id}'")
         output_type = self._type(type_id)
-        ok, why = output_type.available()
+        try:
+            ok, why = output_type.available()
+        except Exception as e:
+            _raise_plugin_failure(type_id, output_type, "available()", e)
         if not ok:
             raise OutputError(why or "This output can't be used here")
         if not isinstance(device_id, str) or not device_id:
@@ -282,7 +313,11 @@ class AudioOutputs:
         self._live[attachment.id] = attachment  # holds the mix from here
         try:
             channel = self._running_channel(session_id)
-            attachment.start(channel, output_type.open(device_id, self.rate, options))
+            try:
+                sink = output_type.open(device_id, self.rate, options)
+            except Exception as e:
+                _raise_plugin_failure(type_id, output_type, "open()", e)
+            attachment.start(channel, sink)
         except Exception:
             self._live.pop(attachment.id, None)
             raise

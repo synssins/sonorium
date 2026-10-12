@@ -44,6 +44,8 @@ from sonorium.plugins.triggers import MAX_PAYLOAD_BYTES, TRIGGER_ID
 
 EVENTS_SCOPE = "events"
 MAX_STREAMS = 20
+# ActionError.code as an HTTP status
+ACTION_ERROR_STATUS = {"not_found": 404, "invalid": 400, "conflict": 409, "unavailable": 503}
 KEEPALIVE_SECONDS = 15
 PAGE_TIMEOUT, ACTION_TIMEOUT, TEST_TIMEOUT = 10, 30, 20
 
@@ -477,7 +479,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> None:
     """Sounds, announcements, ramps, audio outputs, command maps, alerts (framework phase 2)."""
     from sonorium.core.announce import AnnouncementsOff, TtsUnavailable
-    from sonorium.core.audio_outputs import OutputError
+    from sonorium.core.audio_outputs import OutputError, OutputFailed
     from sonorium.core.decode import DecodeError
     from sonorium.core.overlay import OverlayError
     from sonorium.core.ramps import RampError
@@ -530,6 +532,25 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             raise HTTPException(status_code=400, detail=str(e))
         except TtsError as e:
             raise HTTPException(status_code=502, detail=str(e))
+
+    async def _output_guard(work):
+        """
+        _guard for the audio-output routes, which run a plugin's code: its
+        ActionError as the matching status with its message, anything else
+        as 502 "<type title>: <message>", never a bare 500.
+        """
+        from sonorium.plugins.actions import ActionError
+        try:
+            return await _guard(work)
+        except HTTPException:
+            raise
+        except ActionError as e:
+            raise HTTPException(status_code=ACTION_ERROR_STATUS.get(e.code, 400), detail=e.message)
+        except OutputFailed as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        except Exception as e:
+            logger.error(f"Audio output failed: {e}", exc_info=e)
+            raise HTTPException(status_code=502, detail=f"{type(e).__name__}: {str(e) or type(e).__name__}")
 
     # --- Framework ---
 
@@ -670,7 +691,7 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
 
     @router.get("/audio-outputs/{type_id}/devices")
     async def output_devices(type_id: str):
-        return {"devices": await _guard(_svc("outputs", "Audio outputs").discover(type_id))}
+        return {"devices": await _output_guard(lambda: _svc("outputs", "Audio outputs").discover(type_id))}
 
     @router.get("/sessions/{session_id}/audio-outputs")
     async def channel_outputs(session_id: str):
@@ -680,12 +701,12 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
     async def attach_output(session_id: str, request: Request):
         """{"type", "device", "options"}: send the channel there (its mix starts if needed)."""
         body = await _json(request)
-        return await _guard(lambda: (_svc("outputs", "Audio outputs").attach(
+        return await _output_guard(lambda: (_svc("outputs", "Audio outputs").attach(
             session_id, body.get("type"), body.get("device"), body.get("options"))))
 
     @router.delete("/sessions/{session_id}/audio-outputs/{attachment_id}")
     async def detach_output(session_id: str, attachment_id: str):
-        if not await _svc("outputs", "Audio outputs").detach(session_id, attachment_id):
+        if not await _output_guard(lambda: _svc("outputs", "Audio outputs").detach(session_id, attachment_id)):
             raise HTTPException(status_code=404, detail="No such output on this channel")
         return {"removed": True}
 
