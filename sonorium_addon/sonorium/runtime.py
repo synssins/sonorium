@@ -12,6 +12,7 @@ it feeds the same SONORIUM__* variables the add-on's run.sh provides.
 """
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -19,6 +20,7 @@ STANDALONE = os.environ.get("SONORIUM_STANDALONE") == "1"
 
 # This run of Sonorium (new at every start): GET /api/info and the event stream's ids carry it
 BOOT_ID = uuid.uuid4().hex
+STARTED_AT = time.time()  # when this process started (GET /api/info started_at)
 
 
 def _detect_install() -> str:
