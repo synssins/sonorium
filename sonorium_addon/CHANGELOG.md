@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.10 (2026-10-12)
+
+### Documentation
+
+- **plugins**: Audio outputs as speakers, API 1.2
+  ([`09bf09f`](https://github.com/synssins/sonorium/commit/09bf09f0abbc23643fec9f39300e15b8cca72554))
+
+### Features
+
+- **plugins**: Audio output devices are speakers (plugin API 1.2)
+  ([`14f4dba`](https://github.com/synssins/sonorium/commit/14f4dba94d4cb0ec1a89b41617c09525de3bd127))
+
+
 ## v1.7.3-dev.8 (2026-10-12)
 
 ### Bug Fixes
