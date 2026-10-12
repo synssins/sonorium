@@ -167,6 +167,8 @@ class PluginHost:
         """The plugin was uninstalled: its jobs, tokens, connection values, command maps and packages go too."""
         self.bus.unsubscribe_owner(plugin_id)
         self._release_services(plugin_id)
+        if self.outputs is not None:  # its audio output devices leave Settings > Speakers and the channels
+            self.outputs.forget_owner(plugin_id)
         self.commands.forget_plugin(plugin_id)
         self.packages.remove(plugin_id)
         self.scheduler.remove_plugin(plugin_id)

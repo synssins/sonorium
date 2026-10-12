@@ -310,8 +310,9 @@ class PluginManager:
         except Exception as e:
             logger.error(f"Failed to enable plugin {plugin_id}: {e}")
             self.last_enable_error[plugin_id] = str(e) or type(e).__name__
-            if self.host is not None:  # what it subscribed to before failing
+            if self.host is not None:  # what it subscribed to and registered before failing
                 self.host.bus.unsubscribe_owner(plugin_id)
+                self.host._release_services(plugin_id)
             return False
 
     async def disable_plugin(self, plugin_id: str) -> bool:

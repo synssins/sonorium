@@ -479,7 +479,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> None:
     """Sounds, announcements, ramps, audio outputs, command maps, alerts (framework phase 2)."""
     from sonorium.core.announce import AnnouncementsOff, TtsUnavailable
-    from sonorium.core.audio_outputs import OutputError, OutputFailed
+    from sonorium.core.audio_outputs import OutputBusy, OutputError, OutputFailed
     from sonorium.core.decode import DecodeError
     from sonorium.core.overlay import OverlayError
     from sonorium.core.ramps import RampError
@@ -548,6 +548,9 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             raise HTTPException(status_code=ACTION_ERROR_STATUS.get(e.code, 400), detail=e.message)
         except OutputFailed as e:
             raise HTTPException(status_code=502, detail=str(e))
+        except OutputBusy as e:
+            raise HTTPException(status_code=409, detail=e.message,
+                                headers={"X-Sonorium-Take-Over": "ask"} if e.take_over else None)
         except Exception as e:
             logger.error(f"Audio output failed: {e}", exc_info=e)
             raise HTTPException(status_code=502, detail=f"{type(e).__name__}: {str(e) or type(e).__name__}")
@@ -689,6 +692,28 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
     async def output_types():
         return {"types": _svc("outputs", "Audio outputs").types()}
 
+    @router.post("/audio-outputs/discover")
+    async def discover_outputs():
+        """
+        Every type lists its devices again (Settings > Speakers opened, Rescan,
+        the channel editor's speaker picker): {"types": [type + "error",
+        "speakers": [the type's device speakers as GET /api/speakers lists them]]}.
+        """
+        outputs = _svc("outputs", "Audio outputs")
+        types = await outputs.discover_all()
+        registry = getattr(getattr(outputs, "sessions", None), "registry", None)
+        for info in types:
+            speakers = [registry.get_speaker(sid) if registry is not None else None for sid in info["speakers"]]
+            info["speakers"] = [s.to_dict() for s in speakers if s is not None]
+        return {"types": types}
+
+    @router.delete("/audio-outputs/speakers/{speaker_id}")
+    async def remove_output_device(speaker_id: str):
+        """Remove on an offline device's row: forgotten, and taken out of the channels that have it."""
+        outputs = _svc("outputs", "Audio outputs")
+        await _output_guard(lambda: outputs.remove_device(speaker_id))
+        return {"removed": True}
+
     @router.get("/audio-outputs/{type_id}/devices")
     async def output_devices(type_id: str):
         return {"devices": await _output_guard(lambda: _svc("outputs", "Audio outputs").discover(type_id))}
@@ -699,10 +724,16 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
 
     @router.post("/sessions/{session_id}/audio-outputs", status_code=201)
     async def attach_output(session_id: str, request: Request):
-        """{"type", "device", "options"}: send the channel there (its mix starts if needed)."""
+        """
+        {"type", "device", "options"?, "take_over"?}: add the device to the
+        channel's speakers; it plays at once if the channel is playing.
+        """
         body = await _json(request)
+        take_over = body.get("take_over", False)
+        if not isinstance(take_over, bool):
+            raise HTTPException(status_code=400, detail="'take_over' must be true or false")
         return await _output_guard(lambda: (_svc("outputs", "Audio outputs").attach(
-            session_id, body.get("type"), body.get("device"), body.get("options"))))
+            session_id, body.get("type"), body.get("device"), body.get("options"), take_over=take_over)))
 
     @router.delete("/sessions/{session_id}/audio-outputs/{attachment_id}")
     async def detach_output(session_id: str, attachment_id: str):

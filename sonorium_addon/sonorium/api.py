@@ -561,9 +561,7 @@ class WebApp:
                            RampService(self._session_manager, publish, rate=SAMPLE_RATE,
                                        on_change=lambda s: host._changed(s)),
                            outputs)
-            # A channel sent to an audio output is sent there again when it starts
-            host.bus.subscribe("channel.started", lambda e: outputs.channel_started(e.data.get("channel_id")),
-                               owner=None)
+            # Its devices are speakers: the session manager plays them through it (add_speaker_kind)
         except Exception as e:
             logger.warning(f"  Sounds, ramps and audio outputs unavailable: {e}")
         try:

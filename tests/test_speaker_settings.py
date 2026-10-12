@@ -402,6 +402,7 @@ def api(tmp_path):
     session_manager.media_controller = outputs
     session_manager.stream_base_url = "http://10.0.0.2:8008"
     session_manager.list.return_value = []
+    session_manager.speaker_kind.return_value = None  # network and HA speakers only
 
     def build(network_service=None):
         app = FastAPI()

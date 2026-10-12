@@ -15,46 +15,16 @@ pytest.importorskip("fastapi")
 pytest.importorskip("httpx")  # TestClient
 
 from playback_helpers import addon_modules  # noqa: E402
+from output_world import MODULES, World  # noqa: E402
 
 m = SimpleNamespace()
 
 
 @pytest.fixture(autouse=True, scope="module")
 def modules():
-    with addon_modules("sonorium.core.audio_outputs", "sonorium.core.channel", "sonorium.plugins.actions",
-                       "sonorium.web.plugin_framework_api") as mods:
+    with addon_modules(*MODULES, "sonorium.web.plugin_framework_api") as mods:
         m.__dict__.update(mods.__dict__)
         yield
-
-
-class Store:
-    def __init__(self):
-        self.main = SimpleNamespace(data={})
-        self.main.section = lambda name, kind=dict: self.main.data.setdefault(name, kind())
-        self.main.save = lambda: None
-
-
-class Sessions:
-    def __init__(self):
-        self.session = SimpleNamespace(id="den", name="Den", is_playing=False)
-        self.channel = None
-
-    def get(self, sid):
-        return self.session if sid == "den" else None
-
-    def channel_of(self, sid):
-        return self.channel
-
-    def run_mix(self, sid):
-        self.channel = m.channel.Channel(id=1)
-        self.channel.run_silent()
-        return self.channel
-
-    def add_mix_hold(self, predicate):
-        pass
-
-    async def release_unused(self, sid, why):
-        pass
 
 
 class Broken:
@@ -84,25 +54,25 @@ class Broken:
 
 
 @pytest.fixture
-def w():
+def w(tmp_path):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    sessions = Sessions()
-    outputs = m.audio_outputs.AudioOutputs(sessions, Store(), rate=44100)
+    world = World(m, tmp_path)
     broken = Broken()
-    outputs.register_type("brokenplugin", broken)
-    host = SimpleNamespace(outputs=outputs)
+    world.register(broken, owner="brokenplugin")
+    world.enable(world.sid("d1", "broken"))
+    den = world.channel("Den", ["net:a"])
+    assert world.play(den)  # playing: an added device opens at once
+    host = SimpleNamespace(outputs=world.outputs)
     app = FastAPI()
     app.include_router(m.plugin_framework_api.create_plugin_framework_router(SimpleNamespace(), host))
     with TestClient(app, raise_server_exceptions=False) as client:
-        yield SimpleNamespace(client=client, broken=broken, outputs=outputs, sessions=sessions)
-    outputs.stop_all()
-    if sessions.channel is not None:
-        sessions.channel.stop()
+        yield SimpleNamespace(client=client, broken=broken, outputs=world.outputs, den=den, world=world)
+    world.close()
 
 
 def attach(w):
-    return w.client.post("/api/sessions/den/audio-outputs", json={"type": "broken", "device": "d1"})
+    return w.client.post(f"/api/sessions/{w.den.id}/audio-outputs", json={"type": "broken", "device": "d1"})
 
 
 @pytest.mark.parametrize("code, status", [
@@ -114,7 +84,7 @@ def test_action_error_from_the_plugin_keeps_its_status(w, code, status, where):
     r = attach(w)
     assert r.status_code == status, r.text
     assert r.json()["detail"] == "The amplifier is busy"
-    assert not any(a["running"] for a in w.outputs.attachments("den"))
+    assert w.outputs.attachments(w.den.id) == []  # not added
 
 
 @pytest.mark.parametrize("where", ["open", "available"])

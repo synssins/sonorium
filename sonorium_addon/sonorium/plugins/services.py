@@ -32,7 +32,7 @@ async def _call(work):
     """Run a core call (a coroutine, or a function, sync or async), its errors as ActionError."""
     import inspect
     from sonorium.core.announce import AnnouncementsOff, TtsUnavailable
-    from sonorium.core.audio_outputs import OutputError
+    from sonorium.core.audio_outputs import OutputBusy, OutputError
     from sonorium.core.decode import DecodeError
     from sonorium.core.overlay import OverlayError
     from sonorium.core.ramps import RampError
@@ -48,6 +48,8 @@ async def _call(work):
         raise ActionError("not_found", str(e).strip("'\""))
     except AnnouncementsOff as e:
         raise ActionError("conflict", str(e))
+    except OutputBusy as e:
+        raise ActionError("conflict", e.message)
     except TtsUnavailable as e:
         raise ActionError("unavailable", str(e))
     except (OverlayError, DecodeError, RampError, OutputError, CommandError, ValueError) as e:
@@ -168,16 +170,20 @@ class OutputsV1:
         self._svc().unregister_owner(self._id)
 
     async def types(self) -> list[dict]:
+        """[{"id", "title", "plugin_id", "available", "message", "one_device_at_a_time"}]"""
         return self._svc().types()
 
     async def devices(self, type_id: str) -> list[dict]:
         return await _call(self._svc().discover(type_id))
 
-    async def attach(self, channel: str, type_id: str, device_id: str, options: Optional[dict] = None) -> dict:
-        return await _call(lambda: (self._svc().attach(channel, type_id, device_id, options)))
+    async def attach(self, channel: str, type_id: str, device_id: str, options: Optional[dict] = None,
+                     take_over: bool = False) -> dict:
+        """Add the device to the channel's speakers (it plays at once if the channel plays)."""
+        return await _call(lambda: self._svc().attach(channel, type_id, device_id, options, take_over=take_over))
 
     async def detach(self, channel: str, attachment_id: str) -> bool:
-        return await _call(self._svc().detach(channel, attachment_id))
+        """Take the device out of the channel's speakers and close its sink."""
+        return await _call(lambda: self._svc().detach(channel, attachment_id))
 
     async def attachments(self, channel: Optional[str] = None) -> list[dict]:
         return self._svc().attachments(channel)

@@ -117,6 +117,10 @@ class SessionManager:
         # outputs): predicates that keep a channel's mix running (add_mix_hold)
         self._mix_holds: list = []
 
+        # Speakers of other kinds, played without the media controller (a
+        # plugin's audio output devices, core/audio_outputs.py): add_speaker_kind
+        self._speaker_kinds: list = []
+
         # Sequence and playlist timers
         from sonorium.core.playback_runner import PlaybackRunner
         self.runner = PlaybackRunner(self)
@@ -414,6 +418,62 @@ class SessionManager:
     # --- Hooks for the framework's audio services (core/overlay_service.py,
     # core/audio_outputs.py): they reach a channel's Channel and keep its mix
     # running through these, never through the session manager's internals ---
+
+    def add_speaker_kind(self, kind) -> None:
+        """
+        Speakers this Sonorium plays itself, not through the media controller:
+        kind.claims(speaker_id) -> bool, async kind.start(session, ids,
+        take_over=None), async kind.stop(session, ids=None) (all of the
+        channel's when None), kind.conflicts(session, ids) -> [sentence].
+        """
+        self._speaker_kinds.append(kind)
+
+    def speaker_kind(self, speaker_id: str):
+        """The kind that plays this speaker, None for the media controller's speakers."""
+        for kind in self._speaker_kinds:
+            try:
+                if kind.claims(speaker_id):
+                    return kind
+            except Exception:
+                continue
+        return None
+
+    def media_speakers(self, speakers) -> list[str]:
+        """The speakers the media controller plays (the others left out)."""
+        return [s for s in speakers or [] if self.speaker_kind(s) is None]
+
+    def _kind_speakers(self, speakers) -> list[tuple]:
+        """[(kind, its speakers)] for the speakers of other kinds."""
+        groups: list[tuple] = []
+        for speaker_id in speakers or []:
+            kind = self.speaker_kind(speaker_id)
+            if kind is None:
+                continue
+            for existing, ids in groups:
+                if existing is kind:
+                    ids.append(speaker_id)
+                    break
+            else:
+                groups.append((kind, [speaker_id]))
+        return groups
+
+    def speaker_conflicts(self, session: Session) -> list[str]:
+        """Why some of the channel's speakers can't play it now unless taken over (one device at a time)."""
+        messages = []
+        for kind, ids in self._kind_speakers(self.get_resolved_speakers(session)):
+            try:
+                messages.extend(kind.conflicts(session, ids) or [])
+            except Exception as e:
+                logger.debug(f"  Speaker conflicts not checked: {e}")
+        return messages
+
+    async def _stop_kinds(self, session: Session) -> None:
+        """The channel stopped or paused: speakers of other kinds stop playing it."""
+        for kind in self._speaker_kinds:
+            try:
+                await kind.stop(session)
+            except Exception as e:
+                logger.warning(f"  '{session.name}': speakers not stopped: {e}")
 
     def add_mix_hold(self, predicate) -> None:
         """predicate(session_id) -> True keeps the channel's mix running (like a browser listening)."""
@@ -1121,6 +1181,12 @@ class SessionManager:
 
         Stops playback on removed speakers and starts on added speakers.
         """
+        for kind, ids in self._kind_speakers(removed_speakers):
+            await kind.stop(session, ids)
+        for kind, ids in self._kind_speakers(added_speakers):
+            await kind.start(session, ids)
+        removed_speakers = set(self.media_speakers(removed_speakers))
+        added_speakers = set(self.media_speakers(added_speakers))
         if not self.media_controller:
             return
 
@@ -1430,13 +1496,17 @@ class SessionManager:
     # --- Playback Control ---
     
     @logger.instrument("Playing session {session_id}...")
-    async def play(self, session_id: str) -> bool:
+    async def play(self, session_id: str, take_over: Optional[bool] = None) -> bool:
         """
         Start playback for a session.
         
         Assigns a channel, sets the theme, and sends stream URL to speakers.
         The mix fades in over the Crossfade setting. A playlist carries on
         with its current entry; a sequence starts from its first preset.
+
+        take_over: a speaker of a one-device-at-a-time kind that another
+        channel plays on is taken from it when True; otherwise this channel
+        starts without it.
 
         Returns:
             True if started successfully, False otherwise
@@ -1494,7 +1564,7 @@ class SessionManager:
             self._start_failed(session, "No speakers selected")
             return False
         
-        if not self.media_controller:
+        if not self.media_controller and self.media_speakers(speakers):
             logger.warning(f"  No media controller available")
             self._start_failed(session, "No media controller available")
             return False
@@ -1534,7 +1604,7 @@ class SessionManager:
 
         # Play on all speakers (fire-and-forget)
         import asyncio
-        asyncio.create_task(self._play_on_speakers(session, speakers, stream_url))
+        asyncio.create_task(self._play_on_speakers(session, speakers, stream_url, take_over))
         
         return True
     
@@ -1546,8 +1616,17 @@ class SessionManager:
         except Exception:
             pass
 
-    async def _play_on_speakers(self, session: Session, speakers: list[str], stream_url: str):
+    async def _play_on_speakers(self, session: Session, speakers: list[str], stream_url: str,
+                                take_over: Optional[bool] = None):
         """Background task to play media on speakers."""
+        for kind, ids in self._kind_speakers(speakers):
+            try:
+                await kind.start(session, ids, take_over=take_over)
+            except Exception as e:
+                logger.error(f"  Error starting playback: {e}")
+        speakers = self.media_speakers(speakers)
+        if not speakers or not self.media_controller:
+            return
         try:
             results = await self.media_controller.play_media_multi(speakers, stream_url)
             
@@ -1616,6 +1695,8 @@ class SessionManager:
         speakers = self.get_resolved_speakers(session)
         self._tell("released", session)
 
+        await self._stop_kinds(session)
+        speakers = self.media_speakers(speakers)
         if self.media_controller and speakers:
             await self.media_controller.pause_multi(speakers)
 
@@ -1656,6 +1737,8 @@ class SessionManager:
         speakers = self.get_resolved_speakers(session)
         self._tell("released", session)
 
+        await self._stop_kinds(session)
+        speakers = self.media_speakers(speakers)
         if self.media_controller and speakers:
             await self.media_controller.stop_multi(speakers)
 
@@ -1692,7 +1775,7 @@ class SessionManager:
         
         # If playing, update volume on speakers
         if session.is_playing and self.media_controller:
-            speakers = self.get_resolved_speakers(session)
+            speakers = self.media_speakers(self.get_resolved_speakers(session))  # devices follow by themselves
             if speakers:
                 volume_level = session.volume / 100.0
                 await self.media_controller.set_volume_multi(speakers, volume_level)

@@ -237,6 +237,8 @@ class OverlayService:
             channel.run_silent()
             overlay = self.overlay_of(channel, session)
             speakers = list(sessions.get_resolved_speakers(session))
+            if hasattr(sessions, "media_speakers"):  # an audio output device isn't woken for a sound
+                speakers = sessions.media_speakers(speakers)
             controller = sessions.media_controller
             logger.info(f"  '{session.name}': starting {len(speakers)} speaker(s) for a sound")
             await controller.play_media_multi(speakers, sessions.get_stream_url(session))

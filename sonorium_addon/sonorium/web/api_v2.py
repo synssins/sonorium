@@ -582,8 +582,24 @@ def create_api_router(
                 logger.warning(f"Failed to remove MQTT entities for deleted session: {e}")
     
     @router.post("/sessions/{session_id}/play")
-    async def play_session(session_id: str) -> dict:
-        """Start playback for a session (fire-and-forget, returns immediately)."""
+    async def play_session(session_id: str, request: Request) -> dict:
+        """
+        Start playback for a session (fire-and-forget, returns immediately).
+        Optional body {"take_over": true|false}: a speaker of a one-device-at-
+        a-time audio output type that another channel plays on is taken over
+        (true) or left out (false); without it such a start answers 409 with
+        the X-Sonorium-Take-Over header, for the UI to ask.
+        """
+        take_over = None
+        if await request.body():
+            try:
+                body = await request.json()
+            except ValueError:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The body must be JSON")
+            value = body.get("take_over") if isinstance(body, dict) else None
+            if value is not None and not isinstance(value, bool):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="'take_over' must be true or false")
+            take_over = value
         session = session_manager.get(session_id)
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
@@ -600,6 +616,10 @@ def create_api_router(
         speakers = session_manager.get_resolved_speakers(session)
         if not speakers:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No speakers selected")
+        conflicts = session_manager.speaker_conflicts(session) if take_over is None else []
+        if conflicts:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="; ".join(conflicts),
+                                headers={"X-Sonorium-Take-Over": "ask"})
         
         # Mark as playing immediately (optimistic update)
         session.is_playing = True
@@ -607,7 +627,7 @@ def create_api_router(
         state_store.save()
         
         # Fire the play command in the background - don't wait for it
-        asyncio.create_task(session_manager.play(session_id))
+        asyncio.create_task(session_manager.play(session_id, take_over=take_over))
         
         return {
             "status": "playing",
@@ -1391,6 +1411,8 @@ def create_api_router(
         if network_service is not None:
             await network_service.discover(full=True)
             hierarchy = ha_registry.hierarchy
+        await _rescan_speaker_kinds()
+        hierarchy = ha_registry.hierarchy
         return {
             "floors": len(hierarchy.floors),
             "unassigned_areas": len(hierarchy.unassigned_areas),
@@ -1398,6 +1420,17 @@ def create_api_router(
             "total_speakers": len(hierarchy.get_all_speakers()),
         }
     
+    async def _rescan_speaker_kinds():
+        """Speakers of other kinds (audio output devices) listed again; a failing type only logs."""
+        for kind in getattr(session_manager, "_speaker_kinds", None) or []:
+            rescan = getattr(kind, "discover_all", None)
+            if rescan is None:
+                continue
+            try:
+                await rescan()
+            except Exception as e:
+                logger.warning(f"Speakers not listed again: {e}")
+
     # --- Network Speakers (standalone mode; 404 in the HA add-on) ---
 
     def _require_network_service():
@@ -1497,6 +1530,20 @@ def create_api_router(
     async def test_speaker(speaker_id: str) -> dict:
         """Play a short, quiet chime on one speaker, then stop it."""
         _speaker_or_404(speaker_id)
+        kind = session_manager.speaker_kind(speaker_id)
+        if kind is not None:  # an audio output device: through its type's open() and sink
+            from sonorium.core.audio_outputs import OutputBusy, OutputError, OutputFailed
+            from sonorium.plugins.actions import ActionError
+            try:
+                return await kind.test(speaker_id)
+            except LookupError:
+                raise HTTPException(status_code=404, detail="Speaker not found")
+            except OutputBusy as e:
+                raise HTTPException(status_code=409, detail=e.message)
+            except (OutputError, OutputFailed) as e:
+                raise HTTPException(status_code=502, detail=str(e))
+            except ActionError as e:
+                raise HTTPException(status_code=502, detail=e.message)
         if speaker_id in tests_running:
             raise HTTPException(status_code=409, detail="A test sound is already playing on this speaker")
         for session in session_manager.list():
