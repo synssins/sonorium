@@ -41,6 +41,18 @@ public partial class App : Application
         icon.SettingsChanged += () => ui.TryEnqueue(() => icon.SetIcon(TrayIconImage()));
         state.Changed += () => icon.SetTip(state.Running ? "Sonorium is running" : "Sonorium is stopped");
 
+        // General's "Open Sonorium in my browser when it starts": once, when it first answers
+        if (state.Settings.OpenBrowserOnStart)
+        {
+            void OpenOnce()
+            {
+                if (!state.Running) return;
+                state.Changed -= OpenOnce;
+                Actions.OpenSonorium();
+            }
+            state.Changed += OpenOnce;
+        }
+
         Updater.Start();
         var startArgs = Environment.GetCommandLineArgs();
         if (startArgs.Contains("--settings")) Actions.ShowConsole("Status");
