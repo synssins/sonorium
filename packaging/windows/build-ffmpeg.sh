@@ -44,11 +44,12 @@ mkdir -p "$SRC/zlib-static"
 cp "${MINGW_PREFIX:-/ucrt64}/lib/libz.a" "$SRC/zlib-static/"
 
 # Same flags as build.sh, except: no rpath (Windows finds DLLs beside the
-# module), zlib static (above), and static libgcc so the DLLs need no MinGW
-# runtime DLLs.
+# module), zlib static (above), Windows' own threads instead of MinGW's
+# pthreads, and static libgcc, so the DLLs need no MinGW runtime DLLs.
 ./configure \
     --prefix="$PREFIX" \
     --target-os=mingw32 --arch=x86_64 \
+    --disable-pthreads --enable-w32threads \
     --enable-shared --disable-static \
     --disable-gpl --disable-nonfree \
     --disable-autodetect --enable-zlib \
