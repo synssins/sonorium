@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.1-dev.4 (2026-10-12)
+
+### Features
+
+- **api**: /api/info started_at; ci: FFmpeg licence check also reads the configure flags
+  ([`cba56c9`](https://github.com/synssins/sonorium/commit/cba56c9676b00009fea5b81ee000edebb76e9570))
+
+
 ## v1.7.1-dev.2 (2026-10-12)
 
 ### Documentation
