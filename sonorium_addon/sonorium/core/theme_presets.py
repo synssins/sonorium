@@ -98,6 +98,11 @@ def _theme_changed(folder: Path) -> None:
     events.publish_later(f"theme.changed:{folder}", 1.0, "theme.changed", data)
 
 
+def theme_changed(folder: Path) -> None:
+    """Announce a change to a theme's files that writes neither metadata.json nor presets.json (e.g. an upload over a file)."""
+    _theme_changed(Path(folder))
+
+
 def keep_broken(path: Path) -> Optional[Path]:
     """Rename a broken file to '<name>.broken-<YYYYMMDD-HHMMSS>'; None if it couldn't be renamed."""
     path = Path(path)

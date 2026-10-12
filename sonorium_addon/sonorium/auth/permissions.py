@@ -192,6 +192,12 @@ POST    /api/themes/{theme_id}/upload                   th.upload
 PUT     /api/themes/{theme_id}/metadata                 th.edit
 DELETE  /api/themes/{theme_id}                          th.upload
 GET     /api/themes/{theme_id}/export                   th.view
+# Theme packages for offline playback (web/theme_package_routes.py; the listing is in api.py)
+GET     /api/themes/packages                            th.view
+GET     /api/themes/{theme_id}/package                  th.view
+GET     /api/themes/{theme_id}/files/{path:path}        th.view
+# a reference render runs the engine on the server's CPU: admins only (their phones, the console credential)
+POST    /api/themes/{theme_id}/render                   admin.plugins
 POST    /api/themes/import                              th.upload
 
 GET     /api/channels                                   ch.view

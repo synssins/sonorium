@@ -23,7 +23,7 @@ Related documents: [AUTH.md](AUTH.md) (sign-in, roles, keys),
 7. [Remote control](#7-remote-control)
 8. [Live updates](#8-live-updates)
 9. [Listening on the phone and casting](#9-listening-on-the-phone-and-casting)
-10. [Theme packages for Pro](#10-theme-packages-for-pro)
+10. [Theme packages for offline playback](#10-theme-packages-for-offline-playback)
 11. [Errors, rate limits, versions](#11-errors-rate-limits-versions)
 12. [The app's interface: the same UI as the server](#12-the-apps-interface-the-same-ui-as-the-server)
 13. [Gaps the app will hit](#13-gaps-the-app-will-hit)
@@ -614,7 +614,7 @@ middleware refuses before the handler runs. The app reads its own list from
 | `ch.change` | Theme, preset, volume, name of a channel; speakers muted (also `sp.mute`) |
 | `ch.speakers` | Change a channel's speakers or speaker group |
 | `ch.add` | Create and delete channels |
-| `th.view` | Themes, tracks, presets, categories, track audio, theme export |
+| `th.view` | Themes, tracks, presets, categories, track audio, theme export, theme packages (10) |
 | `th.edit` | Track mixer, presets, groups, categories, favorites, rename |
 | `th.upload` | Create, upload into, import, delete themes |
 | `pl.view` / `pl.run` / `pl.edit` | Sequences and playlists: see / run on a channel / create and edit |
@@ -626,7 +626,7 @@ middleware refuses before the handler runs. The app reads its own list from
 | `pg.use` | Plugin list, plugin pages and actions |
 | `tr.run` | Plugin webhook triggers |
 | `an.send` | Announcements and sounds over channels (`/api/announce`, `/api/sounds`); Admins only by role |
-| `admin.plugins` | Install, enable, configure plugins; schedules |
+| `admin.plugins` | Install, enable, configure plugins; schedules; the reference render (10.3) |
 | `admin.connection` | Settings › Connection (HA URL and token, MQTT) |
 | `admin.users`, `admin.keys`, `self` | Users, keys, own devices: **never** on a phone |
 | `device` | Only a linked phone (the sign-in code) |
@@ -818,6 +818,8 @@ left); don't show it as a listener count.
 | `PUT /themes/{id}/tracks/{key}/{presence|muted|volume|playback_mode|seamless_loop|fades|ebb|exclusive}` | th.edit, **Admin** | Changes the theme's own track settings (every channel on it). *(code only)* |
 | `POST /themes/create`, `/themes/{id}/upload`, `/themes/import`, `DELETE /themes/{id}`, `PUT /themes/{id}/metadata` | th.upload / th.edit, **Admin** | Theme management; leave it to the web UI |
 | `GET /themes/{id}/export` | th.view | zip (section 10) |
+| `GET /themes/packages`, `GET /themes/{id}/package`, `GET /themes/{id}/files/{path}` | th.view | Theme packages (section 10) |
+| `POST /themes/{id}/render` | admin only | Reference render, WAV (10.3) |
 
 Theme summary (`GET /themes`):
 
@@ -1301,7 +1303,7 @@ data: {"id": 11, "boot_id": "54615c1e5e5d4331a7b9cd713cd45918", "type": "channel
 | `speaker.added` / `speaker.removed` | `speaker_id`, `name` (+ `type` on added) | Refetch speakers |
 | `speaker.unavailable` / `speaker.available` | `speaker_id`, `name` | Grey out / restore |
 | `theme.created` | `theme_id`, `folder` | Refetch themes |
-| `theme.changed` | `theme_id` (may be null), `folder` | Refetch that theme's presets and sequences |
+| `theme.changed` | `theme_id` (may be null), `folder` | Refetch that theme's presets and sequences; recheck theme packages' `content_hash` (10.4) |
 | `theme.deleted` | `theme_id` | Remove it |
 | `plugin.enabled` / `plugin.disabled` | `plugin_id`, `name` | If `users`: refetch `/api/info` and `/api/auth/me` |
 | `schedule.fired`, `trigger.received`, `error` | see PLUGIN_DEVELOPMENT.md | `error` can be shown as an in-app message |
@@ -1508,52 +1510,180 @@ new `boot_id`); report again.
 
 ---
 
-## 10. Theme packages for Pro
+## 10. Theme packages for offline playback
 
-### 10.1 What exists
+A client that keeps its own copy of a theme (to play it without the server)
+downloads it as a **package**: a list of files with their sizes and SHA-256,
+then each file on its own. The package is exactly what the zip export holds,
+file for file. Code: `sonorium/core/theme_package.py`,
+`sonorium/web/theme_package_routes.py`.
 
-`GET /api/themes/{id}/export` · th.view (every phone) · answer
-`application/zip`, `Content-Disposition: attachment; filename="<folder>.zip"`.
+### 10.1 What a package holds
 
-- Contents: `<folder>/` with every file of the theme folder (audio, group
-  subfolders, `ATTRIBUTION.md`, `MANIFEST.json`, anything else), linked files
-  from other themes copied in at their place, and freshly written
-  `metadata.json` (2.0 layout) and `presets.json`. Backup files of those two
-  are left out.
-- Built in memory, then streamed: **no `Content-Length`**, no ETag, no
-  checksum, no Range/resume, no version. A large theme costs its whole size
-  in server RAM during the download.
-- **Bug found:** the route looks for themes only in `/media/sonorium` and
-  `/share/sonorium`, ignoring the configured audio folder. It works on the
-  add-on and Docker (whose folder is `/media/sonorium`), but answers 404
-  `"Theme '<id>' not found"` on the Windows and Linux installs. The same
-  lookup is used by theme upload, delete, metadata edit and import.
-- Per-file download exists: `GET /api/themes/{id}/tracks/{key}/audio`
-  (th.view, `FileResponse`, which supports `Range` and sends
-  `Content-Length`/`ETag`/`Last-Modified`). It covers audio only, not the
-  JSON files or linked files.
-- Preset JSON: `GET /api/themes/{id}/presets/{pid}/export`.
-- Theme format: [THEME_FORMAT.md](THEME_FORMAT.md) (spec v2, `spec_version: 2`).
+- Every file in the theme folder: audio, group subfolders, `ATTRIBUTION.md`,
+  `MANIFEST.json`, anything else. Left out: the theme's own `metadata.json`
+  and `presets.json` and their backup or broken copies
+  (`metadata.json.bak`, `presets.json.broken-…`).
+- Each **linked file** (it lives in another theme's folder) at the path it
+  has in this theme: `<key><.ext>`, inside its group's folder when it has
+  one (`Low/Drone.wav`). Its bytes are the source theme's file.
+- `metadata.json` and `presets.json` **as exported**: the 2.0 layout, the
+  links dropped (their settings stay under the same keys), written as JSON
+  with an indent of 2, UTF-8, non-ASCII characters as they are.
 
-### 10.2 Licence and source
+Paths use `/` and are relative to the theme folder.
 
-Not in any API response. They live only in files inside the theme folder,
-which arrive in the zip:
+### 10.2 The content hash
 
-- `MANIFEST.json` (optional): `source` {`site`, `url`, `template_id`,
-  `creator`, `harvested_at`} and `license` {`name`, `url`,
-  `requires_attribution`} (THEME_FORMAT.md 6.4).
-- `ATTRIBUTION.md` (optional, human-readable).
-- `metadata.json` `attribution` / `description` (free text).
+```
+content_hash = "sha256:" + hex(SHA-256(UTF-8(lines)))
+lines        = for each file, sorted by path: path + "\t" + size + "\t" + sha256 + "\n"
+```
 
-The app can only learn a theme's licence by downloading it first. The three
-bundled themes are CC Sampling Plus 1.0 (ambient-mixer.com) until replaced.
+- Sorted by path as Unicode code points (the same order as sorting the UTF-8
+  bytes; not a locale collator).
+- `size`: bytes, decimal, no padding. `sha256`: the file's SHA-256, lowercase
+  hex. The result is `sha256:` and 64 lowercase hex digits.
 
-### 10.3 What's missing
+The same files give the same hash on every server; any change to any byte,
+any name, any file added or removed gives a new one (settings too: they are
+in `metadata.json` and `presets.json`). A copy is current when its hash
+equals the listing's.
 
-Gaps P1-P4 in section 13: a package listing with size, content hash, spec
-version and licence; a manifest with per-file checksums; resumable per-file
-download of every file; and the export path bug.
+The server keeps each file's SHA-256 in memory with its size and
+modification time and works it out again only when one of them changes, so
+the listing reads only what changed since the last time.
+
+### 10.3 Routes
+
+**List every theme.** `GET /api/themes/packages` · th.view
+
+```json
+{"packages": [
+  {"theme_id": "df297db5-a98d-4372-8029-2c49d1e280e4", "name": "Tavern", "spec_version": 2,
+   "content_hash": "sha256:436fcf22b1c30111cc71c47518aaabcaf96703074aa6cb8861ab92005149a160",
+   "size_bytes": 4463664, "file_count": 12, "track_count": 8,
+   "updated_at": "2026-10-12T12:57:38.441712+00:00",
+   "license": {"name": "Creative Commons Sampling Plus 1.0",
+               "url": "https://creativecommons.org/licenses/sampling+/1.0/", "requires_attribution": true},
+   "source": {"site": "ambient-mixer.com", "url": "https://rpg.ambient-mixer.com/d-d-fantasy-inn-pub-tavern",
+              "template_id": "2905", "creator": "", "harvested_at": "2025-12-14T15:09:58.276253"},
+   "redistributable": true}
+]}
+```
+
+- Sorted by name. `track_count`: the theme's audio tracks, linked files
+  included. `updated_at`: the newest modification time of the package's
+  files (UTC).
+- `license` and `source`: the objects in the theme's `MANIFEST.json` as they
+  are (THEME_FORMAT.md 6.4), or `null`.
+- `redistributable`: `license.redistributable` when `MANIFEST.json` sets it;
+  otherwise `true` for Creative Commons and public-domain licences, `false`
+  for "All rights reserved" and proprietary ones, `null` (unknown) for any
+  other licence or none.
+
+**One theme's package.** `GET /api/themes/{id}/package` · th.view
+
+```json
+{"theme_id": "df297db5-a98d-4372-8029-2c49d1e280e4", "name": "Tavern", "spec_version": 2,
+ "content_hash": "sha256:436fcf22b1c30111cc71c47518aaabcaf96703074aa6cb8861ab92005149a160",
+ "size_bytes": 4463664,
+ "files": [
+   {"path": "ATTRIBUTION.md", "size": 1619, "sha256": "441f840fa0cca87759037157b831b01e6ec7542975becd5a2c34858d7cb1ba71"},
+   {"path": "fireplace_663.mp3", "size": 259951, "sha256": "07820aba53a09bb4a541dd4b0ae7b9d73e50ff29a2f907e7b41b9eeed3a783e7"},
+   {"path": "metadata.json", "size": 6596, "sha256": "718483a1d27d9609834f9ec4c88881a798dd2c2fc270d27458bc59eff6b10d6e"},
+   {"path": "presets.json", "size": 1942, "sha256": "fa29b7180811abca1017a5a333e82fbd8b2b4dddb77711920fa392180282fdfd"}
+ ],
+ "metadata": {"spec_version": 2, "id": "df297db5-…", "name": "Tavern", "tracks": {…}, "groups": {…}, …},
+ "presets": {"presets": {…}},
+ "playback_values": {"sparse_min_interval": 180.0, "sparse_max_interval": 1800.0, "group_gap": 120.0, …}}
+```
+
+(`files` shortened: Tavern has 12.) `files` is sorted by path. `metadata`
+and `presets` are the exported documents, the same content as the
+`metadata.json` and `presets.json` files. `playback_values`: the server's
+Settings › Advanced values now (every key, as `GET
+/api/settings/playback-values` `values`; 7.8); store them with the package
+so the copy plays as it does on this server.
+
+**One file.** `GET /api/themes/{id}/files/{path}` · th.view
+
+- `{path}` is a `path` from `files`, URL-encoded per segment
+  (`Lute/Lute%20song%201.mp3`). Anything not in the list is 404; the path is
+  only ever looked up in the list, so it can't reach other files.
+- Answers: `ETag: "<sha256>"`, `Content-Length`, `Accept-Ranges: bytes`,
+  `Cache-Control: no-cache`; `Content-Type` by extension (`audio/mpeg`,
+  `audio/wav`, `audio/flac`, `audio/ogg`, `application/json`, `text/markdown`,
+  else `application/octet-stream`).
+- `Range: bytes=a-b`, `bytes=a-`, `bytes=-n`: 206 with `Content-Range`;
+  a range past the end: 416 with `Content-Range: bytes */<size>`. Several
+  ranges in one header: the whole file (200).
+- `If-Range: "<sha256>"` with a Range: the range only while the file is
+  still that one, else the whole file (200). `If-None-Match: "<sha256>"`:
+  304 while unchanged.
+- To resume after a drop: `Range: bytes=<bytes you have>-` with `If-Range`
+  set to the ETag of the first part. Check every file's SHA-256 against the
+  list when it is complete.
+
+**The zip, for people.** `GET /api/themes/{id}/export` · th.view · answer
+`application/zip`, `Content-Disposition: attachment; filename="<folder>.zip"`,
+`Content-Length`. Holds `<folder>/<path>` for every file of the package.
+Written to a temporary file first (deleted after sending), so its size is
+known and the server doesn't hold the theme in memory. The theme is found
+in the configured audio folder on every install.
+
+**Reference render.** `POST /api/themes/{id}/render` · admin only (perm
+`admin.plugins`: an Admin, an Admin's phone, the console credential; never a
+User or a key)
+
+```
+{"preset_id": "busy", "seconds": 30, "seed": 42}     → 200 audio/wav, Content-Length
+```
+
+- The theme mixed by `sonorium.engine` (docs/ENGINE.md): mono, 44 100 Hz,
+  16-bit PCM WAV, `seconds × 44100` samples. Same theme files, values, preset
+  and seed: the same bytes every time.
+- `preset_id`: omitted or `null` = the theme's default preset; `""` = no
+  preset. `seconds`: 1 to 120 (default 30). `seed`: integer (default 0).
+  `master_gain`: optional, 0-100 (default 60, the out-of-the-box Master
+  output gain). Playback values: the server's current Settings › Advanced
+  values (the package's `playback_values`).
+- A downloaded copy rendered with the engine, the package's
+  `playback_values` and the same preset, seed and master gain gives the same
+  bytes: compare a client's own mixer with it.
+- 400 bad body; 404 unknown theme or preset; 422 a theme with no audio;
+  429 with `Retry-After` past the limit (11.2) or while another render runs.
+
+### 10.4 Knowing when to download again
+
+Compare each theme's `content_hash` in `GET /api/themes/packages` with the
+stored copy's. Check again on these events (8.2):
+
+- `theme.changed` (`theme_id`, `folder`): settings or presets saved, a file
+  uploaded (also over an existing one), a group or track moved, a link added
+  or removed. Recheck that theme.
+- `theme.created`: a new theme. `theme.deleted`: gone.
+- `sonorium.started`, and after reconnecting the event stream (8.3): recheck
+  every theme (files copied into a theme folder by hand while the server
+  runs announce nothing).
+
+A linked file changes with its source theme: a `theme.changed` for the
+source can change the hash of every theme linking to it, so recheck the
+listing as a whole.
+
+### 10.5 Licence and source
+
+From the theme's `MANIFEST.json` (optional): `source` {`site`, `url`,
+`template_id`, `creator`, `harvested_at`} and `license` {`name`, `url`,
+`requires_attribution`, optional `redistributable`} (THEME_FORMAT.md 6.4),
+in the listing as above. `ATTRIBUTION.md` (optional, human-readable) and
+`metadata.json` `attribution` / `description` (free text) come with the
+files. The three bundled themes are CC Sampling Plus 1.0
+(ambient-mixer.com).
+
+Theme format: [THEME_FORMAT.md](THEME_FORMAT.md) (spec v2,
+`spec_version: 2`). Preset JSON on its own: `GET
+/api/themes/{id}/presets/{pid}/export`.
 
 ---
 
@@ -1602,6 +1732,7 @@ Exceptions to watch:
 | `POST /api/pair` | burst 5, then 1 per 12 s; **every** attempt counts, successful or not | client IP | 429, `Retry-After: <s>` |
 | `POST /api/pair/login` (and browser sign-ins) | 5 failures, then 1 per 12 s; successes don't count | client IP | 429, `Retry-After` |
 | `POST /api/devices/recovery-code` | burst 3, then 1 per minute | phone | 429, `Retry-After` |
+| `POST /api/themes/{id}/render` | burst 3, then 1 per 20 s; one render at a time on the server | user, phone or key, else client IP | 429, `Retry-After` |
 | `GET /api/events/stream` | 20 open streams per server | | 503 |
 | Everything else | none | | |
 
@@ -2075,57 +2206,49 @@ offline engine needn't answer them.
 hooks in the web UI, and `/api/info` → `"ui": {"version": "1.6.2-dev.24",
 "host_api": 1}`.
 
-### Pro
+### Offline playback
 
-**P1. Theme package listing.**
+Built on branch `theme-packages`: P1-P6 (section 10).
+
+**P1. Theme package listing. Built** (10.3).
 
 ```
 GET /api/themes/packages   perm: th.view
-→ {"packages": [{"theme_id", "name", "spec_version": 2, "content_hash": "sha256:…", "size_bytes", "file_count",
-                 "track_count", "updated_at",
-                 "license": {"name", "url", "requires_attribution"} | null,
-                 "source": {"site", "url", "creator"} | null,
+→ {"packages": [{"theme_id", "name", "spec_version", "content_hash": "sha256:…", "size_bytes", "file_count",
+                 "track_count", "updated_at", "license": {…} | null, "source": {…} | null,
                  "redistributable": true | false | null}]}
 ```
 
-`content_hash` is the SHA-256 over the sorted manifest lines (P2), so the
-app can tell whether its offline copy is current. `license`/`source` come
-from `MANIFEST.json`; `redistributable` lets the app refuse to offer themes
-whose licence forbids it.
-
-**P2. Manifest with checksums.**
+**P2. Package with checksums. Built** (10.1-10.3).
 
 ```
 GET /api/themes/{id}/package   perm: th.view
-→ {"theme_id", "spec_version", "content_hash", "files": [{"path": "Lute/Lute song 1.mp3", "size", "sha256"}],
-   "metadata": {...metadata.json as exported...}, "presets": {...presets.json...}}
+→ {"theme_id", "name", "spec_version", "content_hash", "size_bytes", "files": [{"path", "size", "sha256"}],
+   "metadata": {…as exported…}, "presets": {…}, "playback_values": {…}}
 ```
 
-Linked files appear at their exported path, as in the zip.
+Linked files appear at their exported path, as in the zip. The hash is
+defined in 10.2.
 
-**P3. Resumable per-file download.**
+**P3. Resumable per-file download. Built** (10.3).
 
 ```
 GET /api/themes/{id}/files/{path}   perm: th.view
-    Range supported, ETag = the file's sha256, Content-Length set; 404 for paths not in the manifest
+    Range, If-Range, If-None-Match; ETag = "<sha256>"; Content-Length; 404 for paths not in the package
 ```
 
-The app downloads files in parallel, verifies each sha256, and resumes
-after a drop. The zip export stays for people.
+**P4. Export lookup and streaming. Built** (10.3). The theme is found in the
+configured audio folder; the zip is written to a temporary file and sent
+with `Content-Length`.
 
-**P4. Fix the export lookup.** Use the configured audio folder
-(`SONORIUM__PATH_AUDIO` / the theme registry) in `_find_theme_folder`,
-theme create, upload, delete and import, and stream the zip from a temp file
-with `Content-Length` instead of building it in memory.
+**P5. Reference render. Built** (10.3).
 
-**P5. Golden render hook** (PLAN-mobile-api.md §6 / THEME_FORMAT.md):
-`POST /api/themes/{id}/render {"preset_id", "seconds": 30, "seed": 42}` →
-`audio/wav` of the mix with a fixed RNG, Admin or a debug switch only, so the
-Kotlin mixer can be compared with the server's.
+```
+POST /api/themes/{id}/render   admin only   {"preset_id", "seconds": 1..120, "seed", "master_gain"?}
+→ audio/wav, mono 44.1 kHz 16-bit; rate-limited (11.2)
+```
 
-**P6. Advanced values per server.** Already readable (7.8); Pro should store
-them with each downloaded theme package (`P2` could include them as
-`"playback_values"`).
+**P6. Advanced values per server. Built** (10.3): `playback_values` in P2.
 
 ---
 
@@ -2196,8 +2319,12 @@ Not run:
 - **The add-on** (ingress port, Supervisor addresses, port mappings) and
   **Docker**: from code. The live NAS server's `/api/info` and mDNS
   announcement were read.
-- **Theme export zip**: 404 on the Windows test server (the path bug, 10.1);
-  the zip layout is from the code.
+- **Theme packages** (10): a bundled theme (Tavern) downloaded file by file
+  through the package routes from a local server, every SHA-256 and the
+  content hash checked, one file resumed with `Range`/`If-Range`, the folder
+  rebuilt and rendered with `sonorium.engine`: the same WAV bytes as the
+  server's `POST /render` with the same seed. The zip export answered with
+  `Content-Length`.
 - **Sequences, playlists, `sequence.step` / `playlist.entry` events**: the
   bundled themes have no sequences; shapes from code and PLAYBACK.md.
 - Theme, preset and track editing routes (Admin, web UI territory): from

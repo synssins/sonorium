@@ -196,6 +196,8 @@ class WebApp:
             # Theme API
             Route("GET", "/api/themes", self.list_themes),
             Route("POST", "/api/themes/refresh", self.refresh_themes),
+            # Before /api/themes/{theme_id}, which would take "packages" as an id
+            Route("GET", "/api/themes/packages", self.list_theme_packages),
             Route("POST", "/api/themes/{theme_id}/favorite", self.toggle_favorite),
             Route("GET", "/api/themes/{theme_id}", self.get_theme),
 
@@ -1712,6 +1714,13 @@ class WebApp:
 
         self._theme_refresh_task = asyncio.get_running_loop().create_task(refresh_later())
         return self._theme_refresh_task
+
+    async def list_theme_packages(self):
+        """Every theme as a package for offline playback: content hash, size, file and track counts, licence."""
+        from starlette.concurrency import run_in_threadpool
+        from sonorium.core.theme_package import list_packages
+        from sonorium.paths import audio_dir
+        return {"packages": await run_in_threadpool(list_packages, audio_dir())}
 
     async def refresh_themes(self):
         """Rescan theme folders and reload themes."""
