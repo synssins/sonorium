@@ -99,6 +99,10 @@ class Channels:
         return self.channels.get(channel_id)
 
     def get_available_channel(self):
+        # Asking twice (Max channels' check, then the assignment) gives the same unused channel
+        unused = next((c for c in self.channels.values() if not c.calls), None)
+        if unused is not None:
+            return unused
         channel = Channel(len(self.channels) + 1)
         self.channels[channel.id] = channel
         return channel
