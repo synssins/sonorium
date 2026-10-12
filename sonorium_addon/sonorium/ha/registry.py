@@ -16,6 +16,7 @@ from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
 from sonorium import http_client as http
+from sonorium.core.speaker_settings import estimated_sync_ms, sync_ms
 from sonorium.obs import logger
 
 # Try to import websockets, fall back gracefully if not available
@@ -76,6 +77,10 @@ class Speaker:
     # speaker: [{"id": "net:dlna:x", "type": "dlna", "source": "discovered"}]
     merged: list[dict] = field(default_factory=list)
     play_via: str = "ha"
+    # Sync: how far behind the mixer it plays, ms (its setting, else the
+    # estimate for its type; core/speaker_settings.py)
+    sync_ms: int = 0
+    sync_estimate_ms: int = 0
     # A plugin's audio output device (type "output"): its live details, a
     # dict core/audio_outputs.py keeps up to date (type, device, api, error, ...)
     output: Optional[dict] = None
@@ -98,6 +103,8 @@ class Speaker:
             "volume_offset": self.volume_offset,
             "merged": [dict(m) for m in self.merged],
             "play_via": self.play_via,
+            "sync_ms": self.sync_ms,
+            "sync_estimate_ms": self.sync_estimate_ms,
         }
         if self.output is not None:
             result["output"] = dict(self.output)
@@ -439,6 +446,8 @@ class HARegistry:
             speaker.volume_offset = int(overrides.get("volume_offset", 0) or 0)
             play_via = overrides.get("play_via")
             speaker.play_via = play_via if any(m["id"] == play_via for m in speaker.merged) else "ha"
+            speaker.sync_estimate_ms = estimated_sync_ms(speaker.type)
+            speaker.sync_ms = sync_ms(overrides, speaker.type)
 
         previous, had_speakers = getattr(self, "_speakers", None) or {}, getattr(self, "_speakers_known", False)
         self._speakers = speakers

@@ -283,6 +283,11 @@ class WebApp:
             # Settings > Advanced's playback values: the mixer reads them from the store
             from sonorium import playback_values
             playback_values.set_source(lambda: self._state_store.settings.playback_values)
+            # Plugin attribute schemas live in state.json: known before themes and plugins load
+            from sonorium.core import plugin_data
+            plugin_data.registry.bind(lambda: self._state_store.settings.plugin_attributes,
+                                      save=self._state_store.save,
+                                      limit=lambda: playback_values.get(plugin_data.LIMIT_SETTING))
             # Settings > Advanced > Keys and Announcements (core features, on out of the box)
             from sonorium.auth import keys as core_keys
             from sonorium.core import announce as core_announce

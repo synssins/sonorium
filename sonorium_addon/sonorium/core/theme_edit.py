@@ -246,7 +246,12 @@ def reset_tracks(theme=None, metadata: Optional[tm.ThemeMetadata] = None) -> Non
             inst.fade_in = inst.fade_out = 0.0
             tm.reset_ebb_settings(inst)
     if metadata is not None:
-        metadata.tracks = {key: tm.TrackSettings(muted=True) for key in (metadata.links or {})}
+        fresh = {key: tm.TrackSettings(muted=True) for key in (metadata.links or {})}
+        # Plugin attributes aren't mix settings: a reset keeps them (core/plugin_data.py)
+        for key, settings in (metadata.tracks or {}).items():
+            if getattr(settings, "plugins", None):
+                fresh.setdefault(key, tm.TrackSettings()).plugins = settings.plugins
+        metadata.tracks = fresh
 
 
 # --- groups ---------------------------------------------------------------------

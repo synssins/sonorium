@@ -339,6 +339,10 @@ PUT     /api/plugins/{plugin_id}/connections/{connection_id}        admin.plugin
 POST    /api/plugins/{plugin_id}/connections/{connection_id}/test   admin.plugins
 
 GET     /api/plugin-framework                           pg.use|admin.plugins
+# plugin attributes: the route checks the ability for the object's kind (web/plugin_framework_api.py)
+GET     /api/attributes                                 th.view|ch.view|sp.view|admin.plugins
+GET     /api/attributes/{kind}                          th.view|ch.view|sp.view|self|admin.users
+PUT     /api/attributes/{kind}/{plugin_id}              th.edit|ch.change|sp.set|self|admin.users
 GET     /api/plugins/{plugin_id}/packages               admin.plugins
 GET     /api/alerts                                     st.view
 POST    /api/alerts/{alert_id}/dismiss                  st.view

@@ -322,6 +322,13 @@ CATALOGUE: dict[str, dict] = {
         "fields": {"plugin_id": "Plugin id", "name": "Plugin name"},
         "summary": "Plugin disabled: {name}",
     },
+    "attribute.changed": {
+        "description": "A plugin's attributes on an object changed (plugins/attributes.py).",
+        "fields": {"kind": "theme, track, file, preset, channel, speaker or user", "id": "The object's id",
+                   "theme_id": "Its theme (track, file and preset only)", "plugin_id": "Whose attributes",
+                   "keys": "The attribute names sent, or null when all of the plugin's were removed"},
+        "summary": "{plugin_id} attributes changed on {kind} {id}",
+    },
     "schedule.fired": {
         "description": "A scheduled job ran.",
         "fields": {"plugin_id": "Plugin id", "job_id": "Job id", "name": "Job name", "data": "Job data",

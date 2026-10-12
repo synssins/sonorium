@@ -168,7 +168,8 @@ def test_compat_check_messages():
     assert check({"name": "Old"}) is None                                  # no api_version: 1.0
     assert check({"name": "X", "api_version": "1.1"}) is None
     assert check({"name": "X", "api_version": "1.2"}) is None
-    assert "needs plugin API 1.9; this Sonorium has 1.2" in check({"name": "X", "api_version": "1.9"})
+    assert check({"name": "X", "api_version": "1.3"}) is None
+    assert "needs plugin API 1.9; this Sonorium has 1.3" in check({"name": "X", "api_version": "1.9"})
     assert "needs plugin API 2.0" in check({"name": "X", "api_version": "2.0"})
     assert "plugin API 0.x" in check({"name": "X", "api_version": "0.3"})
     assert "can't read" in check({"name": "X", "api_version": "one"})
@@ -344,7 +345,8 @@ def test_announce_route(w):
     assert c.post("/api/announce", json={"channels": 5, "text": "x"}).status_code == 400
     assert c.post("/api/announce", json={"channels": "all", "url": "ftp://x"}).status_code == 400
     info = c.get("/api/plugin-framework").json()
-    assert info["api_version"] == "1.2" and "audio.sounds" in info["offered"]
+    assert info["api_version"] == "1.3" and "audio.sounds" in info["offered"]
+    assert "attributes" in info["offered"]
     assert info["tts_providers"] == [{"id": "homeassistant", "title": "Home Assistant", "plugin_id": None}]
 
 

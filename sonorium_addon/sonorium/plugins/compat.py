@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from typing import Iterable, Optional
 
-API_VERSION = "1.2"
+API_VERSION = "1.3"
 API_MAJOR, API_MINOR = (int(p) for p in API_VERSION.split("."))
 
 # capability -> (the API version it came with, what it is)
@@ -44,6 +44,7 @@ CAPABILITIES: dict[str, tuple[str, str]] = {
     "homeassistant": ("1.1", "Call Home Assistant's API"),
     "packages.pip": ("1.1", "Install Python packages (Settings > Advanced > Plugin packages)"),
     "packages.binaries": ("1.1", "Ship programs per platform (e.g. ffmpeg)"),
+    "attributes": ("1.3", "Declared attributes on themes, tracks, files, presets, channels, speakers and users"),
 }
 
 _VERSION = re.compile(r"^\s*(\d+)\.(\d+)\s*$")

@@ -45,6 +45,8 @@ DEFAULTS: dict[str, float] = {
     "wake_wait": 20.0,                  # A stopped channel: longest wait for its speakers to connect
     "wake_lead": 1.0,                   # ... then this long before the sound
     "wake_tail": 1.0,                   # ... and this long after it before they stop
+    # Plugin attributes: bytes per plugin per object (0: no limit; core/plugin_data.py)
+    "plugin_data_limit": 4096.0,
 }
 
 # (min key, max key): the min may not be above the max

@@ -255,6 +255,11 @@ def test_now_playing_lists_only_playing_channels(tmp_path):
         assert section["title"] == "Background"
         assert [(r["name"], r["state"], r["now"]) for r in section["rows"]] == [("Rain", "on", "Playing")]
 
+        # The speaker's own Sync replaces the estimate for its type
+        t.store.settings.speaker_settings["media_player.x"] = {"sync": 4200}
+        assert client.get("/api/now-playing").json()["channels"][0]["buffer_seconds"] == 4.2
+        t.store.settings.speaker_settings.pop("media_player.x")
+
         # Speakers muted: what is heard is a browser's, if any; no speaker buffer
         t.manager.set_speakers_muted(t.session.id, True)
         assert client.get("/api/now-playing").json()["channels"][0]["buffer_seconds"] == 0.0

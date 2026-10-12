@@ -245,6 +245,22 @@ class BasePlugin(ABC):
     def actions(self, value):
         self._actions_override = value
 
+    # Attributes on Sonorium's objects (plugins/attributes.py, core/plugin_data.py)
+
+    def get_attributes(self) -> dict:
+        """
+        The attributes the plugin keeps on Sonorium's objects: {object class:
+        {name: field}}, classes theme, track, file, preset, channel, speaker,
+        user. Declared for it when it loads, before on_load. Default: the
+        manifest's "attributes".
+        """
+        return dict((getattr(self, "_manifest", None) or {}).get("attributes") or {})
+
+    @property
+    def attributes(self):
+        """The plugin's attribute values on objects: declare(), schema(), get(ref), set(ref, values), clear(ref)."""
+        return self.host.attributes.for_plugin(self.id)
+
     # Events
 
     def subscribe(self, patterns, handler, **kwargs):

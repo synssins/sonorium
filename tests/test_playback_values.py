@@ -55,6 +55,7 @@ def test_defaults_without_a_store():
         "short_file_threshold": 15.0,
         "sound_max_length": 60.0, "duck_amount": 15.0, "duck_attack": 0.5, "duck_release": 1.5,
         "wake_wait": 20.0, "wake_lead": 1.0, "wake_tail": 1.0,
+        "plugin_data_limit": 4096.0,
     }
     # the old constants are the defaults
     r = m.recording

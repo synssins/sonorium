@@ -175,6 +175,17 @@ class PluginManager:
                 manifest["author"] = plugin.author
                 save_manifest(plugin_dir, manifest)
 
+            # Its attributes on Sonorium's objects (core/plugin_data.py): declared
+            # from the manifest or get_attributes(); a plugin may also declare in
+            # on_load. Kept while it is installed, switched on or off.
+            try:
+                declared = plugin.get_attributes()
+                if declared:
+                    from sonorium.core.plugin_data import registry as attribute_registry
+                    attribute_registry.declare(plugin.id, declared)
+            except Exception as e:
+                logger.error(f"Plugin {plugin.id}: attributes not declared: {e}")
+
             # Call on_load hook
             await plugin.on_load()
 

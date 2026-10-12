@@ -18,6 +18,7 @@ The plugin host: the services Sonorium gives every plugin, in one place.
     mqtt           the MQTT broker for plugins (mqtt.py)
     homeassistant  Home Assistant's API (homeassistant.py), when configured
     packages       plugins' Python packages (packages.py)
+    attributes     plugin attributes on core objects (attributes.py, core/plugin_data.py)
 
 Plugins reach these through versioned facades (services.py): self.audio,
 self.ramps, self.audio_outputs, self.commands, self.mqtt, self.homeassistant.
@@ -38,6 +39,7 @@ from typing import Callable, Optional
 from sonorium.obs import logger
 from sonorium.plugins import events
 from sonorium.plugins.actions import Actions
+from sonorium.plugins.attributes import AttributeService
 from sonorium.plugins.commands import CommandMaps
 from sonorium.plugins.mqtt import MqttRouter
 from sonorium.plugins.packages import Packages
@@ -76,6 +78,7 @@ class PluginHost:
         # Settings > Advanced > Plugin packages (api.py points this at the setting)
         self.packages_allowed: Callable[[], bool] = lambda: False
         self.packages = Packages(self.store.folder / "plugin_packages", allowed=lambda: self.packages_allowed())
+        self.attributes = AttributeService(state_store, session_manager, auth, publish=self.bus.publish)
         self.manager = None  # the PluginManager, set by it
         self.on_change: Optional[Callable] = None  # async callback(session): Home Assistant entities
         self._job_callbacks: dict[tuple, Callable] = {}
@@ -94,7 +97,8 @@ class PluginHost:
     def capabilities(self) -> set:
         """What this Sonorium offers plugins now (compat.CAPABILITIES names)."""
         have = {"events", "actions", "scheduler", "triggers", "pages", "connections",
-                "commands", "mqtt", "homeassistant", "audio.tts", "packages.pip", "packages.binaries"}
+                "commands", "mqtt", "homeassistant", "audio.tts", "packages.pip", "packages.binaries",
+                "attributes"}
         if self.overlay is not None:
             have.add("audio.sounds")
         if self.ramps is not None:
@@ -164,7 +168,11 @@ class PluginHost:
             self.overlay.remove_gate(plugin_id)
 
     def plugin_removed(self, plugin_id: str) -> None:
-        """The plugin was uninstalled: its jobs, tokens, connection values, command maps and packages go too."""
+        """The plugin was uninstalled: its jobs, tokens, connection values, command maps, packages and attributes go too."""
+        try:  # its attribute schema, and its values on every object
+            self.attributes.forget_plugin(plugin_id)
+        except Exception as e:
+            logger.error(f"Plugin {plugin_id}: attributes not removed: {e}")
         self.bus.unsubscribe_owner(plugin_id)
         self._release_services(plugin_id)
         if self.outputs is not None:  # its audio output devices leave Settings > Speakers and the channels

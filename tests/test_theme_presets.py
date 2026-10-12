@@ -33,6 +33,7 @@ def mods():
         _exec("sonorium.theme_files", "theme_files.py")
         presets = _exec("sonorium.core.theme_presets", "core/theme_presets.py")
         core.theme_presets = presets
+        core.plugin_data = _exec("sonorium.core.plugin_data", "core/plugin_data.py")
         metadata = _exec("sonorium.core.theme_metadata", "core/theme_metadata.py")
         _exec("sonorium.core.state", "core/state.py")
         session = _exec("session_manager_under_test", "core/session_manager.py")

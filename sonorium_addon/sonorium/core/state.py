@@ -166,6 +166,11 @@ class SonoriumSettings:
     # sonorium/playback_values.py). Format: {"loop_crossfade": 2.0}
     playback_values: dict[str, float] = field(default_factory=dict)
 
+    # Plugin attribute schemas, kept while each plugin is installed (switched off
+    # too), so they are known before any plugin loads (core/plugin_data.py).
+    # Format: {"wled": {"track": {"cue": {"type": "enum", "options": [...]}}}}
+    plugin_attributes: dict[str, dict] = field(default_factory=dict)
+
     # Deleted builtin plugins (prevents auto-reinstall on startup)
     # When a user deletes a builtin plugin, its ID is added here so it won't be restored
     deleted_builtin_plugins: list[str] = field(default_factory=list)
@@ -356,7 +361,10 @@ class Session:
     # A personal channel's account ("user:<id>", "ha:<id>" or "local"; None for
     # every other channel): hidden, local only (core/session_manager.py)
     owner: Optional[str] = None
-    
+
+    # Plugin attributes on this channel: {plugin_id: {name: value}} (core/plugin_data.py)
+    plugins: dict = field(default_factory=dict)
+
     def __post_init__(self):
         if not self.created_at:
             self.created_at = datetime.utcnow().isoformat()

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request, UploadFile, File, Response
@@ -185,6 +185,10 @@ class SpeakerSettingsUpdateRequest(BaseModel):
     room: Optional[str] = None  # area ID, "" = no room, null = the speaker's own HA area
     volume_offset: Optional[int] = None  # percent, -20..+20
     play_via: Optional[str] = None  # "ha" or a merged network speaker ID
+    # Sync: ms the speaker plays behind the mixer (whole, >= 0); null = the estimate for its type
+    sync: Optional[Any] = None  # checked by clean_speaker_settings
+    # Plugin attributes: {plugin_id: {name: value or null} or null} (core/plugin_data.py)
+    plugins: Optional[dict] = None
 
 
 class ManualSpeakerRequest(BaseModel):
@@ -1490,7 +1494,11 @@ def create_api_router(
 
     @router.get("/speakers/{speaker_id}/settings")
     async def get_one_speaker_settings(speaker_id: str) -> dict:
-        """A speaker's saved settings (name, room, volume_offset, play_via) and how it looks with them."""
+        """
+        A speaker's saved settings (name, room, volume_offset, play_via, sync,
+        plugins) and how it looks with them (speaker.sync_ms: its Sync now;
+        speaker.sync_estimate_ms: the estimate for its type).
+        """
         return _speaker_settings_response(speaker_id)
 
     @router.put("/speakers/{speaker_id}/settings")
@@ -1737,7 +1745,9 @@ def create_api_router(
 
         settings = state_store.settings
         if request.room:
-            settings.speaker_settings[speaker.id] = {"room": request.room}
+            # (merged into what it has: its Sync and plugin attributes stay)
+            settings.speaker_settings[speaker.id] = {**(settings.speaker_settings.get(speaker.id) or {}),
+                                                     "room": request.room}
         # Added on purpose, so switch it on
         _set_speaker_enabled(speaker.id, True)
         state_store.save()
@@ -2537,11 +2547,15 @@ def create_api_router(
 
                 # Convert 1.0 themes and recover broken JSON files, then give
                 # the imported theme a new UUID to avoid conflicts
-                from sonorium.core.theme_metadata import load_theme_folder, save_theme_folder
+                from sonorium.core.theme_metadata import (
+                    drop_unknown_plugin_data, load_theme_folder, save_theme_folder,
+                )
                 import uuid
                 problems = []
                 new_id = None
                 try:
+                    # Plugin attributes of plugins this Sonorium doesn't have go (logged)
+                    drop_unknown_plugin_data(target_path)
                     metadata = load_theme_folder(target_path)
                     problems = list(metadata.problems)
                     metadata.id = str(uuid.uuid4())

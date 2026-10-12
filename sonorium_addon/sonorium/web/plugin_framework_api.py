@@ -16,6 +16,9 @@ Extensions      GET  /api/extensions
                 POST /api/plugins/{id}/pages/{page_id}/actions/{action}
                 GET|PUT /api/plugins/{id}/connections/{connection_id}
                 POST /api/plugins/{id}/connections/{connection_id}/test
+Attributes      GET  /api/attributes                 (every plugin's schema)
+                GET  /api/attributes/{kind}?id=..&theme=..
+                PUT  /api/attributes/{kind}/{plugin_id}?id=..&theme=..
 
 Paths for every plugin sit under /api/extensions, /api/schedules, ... and not
 under /api/plugins/..., where GET /api/plugins/{plugin_id} would catch them.
@@ -473,7 +476,76 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         return clean
 
     _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json)
+    _add_attribute_routes(router, _host, _json)
     return router
+
+
+# Who may read and change plugin attributes, by object kind (users: below)
+ATTRIBUTE_READ = {"theme": "th.view", "track": "th.view", "file": "th.view", "preset": "th.view",
+                  "channel": "ch.view", "speaker": "sp.view"}
+ATTRIBUTE_WRITE = {"theme": "th.edit", "track": "th.edit", "file": "th.edit", "preset": "th.edit",
+                   "channel": "ch.change", "speaker": "sp.set"}
+
+
+def _add_attribute_routes(router, _host, _json) -> None:
+    """Plugin attributes on core objects (plugins/attributes.py, core/plugin_data.py)."""
+    from sonorium.auth.middleware import principal_of
+    from sonorium.core.plugin_data import OBJECT_CLASSES, registry
+    from sonorium.plugins.actions import ActionError
+
+    def _ref(kind: str, request: Request) -> dict:
+        if kind not in OBJECT_CLASSES:
+            raise HTTPException(status_code=404, detail=f"Unknown object kind '{kind}' (one of {', '.join(OBJECT_CLASSES)})")
+        params = request.query_params
+        return {"kind": kind, "id": params.get("id") or "", "theme": params.get("theme")}
+
+    def _check(request: Request, ref: dict, write: bool) -> None:
+        """The caller's abilities for this kind of object (the route's own entry lets any of them in)."""
+        principal = principal_of(request)
+        kind = ref["kind"]
+        if kind == "user":
+            allowed = principal.can("admin.users") or (principal.can("self") and principal.user_id == ref["id"])
+        else:
+            allowed = principal.can((ATTRIBUTE_WRITE if write else ATTRIBUTE_READ)[kind])
+            if allowed and kind == "channel":
+                allowed = principal.can_channel(ref["id"])
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Not allowed")
+
+    def _guard(work):
+        try:
+            return work()
+        except ActionError as e:
+            raise HTTPException(status_code=ACTION_ERROR_STATUS.get(e.code, 400), detail=e.message)
+
+    @router.get("/attributes")
+    async def attribute_schemas():
+        """Every installed plugin's declared attributes: {plugin_id: {class: {name: field}}}, and the size limit."""
+        return {"classes": list(OBJECT_CLASSES), "limit": registry.limit(), "plugins": registry.declarations()}
+
+    @router.get("/attributes/{kind}")
+    async def get_attributes(kind: str, request: Request):
+        """An object's plugin attributes ({plugin_id: {name: value}}); ?id=...&theme=... name the object."""
+        ref = _ref(kind, request)
+        _check(request, ref, write=False)
+        service = _host().attributes
+        return {"kind": kind, "id": ref["id"], "theme": ref["theme"], "plugins": _guard(lambda: service.get(ref))}
+
+    @router.put("/attributes/{kind}/{plugin_id}")
+    async def set_attributes(kind: str, plugin_id: str, request: Request):
+        """
+        Change one plugin's attributes on an object: body {name: value, or null
+        to remove it}. Checked against the plugin's schema and the size limit
+        (400 with every problem). Returns that plugin's values afterwards.
+        """
+        ref = _ref(kind, request)
+        _check(request, ref, write=True)
+        if not is_valid_plugin_id(plugin_id):
+            raise HTTPException(status_code=400, detail="Invalid plugin id")
+        body = await _json(request)
+        service = _host().attributes
+        values = _guard(lambda: service.set(ref, plugin_id, body))
+        return {"kind": kind, "id": ref["id"], "theme": ref["theme"], "plugin_id": plugin_id, "values": values}
 
 
 def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> None:
