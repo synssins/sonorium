@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.3 (2026-10-12)
+
+### Features
+
+- **engine**: Sequences, playlists and theme crossfades in the standalone engine
+  ([`c7f4627`](https://github.com/synssins/sonorium/commit/c7f4627d967933bf2181b0c8f31a7bb775e58bc7))
+
+
 ## v1.7.3-dev.2 (2026-10-12)
 
 ### Bug Fixes
