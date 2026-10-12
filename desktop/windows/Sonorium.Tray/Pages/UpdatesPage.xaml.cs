@@ -39,7 +39,8 @@ public sealed partial class UpdatesPage : Page
 
     void Refresh()
     {
-        var update = state.Update;
+        // "Later" hides this version's notice until a newer version turns up
+        var update = state.Update is { } u && u.Version != laterVersion ? u : null;
         Available.Visibility = update is null ? Visibility.Collapsed : Visibility.Visible;
         if (update is not null)
         {
@@ -90,5 +91,11 @@ public sealed partial class UpdatesPage : Page
 
     void CheckNow_Click(object sender, RoutedEventArgs e) => _ = CheckNow();
     void UpdateNow_Click(object sender, RoutedEventArgs e) => Updater.InstallNow();
-    void Later_Click(object sender, RoutedEventArgs e) => Available.Visibility = Notes.Visibility = Visibility.Collapsed;
+    void Later_Click(object sender, RoutedEventArgs e)
+    {
+        laterVersion = state.Update?.Version;
+        Refresh();
+    }
+
+    static string? laterVersion;
 }
