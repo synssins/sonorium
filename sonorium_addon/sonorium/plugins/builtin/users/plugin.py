@@ -599,7 +599,7 @@ ZONES_UI = "users-zones"  # the zones' own web UI bundle (zones.js, zones.css)
 class UsersPlugin(BasePlugin):
     id = PLUGIN_ID
     name = "Users"
-    version = "1.1.3"
+    version = "1.1.4"
     description = "Accounts, sign-in and roles for Sonorium"
     author = "Sonorium"
     builtin = True
