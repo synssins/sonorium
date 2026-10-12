@@ -15,6 +15,8 @@ Handles CRUD operations for playback sessions, including:
 from __future__ import annotations
 
 import asyncio
+import secrets
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
@@ -47,6 +49,14 @@ RECENT_EVENTS = 20
 # longer, up to LISTEN_HOLD_MAX_SECONDS, e.g. a phone on flaky Wi-Fi)
 LISTEN_RELEASE_SECONDS = 15
 LISTEN_HOLD_MAX_SECONDS = 300
+
+# Personal channels: one hidden channel per account, heard only on its devices
+PERSONAL_NAME = "Personal"
+PERSONAL_NO_SPEAKERS = "A personal channel plays only on your own devices: it can't have speakers"
+
+
+class PersonalSpeakersRefused(ValueError):
+    """Speakers were asked for on a personal channel."""
 
 if TYPE_CHECKING:
     from sonorium.ha.registry import HARegistry
@@ -115,16 +125,21 @@ class SessionManager:
         # None = every channel open, as without zones
         self.policy = None
 
+        # Personal channels' listening devices: session id -> {device key:
+        # {"tag": stream tag, "since": when it asked, "hold": seconds}}
+        self._personal_devices: dict[str, dict[str, dict]] = {}
+        self._clock = time.monotonic
+
     # --- The channel policy (Zones) ---
 
     def guard(self, action: str, session: Optional[Session], **details) -> None:
-        """Raise ChannelRefused when the policy refuses `action` on the channel."""
+        """Raise ChannelRefused when the policy refuses `action` on the channel (never on a personal one)."""
         check = getattr(self.policy, "check", None)
-        if check is not None and session is not None:
+        if check is not None and session is not None and not self.is_personal(session):
             check(action, session, **details)
 
     def allowed(self, action: str, session: Session, **details) -> bool:
-        if self.policy is None:
+        if self.policy is None or self.is_personal(session):
             return True
         from sonorium.core.channel_policy import ChannelRefused
         try:
@@ -136,7 +151,7 @@ class SessionManager:
     def _tell(self, what: str, session: Session) -> None:
         """Tell the policy the channel changed, stopped or went (never raises)."""
         hook = getattr(self.policy, what, None)
-        if hook is None:
+        if hook is None or self.is_personal(session):
             return
         try:
             hook(session)
@@ -260,9 +275,18 @@ class SessionManager:
         del recent[:-RECENT_EVENTS]
 
     def publish(self, event_type: str, session: Session, **data) -> None:
-        """Publish a channel event on the plugin event bus (never raises or waits)."""
+        """
+        Publish a channel event on the plugin event bus (never raises or waits).
+        A personal channel's events carry "personal": true and reach only its
+        account's event streams (plugins don't get them).
+        """
         try:
             from sonorium.plugins import events
+            owner = getattr(session, "owner", None)
+            if owner:
+                events.publish(event_type, {"channel_id": session.id, "name": session.name, **data, "personal": True},
+                               audience=owner)
+                return
             events.publish(event_type, {"channel_id": session.id, "name": session.name, **data})
         except Exception as e:  # the event bus must never get in the way of playback
             logger.debug(f"Event {event_type} not published: {e}")
@@ -318,7 +342,7 @@ class SessionManager:
         """A step's While playing layer was saved: channels on that step glide to it. Returns how many."""
         theme_ids = {t for t in theme_ids if t}
         count = 0
-        for session in list(self.state.sessions.values()):
+        for session in self._all_sessions():
             if (self._live(session) and session.theme_id in theme_ids and session.sequence_id == sequence_id
                     and session.preset_id == preset_id):
                 channel = self._channel_for(session)
@@ -336,7 +360,7 @@ class SessionManager:
         """
         theme_ids = {t for t in theme_ids if t}
         count = 0
-        for session in list(self.state.sessions.values()):
+        for session in self._all_sessions():
             if not (self._live(session) and session.theme_id in theme_ids and session.preset_id == preset_id):
                 continue
             channel = self._channel_for(session)
@@ -350,7 +374,7 @@ class SessionManager:
 
     def set_announcements(self, session_id: str, on: bool) -> bool:
         """Let announcements play on the channel, or not (e.g. a nap). False: no such channel."""
-        session = self.state.sessions.get(session_id)
+        session = self._find(session_id)
         if session is None:
             return False
         self.guard("mute", session)
@@ -412,7 +436,7 @@ class SessionManager:
 
     def claim_channel(self, session_id: str):
         """A Channel for the channel's mix (the one it has, else a free one; None when none is free)."""
-        session = self.state.sessions.get(session_id)
+        session = self._find(session_id)
         return self._assign_channel(session) if session is not None else None
 
     def run_mix(self, session_id: str):
@@ -760,10 +784,166 @@ class SessionManager:
         return self.state.sessions.get(session_id)
     
     def list(self) -> list[Session]:
-        """List all sessions, sorted by creation time."""
+        """List all sessions, sorted by creation time (never a personal channel)."""
         sessions = list(self.state.sessions.values())
         sessions.sort(key=lambda s: s.created_at)
         return sessions
+
+    # --- Personal channels: one per account, hidden, local only ---
+    #
+    # A personal channel is a Session with `owner` set, kept in
+    # state.personal_sessions: get() and list() never return it, so nothing
+    # that lists or addresses channels (the API, Home Assistant and MQTT
+    # entities, Status, zones and links) sees it. It never has speakers. Its
+    # mix runs while at least one of its account's devices listens: each
+    # device is counted once (listen_personal), and is let go when it asks
+    # (unlisten_personal) or when its stream has been closed for its hold
+    # (release_idle_sessions, as Listen here).
+
+    def _find(self, session_id) -> Optional[Session]:
+        """Any channel by id, a personal one included (what the API addresses is get())."""
+        try:
+            return self.state.sessions.get(session_id) or self.state.personal_sessions.get(session_id)
+        except TypeError:
+            return None
+
+    def get_any(self, session_id) -> Optional[Session]:
+        """Any channel by id, a personal one included (announcements reach a listened personal channel)."""
+        return self._find(session_id)
+
+    def _all_sessions(self) -> list[Session]:
+        return list(self.state.sessions.values()) + list(self.state.personal_sessions.values())
+
+    def is_personal(self, session) -> bool:
+        """A personal channel (a Session or an id)."""
+        if isinstance(session, str):
+            return session in self.state.personal_sessions
+        owner = getattr(session, "owner", None)
+        return isinstance(owner, str) and bool(owner)
+
+    def personal_channel(self, owner: str, create: bool = True) -> Optional[Session]:
+        """The account's personal channel, made on first use (None if create is False and it has none)."""
+        for session in self.state.personal_sessions.values():
+            if session.owner == owner:
+                return session
+        if not create:
+            return None
+        session_id = str(uuid.uuid4())[:8]
+        while session_id in self.state.sessions or session_id in self.state.personal_sessions:
+            session_id = str(uuid.uuid4())[:8]
+        session = Session(id=session_id, name=PERSONAL_NAME, name_source=NameSource.CUSTOM, owner=owner,
+                          volume=self.state.settings.default_volume, is_playing=False)
+        self.state.personal_sessions[session_id] = session
+        self.state.save()
+        logger.info(f"  Made a personal channel ({session_id})")
+        return session
+
+    def personal_listeners(self, session_id: str) -> dict[str, dict]:
+        """The devices listening to a personal channel: {device key: {"tag", "since", "hold"}}."""
+        return dict(self._personal_devices.get(session_id) or {})
+
+    def listened_personal(self) -> list[Session]:
+        """Personal channels some device listens to now."""
+        return [s for sid, s in self.state.personal_sessions.items() if sid in self._listening]
+
+    def listen_personal(self, session_id: str, device: str,
+                        hold_seconds: Optional[float] = None) -> tuple[Optional[Channel], Optional[str]]:
+        """
+        A device of the account listens to its personal channel: the mix runs
+        (started if it didn't) while at least one device listens. A device is
+        counted once however often it asks. Returns (the channel, the device's
+        stream tag), (None, None) when no channel is free. KeyError: no such
+        personal channel; ValueError: no theme, it isn't found, or a bad hold.
+
+        hold_seconds (0..LISTEN_HOLD_MAX_SECONDS, default LISTEN_RELEASE_SECONDS):
+        how long the device counts after its stream closed.
+        """
+        if hold_seconds is not None:
+            hold_seconds = float(hold_seconds)
+            if not 0 <= hold_seconds <= LISTEN_HOLD_MAX_SECONDS:
+                raise ValueError(f"hold_seconds must be between 0 and {LISTEN_HOLD_MAX_SECONDS}")
+        session = self.state.personal_sessions.get(session_id)
+        if session is None:
+            raise KeyError(session_id)
+        channel, fresh_start = self._run_mix(session)
+        if channel is None:
+            return None, None
+        expect = getattr(channel, "expect_local_listener", None)
+        if callable(expect):
+            expect()
+        devices = self._personal_devices.setdefault(session_id, {})
+        entry = devices.get(device)
+        new = entry is None
+        if new:
+            entry = devices[device] = {"tag": secrets.token_hex(8), "hold": float(LISTEN_RELEASE_SECONDS)}
+        entry["since"] = self._clock()
+        if hold_seconds is not None:
+            entry["hold"] = hold_seconds
+        self._listening.add(session_id)
+        self._listeners[session_id] = len(devices)
+        self._listen_hold[session_id] = max(e["hold"] for e in devices.values())
+        if fresh_start:
+            self.runner.after_play(session)  # its timers run while a device listens
+        if new:
+            self._listening_changed(session_id, True)
+            logger.info(f"  Personal channel {session_id}: {len(devices)} device(s) listen on channel {channel.id}")
+        return channel, entry["tag"]
+
+    def unlisten_personal(self, session_id: str, device: str) -> bool:
+        """
+        This device stopped listening (only this one). When it was the last,
+        the mix fades out and its channel is freed (in the background).
+        False: it wasn't listening.
+        """
+        if not self._drop_personal_device(session_id, device):
+            return False
+        if session_id not in self._listening:
+            self._background(self._release_unused(session_id, "no device listens"))
+        return True
+
+    def _drop_personal_device(self, session_id: str, device: str) -> bool:
+        devices = self._personal_devices.get(session_id)
+        if not devices or devices.pop(device, None) is None:
+            return False
+        if devices:
+            self._listeners[session_id] = len(devices)
+            self._listen_hold[session_id] = max(e["hold"] for e in devices.values())
+            self._listening_changed(session_id, True)  # one device fewer
+        else:
+            self._personal_devices.pop(session_id, None)
+            self._listeners.pop(session_id, None)
+            self._listening.discard(session_id)
+            self._listening_changed(session_id, False)
+        return True
+
+    def _device_idle(self, channel, entry: dict, now: float) -> float:
+        """Seconds a personal channel's device has been without its stream (0 while it plays)."""
+        if channel is None:
+            return float("inf")
+        tag_idle = getattr(channel, "tag_idle_seconds", None)
+        seen = tag_idle(entry["tag"]) if callable(tag_idle) else None
+        if seen is not None:
+            return seen
+        # Its own stream never came (or it plays the stream without its tag):
+        # counted from when it asked, kept while an untagged listener plays
+        untagged = getattr(channel, "untagged_local_idle_seconds", None)
+        local_idle = untagged() if callable(untagged) else channel.local_idle_seconds()
+        return min(now - entry["since"], local_idle)
+
+    def _release_personal_devices(self) -> None:
+        """Let go of each device whose stream has been closed for its hold; the last one stops the mix."""
+        now = self._clock()
+        for session_id, devices in list(self._personal_devices.items()):
+            channel = self.channel_of(session_id)
+            for device, entry in list(devices.items()):
+                if self._device_idle(channel, entry, now) < entry["hold"]:
+                    continue
+                logger.info(f"  Personal channel {session_id}: a device stopped listening")
+                self._drop_personal_device(session_id, device)
+            if session_id not in self._listening and session_id in self._session_channels:
+                self.runner.on_stop(session_id)
+                self._release_channel(session_id)
+                logger.info(f"  Personal channel {session_id}: no device listens any more, channel released")
     
     @logger.instrument("Updating session {session_id}...")
     def update(
@@ -795,10 +975,12 @@ class SessionManager:
             ValueError: the chosen sequence has no presets
             (both before anything changes)
         """
-        session = self.state.sessions.get(session_id)
+        session = self._find(session_id)
         if not session:
             logger.warning(f"  Session {session_id} not found")
             return None, set(), set()
+        if self.is_personal(session) and (speaker_group_id or adhoc_selection is not None):
+            raise PersonalSpeakersRefused(PERSONAL_NO_SPEAKERS)
 
         from sonorium.core.sequences import sequence_choice
         try:
@@ -1017,7 +1199,7 @@ class SessionManager:
         Run a sequence of the channel's theme. Raises KeyError (no such
         channel), LookupError (no such sequence) or ValueError (it can't run).
         """
-        session = self.state.sessions.get(session_id)
+        session = self._find(session_id)
         if not session:
             raise KeyError(session_id)
         self.guard("playback", session)
@@ -1028,7 +1210,7 @@ class SessionManager:
 
     def stop_sequence(self, session_id: str) -> Optional[Session]:
         """Stop the channel's sequence (it stays on its current preset)."""
-        session = self.state.sessions.get(session_id)
+        session = self._find(session_id)
         if not session:
             return None
         self.guard("playback", session)
@@ -1038,7 +1220,7 @@ class SessionManager:
 
     def set_playlist(self, session_id: str, playlist_id: str) -> Session:
         """Play a playlist on the channel. Raises KeyError, LookupError or ValueError."""
-        session = self.state.sessions.get(session_id)
+        session = self._find(session_id)
         if not session:
             raise KeyError(session_id)
         self.guard("playback", session)
@@ -1047,7 +1229,7 @@ class SessionManager:
 
     def clear_playlist(self, session_id: str) -> Optional[Session]:
         """Stop the channel's playlist; it keeps playing its current theme."""
-        session = self.state.sessions.get(session_id)
+        session = self._find(session_id)
         if not session:
             return None
         self.guard("playback", session)
@@ -1061,7 +1243,7 @@ class SessionManager:
         ('playlist', 'sequence'), 'end' if a non-repeating playlist ended (the
         channel stops), or None if nothing runs. KeyError if no such channel.
         """
-        session = self.state.sessions.get(session_id)
+        session = self._find(session_id)
         if not session:
             raise KeyError(session_id)
         self.guard("playback", session)
@@ -1077,7 +1259,7 @@ class SessionManager:
     def forget_playlist(self, playlist_id: str) -> list[Session]:
         """A playlist was deleted: channels playing it stop playing it."""
         cleared = []
-        for session in self.state.sessions.values():
+        for session in self._all_sessions():
             if session.playlist_id == playlist_id:
                 self.runner.clear_playlist(session)
                 cleared.append(session)
@@ -1088,7 +1270,7 @@ class SessionManager:
     def forget_sequence(self, theme_id: str, sequence_id: str) -> list[Session]:
         """A sequence was deleted: channels running it stop it."""
         cleared = []
-        for session in self.state.sessions.values():
+        for session in self._all_sessions():
             if session.theme_id == theme_id and session.sequence_id == sequence_id:
                 self.runner.stop_sequence(session)
                 cleared.append(session)
@@ -1153,13 +1335,18 @@ class SessionManager:
         Resolves speaker group or ad-hoc selection to final list. Speakers
         disabled in Settings > Speakers are left out: disabled means invisible
         to the rest of the app, including channels saved before it was disabled.
+        A personal channel never has speakers.
         """
+        if self.is_personal(session):
+            return []
         speakers = self.selected_speakers(session)
         hook = getattr(self.policy, "speakers", None)
         return list(hook(session, speakers)) if hook is not None else speakers
 
     def selected_speakers(self, session: Session) -> list[str]:
         """All the (switched on) speakers the channel has, whether or not another channel uses them now."""
+        if self.is_personal(session):
+            return []
         return self._only_enabled(self._resolve_selection(session))
 
     def resolve_choice(self, speaker_group_id: Optional[str], selection: Optional[SpeakerSelection]) -> list[str]:
@@ -1527,9 +1714,16 @@ class SessionManager:
     def _listening_changed(self, session_id: str, listening: bool) -> None:
         if not listening:
             self._listen_hold.pop(session_id, None)
-        session = self.state.sessions.get(session_id)
+        session = self._find(session_id)
         if session is not None:
-            self.publish("channel.listening", session, listening=listening)
+            self.publish("channel.listening", session, listening=listening,
+                         devices=self.listener_count(session_id), playing=self._live(session))
+
+    def listener_count(self, session_id: str) -> int:
+        """How many listeners count for the channel: devices on a personal channel, else listen calls."""
+        if session_id in self._personal_devices:
+            return len(self._personal_devices[session_id])
+        return self._listeners.get(session_id, 0) if session_id in self._listening else 0
 
     def listen(self, session_id: str, hold_seconds: Optional[float] = None) -> Optional[Channel]:
         """
@@ -1580,7 +1774,7 @@ class SessionManager:
 
     async def _release_unused(self, session_id: str, why: str) -> None:
         """Nothing keeps the channel's mix any more (no speakers, listener or output): fade out, release."""
-        session = self.state.sessions.get(session_id)
+        session = self._find(session_id)
         if session and not session.is_playing and not self._kept(session_id):
             self.runner.on_stop(session_id)  # nothing plays it now: its sequence or playlist pauses
         if session and not session.is_playing and not self._kept(session_id) and session_id in self._session_channels:
@@ -1591,7 +1785,7 @@ class SessionManager:
     # --- Outputs the app reports (a Cast device playing a channel; core/outputs.py) ---
 
     def _publish_output(self, event_type: str, output, **extra) -> None:
-        session = self.state.sessions.get(output.session_id)
+        session = self._find(output.session_id)
         if session is not None:
             self.publish(event_type, session, output_id=output.output_id, kind=output.kind,
                          output_name=output.name, address=output.address, **extra)
@@ -1687,8 +1881,13 @@ class SessionManager:
         if not self.channel_manager:
             return []
 
+        # Personal channels: each device that stopped listening a while ago
+        self._release_personal_devices()
+
         # Listen here: no browser for a while (closed without unlistening)
         for session_id in list(self._listening):
+            if session_id in self.state.personal_sessions:
+                continue
             channel = self.channel_manager.get_channel(self._session_channels.get(session_id) or 0)
             if channel and channel.local_idle_seconds() < self.listen_hold(session_id):
                 continue
@@ -1713,6 +1912,10 @@ class SessionManager:
         for session_id, channel_id in list(self._session_channels.items()):
             channel = self.channel_manager.get_channel(channel_id)
             if not channel or channel.idle_seconds() < idle_after or session_id in self._listening:
+                continue
+            if session_id in self.state.personal_sessions:  # nobody listens to it any more
+                self._release_channel(session_id)
+                self.runner.on_stop(session_id)
                 continue
             logger.info(f"  Channel {channel_id}: no listener has pulled audio for {int(channel.idle_seconds())}s, stopping its session")
             self.drop_outputs(session_id, "idle")  # a reported device that pulls nothing isn't playing

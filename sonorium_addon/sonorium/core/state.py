@@ -346,6 +346,10 @@ class Session:
     created_at: str = ""  # ISO format
     last_played_at: Optional[str] = None  # ISO format
     entity_slug: Optional[str] = None
+
+    # A personal channel's account ("user:<id>", "ha:<id>" or "local"; None for
+    # every other channel): hidden, local only (core/session_manager.py)
+    owner: Optional[str] = None
     
     def __post_init__(self):
         if not self.created_at:
@@ -422,6 +426,11 @@ class SonoriumState:
     # Playlists ({playlist_id: data}, see core/playlists.py)
     playlists: dict[str, dict] = field(default_factory=dict)
 
+    # Personal channels, one per account (Session.owner set): kept apart from
+    # `sessions` so nothing that lists channels ever sees them. Saved under
+    # "personal_channels" (an older version ignores the key)
+    personal_sessions: dict[str, Session] = field(default_factory=dict)
+
     # Channels' theme cycling has been converted to playlists (core/playlists.migrate_cycling)
     cycling_migrated: bool = False
 
@@ -436,6 +445,7 @@ class SonoriumState:
             "sessions": {k: v.to_dict() for k, v in self.sessions.items()},
             "playlists": {k: dict(v) for k, v in self.playlists.items()},
             "cycling_migrated": self.cycling_migrated,
+            "personal_channels": {k: v.to_dict() for k, v in self.personal_sessions.items()},
         }
     
     @classmethod
@@ -457,6 +467,14 @@ class SonoriumState:
         if isinstance(data.get("playlists"), dict):
             state.playlists = {k: dict(v) for k, v in data["playlists"].items() if isinstance(v, dict)}
         state.cycling_migrated = bool(data.get("cycling_migrated", False))
+
+        if isinstance(data.get("personal_channels"), dict):
+            for k, v in data["personal_channels"].items():
+                if isinstance(v, dict) and v.get("owner"):
+                    session = Session.from_dict(dict(v))
+                    session.is_playing = False  # never on speakers
+                    session.speaker_group_id, session.adhoc_selection = None, None
+                    state.personal_sessions[k] = session
         
         return state
 
@@ -524,6 +542,10 @@ class StateStore:
     @property
     def speaker_groups(self) -> dict[str, SpeakerGroup]:
         return self.state.speaker_groups
+
+    @property
+    def personal_sessions(self) -> dict[str, Session]:
+        return self.state.personal_sessions
 
     @property
     def playlists(self) -> dict[str, dict]:

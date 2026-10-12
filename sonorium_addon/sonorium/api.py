@@ -1069,6 +1069,11 @@ class WebApp:
         self._state_store.settings.feature_overrides = overrides
         self._state_store.save()
         logger.info(f"Advanced settings changed: {overrides or 'all defaults'}")
+        try:
+            from sonorium.plugins import events
+            events.publish("settings.changed", {"section": "features", "keys": sorted(k for k in body if k != "restart")})
+        except Exception:
+            pass
         restarting = bool(body.get("restart"))
         if restarting:
             self._restart_soon()
@@ -1320,8 +1325,11 @@ class WebApp:
             raise HTTPException(status_code=404, detail=f"Theme '{id}' not found")
         return StreamingResponse(theme.new_mix(), media_type="audio/mpeg")
 
-    async def stream_channel(self, channel_id: int, local: bool = False):
-        """Stream audio from a channel (new endpoint). ?local=1: a browser listening here (Listen here)."""
+    async def stream_channel(self, channel_id: int, local: bool = False, listener: str = ""):
+        """
+        Stream audio from a channel (new endpoint). ?local=1: a browser listening here (Listen here);
+        &listener=<tag>: a personal channel's device (its listen_path), so each device is counted on its own.
+        """
         if not self._channel_manager:
             return HTMLResponse(content="Channel system not initialized", status_code=503)
 
@@ -1330,7 +1338,9 @@ class WebApp:
             return HTMLResponse(content=f"Channel {channel_id} not found", status_code=404)
 
         # Every listener gets the channel's one broadcast, encoded for it alone
-        return StreamingResponse(channel.get_stream(local), media_type="audio/mpeg")
+        import re
+        tag = listener if local and re.fullmatch(r"[0-9a-f]{8,32}", listener or "") else None
+        return StreamingResponse(channel.get_stream(local, tag), media_type="audio/mpeg")
 
     def _find_theme_folder(self, theme_id: str) -> Path | None:
         """

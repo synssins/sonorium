@@ -172,6 +172,7 @@ class AuthMiddleware:
                 logger.warning(f"Sign-in: plugin {plugin_id} could not get ready for a request: {e}")
         principal, reject = resolve(service, scope, headers)
         scope.setdefault("state", {})["auth"] = principal
+        scope["state"]["auth_service"] = service  # e.g. whether accounts exist (web/personal_routes.py)
         caller = CALLER.set(principal)  # current_caller() for the route and the tasks it starts
         try:
             return await self._checked(scope, receive, send, principal, reject, headers, method, path, listener, answer)

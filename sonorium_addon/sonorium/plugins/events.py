@@ -13,6 +13,9 @@ outside programs, through GET /api/events/stream) can follow.
   reaches the code that published the event, so playback never waits.
 - publish() works from any thread: from outside the event loop the event is
   handed to the loop the bus is bound to.
+- An event with an audience (a personal channel's: its account) reaches only
+  the subscribers with that audience (the account's event streams); plugins
+  and other accounts never get it, and its replay is filtered the same way.
 
 Patterns: "channel.started" (exact), "channel.*" (one prefix, any depth),
 "*" (everything).
@@ -77,9 +80,14 @@ CATALOGUE: dict[str, dict] = {
     },
     "channel.listening": {
         "description": "Someone started or stopped listening to a channel on their device (Listen here, the "
-                       "app). While someone listens the channel's mix runs, with or without its speakers.",
+                       "app). While someone listens the channel's mix runs, with or without its speakers. A "
+                       "personal channel's (only to its account's event streams) comes each time its number of "
+                       "listening devices changes.",
         "fields": {"channel_id": "Channel id", "name": "Channel name",
-                   "listening": "True when the first listener came, false when the last one left"},
+                   "listening": "True when the first listener came, false when the last one left",
+                   "devices": "How many listen now (a personal channel: devices; another channel: listen calls)",
+                   "playing": "True while the channel's mix runs (speakers, listeners or reported outputs)",
+                   "personal": "Only on a personal channel's events: true"},
         "summary": "{name}: listening {listening}",
     },
     "channel.output_added": {
@@ -103,6 +111,56 @@ CATALOGUE: dict[str, dict] = {
                    "sequence_id": "Sequence id", "step": "Step number (1-based)", "steps": "Number of steps",
                    "preset_id": "The step's preset id"},
         "summary": "{name}: step {step} of {steps}",
+    },
+    "playlist.started": {
+        "description": "A playlist started on a channel (from its first entry).",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "playlist_id": "Playlist id",
+                   "playlist_name": "Playlist name"},
+        "summary": "{name}: playlist {playlist_name} started",
+    },
+    "playlist.stopped": {
+        "description": "A channel stopped playing its playlist (by hand, another theme was picked, the playlist "
+                       "was deleted). The channel keeps playing what it plays now.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "playlist_id": "Playlist id"},
+        "summary": "{name}: playlist stopped",
+    },
+    "playlist.created": {
+        "description": "A playlist was made.",
+        "fields": {"playlist_id": "Playlist id", "playlist_name": "Playlist name"},
+        "summary": "Playlist added: {playlist_name}",
+    },
+    "playlist.changed": {
+        "description": "A playlist was edited.",
+        "fields": {"playlist_id": "Playlist id", "playlist_name": "Playlist name",
+                   "changes": "The fields sent: any of name, entries, order, repeat, play_min, play_max, "
+                              "fit_sequences"},
+        "summary": "Playlist changed: {playlist_name}",
+    },
+    "playlist.deleted": {
+        "description": "A playlist was deleted. Channels playing it stopped playing it.",
+        "fields": {"playlist_id": "Playlist id", "playlist_name": "Playlist name",
+                   "stopped_on": "Ids of the channels that were playing it"},
+        "summary": "Playlist deleted: {playlist_name}",
+    },
+    "group.changed": {
+        "description": "A speaker group was made, changed or deleted.",
+        "fields": {"group_id": "Group id", "group_name": "Group name", "change": "created, changed or deleted"},
+        "summary": "Speaker group {change}: {group_name}",
+    },
+    "spaces.changed": {
+        "description": "Floors or areas changed: added, renamed, moved, deleted (here or in Home Assistant), or "
+                       "the custom speaker areas of Settings › Speakers.",
+        "fields": {"source": "registry (the floors and areas Sonorium lists changed: Settings › Floors & Areas "
+                             "or Home Assistant) or custom_areas (Settings › Speakers' custom areas)"},
+        "summary": "Floors and areas changed",
+    },
+    "settings.changed": {
+        "description": "Settings were changed. Values are not included: fetch the section.",
+        "fields": {"section": "general (GET /api/settings), playback_values (GET /api/settings/playback-values), "
+                              "speakers (enabled speakers, GET /api/settings/speakers), speaker (one speaker's "
+                              "settings), features (GET /api/install)",
+                   "keys": "The settings that were sent", "speaker_id": "Only for section speaker"},
+        "summary": "Settings changed: {section}",
     },
     "playlist.entry": {
         "description": "A channel's playlist moved to an entry.",
@@ -377,6 +435,7 @@ class Event:
     id: int
     time: str
     origin: str = "sonorium"
+    audience: Optional[str] = None  # only for subscribers with this audience (a personal channel's account)
 
     def to_dict(self) -> dict:
         return {"id": self.id, "boot_id": BOOT_ID, "type": self.type, "time": self.time, "origin": self.origin,
@@ -390,11 +449,12 @@ class Subscription:
     """One subscriber: its own queue and worker, so it can't hold up anyone else."""
 
     def __init__(self, bus: "EventBus", patterns: list[str], handler: Handler, owner: Optional[str],
-                 queue_size: int, timeout: float):
+                 queue_size: int, timeout: float, audience: Optional[str] = None):
         self.bus = bus
         self.patterns = patterns
         self.handler = handler
         self.owner = owner
+        self.audience = audience
         self.timeout = timeout
         self.dropped = 0
         self.failures = 0
@@ -409,6 +469,10 @@ class Subscription:
 
     def matches(self, event_type: str) -> bool:
         return any(matches(p, event_type) for p in self.patterns)
+
+    def receives(self, event: "Event") -> bool:
+        """It matches the event, and may see it (an event with an audience: only that audience)."""
+        return (event.audience is None or event.audience == self.audience) and self.matches(event.type)
 
     def close(self) -> None:
         """Stop receiving events (queued ones are dropped)."""
@@ -500,18 +564,19 @@ class EventBus:
     # --- Subscribing ---
 
     def subscribe(self, patterns: Union[str, Iterable[str]], handler: Handler, *, owner: Optional[str] = None,
-                  queue_size: int = 256, timeout: float = 30.0) -> Subscription:
+                  queue_size: int = 256, timeout: float = 30.0, audience: Optional[str] = None) -> Subscription:
         """
         Call handler(event) for each event matching one of the patterns. An
         async handler runs on the event loop, a plain one in a worker thread.
-        ValueError for a bad pattern.
+        audience: also get the events meant only for it (a personal channel's
+        account). ValueError for a bad pattern.
         """
         if isinstance(patterns, str):
             patterns = [patterns]
         checked = [check_pattern(p) for p in patterns]
         if not checked:
             raise ValueError("No event pattern given")
-        sub = Subscription(self, checked, handler, owner, queue_size, timeout)
+        sub = Subscription(self, checked, handler, owner, queue_size, timeout, audience)
         with self._lock:
             self._subs.append(sub)
         self._target_loop()
@@ -555,20 +620,22 @@ class EventBus:
         except RuntimeError:
             return False
 
-    def publish(self, event_type: str, data: Optional[dict] = None, *, origin: Optional[str] = None) -> Optional[Event]:
+    def publish(self, event_type: str, data: Optional[dict] = None, *, origin: Optional[str] = None,
+                audience: Optional[str] = None) -> Optional[Event]:
         """
         Publish an event. Never raises and never waits: returns the event, or
-        None if it couldn't be published (logged).
+        None if it couldn't be published (logged). audience: only subscribers
+        with that audience get it (a personal channel's account).
         """
         try:
             if not is_known_type(event_type):
                 raise ValueError(f"unknown event type {event_type!r}")
             event = Event(type=event_type, data=dict(data or {}), id=next(self._ids),
                           time=datetime.now(timezone.utc).isoformat(),
-                          origin=origin or current_origin.get())
+                          origin=origin or current_origin.get(), audience=audience or None)
             with self._lock:
                 self._history.append(event)
-                subs = [s for s in self._subs if s.matches(event_type)]
+                subs = [s for s in self._subs if s.receives(event)]
             if subs:
                 self._dispatch(subs, event)
             return event
@@ -628,10 +695,11 @@ class EventBus:
         except Exception as e:
             logger.warning(f"Event {event_type} not published: {e}")
 
-    def history(self, after_id: int = 0, patterns: Optional[list[str]] = None) -> list[Event]:
-        """Recent events (the last 200) newer than after_id, oldest first."""
+    def history(self, after_id: int = 0, patterns: Optional[list[str]] = None,
+                audience: Optional[str] = None) -> list[Event]:
+        """Recent events (the last 200) newer than after_id, oldest first (with an audience: only theirs)."""
         with self._lock:
-            events = [e for e in self._history if e.id > after_id]
+            events = [e for e in self._history if e.id > after_id and (e.audience is None or e.audience == audience)]
         if patterns:
             events = [e for e in events if any(matches(p, e.type) for p in patterns)]
         return events

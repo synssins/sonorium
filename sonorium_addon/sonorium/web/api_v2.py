@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Request, UploadFile, File, Response
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request, UploadFile, File, Response
 from pydantic import BaseModel, Field
 
 from sonorium.core.state import SpeakerSelection, NameSource
@@ -347,7 +347,14 @@ def create_api_router(
     Returns:
         Configured APIRouter
     """
-    router = APIRouter(prefix="/api", tags=["api"])
+    def _hide_personal(request: Request) -> None:
+        """A personal channel is never addressed as a channel: /api/sessions/{its id}/... is 404."""
+        session_id = (request.path_params or {}).get("session_id")
+        is_personal = getattr(session_manager, "is_personal", None)
+        if isinstance(session_id, str) and callable(is_personal) and is_personal(session_id) is True:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    router = APIRouter(prefix="/api", tags=["api"], dependencies=[Depends(_hide_personal)])
 
     # A speaker's own volume and mute, set from the app (web/app_routes.py)
     from sonorium.core.speaker_live import SpeakerLive
@@ -1107,6 +1114,7 @@ def create_api_router(
         state_store.playlists[playlist_id] = cleaned
         state_store.save()
         await _sync_mqtt(playlists=True)
+        _publish("playlist.created", {"playlist_id": playlist_id, "playlist_name": cleaned.get("name")})
         return to_response(playlist_id, cleaned)
 
     @router.get("/playlists/{playlist_id}")
@@ -1130,16 +1138,20 @@ def create_api_router(
         session_manager.runner.playlist_changed(playlist_id)
         state_store.save()
         await _sync_mqtt(playlists=True)
+        _publish("playlist.changed", {"playlist_id": playlist_id, "playlist_name": cleaned.get("name"),
+                                      "changes": sorted(data)})
         return to_response(playlist_id, cleaned)
 
     @router.delete("/playlists/{playlist_id}")
     async def delete_playlist(playlist_id: str) -> dict:
         """Delete a playlist; channels playing it stop playing it (they keep their current theme)."""
-        _playlist_or_404(playlist_id)
+        name = _playlist_or_404(playlist_id).get("name")
         del state_store.playlists[playlist_id]
         cleared = session_manager.forget_playlist(playlist_id)
         state_store.save()
         await _sync_mqtt(playlists=True)
+        _publish("playlist.deleted", {"playlist_id": playlist_id, "playlist_name": name,
+                                      "stopped_on": [s.id for s in cleared if not getattr(s, "owner", None)]})
         return {"status": "ok", "playlist_id": playlist_id, "stopped_on": [s.id for s in cleared]}
 
     # --- Channel Endpoints ---
@@ -1272,6 +1284,7 @@ def create_api_router(
                 exclude_areas=request.exclude_areas,
                 exclude_speakers=request.exclude_speakers,
             )
+            _publish("group.changed", {"group_id": group.id, "group_name": group.name, "change": "created"})
             return GroupResponse(
                 id=group.id,
                 name=group.name,
@@ -1328,6 +1341,7 @@ def create_api_router(
             )
             if not group:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+            _publish("group.changed", {"group_id": group.id, "group_name": group.name, "change": "changed"})
             return GroupResponse(
                 id=group.id,
                 name=group.name,
@@ -1356,8 +1370,11 @@ def create_api_router(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Group is used by {len(session_ids)} channel(s). Delete or update those channels first."
             )
+        group = group_manager.get(group_id)
         if not group_manager.delete(group_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+        _publish("group.changed", {"group_id": group_id, "group_name": getattr(group, "name", None),
+                                   "change": "deleted"})
     
     @router.get("/groups/{group_id}/resolve")
     async def resolve_group(group_id: str) -> dict:
@@ -1480,6 +1497,7 @@ def create_api_router(
             all_settings.pop(speaker_id, None)
         state_store.save()
         ha_registry.apply_speaker_settings()
+        _settings_changed("speaker", sorted(updates), speaker_id=speaker_id)
         return _speaker_settings_response(speaker_id)
 
     # --- Test sound (user-triggered, one speaker) ---
@@ -1794,6 +1812,7 @@ def create_api_router(
                 on_master_gain()
 
         state_store.save()
+        _settings_changed("general", [k for k in request.model_fields_set if getattr(request, k) is not None])
 
         return SettingsResponse(
             default_volume=settings.default_volume,
@@ -1837,6 +1856,7 @@ def create_api_router(
             raise HTTPException(status_code=400, detail=str(error))
         settings.playback_values = stored
         state_store.save()
+        _settings_changed("playback_values", sorted(body) if isinstance(body, dict) else [])
         logger.info(f"Settings: playback values changed: {body}")
         return _playback_values_response()
 
@@ -1854,6 +1874,7 @@ def create_api_router(
         settings.enabled_speakers = [s for s in request.enabled_speakers if s != "__none__"]
         settings.enabled_speakers_exact = True
         state_store.save()
+        _settings_changed("speakers", ["enabled_speakers"])
         return _enabled_speakers_response()
 
     @router.post("/settings/speakers/enable")
@@ -1861,6 +1882,7 @@ def create_api_router(
         """Switch a speaker on."""
         _set_speaker_enabled(request.entity_id, True)
         state_store.save()
+        _settings_changed("speakers", ["enabled_speakers"])
         return _enabled_speakers_response()
 
     @router.post("/settings/speakers/disable")
@@ -1868,6 +1890,7 @@ def create_api_router(
         """Switch a speaker off."""
         _set_speaker_enabled(request.entity_id, False)
         state_store.save()
+        _settings_changed("speakers", ["enabled_speakers"])
         return _enabled_speakers_response()
 
     @router.post("/settings/speakers/enable-all")
@@ -1877,6 +1900,7 @@ def create_api_router(
         settings.enabled_speakers = ha_registry.get_all_speaker_ids() if ha_registry else []
         settings.enabled_speakers_exact = True
         state_store.save()
+        _settings_changed("speakers", ["enabled_speakers"])
         return _enabled_speakers_response()
 
     @router.post("/settings/speakers/disable-all")
@@ -1886,6 +1910,7 @@ def create_api_router(
         settings.enabled_speakers = []
         settings.enabled_speakers_exact = True
         state_store.save()
+        _settings_changed("speakers", ["enabled_speakers"])
         return _enabled_speakers_response()
 
     @router.get("/settings/speaker-areas")
@@ -1902,6 +1927,7 @@ def create_api_router(
         settings = state_store.settings
         settings.custom_speaker_areas = request.custom_areas
         state_store.save()
+        _publish("spaces.changed", {"source": "custom_areas"})
         return {
             "custom_areas": settings.custom_speaker_areas,
         }
@@ -1918,6 +1944,7 @@ def create_api_router(
 
         settings.custom_speaker_areas[area_name] = request.speakers
         state_store.save()
+        _publish("spaces.changed", {"source": "custom_areas"})
         return {
             "name": area_name,
             "speakers": settings.custom_speaker_areas[area_name],
@@ -1942,6 +1969,7 @@ def create_api_router(
             settings.custom_speaker_areas[area_name] = speakers
 
         state_store.save()
+        _publish("spaces.changed", {"source": "custom_areas"})
         return {
             "name": new_name,
             "speakers": speakers,
@@ -1956,6 +1984,7 @@ def create_api_router(
 
         del settings.custom_speaker_areas[area_name]
         state_store.save()
+        _publish("spaces.changed", {"source": "custom_areas"})
         return {"deleted": area_name}
 
     @router.post("/settings/speaker-areas/{area_name}/add-speaker")
@@ -1968,6 +1997,7 @@ def create_api_router(
         if request.entity_id not in settings.custom_speaker_areas[area_name]:
             settings.custom_speaker_areas[area_name].append(request.entity_id)
             state_store.save()
+            _publish("spaces.changed", {"source": "custom_areas"})
 
         return {
             "name": area_name,
@@ -1984,6 +2014,7 @@ def create_api_router(
         if request.entity_id in settings.custom_speaker_areas[area_name]:
             settings.custom_speaker_areas[area_name].remove(request.entity_id)
             state_store.save()
+            _publish("spaces.changed", {"source": "custom_areas"})
 
         return {
             "name": area_name,
@@ -2001,6 +2032,10 @@ def create_api_router(
             events.publish(event_type, data)
         except Exception as e:
             logger.debug(f"Event {event_type} not published: {e}")
+
+    def _settings_changed(section: str, keys, **extra) -> None:
+        """settings.changed: which section, and the keys that were sent (never their values)."""
+        _publish("settings.changed", {"section": section, "keys": list(keys), **extra})
 
     async def _rescan_themes(reason: str) -> None:
         """Rescan the themes now and wait for it (a failure is only logged)."""
@@ -3130,5 +3165,9 @@ def create_api_router(
     # The Sonorium app's routes (docs/APP_API.md section 13)
     from sonorium.web.app_routes import add_app_routes
     add_app_routes(router, session_manager=session_manager, ha_registry=ha_registry, speaker_live=speaker_live)
+
+    # The personal channel: one hidden, local-only channel per account (web/personal_routes.py)
+    from sonorium.web.personal_routes import add_personal_routes
+    add_personal_routes(router, session_manager=session_manager, to_response=_session_to_response)
 
     return router

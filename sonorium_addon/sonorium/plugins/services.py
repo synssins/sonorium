@@ -119,7 +119,7 @@ class AudioV1:
         """
         from sonorium.core.announce import parse_duck, resolve_channels
         try:
-            channels = resolve_channels(getattr(self._svc(), "sessions", None), channels)
+            channels = resolve_channels(getattr(self._svc(), "sessions", None), channels, personal=True)
             duck = parse_duck(duck)
         except (LookupError, ValueError) as e:
             raise ActionError("not_found" if isinstance(e, LookupError) else "invalid", str(e.args[0] if e.args else e))

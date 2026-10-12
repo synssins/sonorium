@@ -369,6 +369,7 @@ class HARegistry:
           (network speakers can be placed in HA areas too).
         """
         settings = self._read_settings()
+        spaces_before = self._spaces_signature() if getattr(self, "_hierarchy", None) is not None else None
         self._merge_spaces()
 
         speakers: dict[str, Speaker] = {}
@@ -422,7 +423,25 @@ class HARegistry:
         if had_speakers:
             self._publish_speaker_changes(previous, speakers)
         self._speakers_known = had_speakers or bool(speakers)
+        if spaces_before is not None and spaces_before != self._spaces_signature():
+            self._publish_spaces_changed()
         return self._hierarchy
+
+    def _spaces_signature(self) -> tuple:
+        """The floors and areas as listed (ids, names, levels, which floor an area is on)."""
+        floors = getattr(self, "_floors", None) or {}
+        areas = getattr(self, "_areas", None) or {}
+        return (sorted((str(f.floor_id), str(f.name), str(getattr(f, "level", ""))) for f in floors.values()),
+                sorted((str(a.area_id), str(a.name), str(a.floor_id)) for a in areas.values()))
+
+    @staticmethod
+    def _publish_spaces_changed() -> None:
+        """spaces.changed: floors or areas were added, renamed, moved or removed (here or in Home Assistant)."""
+        try:
+            from sonorium.plugins import events
+            events.publish("spaces.changed", {"source": "registry"})
+        except Exception:
+            pass
 
     @staticmethod
     def _publish_speaker_changes(before: dict, after: dict) -> None:

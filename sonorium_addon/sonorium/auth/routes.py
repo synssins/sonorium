@@ -102,6 +102,8 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
             "boot_id": runtime.BOOT_ID,  # new at every start; the event stream's ids are "<boot_id>:<n>"
             # the web UI's version, and of its window.SONORIUM_HOST hooks for the app (static/js/api.js)
             "ui": {"version": version, "host_api": UI_HOST_API},
+            # GET/PUT /api/me/channel and its listen routes exist (web/personal_routes.py)
+            "personal_channel": True,
         }
 
     @router.get("/api/auth/me")

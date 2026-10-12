@@ -205,6 +205,11 @@ V2_ROUTES = [
     ('APIRoute', 'DELETE', '/api/sessions/{session_id}/outputs/{output_id}', 'remove_session_output'),
     ('APIRoute', 'PUT', '/api/speakers/{speaker_id}/volume', 'set_speaker_volume'),
     ('APIRoute', 'PUT', '/api/speakers/{speaker_id}/muted', 'set_speaker_muted'),
+    # The personal channel (web/personal_routes.py)
+    ('APIRoute', 'GET', '/api/me/channel', 'get_personal_channel'),
+    ('APIRoute', 'PUT', '/api/me/channel', 'update_personal_channel'),
+    ('APIRoute', 'POST', '/api/me/channel/listen', 'listen_personal_channel'),
+    ('APIRoute', 'DELETE', '/api/me/channel/listen', 'unlisten_personal_channel'),
 ]
 
 

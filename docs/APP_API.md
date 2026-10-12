@@ -311,7 +311,8 @@ not built (AUTH.md).
   "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
   "plugins": ["integration", "users"],
   "boot_id": "54615c1e5e5d4331a7b9cd713cd45918",
-  "ui": {"version": "1.6.2-dev.24", "host_api": 1}
+  "ui": {"version": "1.6.2-dev.24", "host_api": 1},
+  "personal_channel": true
 }
 ```
 
@@ -333,6 +334,7 @@ not built (AUTH.md).
 | `plugins` | string[] | The sign-in plugins that are on: `"users"` (accounts and roles) and/or `"integration"` (keys). Sorted. |
 | `boot_id` | string (32 hex) | New every time the server starts. A different value than last time = the server restarted: refetch everything; the event stream's ids carry it (8.3). Missing on servers before the field (G4). |
 | `ui` | `{version, host_api}` | The web UI the server serves: its version, and `host_api`, the version of its `window.SONORIUM_HOST` hooks (12.2.2). Missing: the server's UI has no hooks; use the bundled copy (12.3). |
+| `personal_channel` | bool | `true`: the server has the personal channel (7.11). Missing: it doesn't; hide the headphone button. |
 
 **Detecting the Users plugin:** `"users" in plugins`.
 - Present: accounts exist (or will on first visit), roles apply, `POST
@@ -1078,6 +1080,147 @@ volume isn't touched. `db` sounds even to the ear (the default).
 Network speakers buffer a few seconds of audio: a sound reaches them that
 much later than the stream.
 
+### 7.11 The personal channel
+
+Each account has one personal channel: its own theme, preset, sequence or
+playlist, volume and Announcements switch, heard only on that account's own
+devices (the app's headphone button). Think of it as a pair of headphones
+plugged into the server: the mix is made on the server, every device of the
+account hears the same mix, and no speaker ever plays it.
+
+- **Made on first use** (the first `GET /api/me/channel`), with no theme and
+  the default volume. It is kept across restarts (state.json,
+  `"personal_channels"`).
+- **Local only:** it never has speakers. `PUT` with `speaker_group_id` or
+  `adhoc_selection` answers 400; `POST /api/sessions/{its id}/play` and every
+  other `/api/sessions/{its id}/...` route answer 404.
+- **Hidden:** not in `GET /api/sessions` (for anyone, its owner included),
+  `GET /api/now-playing`, `GET /api/status`, `/api/stream/url`, Home
+  Assistant or MQTT entities, dashboard cards, zones or links. It doesn't
+  count towards the 20-channel limit and `POST /api/sessions/stop-all`
+  leaves it alone. There is no admin view of other accounts' personal
+  channels.
+- **Its events** (`channel.listening`, `channel.changed`, `sequence.step`,
+  `playlist.*` of a channel, `sound.*`) carry `"personal": true` and go only
+  to the event streams of its own account (8.1); plugins don't get them.
+- **Announcements:** announcements address channels by id or name, and a
+  personal channel has neither from outside: it can't be named. An
+  announcement to `"all"` (Home Assistant, MQTT, `POST /api/announce`, a
+  plugin) also plays on every personal channel **being listened to right
+  now** whose `announcements` is on. One nobody listens to is left out (there
+  is nobody to hear it). `POST /api/sounds` (sounds, not announcements) never
+  reaches a personal channel.
+- **Volume:** stored with the channel for the app to set on its player. The
+  stream itself is at full level, as every channel's stream is (a channel's
+  volume is its speakers').
+
+#### Whose channel: the account
+
+| Caller | Account |
+|---|---|
+| A signed-in user, or a phone linked by (or for) a user | That user: `user:<user id>` |
+| Users plugin on, nobody signed in (Require login off), a phone with no user, a key, BYPASS_LOGIN | None: 401 `{"detail": "Sign in to use your personal channel"}` |
+| No Users plugin (no accounts): Home Assistant's sidebar | That Home Assistant user (each has their own) |
+| No Users plugin: anyone else (a phone, a key, the web UI) | The server's one shared personal channel |
+
+On the add-on with the Users plugin, the Home Assistant user is the
+account (a phone linked with an HA username is that user).
+
+#### Which device: one device, counted once
+
+Listening is counted per device, by who calls:
+
+1. a linked phone: its device id (from its `sd_` token);
+2. else a signed-in browser: its sign-in session;
+3. else a key: the key;
+4. else the caller's address.
+
+A device that calls `POST .../listen` again is still one device.
+`DELETE .../listen` removes only the device that calls it.
+
+#### Routes
+
+| Method, path | Perm | Body | Answer | Errors |
+|---|---|---|---|---|
+| `GET /api/me/channel` | ch.view | | the channel object (7.1) plus `personal`, `devices`, `this_device` | 401 no account |
+| `PUT /api/me/channel` | ch.change | any of `theme_id`, `preset_id` (`""` none, `"seq:<id>"` a sequence), `sequence_id` (null: stop it), `playlist_id` (null: stop it), `volume` (0-100), `announcements` (bool), `custom_name`; only those sent change | as GET | 400 speakers, 404 unknown sequence or playlist, 409 it can't run (no presets, no entries), 422 bad value, 401 |
+| `POST /api/me/channel/listen` | ch.play | none, or `{"hold_seconds": 0-300}` (or `?hold_seconds=`) | `{"session_id", "personal": true, "channel_id", "stream_path", "listen_path", "hold_seconds", "devices"}` | 400 `"No theme selected"` / `"Theme not found"` / bad hold, 409 `"No free channel"`, 401 |
+| `DELETE /api/me/channel/listen` | ch.play | none | `{"status": "ok", "removed": bool, "devices": n}` (`removed` false: this device wasn't listening) | 401 |
+
+Extra fields on the channel object:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `personal` | bool | Always `true` |
+| `devices` | int | Devices of the account listening now |
+| `this_device` | bool | The calling device is one of them |
+
+`GET /api/me/channel` (captured on a test server, two devices listening):
+
+```json
+{
+  "id": "88de7e63",
+  "name": "Personal",
+  "name_source": "custom",
+  "theme_id": "df297db5-a98d-4372-8029-2c49d1e280e4",
+  "preset_id": "slow_night_at_the_inn",
+  "speaker_group_id": null,
+  "adhoc_selection": null,
+  "volume": 40,
+  "is_playing": false,
+  "speakers": [],
+  "speaker_summary": "No speakers",
+  "channel_id": 1,
+  "sequence_id": null,
+  "preset_choice": "slow_night_at_the_inn",
+  "playlist_id": null,
+  "sequence": null,
+  "playlist": null,
+  "speakers_muted": false,
+  "announcements": true,
+  "listening": true,
+  "outputs": [],
+  "recent": [{"at": "2026-10-12T03:24:19.609835+00:00", "text": "Theme: Tavern"}],
+  "created_at": "2026-10-12T03:24:19.601693",
+  "last_played_at": null,
+  "personal": true,
+  "devices": 2,
+  "this_device": true
+}
+```
+
+`POST /api/me/channel/listen` with `{"hold_seconds": 30}`:
+
+```json
+{"session_id": "88de7e63", "personal": true, "channel_id": 1, "stream_path": "/stream/channel1",
+ "listen_path": "/stream/channel1?local=1&listener=2607ae52a0aad8de", "hold_seconds": 30.0, "devices": 1}
+```
+
+#### Listening
+
+1. `PUT /api/me/channel` with a `theme_id` first (a new personal channel has
+   none: listen answers 400 `"No theme selected"`).
+2. `POST /api/me/channel/listen`. The mix starts if no device of the account
+   listens yet (it fades in); otherwise this device joins the same mix.
+3. Play `http://<host>:<ports.http><listen_path>` (9.3: progressive MP3).
+   `listen_path` is the shared stream plus this device's own tag
+   (`listener=`), so the server can tell when this device's stream closed.
+   Every device gets the same `stream_path`; the tags differ. The tag means
+   nothing outside this server run; ask again after `POST .../listen`.
+4. Stop: `DELETE /api/me/channel/listen`. When the last device leaves, the
+   mix fades out and its slot is freed.
+
+A device is also let go `hold_seconds` (default **15 s**, at most 300; each
+device its own) after its stream closed, checked every 10 s, as Listen here
+does (9.3). A device whose tagged stream never connected counts from its
+`POST .../listen`; one that plays `stream_path?local=1` without its tag is
+kept while such an untagged stream plays. Settings changed with `PUT` apply
+live to what every device hears (a new theme crossfades, a preset glides).
+
+Events: `channel.listening` comes each time the number of listening devices
+changes (`devices`), with `listening` false and `playing` false when the
+last one left (8.2).
+
 ---
 
 ## 8. Live updates
@@ -1095,7 +1238,12 @@ Query parameters:
 | `last_event_id` | | Same as the `Last-Event-ID` header: replay after this id |
 | `max_events` | 0 | >0: close after that many events (tests) |
 
-Recommended for the app: `types=channel.*,sequence.*,playlist.*,speaker.*,theme.*,sonorium.started,error`.
+Recommended for the app: `types=channel.*,sequence.*,playlist.*,speaker.*,theme.*,group.*,spaces.*,settings.*,sonorium.started,error`.
+
+A personal channel's events (7.11) reach only the streams of its own
+account: the stream's caller (its token) decides, and replay after
+`Last-Event-ID` is filtered the same way. A stream opened with the old
+events token (no account) never gets them.
 
 Wire format (real capture):
 
@@ -1140,11 +1288,19 @@ data: {"id": 11, "boot_id": "54615c1e5e5d4331a7b9cd713cd45918", "type": "channel
 | `channel.started` | `channel_id`, `name`, `theme_id`, `preset_id`, `volume`, `speakers` | Mark playing |
 | `channel.stopped` | `channel_id`, `name`, `reason`: `stopped`, `paused`, `idle`, `ended` | Mark stopped |
 | `channel.changed` | `channel_id`, `name`, `changes`: any of `theme_id`, `preset_id`, `sequence_id`, `playlist_id`, `volume`, `speakers_muted`, `name`, `speakers` | Apply `changes`, or refetch the channel |
-| `channel.listening` | `channel_id`, `name`, `listening` (true when the first listener comes, false when the last one goes) | Set the channel's `listening` (G3) |
+| `channel.listening` | `channel_id`, `name`, `listening` (true when the first listener comes, false when the last one goes), `devices` (how many listen now), `playing` (the channel's mix runs: speakers, listeners or outputs); on a personal channel also `personal: true`, and it comes on every change of `devices` | Set the channel's `listening` (G3); personal channel: its device count |
 | `channel.output_added` | `channel_id`, `name`, `output_id`, `kind`, `output_name`, `address` | Add to the channel's `outputs` (G2) |
 | `channel.output_removed` | `channel_id`, `name`, `output_id`, `kind`, `output_name`, `address`, `reason`: `removed` (by the app), `expired` (no heartbeat), `replaced` (the same device reported again), `stopped`, `paused`, `idle`, `deleted` | Remove it; if it is the device this phone casts to, stop the Cast session (9.5) |
 | `sequence.step` | `channel_id`, `name`, `theme_id`, `sequence_id`, `step`, `steps`, `preset_id` | Refetch `/sessions/{id}/playback` (gives `next_change_at`) |
 | `playlist.entry` | `channel_id`, `name`, `playlist_id`, `position`, `entries`, `theme_id` | Same |
+| `playlist.started` | `channel_id`, `name`, `playlist_id`, `playlist_name` | A playlist started on the channel (comes after `channel.changed {playlist_id}`) |
+| `playlist.stopped` | `channel_id`, `name`, `playlist_id` | The channel stopped its playlist (by hand, another theme, the playlist deleted) |
+| `playlist.created` | `playlist_id`, `playlist_name` | Fetch `GET /playlists/{id}` |
+| `playlist.changed` | `playlist_id`, `playlist_name`, `changes` (the fields sent: `name`, `entries`, `order`, `repeat`, `play_min`, `play_max`, `fit_sequences`) | Refetch it |
+| `playlist.deleted` | `playlist_id`, `playlist_name`, `stopped_on` (channel ids that were playing it) | Remove it |
+| `group.changed` | `group_id`, `group_name`, `change`: `created`, `changed`, `deleted` | Refetch `GET /groups` |
+| `spaces.changed` | `source`: `registry` (the floors and areas listed changed: added, renamed, moved or removed in Settings › Floors & Areas or in Home Assistant) or `custom_areas` (Settings › Speakers' custom areas) | Refetch `GET /spaces` |
+| `settings.changed` | `section`: `general` (`GET /settings`), `playback_values` (`GET /settings/playback-values`), `speakers` (enabled speakers), `speaker` (one speaker's settings, with `speaker_id`), `features` (`GET /install`); `keys`: the settings sent (never their values) | Refetch that section |
 | `speaker.added` / `speaker.removed` | `speaker_id`, `name` (+ `type` on added) | Refetch speakers |
 | `speaker.unavailable` / `speaker.available` | `speaker_id`, `name` | Grey out / restore |
 | `theme.created` | `theme_id`, `folder` | Refetch themes |
@@ -1157,9 +1313,10 @@ data: {"id": 11, "boot_id": "54615c1e5e5d4331a7b9cd713cd45918", "type": "channel
 | `command.received` | `plugin_id`, `map_id`, `code`, `actions`, `learned` | ignore |
 | `plugin.<id>.<name>` | the plugin's | ignore |
 
-Not announced as events (poll or refetch): playlist create/edit/delete, speaker group and floor/area changes, settings
-changes, a sequence's `next_change_at` drift. Volume set through Home
-Assistant or MQTT does produce `channel.changed`.
+Not announced as events (poll or refetch): a sequence's `next_change_at`
+drift; Settings › Connection (saving it restarts the server:
+`sonorium.started`). Volume set through Home Assistant or MQTT does produce
+`channel.changed`.
 
 ### 8.3 Reconnect and replay
 
@@ -1817,8 +1974,8 @@ section; the others have a proposed shape.
 ### Free MVP
 
 Built on branch `app-gaps` (each gap's final shape is in the section named):
-G1, G2, G3, G4, G6, G7, G10, G13, G14. Not built: G5 (other than
-`channel.listening`), G8, G9, G11, G12.
+G1, G2, G3, G4, G6, G7, G10, G13, G14; G5 on branch `personal-channel`.
+Not built: G8, G9, G11, G12.
 
 **G1. A phone sees, renames and unlinks itself. Built** (4.7).
 
@@ -1864,10 +2021,10 @@ SSE frames:   id: <boot_id>:<n>   (data JSON: "id": n, "boot_id")
 Last-Event-ID <boot_id>:<n>: replay after n; another run's id: replay all of this run's held events; bare n: as before
 ```
 
-**G5. Missing events.** (Medium) `playlist.created|changed|deleted
-{playlist_id}`, `group.changed {group_id}`, `spaces.changed`,
-`settings.changed {keys}`. Each would carry ids only; the app refetches.
-`channel.listening` is built (G3). Not built.
+**G5. Missing events. Built** (8.2): `playlist.created|changed|deleted`,
+`playlist.started|stopped`, `group.changed`, `spaces.changed`,
+`settings.changed`, and `channel.listening` gained `devices` and
+`playing`. They carry ids and names; the app refetches.
 
 **G6. Live per-speaker volume and mute. Built** (7.4).
 

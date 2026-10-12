@@ -593,6 +593,7 @@ def test_info_is_public(w):
     assert info["login_required"] is True and set(info["plugins"]) == {"users", "integration"}
     assert info["boot_id"] == m.runtime.BOOT_ID and len(info["boot_id"]) == 32  # G4: new at every start
     assert info["ui"] == {"version": "test", "host_api": 1}  # G14
+    assert info["personal_channel"] is True  # GET/PUT /api/me/channel
 
 
 # --- Home Assistant's users (add-on) ---------------------------------------------------
