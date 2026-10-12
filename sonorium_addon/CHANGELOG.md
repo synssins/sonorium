@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.7.1-dev.1 (2026-10-12)
+
+### Documentation
+
+- Keys and Announcements are core features with a switch in Settings > Advanced
+  ([`162da02`](https://github.com/synssins/sonorium/commit/162da02d5e3b766da8d1e070a2c5c0b9d954c5a9))
+
+### Features
+
+- Keys and Announcements are core features with switches in Settings > Advanced
+  ([`cf154d9`](https://github.com/synssins/sonorium/commit/cf154d91d72b5b83d06648ebf78c9d1f8794fc2f))
+
+
 ## v1.6.2-dev.67 (2026-10-12)
 
 
