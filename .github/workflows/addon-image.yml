@@ -1,0 +1,138 @@
+name: Add-on Image
+
+# Builds the Home Assistant add-on (sonorium_addon/Dockerfile) for each
+# architecture and publishes it to ghcr.io/synssins/{arch}-addon-sonorium,
+# tagged with the add-on version. config.yaml's `image:` line makes Home
+# Assistant pull these instead of building the Dockerfile on the device.
+#
+# Called by "Add-on Version" BEFORE the branch gets the release commit: it
+# builds the reserved addon-v<version> tag (`ref`). Every branch gets
+# :<version>; "Add-on Version" moves :latest / :dev / :branch-<name> only
+# after the branch has the release commit (`hold_branch_tag`).
+#
+# Run by hand, it rebuilds the version already on the branch and moves the
+# branch's tag too (main -> :latest, fixes -> :dev, others -> :branch-<name>).
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        type: string
+        required: true
+      ref:
+        description: 'Commit or tag to check out (default: branch head)'
+        type: string
+        default: ''
+      hold_branch_tag:
+        description: 'Push only :<version>; the caller moves :latest / :dev / :branch-<name>'
+        type: boolean
+        default: false
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: addon-image-${{ inputs.branch || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and push (${{ matrix.arch }})
+    strategy:
+      # Every arch is tried; any failure stops the version from being published
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            runner: ubuntu-latest
+          # Native Arm runner: FFmpeg and PyAV are compiled in the image, which
+          # takes far too long under emulation
+          - arch: aarch64
+            platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || inputs.branch || github.ref_name }}
+          persist-credentials: false
+
+      - name: Work out tags
+        id: meta
+        env:
+          BRANCH: ${{ inputs.branch || github.ref_name }}
+          ARCH: ${{ matrix.arch }}
+          HOLD: ${{ inputs.hold_branch_tag == true }}
+        run: |
+          version=$(cat sonorium_addon/sonorium/version)
+          image=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/${ARCH}-addon-sonorium
+          base=$(awk -v a="$ARCH:" '$1 == a {print $2}' sonorium_addon/build.yaml)
+          [ -n "$base" ] || { echo "no base image for $ARCH in build.yaml"; exit 1; }
+          tags="$image:$version"
+          # The branch's tag waits until the release commit is on the branch
+          if [ "$HOLD" != "true" ]; then
+            if [ "$BRANCH" = "main" ]; then
+              tags="$tags,$image:latest"
+            elif [ "$BRANCH" = "fixes" ]; then
+              tags="$tags,$image:dev"
+            else
+              # Other branches get their own tag, so they never replace what :dev points at
+              slug=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')
+              tags="$tags,$image:branch-$slug"
+            fi
+          fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "image=$image:$version" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "$ARCH: $tags (from $base)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: sonorium_addon
+          file: sonorium_addon/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          load: false
+          tags: ${{ steps.meta.outputs.tags }}
+          build-args: |
+            BUILD_FROM=${{ steps.meta.outputs.base }}
+            ADDON_VERSION=${{ steps.meta.outputs.version }}
+          labels: |
+            io.hass.name=Sonorium
+            io.hass.type=addon
+            io.hass.arch=${{ matrix.arch }}
+            io.hass.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ steps.meta.outputs.version }}
+            org.opencontainers.image.description=Sonorium Home Assistant add-on (${{ matrix.arch }})
+          cache-from: type=gha,scope=addon-${{ matrix.arch }}
+          cache-to: type=gha,scope=addon-${{ matrix.arch }},mode=max
+
+      - name: Check the audio libraries (LGPL FFmpeg, MP3 encoder)
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+        run: |
+          docker run --rm --entrypoint python3 "$IMAGE" -c "
+          import av, av._core as c
+          lic = c.library_meta['libavcodec']['license']
+          print('PyAV', av.__version__, 'FFmpeg', av.ffmpeg_version_info, lic)
+          assert lic.startswith('LGPL'), lic
+          assert av.codec.Codec('mp3', 'w').name == 'libmp3lame'
+          import sonorium.mp3_out
+          "

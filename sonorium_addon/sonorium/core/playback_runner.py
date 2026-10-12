@@ -218,6 +218,8 @@ class PlaybackRunner:
                 sequence_id, session.theme_id, next_at=self.clock() + glide + self._hold(sequence))
             self._plan_transitions(session, run, glide)
         self.manager.note(session, f"Started: {sequence['name']}")
+        self._publish("channel.changed", session, changes={"sequence_id": sequence_id,
+                                                           "preset_id": session.preset_id})
         self._note_step(session, 1, len(sequence["presets"]), sequence["presets"][0])
         self.manager.state.save()
         logger.info(f"  Channel '{session.name}': sequence '{sequence['name']}' started "
@@ -235,11 +237,19 @@ class PlaybackRunner:
         session.sequence_id = None
         if had:
             logger.info(f"  Channel '{session.name}': sequence stopped")
+            self._publish("channel.changed", session, changes={"sequence_id": None})
         return had
 
     def _note_step(self, session: Session, step: int, steps: int, preset_id: Optional[str]) -> None:
-        """A sequence step in the channel's recent changes."""
+        """A sequence step in the channel's recent changes (and a sequence.step event)."""
         self.manager.note(session, f"Step {step} of {steps}: {self.manager.preset_name(session.theme_id, preset_id)}")
+        self._publish("sequence.step", session, theme_id=session.theme_id, sequence_id=session.sequence_id,
+                      step=step, steps=steps, preset_id=preset_id)
+
+    def _publish(self, event_type: str, session: Session, **data) -> None:
+        publish = getattr(self.manager, "publish", None)
+        if callable(publish):
+            publish(event_type, session, **data)
 
     # --- Advanced transitions ---
 
@@ -354,6 +364,7 @@ class PlaybackRunner:
                 self.manager.note(session, f"Stopped: {sequence['name']}")
                 self._sequences.pop(session.id, None)
                 session.sequence_id = None
+                self._publish("channel.changed", session, changes={"sequence_id": None})
                 return
             else:
                 nxt = run.index  # one preset, reverse: nothing to change
@@ -388,6 +399,7 @@ class PlaybackRunner:
             self.manager.state.save()
             raise ValueError(f"Playlist '{playlist.get('name', playlist_id)}' has no playable entry")
         self.manager.note(session, f"Started: {playlist.get('name', playlist_id)}")
+        self._publish("channel.changed", session, changes={"playlist_id": playlist_id})
         self._note_entry(session, playlist)
         self.manager.state.save()
         logger.info(f"  Channel '{session.name}': playlist '{playlist.get('name', playlist_id)}' started")
@@ -427,6 +439,7 @@ class PlaybackRunner:
         session.playlist_position = 0
         if had:
             logger.info(f"  Channel '{session.name}': playlist stopped")
+            self._publish("channel.changed", session, changes={"playlist_id": None})
         return had
 
     def _entry(self, session: Session, playlist: dict) -> dict:
@@ -437,6 +450,9 @@ class PlaybackRunner:
         theme = self.manager.get_theme(session.theme_id)
         self.manager.note(session, f"Entry {session.playlist_position + 1} of {len(playlist['entries'])}: "
                                    f"{theme.name if theme else session.theme_id}")
+        self._publish("playlist.entry", session, playlist_id=session.playlist_id,
+                      position=session.playlist_position + 1, entries=len(playlist["entries"]),
+                      theme_id=session.theme_id)
 
     def _enter_entry(self, session: Session, playlist: dict, tries: int = 1) -> bool:
         """
@@ -652,7 +668,7 @@ class PlaybackRunner:
             self.manager.state.save()
         for session in ended:
             logger.info(f"  Channel '{session.name}': its playlist ended (no repeat), stopping the channel")
-            await self.manager.stop(session.id)
+            await self.manager.stop(session.id, reason="ended")
         for session in changed.values():
             await self._notify(session)
 

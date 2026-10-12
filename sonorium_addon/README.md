@@ -4,6 +4,23 @@
 
 ## Announcements
 
+> ## ⭐ 1.7.0: Sign-in, announcements and plugins
+>
+> Sonorium gets users and sign-in, plays announcements sent by other systems, and runs plugins that play sounds over channels.
+>
+> - **Sign-in:** users with two roles, Admin and User, keys for devices and programs, and **Link App** for the Sonorium app. In the Home Assistant app, Home Assistant's users are Sonorium's users.
+> - **Announcements:** Home Assistant, MQTT, Node-RED or a script sends a chime or words to speak, and Sonorium plays them on the channels named. A playing channel gets quieter while the announcement plays.
+> - **Zones:** a channel can belong to a user, with Kid mode and its hours, a home channel for each speaker, and linked channels that play one thing. Off until an admin turns it on in **Settings › Advanced**.
+> - **Now playing:** the **Status** page shows what each track of a playing channel is doing.
+> - **Home Assistant dashboard cards**, added to Home Assistant when Home Assistant and MQTT are linked.
+> - **Settings › Advanced** shows the playback values every theme is built on, and each can be changed.
+> - **Phones, tablets and short screens** each get a layout that fits.
+> - **License:** Sonorium is now under the [PolyForm Noncommercial License 1.0.0](https://github.com/synssins/sonorium/blob/main/LICENSE.md).
+>
+> **Sign-in is optional.** An update changes nothing until you turn on **Require login** in **Settings › Users & devices**. A new Docker install asks for an admin account on the first visit. In the Home Assistant app, every Home Assistant user now sees Sonorium in the sidebar, with the role of their Home Assistant account (owners and administrators are Admins), and the sidebar needs no second sign-in.
+>
+> **Port 8808 is new:** the web UI and the API over HTTPS, for the Sonorium app. Its certificate is self-signed, so a browser warns about it. Port 8008 is unchanged, and speakers keep using it. Docker without `network_mode: host` needs port 8808 published too.
+
 > ## ⭐ Sonorium has its own repository
 >
 > Sonorium began as a fork of [Amniotic](https://github.com/fmtr/amniotic). It has since been fully rewritten: all legacy code from the original repository it was forked from is gone. Sonorium now has its own repository at the same address, [synssins/sonorium](https://github.com/synssins/sonorium). The old fork is archived as [synssins/sonorium-legacy](https://github.com/synssins/sonorium-legacy). Home Assistant and Docker installs keep working as before.
@@ -63,7 +80,7 @@ Each channel plays a theme or a playlist on its own speakers, and can be heard i
 ![Channels](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channels.png)
 
 #### Edit Channel
-Search themes, then pick speakers by floor, room or one at a time.
+Search themes, pick speakers by floor, area or one at a time, and switch the channel's announcements on or off.
 
 ![Edit Channel](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Channel_Editor.png)
 
@@ -133,6 +150,26 @@ Recent messages with filters, search, copy and download.
 
 ![Settings → Logs](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings_Logs.png)
 
+#### Status: Now playing
+Each playing channel with its tracks by section: what each one is doing now, and its level.
+
+![Status: Now playing](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Status.png)
+
+#### Settings → Users & devices
+Each person with their role, and the browsers and phones they use.
+
+![Settings → Users & devices](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings_Users.png)
+
+#### Settings → Keys
+Keys for devices and programs, each allowed only the items checked on it.
+
+![Settings → Keys](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings_Keys.png)
+
+#### Settings → Advanced
+Optional features, and the playback values every theme is built on.
+
+![Settings → Advanced](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings_Advanced.png)
+
 #### Help on every page
 The **?** in the top bar explains the page you're on.
 
@@ -187,15 +224,27 @@ Fine-tune how each audio file plays within a theme:
 
 #### Home Assistant Dashboard Integration
 - **MQTT Entities** - Full dashboard control via MQTT (session select, theme/preset dropdowns, play/stop, volume)
+- **Dashboard Cards** - Sonorium's own cards (Tile, Channel, Player, All channels), added to Home Assistant when Home Assistant and MQTT are linked
 - **Human-Readable Names** - Theme and preset dropdowns show names instead of UUIDs
 - **Status Sensors** - See playback status and assigned speakers from your dashboard
 - **Automation Support** - Use HA automations to trigger soundscapes (morning alarms, schedules, etc.)
+- **Announcements** - Each channel has a notify entity (`notify.sonorium_<channel>_announce`) that speaks a message on that channel, and an Announcements switch (`switch.sonorium_<channel>_announcements`). See [Announcements: let other systems use Sonorium](#announcements-let-other-systems-use-sonorium)
+
+#### Sign-in and Zones
+- **Users and Roles**: An Admin changes everything; a User plays and changes channels, playlists and sequences
+- **Keys**: For devices and programs, each allowed only the items checked on it, with an expiry
+- **Link App**: A QR code on the Channels page links the Sonorium app to your account
+- **Zones** (optional): Channels that belong to a user, Kid mode with its hours, a home channel for each speaker, and linked channels
+
+#### Plugins
+- **Built-in Plugins**: Users, Integration (keys), Announcements, Theme Merge and Ambient Mixer Importer; each can be uninstalled
+- **Plugin API**: Plugins play sounds and announcements over channels, ramp volume, add audio outputs, and answer remotes, MQTT topics and webhooks
 
 #### Modern Web Interface
-- **Responsive Design**: Works on desktop and mobile; on a phone the menu opens from a top bar that's always there
+- **Responsive Design**: Phones, tablets and short screens each get a layout that fits; on a phone the menu opens from a top bar that's always there
 - **Help on Every Page**: The **?** in the top bar explains the page you're on
 - **Dark Theme**: Easy on the eyes
-- **Real-Time Status**: See what's playing across all channels
+- **Real-Time Status**: The Status page shows what each track of a playing channel is doing
 - **Drag & Drop**: Upload audio files directly through the UI
 - **Speaker Browser**: Visual hierarchy of floors, areas, and speakers
 - **Logs Page**: Recent messages with filters, search and download, even when startup fails
@@ -258,6 +307,42 @@ All theme management is done through the Sonorium web interface:
 | `sonorium__path_audio` | `/media/sonorium` | Path to theme folders |
 | `sonorium__max_channels` | `6` | Maximum concurrent channels (1-10) |
 | `sonorium__mqtt_host` | `auto` | MQTT broker. `auto` uses the Mosquitto broker add-on; set a host only for a different broker (plus port, username, password) |
+| `web_ui_only_through_ha` | `false` | `true`: ports 8008 and 8808 serve only streams, linked phones and keys; the web UI is only in Home Assistant's sidebar |
+| `bypass_login` | `false` | Only for forgotten logins: set to true to get in and reset the admin account, then set it back to false |
+
+#### Sign-in
+
+Home Assistant's users are Sonorium's users. Each person who signs in to Home Assistant
+gets Sonorium with the role their Home Assistant account has:
+
+| Home Assistant | Sonorium |
+|---|---|
+| Owner or Administrator | Admin: everything, including settings and users |
+| User, Read-only | User: plays channels, playlists and sequences; sees themes and speakers |
+
+- **HA's sidebar** opens Sonorium without a second sign-in, for every Home Assistant user.
+- **Role changes** made in Home Assistant apply within a minute, on phones too.
+- **Switching a user off or removing them** in Home Assistant signs them out of Sonorium,
+  and their phones stop working.
+- **Passwords** stay in Home Assistant. Sonorium has none to set for these users: Users &
+  devices shows them with a **Home Assistant** label.
+
+**Require login** (**Settings › Users & devices**) decides whether the direct ports need a
+sign-in. On a new install it is on; after an update from an earlier version it is off until
+you turn it on. While it is on, port 8008 (HTTP) and 8808 (HTTPS) need a sign-in with your
+Home Assistant username and password, a linked phone or a key. Speakers and streams never
+need one.
+
+**The Sonorium app** links with **Link App** on the Channels page (a QR code; the phone
+acts as you), or signs in with your Home Assistant username and password. It talks to port
+8808 (HTTPS, self-signed; the app checks the certificate), never to HA's sidebar address.
+Speakers keep using port 8008.
+
+**Forgotten password:** set `bypass_login` to `true` on the Configuration tab and restart.
+Reset the account under **Settings › Users & devices**, then set it back to `false` and restart.
+
+More: the [Sign-in and Users](https://github.com/synssins/sonorium/wiki/Sign-in-and-Users) wiki page and
+[docs/AUTH.md](https://github.com/synssins/sonorium/blob/main/docs/AUTH.md).
 
 #### Where data is stored
 
@@ -272,7 +357,124 @@ Access Settings from the sidebar to configure:
 - **Master Gain**: Global output level
 - **Speakers**: Switch speakers on or off, set their name, room and volume offset, and play a test sound
 - **Speaker Groups**: Saved sets of speakers for quick channel setup
+- **Plugins**: Install, update, remove and set up plugins
 - **Logs**: Recent messages, with level filter, search, copy and download
+- **Users & devices**: Users, their roles, browsers and phones, and **Require login** (admins)
+- **Keys**: Keys for devices and programs (admins)
+- **Advanced**: Optional features such as Zones and Plugin packages, and the playback values every theme is built on
+
+### Announcements: let other systems use Sonorium
+
+Home Assistant, Node-RED, a script or a doorbell can send Sonorium an announcement: a chime,
+words to speak, or both. Sonorium plays it on the channels named. A playing channel gets
+quieter while it plays and comes back after it, the way a radio presenter talks over the
+music. A stopped channel has its speakers started for it and stopped again after it.
+
+The other system decides when to announce and what to say; Sonorium only plays it, so there
+is nothing to set up in Sonorium. Announcements play even on a channel with an owner or in
+its quiet hours.
+
+**Announcements on a channel.** Each channel has an **Announcements** switch in its editor,
+on by default. Off, nothing announces on that channel, whichever way it is sent. Home
+Assistant has it too, as `switch.sonorium_<channel>_announcements`, so an automation can
+turn it off for a nap and on again after.
+
+**What to send.** Only `channels` and `text` (or `url`) are needed:
+
+| Field | | Example |
+|---|---|---|
+| `channels` | A channel's name or id, a list of them, or `"all"`. Names are not case-sensitive | `"Kitchen"`, `["Kitchen", "Office"]` |
+| `text` | Words to speak, with Home Assistant's text to speech | `"Dinner is ready"` |
+| `url` | A sound to play first (an http or https link to MP3, WAV, OGG, ...) | `"http://192.168.1.10/ding.mp3"` |
+| `volume` | 0 to 200; 100 is the sound's own level | `80` |
+| `duck` | How much quieter the channel gets, in dB; `false` to not duck. Left out: **Settings → Advanced** | `18` |
+
+Text to speech comes from Home Assistant: its first `tts.*` engine, or the one set in the
+**Announcements** plugin's settings. Without Home Assistant (Docker on its own), send a
+`url`: the sound plays and the answer says the text wasn't spoken.
+
+#### From Home Assistant
+
+Each channel has a notify entity, `notify.sonorium_<channel>_announce`:
+
+```yaml
+alias: Doorbell
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.doorbell
+    to: "on"
+actions:
+  - action: notify.send_message
+    target:
+      entity_id: notify.sonorium_kitchen_announce
+    data:
+      message: Someone is at the door
+```
+
+For a chime first, send the message as JSON:
+
+```yaml
+    data:
+      message: '{"text": "Someone is at the door", "url": "http://192.168.1.10/ding.mp3"}'
+```
+
+Several channels at once, through MQTT:
+
+```yaml
+action: mqtt.publish
+data:
+  topic: sonorium/announce/set
+  payload: '{"channels": ["Kitchen", "Office"], "text": "Dinner is ready"}'
+```
+
+#### With a key (scripts, curl, other programs)
+
+1. **Settings → Keys → New key**.
+2. Name it and check **Make announcements**.
+3. **Make key**, then copy the key. It is shown once.
+
+A key limited to some channels announces only on those.
+
+```bash
+curl -X POST http://sonorium.local:8008/api/announce \
+  -H "Authorization: Bearer sk_your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"channels": "Kitchen", "text": "Dinner is ready"}'
+```
+
+Use Sonorium's address in place of `sonorium.local` when that name doesn't work on your
+network. The answer lists the channels it plays on (`played`), the channels with
+Announcements off (`skipped`), and a `notice` when only the chime played. An unknown channel
+answers 404; text with no text to speech and no `url` answers 503.
+
+#### From MQTT
+
+On the broker Sonorium uses (**Settings → Connection**), publish to `sonorium/announce/set`:
+
+```bash
+mosquitto_pub -h 192.168.1.5 -u mqtt_user -P mqtt_password -t sonorium/announce/set \
+  -m '{"channels": "all", "url": "http://192.168.1.10/ding.mp3", "text": "The washer is done"}'
+```
+
+A message without `channels` is ignored, so a mistake doesn't wake every room.
+
+#### From Node-RED
+
+A **function** node, then an **http request** node:
+
+```javascript
+msg.headers = {
+    "Authorization": "Bearer sk_your_key",
+    "Content-Type": "application/json"
+};
+msg.payload = { channels: "Kitchen", text: "Dinner is ready" };
+return msg;
+```
+
+In the **http request** node: **Method** `POST`, **URL**
+`http://sonorium.local:8008/api/announce`, **Return** `a parsed JSON object`.
+Node-RED with an MQTT broker can publish to `sonorium/announce/set` with an **mqtt out**
+node instead, without a key.
 
 ### Troubleshooting
 
@@ -313,6 +515,64 @@ and publish. Only remove leftover topics, not current channels. Back up any
 automations that use the entity first.
 
 ## What's new
+
+### 1.7.0
+
+**Sign-in**
+- **Accounts and roles.** The built-in **Users** plugin adds accounts with two roles. An **Admin** can change everything; a **User** can play and change channels, run and edit playlists and sequences, and see themes and speakers. Sonorium always keeps one Admin.
+- **New installs** ask for an admin account on the first visit and need a sign-in from then on. **Updates** change nothing until you create the account and turn on **Require login**; the banner at the top offers both.
+- **Users & devices.** **Settings → Users & devices** lists each person with the browsers and phones they use. Add users, change roles, reset passwords, and sign out one browser or every device.
+- **Keys.** The built-in **Integration** plugin adds **Settings → Keys**: keys for devices and programs, each allowed only the items checked on it, for some channels or all, with an expiry. A key is shown once.
+- **Link App.** The button on the **Channels** page shows a QR code that links a phone to your account. Each code works once, for 5 minutes.
+- **HTTPS.** Port 8808 serves the web UI and the API over HTTPS, with a certificate Sonorium makes itself. Port 8008 is unchanged; speakers keep using it.
+- **sonorium.local.** The Docker version announces itself on your network: `http://sonorium.local:8008`.
+- **Home Assistant's users** (Home Assistant app). Everyone who signs in to Home Assistant gets Sonorium with the role their Home Assistant account has: owners and administrators are Admins, everyone else is a User. Phones and the app's sign-in use the Home Assistant username and password; switching a user off in Home Assistant switches them off in Sonorium.
+- **Forgotten password.** `BYPASS_LOGIN=true` (Docker) or `bypass_login` (Home Assistant app) opens the web UI without a sign-in, to reset the account.
+
+**Announcements**
+- **Other systems announce through Sonorium.** Home Assistant (each channel's notify entity), MQTT (`sonorium/announce/set`), anything that can make a web request (`POST /api/announce` with a key) and plugins send a chime and/or words to speak; Sonorium plays them on the channels named. See [Announcements: let other systems use Sonorium](#announcements-let-other-systems-use-sonorium).
+- **Announcements switch** on each channel, and in Home Assistant: off, nothing announces on that channel.
+
+**Plugins**
+- **Built-in plugins can be uninstalled** like any other. An uninstalled built-in plugin stays uninstalled after restarts and updates.
+- **Plugin settings** show under each plugin's form on **Settings → Plugins**, and are saved as you change them.
+- **Theme Merge 2.0** merges two themes into a new theme or into either one, with their tracks, groups, linked files and presets.
+- **Ambient Mixer Importer 3.1** imports mixes with the current playback modes and gapless loops. Its random sounds follow **Wait between plays** on **Settings → Advanced**.
+- **For plugin authors:** plugin API 1.1: events, an actions API for channels, a scheduler, webhook triggers, sounds and announcements over channels (the channel gets quieter while they play), volume ramps, audio outputs, commands from remotes, MQTT topics and webhooks, menu pages and Connections sections. A plugin can bring Python packages once **Plugin packages** is on in **Settings › Advanced** (off by default). See [docs/PLUGIN_DEVELOPMENT.md](https://github.com/synssins/sonorium/blob/main/docs/PLUGIN_DEVELOPMENT.md).
+
+**Settings → Advanced**
+- **Playback values.** The values every theme's playback is built on, until now fixed: **Wait between plays**, **Wait randomness**, **Gap after a group's track**, **Loop crossfade**, **Merry-go-round crossfade range**, **Track fade**, **Switch fade**, **Long pause chance**, **Turn chance** and **Short file threshold**. Each is saved as you change it, playing channels follow it, and the arrow on its row puts the default back. **Advanced** is now always in the menu.
+
+**Home Assistant dashboard cards**
+- **Sonorium's cards** are added to Home Assistant automatically when Home Assistant and MQTT are linked. Search for **Sonorium** in the card picker.
+- **Four layouts:** **Tile**, **Channel**, **Player** and **All channels**, changed in the card's editor along with what each one shows.
+- **Channel popup.** Clicking a channel's name opens the channel as it looks on Sonorium's Channels page, with its recent changes.
+- When the cards can't be added automatically, **Settings → Connection** says why and offers the file to download (Docker).
+
+**Zones**
+- **Zones** are off until an admin turns them on in **Settings › Advanced**. A channel can then belong to a user: only its owner and admins change it. A channel with no owner stays open to everyone who may play channels.
+- **Kid mode.** Only an admin changes the channel's speakers. Its hours set when the owner can play the channel; at the end of the hours, what the owner started fades out and stops.
+- **Speaker homes.** A speaker plays for one channel at a time. Its home channel, the one it was added to first, can take it back.
+- **Linked channels.** An admin links channels to play one theme or playlist in all of them; each keeps its own volume.
+
+**Status**
+- **Now playing.** The **Status** page shows each playing channel with its tracks by section: playing, fading, waiting, paused or muted, a countdown to the next change, and the level. **As heard** shows the mix delayed by the speakers' buffer, as it sounds in the room.
+
+**Layout**
+- **Phones, tablets and short screens.** Short screens, such as a phone held sideways, get a one-row header. Tablets get the desktop layout, slightly larger. Settings tables use their phone layout when the window is too narrow for them.
+- **In the Sonorium app,** a button in the top bar shows the server's name and opens the server list; **Servers** is the last item in **Settings**.
+
+**Under the hood**
+- **Fully rewritten.** None of Amniotic's code remains, and Sonorium no longer depends on fmtr.tools.
+- **Audio-only FFmpeg.** The Docker image and the Home Assistant app use their own audio-only FFmpeg build (LGPL) with PyAV. See [THIRD_PARTY_NOTICES.md](https://github.com/synssins/sonorium/blob/main/THIRD_PARTY_NOTICES.md).
+- **License.** Sonorium is under the [PolyForm Noncommercial License 1.0.0](https://github.com/synssins/sonorium/blob/main/LICENSE.md).
+
+**Fixes**
+- Hidden folders in the themes folder are no longer shown as themes, and leftovers of a crash are removed.
+- An edit saved while Ambient Mixer Importer was still downloading was lost.
+- Short file threshold left the Theme Editor's ⋯ menu (it only applied to Auto, which is retired); it is on **Settings › Advanced**.
+- A sequence step's dot also lights for While playing changes.
+- Sonorium opens on **Channels** when the page it remembered can't be opened.
 
 ### 1.6.1
 
@@ -552,7 +812,7 @@ A theme is a set of tracks (sound files) mixed together. This help follows the e
 
 **Presets and saving**
 
-- **Live:** changes are heard on speakers playing this theme, and on this device with Preview mix.
+- **Live:** changes are heard at once with Preview mix, and on channels playing this theme with no preset. A channel playing a preset hears them after Save Preset.
 - **Preset:** the loaded preset. Current settings is the theme without one.
 - **New:** makes a new preset from the current mix.
 - **Save Preset:** Saves loaded preset
@@ -576,6 +836,8 @@ Sonorium provides a REST API for integration and automation:
 - `POST /api/sessions/{id}/next` - Skip to the sequence's next step or the playlist's next entry
 - `PUT /api/sessions/{id}/speakers-muted` - Mute or unmute the speakers (`{"muted": true}`)
 - `POST /api/sessions/{id}/listen` / `DELETE` - Start or stop listening in a browser (the stream is `stream_path` with `?local=1`)
+- `PUT /api/sessions/{id}/announcements` - Turn the channel's Announcements on or off (`{"on": false}`)
+- `POST /api/announce` - Play a chime and/or speak text on channels (`{"channels": "Kitchen", "text": "Dinner is ready"}`; see [Announcements](#announcements-let-other-systems-use-sonorium))
 
 #### Themes
 - `GET /api/themes` - List all themes
@@ -589,6 +851,10 @@ Sonorium provides a REST API for integration and automation:
 
 #### Status
 - `GET /api/status` - Current system status
+- `GET /api/now-playing` - What each playing channel's tracks are doing (the Status page)
+- `GET /api/info` - Server name, version and ports (no sign-in needed)
+
+The full reference, with sign-in and keys: [docs/APP_API.md](https://github.com/synssins/sonorium/blob/main/docs/APP_API.md).
 
 ## Acknowledgements
 
@@ -596,7 +862,9 @@ Sonorium was originally based on [Amniotic](https://github.com/fmtr/amniotic) by
 
 ## License
 
-See LICENSE file for details.
+Sonorium is licensed under the [PolyForm Noncommercial License 1.0.0](https://github.com/synssins/sonorium/blob/main/LICENSE.md): free to use, change and share for noncommercial purposes. Commercial use needs a separate license. Copyright 2026 Chris Kliewer. Third-party components keep their own licenses: see [THIRD_PARTY_NOTICES.md](https://github.com/synssins/sonorium/blob/main/THIRD_PARTY_NOTICES.md).
+
+The components Sonorium is built on, and their licences, are listed in [THIRD_PARTY_NOTICES.md](https://github.com/synssins/sonorium/blob/main/THIRD_PARTY_NOTICES.md).
 
 ## Contributing
 

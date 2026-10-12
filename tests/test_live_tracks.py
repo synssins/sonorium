@@ -11,20 +11,20 @@ np = pytest.importorskip("numpy")
 av = pytest.importorskip("av")
 
 ADDON = str(Path(__file__).resolve().parents[1] / "sonorium_addon")
-recording = ThemeStream = None
+recording = ThemeMix = None
 
 
 @pytest.fixture(autouse=True, scope="module")
 def addon_package():
     """Imports the add-on's sonorium package for these tests only (other tests use another one)."""
-    global recording, ThemeStream
+    global recording, ThemeMix
     saved = {k: v for k, v in sys.modules.items() if k == "sonorium" or k.startswith("sonorium.")}
     for k in saved:
         del sys.modules[k]
     sys.path.insert(0, ADDON)
     try:
         theme = pytest.importorskip("sonorium.theme")
-        recording, ThemeStream = sys.modules["sonorium.recording"], theme.ThemeStream
+        recording, ThemeMix = sys.modules["sonorium.recording"], theme.ThemeMix
         yield
     finally:
         sys.path.remove(ADDON)
@@ -51,13 +51,13 @@ def silent_mp3(path: Path, seconds: float):
 def theme_with(folder: Path, names: list[str], muted=()):
     """A freshly scanned theme definition, as refresh_themes builds one."""
     theme = SimpleNamespace(name="Storm", groups={"Thunder": {"gap_min": 0, "gap_max": 0}},
-                            short_file_threshold=15.0, sonorium=SimpleNamespace(master_volume=1.0))
-    theme.instances = []
+                            short_file_threshold=15.0, library=SimpleNamespace(master_volume=1.0))
+    theme.tracks = []
     for name in names:
-        meta = recording.RecordingMetadata(folder / "Thunder" / f"{name}.mp3", folder)
-        instance = recording.RecordingThemeInstance(meta, theme)
+        meta = recording.AudioFile(folder / "Thunder" / f"{name}.mp3", folder)
+        instance = recording.ThemeTrack(meta, theme)
         instance.is_enabled = name not in muted
-        theme.instances.append(instance)
+        theme.tracks.append(instance)
     return theme
 
 
@@ -90,8 +90,8 @@ def test_a_track_added_mid_play_joins_the_group(tmp_path):
     level = recording.logger.level
     recording.logger.setLevel(logging.DEBUG)
     try:
-        stream = ThemeStream(theme_with(folder, ["Crack A", "Crack B", "Crack C"]))
-        chunks = stream.iter_chunks()
+        stream = ThemeMix(theme_with(folder, ["Crack A", "Crack B", "Crack C"]))
+        chunks = stream.blocks()
         play_until(chunks, starts, 6)
         assert set(starts.played) <= {"Crack A", "Crack B", "Crack C"}
 
@@ -116,8 +116,8 @@ def test_adopted_tracks_read_the_new_settings(tmp_path):
     (folder / "Thunder").mkdir(parents=True)
     for name in ("Crack A", "Crack B"):
         silent_mp3(folder / "Thunder" / f"{name}.mp3", 2.0)
-    stream = ThemeStream(theme_with(folder, ["Crack A", "Crack B"]))
-    first = stream.recording_streams[0]
+    stream = ThemeMix(theme_with(folder, ["Crack A", "Crack B"]))
+    first = stream.sources[0]
     stream.adopt(theme_with(folder, ["Crack A", "Crack B"], muted={"Crack A"}))
-    assert stream.recording_streams[0] is first  # same stream, still in place
+    assert stream.sources[0] is first  # same stream, still in place
     assert first.instance.is_enabled is False  # but it reads the rescanned theme's settings

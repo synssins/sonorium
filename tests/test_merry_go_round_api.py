@@ -29,26 +29,23 @@ def _exec(name, relative):
 
 @pytest.fixture
 def m():
-    """api.py and theme_metadata.py without fmtr, HA, MQTT or the web app."""
+    """api.py and theme_metadata.py without HA, MQTT or the web app."""
     package = types.ModuleType("sonorium")
     package.__path__ = [str(PACKAGE)]
     obs = types.ModuleType("sonorium.obs")
     obs.logger = logging.getLogger("sonorium-mgr-api-test")
     theme = types.ModuleType("sonorium.theme")
-    theme.ThemeDefinition = object
+    theme.LoadedTheme = object
     version = types.ModuleType("sonorium.version")
     version.__version__ = "test"
     logbuffer = types.ModuleType("sonorium.logbuffer")
-    fmtr = types.ModuleType("fmtr")
-    fmtr_tools = types.ModuleType("fmtr.tools")
-    fmtr_tools.http = MagicMock()
-    fmtr_tools.api = SimpleNamespace(Base=object, Endpoint=MagicMock())
-    fmtr.tools = fmtr_tools
+    http_client = types.ModuleType("sonorium.http_client")
+    http_client.Client = MagicMock()
     core = types.ModuleType("sonorium.core")
     core.__path__ = [str(PACKAGE / "core")]
     stubs = {
         "sonorium": package, "sonorium.obs": obs, "sonorium.theme": theme, "sonorium.version": version,
-        "sonorium.logbuffer": logbuffer, "fmtr": fmtr, "fmtr.tools": fmtr_tools, "sonorium.core": core,
+        "sonorium.logbuffer": logbuffer, "sonorium.http_client": http_client, "sonorium.core": core,
     }
     with patch.dict(sys.modules, stubs):
         package.runtime = _exec("sonorium.runtime", "runtime.py")
@@ -68,7 +65,7 @@ class Body:
 
 
 def make_api(m, metadata, theme):
-    api = object.__new__(m.api.ApiSonorium)
+    api = object.__new__(m.api.WebApp)
     api._theme_metadata_manager = Mock()
     api._theme_metadata_manager.save_metadata.return_value = True
     api._theme_groups = lambda theme_id: (theme, metadata, {"Bed": ["Bed/Wind A", "Bed/Wind B"], "Birds": []})
@@ -121,7 +118,7 @@ def test_bad_mode_or_crossfade_is_refused(m, body):
 
 
 def test_mode_and_crossfade_stay_out_of_presets(m):
-    api = object.__new__(m.api.ApiSonorium)
+    api = object.__new__(m.api.WebApp)
     theme = SimpleNamespace(groups={"Bed": {"volume": 0.5, "mode": "merry_go_round", "crossfade": 8.0, "gap_min": 30}})
     api._get_theme_by_id = lambda theme_id: (theme, None)
     # The gap is saved in presets; mode and crossfade stay theme settings
@@ -147,7 +144,7 @@ def test_track_ebb_settings_save_and_go_into_presets(m):
     inst = SimpleNamespace(name="Waves", volume=0.8, presence=0.5, playback_mode=SimpleNamespace(value="presence"),
                            crossfade_enabled=True, exclusive=False, is_enabled=True,
                            volume_low=0.2, pause_between=False, pause_min=30.0, pause_max=300.0, rise=0.0)
-    theme = SimpleNamespace(name="Storm", instances=[inst], groups={})
+    theme = SimpleNamespace(name="Storm", tracks=[inst], groups={})
     metadata = m.meta.ThemeMetadata(id="t1", name="Storm")
     api = make_api(m, metadata, theme)
     api._get_theme_by_id = lambda theme_id: (theme, "folder")

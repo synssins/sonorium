@@ -12,9 +12,13 @@ it feeds the same SONORIUM__* variables the add-on's run.sh provides.
 """
 import json
 import os
+import uuid
 from pathlib import Path
 
 STANDALONE = os.environ.get("SONORIUM_STANDALONE") == "1"
+
+# This run of Sonorium (new at every start): GET /api/info and the event stream's ids carry it
+BOOT_ID = uuid.uuid4().hex
 
 
 def _detect_install() -> str:
@@ -40,6 +44,8 @@ FEATURES = {
     # Adding, renaming and deleting floors and areas; the HA app shows
     # Home Assistant's, which stays in charge of them
     "space_editing": {"addon": "hidden", "default": "on"},
+    # Plugins may install Python packages from the internet (plugins/packages.py)
+    "plugin_packages": {"default": "off"},
 }
 
 

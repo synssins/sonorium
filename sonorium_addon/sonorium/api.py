@@ -5,22 +5,16 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from sonorium.theme import ThemeDefinition
 from sonorium import runtime
 from sonorium.version import __version__
 from sonorium.obs import logger
 from sonorium import logbuffer
-from fmtr.tools import api
+from sonorium import web_server
+from sonorium.web_server import Route
 
-# Import ClientSonorium for type hints (replaces mqtt.Client)
 from typing import TYPE_CHECKING
 if TYPE_CHECKING:
-    from sonorium.client import ClientSonorium
-
-for name in ["uvicorn.access", "uvicorn.error", "uvicorn"]:
-    _logger = logging.getLogger(name)
-    _logger.handlers.clear()
-    _logger.propagate = False
+    from sonorium.client import Backend
 
 
 # Template directory
@@ -54,16 +48,24 @@ class RevalidatingStaticFiles(StaticFiles):
         return response
 
 
-class ApiSonorium(api.Base):
-    TITLE = f'Sonorium {__version__} Streaming API'
-    # Standalone listens on 8008 directly (one port for UI and streams); the
-    # add-on keeps 8080, which HA ingress and its 8008 port mapping point at.
-    PORT = 8008 if runtime.STANDALONE else 8080
-    URL_DOCS = '/docs'
+# The web app's main port. Standalone listens on 8008 directly (one port for
+# UI and streams); the add-on keeps 8080, which HA ingress and its 8008 port
+# mapping point at.
+WEB_PORT = 8008 if runtime.STANDALONE else 8080
 
-    def __init__(self, client: "ClientSonorium"):
-        super().__init__()
-        self.client = client
+
+class WebApp:
+    """
+    Sonorium's web app: the UI, the REST API and the audio streams, on one
+    FastAPI app (`app`). Its own routes are the table in routes(); the v2
+    API, sign-in and plugins add theirs as they start. serve() runs it.
+    """
+    port = WEB_PORT
+
+    def __init__(self, backend: "Backend"):
+        self.app = web_server.new_app(f'Sonorium {__version__} Streaming API')
+        web_server.add_routes(self.app, self.routes())
+        self.backend = backend
         
         # v2 components (initialized lazily)
         self._v2_initialized = False
@@ -77,8 +79,36 @@ class ApiSonorium(api.Base):
         self._mqtt_manager = None
         self._theme_refresh_task = None
         self._plugin_manager = None
+        self._plugin_host = None  # plugins/host.py: events, actions, scheduler, triggers
         self._theme_metadata_manager = None
         self._network_service = None  # standalone only
+        self._cards = None  # Home Assistant dashboard cards (ha/cards.py)
+
+        # Home Assistant loads the dashboard cards from Sonorium (Docker /
+        # Windows): a module script from another origin needs CORS
+        @self.app.middleware("http")
+        async def cards_cors(request: Request, call_next):
+            response = await call_next(request)
+            if request.url.path == "/static/ha/sonorium-cards.js":
+                from sonorium.ha.cards import origin_of
+                origin = (request.headers.get("origin") or "").lower()
+                linked = origin_of(runtime.load_connection().get("ha_url", "")) if runtime.STANDALONE else ""
+                if origin and origin == linked:
+                    response.headers["Access-Control-Allow-Origin"] = request.headers["origin"]
+                    response.headers["Vary"] = "Origin"
+            return response
+
+        # A channel's policy (Zones) refused a change: its status and message
+        from sonorium.core.channel_policy import ChannelRefused
+
+        @self.app.exception_handler(ChannelRefused)
+        async def channel_refused(request: Request, exc: ChannelRefused):
+            from fastapi.responses import JSONResponse
+            return JSONResponse({"detail": exc.detail}, status_code=exc.status)
+
+        # Older theme, category and channel routes' 200 {"error"} answers get an error status (G10)
+        from sonorium.web.legacy_errors import LegacyErrorStatus
+        self.app.add_middleware(LegacyErrorStatus)
 
         # Register startup event to initialize v2
         @self.app.on_event("startup")
@@ -86,6 +116,7 @@ class ApiSonorium(api.Base):
             logger.debug("FastAPI startup event triggered")
             # uvicorn's loggers don't pass messages up, and are set up just before this
             logbuffer.attach("uvicorn")
+            await self._start_auth()
             await self.initialize_v2()
         
         # Register shutdown event to stop the background loop
@@ -93,6 +124,26 @@ class ApiSonorium(api.Base):
         async def shutdown_event():
             logger.info("FastAPI shutdown event triggered")
             await self.shutdown_v2()
+            await self._stop_auth()
+
+        # Sign-in, users, linked phones and keys: one middleware checks every
+        # route (sonorium/auth); it's outermost, so it runs first
+        from sonorium.auth.middleware import AuthMiddleware, AuthService
+        from sonorium.auth.routes import create_core_auth_router
+        self.auth = AuthService()
+        self.auth.app = self.app  # sign-in plugins add their routes to it
+        self._https_host_port = None  # the HTTPS port as the LAN sees it (add-on: its port mapping)
+        self._announcer = None
+        self._announce_task = None
+        self.app.add_middleware(AuthMiddleware, service=self.auth)
+        self.app.include_router(create_core_auth_router(
+            self.auth,
+            stream_url=self._stream_base_url,
+            features=lambda: runtime.features(self._state_store.settings.feature_overrides if self._state_store else None),
+            version=__version__,
+            https_host_port=self._https_port_outside,
+            mdns_host=lambda: self._announcer.hostname if self._announcer is not None else None,
+        ))
 
         # Mount static files (CSS, JS) for the web UI
         if STATIC_DIR.exists():
@@ -101,100 +152,104 @@ class ApiSonorium(api.Base):
         else:
             logger.warning(f"Static directory not found: {STATIC_DIR}")
 
-    def get_endpoints(self):
-        # IMPORTANT: More specific routes must come BEFORE catch-all routes!
-        # /stream/channel{n} must be registered before /stream/{id}
-        endpoints = [
+    def routes(self) -> list[Route]:
+        """This app's own routes, in order: /stream/channel{n} must come before the catch-all /stream/{id}."""
+        return [
             # Web UI
-            api.Endpoint(method_http=self.app.get, path='/', method=self.web_ui),
+            Route("GET", "/", self.web_ui),
 
             # Standalone connection settings (404 in the HA add-on)
-            api.Endpoint(method_http=self.app.get, path='/api/connection', method=self.get_connection),
-            api.Endpoint(method_http=self.app.put, path='/api/connection', method=self.put_connection),
-            api.Endpoint(method_http=self.app.delete, path='/api/connection/ha', method=self.delete_connection_ha),
-            api.Endpoint(method_http=self.app.delete, path='/api/connection/mqtt', method=self.delete_connection_mqtt),
-            api.Endpoint(method_http=self.app.get, path='/v1', method=self.legacy_ui),
-            api.Endpoint(method_http=self.app.get, path='/logo.png', method=self.serve_logo),
-            api.Endpoint(method_http=self.app.get, path='/display.png', method=self.serve_display_image),
-            api.Endpoint(method_http=self.app.get, path='/favicon.png', method=self.serve_favicon),
+            Route("GET", "/api/connection", self.get_connection),
+            Route("PUT", "/api/connection", self.put_connection),
+            Route("DELETE", "/api/connection/ha", self.delete_connection_ha),
+            Route("DELETE", "/api/connection/mqtt", self.delete_connection_mqtt),
+            Route("POST", "/api/connection/test", self.test_connection),
+            # Home Assistant dashboard cards: status and the file (to add by hand)
+            Route("GET", "/api/ha-cards", self.get_ha_cards),
+            Route("GET", "/api/ha-cards/download", self.download_ha_cards),
+            Route("GET", "/v1", self.legacy_ui),
+            Route("GET", "/logo.png", self.serve_logo),
+            Route("GET", "/display.png", self.serve_display_image),
+            Route("GET", "/favicon.png", self.serve_favicon),
 
             # Logs: kept apart from the v2 API so they work when it fails to start
-            api.Endpoint(method_http=self.app.get, path='/logs', method=self.logs_page),
-            api.Endpoint(method_http=self.app.get, path='/api/logs', method=self.get_logs),
-            api.Endpoint(method_http=self.app.get, path='/api/logs/download', method=self.download_logs),
+            Route("GET", "/logs", self.logs_page),
+            Route("GET", "/api/logs", self.get_logs),
+            Route("GET", "/api/logs/download", self.download_logs),
 
             # Install type and the features it shows (Settings > Advanced)
-            api.Endpoint(method_http=self.app.get, path='/api/install', method=self.get_install),
-            api.Endpoint(method_http=self.app.put, path='/api/install/features', method=self.put_install_features),
+            Route("GET", "/api/install", self.get_install),
+            Route("PUT", "/api/install/features", self.put_install_features),
             
             # Streaming - channel-based (new) - MUST come before theme-based!
-            api.Endpoint(method_http=self.app.get, path='/stream/channel{channel_id:int}', method=self.stream_channel),
+            Route("GET", "/stream/channel{channel_id:int}", self.stream_channel),
             
             # Streaming - theme-based (legacy, still supported)
-            api.Endpoint(method_http=self.app.get, path='/stream/{id}', method=self.stream),
+            Route("GET", "/stream/{id}", self.stream),
             
             # Theme API
-            api.Endpoint(method_http=self.app.get, path='/api/themes', method=self.list_themes),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/refresh', method=self.refresh_themes),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/favorite', method=self.toggle_favorite),
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}', method=self.get_theme),
+            Route("GET", "/api/themes", self.list_themes),
+            Route("POST", "/api/themes/refresh", self.refresh_themes),
+            Route("POST", "/api/themes/{theme_id}/favorite", self.toggle_favorite),
+            Route("GET", "/api/themes/{theme_id}", self.get_theme),
 
             # Track Mixer API
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks', method=self.get_theme_tracks),
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/tracks/{track_name:path}/audio', method=self.get_track_audio),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/presence', method=self.set_track_presence),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/muted', method=self.set_track_muted),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/volume', method=self.set_track_volume),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/playback_mode', method=self.set_track_playback_mode),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/seamless_loop', method=self.set_track_seamless_loop),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/fades', method=self.set_track_fades),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/ebb', method=self.set_track_ebb),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/tracks/{track_name:path}/exclusive', method=self.set_track_exclusive),
+            Route("GET", "/api/themes/{theme_id}/tracks", self.get_theme_tracks),
+            Route("GET", "/api/themes/{theme_id}/tracks/{track_name:path}/audio", self.get_track_audio),
+            Route("PUT", "/api/themes/{theme_id}/tracks/{track_name:path}/presence", self.set_track_presence),
+            Route("PUT", "/api/themes/{theme_id}/tracks/{track_name:path}/muted", self.set_track_muted),
+            Route("PUT", "/api/themes/{theme_id}/tracks/{track_name:path}/volume", self.set_track_volume),
+            Route("PUT", "/api/themes/{theme_id}/tracks/{track_name:path}/playback_mode", self.set_track_playback_mode),
+            Route("PUT", "/api/themes/{theme_id}/tracks/{track_name:path}/seamless_loop", self.set_track_seamless_loop),
+            Route("PUT", "/api/themes/{theme_id}/tracks/{track_name:path}/fades", self.set_track_fades),
+            Route("PUT", "/api/themes/{theme_id}/tracks/{track_name:path}/ebb", self.set_track_ebb),
+            Route("PUT", "/api/themes/{theme_id}/tracks/{track_name:path}/exclusive", self.set_track_exclusive),
 
             # Groups (subfolders of a theme, Themes 2.0)
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/groups', method=self.list_groups),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/groups/{group}', method=self.update_group),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/groups', method=self.create_group_folder),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/groups/{group}/rename', method=self.rename_group_folder),
-            api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/groups/{group}', method=self.delete_group_folder),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/{track_name:path}/move', method=self.move_track_to_group),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/tracks/reset', method=self.reset_theme_tracks),
+            Route("GET", "/api/themes/{theme_id}/groups", self.list_groups),
+            Route("PUT", "/api/themes/{theme_id}/groups/{group}", self.update_group),
+            Route("POST", "/api/themes/{theme_id}/groups", self.create_group_folder),
+            Route("POST", "/api/themes/{theme_id}/groups/{group}/rename", self.rename_group_folder),
+            Route("DELETE", "/api/themes/{theme_id}/groups/{group}", self.delete_group_folder),
+            Route("POST", "/api/themes/{theme_id}/tracks/{track_name:path}/move", self.move_track_to_group),
+            Route("POST", "/api/themes/{theme_id}/tracks/reset", self.reset_theme_tracks),
 
             # Linked files from other themes (docs/THEME_FORMAT.md 2.6)
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/links/source/{source_id}', method=self.list_link_source_tracks),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/links', method=self.add_links),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/links/{key:path}/copy-in', method=self.copy_link_in),
-            api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/links/{key:path}', method=self.delete_link),
+            Route("GET", "/api/themes/{theme_id}/links/source/{source_id}", self.list_link_source_tracks),
+            Route("POST", "/api/themes/{theme_id}/links", self.add_links),
+            Route("POST", "/api/themes/{theme_id}/links/{key:path}/copy-in", self.copy_link_in),
+            Route("DELETE", "/api/themes/{theme_id}/links/{key:path}", self.delete_link),
 
             # Theme rename
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/rename', method=self.rename_theme),
+            Route("PUT", "/api/themes/{theme_id}/rename", self.rename_theme),
 
             # Preset API
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets', method=self.list_presets),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets', method=self.create_preset),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/{preset_id}/load', method=self.load_preset),
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.get_preset),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.update_preset),
-            api.Endpoint(method_http=self.app.delete, path='/api/themes/{theme_id}/presets/{preset_id}', method=self.delete_preset),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/default', method=self.set_default_preset),
-            api.Endpoint(method_http=self.app.put, path='/api/themes/{theme_id}/presets/{preset_id}/rename', method=self.rename_preset),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/presets/import', method=self.import_preset),
-            api.Endpoint(method_http=self.app.get, path='/api/themes/{theme_id}/presets/{preset_id}/export', method=self.export_preset),
+            Route("GET", "/api/themes/{theme_id}/presets", self.list_presets),
+            Route("POST", "/api/themes/{theme_id}/presets", self.create_preset),
+            Route("POST", "/api/themes/{theme_id}/presets/{preset_id}/load", self.load_preset),
+            Route("GET", "/api/themes/{theme_id}/presets/{preset_id}", self.get_preset),
+            Route("PUT", "/api/themes/{theme_id}/presets/{preset_id}", self.update_preset),
+            Route("DELETE", "/api/themes/{theme_id}/presets/{preset_id}", self.delete_preset),
+            Route("PUT", "/api/themes/{theme_id}/presets/{preset_id}/default", self.set_default_preset),
+            Route("PUT", "/api/themes/{theme_id}/presets/{preset_id}/rename", self.rename_preset),
+            Route("POST", "/api/themes/{theme_id}/presets/import", self.import_preset),
+            Route("GET", "/api/themes/{theme_id}/presets/{preset_id}/export", self.export_preset),
 
             # Category API
-            api.Endpoint(method_http=self.app.get, path='/api/categories', method=self.list_categories),
-            api.Endpoint(method_http=self.app.post, path='/api/categories', method=self.create_category),
-            api.Endpoint(method_http=self.app.delete, path='/api/categories/{category_name}', method=self.delete_category),
-            api.Endpoint(method_http=self.app.post, path='/api/themes/{theme_id}/categories', method=self.set_theme_categories),
+            Route("GET", "/api/categories", self.list_categories),
+            Route("POST", "/api/categories", self.create_category),
+            Route("DELETE", "/api/categories/{category_name}", self.delete_category),
+            Route("POST", "/api/themes/{theme_id}/categories", self.set_theme_categories),
 
-            api.Endpoint(method_http=self.app.get, path='/api/status', method=self.status),
+            Route("GET", "/api/status", self.status),
+            # Where speakers and the app reach the streams: the direct port, never ingress
+            Route("GET", "/api/stream/url", self.stream_urls),
             
             # Channel API
-            api.Endpoint(method_http=self.app.get, path='/api/channels', method=self.list_channels),
-            api.Endpoint(method_http=self.app.get, path='/api/channels/{channel_id}', method=self.get_channel),
+            Route("GET", "/api/channels", self.list_channels),
+            Route("GET", "/api/channels/{channel_id}", self.get_channel),
         ]
-        return endpoints
-    
+
     async def initialize_v2(self):
         """Initialize v2 components after MQTT client is ready."""
         if self._v2_initialized:
@@ -216,11 +271,14 @@ class ApiSonorium(api.Base):
             # Initialize state store
             self._state_store = StateStore()
             self._state_store.load()
+            # Settings > Advanced's playback values: the mixer reads them from the store
+            from sonorium import playback_values
+            playback_values.set_source(lambda: self._state_store.settings.playback_values)
             logger.debug(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
 
             # Initialize theme metadata manager
             from sonorium.core.theme_metadata import ThemeMetadataManager
-            audio_path = self.client.device.path_audio
+            audio_path = self.backend.device.audio_dir
             self._theme_metadata_manager = ThemeMetadataManager(audio_path)
             theme_metadata = self._theme_metadata_manager.scan_themes()
             logger.debug(f"  Theme metadata: {len(theme_metadata)} themes scanned")
@@ -302,7 +360,7 @@ class ApiSonorium(api.Base):
                 self._media_controller,
                 stream_base_url,
                 channel_manager=self._channel_manager,
-                themes=self.client.device.themes,
+                themes=self.backend.device.themes,
                 theme_metadata_manager=self._theme_metadata_manager,
             )
 
@@ -314,13 +372,35 @@ class ApiSonorium(api.Base):
                 self._ha_registry,
             )
 
+            # Plugin host: the services plugins use (events, actions, scheduler,
+            # triggers), next to state.json
+            try:
+                from sonorium.plugins.host import PluginHost
+                from sonorium.plugins import events as plugin_events
+                plugin_events.get_bus().bind_loop()
+                self._plugin_host = PluginHost(
+                    self._state_store.state_file.parent,
+                    auth=self.auth,
+                    session_manager=self._session_manager,
+                    state_store=self._state_store,
+                    registry=self._ha_registry,
+                )
+            except Exception as e:
+                logger.warning(f"  Plugin framework unavailable: {e}")
+                self._plugin_host = None
+
+            # The framework's audio and connection services (each one failing only disables itself)
+            if self._plugin_host:
+                self._init_framework_services()
+
             # Initialize plugin manager
             try:
                 from sonorium.plugins.manager import PluginManager
-                audio_path = self.client.device.path_audio if self.client and self.client.device else None
+                audio_path = self.backend.device.audio_dir if self.backend and self.backend.device else None
                 self._plugin_manager = PluginManager(
                     self._state_store,
                     audio_path=audio_path,
+                    host=self._plugin_host,
                 )
                 await self._plugin_manager.initialize()
                 logger.debug(f"  Plugin manager: {len(self._plugin_manager.plugins)} plugin(s) loaded")
@@ -331,22 +411,27 @@ class ApiSonorium(api.Base):
             # Initialize MQTT entity manager for Home Assistant integration
             # (standalone mode may run without a connected broker)
             try:
-                if runtime.STANDALONE and not self.client.mqtt_client.is_connected:
+                if runtime.STANDALONE and not self.backend.mqtt_client.is_connected:
                     # Optional in standalone; already logged by the MQTT client
                     raise _MQTTUnavailable()
                 from sonorium.ha.mqtt_entities import SonoriumMQTTManager
                 self._mqtt_manager = SonoriumMQTTManager(
                     state_store=self._state_store,
                     session_manager=self._session_manager,
-                    mqtt_client=self.client.mqtt_client,
+                    mqtt_client=self.backend.mqtt_client,
                     theme_metadata_manager=self._theme_metadata_manager,
+                    version=__version__,
                 )
                 # Set available themes for the theme select entity
-                themes = [{"id": t.id, "name": t.name} for t in self.client.device.themes]
+                themes = [{"id": t.id, "name": t.name} for t in self.backend.device.themes]
                 self._mqtt_manager.set_themes(themes)
 
-                # Wire up message handler for incoming MQTT commands
-                self.client.mqtt_client.set_message_handler(self._mqtt_manager.handle_command)
+                # Incoming MQTT messages: the entity manager's commands, then plugins' subscriptions
+                if self._plugin_host:
+                    self._plugin_host.mqtt.prefix = self._mqtt_manager.prefix
+                    self._plugin_host.mqtt.bind(self.backend.mqtt_client, self._mqtt_manager.handle_command)
+                else:
+                    self.backend.mqtt_client.set_message_handler(self._mqtt_manager.handle_command)
 
                 await self._mqtt_manager.initialize()
                 logger.debug(f"  MQTT entity manager: {len(self._state_store.sessions)} session entities published")
@@ -372,16 +457,35 @@ class ApiSonorium(api.Base):
                 on_master_gain=self._apply_master_gain,
             )
             self.app.include_router(api_router)
+
+            # Plugin framework endpoints (events, triggers, schedules, extensions, sounds, announcements)
+            try:
+                from sonorium.web.plugin_framework_api import create_plugin_framework_router
+                self.app.include_router(create_plugin_framework_router(self._plugin_manager, self._plugin_host))
+            except Exception as e:
+                logger.warning(f"  Plugin framework endpoints unavailable: {e}")
             
             # Keep MQTT entities in sync when idle sessions are stopped, and
             # when a sequence or playlist moves a channel on
             if self._mqtt_manager:
                 self._background.on_session_stopped = self._mqtt_manager.update_session_state
                 self._session_manager.runner.on_change = self._mqtt_manager.update_session_state
+                if self._plugin_host:  # plugins' changes reach Home Assistant like the UI's
+                    self._plugin_host.on_change = self._mqtt_manager.update_session_state
+
+            # Home Assistant dashboard cards: installed once both HA and MQTT are linked
+            self._init_dashboard_cards(stream_base_url)
 
             # Start the background loop
             await self._background.start()
             logger.debug("  Background loop started")
+
+            # Plugin scheduler and the alert bar for failures
+            if self._plugin_host:
+                try:
+                    await self._plugin_host.start()
+                except Exception as e:
+                    logger.warning(f"  Plugin scheduler could not start: {e}")
 
             # Network speaker discovery runs in the background: the UI is up meanwhile
             if self._network_service:
@@ -389,6 +493,11 @@ class ApiSonorium(api.Base):
 
             self._v2_initialized = True
             logger.debug("  Sonorium v2 initialization complete!")
+            try:
+                from sonorium.plugins import events as plugin_events
+                plugin_events.publish("sonorium.started", {"version": __version__})
+            except Exception:
+                pass
             self._log_startup_summary()
             
         except ImportError as e:
@@ -397,7 +506,42 @@ class ApiSonorium(api.Base):
             logger.error(f"  Failed to initialize v2 components: {e}")
             import traceback
             traceback.print_exc()
+        finally:
+            # Plugins are loaded (or failed): sign-in decides from here (auth/service.py)
+            self.auth.mark_ready()
     
+    def _init_framework_services(self):
+        """
+        Sounds over channels, volume ramps, audio outputs, Home Assistant for
+        plugins and the Plugin packages switch (docs/PLUGIN_DEVELOPMENT.md).
+        """
+        host = self._plugin_host
+        try:
+            from sonorium.core.audio_outputs import AudioOutputs
+            from sonorium.core.overlay_service import OverlayService
+            from sonorium.core.ramp_service import RampService
+            from sonorium.recording import SAMPLE_RATE
+            publish = host.bus.publish
+            outputs = AudioOutputs(self._session_manager, host.store, rate=SAMPLE_RATE)
+            host.set_audio(OverlayService(self._session_manager, publish, rate=SAMPLE_RATE),
+                           RampService(self._session_manager, publish, rate=SAMPLE_RATE,
+                                       on_change=lambda s: host._changed(s)),
+                           outputs)
+            # A channel sent to an audio output is sent there again when it starts
+            host.bus.subscribe("channel.started", lambda e: outputs.channel_started(e.data.get("channel_id")),
+                               owner=None)
+        except Exception as e:
+            logger.warning(f"  Sounds, ramps and audio outputs unavailable: {e}")
+        try:
+            from sonorium.plugins.homeassistant import HomeAssistant
+            from sonorium.settings import settings
+            host.homeassistant = HomeAssistant(lambda: (settings.ha_core_api, settings.token),
+                                               configured=runtime.ha_configured)
+        except Exception as e:
+            logger.warning(f"  Home Assistant for plugins unavailable: {e}")
+        host.packages_allowed = lambda: runtime.feature_enabled(
+            "plugin_packages", self._state_store.settings.feature_overrides if self._state_store else None)
+
     def _migrate_cycling(self):
         """Turn channels' theme cycling into playlists, once (core/playlists.migrate_cycling)."""
         from sonorium.core.playlists import migrate_cycling
@@ -405,7 +549,7 @@ class ApiSonorium(api.Base):
         if state.cycling_migrated:
             return
         try:
-            themes = sorted(self.client.device.themes or [], key=lambda t: (t.name or "").lower())
+            themes = sorted(self.backend.device.themes or [], key=lambda t: (t.name or "").lower())
             migrate_cycling(state, [t.id for t in themes])
             self._state_store.save()
         except Exception as e:
@@ -419,7 +563,7 @@ class ApiSonorium(api.Base):
         """
         try:
             gain = int(self._state_store.settings.master_gain)
-            self.client.device.master_volume = max(0, min(100, gain)) / 100 * 10.0
+            self.backend.device.master_volume = max(0, min(100, gain)) / 100 * 10.0
         except Exception as e:
             logger.warning(f"  Could not apply the master output gain: {e}")
 
@@ -506,13 +650,13 @@ class ApiSonorium(api.Base):
 
         from sonorium.recording import PlaybackMode
 
-        device = self.client.device
+        device = self.backend.device
         if not device.themes:
             return
 
         logger.debug("  Applying saved track settings to themes...")
         for theme in device.themes:
-            if not theme.instances:
+            if not theme.tracks:
                 continue
 
             # Find metadata for this theme by matching folder name
@@ -529,7 +673,7 @@ class ApiSonorium(api.Base):
             # Group settings (Themes 2.0), read by the theme's grouped tracks
             theme.groups = dict(getattr(metadata, "groups", None) or {})
 
-            for inst in theme.instances:
+            for inst in theme.tracks:
                 track_settings = metadata.tracks.get(inst.name)
                 if not track_settings:
                     # Use defaults
@@ -565,8 +709,152 @@ class ApiSonorium(api.Base):
         """Shutdown v2 components gracefully."""
         if self._background:
             await self._background.stop()
+        if self._plugin_host:
+            try:
+                await self._plugin_host.stop()
+            except Exception as e:
+                logger.warning(f"Plugin framework stop failed: {e}")
         if self._network_service:
             await self._network_service.stop()
+
+    # --- Sign-in (sonorium/auth) ---
+
+    def main_listener(self):
+        """The main port (WEB_PORT): it runs the app's start-up and shut-down."""
+        return web_server.listener(self.app, self.port)
+
+    def extra_listeners(self) -> list:
+        """
+        The app's HTTPS port (8808, SONORIUM_HTTPS_PORT) with the pinned certificate,
+        and in the add-on the ingress port (8099) HA's sidebar uses, never mapped outside.
+        """
+        from sonorium.auth import config
+        listeners = []
+        port = config.https_port()
+        if port:
+            identity = self.auth.identity
+            if identity.tls_ready:
+                listeners.append(web_server.listener(self.app, port, lifespan="off",
+                                                     ssl_certfile=str(identity.cert_path),
+                                                     ssl_keyfile=str(identity.key_path)))
+                logger.info(f"HTTPS for the Sonorium app on port {port}")
+        ingress = config.ingress_port()
+        if ingress:
+            listeners.append(web_server.listener(self.app, ingress, lifespan="off"))
+        return listeners
+
+    async def serve(self) -> None:
+        """Serve the app until shut down: the main port, then the extra ones beside it."""
+        main = self.main_listener()
+        await web_server.serve(main, self.extra_listeners())
+
+    @staticmethod
+    def _stream_base_url() -> str:
+        """The direct base URL speakers use (Settings > Connection's stream URL, or the detected address)."""
+        from sonorium.settings import settings
+        return settings.stream_url
+
+    def _https_port_outside(self) -> int:
+        from sonorium.auth import config
+        if self._https_host_port is None:
+            return config.https_port()
+        return self._https_host_port
+
+    async def _start_auth(self):
+        """Load accounts, make the server identity and certificate, warn about the bypass, announce on mDNS."""
+        import asyncio
+        from sonorium.auth import config
+        try:
+            self.auth.note_install()
+            from sonorium.plugins.manager import DEFAULT_PLUGINS_DIR
+            self.auth.find_expected_providers(DEFAULT_PLUGINS_DIR)
+            identity = await asyncio.to_thread(lambda: self.auth.identity)
+            if config.bypass_login():
+                logger.warning("BYPASS_LOGIN is on: anyone on your network can use and change Sonorium without signing in. "
+                               "Reset your account under Settings > Users & devices, then set it back to false.")
+            if config.web_ui_only_through_ha():
+                logger.info("The web UI is only served through Home Assistant's sidebar (web_ui_only_through_ha)")
+            if not runtime.STANDALONE:
+                self._https_host_port = await asyncio.to_thread(config.addon_host_port, config.https_port())
+            if runtime.STANDALONE:  # the add-on isn't on the host network: the QR code carries its address
+                from sonorium.auth.announce import Announcer
+                from sonorium.auth.routes import API_VERSION
+                self._announcer = Announcer()
+                # in the background: checking that sonorium.local is free takes a moment
+                self._announce_task = asyncio.create_task(asyncio.to_thread(
+                    self._announcer.start, server_id=identity.server_id, version=__version__, api=API_VERSION,
+                    base_url=self._stream_base_url(),
+                    https_port=self._https_port_outside() if identity.tls_ready else 0,
+                    login_required=self.auth.login_required))  # TXT pair follows Require login
+            else:
+                logger.info("mDNS: the Home Assistant add-on isn't on the host network, so sonorium.local isn't "
+                            "announced; the app links with the QR code, which carries the address")
+        except Exception as e:
+            logger.error(f"Sign-in setup failed: {e}")
+
+    async def _stop_auth(self):
+        import asyncio
+        try:
+            self.auth.flush()
+            if self._announcer is not None:
+                if self._announce_task is not None:
+                    await asyncio.wait({self._announce_task}, timeout=20)
+                await asyncio.to_thread(self._announcer.stop)
+        except Exception:
+            pass
+
+    async def stream_urls(self):
+        """The stream URLs on the direct port (what speakers and the app play), never an ingress URL."""
+        base = self._stream_base_url().rstrip("/")
+        channels = {}
+        if self._session_manager is not None:
+            for session in self._session_manager.list():
+                try:
+                    channels[session.id] = self._session_manager.get_stream_url(session)
+                except Exception:
+                    pass
+        return {"base": base, "channels": channels}
+
+    def _ha_linked(self) -> bool:
+        """Home Assistant is linked: always for the add-on; standalone once its registry loaded."""
+        registry = self._ha_registry
+        if not runtime.ha_configured() or registry is None or registry.ha_removed:
+            return False
+        return runtime.INSTALL == "addon" or registry._hierarchy is not None
+
+    def _init_dashboard_cards(self, sonorium_url: str):
+        """Install the dashboard cards in the background (ha/cards.py); errors only leave a status."""
+        import asyncio
+        try:
+            from sonorium.ha.cards import DashboardCards
+            self._cards = DashboardCards(
+                self._ha_registry.ws_commands if self._ha_registry else None,
+                install=runtime.INSTALL,
+                version=__version__,
+                ha_linked=self._ha_linked,
+                mqtt_manager=self._mqtt_manager,
+                ha_url=runtime.load_connection().get("ha_url", "") if runtime.STANDALONE else "",
+                sonorium_url=sonorium_url or "",
+            )
+            if self._mqtt_manager:
+                self._mqtt_manager.on_discovery = self._cards.schedule_entity_refresh
+            asyncio.get_running_loop().create_task(self._cards.start())
+        except Exception as e:
+            logger.warning(f"  Dashboard cards unavailable: {e}")
+
+    async def get_ha_cards(self):
+        """The dashboard cards' status line for Settings › Connection."""
+        if self._cards is None:
+            from sonorium.ha.cards import LINES, NEEDS_HA
+            return {"state": NEEDS_HA, "line": LINES[NEEDS_HA], "reason": ""}
+        return self._cards.status()
+
+    async def download_ha_cards(self):
+        """The dashboard cards' file, to add to Home Assistant by hand."""
+        from sonorium.ha.cards import CARD_FILE, CARD_NAME
+        if not CARD_FILE.exists():
+            raise HTTPException(status_code=404, detail="Card file not found")
+        return FileResponse(CARD_FILE, media_type="text/javascript", filename=CARD_NAME)
 
     def _init_network_speakers(self):
         """Network speaker discovery and streaming (only when the network_speakers feature is on)."""
@@ -596,9 +884,33 @@ class ApiSonorium(api.Base):
             "mqtt_port": conn.get("mqtt_port", 1883),
             "mqtt_username": conn.get("mqtt_username", ""),
             "mqtt_password_set": bool(conn.get("mqtt_password")),
-            "mqtt_connected": self.client.mqtt_client.is_connected,
+            "mqtt_connected": self.backend.mqtt_client.is_connected,
             "stream_url": conn.get("stream_url", ""),
         }
+
+    async def test_connection(self, request: Request):
+        """
+        Try Home Assistant or MQTT with the saved values and the form's (unsaved)
+        ones on top: {"kind": "ha"|"mqtt", "values": {...}}. Nothing is saved.
+        Answers {"success", "message"}.
+        """
+        from sonorium import runtime
+        if not runtime.features()["connection_settings"]["available"]:
+            raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        if not isinstance(body, dict) or body.get("kind") not in ("ha", "mqtt"):
+            raise HTTPException(status_code=400, detail="'kind' must be ha or mqtt")
+        values = {**runtime.load_connection(),
+                  **{k: v for k, v in (body.get("values") or {}).items()
+                     if k in runtime.CONNECTION_FIELDS and v not in (None, "")}}
+        from sonorium.connection_test import test_ha, test_mqtt
+        if body["kind"] == "ha":
+            return await test_ha(values.get("ha_url", ""), values.get("ha_token", ""))
+        return await test_mqtt(values.get("mqtt_host", ""), values.get("mqtt_port") or 1883,
+                               values.get("mqtt_username") or None, values.get("mqtt_password") or None)
 
     async def put_connection(self, request: Request):
         """
@@ -652,10 +964,10 @@ class ApiSonorium(api.Base):
         controller = getattr(self._media_controller, "controller", None)
         if controller is not None and hasattr(controller, "ha_controller"):
             controller.ha_controller = None
-        device = getattr(self.client, "device", None)
-        if device is not None and hasattr(device, "media_player_states"):
+        device = getattr(self.backend, "device", None)
+        if device is not None and hasattr(device, "media_players"):
             from sonorium.utils import IndexList
-            device.media_player_states = IndexList()
+            device.media_players = IndexList()
 
         logger.info("Home Assistant connection removed")
         return {"status": "ok", "connection": await self.get_connection()}
@@ -686,7 +998,7 @@ class ApiSonorium(api.Base):
         runtime.clear_connection(runtime.MQTT_FIELDS)
         runtime.clear_mqtt_env()
 
-        mqtt_client = self.client.mqtt_client
+        mqtt_client = self.backend.mqtt_client
         if self._mqtt_manager is not None:
             try:
                 if mqtt_client.is_connected:
@@ -765,7 +1077,7 @@ class ApiSonorium(api.Base):
     def _log_startup_summary(self):
         """One-line summary at normal log level; details are at debug level."""
         try:
-            themes = len(self.client.device.themes)
+            themes = len(self.backend.device.themes)
             speakers = len(self._ha_registry.hierarchy.get_all_speakers()) if self._ha_registry and self._ha_registry.hierarchy else 0
             sessions = len(self._state_store.sessions) if self._state_store else 0
             mqtt = "connected" if self._mqtt_manager else "not available"
@@ -826,18 +1138,18 @@ class ApiSonorium(api.Base):
 
     async def legacy_ui(self):
         """Serve the legacy v1 web UI."""
-        device = self.client.device
+        device = self.backend.device
         themes = device.themes
         
         # Build theme cards
         theme_cards = ""
         for theme in themes:
-            total = len(theme.instances)
+            total = len(theme.tracks)
             is_current = theme == themes.current
             current_class = "current" if is_current else ""
             
             recordings_list = ""
-            for inst in theme.instances:
+            for inst in theme.tracks:
                 recordings_list += f'<div class="rec"><span class="status">✓</span> {inst.name}</div>'
             
             theme_cards += f'''
@@ -850,7 +1162,7 @@ class ApiSonorium(api.Base):
                 <div class="theme-actions">
                     <button onclick="playTheme('{theme.id}')" class="play">▶ Play in Browser</button>
                 </div>
-                <div class="stream-url">Stream: {theme.url}</div>
+                <div class="stream-url">Stream: {theme.listen_url}</div>
             </div>
             '''
         
@@ -1002,12 +1314,11 @@ class ApiSonorium(api.Base):
 
     async def stream(self, id: str):
         """Stream audio by theme ID (supports both UUID and legacy slug IDs)."""
-        theme_def, _ = self._get_theme_by_id(id)
-        if not theme_def:
+        # A theme on its own, outside any channel: a fresh mix, as MP3, for this listener only
+        theme, _ = self._get_theme_by_id(id)
+        if not theme:
             raise HTTPException(status_code=404, detail=f"Theme '{id}' not found")
-        stream = theme_def.get_stream()
-        response = StreamingResponse(stream, media_type="audio/mpeg")
-        return response
+        return StreamingResponse(theme.new_mix(), media_type="audio/mpeg")
 
     async def stream_channel(self, channel_id: int, local: bool = False):
         """Stream audio from a channel (new endpoint). ?local=1: a browser listening here (Listen here)."""
@@ -1018,9 +1329,8 @@ class ApiSonorium(api.Base):
         if not channel:
             return HTMLResponse(content=f"Channel {channel_id} not found", status_code=404)
 
-        stream = channel.get_stream(local)
-        response = StreamingResponse(stream, media_type="audio/mpeg")
-        return response
+        # Every listener gets the channel's one broadcast, encoded for it alone
+        return StreamingResponse(channel.get_stream(local), media_type="audio/mpeg")
 
     def _find_theme_folder(self, theme_id: str) -> Path | None:
         """
@@ -1044,12 +1354,12 @@ class ApiSonorium(api.Base):
                     return folder_path
 
         # Fallback: Get the actual audio path from device and scan manually
-        device = self.client.device
-        if device and hasattr(device, 'path_audio'):
-            media_paths = [device.path_audio]
+        device = self.backend.device
+        if device and hasattr(device, 'audio_dir'):
+            media_paths = [device.audio_dir]
         else:
-            # Fallback to device path_audio (no hardcoded paths)
-            logger.warning("_find_theme_folder: device.path_audio not available")
+            # Fallback to the library's audio folder (no hardcoded paths)
+            logger.warning("_find_theme_folder: device.audio_dir not available")
             return None
 
         # Create multiple normalized versions of theme_id for matching
@@ -1146,9 +1456,9 @@ class ApiSonorium(api.Base):
         return self._theme_metadata_manager.get_folder_for_id(theme_id)
 
     def _linked_recordings(self, metadata) -> list:
-        """RecordingMetadata for a theme's linked files that can be found (missing ones are left out)."""
+        """AudioFile for a theme's linked files that can be found (missing ones are left out)."""
         from sonorium.core.intrusions import link_group, resolve_link
-        from sonorium.recording import RecordingMetadata
+        from sonorium.recording import AudioFile
         found = []
         for key, link in (getattr(metadata, "links", None) or {}).items():
             path = resolve_link(link, self._folder_for_theme_id)
@@ -1156,14 +1466,15 @@ class ApiSonorium(api.Base):
                 logger.warning(f'Theme "{metadata.name}": linked track "{key}" is missing '
                                f'(theme {link.get("theme")}, track "{link.get("track")}"); it is skipped')
                 continue
-            found.append(RecordingMetadata(path, key=key, group=link_group(key), link=dict(link)))
+            found.append(AudioFile(path, key=key, group=link_group(key), link=dict(link)))
         return found
 
     def _attach_linked_tracks(self):
         """At start-up: each theme's linked files join its tracks (refresh_themes does this on a rescan)."""
         if not self._theme_metadata_manager:
             return
-        device = self.client.device
+        from sonorium.recording import ThemeTrack
+        device = self.backend.device
         for theme in device.themes or []:
             folder = self._find_theme_folder(theme.id)
             metadata = self._theme_metadata_manager.get_metadata_by_folder(folder) if folder else None
@@ -1171,9 +1482,9 @@ class ApiSonorium(api.Base):
                 continue
             linked = self._linked_recordings(metadata)
             for meta in linked:
-                if theme.name in device.theme_metas:
-                    device.theme_metas[theme.name].append(meta)
-                theme.instances.append(meta.get_instance(theme=theme))
+                if theme.name in device.files_by_theme:
+                    device.files_by_theme[theme.name].append(meta)
+                theme.tracks.append(ThemeTrack(meta, theme=theme))
             logger.debug(f'Theme "{theme.name}": {len(linked)} linked track(s)')
 
     def _link_info(self, link: dict) -> dict:
@@ -1192,7 +1503,7 @@ class ApiSonorium(api.Base):
     def _linked_keys(self, theme, metadata) -> list:
         """A theme's playable linked files (their source is there): what the ⚭ preset mark looks at."""
         from sonorium.core.intrusions import linked_track_keys
-        instances = list(getattr(theme, "instances", None) or []) if theme else []
+        instances = list(getattr(theme, "tracks", None) or []) if theme else []
         playable = {i.name for i in instances if getattr(i.meta, "link", None)}
         return linked_track_keys(metadata, playable)
 
@@ -1202,7 +1513,7 @@ class ApiSonorium(api.Base):
         Returns (theme, folder) tuple or (None, None) if not found.
         """
         # First try direct lookup by folder-based ID
-        theme = self.client.device.themes.id.get(theme_id)
+        theme = self.backend.device.themes.id.get(theme_id)
         if theme:
             folder = self._find_theme_folder(theme_id)
             return theme, folder
@@ -1211,7 +1522,7 @@ class ApiSonorium(api.Base):
         theme_folder = self._find_theme_folder(theme_id)
         if theme_folder:
             # Find matching theme by folder name
-            for t in self.client.device.themes:
+            for t in self.backend.device.themes:
                 if t.name == theme_folder.name:
                     return t, theme_folder
 
@@ -1219,14 +1530,14 @@ class ApiSonorium(api.Base):
 
     async def list_themes(self):
         """List all available themes with full metadata from metadata.json files."""
-        device = self.client.device
+        device = self.backend.device
         themes = []
         seen_folders = set()
         audio_extensions = {'.mp3', '.wav', '.flac', '.ogg'}
 
         # First, add themes loaded by the device (have audio files)
         for theme in device.themes:
-            enabled_count = sum(1 for i in theme.instances if i.is_enabled)
+            enabled_count = sum(1 for i in theme.tracks if i.is_enabled)
 
             # Get metadata from metadata manager or read from file
             theme_folder = self._find_theme_folder(theme.id)
@@ -1243,9 +1554,9 @@ class ApiSonorium(api.Base):
                 themes.append({
                     "id": theme_id,
                     "name": metadata_dict.get("name", theme.name),
-                    "total_tracks": len(theme.instances),
+                    "total_tracks": len(theme.tracks),
                     "enabled_tracks": enabled_count,
-                    "url": theme.url,
+                    "url": theme.listen_url,
                     "description": metadata_dict.get("description", ""),
                     "icon": metadata_dict.get("icon", ""),
                     "is_favorite": metadata_dict.get("is_favorite", False),
@@ -1263,9 +1574,9 @@ class ApiSonorium(api.Base):
             themes.append({
                 "id": metadata.id,
                 "name": metadata.name,
-                "total_tracks": len(theme.instances),
+                "total_tracks": len(theme.tracks),
                 "enabled_tracks": enabled_count,
-                "url": theme.url,
+                "url": theme.listen_url,
                 "description": metadata.description,
                 "icon": metadata.icon,
                 "is_favorite": metadata.is_favorite,
@@ -1275,10 +1586,10 @@ class ApiSonorium(api.Base):
                 "problems": list(metadata.problems),
             })
 
-        # Then scan for empty theme folders (using device.path_audio, not hardcoded)
-        if device and hasattr(device, 'path_audio') and device.path_audio.exists():
-            for folder in device.path_audio.iterdir():
-                if not folder.is_dir() or folder.name in seen_folders:
+        # Then scan for empty theme folders (the library's audio folder, not hardcoded)
+        if device and hasattr(device, 'audio_dir') and device.audio_dir.exists():
+            for folder in device.audio_dir.iterdir():
+                if not folder.is_dir() or folder.name in seen_folders or folder.name.startswith("."):
                     continue
 
                 # Count audio files in this folder (top level and group folders)
@@ -1335,12 +1646,12 @@ class ApiSonorium(api.Base):
     async def refresh_themes(self):
         """Rescan theme folders and reload themes."""
         from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, reset_ebb_settings
-        from sonorium.theme import ThemeDefinition
-        from sonorium.recording import RecordingMetadata, PlaybackMode
-        from fmtr.tools.iterator_tools import IndexList
+        from sonorium.theme import LoadedTheme
+        from sonorium.recording import AudioFile, PlaybackMode
+        from sonorium.utils import IndexList
 
-        device = self.client.device
-        path_audio = device.path_audio
+        device = self.backend.device
+        path_audio = device.audio_dir
         audio_extensions = ['.mp3', '.wav', '.flac', '.ogg']
 
         logger.info(f'Rescanning themes in "{path_audio}"...')
@@ -1350,10 +1661,10 @@ class ApiSonorium(api.Base):
             self._theme_metadata_manager.scan_themes()
 
         # Scan for theme folders
-        theme_folders = [folder for folder in path_audio.iterdir() if folder.is_dir()]
+        theme_folders = [folder for folder in path_audio.iterdir() if folder.is_dir() and not folder.name.startswith(".")]
         logger.debug(f'Found {len(theme_folders)} theme folder(s)')
 
-        # Step 1: Build theme_metas FIRST (before creating ThemeDefinitions)
+        # Step 1: each theme's files, before any Theme is made (it looks its files up)
         new_theme_metas = {}
         theme_names_with_audio = []
 
@@ -1367,7 +1678,7 @@ class ApiSonorium(api.Base):
             # audio: load it empty, so it can be edited, saved and given presets
             if audio_files or (folder / "metadata.json").is_file():
                 theme_name = folder.name
-                new_theme_metas[theme_name] = IndexList(RecordingMetadata(path, folder) for path in audio_files)
+                new_theme_metas[theme_name] = IndexList(AudioFile(path, folder) for path in audio_files)
                 # The theme's linked files, found by their source theme's
                 # id (so a renamed or rescanned source is followed; a missing one is skipped)
                 folder_metadata = (self._theme_metadata_manager.get_metadata_by_folder(folder)
@@ -1377,16 +1688,15 @@ class ApiSonorium(api.Base):
                 theme_names_with_audio.append(theme_name)
                 logger.debug(f'Found theme "{theme_name}" with {len(audio_files)} audio files')
 
-        # Step 2: Update device.theme_metas BEFORE creating ThemeDefinitions
-        # This is critical because ThemeDefinition.__init__ looks up theme_metas[name]
-        device.theme_metas = new_theme_metas
+        # Step 2: the library's file lists, which LoadedTheme() reads
+        device.files_by_theme = new_theme_metas
 
         # Rebuild metas list
-        device.metas = IndexList()
-        for theme_recordings in device.theme_metas.values():
-            device.metas.extend(theme_recordings)
+        device.all_files = IndexList()
+        for theme_recordings in device.files_by_theme.values():
+            device.all_files.extend(theme_recordings)
 
-        # Step 3: NOW create ThemeDefinition objects (they will find their metas correctly)
+        # Step 3: NOW create Theme objects (they will find their metas correctly)
         new_themes = IndexList()
         for theme_name in theme_names_with_audio:
             # Read UUID from metadata.json if it exists
@@ -1400,9 +1710,9 @@ class ApiSonorium(api.Base):
                 except Exception:
                     pass  # Fall back to sanitized folder name
 
-            theme_def = ThemeDefinition(sonorium=device, name=theme_name, theme_id=theme_id)
+            theme_def = LoadedTheme(library=device, name=theme_name, theme_id=theme_id)
             new_themes.append(theme_def)
-            logger.debug(f'Created ThemeDefinition "{theme_name}" with {len(theme_def.instances)} instances')
+            logger.debug(f'Created Theme "{theme_name}" with {len(theme_def.tracks)} instances')
 
         # Step 4: Update device.themes
         previous = {t.id: t for t in (device.themes or [])}
@@ -1414,7 +1724,7 @@ class ApiSonorium(api.Base):
 
             # Enable all recordings and apply saved track settings from metadata.json
             for theme in device.themes:
-                if not theme.instances:
+                if not theme.tracks:
                     continue
 
                 # Find metadata for this theme
@@ -1439,7 +1749,7 @@ class ApiSonorium(api.Base):
                     theme.short_file_threshold = metadata.short_file_threshold
                     theme.groups = dict(getattr(metadata, "groups", None) or {})
 
-                for inst in theme.instances:
+                for inst in theme.tracks:
                     if metadata:
                         track_settings = metadata.tracks.get(inst.name)
                         if track_settings:
@@ -1475,10 +1785,10 @@ class ApiSonorium(api.Base):
             old = previous.get(theme.id)
             if old is None or old is theme:
                 continue
-            for stream in list(getattr(old, "streams", ())):
+            for stream in list(getattr(old, "live_mixes", ())):
                 try:
                     stream.adopt(theme)
-                    theme.streams.add(stream)
+                    theme.live_mixes.add(stream)
                 except Exception as e:
                     logger.warning(f'Could not update a playing stream of "{theme.name}": {e}')
 
@@ -1509,9 +1819,9 @@ class ApiSonorium(api.Base):
         return {
             "id": theme.id,
             "name": theme.name,
-            "track_count": len(theme.instances),
-            "url": theme.url,
-            "tracks": [{"name": i.name} for i in theme.instances],
+            "track_count": len(theme.tracks),
+            "url": theme.listen_url,
+            "tracks": [{"name": i.name} for i in theme.tracks],
         }
 
     async def get_theme_tracks(self, theme_id: str):
@@ -1535,7 +1845,7 @@ class ApiSonorium(api.Base):
             metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
 
         tracks = []
-        for inst in theme.instances:
+        for inst in theme.tracks:
             # Get track settings from metadata or use instance values (which were loaded from metadata)
             track_settings = metadata.tracks.get(inst.name) if metadata else None
 
@@ -1614,7 +1924,7 @@ class ApiSonorium(api.Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -1672,7 +1982,7 @@ class ApiSonorium(api.Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -1707,7 +2017,7 @@ class ApiSonorium(api.Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -1746,7 +2056,7 @@ class ApiSonorium(api.Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -1798,7 +2108,7 @@ class ApiSonorium(api.Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -1833,7 +2143,7 @@ class ApiSonorium(api.Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -1866,7 +2176,7 @@ class ApiSonorium(api.Base):
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
         if not isinstance(body, dict) or not body:
             return JSONResponse({"error": "Expected volume_low, pause_between, pause_min or pause_max"}, status_code=400)
-        track_inst = next((inst for inst in theme.instances if inst.name == track_name), None)
+        track_inst = next((inst for inst in theme.tracks if inst.name == track_name), None)
         if track_inst is None:
             return JSONResponse({"error": "Track not found"}, status_code=404)
         values = {}
@@ -1907,7 +2217,7 @@ class ApiSonorium(api.Base):
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
         if not isinstance(body, dict):
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
-        track_inst = next((inst for inst in theme.instances if inst.name == track_name), None)
+        track_inst = next((inst for inst in theme.tracks if inst.name == track_name), None)
         if track_inst is None:
             return JSONResponse({"error": "Track not found"}, status_code=404)
         values = {}
@@ -2147,13 +2457,13 @@ class ApiSonorium(api.Base):
         Change a group's master settings. Body: any of presence, volume (0-1,
         multiplying each track's own value), muted, gap_min, gap_max (seconds
         between plays), mode ("intermittent", "merry_go_round" or "ebb_flow";
-        "intrusion" is retired: 400), crossfade (seconds, 1-60, for a
+        "intrusion" is retired: 400), crossfade (seconds, within Settings > Advanced's range, by default 1-60, for a
         merry-go-round), pause_between and rise (Ebb & Flow). null removes a
         setting (back to 100% / no mute / default gap / Intermittent / 10 s
         crossfade). A group's linked files stay in it whatever its mode.
         "remove_links" (from when intrusion groups held them) is accepted and ignored.
         """
-        from sonorium.recording import GROUP_MODE_INTRUSION, GROUP_MODES, MAX_GROUP_CROSSFADE, MIN_GROUP_CROSSFADE
+        from sonorium.recording import GROUP_MODE_INTRUSION, GROUP_MODES, group_crossfade_range
         theme, metadata, members = self._theme_groups(theme_id)
         if group not in members:
             raise HTTPException(status_code=404, detail="Group not found")
@@ -2194,7 +2504,8 @@ class ApiSonorium(api.Base):
                     value = float(value)
                     if value != value:  # NaN
                         raise ValueError(value)
-                    value = max(MIN_GROUP_CROSSFADE, min(MAX_GROUP_CROSSFADE, value))
+                    low, high = group_crossfade_range()  # Settings > Advanced, by default 1-60
+                    value = max(low, min(high, value))
             except (TypeError, ValueError):
                 raise HTTPException(status_code=400, detail=f"Invalid value for '{key}'")
             settings[key] = value
@@ -2225,7 +2536,7 @@ class ApiSonorium(api.Base):
             raise HTTPException(status_code=404, detail="Source theme not found")
         linked_as = {(link["theme"], link["track"]): key for key, link in (metadata.links or {}).items()}
         tracks = []
-        for inst in source.instances:
+        for inst in source.tracks:
             if getattr(inst.meta, "link", None):
                 continue
             try:
@@ -2391,7 +2702,7 @@ class ApiSonorium(api.Base):
 
         # Find the track instance
         track_inst = None
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name == track_name:
                 track_inst = inst
                 break
@@ -2417,7 +2728,7 @@ class ApiSonorium(api.Base):
             return {"error": "Theme not found"}
 
         # Reset live instances (linked files stay off, as when they were added)
-        for inst in theme.instances:
+        for inst in theme.tracks:
             inst.presence = 1.0
             inst.is_enabled = not getattr(inst.meta, "link", None)
             inst.volume = 1.0
@@ -2461,7 +2772,7 @@ class ApiSonorium(api.Base):
             return {}
 
         tracks = {}
-        for inst in theme.instances:
+        for inst in theme.tracks:
             tracks[inst.name] = {
                 "volume": inst.volume,
                 "presence": inst.presence,
@@ -2484,7 +2795,7 @@ class ApiSonorium(api.Base):
             return False
 
         # Apply to live instances
-        for inst in theme.instances:
+        for inst in theme.tracks:
             if inst.name in preset_tracks:
                 settings = preset_tracks[inst.name]
                 inst.volume = settings.get("volume", 1.0)
@@ -2962,7 +3273,7 @@ class ApiSonorium(api.Base):
             raise HTTPException(status_code=400, detail="Tracks must be a JSON object")
 
         # Validate track settings and filter to only known tracks
-        valid_track_names = {inst.name for inst in theme.instances}
+        valid_track_names = {inst.name for inst in theme.tracks}
         validated_tracks = {}
         unknown_tracks = []
 
@@ -3334,14 +3645,14 @@ class ApiSonorium(api.Base):
 
     async def status(self):
         """Get current status"""
-        device = self.client.device
+        device = self.backend.device
         themes_data = []
         for theme in device.themes:
             themes_data.append({
                 "name": theme.name,
                 "id": theme.id,
-                "track_count": len(theme.instances),
-                "url": theme.url
+                "track_count": len(theme.tracks),
+                "url": theme.listen_url
             })
         
         status_data = {
@@ -3365,7 +3676,3 @@ class ApiSonorium(api.Base):
             )
         
         return status_data
-
-
-if __name__ == '__main__':
-    ApiSonorium.launch()

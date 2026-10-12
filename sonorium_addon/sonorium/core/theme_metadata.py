@@ -29,6 +29,15 @@ from sonorium.core.theme_presets import (
 )
 from sonorium.obs import logger
 
+
+def default_short_file_threshold() -> float:
+    """A new theme's short file threshold: Settings > Advanced (15 s out of the box)."""
+    try:
+        from sonorium import playback_values
+    except ImportError:
+        return 15.0
+    return playback_values.get("short_file_threshold")
+
 AUDIO_EXTENSIONS = ('.mp3', '.wav', '.flac', '.ogg')
 
 # Name of the group that 1.0 "exclusive" tracks belong to after conversion
@@ -103,7 +112,8 @@ class ThemeMetadata:
     categories: list[str] = field(default_factory=list)
 
     # Audio settings
-    short_file_threshold: float = 15.0
+    # (a theme's own; a new theme starts with Settings > Advanced's Short file threshold)
+    short_file_threshold: float = field(default_factory=default_short_file_threshold)
 
     # Per-track settings (keyed by filename)
     tracks: dict[str, TrackSettings] = field(default_factory=dict)
@@ -326,10 +336,10 @@ def _retire_intrusions(folder: Path, metadata: ThemeMetadata, doc: dict) -> bool
 def track_seconds(path: Path) -> Optional[float]:
     """A file's length in seconds, as playback reads it (None when playback can't be loaded)."""
     try:
-        from sonorium.recording import RecordingMetadata
+        from sonorium.recording import AudioFile
     except Exception:
         return None
-    return RecordingMetadata(Path(path)).duration_seconds
+    return AudioFile(Path(path)).duration_seconds
 
 
 def _track_file(folder: Path, metadata: ThemeMetadata, key: str, folder_for_id) -> Optional[Path]:
@@ -356,7 +366,7 @@ def _retire_auto(folder: Path, metadata: ThemeMetadata) -> bool:
     """
     "auto" is retired as a playback mode: once per theme, every track whose
     playback_mode is "auto" in metadata.json or in a preset gets the mode it
-    plays as (recording.RecordingThemeInstance._resolve_playback_mode): a
+    plays as (recording.ThemeTrack._resolve_playback_mode): a
     short file (under short_file_threshold) Intermittent ("sparse") when its
     presence is under 1, a long one Ebb & Flow ("presence"), else Background
     ("continuous"). Becoming Ebb & Flow, a track that plays its own mode (not
@@ -393,7 +403,7 @@ def _retire_auto(folder: Path, metadata: ThemeMetadata) -> bool:
     try:
         threshold = float(metadata.short_file_threshold)
     except (TypeError, ValueError):
-        threshold = 15.0  # recording.SHORT_FILE_THRESHOLD_SECONDS
+        threshold = default_short_file_threshold()
 
     def resolve(key, presence) -> Optional[str]:
         if seconds.get(key) is None:
@@ -677,7 +687,8 @@ class ThemeMetadataManager:
         themes = {}
 
         for folder in self.audio_path.iterdir():
-            if not folder.is_dir():
+            # Hidden folders aren't themes (e.g. a plugin's theme still being written)
+            if not folder.is_dir() or folder.name.startswith("."):
                 continue
 
             # Check for audio files (top level and group folders)

@@ -1,15 +1,23 @@
+"""
+Themes and their mixes.
+
+A LoadedTheme is a theme folder as Sonorium loaded it: its tracks (ThemeTrack,
+recording.py) with their settings, its groups and its id. A ThemeMix is one
+running mix of a theme for one channel (or one direct listener): it holds a
+player for each track, pulls a block from each, applies the on/off fades and
+advanced transitions, and sums them (mixing.py). Changing a track's settings
+changes every mix of the theme at the next block.
+"""
 import math
 import re
 import threading
-import time
 import weakref
 from functools import cached_property
 
-import av
 import numpy as np
 
 from sonorium.obs import logger
-from sonorium.recording import LOG_THRESHOLD, SAMPLE_RATE, ExclusionGroupCoordinator
+from sonorium.recording import BLOCK_SAMPLES, SAMPLE_RATE, ExclusionGroupCoordinator, ThemeTrack, close_stream, playback_values
 from sonorium.utils import IndexList
 
 
@@ -22,16 +30,23 @@ def sanitize(text: str) -> str:
     # Strip leading/trailing underscores
     return text.strip('_')
 
-# Default output gain multiplier (now controlled via device.master_volume)
+# Output gain when the library sets none (the Master volume is library.master_volume)
 DEFAULT_OUTPUT_GAIN = 6.0
 
-# Default threshold for short file detection (seconds)
+# Default threshold for short file detection (seconds): the default of Settings >
+# Advanced's Short file threshold, which a theme without its own follows
 DEFAULT_SHORT_FILE_THRESHOLD = 15.0
 
 # A track turning on or off in a playing mix (a preset change, the mute
 # button) fades in or out over this long instead of cutting. A sequence step
-# fades the tracks it turns on or off over its ramp time instead.
+# fades the tracks it turns on or off over its ramp time instead. The default
+# of Settings > Advanced's Switch fade (switch_fade_seconds()).
 TRACK_TOGGLE_FADE_SECONDS = 3.0
+
+
+def switch_fade_seconds() -> float:
+    """The Switch fade now (Settings > Advanced), seconds."""
+    return playback_values.get("switch_fade")
 
 # A transition stopped half way (Next, a preset picked by hand) glides to
 # what the channel plays now over this long
@@ -59,92 +74,66 @@ class _Transition:
         self.release = None  # {"at", "length", "from", "to" (a number, or None: what the channel plays now)}
 
 
-class ThemeDefinition:
+class LoadedTheme:
+    """
+    One theme as loaded from its folder: its tracks in order (`tracks`, each
+    a ThemeTrack) and its settings. `library` is the Sonorium device that
+    loaded it (its file index and master volume). It plays through a
+    ThemeMix, made per channel or listener with new_mix().
     """
 
-    Run-time only. A ephemeral mix defined by the user.
-
-    ThemeDefinition: What recordings are involved, volumes. User defines these via the UI, then selects a media player entity to stream from it.
-    ThemeStream: One instance per client/connection. Has a RecordingStream for each recording in the ThemeDefinition.
-
-    When a user selectes a media player for this theme, then clicks play, HA tells the player to play URL /theme/name.
-     - On the API side, the ThemeDefinition with ID "name" is selected, and a new ThemeStream initialized.
-
-    When a user modifies a themeDefinition, like change recording volume, all live ThemeStreams are updated.
-
-    Every ThemeDefinition needs an inited RecordingStream for each recording. That way we can have per-theme, per-recording state (volume, playing, etc).
-    Not really. Cos each connection needs its own Stream.
-
-
-    recording (immutable, one per-path) -> recording_instance (mutable, contains addition vol, is_enabled, etc) -> recording_stream (one per-connection)
-
-    """
-
-    def __init__(self, sonorium, name, theme_id: str = None):
-        self.sonorium = sonorium
+    def __init__(self, library, name, theme_id: str = None):
+        self.library = library
         self.name = name
-        # Use provided UUID, or fall back to sanitized folder name for backwards compatibility
-        self._theme_id = theme_id
+        self._theme_id = theme_id  # metadata.json's id; None: the folder name made safe (older themes)
 
         # Short file threshold (seconds) - files shorter than this use sparse playback
         # Can be customized per theme via metadata.json
-        self.short_file_threshold = DEFAULT_SHORT_FILE_THRESHOLD
+        self.short_file_threshold = playback_values.get("short_file_threshold")
 
         # Group settings by group name (metadata.json "groups"), read by grouped tracks
         self.groups: dict[str, dict] = {}
 
-        # Use theme-specific recordings instead of all recordings
-        if name in self.sonorium.theme_metas:
-            theme_metas = self.sonorium.theme_metas[name]
-        else:
-            # Fallback to all recordings for backwards compatibility
-            theme_metas = self.sonorium.metas
+        # Its own files; a theme the library lists no files for (a placeholder) gets them all
+        files = library.files_by_theme.get(name) if name in library.files_by_theme else library.all_files
+        self.tracks = IndexList(ThemeTrack(file, theme=self) for file in files)
 
-        # Pass theme reference to instances so they can access threshold
-        self.instances = IndexList(meta.get_instance(theme=self) for meta in theme_metas)
-
-        # Mixes of this theme that are still in use. Weak references: a mix is
-        # freed (with its decoders and buffers) once its channel or listener
-        # drops it. A plain list kept every mix ever started, so memory grew
-        # with each play and theme change.
-        self.streams: weakref.WeakSet = weakref.WeakSet()
+        # Mixes of this theme still playing. Held weakly, so a mix nobody
+        # plays any more is freed with its players and buffers; keeping
+        # every mix ever made let memory grow with each play.
+        self.live_mixes: weakref.WeakSet = weakref.WeakSet()
 
     @cached_property
-    def url(self) -> str:
+    def listen_url(self) -> str:
+        """Where a speaker can play this theme on its own (outside any channel)."""
         from sonorium.settings import settings
-        return f'{settings.stream_url}/stream/{self.id}'
+        return "{}/stream/{}".format(settings.stream_url, self.id)
 
     @property
     def id(self):
-        """Return the theme UUID from metadata.json, or sanitized name as fallback."""
-        return self._theme_id if self._theme_id else sanitize(self.name)
+        """The theme's id: from metadata.json, else its name made safe for a URL."""
+        return self._theme_id or sanitize(self.name)
+
+    def new_mix(self, overrides: dict | None = None):
+        """A fresh mix of this theme. `overrides`: the channel's preset values (see TrackView)."""
+        mix = ThemeMix(self, overrides)
+        self.live_mixes.add(mix)
+        logger.debug(f'Theme "{self.name}": new mix ({len(self.live_mixes)} playing)')
+        return mix
 
 
-    def get_stream(self, overrides: dict | None = None):
-        """A new mix of this theme. `overrides`: the channel's preset values (see TrackView)."""
-        theme = ThemeStream(self, overrides)
-        self.streams.add(theme)
-        logger.debug(f'ThemeDefinition {self.name}: Created new ThemeStream (total: {len(self.streams)} streams)')
-        return theme
+class ThemeMix:
+    """
+    One running mix of a theme, for one channel or listener. Every track gets
+    its own player here, so two channels playing the same theme are
+    independent: each has its own positions, turns, fades and preset values.
 
-
-class ThemeStream:
+    blocks() gives the mixed audio a block at a time; iterating the mix gives
+    it as MP3 for a listener (a theme's own /stream/{id}).
     """
 
-    Run-time only. A ephemeral mix defined by the user.
-
-    ThemeDefinition: What recordings are involved, volumes. User defines these via the UI, then selects a media player entity to stream from it.
-    ThemeStream: One instance per client/connection. Has a RecordingStream for each recording in the ThemeDefinition.
-
-    When a user selectes a media player for this theme, then clicks play, HA tells the player to play URL /theme/name.
-     - On the API side, the ThemeDefinition with ID "name" is selected, and a new ThemeStream initialized.
-
-    When a user modifies a themeDefinition, like change recording volume, all live ThemeStreams are updated.
-
-    """
-
-    def __init__(self, theme_def: ThemeDefinition, overrides: dict | None = None):
-        self.theme_def = theme_def
+    def __init__(self, theme: LoadedTheme, overrides: dict | None = None):
+        self.theme = theme
         # This stream's preset values; changed in place when the channel's preset changes
         self.overrides = overrides if overrides is not None else {}
 
@@ -155,15 +144,14 @@ class ThemeStream:
         # the wall clock, so a stall can't let two tracks of a group overlap
         self.audio_seconds = 0.0
 
-        # Create streams, passing the exclusion coordinator
         from sonorium.mixing import MixLevel
-        from sonorium.recording import RecordingThemeStream
-        self.mix_level = MixLevel(SAMPLE_RATE, RecordingThemeStream.CHUNK_SIZE)
+        self.mix_level = MixLevel(SAMPLE_RATE, BLOCK_SAMPLES)
+        self._silence = np.zeros((1, BLOCK_SAMPLES), np.int16)  # what plays when no track sounds
 
         # Track key -> its TrackView, and the streams in mixing order: one per
         # track, except a Merry-go-round group, which plays as one stream (its bed)
         self._views: dict[str, object] = {}
-        self.recording_streams = []
+        self.sources = []
         self._beds: tuple = ()  # the groups playing as a merry-go-round
         self._intrusions: tuple = ()  # the groups in Intrusion mode (tracks play as ungrouped)
         self._ebbs: tuple = ()  # the groups in Ebb & Flow mode (every file at once)
@@ -182,14 +170,14 @@ class ThemeStream:
         self._pins: dict[str, dict] = {}
         self._cancel: float | None = None
         # Who plays this mix, for "Playback:" log lines (the channel sets it)
-        self._context = {"label": theme_def.name}
+        self._context = {"label": theme.name}
         self._logged_gain: float | None = None
         self._lock = threading.Lock()  # adopt (API thread) and mode changes (mixing thread)
-        self._build(theme_def)
+        self._build(theme)
 
     @property
     def label(self) -> str:
-        return self._context.get("label") or self.theme_def.name
+        return self._context.get("label") or self.theme.name
 
     @label.setter
     def label(self, value: str) -> None:
@@ -203,17 +191,17 @@ class ThemeStream:
             # Read the group's gap each time (the channel's preset, else the
             # theme this stream plays now), so a preset, a sequence step or a
             # change in the editor applies from the next wait
-            gap = lambda g=group: preset_gap_range(g, self.overrides, getattr(self.theme_def, "groups", None))
+            gap = lambda g=group: preset_gap_range(g, self.overrides, getattr(self.theme, "groups", None))
             self.exclusion_coordinators[group] = ExclusionGroupCoordinator(gap, clock=lambda: self.audio_seconds)
         coordinator = self.exclusion_coordinators.get(group) if group else None
-        stream = track.get_stream(exclusion_coordinator=coordinator)
+        stream = track.open_stream(exclusion_coordinator=coordinator)
         stream.built_as = self._build_key(track)
         ebb = getattr(track, "ebb_group_name", None)
         if ebb and hasattr(stream, "ebb_group"):
             from sonorium.recording import EbbGroup, group_pauses
             if ebb not in self.ebb_groups:
                 self.ebb_groups[ebb] = EbbGroup(
-                    lambda g=ebb: group_pauses(g, self.overrides, getattr(self.theme_def, "groups", None)))
+                    lambda g=ebb: group_pauses(g, self.overrides, getattr(self.theme, "groups", None)))
             self.ebb_groups[ebb].register(track.name, track)
             stream.ebb_group = self.ebb_groups[ebb]
         return stream
@@ -232,28 +220,28 @@ class ThemeStream:
     def _rebuilt_tracks(self) -> list:
         """Tracks whose mode (or Gapless) changed since their stream was built (the editor, a preset)."""
         out = []
-        for stream in list(self.recording_streams):
+        for stream in list(self.sources):
             built = getattr(stream, "built_as", None)
             if built is not None and built != self._build_key(stream.instance):
                 out.append(stream.instance.name)
         return out
 
-    def _bed_groups(self, theme_def=None) -> tuple:
+    def _bed_groups(self, theme=None) -> tuple:
         """The groups set to Merry-go-round now."""
         from sonorium.recording import GROUP_MODE_MERRY_GO_ROUND, group_mode
-        groups = getattr(theme_def or self.theme_def, "groups", None) or {}
+        groups = getattr(theme or self.theme, "groups", None) or {}
         return tuple(sorted(g for g, s in list(groups.items()) if group_mode(s) == GROUP_MODE_MERRY_GO_ROUND))
 
-    def _intrusion_groups(self, theme_def=None) -> tuple:
+    def _intrusion_groups(self, theme=None) -> tuple:
         """The groups set to Intrusion now (their tracks play as their own settings say)."""
         from sonorium.recording import GROUP_MODE_INTRUSION, group_mode
-        groups = getattr(theme_def or self.theme_def, "groups", None) or {}
+        groups = getattr(theme or self.theme, "groups", None) or {}
         return tuple(sorted(g for g, s in list(groups.items()) if group_mode(s) == GROUP_MODE_INTRUSION))
 
-    def _ebb_groups_now(self, theme_def=None) -> tuple:
+    def _ebb_groups_now(self, theme=None) -> tuple:
         """The groups set to Ebb & Flow now."""
         from sonorium.recording import GROUP_MODE_EBB_FLOW, group_mode
-        groups = getattr(theme_def or self.theme_def, "groups", None) or {}
+        groups = getattr(theme or self.theme, "groups", None) or {}
         return tuple(sorted(g for g, s in list(groups.items()) if group_mode(s) == GROUP_MODE_EBB_FLOW))
 
     def _new_bed(self, group: str):
@@ -261,19 +249,19 @@ class ThemeStream:
         from sonorium.recording import MerryGoRoundStream
 
         def members():
-            views = (self._views.get(i.name) for i in list(self.theme_def.instances)
+            views = (self._views.get(i.name) for i in list(self.theme.tracks)
                      if getattr(i.meta, "group", None) == group)
             return [v for v in views if v is not None]
 
         def settings():
-            return (getattr(self.theme_def, "groups", None) or {}).get(group)
+            return (getattr(self.theme, "groups", None) or {}).get(group)
 
-        logger.info(f'ThemeStream "{self.theme_def.name}": group "{group}" plays as a merry-go-round')
+        logger.info(f'ThemeMix "{self.theme.name}": group "{group}" plays as a merry-go-round')
         return MerryGoRoundStream(group, members, settings)
 
-    def _build(self, theme_def):
+    def _build(self, theme):
         """
-        Streams for `theme_def`, keeping the ones still right: a track still
+        Streams for `theme`, keeping the ones still right: a track still
         there keeps playing where it is and reads the new settings; a new track
         gets its stream; a Merry-go-round group keeps its bed (new files join
         its pool, removed ones finish first); a group whose mode changed gets
@@ -281,14 +269,14 @@ class ThemeStream:
         """
         from sonorium.recording import MerryGoRoundStream, TrackView
 
-        beds = self._bed_groups(theme_def)
-        intrusions = self._intrusion_groups(theme_def)
-        ebbs = self._ebb_groups_now(theme_def)
+        beds = self._bed_groups(theme)
+        intrusions = self._intrusion_groups(theme)
+        ebbs = self._ebb_groups_now(theme)
         # Groups that became or stopped being Intrusion or Ebb & Flow: their
         # tracks get new streams (taking turns or not is decided when a stream is made)
         switched = (set(intrusions) ^ set(self._intrusions)) | (set(ebbs) ^ set(self._ebbs))
         old_tracks, old_beds = {}, {}
-        for stream in self.recording_streams:
+        for stream in self.sources:
             if isinstance(stream, MerryGoRoundStream):
                 old_beds[stream.group] = stream
             else:
@@ -297,10 +285,10 @@ class ThemeStream:
             self.exclusion_coordinators.pop(group, None)  # turns start over if it goes back to Intermittent
         for group in [g for g in self.ebb_groups if g not in ebbs or g in switched]:
             self.ebb_groups.pop(group, None)
-        self.theme_def = theme_def
+        self.theme = theme
         before = set(self._views)
         streams, seen = [], set()
-        for instance in theme_def.instances:
+        for instance in theme.tracks:
             view = self._views.get(instance.name)
             if view is None:
                 view = self._views[instance.name] = TrackView(instance, self.overrides, self._pins, self._context)
@@ -320,16 +308,16 @@ class ThemeStream:
                 stream = None  # its mode or Gapless changed: a new stream, faded in like a track turned on
                 self._toggle_gain[instance.name] = 0.0
             streams.append(stream if stream is not None else self._new_stream(view))
-        names = {instance.name for instance in theme_def.instances}
+        names = {instance.name for instance in theme.tracks}
         for name in [n for n in list(self._views) if n not in names]:
             self._views.pop(name, None)
-        self.recording_streams = streams  # one assignment: the mixer sees the old list or the new one
+        self.sources = streams  # one assignment: the mixer sees the old list or the new one
         self._beds = beds
         self._intrusions = intrusions
         self._ebbs = ebbs
         return sorted(names - before), sorted(before - names)
 
-    def adopt(self, theme_def: ThemeDefinition):
+    def adopt(self, theme: LoadedTheme):
         """
         The theme was rescanned (a file uploaded, moved or deleted): follow the
         new definition without restarting. Tracks still there keep playing
@@ -338,9 +326,9 @@ class ThemeStream:
         likely early pick); removed tracks leave.
         """
         with self._lock:
-            added, left = self._build(theme_def)
+            added, left = self._build(theme)
         if added or left:
-            logger.info(f'ThemeStream "{theme_def.name}": {len(added)} track(s) joined, {len(left)} left')
+            logger.info(f'ThemeMix "{theme.name}": {len(added)} track(s) joined, {len(left)} left')
 
     def _follow_group_modes(self):
         """
@@ -352,23 +340,17 @@ class ThemeStream:
             with self._lock:
                 changed = self._rebuilt_tracks()
                 if changed:
-                    self._build(self.theme_def)
-                    logger.info(f'ThemeStream "{self.theme_def.name}": {", ".join(changed)} now play(s) as set')
+                    self._build(self.theme)
+                    logger.info(f'ThemeMix "{self.theme.name}": {", ".join(changed)} now play(s) as set')
         if (self._bed_groups() == self._beds and self._intrusion_groups() == self._intrusions
                 and self._ebb_groups_now() == self._ebbs):
             return
         with self._lock:
             if (self._bed_groups() != self._beds or self._intrusion_groups() != self._intrusions
                     or self._ebb_groups_now() != self._ebbs):
-                self._build(self.theme_def)
-                logger.info(f'ThemeStream "{self.theme_def.name}": group modes changed '
+                self._build(self.theme)
+                logger.info(f'ThemeMix "{self.theme.name}": group modes changed '
                             f'(merry-go-round: {", ".join(self._beds) or "none"})')
-
-    @cached_property
-    def chunk_silence(self):
-        from sonorium.recording import RecordingThemeStream
-        data = np.zeros((1, RecordingThemeStream.CHUNK_SIZE), np.int16)
-        return data
 
     @staticmethod
     def _holds_turn(stream) -> bool:
@@ -392,10 +374,9 @@ class ThemeStream:
     @staticmethod
     def _fade_step(seconds: float) -> float:
         """How far an on/off fade of `seconds` moves per chunk (a fade of 0 still ramps over one chunk)."""
-        from sonorium.recording import RecordingThemeStream
         if not seconds or seconds <= 0:
             return 1.0
-        return min(1.0, RecordingThemeStream.CHUNK_SIZE / (seconds * SAMPLE_RATE))
+        return min(1.0, BLOCK_SAMPLES / (seconds * SAMPLE_RATE))
 
     def _pull(self, step: float) -> list:
         """
@@ -409,7 +390,7 @@ class ThemeStream:
         """
         self._start_due_transitions()
         chunks, gains = [], {}
-        for stream in list(self.recording_streams):
+        for stream in list(self.sources):
             name = stream.instance.name
             transition = self._active.get(name)
             if transition is not None:
@@ -423,7 +404,7 @@ class ThemeStream:
             if was is not None and was != enabled:
                 seconds = self._next_fade.get(name)
                 self._toggle_step[name] = step if seconds is None else self._fade_step(seconds)
-                fade = TRACK_TOGGLE_FADE_SECONDS if seconds is None else seconds
+                fade = switch_fade_seconds() if seconds is None else seconds
                 logger.info(f'Playback: {self.label}: {name} {"on, fading in" if enabled else "off, fading out"} over {fade:g}s')
             track_step = self._toggle_step.get(name, step)
             old = self._toggle_gain.get(name, 1.0 if enabled else 0.0)
@@ -451,24 +432,17 @@ class ThemeStream:
             self._toggle_step.pop(name, None)
         return chunks
 
-    def iter_chunks(self):
-        from sonorium.recording import RecordingThemeStream
-
-        step = RecordingThemeStream.CHUNK_SIZE / (TRACK_TOGGLE_FADE_SECONDS * SAMPLE_RATE)
+    def blocks(self):
+        """The mix, one int16 block (1, BLOCK_SAMPLES) at a time, for ever."""
         while True:
             self._follow_group_modes()
-            data_recs = self._pull(step)
-            self.audio_seconds += RecordingThemeStream.CHUNK_SIZE / SAMPLE_RATE
-            if not data_recs:
-                # logger.debug(f'Theme "{self.theme_def.name}" has no enabled recordings. Streaming silence...')
-                data_recs.append(self.chunk_silence)
-            
-            # Sum the tracks with a smoothed level (sonorium/mixing.py)
-            output_gain = getattr(self.theme_def.sonorium, 'master_volume', DEFAULT_OUTPUT_GAIN)
-            data = self.mix_level.mix(data_recs, output_gain)
+            sounding = self._pull(self._fade_step(switch_fade_seconds()))  # the Switch fade, read live
+            self.audio_seconds += BLOCK_SAMPLES / SAMPLE_RATE
+            # Sum the tracks with a smoothed level (sonorium/mixing.py); silence when none sounds
+            gain = getattr(self.theme.library, 'master_volume', DEFAULT_OUTPUT_GAIN)
+            block = self.mix_level.mix(sounding or [self._silence], gain)
             self._log_mix_level()
-
-            yield data
+            yield block
 
     def _log_mix_level(self) -> None:
         """A "Playback:" line when the mixer's level has moved MIX_LEVEL_LOG_DB since the last one."""
@@ -511,13 +485,13 @@ class ThemeStream:
 
     def _stream_of(self, name: str):
         from sonorium.recording import MerryGoRoundStream
-        for stream in list(self.recording_streams):
+        for stream in list(self.sources):
             if not isinstance(stream, MerryGoRoundStream) and stream.instance.name == name:
                 return stream
         return None
 
     def _replace_stream(self, old, new) -> None:
-        self.recording_streams = [new if s is old else s for s in self.recording_streams]
+        self.sources = [new if s is old else s for s in self.sources]
 
     def _start_due_transitions(self) -> None:
         now = self.audio_seconds
@@ -572,8 +546,8 @@ class ThemeStream:
                 if not stream.playing:
                     transition.finish_at = now  # nothing playing: done at once
             elif getattr(stream, "length", 0):
-                from sonorium.recording import CROSSFADE_SAMPLES
-                left = stream.length - getattr(stream, "overlap", CROSSFADE_SAMPLES) - stream.position
+                from sonorium.recording import loop_crossfade_samples
+                left = stream.length - (getattr(stream, "overlap", None) or loop_crossfade_samples()) - stream.position
                 if left <= 0:
                     left += stream.length
                 transition.finish_at = now + min(left / RATE, 600.0)
@@ -582,7 +556,7 @@ class ThemeStream:
         if running is not None:
             running.release = None
             if running.old_stream is not None:
-                getattr(running.old_stream, "gen", None) and running.old_stream.gen.close()
+                close_stream(running.old_stream)
         self._pins[name] = pins
         self._active[name] = transition
         paused = running is None and self._toggle_gain.get(name, 1.0 if enabled else 0.0) <= 0.0
@@ -593,9 +567,7 @@ class ThemeStream:
             if not paused and a > EPS:
                 transition.old_stream, transition.old_level = stream, a
             else:
-                old_gen = getattr(stream, "gen", None)
-                if old_gen is not None:
-                    old_gen.close()
+                close_stream(stream)
             self._replace_stream(stream, new)
         elif side == "in" and paused:
             restart = getattr(stream, "restart", None)
@@ -632,8 +604,8 @@ class ThemeStream:
 
     def _pull_transition(self, transition, stream):
         """One chunk of a track with a transition running: its level from the envelope (and filter)."""
-        from sonorium.recording import RecordingThemeStream, SAMPLE_RATE as RATE
-        size = RecordingThemeStream.CHUNK_SIZE
+        from sonorium.recording import SAMPLE_RATE as RATE
+        size = BLOCK_SAMPLES
         chunk_seconds = size / RATE
         now = self.audio_seconds
         name = transition.track
@@ -670,7 +642,7 @@ class ThemeStream:
             old = next(transition.old_stream)
             out = out + old.astype(np.float32).reshape(-1) * np.linspace(g0, g1, size, dtype=np.float32)
             if g1 <= 0.0:
-                getattr(transition.old_stream, "gen", None) and transition.old_stream.gen.close()
+                close_stream(transition.old_stream)
                 transition.old_stream = None
         transition.level = end_level
         data = np.clip(out, -32768, 32767).astype(np.int16).reshape(1, -1)
@@ -702,7 +674,7 @@ class ThemeStream:
         transition = self._active.pop(name, None)
         self._pins.pop(name, None)
         if transition is not None and transition.old_stream is not None:
-            getattr(transition.old_stream, "gen", None) and transition.old_stream.gen.close()
+            close_stream(transition.old_stream)
         view = self._views.get(name)
         enabled = bool(view.is_enabled) if view is not None else False
         self._toggle_on[name] = enabled
@@ -712,38 +684,18 @@ class ThemeStream:
         return 1.0 if enabled else 0.0
 
     def __iter__(self):
-        output = av.open(file='.mp3', mode="w")
-        bitrate = 128_000
-        out_stream = output.add_stream(codec_name='mp3', rate=44100, bit_rate=bitrate)
-        iter_chunks = self.iter_chunks()
-
-        start_time = time.time()
-        audio_time = 0.0  # total audio duration sent
-
+        """
+        This mix as an MP3 byte stream for one listener (a theme's own
+        /stream/{id}), sent no faster than it plays (sonorium/mp3_out.py).
+        """
+        from sonorium.mp3_out import Mp3Encoder, RealtimePacer
+        encoder, pacer = Mp3Encoder(), RealtimePacer()
+        blocks = self.blocks()
         try:
-            while True:
-                for i, data in enumerate(iter_chunks):
-                    frame = av.AudioFrame.from_ndarray(data, format='s16', layout='mono')
-                    frame.rate = 44100
-
-                    frame_duration = frame.samples / frame.rate
-                    audio_time += frame_duration
-
-                    for packet in out_stream.encode(frame):
-                        packet_bytes = bytes(packet)
-                        yield packet_bytes
-
-                    # Only sleep if we are ahead of real-time
-                    now = time.time()
-                    ahead = audio_time - (now - start_time)
-                    if ahead > 0:
-                        time.sleep(ahead)
-
-                    if i % LOG_THRESHOLD == 0:
-                        logger.debug(f'Waiting {ahead:.5f} seconds to maintain real-time pacing {audio_time=}...')
-
-
+            for block in blocks:
+                yield from encoder.encode(block)
+                pacer.advance(block.shape[-1] / SAMPLE_RATE)
         finally:
-            logger.info('Closing transcoder...')
-            iter_chunks.close()
-            output.close()
+            logger.info(f'Theme mix "{self.label}": listener gone, MP3 stream closed')
+            blocks.close()
+            encoder.close()

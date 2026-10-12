@@ -1,6 +1,7 @@
 """
-Sonorium Logging - Simple logging wrapper.
-Replaces fmtr.tools logging with standard Python logging.
+Sonorium's log: one logger ("sonorium") writing to stdout, which the add-on
+log and `docker logs` show, and to the buffer behind the web UI's Logs page.
+The level comes from SONORIUM_LOG_LEVEL.
 """
 import functools
 import logging
@@ -8,8 +9,6 @@ import os
 import re
 import sys
 
-from sonorium.paths import paths
-from sonorium.version import __version__
 
 
 class InstrumentedLogger(logging.Logger):
@@ -98,57 +97,26 @@ def log_level_from_env() -> int:
     return logging.getLevelName(name) if isinstance(logging.getLevelName(name), int) else logging.INFO
 
 
-def get_logger(name: str, version: str = "") -> InstrumentedLogger:
-    """Create an instrumented logger."""
-    # Set custom logger class
+def get_logger(name: str) -> InstrumentedLogger:
+    """The named logger, set up on first use (handler, filter, level, Logs page buffer)."""
     logging.setLoggerClass(InstrumentedLogger)
+    named = logging.getLogger(name)
+    named.__class__ = InstrumentedLogger  # also when it existed before the class was set
 
-    logger = logging.getLogger(name)
-    logger.__class__ = InstrumentedLogger
-
-    if not logger.handlers:
+    if not named.handlers:
         # Force unbuffered stdout for Docker/container environments
         sys.stdout.reconfigure(line_buffering=True) if hasattr(sys.stdout, 'reconfigure') else None
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(LevelPrefixFormatter('%(asctime)s.%(msecs)03d %(message)s', datefmt='%H:%M:%S'))
-        handler.addFilter(RequestLineFilter(logger))
-        logger.addHandler(handler)
-        logger.setLevel(log_level_from_env())
+        handler.addFilter(RequestLineFilter(named))
+        named.addHandler(handler)
+        named.setLevel(log_level_from_env())
 
         # Recent messages for the web UI's Logs page, from the very start
         from sonorium import logbuffer
-        logbuffer.install(name, RequestLineFilter(logger))
+        logbuffer.install(name, RequestLineFilter(named))
 
-    return logger
-
-
-def apply_level_to_library_console(level: int) -> None:
-    """
-    fmtr.tools configures Logfire to print every span (each HTTP request,
-    each instrumented call) to the console at info. Show those only at debug;
-    at the normal level Logfire prints warnings and errors only.
-    """
-    try:
-        import fmtr.tools.logging_tools  # noqa: F401 - configures Logfire once, on import
-        import logfire
-    except Exception:
-        return
-    min_level = "debug" if level <= logging.DEBUG else "warn" if level <= logging.WARNING else "error"
-    try:
-        logfire.configure(
-            service_name=paths.name_ns,
-            service_version=__version__,
-            send_to_logfire=False,
-            console=logfire.ConsoleOptions(colors="always", min_log_level=min_level),
-            scrubbing=False,
-        )
-    except Exception as e:
-        logging.getLogger(paths.name_ns).warning(f"Could not set library log level: {e}")
+    return named
 
 
-# Create the main logger
-logger = get_logger(
-    name=paths.name_ns,
-    version=__version__,
-)
-apply_level_to_library_console(logger.level)
+logger = get_logger("sonorium")

@@ -27,7 +27,7 @@ def _exec(name, relative):
 
 @pytest.fixture
 def app(monkeypatch, tmp_path):
-    """Standalone runtime, the HA registry and ApiSonorium, without fmtr, HA, MQTT or the audio engine."""
+    """Standalone runtime, the HA registry and WebApp, without HA, MQTT or the audio engine."""
     monkeypatch.setenv("SONORIUM_STANDALONE", "1")
     monkeypatch.setenv("SONORIUM_CONNECTION_FILE", str(tmp_path / "sonorium" / "connection.json"))
     monkeypatch.setenv("SONORIUM__HA_CORE_API", "http://ha.invalid:8123/api")
@@ -40,18 +40,15 @@ def app(monkeypatch, tmp_path):
     obs = types.ModuleType("sonorium.obs")
     obs.logger = logging.getLogger("sonorium-connection-test")
     theme = types.ModuleType("sonorium.theme")
-    theme.ThemeDefinition = object
+    theme.LoadedTheme = object
     version = types.ModuleType("sonorium.version")
     version.__version__ = "test"
     logbuffer = types.ModuleType("sonorium.logbuffer")
-    fmtr = types.ModuleType("fmtr")
-    fmtr_tools = types.ModuleType("fmtr.tools")
-    fmtr_tools.http = MagicMock()
-    fmtr_tools.api = SimpleNamespace(Base=object, Endpoint=MagicMock())
-    fmtr.tools = fmtr_tools
+    http_client = types.ModuleType("sonorium.http_client")
+    http_client.Client = MagicMock()
     stubs = {
         "sonorium": package, "sonorium.obs": obs, "sonorium.theme": theme, "sonorium.version": version,
-        "sonorium.logbuffer": logbuffer, "fmtr": fmtr, "fmtr.tools": fmtr_tools,
+        "sonorium.logbuffer": logbuffer, "sonorium.http_client": http_client,
     }
     with patch.dict(sys.modules, stubs):
         runtime = _exec("sonorium.runtime", "runtime.py")
@@ -86,7 +83,7 @@ def make_registry(m):
 
 
 def make_api(m, registry=None, mqtt_connected=True):
-    api = object.__new__(m.api.ApiSonorium)
+    api = object.__new__(m.api.WebApp)
     mqtt_client = SimpleNamespace(is_connected=mqtt_connected)
 
     async def close():
@@ -94,7 +91,7 @@ def make_api(m, registry=None, mqtt_connected=True):
     mqtt_client.close = AsyncMock(side_effect=close)
 
     settings = SimpleNamespace(enabled_speakers_exact=True, enabled_speakers=["media_player.kitchen", "net:dlna:B"])
-    api.client = SimpleNamespace(mqtt_client=mqtt_client, device=SimpleNamespace())
+    api.backend = SimpleNamespace(mqtt_client=mqtt_client, device=SimpleNamespace())
     api._ha_registry = registry
     api._state_store = SimpleNamespace(settings=settings, save=Mock())
     api._media_controller = SimpleNamespace(controller=SimpleNamespace(ha_controller=object()))
@@ -216,13 +213,13 @@ def test_delete_mqtt_clears_fields_and_disconnects(app):
     assert rt.load_connection() == {"ha_url": "http://ha.invalid:8123", "stream_url": "http://me:8008"}
     manager.remove_all_entities.assert_awaited_once()  # while still connected
     manager.stop_publishing.assert_called_once()
-    api.client.mqtt_client.close.assert_awaited_once()
+    api.backend.mqtt_client.close.assert_awaited_once()
 
 
 def test_delete_mqtt_when_disconnect_fails_asks_for_restart(app):
     app.runtime.save_connection({"mqtt_host": "broker"})
     api = make_api(app, make_registry(app), mqtt_connected=False)
-    api.client.mqtt_client.close = AsyncMock(side_effect=RuntimeError("stuck"))
+    api.backend.mqtt_client.close = AsyncMock(side_effect=RuntimeError("stuck"))
     result = asyncio.run(api.delete_connection_mqtt())
     assert result["restart_required"] is True
     assert app.runtime.load_connection() == {}

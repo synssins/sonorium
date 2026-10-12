@@ -28,7 +28,7 @@ def _is_sonorium(name):
 def addon_package():
     """
     Import the add-on's `sonorium.network` without its other dependencies
-    (fmtr, HA, MQTT), then put back whatever `sonorium` other tests use
+    (HA, MQTT), then put back whatever `sonorium` other tests use
     (test_linkplay_integration imports the Windows app's package).
     """
     saved = {name: module for name, module in sys.modules.items() if _is_sonorium(name)}
@@ -361,14 +361,12 @@ def test_didl_metadata_escapes_url():
 
 @pytest.fixture
 def registry_module():
-    fmtr = types.ModuleType("fmtr")
-    fmtr_tools = types.ModuleType("fmtr.tools")
-    fmtr_tools.http = MagicMock()
-    fmtr.tools = fmtr_tools
+    http_client = types.ModuleType("sonorium.http_client")
+    http_client.Client = MagicMock()
     runtime = types.ModuleType("sonorium.runtime")
     runtime.ha_configured = lambda: False
     runtime.ha_websocket_url = lambda url: url
-    stubs = {"fmtr": fmtr, "fmtr.tools": fmtr_tools, "sonorium.runtime": runtime}
+    stubs = {"sonorium.http_client": http_client, "sonorium.runtime": runtime}
     with patch.dict(sys.modules, stubs):
         import importlib.util
         spec = importlib.util.spec_from_file_location("registry_under_test", PACKAGE / "ha" / "registry.py")

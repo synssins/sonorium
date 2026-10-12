@@ -2,6 +2,525 @@
 
 <!-- version list -->
 
+> ## ⭐ 1.7.0: Sign-in, announcements and plugins
+>
+> Sonorium gets users and sign-in, plays announcements sent by other systems, and runs plugins that play sounds over channels. Sign-in is optional: an update changes nothing until you turn on Require login.
+
+### Highlights
+
+- **Sign-in:** users with two roles (Admin and User), Settings › Users & devices, keys for devices and programs (Settings › Keys), and Link App, a QR code that links the Sonorium app. In the Home Assistant app, Home Assistant's users are Sonorium's users: every Home Assistant user sees Sonorium in the sidebar with the role of their Home Assistant account. Require login is on for new installs and off after an update until you turn it on.
+- **HTTPS:** port 8808 serves the web UI and the API over HTTPS for the Sonorium app (self-signed certificate). Port 8008 is unchanged; speakers keep using it. Docker announces itself as `sonorium.local`.
+- **Announcements:** Home Assistant (a notify entity per channel), MQTT (`sonorium/announce/set`) and anything that can send a web request (`POST /api/announce` with a key) send a chime and/or words to speak; Sonorium plays them on the channels named, and a playing channel gets quieter while they play. Each channel has an Announcements switch, in Home Assistant too.
+- **Zones** (Settings › Advanced, off by default): channels that belong to a user, Kid mode and its hours, a home channel for each speaker, and linked channels that play one theme or playlist.
+- **Plugins:** plugin API 1.1 with sounds and announcements over channels, volume ramps, audio outputs, commands from remotes, MQTT and webhooks, and plugin packages (Settings › Advanced, off by default). Built-in plugins can be uninstalled; Theme Merge 2.0 and Ambient Mixer Importer 3.1 for the current theme format.
+- **Status:** Now playing shows each playing channel's tracks, with countdowns and levels; As heard follows the speakers' delay.
+- **Home Assistant dashboard cards:** added when Home Assistant and MQTT are linked; Tile, Channel, Player and All channels layouts.
+- **Settings › Advanced:** the playback values every theme is built on, each with its default.
+- **Layout:** phones, tablets and short screens each get a layout that fits; Settings tables follow the window width. In the Sonorium app, a Servers button in the top bar.
+- **Under the hood:** Sonorium is fully rewritten (no Amniotic code, no fmtr.tools), has its own repository, uses its own audio-only LGPL FFmpeg build with PyAV, and is licensed under PolyForm Noncommercial 1.0.0.
+- **Fixes:** hidden folders are no longer themes; an Ambient Mixer import keeps an edit saved during its download; Sonorium opens on Channels when the remembered page can't be opened.
+
+The full list is in the README under What's new.
+
+## v1.6.2-dev.61 (2026-10-12)
+
+
+## v1.6.2-dev.60 (2026-10-12)
+
+
+## v1.6.2-dev.59 (2026-10-12)
+
+
+## v1.6.2-dev.57 (2026-10-12)
+
+
+## v1.6.2-dev.55 (2026-10-12)
+
+### Continuous Integration
+
+- Only fixes publishes :dev; Users 1.1.3: no 'open to anyone' warning while plugins reload
+  ([`151fd49`](https://github.com/synssins/sonorium/commit/151fd49dcc83e1251c8cbe8acb8b7ce89ec3e6d5))
+## v1.6.2-dev.56 (2026-10-12)
+
+### Bug Fixes
+
+- **announce**: An unknown channel's message keeps its quotes; the chime-only notice doesn't ask for
+  a chime
+  ([`664b2b5`](https://github.com/synssins/sonorium/commit/664b2b5de455005033c1eff82fc222aabd5447f6))
+
+- **web**: The channel editor's Announcements switch lines up with its label
+  ([`ca79ae7`](https://github.com/synssins/sonorium/commit/ca79ae78174d0149dccf7ad4cb6b4f738f49a061))
+
+### Documentation
+
+- Announcements: let other systems use Sonorium (HA, key + curl, MQTT, Node-RED)
+  ([`74eb5c9`](https://github.com/synssins/sonorium/commit/74eb5c9b5c2db2d1f0d080a08b2ff24dfa143093))
+
+### Features
+
+- **announce**: Other systems announce through Sonorium (HTTP, MQTT, Home Assistant)
+  ([`de2bb61`](https://github.com/synssins/sonorium/commit/de2bb6125257eb1175f171560edbeef320418a6c))
+
+- **channels**: Announcements on/off per channel (default on)
+  ([`9bc9e6a`](https://github.com/synssins/sonorium/commit/9bc9e6a17a24f85cb83b6ee1eec12b6315acc1d0))
+
+### Refactoring
+
+- Remove notification rules, notifiers and Settings › Notifications
+  ([`1e83a4f`](https://github.com/synssins/sonorium/commit/1e83a4fe4408875584f1d4c5ad942ee5f7846031))
+
+
+## v1.6.2-dev.53 (2026-10-12)
+
+
+## v1.6.2-dev.52 (2026-10-12)
+
+### Bug Fixes
+
+- **web**: Advanced › Stream URL's default isn't covered by its field on phones
+  ([`79f7a61`](https://github.com/synssins/sonorium/commit/79f7a619a16395ddc7a7d7fbfc45e9270072b76f))
+
+
+## v1.6.2-dev.50 (2026-10-12)
+
+### Bug Fixes
+
+- **plugins**: Sign-in stays closed while plugins reload
+  ([`03b3d70`](https://github.com/synssins/sonorium/commit/03b3d708920208735065abaaca8b6d82b2d43755))
+
+- **users**: Unlinked_devices lists only phones without a user (Users 1.1.1)
+  ([`605c882`](https://github.com/synssins/sonorium/commit/605c8822ad5c47bae08c3b7a82d4369a015c7cf9))
+## v1.6.2-dev.51 (2026-10-12)
+
+### Features
+
+- **ui**: Screen-size layout (approved boards)
+  ([`abd591f`](https://github.com/synssins/sonorium/commit/abd591faef64fd726b734e0a9d05f866e40b70be))
+
+
+## v1.6.2-dev.49 (2026-10-12)
+
+
+## v1.6.2-dev.48 (2026-10-12)
+
+### Features
+
+- **web**: System › Servers in the Sonorium app (SONORIUM_HOST.showServers)
+  ([`020a907`](https://github.com/synssins/sonorium/commit/020a90774408d336b722325c4d2b146bcad1fbd0))
+
+
+## v1.6.2-dev.47 (2026-10-12)
+
+### Bug Fixes
+
+- **web**: No dashboard-cards line without Home Assistant; Advanced tables share a column
+  ([`ebd9b59`](https://github.com/synssins/sonorium/commit/ebd9b59cf6f368be6de8576d3110b5908e3dcd8a))
+
+
+## v1.6.2-dev.46 (2026-10-12)
+
+### Continuous Integration
+
+- First build from the new repository
+  ([`532d8f9`](https://github.com/synssins/sonorium/commit/532d8f92a520131d8bc34caabb494f51483f7337))
+
+
+## v1.6.2-dev.45 (2026-10-12)
+
+
+## v1.6.2-dev.43 (2026-10-11)
+
+
+## v1.6.2-dev.42 (2026-10-11)
+
+
+## v1.6.2-dev.39 (2026-10-11)
+
+
+## v1.6.2-dev.37 (2026-10-11)
+
+### Build System
+
+- Audio-only LGPL FFmpeg and PyAV built from source in both images
+  ([`8259b23`](https://github.com/synssins/sonorium/commit/8259b231e6e09a830cc1d9eeee37b20ef1b7c697))
+
+### Continuous Integration
+
+- Publish prebuilt add-on images per architecture; check FFmpeg is LGPL
+  ([`778d6ca`](https://github.com/synssins/sonorium/commit/778d6cafa9d797e9a5a59a1bdbc52fd94da384fa))
+
+### Documentation
+
+- **notices**: Sonorium's own LGPL FFmpeg build replaces PyAV's bundled libraries
+  ([`47eb21d`](https://github.com/synssins/sonorium/commit/47eb21dfe8d66fd1d1159dd2c132e3378c5b3102))
+
+### Testing
+
+- Audio formats test runs inside the images
+  ([`98efb90`](https://github.com/synssins/sonorium/commit/98efb9069519675bbbc20222bf388f99a0d4da50))
+## v1.6.2-dev.41 (2026-10-11)
+
+### Documentation
+
+- Zones, the channel policy and the new UI slots
+  ([`5718e0b`](https://github.com/synssins/sonorium/commit/5718e0b1f9a21d3c1c4e76506eed7e62533a0ad5))
+
+### Features
+
+- **web**: Zones in the web UI
+  ([`46d0bf0`](https://github.com/synssins/sonorium/commit/46d0bf08fdbfdc4d7060ee0eee088a486f61f600))
+
+
+## v1.6.2-dev.38 (2026-10-11)
+
+### Bug Fixes
+
+- **core**: Channel policy hears of new channels; load without it
+  ([`081eae8`](https://github.com/synssins/sonorium/commit/081eae89055f841bf6c569f20ab37a6e1bab6269))
+
+### Features
+
+- **core**: Channel policy hook for zones
+  ([`3144f2d`](https://github.com/synssins/sonorium/commit/3144f2d337b23723d4ce406cc5320732f2aa4007))
+
+- **users**: Zones, Kid mode, speaker homes and links
+  ([`0ebf819`](https://github.com/synssins/sonorium/commit/0ebf819ee3042ae721d9ff351e32da6dab0eddaf))
+## v1.6.2-dev.44 (2026-10-11)
+
+
+## v1.6.2-dev.40 (2026-10-11)
+
+
+## v1.6.2-dev.35 (2026-10-11)
+
+
+## v1.6.2-dev.33 (2026-10-11)
+
+### Bug Fixes
+
+- **users**: Plugin 1.0.3, so installs pick up the Home Assistant user list from HA's WebSocket
+  ([`d211a54`](https://github.com/synssins/sonorium/commit/d211a545a322d88fbf03187d62534cdd4080571c))
+
+
+## v1.6.2-dev.32 (2026-10-11)
+
+
+## v1.6.2-dev.30 (2026-10-11)
+
+
+## v1.6.2-dev.29 (2026-10-11)
+
+### Bug Fixes
+
+- **plugins**: An uninstalled built-in can be installed again from the Catalog; Update only for a
+  newer version
+  ([`768803b`](https://github.com/synssins/sonorium/commit/768803b1593ab9a68923f54b74534f3703e5343b))
+
+
+## v1.6.2-dev.28 (2026-10-11)
+
+
+## v1.6.2-dev.27 (2026-10-11)
+
+### Documentation
+
+- Home Assistant's users on the add-on (AUTH, APP_API, add-on README)
+  ([`50e051a`](https://github.com/synssins/sonorium/commit/50e051adb287e2caf81ae762cc2b4f077f4ddf95))
+
+- Next release in What's new, Sign-in section, HTTPS port in the compose example,
+  THIRD_PARTY_NOTICES.md
+  ([`5833f46`](https://github.com/synssins/sonorium/commit/5833f46d06e011c013f5a85ad36736856bdfab28))
+
+
+## v1.6.2-dev.26 (2026-10-11)
+
+
+## v1.6.2-dev.25 (2026-10-11)
+
+### Bug Fixes
+
+- **status**: Ebb & Flow counts down to the fade at the file's end; theme's own name
+  ([`cec35a9`](https://github.com/synssins/sonorium/commit/cec35a99cef8aaa8f9a837692d5c5d4f64287ada))
+
+### Documentation
+
+- APP_API.md, the API reference for the Android app
+  ([`e749dd2`](https://github.com/synssins/sonorium/commit/e749dd2f98b7b3912ac91639bf22c681c5deb7ec))
+
+- Now playing board and GET /api/now-playing
+  ([`e33c340`](https://github.com/synssins/sonorium/commit/e33c340dc4abe0eeaebddb77e7b6ee6938dbfd0f))
+
+### Features
+
+- **status**: GET /api/now-playing, the mixer's live track state
+  ([`0a1cbc6`](https://github.com/synssins/sonorium/commit/0a1cbc6bae6d5a8e01b96274e81beef72c10e12c))
+
+- **status**: Now playing on the Status page
+  ([`03fc89e`](https://github.com/synssins/sonorium/commit/03fc89e34c1b7651a449134afaa21a033b6dd96f))
+
+
+## v1.6.2-dev.24 (2026-10-11)
+
+### Bug Fixes
+
+- **auth**: Skip container and VPN bridges (incus, LXD, LXC, Tailscale, ZeroTier, WireGuard) in the
+  QR and mDNS addresses
+  ([`ac2819b`](https://github.com/synssins/sonorium/commit/ac2819b22a5043f60f865683616dad8364e8b132))
+
+
+## v1.6.2-dev.23 (2026-10-11)
+
+
+## v1.6.2-dev.21 (2026-10-11)
+
+
+## v1.6.2-dev.20 (2026-10-11)
+
+### Continuous Integration
+
+- Smoke test checks the public /api/info
+  ([`d1fe367`](https://github.com/synssins/sonorium/commit/d1fe3675b5e0675c3ad99f2e88f9854da495d640))
+
+
+## v1.6.2-dev.19 (2026-10-11)
+
+
+## v1.6.2-dev.18 (2026-10-11)
+
+### Build System
+
+- **auth**: Add-on ingress port 8099, HTTPS port 8808, sign-in options and packages
+  ([`2d64e32`](https://github.com/synssins/sonorium/commit/2d64e329214d0e84a231c83ffb7fed1bf865431f))
+
+### Documentation
+
+- **auth**: Sign-in, linked phones and keys; plugin sign-in hooks and web UI slots
+  ([`e02465b`](https://github.com/synssins/sonorium/commit/e02465b2c49ce37ff7865641fef9d1206fc58baa))
+
+### Features
+
+- **plugins**: Built-in Users and Integration plugins
+  ([`5f67896`](https://github.com/synssins/sonorium/commit/5f678967c6c1326b20b8b8e357c84654149f93b2))
+
+- **ui**: Web UI slots for built-in plugins, Link App, sign-in screens
+  ([`5151f5b`](https://github.com/synssins/sonorium/commit/5151f5b690ddb4e3a7cca9cdd254cb3ea99d9b37))
+
+### Refactoring
+
+- **auth**: Core with authenticator hooks; accounts and keys leave the core
+  ([`ce24ef3`](https://github.com/synssins/sonorium/commit/ce24ef3aca6a2f6f6a4d20730c878d7fbe213d25))
+
+- **auth**: One token service, secrets file and rate limiter in core
+  ([`9e87bca`](https://github.com/synssins/sonorium/commit/9e87bca2db17e645f68a4cf394e412072f25658a))
+
+### Testing
+
+- **auth**: Sign-in, roles, pairing, recovery codes, keys, bypass, ingress, route coverage
+  ([`a6b9520`](https://github.com/synssins/sonorium/commit/a6b9520aa7283a7848c53b945acc31f900351788))
+
+
+## v1.6.2-dev.17 (2026-10-11)
+
+### Features
+
+- **auth**: Accounts, sessions, devices, keys and route permissions (backend, WIP)
+  ([`6fa2437`](https://github.com/synssins/sonorium/commit/6fa24379ed39b3dbfc80ae31ad92f262249a8911))
+
+- **auth**: Wire sign-in into the app (middleware, router, HTTPS and ingress listeners)
+  ([`49a2ee5`](https://github.com/synssins/sonorium/commit/49a2ee5961222fbdc2c3789f9238dbb63883dc9d))
+
+
+## v1.6.2-dev.16 (2026-10-11)
+
+
+## v1.6.2-dev.15 (2026-10-11)
+
+### Documentation
+
+- **plugins**: Plugin development guide
+  ([`a03659e`](https://github.com/synssins/sonorium/commit/a03659ec50578db018af7b1c39a23bc0ede2cf8d))
+
+### Features
+
+- **plugins**: Event bus with a public event catalogue
+  ([`f938635`](https://github.com/synssins/sonorium/commit/f938635f1f829287114784855ab9f0a4db2dd47d))
+
+- **plugins**: Framework endpoints, start-up wiring and example plugin
+  ([`b3d0c5d`](https://github.com/synssins/sonorium/commit/b3d0c5d4abd673d80de0e3d149f74735fadd1284))
+
+- **plugins**: Persistent scheduler service
+  ([`26f55ea`](https://github.com/synssins/sonorium/commit/26f55ea611aaeb3e7ae2a97d5031f26ab354e0af))
+
+- **plugins**: Plugin host with actions API, triggers, notifications, extension points
+  ([`9b12b75`](https://github.com/synssins/sonorium/commit/9b12b75dcc0b406982a078e9c40ec42a5deb3f40))
+
+
+## v1.6.2-dev.14 (2026-10-11)
+
+
+## v1.6.2-dev.13 (2026-10-11)
+
+
+## v1.6.2-dev.12 (2026-10-11)
+
+
+## v1.6.2-dev.10 (2026-10-11)
+
+
+## v1.6.2-dev.9 (2026-10-11)
+
+### Features
+
+- **ambient-mixer**: Random channels' presence follows the global Wait between plays (3.1.2)
+  ([`2244e02`](https://github.com/synssins/sonorium/commit/2244e021ccbe6e3788c900b83cb3a427324e8173))
+
+- **playback**: Global playback values (Settings > Advanced) read live by the mixer
+  ([`6bf1b16`](https://github.com/synssins/sonorium/commit/6bf1b16a61e4acfbb7c76ab00ed4f4547fc9ad6e))
+
+- **ui**: Settings > Advanced shows the playback values, always in the menu
+  ([`b377acd`](https://github.com/synssins/sonorium/commit/b377acdd5e84af61a816b8836be51a741fc9bf10))
+
+### Testing
+
+- **playback**: Playback values' defaults, persistence, API checks and the mixer following a change
+  ([`b2ad55d`](https://github.com/synssins/sonorium/commit/b2ad55de102b28979fc7b565a6a5c881126dacba))
+
+
+## v1.6.2-dev.8 (2026-10-11)
+
+### Bug Fixes
+
+- **ambient-mixer**: A mix named from its address reads "Spring Rain - Sanctuary" (3.1.1)
+  ([`7f93a08`](https://github.com/synssins/sonorium/commit/7f93a0898131b7422ce6d18e792fdf28670cd722))
+
+### Features
+
+- **plugins**: Each plugin's settings under its form, saved as they're changed
+  ([`47ecf8e`](https://github.com/synssins/sonorium/commit/47ecf8ec23c7b5b4536fc581ab35e83752ac74f8))
+
+
+## v1.6.2-dev.7 (2026-10-11)
+
+### Bug Fixes
+
+- **ambient-mixer**: An edit saved during the download is no longer lost
+  ([`87565d0`](https://github.com/synssins/sonorium/commit/87565d015bfa8038e773891f8fa1cb09c13a82e4))
+
+- **api**: A replaced theme rescan no longer fails the plugin action
+  ([`22f6551`](https://github.com/synssins/sonorium/commit/22f65512d429b1eb3c3ea9e651b16b97156be7ed))
+
+- **api**: Plugin ids can't reach outside the plugins folder
+  ([`0a83f71`](https://github.com/synssins/sonorium/commit/0a83f71d5219ddaafbec34d733ba5187c016407c))
+
+- **plugins**: Built-in plugins can be uninstalled like any other
+  ([`bd6a645`](https://github.com/synssins/sonorium/commit/bd6a645d8aa4de553a75647ff5d8530fb3a42fc7))
+
+- **plugins**: Replace an installed built-in only when both versions are semver
+  ([`af76e31`](https://github.com/synssins/sonorium/commit/af76e31efe45df4043c2c2eebc96260569cd33c2))
+
+- **themes**: Hidden folders are never themes; leftovers of a crash are removed
+  ([`debf12a`](https://github.com/synssins/sonorium/commit/debf12ac50e248aac11f7d931ad4b6f170a9d2be))
+
+
+## v1.6.2-dev.5 (2026-10-11)
+
+### Bug Fixes
+
+- **ambient-mixer**: Real playback modes, gapless loop and theme picked by id (3.1.0)
+  ([`407d9f4`](https://github.com/synssins/sonorium/commit/407d9f4f70e1a02cb88a6e0bc01bab47c14a8a40))
+
+- **plugins**: Find_theme compares ids and names only, so symlinked theme folders work
+  ([`4722c13`](https://github.com/synssins/sonorium/commit/4722c1354c18f913dcfa6b385aa34eb2db024863))
+
+- **plugins**: Mark the bundled plugins as built-in
+  ([`38baa61`](https://github.com/synssins/sonorium/commit/38baa614c235e075dd3ae9bf20f5a77bbb027245))
+
+### Chores
+
+- **ambient-mixer**: Add the package marker the downloadable zip has
+  ([`98f58e6`](https://github.com/synssins/sonorium/commit/98f58e67cf94c2cd35743c8bb3e6971dffe7f3f5))
+
+- **plugins**: Rebuild downloadable zips for Ambient Mixer 3.1.0 and Theme Merge 2.0.0
+  ([`9a1266e`](https://github.com/synssins/sonorium/commit/9a1266ebfabc6e08698c463a7f783ffcd64c5879))
+
+### Features
+
+- **api**: Rescan themes after a plugin action and call the theme hooks
+  ([`b4b03e6`](https://github.com/synssins/sonorium/commit/b4b03e6d6a760a193aa71bc7146a1df27a2fd057))
+
+- **plugins**: Documented settings schema with validation and defaults
+  ([`24e2497`](https://github.com/synssins/sonorium/commit/24e2497e3a27d0fa293d6e09166c0dd4f830bcc4))
+
+- **plugins**: Theme helper can add files that aren't tracks
+  ([`ee6ca24`](https://github.com/synssins/sonorium/commit/ee6ca2409a44f7fcd0ce2baee8dfbf9265d105da))
+
+- **plugins**: Theme helper so plugins never write theme JSON themselves
+  ([`90daa49`](https://github.com/synssins/sonorium/commit/90daa4951bb45af4361cbdd98abbd6104555f311))
+
+- **plugins**: Update bundled plugins when the bundled version is newer
+  ([`a0da8e0`](https://github.com/synssins/sonorium/commit/a0da8e0e390cdb3800697c96cdd98276f4b72b04))
+
+- **theme-merge**: Rewrite for Themes 2.0 (2.0.0)
+  ([`85d7cf1`](https://github.com/synssins/sonorium/commit/85d7cf1c94b27fc1f0f2453ac53ee42ce460ce07))
+
+### Testing
+
+- **ambient-mixer**: Mode mapping, seamless_loop and imports without network
+  ([`7de4850`](https://github.com/synssins/sonorium/commit/7de485033f5167e2c7ae462504fb68e56b9834a0))
+
+- **plugins**: Catalog zips match the bundled plugins
+  ([`be1c23e`](https://github.com/synssins/sonorium/commit/be1c23e67d41fb93a635f617f6c956b931a79563))
+
+- **plugins**: Settings schema, bundled updates, rescan after actions
+  ([`4b2926a`](https://github.com/synssins/sonorium/commit/4b2926a0d7edaccaf8099f2abe3fc1ed9427489d))
+
+- **plugins**: Theme helper writes clean 2.0 themes and rolls back
+  ([`ed785e3`](https://github.com/synssins/sonorium/commit/ed785e3c863686cc2dc74dec850188230468d3e1))
+
+- **theme-merge**: New theme, into either source, groups, links, presets
+  ([`594d77f`](https://github.com/synssins/sonorium/commit/594d77f33b3ec75ed5574dbc30085f37b76ba516))
+
+
+## v1.6.2-dev.4 (2026-10-11)
+
+
+## v1.6.2-dev.3 (2026-10-11)
+
+### Features
+
+- **ui**: A sequence step's dot also lights for While playing changes
+  ([`9986a37`](https://github.com/synssins/sonorium/commit/9986a3743124be2919b866c1863b4896de5133a3))
+
+
+## v1.6.2-dev.2 (2026-10-11)
+
+### Bug Fixes
+
+- **ui**: Short file threshold removed from the Theme Editor's menu (it only fed Auto, which is
+  retired)
+  ([`383244d`](https://github.com/synssins/sonorium/commit/383244d4872571affc57f0174110d72b256da40e))
+
+### Documentation
+
+- Remove the writing style file
+  ([`39f8b28`](https://github.com/synssins/sonorium/commit/39f8b28a7eae07c104042fc7f8b6a6c887bd7685))
+
+- Writing style for the README, wiki, site and help
+  ([`bacef35`](https://github.com/synssins/sonorium/commit/bacef35b62ba34d2ab41094a482d5a6fe4aca0dc))
+
+
+## v1.6.2-dev.1 (2026-10-11)
+
+### Documentation
+
+- **changelog**: 1.6.1 notice and highlights [skip ci]
+  ([`c99e0c6`](https://github.com/synssins/sonorium/commit/c99e0c69054ef378377bb29d32b5a35c57bb82a2))
+
+- **ui**: The Live help line says what is heard at once (Preview mix, channels with no preset) and
+  what waits for Save Preset
+  ([`f8b1ecd`](https://github.com/synssins/sonorium/commit/f8b1ecd5c6df9663599e0db64f28a9b72178d48b))
+
+
 ## v1.6.1 (2026-10-11)
 
 > ## ⭐ 1.6.1: Refinements

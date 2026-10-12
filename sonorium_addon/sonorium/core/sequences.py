@@ -432,6 +432,9 @@ def to_response(sequence_id: str, sequence: dict, defaults: dict) -> dict:
         "ramp": sequence.get("ramp"),
         "owner": sequence.get("owner"),
         "transitions": dict(sequence.get("transitions") or {}),
+        # The steps whose While playing layer changes something (the editor marks them)
+        "while_steps": sorted(preset for preset, layer in (sequence.get("while") or {}).items()
+                              if isinstance(layer, dict) and (layer.get("tracks") or layer.get("groups"))),
         "effective": effective,
         "pass_min": pass_min,
         "pass_max": pass_max,

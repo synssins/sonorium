@@ -73,6 +73,29 @@ def write_json_atomic(path: Path, data: dict) -> None:
         except OSError:
             pass
         raise
+    if path.name in (METADATA_FILE, PRESETS_FILE):
+        _theme_changed(path.parent)
+
+
+def _theme_changed(folder: Path) -> None:
+    """A theme.changed event for a theme folder, once a second's saves are done (staging folders: none)."""
+    if folder.name.startswith("."):
+        return
+    try:
+        from sonorium.plugins import events
+    except Exception:
+        return
+
+    def data():
+        theme_id = None
+        try:
+            theme_id = (read_json(folder / METADATA_FILE) or {}).get("id")
+        except Exception:
+            pass
+        if not folder.exists():
+            return None  # deleted meanwhile: theme.deleted says so
+        return {"theme_id": theme_id, "folder": folder.name}
+    events.publish_later(f"theme.changed:{folder}", 1.0, "theme.changed", data)
 
 
 def keep_broken(path: Path) -> Optional[Path]:

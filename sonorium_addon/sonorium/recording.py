@@ -1,3 +1,4 @@
+import itertools
 from collections import deque
 from enum import Enum
 import random
@@ -8,7 +9,33 @@ import numpy as np
 from sonorium.obs import logger
 import av
 
-LOG_THRESHOLD = 500
+
+def _load_playback_values():
+    """Settings > Advanced's playback values (sonorium/playback_values.py), also when this file is loaded on its own."""
+    try:
+        from sonorium import playback_values as module
+        return module
+    except ImportError:
+        import importlib.util
+        import sys
+        from pathlib import Path
+        module = sys.modules.get("sonorium.playback_values")
+        if module is None:
+            spec = importlib.util.spec_from_file_location(
+                "sonorium.playback_values", Path(__file__).with_name("playback_values.py"))
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            sys.modules["sonorium.playback_values"] = module
+        return module
+
+
+# The global playback values (Settings > Advanced); the constants below are their defaults
+playback_values = _load_playback_values()
+
+# Samples in each block a player hands the mixer: about 23 ms at SAMPLE_RATE
+BLOCK_SAMPLES = 1024
+# Players write a debug line every this many blocks (about 12 s)
+DEBUG_EVERY_BLOCKS = 500
 EBB_DEFAULT_LOW = 0.2  # Ebb & Flow's lower Volume knob, until a track sets one
 DEFAULT_PAUSE = (30.0, 300.0)  # Ebb & Flow's Pause between plays, seconds, until a track sets its own
 
@@ -31,10 +58,11 @@ class ExclusionGroupCoordinator:
     their share; for COLLECT_SECONDS after the gap the group gathers who is
     asking, then picks one of them.
 
-    One coordinator per group per ThemeStream.
+    One coordinator per group per ThemeMix.
     """
 
-    # Gap after a track finishes when the group doesn't set one (seconds)
+    # Gap after a track finishes when the group doesn't set one (seconds): the
+    # default of Settings > Advanced's "Gap after a group's track" (group_gap())
     MIN_GAP_AFTER_EXCLUSIVE = 120.0
     # Nothing in a group plays this long after the stream starts
     INITIAL_DELAY = 60.0
@@ -54,13 +82,18 @@ class ExclusionGroupCoordinator:
         gap = self._range()
         if gap:
             return random.uniform(*gap)
-        return self.MIN_GAP_AFTER_EXCLUSIVE
+        return self.group_gap()
+
+    @staticmethod
+    def group_gap() -> float:
+        """The gap when the group sets none: Settings > Advanced (seconds)."""
+        return playback_values.get("group_gap")
 
     def __init__(self, gap_range=None, clock=None):
         # The group's gap between plays (seconds, random in the range each time);
-        # MIN_GAP_AFTER_EXCLUSIVE when the group doesn't set one
+        # group_gap() (Settings > Advanced) when the group doesn't set one
         self._gap_range = gap_range
-        # Seconds of audio the theme has played (ThemeStream.audio_seconds), so a
+        # Seconds of audio the theme has played (ThemeMix.audio_seconds), so a
         # stalled stream delays every track alike and turns can't overlap;
         # the wall clock when no audio clock is given
         self._clock = clock or time.time
@@ -178,12 +211,28 @@ class ExclusionGroupCoordinator:
             if self._playing_track is not None:
                 remaining = self._play_end_time - now
                 if remaining > 0:
-                    return remaining + ((self._range() or (self.MIN_GAP_AFTER_EXCLUSIVE,))[0])
+                    return remaining + ((self._range() or (self.group_gap(),))[0])
             if now < self._cooldown_until:
                 return self._cooldown_until - now
             if self._picked is None and self._collect_from is not None:
                 return max(0.0, self._collect_from + self.COLLECT_SECONDS - now)
             return 0
+
+    def turn_now(self) -> tuple[str | None, float | None]:
+        """
+        The group's turn now, for Now playing (the Status page): the track
+        holding it (None between turns) and the seconds until the next turn
+        opens (the first wait, or the gap it picked; 0 once the gap is over and
+        the next track is being picked; None while a track plays).
+        """
+        with self._lock:
+            now = self._clock()
+            if self._playing_track is not None:
+                return self._playing_track, None  # (past its end: until it hands the turn back)
+            start = self._start_time + self.INITIAL_DELAY
+            if now < start:
+                return None, start - now
+            return None, max(0.0, self._cooldown_until - now)
 
     def get_track_count(self) -> int:
         """Get number of registered tracks."""
@@ -234,6 +283,8 @@ class PlaybackMode(str, Enum):
     AUTO = "auto"
     UNASSIGNED = "unassigned"  # uploaded or linked, not placed in a section yet: not played
 
+# The defaults of Settings > Advanced's playback values (playback_values.DEFAULTS);
+# the mixer reads the values themselves through playback_values.get()
 # Threshold for "short" audio files that get sparse playback
 SHORT_FILE_THRESHOLD_SECONDS = 15.0
 # Sparse playback interval range (seconds between plays)
@@ -254,34 +305,91 @@ CROSSFADE_SAMPLES = int(LOOP_CROSSFADE_DURATION * SAMPLE_RATE)
 TRACK_FADE_SAMPLES = int(TRACK_FADE_DURATION * SAMPLE_RATE)
 
 
-def decode_mono(path):
-    """
-    A file's audio as float32 mono blocks at SAMPLE_RATE, whatever its rate,
-    channels or format. The resampler is flushed at the end of the file.
-    """
-    resampler = av.AudioResampler(format='s16', layout='mono', rate=SAMPLE_RATE)
-    container = av.open(path)
-    if len(container.streams.audio) == 0:
-        container.close()
-        raise ValueError('No audio stream')
-    stream = next(iter(container.streams.audio))
+def loop_crossfade_samples() -> int:
+    """A loop's crossfade into itself now (Settings > Advanced), in samples (at least one)."""
+    return max(1, int(playback_values.get("loop_crossfade") * SAMPLE_RATE))
 
-    def convert(frame_resamp):
-        data = frame_resamp.to_ndarray()
-        return data.mean(axis=0).astype(np.float32)  # downmix to mono
 
-    def decode():
+def track_fade_samples() -> int:
+    """A track fading in or out of the mix now (Settings > Advanced), in samples (at least one)."""
+    return max(1, int(playback_values.get("track_fade") * SAMPLE_RATE))
+
+
+class AudioReader:
+    """
+    One read of an audio file through PyAV (no ffmpeg program needed): the
+    file's first audio stream, converted to what the mixer works in, 16-bit
+    mono at SAMPLE_RATE, whatever the file was recorded as (any rate, any
+    number of channels, MP3, WAV, FLAC, Ogg...).
+
+    Every place that reads audio goes through here: the players (decode_mono),
+    an Intermittent play (whole file at once) and the length check.
+    """
+
+    def __init__(self, source):
+        self.path = source
+        self._file = av.open(source)
+        audio = self._file.streams.audio
+        self._audio = audio[0] if len(audio) else None
+        self._to_mixer_format = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
+        self._closed = False
+
+    @property
+    def has_audio(self) -> bool:
+        return self._audio is not None
+
+    def header_length(self) -> int | None:
+        """The length the file's header gives, in samples at SAMPLE_RATE; None if it gives none."""
+        audio = self._audio
+        if audio is None or not (audio.duration and audio.time_base):
+            return None
+        return int(float(audio.duration * audio.time_base) * SAMPLE_RATE)
+
+    def blocks(self, flush: bool = True):
+        """
+        The audio as float32 arrays, one per decoded frame. `flush` also takes
+        the few samples the rate converter still holds at the end of the file.
+        The file is closed after the last block, or when the reading is
+        abandoned.
+        """
+        end_of_file = [None] if flush else []  # None asks the converter for what it holds
         try:
-            for frame_orig in container.decode(stream):
-                for frame_resamp in resampler.resample(frame_orig):
-                    yield convert(frame_resamp)
-            # Flush samples still held by the resampler at end of file
-            for frame_resamp in resampler.resample(None):
-                yield convert(frame_resamp)
+            for frame in itertools.chain(self._file.decode(self._audio), end_of_file):
+                for converted in self._to_mixer_format.resample(frame):
+                    yield converted.to_ndarray().reshape(-1).astype(np.float32)
         finally:
-            container.close()
+            self.close()
 
-    return decode()
+    def close(self) -> None:
+        if not self._closed:
+            self._closed = True
+            self._file.close()
+
+
+def decode_mono(path):
+    """A file's audio, start to end, as float32 mono blocks at SAMPLE_RATE (see AudioReader)."""
+    reader = AudioReader(path)
+    if not reader.has_audio:
+        reader.close()
+        raise ValueError(f'{path}: there is no audio in this file')
+    return reader.blocks()
+
+
+def file_length_samples(path) -> int:
+    """
+    A file's length in samples at SAMPLE_RATE: from its header when it has
+    one, else by decoding it (without the converter's tail, as always).
+    """
+    reader = AudioReader(path)
+    try:
+        if not reader.has_audio:
+            raise ValueError("the file holds no audio")
+        declared = reader.header_length()
+        if declared is not None:
+            return declared
+        return sum(len(block) for block in reader.blocks(flush=False))
+    finally:
+        reader.close()
 
 
 # A track's volume moves to a new value (a slider, a preset) at most this
@@ -402,14 +510,16 @@ def decode_faded(path, fade_in: int = 0, fade_out: int = 0):
     return faded()
 
 
-class RecordingMetadata:
+class AudioFile:
     """
-    Represents file, metadata, etc. The non-state stuff, on disk. One per file. Immutable
+    An audio file as found on disk while scanning a theme: where it is, its
+    track key and group, and (worked out once, when first needed) its
+    length. What a theme does with the file lives in ThemeTrack.
     """
 
     def __init__(self, path, theme_folder=None, key=None, group=None, link=None):
         self.path = path
-        self._duration_samples = None
+        self._samples = None  # length at SAMPLE_RATE, once measured
         # A linked file (an intrusion group's file that lives in another theme's
         # folder): {"theme": source theme id, "track": source track key}
         self.link = link
@@ -427,70 +537,51 @@ class RecordingMetadata:
             self._key = path.stem
             self.group = None
 
-    def get_instance(self, theme=None):
-        return RecordingThemeInstance(self, theme=theme)
-
     @property
     def name(self):
+        """The track key."""
         return self._key
-    
+
     @property
     def duration_samples(self):
-        """Get total duration in samples (cached)"""
-        if self._duration_samples is None:
+        """Length in samples at SAMPLE_RATE. A file that can't be read counts as one minute."""
+        if self._samples is None:
             try:
-                container = av.open(self.path)
-                stream = next(iter(container.streams.audio))
-                # duration is in time_base units
-                if stream.duration and stream.time_base:
-                    duration_sec = float(stream.duration * stream.time_base)
-                    self._duration_samples = int(duration_sec * SAMPLE_RATE)
-                else:
-                    # Fallback: decode to count (slower but accurate)
-                    self._duration_samples = self._count_samples()
-                container.close()
+                self._samples = file_length_samples(self.path)
             except Exception as e:
                 logger.warning(f'Could not get duration for {self.path}: {e}')
-                self._duration_samples = SAMPLE_RATE * 60  # Assume 1 minute as fallback
-        return self._duration_samples
+                self._samples = SAMPLE_RATE * 60
+        return self._samples
 
     @property
     def duration_seconds(self):
-        """Get total duration in seconds"""
+        """Length in seconds."""
         return self.duration_samples / SAMPLE_RATE
 
-    def is_short_file(self, threshold: float = SHORT_FILE_THRESHOLD_SECONDS) -> bool:
-        """Check if this is a short audio file that should use sparse playback"""
+    def is_short_file(self, threshold: float | None = None) -> bool:
+        """Shorter than `threshold` seconds (default: Settings > Advanced's Short file threshold): played Intermittent on Auto."""
+        if threshold is None:
+            threshold = playback_values.get("short_file_threshold")
         return self.duration_seconds < threshold
-    
-    def _count_samples(self):
-        """Fallback: decode entire file to count samples"""
-        container = av.open(self.path)
-        stream = next(iter(container.streams.audio))
-        resampler = av.AudioResampler(format='s16', layout='mono', rate=SAMPLE_RATE)
-        total = 0
-        for frame in container.decode(stream):
-            for resampled in resampler.resample(frame):
-                total += resampled.samples
-        container.close()
-        return total
 
 
-class RecordingThemeInstance:
+class ThemeTrack:
     """
-    Wraps the metadata, but with some extra state, to represent how that recording is set up within a given theme.
-    Every theme gets one of these for each recording.
+    A file as one theme plays it: its settings in that theme (volume,
+    interval, mode, mute, fades, Ebb & Flow), as the theme's metadata.json
+    and the Theme Editor set them. Each listener's mix makes its own player
+    from it (open_stream), so the settings change for every mix at once.
     """
 
-    def __init__(self, meta: RecordingMetadata, theme=None):
+    def __init__(self, meta: AudioFile, theme=None):
         self.meta = meta
-        self.theme = theme  # Reference to parent ThemeDefinition for threshold access
-        self.volume = 1.0  # Amplitude multiplier (keep at 1.0 for now)
-        self.presence = 1.0  # How often this track plays: 1.0 = always, 0.5 = half the time, 0 = never
-        self.is_enabled = True  # Master enable/disable (mute)
-        self.crossfade_enabled = True  # Enable crossfade looping by default
-        self.playback_mode = PlaybackMode.AUTO  # How playback/looping is handled
-        self.exclusive = False  # If True, only one exclusive track can play at a time
+        self.theme = theme  # the Theme it belongs to (its Short file threshold)
+        self.volume = 1.0  # level, 0..1
+        self.presence = 1.0  # Interval: how often it plays (1 = always, 0 = never)
+        self.is_enabled = True  # False: muted
+        self.crossfade_enabled = True  # a loop crossfades into itself (off: Gapless)
+        self.playback_mode = PlaybackMode.AUTO
+        self.exclusive = False  # the old Exclusive switch: takes turns with the other exclusive tracks
         self.fade_in = 0.0  # The file's own fades, seconds (0 = off), see file_fade_samples
         self.fade_out = 0.0
         # Ebb & Flow: the lower knob of the Volume slider, and Pause between plays with its range (seconds)
@@ -501,48 +592,41 @@ class RecordingThemeInstance:
 
     @property
     def short_file_threshold(self) -> float:
-        """Get the short file threshold from theme, or use default"""
+        """The theme's Short file threshold (seconds), or Settings > Advanced's without a theme."""
         if self.theme is not None:
             return self.theme.short_file_threshold
-        return SHORT_FILE_THRESHOLD_SECONDS
+        return playback_values.get("short_file_threshold")
 
     def _resolve_playback_mode(self) -> PlaybackMode:
-        """Resolve AUTO mode to an actual playback mode based on file characteristics."""
+        """
+        The mode it plays in. Auto picks by the file: a short file plays
+        Intermittent below 100% Interval, a long one Ebb & Flow below 100%;
+        at 100% both play continuously.
+        """
         if self.playback_mode != PlaybackMode.AUTO:
             return self.playback_mode
-
-        # AUTO logic: short files use sparse, long files use presence (if < 1.0) or continuous
+        below_full = self.presence < 1.0
         if self.meta.is_short_file(self.short_file_threshold):
-            return PlaybackMode.SPARSE if self.presence < 1.0 else PlaybackMode.CONTINUOUS
-        else:
-            return PlaybackMode.PRESENCE if self.presence < 1.0 else PlaybackMode.CONTINUOUS
+            return PlaybackMode.SPARSE if below_full else PlaybackMode.CONTINUOUS
+        return PlaybackMode.PRESENCE if below_full else PlaybackMode.CONTINUOUS
 
-    def get_stream(self, exclusion_coordinator: ExclusionGroupCoordinator = None):
+    def open_stream(self, exclusion_coordinator: ExclusionGroupCoordinator = None):
+        """A new player for one mix, chosen by the mode; `exclusion_coordinator`: its group's turns."""
         mode = self._resolve_playback_mode()
-
-        # UNASSIGNED: not placed yet, so not played (and not decoded)
         if mode == PlaybackMode.UNASSIGNED:
-            return SilentTrackStream(self)
-
-        # SPARSE: Play once at full volume, then silence for interval
+            return SilentTrackStream(self)  # not placed yet: nothing decoded
         if mode == PlaybackMode.SPARSE:
             return SparsePlaybackStream(self, exclusion_coordinator)
-
-        # CONTINUOUS or PRESENCE: Start with base looping stream
-        if self.crossfade_enabled:
-            base_stream = CrossfadeRecordingStream(self)
-        else:
-            base_stream = RecordingThemeStream(self)
-
-        # PRESENCE: Wrap with fade in/out based on presence value. In a group the
-        # wrapper is always used, so the track waits its turn even at 100%.
-        if mode == PlaybackMode.PRESENCE:
-            return PresenceMixingStream(base_stream, self, exclusion_coordinator if self.exclusive else None)
-
-        return base_stream
+        loop = CrossfadeRecordingStream(self) if self.crossfade_enabled else HardLoopStream(self)
+        if mode != PlaybackMode.PRESENCE:
+            return loop
+        # Ebb & Flow rides on the loop. In a group (the old Exclusive switch)
+        # it always takes turns, even at 100%.
+        return PresenceMixingStream(loop, self, exclusion_coordinator if self.exclusive else None)
 
     @property
     def name(self):
+        """The track key, as its file has it."""
         return self.meta.name
 
 
@@ -610,8 +694,13 @@ def group_mode(group_settings: dict | None) -> str:
     return mode if mode in GROUP_MODES else GROUP_MODE_INTERMITTENT
 
 
+def group_crossfade_range() -> tuple[float, float]:
+    """The shortest and longest crossfade a merry-go-round group can have (Settings > Advanced)."""
+    return playback_values.get("group_crossfade_min"), playback_values.get("group_crossfade_max")
+
+
 def group_crossfade(group_settings: dict | None) -> float:
-    """A merry-go-round group's crossfade in seconds (default 10, kept within 1-60)."""
+    """A merry-go-round group's crossfade in seconds (default 10, kept within the range, by default 1-60)."""
     value = (group_settings or {}).get("crossfade")
     try:
         value = DEFAULT_GROUP_CROSSFADE if value is None else float(value)
@@ -619,9 +708,10 @@ def group_crossfade(group_settings: dict | None) -> float:
         value = DEFAULT_GROUP_CROSSFADE
     if value != value:  # NaN
         value = DEFAULT_GROUP_CROSSFADE
-    return max(MIN_GROUP_CROSSFADE, min(MAX_GROUP_CROSSFADE, value))
+    low, high = group_crossfade_range()
+    return max(low, min(high, value))
 
-# Track settings a preset can set, as RecordingThemeInstance attribute names
+# Track settings a preset can set, as ThemeTrack attribute names
 PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive",
                        "volume_low", "pause_between", "pause_min", "pause_max")
 # Ebb & Flow settings, saved in metadata.json and presets under the same names
@@ -704,13 +794,13 @@ class TrackView:
     `overrides` is the channel's dict ({track name: {field: value}}), shared by
     reference, so changing it in place changes what the channel plays.
 
-    `pins` (shared with the mix, see theme.ThemeStream) holds values an
+    `pins` (shared with the mix, see theme.ThemeMix) holds values an
     advanced transition sets for a while ({track name: {field: value}}):
     they win over everything else, group masters included. `context` is the
     mix's {"label": ...}, for log lines.
     """
 
-    def __init__(self, instance: RecordingThemeInstance, overrides: dict, pins: dict | None = None,
+    def __init__(self, instance: ThemeTrack, overrides: dict, pins: dict | None = None,
                  context: dict | None = None):
         self._instance = instance
         self._overrides = overrides
@@ -822,87 +912,115 @@ class TrackView:
         return LEGACY_EXCLUSIVE_GROUP if self.exclusive else None
 
     # Same decisions as the theme's own track, made with the channel's values
-    _resolve_playback_mode = RecordingThemeInstance._resolve_playback_mode
-    get_stream = RecordingThemeInstance.get_stream
+    _resolve_playback_mode = ThemeTrack._resolve_playback_mode
+    open_stream = ThemeTrack.open_stream
 
 
-class SilentTrackStream:
+def fixed_blocks(pieces, size: int = BLOCK_SAMPLES):
+    """
+    Re-cut a run of 1-D sample arrays (a decoder's frames, any lengths) into
+    float32 arrays of exactly `size` samples. What is left at the end, short
+    of a whole block, is dropped.
+    """
+    held = np.empty(0, dtype=np.float32)
+    for piece in pieces:
+        held = np.concatenate([held, np.asarray(piece, dtype=np.float32).reshape(-1)])
+        while len(held) >= size:
+            yield held[:size]
+            held = held[size:]
+
+
+class BlockSource:
+    """
+    Anything the mixer pulls audio from (a track's player, a group's bed):
+    each next() gives one int16 block, shape (1, BLOCK_SAMPLES), for ever.
+
+    A player writes _blocks() as a generator. It starts at the first pull,
+    so settings are read as playback begins, not when the player is made.
+    close() ends it, letting go of any file it has open.
+    """
+    _source = None
+
+    def _blocks(self):
+        raise NotImplementedError
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._source is None:
+            self._source = self._blocks()
+        return next(self._source)
+
+    def close(self) -> None:
+        if self._source is None:
+            self._source = iter(())  # never started: it stays empty
+        else:
+            self._source.close()
+
+
+def close_stream(stream) -> None:
+    """Stop a player that is no longer used (anything without close() is left alone)."""
+    close = getattr(stream, "close", None)
+    if close is not None:
+        close()
+
+
+class SilentTrackStream(BlockSource):
     """A track that doesn't play (Unassigned): silence, nothing decoded."""
-    CHUNK_SIZE = 1_024
 
     def __init__(self, instance):
         self.instance = instance
-        self._silence = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
 
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        return self._silence
-
-
-class RecordingThemeStream:
-    """
-    Basic recording stream without crossfade - loops with hard cut.
-    """
-    CHUNK_SIZE = 1_024
-
-    def __init__(self, instance: RecordingThemeInstance):
-        self.instance = instance
-        self.resampler = av.AudioResampler(format='s16', layout='mono', rate=SAMPLE_RATE)
-        self._volume = None  # the volume reached, easing toward the track's (see apply_volume)
-        self.gen = self._gen()
-
-    def _gen(self):
+    def _blocks(self):
+        silence = np.zeros((1, BLOCK_SAMPLES), dtype=np.int16)
         while True:
-            buffer = np.empty(0, dtype=np.float32)
-            i = 0
-            # Each pass through the file has the file's own fades (if set)
-            for block in decode_faded(self.instance.meta.path, *file_fade_samples(self.instance)):
-                buffer = np.concatenate([buffer, np.asarray(block, dtype=np.float32).reshape(-1)])
-
-                while len(buffer) >= self.CHUNK_SIZE:
-                    data = buffer[:self.CHUNK_SIZE].reshape(1, -1)
-                    buffer = buffer[self.CHUNK_SIZE:]
-
-                    # The volume is read as each chunk goes out (no lag behind a glide or a transition), and eases
-                    data, self._volume = apply_volume(data, eases_from(self.instance, self._volume), self.instance.volume)
-                    yield np.clip(data, -32768, 32767).astype(np.int16)
-
-                    if i % LOG_THRESHOLD == 0:
-                        vol_mean = round(abs(data).mean())
-                        logger.debug(f'{self.__class__.__name__} Yielding chunk #{i} {data.shape=}, {buffer.shape=}, {vol_mean=}')
-                    i += 1
-
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        return next(self.gen)
+            yield silence
 
 
-class CrossfadeRecordingStream:
+class HardLoopStream(BlockSource):
+    """
+    A loop without a crossfade (Gapless): the file plays to its end and
+    starts again straight away. The file's own fades, if set, apply on every
+    pass; samples short of a whole block at the end of a pass are skipped.
+    """
+
+    def __init__(self, instance: ThemeTrack):
+        self.instance = instance
+        self._volume = None  # the volume reached, easing toward the track's (see apply_volume)
+
+    def _blocks(self):
+        while True:
+            passes = decode_faded(self.instance.meta.path, *file_fade_samples(self.instance))
+            for count, block in enumerate(fixed_blocks(passes)):
+                # Volume is read for each block as it goes out, so it follows a glide or transition at once
+                block, self._volume = apply_volume(block.reshape(1, -1), eases_from(self.instance, self._volume),
+                                                   self.instance.volume)
+                if count % DEBUG_EVERY_BLOCKS == 0:
+                    logger.debug(f'Gapless loop "{self.instance.name}": block {count} of this pass, volume {self._volume:.2f}')
+                yield np.clip(block, -32768, 32767).astype(np.int16)
+
+
+class CrossfadeRecordingStream(BlockSource):
     """
     Recording stream with crossfade looping - seamlessly blends end of track into beginning.
     
     When approaching the end of the current playback, starts a second decoder
     and crossfades between them using equal-power curves.
     """
-    CHUNK_SIZE = 1_024
 
-    def __init__(self, instance: RecordingThemeInstance):
+    def __init__(self, instance: ThemeTrack):
         self.instance = instance
         # Where the current pass through the file is (samples), and the file's length
         self.position = 0
         self.length = 0
         self._volume = None  # the volume reached, easing toward the track's (see apply_volume)
-        self.gen = self._gen()
 
     def _create_decoder(self):
         """Create a new decoder generator for the audio file (the volume is applied as chunks go out)"""
         return decode_faded(self.instance.meta.path, *self._fades)
 
-    def _gen(self):
+    def _blocks(self):
         """Main generator with crossfade logic"""
         
         # Get track duration for crossfade timing
@@ -911,10 +1029,26 @@ class CrossfadeRecordingStream:
         # The file's own fades: the loop's overlap is as long as the longer
         # one, and a side with its own fade isn't faded again (its fade does
         # it). Without fades, the usual equal-power crossfade.
+        # Without them, the Loop crossfade (Settings > Advanced), read again at each loop.
         self._fades = fade_in_n, fade_out_n = file_fade_samples(self.instance)
-        CROSSFADE_SAMPLES = max(fade_in_n, fade_out_n) or globals()["CROSSFADE_SAMPLES"]
-        if track_duration:
-            CROSSFADE_SAMPLES = max(self.CHUNK_SIZE, min(CROSSFADE_SAMPLES, track_duration // 2))
+
+        def overlap_now(track_duration):
+            overlap = max(fade_in_n, fade_out_n) or loop_crossfade_samples()
+            if track_duration:
+                overlap = max(BLOCK_SAMPLES, min(overlap, track_duration // 2))
+            return overlap
+
+        def curves(overlap):
+            """The crossfade curves (equal power; a side with the file's own fade stays at full)."""
+            fade_out = np.cos(np.linspace(0, np.pi/2, overlap)).astype(np.float32)
+            fade_in = np.sin(np.linspace(0, np.pi/2, overlap)).astype(np.float32)
+            if fade_out_n:
+                fade_out = np.ones(overlap, dtype=np.float32)  # the file's end fades by itself
+            if fade_in_n:
+                fade_in = np.ones(overlap, dtype=np.float32)  # the file's start rises by itself
+            return fade_out, fade_in
+
+        CROSSFADE_SAMPLES = overlap_now(track_duration)
         self.overlap = CROSSFADE_SAMPLES
         crossfade_start = max(0, track_duration - CROSSFADE_SAMPLES)
         
@@ -931,12 +1065,7 @@ class CrossfadeRecordingStream:
         crossfade_position = 0
         
         # Pre-generate crossfade curves (equal-power)
-        fade_out = np.cos(np.linspace(0, np.pi/2, CROSSFADE_SAMPLES)).astype(np.float32)
-        fade_in = np.sin(np.linspace(0, np.pi/2, CROSSFADE_SAMPLES)).astype(np.float32)
-        if fade_out_n:
-            fade_out = np.ones(CROSSFADE_SAMPLES, dtype=np.float32)  # the file's end fades by itself
-        if fade_in_n:
-            fade_in = np.ones(CROSSFADE_SAMPLES, dtype=np.float32)  # the file's start rises by itself
+        fade_out, fade_in = curves(CROSSFADE_SAMPLES)
         
         next_buffer = np.empty(0, dtype=np.float32)
         current_done = False
@@ -944,7 +1073,7 @@ class CrossfadeRecordingStream:
 
         while True:
             # Fill buffer from current decoder
-            while not current_done and len(buffer) < self.CHUNK_SIZE * 2:
+            while not current_done and len(buffer) < BLOCK_SAMPLES * 2:
                 try:
                     chunk = next(current_decoder)
                     buffer = np.concatenate([buffer, chunk.flatten()])
@@ -960,8 +1089,8 @@ class CrossfadeRecordingStream:
                         track_duration = actual_duration
                         crossfade_start = max(0, track_duration - CROSSFADE_SAMPLES)
 
-            if len(buffer) < self.CHUNK_SIZE:
-                buffer = np.concatenate([buffer, np.zeros(self.CHUNK_SIZE - len(buffer), dtype=np.float32)])
+            if len(buffer) < BLOCK_SAMPLES:
+                buffer = np.concatenate([buffer, np.zeros(BLOCK_SAMPLES - len(buffer), dtype=np.float32)])
 
             # Check if we should start crossfade
             if not in_crossfade and (samples_played >= crossfade_start or current_done):
@@ -974,27 +1103,27 @@ class CrossfadeRecordingStream:
 
             # If in crossfade, also fill next_buffer
             if in_crossfade:
-                while not next_done and len(next_buffer) < self.CHUNK_SIZE * 2:
+                while not next_done and len(next_buffer) < BLOCK_SAMPLES * 2:
                     try:
                         chunk = next(next_decoder)
                         next_buffer = np.concatenate([next_buffer, chunk.flatten()])
                     except StopIteration:
                         next_done = True
-                if len(next_buffer) < self.CHUNK_SIZE:
-                    next_buffer = np.concatenate([next_buffer, np.zeros(self.CHUNK_SIZE - len(next_buffer), dtype=np.float32)])
+                if len(next_buffer) < BLOCK_SAMPLES:
+                    next_buffer = np.concatenate([next_buffer, np.zeros(BLOCK_SAMPLES - len(next_buffer), dtype=np.float32)])
             
             # Extract chunk
-            output_chunk = buffer[:self.CHUNK_SIZE].copy()
-            buffer = buffer[self.CHUNK_SIZE:]
+            output_chunk = buffer[:BLOCK_SAMPLES].copy()
+            buffer = buffer[BLOCK_SAMPLES:]
             
             # Apply crossfade if active
-            if in_crossfade and len(next_buffer) >= self.CHUNK_SIZE:
-                next_chunk = next_buffer[:self.CHUNK_SIZE].copy()
-                next_buffer = next_buffer[self.CHUNK_SIZE:]
+            if in_crossfade and len(next_buffer) >= BLOCK_SAMPLES:
+                next_chunk = next_buffer[:BLOCK_SAMPLES].copy()
+                next_buffer = next_buffer[BLOCK_SAMPLES:]
                 
                 # Calculate fade positions for this chunk
                 fade_start = crossfade_position
-                fade_end = min(crossfade_position + self.CHUNK_SIZE, CROSSFADE_SAMPLES)
+                fade_end = min(crossfade_position + BLOCK_SAMPLES, CROSSFADE_SAMPLES)
                 chunk_fade_len = fade_end - fade_start
                 
                 if chunk_fade_len > 0 and fade_start < CROSSFADE_SAMPLES:
@@ -1003,14 +1132,14 @@ class CrossfadeRecordingStream:
                     fade_in_chunk = fade_in[fade_start:fade_end]
                     
                     # Pad if needed
-                    if len(fade_out_chunk) < self.CHUNK_SIZE:
-                        fade_out_chunk = np.concatenate([fade_out_chunk, np.zeros(self.CHUNK_SIZE - len(fade_out_chunk), dtype=np.float32)])
-                        fade_in_chunk = np.concatenate([fade_in_chunk, np.ones(self.CHUNK_SIZE - len(fade_in_chunk), dtype=np.float32)])
+                    if len(fade_out_chunk) < BLOCK_SAMPLES:
+                        fade_out_chunk = np.concatenate([fade_out_chunk, np.zeros(BLOCK_SAMPLES - len(fade_out_chunk), dtype=np.float32)])
+                        fade_in_chunk = np.concatenate([fade_in_chunk, np.ones(BLOCK_SAMPLES - len(fade_in_chunk), dtype=np.float32)])
                     
                     # Mix with crossfade
                     output_chunk = output_chunk[:len(fade_out_chunk)] * fade_out_chunk + next_chunk[:len(fade_in_chunk)] * fade_in_chunk
                 
-                crossfade_position += self.CHUNK_SIZE
+                crossfade_position += BLOCK_SAMPLES
                 
                 # Check if crossfade complete
                 if crossfade_position >= CROSSFADE_SAMPLES:
@@ -1023,31 +1152,32 @@ class CrossfadeRecordingStream:
                     samples_played = crossfade_position  # We're this far into the new track
                     in_crossfade = False
                     crossfade_position = 0
+                    # The next loop's crossfade: the Loop crossfade now
+                    overlap = overlap_now(track_duration)
+                    if overlap != CROSSFADE_SAMPLES:
+                        CROSSFADE_SAMPLES = self.overlap = overlap
+                        fade_out, fade_in = curves(overlap)
+                        crossfade_start = max(0, track_duration - CROSSFADE_SAMPLES)
             
             # The track's volume, read as each chunk goes out and eased; int16 for output
             output_chunk, self._volume = apply_volume(output_chunk, eases_from(self.instance, self._volume), self.instance.volume)
             output_chunk = np.clip(output_chunk, -32768, 32767).astype(np.int16)
             output_data = output_chunk.reshape(1, -1)
             
-            samples_played += self.CHUNK_SIZE
+            samples_played += BLOCK_SAMPLES
             self.position, self.length = samples_played, track_duration
             chunk_count += 1
             
-            if chunk_count % LOG_THRESHOLD == 0:
+            if chunk_count % DEBUG_EVERY_BLOCKS == 0:
                 vol_mean = round(abs(output_chunk).mean())
                 status = "XFADE" if in_crossfade else "PLAY"
                 logger.debug(f'CrossfadeStream [{status}]: chunk #{chunk_count}, samples={samples_played}, vol={vol_mean}')
 
             yield output_data
 
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        return next(self.gen)
 
 
-class SparsePlaybackStream:
+class SparsePlaybackStream(BlockSource):
     """
     Stream for short audio files (< 15 seconds) that plays the file once,
     then outputs silence for a randomized interval before playing again.
@@ -1064,9 +1194,8 @@ class SparsePlaybackStream:
     provided, only one exclusive track can play at a time. Other exclusive
     tracks output silence until the playing track finishes.
     """
-    CHUNK_SIZE = 1_024
 
-    def __init__(self, instance: RecordingThemeInstance, exclusion_coordinator: ExclusionGroupCoordinator = None,
+    def __init__(self, instance: ThemeTrack, exclusion_coordinator: ExclusionGroupCoordinator = None,
                  play_now: bool = False):
         self.instance = instance
         self.exclusion_coordinator = exclusion_coordinator
@@ -1074,14 +1203,20 @@ class SparsePlaybackStream:
         self.play_now = play_now
         # True while a play is going out (Finish then stop waits for it)
         self.playing = False
+        # For Now playing (the Status page): samples this stream has produced,
+        # what it does now ("play", "wait": a timed wait, "turn": waiting for
+        # its group's turn, "off": Interval at 0 or muted), and the sample
+        # count (self.clock) when that ends (None: not timed)
+        self.clock = 0
+        self.phase = "wait"
+        self.phase_end = None
 
         # Register exclusive tracks with coordinator
         if self.instance.exclusive and self.exclusion_coordinator is not None:
             self.exclusion_coordinator.register_track(self.instance.name)
 
-        self.gen = self._gen()
 
-    def _gen(self):
+    def _blocks(self):
         import random
 
         presence = self.instance.presence
@@ -1091,17 +1226,18 @@ class SparsePlaybackStream:
         logger.debug(f'SparsePlaybackStream: {self.instance.name} - short file ({file_duration_seconds:.1f}s), using sparse playback' +
                     (', exclusive=True' if self.instance.exclusive else ''))
 
-        # Pre-generate fade curves for the short file
-        # Use shorter fade for very short files
-        fade_duration = min(TRACK_FADE_DURATION, file_duration_seconds / 3)
         grouped = bool(getattr(self.instance, "exclusion_group", None)) and self.exclusion_coordinator is not None
-        if grouped:
-            # A group's tracks just play, start to finish (a thunder crack keeps
-            # its attack, a song its first notes): only a click-free edge
-            fade_duration = min(GROUP_EDGE_FADE_SECONDS, file_duration_seconds / 3)
-        fade_samples = int(fade_duration * SAMPLE_RATE)
-        fade_in_curve = np.sin(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
-        fade_out_curve = np.cos(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32)
+
+        def fade_curves():
+            """Fade in and out curves for a play (the Track fade now; shorter for very short files)."""
+            fade_duration = min(playback_values.get("track_fade"), file_duration_seconds / 3)
+            if grouped:
+                # A group's tracks just play, start to finish (a thunder crack keeps
+                # its attack, a song its first notes): only a click-free edge
+                fade_duration = min(GROUP_EDGE_FADE_SECONDS, file_duration_seconds / 3)
+            fade_samples = int(fade_duration * SAMPLE_RATE)
+            return (np.sin(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32),
+                    np.cos(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32))
 
         def get_silent_interval():
             """
@@ -1111,44 +1247,28 @@ class SparsePlaybackStream:
             - presence=0.5 (50%): ~16.5 min gaps (±30% = 11.5-21.5 min)
             - presence=0.1 (10%): ~27 min gaps (±30% = 18.9-35.1 min)
             """
-            # Invert presence: low presence = long interval, high presence = short interval
-            factor = 1.0 - presence
-            base_interval = SPARSE_MIN_INTERVAL + (SPARSE_MAX_INTERVAL - SPARSE_MIN_INTERVAL) * factor
+            # Invert presence: low presence = long interval, high presence = short
+            # interval, within Wait between plays (Settings > Advanced)
+            base_interval = playback_values.base_wait(presence)
 
-            # Apply randomization (±30% variance)
-            variance_min = 1.0 - SPARSE_INTERVAL_VARIANCE
-            variance_max = 1.0 + SPARSE_INTERVAL_VARIANCE
-            variation = random.uniform(variance_min, variance_max)
+            # Apply randomization (Wait randomness, by default ±30%)
+            variance = playback_values.get("sparse_interval_variance")
+            variation = random.uniform(max(0.0, 1.0 - variance), 1.0 + variance)
             final_interval = base_interval * variation
 
             logger.debug(f'SparsePlaybackStream: {self.instance.name} next interval: {final_interval/60:.1f} min (presence={presence:.0%})')
             return int(final_interval * SAMPLE_RATE)
 
         def decode_file_once():
-            """Decode the entire file once, returning samples"""
-            resampler = av.AudioResampler(format='s16', layout='mono', rate=SAMPLE_RATE)
-            container = av.open(self.instance.meta.path)
-
-            if len(container.streams.audio) == 0:
-                container.close()
+            """The whole file in memory for one play, with its own fades (empty if it has no audio)."""
+            reader = AudioReader(self.instance.meta.path)
+            if not reader.has_audio:
+                reader.close()
                 return np.zeros(0, dtype=np.float32)
-
-            stream = next(iter(container.streams.audio))
-            samples = []
-
-            for frame_orig in container.decode(stream):
-                for frame_resamp in resampler.resample(frame_orig):
-                    data = frame_resamp.to_ndarray()
-                    # Downmix to mono
-                    data = data.mean(axis=0).astype(np.float32)
-                    samples.append(data.flatten())
-
-            container.close()
-
-            if not samples:
+            pieces = list(reader.blocks(flush=False))
+            if not pieces:
                 return np.zeros(0, dtype=np.float32)
-
-            return apply_file_fades(np.concatenate(samples), *file_fade_samples(self.instance))
+            return apply_file_fades(np.concatenate(pieces), *file_fade_samples(self.instance))
 
         def is_blocked_exclusive():
             """Check if this exclusive track is blocked (without claiming playback)."""
@@ -1178,12 +1298,12 @@ class SparsePlaybackStream:
                 if wait_time > 0:
                     # Add some randomization to prevent all tracks trying at once
                     wait_time += random.uniform(0.5, 3.0)
-                    return int(wait_time * SAMPLE_RATE / self.CHUNK_SIZE)
+                    return int(wait_time * SAMPLE_RATE / BLOCK_SAMPLES)
             # Default: wait 1-3 seconds before retrying
-            return int(random.uniform(1.0, 3.0) * SAMPLE_RATE / self.CHUNK_SIZE)
+            return int(random.uniform(1.0, 3.0) * SAMPLE_RATE / BLOCK_SAMPLES)
 
         chunk_count = 0
-        silence_chunk = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
+        silence_chunk = np.zeros((1, BLOCK_SAMPLES), dtype=np.int16)
         first_play = True
         volume = None  # the volume reached, easing toward the track's (see apply_volume)
 
@@ -1194,7 +1314,8 @@ class SparsePlaybackStream:
             # 0% means never, and a muted track (pulled while it fades out)
             # starts no new play: stay silent, checking again every second
             if presence <= 0.0 or not getattr(self.instance, "is_enabled", True):
-                for _ in range(max(1, SAMPLE_RATE // self.CHUNK_SIZE)):
+                self.phase, self.phase_end = "off", None
+                for _ in range(max(1, SAMPLE_RATE // BLOCK_SAMPLES)):
                     yield silence_chunk
                 continue
 
@@ -1206,7 +1327,8 @@ class SparsePlaybackStream:
                 first_play = False
                 # Random initial delay: 0% to 100% of the normal interval
                 initial_delay_samples = int(get_silent_interval() * random.uniform(0.0, 1.0))
-                initial_delay_chunks = initial_delay_samples // self.CHUNK_SIZE
+                initial_delay_chunks = initial_delay_samples // BLOCK_SAMPLES
+                self.phase, self.phase_end = "wait", self.clock + initial_delay_chunks * BLOCK_SAMPLES
                 if initial_delay_chunks > 0:
                     logger.debug(f'SparsePlaybackStream: {self.instance.name} initial delay: {initial_delay_samples/SAMPLE_RATE:.1f}s')
                     for _ in range(initial_delay_chunks):
@@ -1216,6 +1338,7 @@ class SparsePlaybackStream:
             # For exclusive tracks, first check if we're blocked
             if is_blocked_exclusive():
                 # Output silence for a while before checking again
+                self.phase, self.phase_end = "turn", None
                 wait_chunks = get_block_wait_chunks()
                 for _ in range(wait_chunks):
                     chunk_count += 1
@@ -1225,6 +1348,7 @@ class SparsePlaybackStream:
             # Try to claim the exclusive playback slot
             if not try_start_exclusive():
                 # Another track claimed it first - wait and retry
+                self.phase, self.phase_end = "turn", None
                 wait_chunks = get_block_wait_chunks()
                 for _ in range(wait_chunks):
                     chunk_count += 1
@@ -1239,35 +1363,38 @@ class SparsePlaybackStream:
                 logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} plays '
                             f'(Intermittent{", group " + group if group else ""}, {len(audio_data) / SAMPLE_RATE:.1f}s)')
                 self.playing = True
+                self.phase = "play"
+                self.phase_end = self.clock + -(-len(audio_data) // BLOCK_SAMPLES) * BLOCK_SAMPLES
+                fade_in_curve, fade_out_curve = fade_curves()
 
                 # Apply fade in at start
                 if len(fade_in_curve) <= len(audio_data):
                     audio_data[:len(fade_in_curve)] *= fade_in_curve
 
-                # Apply fade out at end
-                if len(fade_out_curve) <= len(audio_data):
+                # Apply fade out at end (none with a Track fade of 0)
+                if 0 < len(fade_out_curve) <= len(audio_data):
                     audio_data[-len(fade_out_curve):] *= fade_out_curve
 
                 # Yield the audio in chunks
                 pos = 0
                 while pos < len(audio_data):
-                    chunk_end = min(pos + self.CHUNK_SIZE, len(audio_data))
+                    chunk_end = min(pos + BLOCK_SAMPLES, len(audio_data))
                     chunk = audio_data[pos:chunk_end]
 
                     # Pad if needed
-                    if len(chunk) < self.CHUNK_SIZE:
-                        chunk = np.concatenate([chunk, np.zeros(self.CHUNK_SIZE - len(chunk), dtype=np.float32)])
+                    if len(chunk) < BLOCK_SAMPLES:
+                        chunk = np.concatenate([chunk, np.zeros(BLOCK_SAMPLES - len(chunk), dtype=np.float32)])
 
                     # The volume, read for each chunk and eased; int16 for output
                     chunk, volume = apply_volume(chunk, eases_from(self.instance, volume), self.instance.volume)
                     output = np.clip(chunk, -32768, 32767).astype(np.int16).reshape(1, -1)
 
                     chunk_count += 1
-                    if chunk_count % LOG_THRESHOLD == 0:
+                    if chunk_count % DEBUG_EVERY_BLOCKS == 0:
                         logger.debug(f'SparsePlaybackStream: {self.instance.name} playing chunk #{chunk_count}')
 
                     yield output
-                    pos += self.CHUNK_SIZE
+                    pos += BLOCK_SAMPLES
 
             self.playing = False
             # Mark exclusive track as finished playing
@@ -1276,31 +1403,36 @@ class SparsePlaybackStream:
             # Now output silence for the interval (in a group, the group's
             # gap and pick decide when this track plays again)
             silent_samples = 0 if grouped else get_silent_interval()
-            silent_chunks = silent_samples // self.CHUNK_SIZE
+            silent_chunks = silent_samples // BLOCK_SAMPLES
 
             logger.debug(f'SparsePlaybackStream: {self.instance.name} entering silence for {silent_samples/SAMPLE_RATE:.1f}s ({silent_chunks} chunks)')
 
-            # While a transition moves the interval (Build / Thin out), the wait
-            # left is stretched or shortened as it moves
+            # While a transition moves the interval (Build / Thin out), or Wait
+            # between plays is changed (Settings > Advanced), the wait left is
+            # stretched or shortened as it moves
             waited_at = presence
+            waited_range = playback_values.wait_range()
             remaining = float(silent_chunks)
+            if remaining >= 1.0:
+                self.phase, self.phase_end = "wait", self.clock + int(remaining) * BLOCK_SAMPLES
             while remaining >= 1.0:
                 chunk_count += 1
                 remaining -= 1.0
                 yield silence_chunk
-                if getattr(self.instance, "interval_live", False):
-                    now = self.instance.presence
-                    if abs(now - waited_at) > 0.005:
-                        old_base = SPARSE_MIN_INTERVAL + (SPARSE_MAX_INTERVAL - SPARSE_MIN_INTERVAL) * (1.0 - waited_at)
-                        new_base = SPARSE_MIN_INTERVAL + (SPARSE_MAX_INTERVAL - SPARSE_MIN_INTERVAL) * (1.0 - now)
-                        remaining *= new_base / old_base
-                        waited_at = presence = now
-
-    def __iter__(self):
-        return self
+                now = self.instance.presence if getattr(self.instance, "interval_live", False) else waited_at
+                now_range = playback_values.wait_range()
+                if abs(now - waited_at) > 0.005 or now_range != waited_range:
+                    old_base = waited_range[0] + (waited_range[1] - waited_range[0]) * (1.0 - waited_at)
+                    new_base = now_range[0] + (now_range[1] - now_range[0]) * (1.0 - now)
+                    remaining = remaining * new_base / old_base if old_base > 0 else new_base * SAMPLE_RATE / BLOCK_SAMPLES
+                    waited_at = presence = now
+                    waited_range = now_range
+                    self.phase_end = self.clock + int(remaining) * BLOCK_SAMPLES
 
     def __next__(self):
-        return next(self.gen)
+        block = super().__next__()
+        self.clock += BLOCK_SAMPLES  # samples produced, for Now playing
+        return block
 
 
 # Ebb & Flow: the level drifts between the two knobs of the track's Volume
@@ -1312,6 +1444,7 @@ class SparsePlaybackStream:
 # eases back down slower (gusts of wind, waves on rocks).
 EBB_GLIDE_SHORT, EBB_GLIDE_LONG = (2.0, 6.0), (15.0, 40.0)
 EBB_HOLD_SHORT, EBB_HOLD_LONG = (2.0, 10.0), (20.0, 60.0)
+# (defaults; Settings > Advanced's Long pause chance and Turn chance are read through playback_values)
 EBB_LONG_REST = 0.12  # the chance a hold lasts 2 to 4 times longer: uneven, not metronomic
 EBB_TURN = 0.35  # the chance a move changes direction: it drifts more than it seesaws
 
@@ -1337,7 +1470,7 @@ def ebb_step(low: float, current, direction: int, duration: float, rng=random) -
     if current is None:
         return low + span * rng.random(), rng.choice((-1, 1))
     d = min(1.0, max(0.0, float(duration)))
-    if rng.random() < EBB_TURN:
+    if rng.random() < playback_values.get("ebb_turn"):
         direction = -direction
     size = span * rng.uniform(0.12, 0.3 + 0.4 * d)
     level = current + direction * size
@@ -1390,24 +1523,23 @@ class EbbGroup:
         return True
 
 
-class PresenceMixingStream:
+class PresenceMixingStream(BlockSource):
     """
     Ebb & Flow.
 
-    On its own or in an Ebb & Flow group (see _gen_wander) the level rises and
+    On its own or in an Ebb & Flow group (see _wander_blocks) the level rises and
     falls between the two knobs of the track's Volume; Interval sets how
     lively. With Pause between plays, each play runs once from the file's
     start to its end, fades out and pauses before the next.
 
-    In a group of the old Exclusive switch (see _gen_turns) it takes turns:
+    In a group of the old Exclusive switch (see _turn_blocks) it takes turns:
     fades in on its turn, plays a while, fades out, and hands the turn back.
     """
-    CHUNK_SIZE = 1_024
 
     # In a group: how soon to ask again when another track has the turn
     RETRY_SECONDS = 2.0
 
-    def __init__(self, base_stream, instance: RecordingThemeInstance, exclusion_coordinator: ExclusionGroupCoordinator = None):
+    def __init__(self, base_stream, instance: ThemeTrack, exclusion_coordinator: ExclusionGroupCoordinator = None):
         self.base_stream = base_stream
         self.instance = instance
         # In a group, the track only fades in when it gets the group's turn
@@ -1416,7 +1548,19 @@ class PresenceMixingStream:
             exclusion_coordinator.register_track(instance.name)
         self._restart = False
         self.ebb_group = None  # an Ebb & Flow group's EbbGroup, set by the mix
-        self.gen = self._gen()
+        # For Now playing (the Status page): samples produced; on its own or in
+        # an Ebb & Flow group, its state ("playing", "ending", "paused"), its
+        # move ("rise", "fall", "hold"), its level (a share of the top knob),
+        # and the sample count (self.clock) when the move or pause ends;
+        # in a turn-taking group, the gain it plays at and the one it heads for
+        self.clock = 0
+        self.ebb_state = "playing"
+        self.ebb_move = "hold"
+        self.ebb_level = 0.0
+        self.ebb_until = None
+        self.ebb_fade_at = None  # with Pause between plays: when the fade-out at the file's end starts
+        self.turn_gain = 0.0
+        self.turn_target = 0.0
 
     @property
     def position(self) -> int:
@@ -1428,7 +1572,7 @@ class PresenceMixingStream:
 
     def _log_fade(self, direction: str):
         logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} Ebb & Flow '
-                    f'fading {direction} over {TRACK_FADE_DURATION:g}s')
+                    f'fading {direction} over {playback_values.get("track_fade"):g}s')
 
     def _log_move(self, level: float, seconds: float):
         logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} Ebb & Flow '
@@ -1448,16 +1592,14 @@ class PresenceMixingStream:
     def _restart_base(self):
         """A new base stream of the same kind, at the file's beginning."""
         old = self.base_stream
-        gen = getattr(old, "gen", None)
-        if gen is not None:
-            gen.close()
+        close_stream(old)
         self.base_stream = type(old)(old.instance)
 
-    def _gen(self):
+    def _blocks(self):
         if self.exclusion_coordinator is None:
-            yield from self._gen_wander()
+            yield from self._wander_blocks()
         else:
-            yield from self._gen_turns()
+            yield from self._turn_blocks()
 
     def _ebb_low(self) -> float:
         """The lower knob as a share of the upper one (both as the channel plays them)."""
@@ -1476,7 +1618,7 @@ class PresenceMixingStream:
         high = DEFAULT_PAUSE[1] if high is None else max(0.0, float(high))
         return int(random.uniform(min(low, high), max(low, high)) * SAMPLE_RATE)
 
-    def _gen_wander(self):
+    def _wander_blocks(self):
         """
         The level drifts between the two knobs of the track's Volume (see
         ebb_step), at the pace its Duration sets (see ebb_timing), rising as
@@ -1489,7 +1631,7 @@ class PresenceMixingStream:
         rate = SAMPLE_RATE
         name = self.instance.name
         group = self.ebb_group
-        silence = np.zeros((1, self.CHUNK_SIZE), dtype=np.int16)
+        silence = np.zeros((1, BLOCK_SAMPLES), dtype=np.int16)
         state = "playing"  # playing, ending (fading out for a pause) or paused
         level = start = target = 0.0
         glide = done = hold = wait = 0  # samples
@@ -1509,7 +1651,7 @@ class PresenceMixingStream:
 
         def next_hold() -> int:
             seconds = random.uniform(*ebb_timing(duration())[1])
-            if random.random() < EBB_LONG_REST:
+            if random.random() < playback_values.get("ebb_long_rest"):
                 seconds *= random.uniform(2.0, 4.0)
             return int(seconds * rate)
 
@@ -1536,6 +1678,7 @@ class PresenceMixingStream:
                 # sudden: up quickly, down slower
                 seconds *= (1.0 - 0.85 * rise()) if rising else (1.0 + 0.5 * rise())
             start, target, glide, done = level, to, max(1, int(seconds * rate)), 0
+            self.ebb_move, self.ebb_until = ("rise" if rising else "fall"), self.clock + glide
             self._log_move(to * self._top(), seconds)
 
         def new_play():
@@ -1553,6 +1696,7 @@ class PresenceMixingStream:
         def pause(log_reason: str = ""):
             nonlocal state, wait
             state, wait = "paused", self._pause_samples()
+            self.ebb_state, self.ebb_level, self.ebb_until = state, 0.0, self.clock + wait
             sounding(False)
             logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {name} Ebb & Flow '
                         f'{log_reason}pausing for {wait / rate:.0f}s')
@@ -1565,6 +1709,7 @@ class PresenceMixingStream:
             level, direction = ebb_step(self._ebb_low(), None, direction, duration())  # at a level: the mix fades the track in
             start = target = level
             hold = next_hold()
+            self.ebb_move, self.ebb_until = "hold", self.clock + hold
             end_fade = int(random.uniform(*glides) * rate)
             sounding(True)
 
@@ -1576,7 +1721,7 @@ class PresenceMixingStream:
             if state == "paused":
                 if not pauses() or (guarded() and not group.others_sounding(name)):
                     wait = 0  # back at once: looping again, or the group would fall silent
-                wait -= self.CHUNK_SIZE
+                wait -= BLOCK_SAMPLES
                 if wait > 0:
                     yield silence  # not decoded while it pauses
                     continue
@@ -1592,8 +1737,10 @@ class PresenceMixingStream:
             # Pause between plays: fade out to reach silence at the file's end
             length = int(getattr(self.instance.meta, "duration_samples", 0) or 0)
             pass_length = max(n, length - int(getattr(self.base_stream, "overlap", 0) or 0))
+            fade_at = None
             if state == "playing" and pauses() and length:
                 left = pass_length - played
+                fade_at = self.clock + n + max(0, left - min(end_fade, pass_length // 3))
                 if left <= min(end_fade, pass_length // 3):
                     if guarded() and not group.others_sounding(name):
                         pass  # the only one playing: it carries on into another pass
@@ -1615,6 +1762,7 @@ class PresenceMixingStream:
                 if done >= glide:
                     glide = 0
                     hold = next_hold()
+                    self.ebb_move, self.ebb_until = "hold", self.clock + n + hold
             else:
                 end = level
                 if state == "playing":
@@ -1626,6 +1774,7 @@ class PresenceMixingStream:
                 ramp = np.linspace(level, end, n, dtype=np.float32) if level != end else level
                 chunk = np.clip(chunk.astype(np.float32) * ramp, -32768, 32767).astype(np.int16)
             level = end
+            self.ebb_state, self.ebb_level, self.ebb_fade_at = state, level, fade_at
             if state == "ending" and not glide:
                 pause()
             yield chunk
@@ -1637,7 +1786,7 @@ class PresenceMixingStream:
         except (TypeError, ValueError):
             return 0.0
 
-    def _gen_turns(self):
+    def _turn_blocks(self):
         """In a group (the old Exclusive switch): fades in on its turn, plays a while, fades out, hands the turn back."""
         import random
 
@@ -1737,7 +1886,7 @@ class PresenceMixingStream:
                     self._log_fade("out")
 
             # Check if it's time to change state
-            samples_until_change -= self.CHUNK_SIZE
+            samples_until_change -= BLOCK_SAMPLES
             if coordinator is not None and samples_until_change <= 0 and presence > 0.0:
                 if not is_active and not getattr(self.instance, "is_enabled", True):
                     samples_until_change = retry_samples  # muted (fading out): doesn't ask for a turn
@@ -1746,7 +1895,7 @@ class PresenceMixingStream:
                     active_samples = get_next_duration(presence, True)
                     # Held through the fade-out too, with room to spare: the turn is
                     # handed back by finish_playing once the fade has finished
-                    seconds = 1e9 if active_samples == float('inf') else (active_samples + 2 * TRACK_FADE_SAMPLES) / SAMPLE_RATE + 1.0
+                    seconds = 1e9 if active_samples == float('inf') else (active_samples + 2 * track_fade_samples()) / SAMPLE_RATE + 1.0
                     if coordinator.try_start_playing(self.instance.name, seconds, presence):
                         is_active, target_gain, fade_position = True, 1.0, 0
                         samples_until_change = active_samples
@@ -1774,7 +1923,7 @@ class PresenceMixingStream:
             # Apply fade if current_gain != target_gain
             if current_gain != target_gain:
                 # Calculate fade progress
-                fade_progress = fade_position / TRACK_FADE_SAMPLES
+                fade_progress = fade_position / track_fade_samples()
                 fade_progress = min(1.0, fade_progress)
 
                 if target_gain > current_gain:
@@ -1784,7 +1933,7 @@ class PresenceMixingStream:
                     # Fading out - equal power curve
                     applied_gain = np.cos(fade_progress * np.pi / 2)
 
-                fade_position += self.CHUNK_SIZE
+                fade_position += BLOCK_SAMPLES
 
                 # Check if fade complete
                 if fade_progress >= 1.0:
@@ -1795,6 +1944,7 @@ class PresenceMixingStream:
                         coordinator.finish_playing(self.instance.name)  # silent now: the group's gap starts
             else:
                 applied_gain = current_gain
+            self.turn_gain, self.turn_target = float(applied_gain), target_gain
 
             # Apply gain to chunk
             if applied_gain < 1.0:
@@ -1805,11 +1955,10 @@ class PresenceMixingStream:
             chunk_count += 1
             yield chunk
 
-    def __iter__(self):
-        return self
-
     def __next__(self):
-        return next(self.gen)
+        block = super().__next__()
+        self.clock += BLOCK_SAMPLES  # samples produced, for Now playing
+        return block
 
 
 class _SampleQueue:
@@ -1935,7 +2084,7 @@ class _BedHandle:
         self.is_enabled = True
 
 
-class MerryGoRoundStream:
+class MerryGoRoundStream(BlockSource):
     """
     A group in Merry-go-round mode: a continuous bed made from the group's files.
 
@@ -1957,11 +2106,10 @@ class MerryGoRoundStream:
     theme is rescanned; a file that left finishes first), `settings()` the
     group's settings now (crossfade).
     """
-    CHUNK_SIZE = 1_024
     # Start getting the next file ready this many crossfades before the current one ends
     PREPARE_CROSSFADES = 3
     # How much of the next file to decode per chunk while it waits
-    PREPARE_BUDGET = 8 * CHUNK_SIZE
+    PREPARE_BUDGET = 8 * BLOCK_SAMPLES
 
     def __init__(self, group: str, members, settings):
         self.group = group
@@ -1978,7 +2126,6 @@ class MerryGoRoundStream:
         # (sample, "start" | "stop", file) for the most recent starts and stops
         self.events = deque(maxlen=512)
         logger.debug(f'MerryGoRound "{group}": created')
-        self.gen = self._gen()
 
     # --- picking ---
 
@@ -2020,7 +2167,7 @@ class MerryGoRoundStream:
     # --- the bed ---
 
     def _chunk(self):
-        n = self.CHUNK_SIZE
+        n = BLOCK_SAMPLES
         cf = int(group_crossfade(self._settings()) * SAMPLE_RATE)
         edge = max(1, int(GROUP_EDGE_FADE_SECONDS * SAMPLE_RATE))
         starts: dict[int, int] = {}  # id(file) -> where in this chunk it starts
@@ -2095,12 +2242,7 @@ class MerryGoRoundStream:
         self._samples += n
         return np.clip(out, -32768, 32767).astype(np.int16).reshape(1, -1)
 
-    def _gen(self):
+    def _blocks(self):
         while True:
             yield self._chunk()
 
-    def __iter__(self):
-        return self
-
-    def __next__(self):
-        return next(self.gen)

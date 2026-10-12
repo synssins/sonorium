@@ -1,54 +1,77 @@
 # Use HA addon base image with bashio
 ARG BUILD_FROM=ghcr.io/hassio-addons/base:16.3.2
+
+# Build stage: Sonorium's own FFmpeg (audio only, LGPL only) and PyAV built
+# against it, in place of PyAV's wheel with its GPL video encoders. See
+# ffmpeg/build.sh. Only the libraries and the wheel go into the image below.
+FROM ${BUILD_FROM} AS ffmpeg
+# musl: the base image pins its exact release, which musl-dev (build-base) can't match
+RUN apk add --no-cache \
+    musl build-base nasm pkgconf zlib-dev curl \
+    python3 python3-dev py3-pip
+COPY ffmpeg/build.sh /build-ffmpeg.sh
+RUN sh /build-ffmpeg.sh
+
 FROM ${BUILD_FROM}
 
 # Install Python and build dependencies
 # Note: py3-numpy from Alpine avoids segfault on some virtualized environments (qemux86-64)
+# No ffmpeg package: audio is decoded and encoded by PyAV with the FFmpeg
+# libraries built above, and nothing runs the ffmpeg program
 RUN apk add --no-cache \
     python3 \
     py3-pip \
-    py3-numpy \
-    ffmpeg
+    py3-numpy
+
+# FFmpeg's libraries and the PyAV wheel from the build stage
+COPY --from=ffmpeg /opt/ffmpeg/lib/ /opt/ffmpeg/lib/
+COPY --from=ffmpeg /wheels/ /tmp/wheels/
 
 # Create working directory
 WORKDIR /app
 
 # Install Python dependencies
-# Note: numpy installed via apk above, av installed via fmtr.tools[av] below
+# Note: numpy installed via apk above, av installed below
+# uvicorn[standard]: the web server with uvloop and httptools.
+# httpx-retries: retries for Home Assistant registry requests.
 RUN pip3 install --no-cache-dir --break-system-packages \
     pyyaml \
     appdirs \
     cachetools \
     fastapi \
-    uvicorn \
+    'uvicorn[standard]' \
     pydantic \
     httpx \
-    homeassistant_api \
+    httpx-retries \
     websockets \
     python-multipart \
     soco
 
-# Install fmtr.tools (for API layer), paho-mqtt (for HA entities), pydantic-settings, pychromecast
+# numpy, av (audio decoding), paho-mqtt (for HA entities), pydantic-settings, pychromecast
 # numpy<2.4: pip replaces Alpine's numpy here, and numpy 2.4+ wheels require
 # x86-64-v2 CPUs, which crashes on VMs with a basic virtual CPU (issues #18, #39).
-# av 19.x: the audio decoder version playback is tested with; unpinned, it
-# changed major version between two builds.
+# av: PyAV 19.0.1 built in the stage above (the version playback is tested with)
 RUN pip3 install --no-cache-dir --break-system-packages \
-    'fmtr.tools[version.dev,logging,sets,yaml,debug,caching,api,path.app,tabular,av,ha.api,http]' \
     'numpy<2.4' \
-    'av>=19,<20' \
+    /tmp/wheels/av-*.whl \
     paho-mqtt \
     pydantic-settings \
-    pychromecast
+    pychromecast \
+    && rm -rf /tmp/wheels
 
 # Network speakers (sonorium/network): on in Docker, off by default here and
 # switched on in Settings > Advanced. Same packages as the Docker image.
 RUN pip3 install --no-cache-dir --break-system-packages \
     aiohttp zeroconf async-upnp-client pyatv
 
+# Sign-in: the HTTPS certificate (cryptography), the Link App QR code (segno),
+# and password hashes for the built-in Users plugin (argon2-cffi, Argon2id)
+RUN pip3 install --no-cache-dir --break-system-packages \
+    cryptography segno argon2-cffi
+
 # Copy local sonorium source code
 COPY sonorium/ /app/sonorium/
-COPY setup.py pyproject.toml README.md /app/
+COPY README.md /app/
 
 # Copy logo and icon
 COPY logo.png icon.png favicon.png display.png /app/
@@ -74,6 +97,6 @@ RUN chmod a+x /run.sh
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.6.1}"
+LABEL io.hass.version="${ADDON_VERSION:-1.6.2-dev.66}"
 
 CMD [ "/run.sh" ]

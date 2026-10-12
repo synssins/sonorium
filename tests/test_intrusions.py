@@ -14,7 +14,6 @@ import types
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -31,23 +30,14 @@ m = SimpleNamespace()
 
 @pytest.fixture(autouse=True, scope="module")
 def addon_package():
-    """The add-on's sonorium package (api.py with fmtr stubbed), for these tests only."""
+    """The add-on's sonorium package, for these tests only."""
     saved = {k: v for k, v in sys.modules.items()
-             if k in ("sonorium", "fmtr") or k.startswith(("sonorium.", "fmtr."))}
+             if k == "sonorium" or k.startswith("sonorium.")}
     for k in saved:
         del sys.modules[k]
     sys.path.insert(0, ADDON)
     try:
         utils = pytest.importorskip("sonorium.utils")
-        fmtr = types.ModuleType("fmtr")
-        tools = types.ModuleType("fmtr.tools")
-        tools.api = SimpleNamespace(Base=object, Endpoint=MagicMock())
-        tools.http = MagicMock()
-        iterator_tools = types.ModuleType("fmtr.tools.iterator_tools")
-        iterator_tools.IndexList = utils.IndexList
-        tools.iterator_tools = iterator_tools
-        fmtr.tools = tools
-        sys.modules.update({"fmtr": fmtr, "fmtr.tools": tools, "fmtr.tools.iterator_tools": iterator_tools})
         import sonorium.api
         import sonorium.core.intrusions
         import sonorium.core.theme_metadata
@@ -63,7 +53,7 @@ def addon_package():
     finally:
         sys.path.remove(ADDON)
         for k in [k for k in sys.modules
-                  if k in ("sonorium", "fmtr") or k.startswith(("sonorium.", "fmtr."))]:
+                  if k == "sonorium" or k.startswith("sonorium.")]:
             del sys.modules[k]
         sys.modules.update(saved)
 
@@ -116,10 +106,10 @@ def world(tmp_path, tones):
     write_theme(root / "Rain", "rain-id", tracks={"Rain": {"volume": 0.8, "presence": 1.0}})
     shutil.copy(tones / "rain.mp3", root / "Rain" / "Rain.mp3")
 
-    device = SimpleNamespace(path_audio=root, themes=m.IndexList(), theme_metas={}, metas=m.IndexList(),
+    device = SimpleNamespace(audio_dir=root, themes=m.IndexList(), files_by_theme={}, all_files=m.IndexList(),
                              master_volume=1.0)
-    api = object.__new__(m.api.ApiSonorium)
-    api.client = SimpleNamespace(device=device)
+    api = object.__new__(m.api.WebApp)
+    api.backend = SimpleNamespace(device=device)
     api._theme_metadata_manager = m.meta.ThemeMetadataManager(root)
     api._theme_refresh_task = None
     api._session_manager = None
@@ -165,7 +155,7 @@ def place_rain(world):
 # --- measuring the mix ---------------------------------------------------------
 
 def mix(stream, seconds):
-    chunks = stream.iter_chunks()
+    chunks = stream.blocks()
     return np.concatenate([next(chunks).reshape(-1) for _ in range(int(seconds * RATE / CHUNK))]).astype(np.float64)
 
 
@@ -184,7 +174,7 @@ def test_a_b_linked_file_plays_from_the_source_folder_and_starts_muted_and_unass
     assert links == [{"key": "Rain", "theme": "rain-id", "track": "Rain", "added": True}]
 
     camping = theme(world, "Camping")
-    linked = next(i for i in camping.instances if i.name == "Rain")
+    linked = next(i for i in camping.tracks if i.name == "Rain")
     assert linked.meta.path == world.root / "Rain" / "Rain.mp3"  # not copied
     assert not (world.root / "Camping" / "Rain.mp3").exists()
     assert linked.meta.group is None  # ungrouped
@@ -196,15 +186,15 @@ def test_a_b_linked_file_plays_from_the_source_folder_and_starts_muted_and_unass
     assert saved["tracks"]["Rain"]["volume"] == 0.8
 
     # The theme's own sound is unchanged: crickets only
-    signal = mix(camping.get_stream(), 3.0)
+    signal = mix(camping.new_mix(), 3.0)
     assert level(signal, CRICKETS_HZ) > 1000 and level(signal, RAIN_HZ) < 50
     # Unassigned doesn't play, even turned on
     on = m.recording.preset_track_overrides({"Rain": {"muted": False}, "Crickets": {"muted": True}})
-    assert level(mix(camping.get_stream(dict(on)), 3.0), RAIN_HZ) < 50
+    assert level(mix(camping.new_mix(dict(on)), 3.0), RAIN_HZ) < 50
 
     # (a) placed (Background) and a preset turning it on: the rain plays through Camping's mix, from the Rain folder
     place_rain(world)
-    signal = mix(theme(world, "Camping").get_stream(dict(on)), 3.0)
+    signal = mix(theme(world, "Camping").new_mix(dict(on)), 3.0)
     assert level(signal, RAIN_HZ) > 1000 and level(signal, CRICKETS_HZ) < 50
 
 
@@ -213,8 +203,8 @@ def test_c_switching_presets_on_a_playing_mix(world):
     place_rain(world)
     camping = theme(world, "Camping")
     overrides = {}
-    stream = camping.get_stream(overrides)
-    chunks = stream.iter_chunks()
+    stream = camping.new_mix(overrides)
+    chunks = stream.blocks()
 
     def pull(seconds):
         return np.concatenate([next(chunks).reshape(-1) for _ in range(int(seconds * RATE / CHUNK))]).astype(np.float64)
@@ -238,17 +228,17 @@ def test_a_linked_file_in_a_group_plays_the_groups_way(world):
     run(world.api.refresh_themes())
     assert link_rain(world, "Weather")[0]["key"] == "Weather/Rain"
     camping = theme(world, "Camping")
-    assert next(i for i in camping.instances if i.name == "Weather/Rain").meta.group == "Weather"
+    assert next(i for i in camping.tracks if i.name == "Weather/Rain").meta.group == "Weather"
     saved = metadata_on_disk(world, "Camping")["tracks"]["Weather/Rain"]
     assert saved["muted"] is True and saved["playback_mode"] != "unassigned"  # as the source has it
-    stream = camping.get_stream(m.recording.preset_track_overrides({"Weather/Rain": {"muted": False}}))
+    stream = camping.new_mix(m.recording.preset_track_overrides({"Weather/Rain": {"muted": False}}))
     views = [stream._views[name] for name in ("Weather/Rain", "Weather/Thunder")]
     assert all(v.exclusion_group == "Weather" for v in views)
     assert all(v.playback_mode == m.recording.PlaybackMode.SPARSE for v in views)
 
     # Ebb & Flow: every file of the group at once, the linked one too (a playing mix follows)
     run(world.api.update_group("camping-id", "Weather", Body({"mode": "ebb_flow"})))
-    next(stream.iter_chunks())
+    next(stream.blocks())
     assert stream._views["Weather/Rain"].exclusion_group is None
     assert stream._views["Weather/Rain"].playback_mode == m.recording.PlaybackMode.PRESENCE
 
@@ -327,19 +317,19 @@ def test_e_missing_source_is_skipped_and_the_link_kept(world):
     place_rain(world)
     api = world.api
     camping = theme(world, "Camping")
-    stream = camping.get_stream(m.recording.preset_track_overrides({"Rain": {"muted": False}}))
+    stream = camping.new_mix(m.recording.preset_track_overrides({"Rain": {"muted": False}}))
     assert "Rain" in stream._views
 
     # The source theme's folder is renamed: found again by its id
     (world.root / "Rain").rename(world.root / "Rain storm")
     run(api.refresh_themes())
-    assert any(i.name == "Rain" for i in theme(world, "Camping").instances)
+    assert any(i.name == "Rain" for i in theme(world, "Camping").tracks)
 
     # The source file is removed: the rescan updates Camping, and the playing mix lets it go
     (world.root / "Rain storm" / "Rain.mp3").unlink()
     run(api.refresh_themes())
     camping = theme(world, "Camping")
-    assert all(i.name != "Rain" for i in camping.instances)
+    assert all(i.name != "Rain" for i in camping.tracks)
     assert "Rain" not in stream._views
     saved = metadata_on_disk(world, "Camping")
     assert "Rain" in saved["links"] and "Rain" in saved["tracks"]
@@ -468,7 +458,7 @@ def test_h_api_round_trip(world):
     assert set(saved["links"]) == {"Storms/Rain"} and "Rain" not in saved["tracks"]
     assert saved_presets(world)["p"]["tracks"] == {"Crickets": {"muted": True}}
     assert (world.root / "Rain" / "Rain.mp3").exists()
-    assert all(i.name != "Rain" for i in theme(world, "Camping").instances)
+    assert all(i.name != "Rain" for i in theme(world, "Camping").tracks)
     refused(api.delete_link("camping-id", "Rain"), 404)
 
 
@@ -479,9 +469,9 @@ def test_playback_mode_accepts_unassigned(world):
             "status": "ok", "track": "Crickets", "playback_mode": mode}
         assert metadata_on_disk(world, "Camping")["tracks"]["Crickets"]["playback_mode"] == mode
     run(api.set_track_playback_mode("camping-id", "Crickets", Body({"playback_mode": "unassigned"})))
-    crickets = next(i for i in theme(world, "Camping").instances if i.name == "Crickets")
+    crickets = next(i for i in theme(world, "Camping").tracks if i.name == "Crickets")
     assert crickets.playback_mode == m.recording.PlaybackMode.UNASSIGNED
-    assert level(mix(theme(world, "Camping").get_stream(), 2.0), CRICKETS_HZ) < 50  # not played
+    assert level(mix(theme(world, "Camping").new_mix(), 2.0), CRICKETS_HZ) < 50  # not played
     assert "error" in run(api.set_track_playback_mode("camping-id", "Crickets", Body({"playback_mode": "loud"})))
 
 
@@ -527,7 +517,7 @@ def test_moving_a_link_into_and_out_of_groups_only_rekeys_it(world):
     run(api.set_track_volume("camping-id", "Rain", Body({"volume": 0.4})))
     with_preset(world, {"Rain": {"muted": False, "volume": 0.9}})
     with_sequence(world, "Rain")
-    stream = theme(world, "Camping").get_stream(m.recording.preset_track_overrides({"Rain": {"muted": False}}))
+    stream = theme(world, "Camping").new_mix(m.recording.preset_track_overrides({"Rain": {"muted": False}}))
     assert "Rain" in stream._views
 
     # Into a group (the editor's drag and drop): only its key changes, everywhere
@@ -623,7 +613,7 @@ def test_copying_a_link_into_the_theme(world):
     run(api.set_track_volume("camping-id", "Weather/Rain", Body({"volume": 0.4})))
     with_preset(world, {"Weather/Rain": {"muted": False, "volume": 0.9}, "Crickets": {"muted": True}})
     with_sequence(world, "Weather/Rain")
-    stream = theme(world, "Camping").get_stream()
+    stream = theme(world, "Camping").new_mix()
     assert "Weather/Rain" in stream._views
     source = world.root / "Rain" / "Rain.mp3"
     source_bytes = source.read_bytes()
@@ -642,12 +632,12 @@ def test_copying_a_link_into_the_theme(world):
     assert saved_presets(world)["p"]["tracks"] == {"Rain": {"muted": False, "volume": 0.9}, "Crickets": {"muted": True}}
     assert set(saved_sequence(world)["transitions"]["p"]["in"]) == {"Rain"}
     camping = theme(world, "Camping")
-    rain = next(i for i in camping.instances if i.name == "Rain")
+    rain = next(i for i in camping.tracks if i.name == "Rain")
     assert rain.meta.path == copied and not getattr(rain.meta, "link", None)
     # A playing mix follows
     assert "Rain" in stream._views and "Weather/Rain" not in stream._views
     # The copy plays from this theme's folder
-    signal = mix(camping.get_stream(m.recording.preset_track_overrides({"Rain": {"muted": False}, "Crickets": {"muted": True}})), 3.0)
+    signal = mix(camping.new_mix(m.recording.preset_track_overrides({"Rain": {"muted": False}, "Crickets": {"muted": True}})), 3.0)
     assert level(signal, RAIN_HZ) > 1000
 
     # Again, into the root: the name is taken, so "Rain (2)"; into a plain group: its folder

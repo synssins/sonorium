@@ -50,16 +50,16 @@ def test_groups_in_the_mixer(tmp_path, monkeypatch):
     from test_crossfade_loop import recording
 
     theme = make_theme(tmp_path)
-    lute = recording.RecordingMetadata(theme / "Lute" / "Lute song 1.wav", theme)
-    fire = recording.RecordingMetadata(theme / "Fireplace.wav", theme)
+    lute = recording.AudioFile(theme / "Lute" / "Lute song 1.wav", theme)
+    fire = recording.AudioFile(theme / "Fireplace.wav", theme)
     assert (lute.name, lute.group, fire.name, fire.group) == ("Lute/Lute song 1", "Lute", "Fireplace", None)
 
     lute.is_short_file = lambda threshold: True
-    lute_track = recording.TrackView(recording.RecordingThemeInstance(lute), {})
+    lute_track = recording.TrackView(recording.ThemeTrack(lute), {})
     assert (lute_track.exclusion_group, lute_track.exclusive) == ("Lute", True)
     assert lute_track.playback_mode == recording.PlaybackMode.SPARSE  # short file in a group
 
-    fire_instance = recording.RecordingThemeInstance(fire)
+    fire_instance = recording.ThemeTrack(fire)
     assert recording.TrackView(fire_instance, {}).exclusion_group is None
     fire_instance.exclusive = True  # old single exclusive flag
     assert recording.TrackView(fire_instance, {}).exclusion_group == "Exclusive"
@@ -74,9 +74,9 @@ def test_group_is_a_mixer_bus(tmp_path, monkeypatch):
     theme_dir = make_theme(tmp_path)
     theme = SimpleNamespace(groups={"Lute": {"volume": 0.5, "presence": 0.5, "gap_min": 30, "gap_max": 90}},
                             short_file_threshold=15.0)
-    meta = recording.RecordingMetadata(theme_dir / "Lute" / "Lute song 1.wav", theme_dir)
+    meta = recording.AudioFile(theme_dir / "Lute" / "Lute song 1.wav", theme_dir)
     meta.is_short_file = lambda threshold: False
-    song = recording.RecordingThemeInstance(meta, theme)
+    song = recording.ThemeTrack(meta, theme)
     song.volume, song.presence = 0.8, 0.5
 
     view = recording.TrackView(song, {})

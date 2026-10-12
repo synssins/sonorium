@@ -81,6 +81,35 @@ Editor design "C — Aligned table".
   the footer wrap to extra rows; everything stays reachable without drag and
   drop.
 
+### Screen sizes
+- **Phone layout** (every `(max-width: 768px)` / `(max-width: 760px)` rule) is
+  used by windows up to 768 px wide, by short screens (height ≤ 480, landscape
+  phones) and by touch screens narrower than 1000 px (`pointer: coarse`,
+  portrait tablets). The JS checks (`PHONE_QUERY` in app.js) use the same
+  conditions. A new phone rule uses the same three conditions.
+- **Settings tables in a narrow page:** a settings page is a size container
+  (`sp-col`). When the page beside the sidebar is narrower than a table needs
+  (mouse windows about 769–1120 px), that table uses its phone layout through an
+  `@container sp-col` copy of its phone rule (without the touch sizes): Advanced,
+  Plugins and Status below 880 px, the other tables below 740 px. A new table
+  with a phone layout gets a copy too.
+- **Width ≤ 400:** on a channel card the Theme and Preset labels go above their
+  fields, so preset names fit. **Width ≤ 400 and height ≤ 600:** the card is
+  445 px tall so Play stays on screen; Recent changes shows one line.
+- **Height ≤ 480:** one 48 px header row: the menu button, logo, page title and
+  the page's actions.
+- **Phone layout at width ≥ 600:** the channel card splits in two halves (3 : 2):
+  left Theme, Preset and the sequence / playlist line; right both volume
+  sliders, Recent changes and Play. One card per row, never wider than 864 px;
+  251 px tall on short screens, 287 px otherwise. The halves are `.ch-a` /
+  `.ch-b`, which have no box of their own (`display: contents`) in every other
+  layout.
+- **Touch screen, width ≥ 1000 (tablets):** the desktop layout, everything
+  12.5 % larger (`zoom: 1.125`, `--zoom`). Every `vh` / `dvh` height is divided
+  by `var(--zoom, 1)` so it still fits the screen; a new one must be too.
+- The channel card grid is the same everywhere: auto-fill, cards at least
+  340 px wide.
+
 ## Process
 - Structural UI changes are drafted as Claude Design boards first and
   approved by the owner before they're built.

@@ -1,20 +1,37 @@
 """
 Theme Merge Plugin
 
-Merge two themes together into a new theme or into one of the existing themes.
+Merge two themes together into a new theme or into one of the existing themes
+(Themes 2.0, docs/THEME_FORMAT.md).
+
+What is carried over from each theme merged in:
+- every audio file, keyed by its track key, in its group folder ("Group/Name")
+  with the track's settings; a key the target already has is skipped (the
+  target's track is used) or the file is copied as "Name (2)"
+- group settings, for groups the target doesn't have settings for
+- linked files: a link to the theme the files go into, or to a theme merged
+  in, becomes that track; a link to any other theme stays a link
+- presets, renamed "Name (Theme)" on a name clash, with their track and
+  group keys following; tracks a preset didn't have are muted in it, and
+  the target's own presets get the new tracks muted, so every preset sounds
+  as before
+Sequences are not carried over (they belong to the source's presets).
+
+Everything is read and checked before anything is written, and the theme
+files are written through plugins/theme_api.py: a merge either completes or
+leaves both themes as they were.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
-import shutil
-import uuid
 from pathlib import Path
 from typing import Optional
 
 from sonorium.plugins.base import BasePlugin
 from sonorium.obs import logger
+
+TARGETS = ("__new__", "__source1__", "__source2__")
+DUPLICATE_MODES = ("skip", "rename")
 
 
 class ThemeMergePlugin(BasePlugin):
@@ -22,14 +39,14 @@ class ThemeMergePlugin(BasePlugin):
 
     id = "theme_merge"
     name = "Theme Merge"
-    version = "1.0.0"
-    description = "Merge two themes together - combines tracks and presets"
+    version = "2.0.0"
+    description = "Merge two themes together - combines tracks, groups and presets"
     author = "Sonorium"
-    builtin = False  # Allow users to delete this plugin
+    builtin = True  # Shipped with Sonorium
 
     def get_ui_schema(self) -> dict:
         """Return the UI schema for theme merge."""
-        themes = self._list_existing_themes()
+        themes = self.list_themes()
 
         # Source theme options (required)
         source_options = [{"value": "", "label": "-- Select a theme --"}]
@@ -89,10 +106,9 @@ class ThemeMergePlugin(BasePlugin):
                     "options": [
                         {"value": "skip", "label": "Skip - keep existing file"},
                         {"value": "rename", "label": "Rename - add suffix to new file"},
-                        {"value": "overwrite", "label": "Overwrite - replace existing file"},
                     ],
                     "default": "skip",
-                    "help": "How to handle files with the same name",
+                    "help": "How to handle tracks with the same name",
                 },
             ],
             "actions": [
@@ -109,53 +125,6 @@ class ThemeMergePlugin(BasePlugin):
             ],
         }
 
-    def _list_existing_themes(self) -> list[dict]:
-        """List all existing themes with metadata."""
-        themes = []
-        if not self.audio_path or not self.audio_path.exists():
-            return themes
-
-        for folder in sorted(self.audio_path.iterdir()):
-            if not folder.is_dir():
-                continue
-            if folder.name.startswith('.'):
-                continue
-
-            theme_info = {
-                "id": folder.name,
-                "name": folder.name,
-                "path": str(folder),
-                "track_count": 0,
-                "preset_count": 0,
-                "tracks": [],
-                "presets": [],
-            }
-
-            # Count audio files
-            audio_extensions = {'.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac'}
-            for f in folder.iterdir():
-                if f.is_file() and f.suffix.lower() in audio_extensions:
-                    theme_info["track_count"] += 1
-                    theme_info["tracks"].append(f.name)
-
-            # Load metadata for presets
-            metadata_path = folder / "metadata.json"
-            if metadata_path.exists():
-                try:
-                    with open(metadata_path, 'r', encoding='utf-8') as f:
-                        meta = json.load(f)
-                    theme_info["name"] = meta.get("name", folder.name)
-                    presets = meta.get("presets", [])
-                    theme_info["preset_count"] = len(presets)
-                    theme_info["presets"] = presets
-                    theme_info["metadata"] = meta
-                except Exception as e:
-                    logger.warning(f"Error loading metadata for {folder.name}: {e}")
-
-            themes.append(theme_info)
-
-        return themes
-
     async def handle_action(self, action: str, data: dict) -> dict:
         """Handle plugin actions."""
         if action == "merge":
@@ -168,383 +137,320 @@ class ThemeMergePlugin(BasePlugin):
             }
         return {"success": False, "message": f"Unknown action: {action}"}
 
+    # =========================================================================
+    # Merge
+    # =========================================================================
+
     async def _merge_themes(self, data: dict) -> dict:
         """Merge two themes together."""
+        from sonorium.plugins.theme_api import ThemeEdit, ThemeEditError, find_theme
+        from sonorium.core.theme_metadata import load_theme_folder
+
+        def text(name, default=""):
+            value = data.get(name, default)
+            return str(value).strip() if value is not None else default
+
+        source1_id = text("source_theme_1")
+        source2_id = text("source_theme_2")
+        target = text("target", "__new__") or "__new__"
+        new_theme_name = text("new_theme_name")
+        handle_duplicates = text("handle_duplicates", "skip") or "skip"
+
+        # Validate inputs
+        if not source1_id:
+            return {"success": False, "message": "Please select Source Theme 1"}
+        if not source2_id:
+            return {"success": False, "message": "Please select Source Theme 2"}
+        if target not in TARGETS:
+            return {"success": False, "message": f"Invalid target: {target}"}
+        if handle_duplicates not in DUPLICATE_MODES:
+            return {"success": False, "message": f"Invalid duplicate handling: {handle_duplicates} (use skip or rename)"}
+
+        folder1 = find_theme(self.audio_path, source1_id)
+        folder2 = find_theme(self.audio_path, source2_id)
+        if folder1 is None:
+            return {"success": False, "message": f"Source Theme 1 not found: {source1_id}"}
+        if folder2 is None:
+            return {"success": False, "message": f"Source Theme 2 not found: {source2_id}"}
+        if folder1 == folder2:
+            return {"success": False, "message": "Please select two different themes to merge"}
+
         try:
-            # Safely extract and convert inputs to strings
-            source1_raw = data.get("source_theme_1", "")
-            source2_raw = data.get("source_theme_2", "")
-            target_raw = data.get("target", "__new__")
-            new_name_raw = data.get("new_theme_name", "")
-            duplicates_raw = data.get("handle_duplicates", "skip")
+            # Read and check everything first; nothing is written until commit()
+            sources = []
+            for folder in (folder1, folder2):
+                metadata = load_theme_folder(folder)
+                if metadata.problems:
+                    return {"success": False,
+                            "message": f"Theme '{metadata.name}' has problems ({'; '.join(metadata.problems)}); "
+                                       "open it in Sonorium and check it first"}
+                sources.append((metadata, folder))
+            (meta1, _), (meta2, _) = sources
 
-            # Convert to strings and strip whitespace
-            source1_id = str(source1_raw).strip() if source1_raw is not None else ""
-            source2_id = str(source2_raw).strip() if source2_raw is not None else ""
-            target = str(target_raw).strip() if target_raw is not None else "__new__"
-            new_theme_name = str(new_name_raw).strip() if new_name_raw is not None else ""
-            handle_duplicates = str(duplicates_raw).strip() if duplicates_raw is not None else "skip"
-
-            # Validate inputs
-            if not source1_id:
-                return {"success": False, "message": "Please select Source Theme 1"}
-            if not source2_id:
-                return {"success": False, "message": "Please select Source Theme 2"}
-            if source1_id == source2_id:
-                return {"success": False, "message": "Please select two different themes to merge"}
-
-            # Load theme data
-            all_themes = {str(t["id"]): t for t in self._list_existing_themes()}
-
-            if source1_id not in all_themes:
-                return {"success": False, "message": f"Source Theme 1 not found: {source1_id}"}
-            if source2_id not in all_themes:
-                return {"success": False, "message": f"Source Theme 2 not found: {source2_id}"}
-
-            source1 = all_themes[source1_id]
-            source2 = all_themes[source2_id]
-            source1_path = Path(source1["path"])
-            source2_path = Path(source2["path"])
-
-            # Determine target
             if target == "__new__":
-                # Create new theme
-                if not new_theme_name:
-                    new_theme_name = f"{source1['name']} + {source2['name']}"
-
-                theme_name = self._sanitize_filename(new_theme_name)
-                theme_path = self.audio_path / theme_name
-
-                # Handle existing folder
-                if theme_path.exists():
-                    counter = 1
-                    while (self.audio_path / f"{theme_name}_{counter}").exists():
-                        counter += 1
-                    theme_name = f"{theme_name}_{counter}"
-                    theme_path = self.audio_path / theme_name
-
-                theme_path.mkdir(parents=True, exist_ok=True)
-
-                # Start with empty metadata
-                target_metadata = {
-                    "name": new_theme_name,
-                    "description": f"Merged from: {source1['name']} and {source2['name']}",
-                    "tracks": [],
-                    "presets": [],
-                }
-                is_new_theme = True
-
-                # For new theme, we copy from both sources
-                sources_to_copy = [source1, source2]
-
+                name = new_theme_name or f"{meta1.name} + {meta2.name}"
+                edit = ThemeEdit.new(self.audio_path, name,
+                                     description=f"Merged from: {meta1.name} and {meta2.name}")
+                to_copy = sources
             elif target == "__source1__":
-                # Merge into source1 (copy from source2)
-                theme_name = source1["name"]
-                theme_path = source1_path
-                target_metadata = self._load_metadata(theme_path)
-                is_new_theme = False
-                sources_to_copy = [source2]  # Only copy from source2
-
-            elif target == "__source2__":
-                # Merge into source2 (copy from source1)
-                theme_name = source2["name"]
-                theme_path = source2_path
-                target_metadata = self._load_metadata(theme_path)
-                is_new_theme = False
-                sources_to_copy = [source1]  # Only copy from source1
-
+                edit = ThemeEdit.open(self.audio_path, meta1.id)
+                to_copy = [sources[1]]
             else:
-                return {"success": False, "message": f"Invalid target: {target}"}
+                edit = ThemeEdit.open(self.audio_path, meta2.id)
+                to_copy = [sources[0]]
 
-            # Track statistics
-            stats = {
-                "tracks_copied": 0,
-                "tracks_skipped": 0,
-                "tracks_renamed": 0,
-                "presets_merged": 0,
-                "presets_skipped": 0,
-            }
-            warnings = []
+            stats = {"tracks_copied": 0, "tracks_skipped": 0, "tracks_renamed": 0,
+                     "links_kept": 0, "presets_merged": 0, "presets_renamed": 0}
+            warnings: list[str] = []
 
-            # Get existing files in target
-            existing_files = set(f.name.lower() for f in theme_path.iterdir() if f.is_file())
+            # Files first (links may point at another source's files)
+            key_maps = {}
+            for metadata, folder in to_copy:
+                key_maps[metadata.id] = self._copy_files(edit, metadata, folder, handle_duplicates, stats)
+            group_maps = {}
+            for metadata, folder in to_copy:
+                self._map_links(edit, metadata, key_maps, stats, warnings)
+                group_maps[metadata.id] = self._copy_groups(edit, metadata, warnings)
+            for metadata, folder in to_copy:
+                self._copy_presets(edit, metadata, key_maps[metadata.id], group_maps[metadata.id], stats, warnings)
+                if self._has_sequences(folder):
+                    warnings.append(f"Sequences of '{metadata.name}' were not merged")
 
-            # Build track ID mapping for preset adjustment
-            track_id_map = {}  # old_id -> new_id (for renamed files)
+            result = edit.commit()
 
-            # Copy tracks from each source
-            for source in sources_to_copy:
-                source_path = Path(source["path"])
-
-                for track_file in source["tracks"]:
-                    src_file = source_path / track_file
-                    if not src_file.exists():
-                        continue
-
-                    dest_file = theme_path / track_file
-                    file_lower = track_file.lower()
-                    original_track_id = self._generate_track_id(track_file)
-                    new_track_file = track_file
-
-                    if file_lower in existing_files:
-                        if handle_duplicates == "skip":
-                            stats["tracks_skipped"] += 1
-                            # Map to existing file's track ID
-                            track_id_map[original_track_id] = self._generate_track_id(track_file)
-                            continue
-                        elif handle_duplicates == "rename":
-                            # Generate unique name
-                            stem = src_file.stem
-                            suffix = src_file.suffix
-                            counter = 1
-                            while f"{stem}_{counter}{suffix}".lower() in existing_files:
-                                counter += 1
-                            new_track_file = f"{stem}_{counter}{suffix}"
-                            dest_file = theme_path / new_track_file
-                            stats["tracks_renamed"] += 1
-                        # else overwrite - continue with same dest_file
-
-                    try:
-                        shutil.copy2(src_file, dest_file)
-                        existing_files.add(new_track_file.lower())
-                        stats["tracks_copied"] += 1
-
-                        # Track the ID mapping
-                        new_track_id = self._generate_track_id(new_track_file)
-                        track_id_map[original_track_id] = new_track_id
-
-                        # Add to tracks list in metadata
-                        target_metadata.setdefault("tracks", []).append({
-                            "id": new_track_id,
-                            "file": new_track_file,
-                            "name": Path(new_track_file).stem,
-                        })
-                    except Exception as e:
-                        warnings.append(f"Failed to copy {track_file}: {e}")
-
-            # Merge presets from sources
-            existing_preset_names = set()
-            for p in target_metadata.get("presets", []):
-                if isinstance(p, dict):
-                    existing_preset_names.add(p.get("name", "").lower())
-
-            for source in sources_to_copy:
-                source_presets = source.get("presets", [])
-
-                for preset in source_presets:
-                    # Skip non-dict presets
-                    if not isinstance(preset, dict):
-                        continue
-
-                    preset_name = preset.get("name", "Unnamed")
-
-                    # Check for duplicate preset name
-                    if preset_name.lower() in existing_preset_names:
-                        if handle_duplicates == "skip":
-                            stats["presets_skipped"] += 1
-                            continue
-                        elif handle_duplicates in ("rename", "overwrite"):
-                            # Rename the preset
-                            counter = 1
-                            new_name = f"{preset_name} ({source['name']})"
-                            while new_name.lower() in existing_preset_names:
-                                counter += 1
-                                new_name = f"{preset_name} ({source['name']} {counter})"
-                            preset_name = new_name
-
-                    # Create new preset with remapped track IDs
-                    new_preset = {
-                        "id": str(uuid.uuid4()),
-                        "name": preset_name,
-                        "is_default": False,
-                        "tracks": {},
-                    }
-
-                    # Remap track references
-                    old_tracks = preset.get("tracks", {})
-                    if isinstance(old_tracks, dict):
-                        for old_track_id, track_settings in old_tracks.items():
-                            new_track_id = track_id_map.get(old_track_id, old_track_id)
-                            # Handle track_settings being dict or simple value
-                            if isinstance(track_settings, dict):
-                                new_preset["tracks"][new_track_id] = track_settings.copy()
-                            else:
-                                # Simple value (e.g., just volume)
-                                new_preset["tracks"][new_track_id] = {"volume": track_settings, "enabled": True}
-
-                    target_metadata.setdefault("presets", []).append(new_preset)
-                    existing_preset_names.add(preset_name.lower())
-                    stats["presets_merged"] += 1
-
-            # Ensure at least one default preset
-            presets = target_metadata.get("presets", [])
-            if presets:
-                has_default = any(isinstance(p, dict) and p.get("is_default") for p in presets)
-                if not has_default and isinstance(presets[0], dict):
-                    presets[0]["is_default"] = True
-
-            # If no presets exist, create a default one with all tracks
-            if not presets:
-                default_preset = {
-                    "id": str(uuid.uuid4()),
-                    "name": "Default",
-                    "is_default": True,
-                    "tracks": {},
-                }
-                for track in target_metadata.get("tracks", []):
-                    default_preset["tracks"][track["id"]] = {
-                        "volume": 0.7,
-                        "enabled": True,
-                    }
-                target_metadata["presets"] = [default_preset]
-
-            # Save metadata
-            metadata_path = theme_path / "metadata.json"
-            with open(metadata_path, 'w', encoding='utf-8') as f:
-                json.dump(target_metadata, f, indent=2, ensure_ascii=False)
-
-            # Build result message
-            parts = []
-            if stats["tracks_copied"]:
-                parts.append(f"{stats['tracks_copied']} tracks copied")
-            if stats["tracks_skipped"]:
-                parts.append(f"{stats['tracks_skipped']} skipped")
-            if stats["tracks_renamed"]:
-                parts.append(f"{stats['tracks_renamed']} renamed")
-            if stats["presets_merged"]:
-                parts.append(f"{stats['presets_merged']} presets merged")
-            if stats["presets_skipped"]:
-                parts.append(f"{stats['presets_skipped']} presets skipped")
-
-            if is_new_theme:
-                message = f"Created merged theme '{theme_name}'"
-            else:
-                message = f"Merged into '{theme_name}'"
-
-            if parts:
-                message += f": {', '.join(parts)}"
-
-            return {
-                "success": True,
-                "message": message,
-                "refresh_themes": True,  # Signal API to auto-refresh themes
-                "warnings": warnings if warnings else None,
-                "data": {
-                    "theme_name": theme_name,
-                    "theme_path": str(theme_path),
-                    "is_new_theme": is_new_theme,
-                    "stats": stats,
-                },
-            }
-
+        except ThemeEditError as e:
+            return {"success": False, "message": f"Nothing was merged: {e}"}
         except Exception as e:
-            import traceback
-            tb = traceback.format_exc()
-            logger.error(f"Error merging themes: {e}\n{tb}")
-            # Include more detail in error message for debugging
-            error_detail = f"{type(e).__name__}: {e}"
-            return {
-                "success": False,
-                "message": f"Error merging themes: {error_detail}",
-            }
+            logger.error(f"Error merging themes: {e}", exc_info=True)
+            return {"success": False, "message": f"Nothing was merged: {type(e).__name__}: {e}"}
 
-    def _load_metadata(self, theme_path: Path) -> dict:
-        """Load metadata.json for a theme, with repair if needed."""
-        metadata_path = theme_path / "metadata.json"
+        # Build result message
+        parts = []
+        if stats["tracks_copied"]:
+            parts.append(f"{stats['tracks_copied']} tracks copied")
+        if stats["tracks_skipped"]:
+            parts.append(f"{stats['tracks_skipped']} skipped")
+        if stats["tracks_renamed"]:
+            parts.append(f"{stats['tracks_renamed']} renamed")
+        if stats["links_kept"]:
+            parts.append(f"{stats['links_kept']} linked files")
+        if stats["presets_merged"]:
+            parts.append(f"{stats['presets_merged']} presets merged")
+        if stats["presets_renamed"]:
+            parts.append(f"{stats['presets_renamed']} presets renamed")
 
-        if not metadata_path.exists():
-            # Generate basic metadata from files
-            return self._generate_metadata(theme_path)
+        theme_name = result["name"]
+        message = f"Created merged theme '{theme_name}'" if result["is_new"] else f"Merged into '{theme_name}'"
+        if parts:
+            message += f": {', '.join(parts)}"
 
-        try:
-            with open(metadata_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Corrupted metadata.json in {theme_path.name}, repairing: {e}")
-            return self._repair_metadata(theme_path)
-
-    def _generate_metadata(self, theme_path: Path) -> dict:
-        """Generate metadata from audio files in theme folder."""
-        metadata = {
-            "name": theme_path.name,
-            "tracks": [],
-            "presets": [],
+        return {
+            "success": True,
+            "message": message,
+            "refresh_themes": True,  # Signal API to auto-refresh themes
+            "warnings": warnings if warnings else None,
+            "data": {
+                "theme_id": result["theme_id"],
+                "theme_name": theme_name,
+                "theme_path": str(result["folder"]),
+                "is_new_theme": result["is_new"],
+                "stats": stats,
+            },
         }
 
-        audio_extensions = {'.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac'}
-        for f in sorted(theme_path.iterdir()):
-            if f.is_file() and f.suffix.lower() in audio_extensions:
-                track_id = self._generate_track_id(f.name)
-                metadata["tracks"].append({
-                    "id": track_id,
-                    "file": f.name,
-                    "name": f.stem,
-                })
+    # =========================================================================
+    # Steps (each only plans changes on the ThemeEdit)
+    # =========================================================================
 
-        return metadata
+    def _copy_files(self, edit, metadata, folder: Path, handle_duplicates: str, stats: dict) -> dict:
+        """Plan copying a source's audio files. Returns source key -> key in the target."""
+        from sonorium.core.theme_metadata import TrackSettings
+        from sonorium.plugins.theme_api import resolve_auto
+        from sonorium.theme_files import theme_audio_files, track_group, track_key
 
-    def _repair_metadata(self, theme_path: Path) -> dict:
-        """Attempt to repair corrupted metadata.json."""
-        metadata_path = theme_path / "metadata.json"
-        repaired = self._generate_metadata(theme_path)
+        key_map = {}
+        threshold = self._threshold(metadata)
+        for path in theme_audio_files(folder):
+            key = track_key(folder, path)
+            group = track_group(folder, path)
+            existing = self._existing_key(edit, edit.group_name(group) + "/" + path.stem if group else key)
+            if existing is not None and handle_duplicates == "skip":
+                key_map[key] = existing
+                stats["tracks_skipped"] += 1
+                continue
+            settings = resolve_auto(key, metadata.tracks.get(key) or TrackSettings(), path, threshold)
+            new_key = edit.add_file(path, path.name, group=group, settings=self._track_settings(settings))
+            key_map[key] = new_key
+            stats["tracks_copied"] += 1
+            if existing is not None:
+                stats["tracks_renamed"] += 1
+        return key_map
 
-        # Try to salvage data from corrupted file
-        if metadata_path.exists():
+    def _map_links(self, edit, metadata, key_maps: dict, stats: dict, warnings: list) -> None:
+        """
+        A source's linked files: a link to the target theme or to a theme
+        merged in becomes that track; a link to another theme stays a link.
+        """
+        from sonorium.core import intrusions
+        from sonorium.core.theme_metadata import TrackSettings
+        from sonorium.plugins.theme_api import resolve_auto
+
+        key_map = key_maps[metadata.id]
+        folder_for_id = intrusions.folder_for_id_in(self.audio_path)
+        for key, link in (metadata.links or {}).items():
+            theme_id, track = link["theme"], link["track"]
+            if theme_id == edit.theme_id:
+                found = self._existing_key(edit, track)
+                if found is not None:
+                    key_map[key] = found
+                else:
+                    warnings.append(f"Linked file '{key}' of '{metadata.name}' was not found and was left out")
+                continue
+            if theme_id in key_maps:
+                if track in key_maps[theme_id]:
+                    key_map[key] = key_maps[theme_id][track]
+                else:
+                    warnings.append(f"Linked file '{key}' of '{metadata.name}' was not found and was left out")
+                continue
+            group = intrusions.link_group(key)
+            same = next((k for k, l in edit.metadata.links.items()
+                         if l == {"theme": theme_id, "track": track} and intrusions.link_group(k) == group), None)
+            if same is not None:
+                key_map[key] = same
+                continue
+            path = intrusions.resolve_link(link, folder_for_id)
+            settings = resolve_auto(key, metadata.tracks.get(key) or TrackSettings(muted=True), path,
+                                    self._threshold(metadata))
+            key_map[key] = edit.add_link(theme_id, track, group=group, settings=self._track_settings(settings))
+            stats["links_kept"] += 1
+
+    def _copy_groups(self, edit, metadata, warnings: list) -> dict:
+        """A source's group settings, for groups the target has none for. Returns source group -> target group."""
+        from sonorium.plugins.theme_api import ThemeEditError
+
+        before = {name.casefold(): name for name in edit.metadata.groups}
+        group_map = {}
+        names = list(metadata.groups or {})
+        names += [key.split("/", 1)[0] for key in metadata.tracks if "/" in key and key.split("/", 1)[0] not in names]
+        for name in names:
             try:
-                import re
-                with open(metadata_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
+                target_name = edit.group_name(name)
+            except ThemeEditError as e:
+                warnings.append(f"Group '{name}' of '{metadata.name}' was left out: {e}")
+                continue
+            group_map[name] = target_name
+            settings = (metadata.groups or {}).get(name)
+            if not isinstance(settings, dict):
+                continue
+            existing = before.get(target_name.casefold())
+            if existing is not None:
+                if (edit.metadata.groups[existing] or {}).get("mode") != settings.get("mode"):
+                    warnings.append(f"Group '{existing}' keeps its settings; the tracks from "
+                                    f"'{metadata.name}' play as it does")
+                continue
+            if settings.get("mode") == "intrusion":
+                settings = {k: v for k, v in settings.items() if k != "mode"}
+            edit.set_group(target_name, settings)
+        return group_map
 
-                # Try to extract name
-                name_match = re.search(r'"name"\s*:\s*"([^"]+)"', content)
-                if name_match:
-                    repaired["name"] = name_match.group(1)
+    def _copy_presets(self, edit, metadata, key_map: dict, group_map: dict, stats: dict, warnings: list) -> None:
+        """A source's presets, with their keys following and a name clash renamed "Name (Theme)"."""
+        from sonorium.plugins.theme_api import PRESET_GROUP_FIELDS, PRESET_TRACK_FIELDS
 
-                # Try to extract description
-                desc_match = re.search(r'"description"\s*:\s*"([^"]+)"', content)
-                if desc_match:
-                    repaired["description"] = desc_match.group(1)
+        first_default = True
+        for preset in (metadata.presets or {}).values():
+            if not isinstance(preset, dict):
+                continue
+            name = str(preset.get("name") or "Preset").strip() or "Preset"
+            if edit.free_preset_name(name) != name:
+                name = edit.free_preset_name(f"{name} ({metadata.name})")
+                stats["presets_renamed"] += 1
 
-                # Backup corrupted file
-                backup_path = theme_path / "metadata.json.corrupted"
-                shutil.copy2(metadata_path, backup_path)
+            tracks = {}
+            for key, entry in (preset.get("tracks") or {}).items():
+                if key not in key_map or not isinstance(entry, dict):
+                    continue
+                clean = self._clean(entry, PRESET_TRACK_FIELDS)
+                if clean.get("playback_mode") == "auto" or (
+                        "playback_mode" not in clean and getattr(metadata.tracks.get(key), "playback_mode", None) == "auto"):
+                    clean.update(self._resolved_entry(metadata, key, clean))
+                tracks.setdefault(key_map[key], clean)
+            groups = {}
+            for group, entry in (preset.get("groups") or {}).items():
+                if group in group_map and isinstance(entry, dict):
+                    groups[group_map[group]] = self._clean(entry, PRESET_GROUP_FIELDS)
 
-            except Exception:
+            # The source's default may become the target's default, if it has none
+            is_default = None if (preset.get("is_default") and first_default) else False
+            if preset.get("is_default"):
+                first_default = False
+            edit.add_preset(name, tracks, groups=groups or None, is_default=is_default)
+            stats["presets_merged"] += 1
+
+    # =========================================================================
+    # Helpers
+    # =========================================================================
+
+    @staticmethod
+    def _existing_key(edit, key: str) -> Optional[str]:
+        """The target's key equal to key without case, if any."""
+        lowered = key.casefold()
+        return next((k for k in edit.keys() if k.casefold() == lowered), None)
+
+    @staticmethod
+    def _threshold(metadata) -> float:
+        try:
+            return float(metadata.short_file_threshold)
+        except (TypeError, ValueError):
+            return 15.0
+
+    @staticmethod
+    def _track_settings(settings) -> dict:
+        """A TrackSettings as the dict ThemeEdit takes."""
+        return {k: v for k, v in settings.to_dict().items()}
+
+    @staticmethod
+    def _clean(entry: dict, fields: tuple) -> dict:
+        """Only the known fields of a preset entry whose values are usable (others are dropped)."""
+        from sonorium.plugins.theme_api import ThemeEditError, _check_field
+
+        clean = {}
+        for name in fields:
+            if name not in entry:
+                continue
+            if name == "playback_mode" and entry[name] == "auto":
+                clean[name] = "auto"  # resolved by the caller
+                continue
+            try:
+                clean[name] = _check_field(name, entry[name])
+            except ThemeEditError:
                 pass
+        return clean
 
-        # Create a default preset if we have tracks
-        if repaired["tracks"]:
-            default_preset = {
-                "id": str(uuid.uuid4()),
-                "name": "Default",
-                "is_default": True,
-                "tracks": {},
-            }
-            for track in repaired["tracks"]:
-                default_preset["tracks"][track["id"]] = {
-                    "volume": 0.7,
-                    "enabled": True,
-                }
-            repaired["presets"] = [default_preset]
+    def _resolved_entry(self, metadata, key: str, entry: dict) -> dict:
+        """playback_mode (and presence) for a preset entry that plays as "auto"."""
+        from sonorium.core import theme_groups
+        from sonorium.core.theme_metadata import TrackSettings
+        from sonorium.plugins.theme_api import resolve_auto
 
-        # Save repaired metadata
-        with open(metadata_path, 'w', encoding='utf-8') as f:
-            json.dump(repaired, f, indent=2, ensure_ascii=False)
+        base = metadata.tracks.get(key) or TrackSettings()
+        settings = TrackSettings.from_dict({**base.to_dict(), **entry, "playback_mode": "auto"})
+        folder = self._folder_of(metadata)
+        try:
+            path = theme_groups.find_track_file(folder, key) if folder else None
+        except theme_groups.GroupError:
+            path = None
+        resolved = resolve_auto(key, settings, path, self._threshold(metadata))
+        return {"playback_mode": resolved.playback_mode, "presence": resolved.presence}
 
-        logger.info(f"Repaired metadata.json for {theme_path.name}")
-        return repaired
+    def _folder_of(self, metadata) -> Optional[Path]:
+        from sonorium.plugins.theme_api import find_theme
+        return find_theme(self.audio_path, metadata.id)
 
-    def _generate_track_id(self, filename: str) -> str:
-        """Generate a consistent track ID from filename."""
-        return hashlib.md5(filename.encode()).hexdigest()[:12]
-
-    def _sanitize_filename(self, name: str) -> str:
-        """Sanitize a string for use as a filename."""
-        # Remove/replace invalid characters
-        invalid_chars = '<>:"/\\|?*'
-        for char in invalid_chars:
-            name = name.replace(char, '_')
-        # Limit length
-        if len(name) > 100:
-            name = name[:100]
-        return name.strip()
+    @staticmethod
+    def _has_sequences(folder: Path) -> bool:
+        from sonorium.core.theme_presets import BrokenJsonError, load_presets_doc
+        try:
+            return bool(load_presets_doc(folder).get("sequences"))
+        except BrokenJsonError:
+            return False

@@ -103,6 +103,15 @@ else
     export SONORIUM__MQTT_PASSWORD="${MQTT_PASS_CONFIG}"
 fi
 
+# Sign-in options (read again by Sonorium from options.json)
+if [[ "$(option bypass_login)" == "true" ]]; then
+    bashio::log.warning "bypass_login is on: anyone on your network can use and change Sonorium without signing in."
+    bashio::log.warning "Reset your account under Settings > Users & devices, then set bypass_login back to false."
+fi
+if [[ "$(option web_ui_only_through_ha)" == "true" ]]; then
+    bashio::log.info "web_ui_only_through_ha is on: the direct ports serve streams and the app's API, not the web UI."
+fi
+
 bashio::log.info "Configuration:"
 bashio::log.info "  Stream URL: ${SONORIUM__STREAM_URL}"
 bashio::log.info "  Audio Path: ${SONORIUM__PATH_AUDIO}"
@@ -158,7 +167,7 @@ fi
 
 # Test the actual recording module import
 bashio::log.debug "Testing sonorium.recording import..."
-if ! python3 -c "from sonorium.recording import RecordingMetadata" 2>&1; then
+if ! python3 -c "from sonorium.recording import AudioFile" 2>&1; then
     bashio::log.error "FAILED: sonorium.recording import"
     IMPORTS_OK=false
 fi

@@ -15,7 +15,7 @@ import json
 from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
-from fmtr.tools import http
+from sonorium import http_client as http
 from sonorium.obs import logger
 
 # Try to import websockets, fall back gracefully if not available
@@ -416,9 +416,32 @@ class HARegistry:
             play_via = overrides.get("play_via")
             speaker.play_via = play_via if any(m["id"] == play_via for m in speaker.merged) else "ha"
 
+        previous, had_speakers = getattr(self, "_speakers", None) or {}, getattr(self, "_speakers_known", False)
         self._speakers = speakers
         self._hierarchy = self._link(speakers)
+        if had_speakers:
+            self._publish_speaker_changes(previous, speakers)
+        self._speakers_known = had_speakers or bool(speakers)
         return self._hierarchy
+
+    @staticmethod
+    def _publish_speaker_changes(before: dict, after: dict) -> None:
+        """speaker.added/removed/unavailable/available events (not for the first list at start-up)."""
+        try:
+            from sonorium.plugins import events
+        except Exception:
+            return
+        for speaker_id, speaker in after.items():
+            old = before.get(speaker_id)
+            if old is None:
+                events.publish("speaker.added", {"speaker_id": speaker_id, "name": speaker.name, "type": speaker.type})
+            elif old.online and not speaker.online:
+                events.publish("speaker.unavailable", {"speaker_id": speaker_id, "name": speaker.name})
+            elif not old.online and speaker.online:
+                events.publish("speaker.available", {"speaker_id": speaker_id, "name": speaker.name})
+        for speaker_id, speaker in before.items():
+            if speaker_id not in after:
+                events.publish("speaker.removed", {"speaker_id": speaker_id, "name": speaker.name})
 
     def _link(self, speakers: dict[str, Speaker]) -> SpeakerHierarchy:
         """Place speakers in their areas and areas on their floors."""
@@ -520,6 +543,34 @@ class HARegistry:
         """Convert REST API URL to WebSocket URL."""
         from sonorium.runtime import ha_websocket_url
         return ha_websocket_url(self.api_url)
+
+    async def ws_commands(self, messages: list[dict], timeout: float = 30.0) -> list[dict]:
+        """
+        Send WebSocket API commands (each a dict without "id") over one
+        authenticated connection, in order, and return each one's result
+        message ({"success": ..., "result": ...} or {"success": False,
+        "error": {"code", "message"}}). Raises ConnectionError when Home
+        Assistant can't be reached or the token is refused.
+        """
+        if not WEBSOCKETS_AVAILABLE:
+            raise ConnectionError("WebSocket library not available")
+        replies = []
+        async with websockets.connect(self._get_websocket_url(), max_size=64 * 1024 * 1024) as websocket:
+            hello = json.loads(await asyncio.wait_for(websocket.recv(), timeout=5.0))
+            if hello.get("type") != "auth_required":
+                raise ConnectionError(f"Unexpected WebSocket message: {hello.get('type')}")
+            await websocket.send(json.dumps({"type": "auth", "access_token": self.token}))
+            auth = json.loads(await asyncio.wait_for(websocket.recv(), timeout=5.0))
+            if auth.get("type") != "auth_ok":
+                raise ConnectionError("Home Assistant refused the access token")
+            for number, message in enumerate(messages, start=1):
+                await websocket.send(json.dumps({**message, "id": number}))
+                while True:
+                    reply = json.loads(await asyncio.wait_for(websocket.recv(), timeout=timeout))
+                    if reply.get("id") == number and reply.get("type") == "result":
+                        replies.append(reply)
+                        break
+        return replies
 
     async def _ws_fetch_registries(self) -> tuple[list, list, list, list]:
         """

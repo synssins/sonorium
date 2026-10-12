@@ -1,4 +1,4 @@
+"""Sonorium's version, kept in the plain-text `version` file beside this module (the release workflow writes it)."""
 from pathlib import Path
 
-path = Path(__file__).absolute().parent / 'version'
-__version__ = path.read_text().strip()
+__version__ = Path(__file__).resolve().with_name("version").read_text(encoding="utf-8").strip()

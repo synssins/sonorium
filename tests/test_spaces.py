@@ -25,14 +25,12 @@ def spaces():
 
 @pytest.fixture
 def registry_module():
-    fmtr = types.ModuleType("fmtr")
-    fmtr_tools = types.ModuleType("fmtr.tools")
-    fmtr_tools.http = MagicMock()
-    fmtr.tools = fmtr_tools
+    http_client = types.ModuleType("sonorium.http_client")
+    http_client.Client = MagicMock()
     runtime = types.ModuleType("sonorium.runtime")
     runtime.ha_configured = lambda: False
     runtime.ha_websocket_url = lambda url: url
-    with patch.dict(sys.modules, {"fmtr": fmtr, "fmtr.tools": fmtr_tools, "sonorium.runtime": runtime}):
+    with patch.dict(sys.modules, {"sonorium.http_client": http_client, "sonorium.runtime": runtime}):
         spec = importlib.util.spec_from_file_location("spaces_registry_under_test", ROOT / "ha" / "registry.py")
         module = importlib.util.module_from_spec(spec)
         sys.modules["spaces_registry_under_test"] = module  # dataclasses look their module up here

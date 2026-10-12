@@ -1,18 +1,32 @@
 """
-Sonorium MQTT Client - paho-mqtt based client for Home Assistant integration.
-
-Replaces the HACO-based client with a simpler paho-mqtt implementation
-that integrates with SonoriumMQTTManager for HA entity management.
+The running Sonorium behind the web app (Backend): the theme library and the
+MQTT connection Home Assistant's entities go through, and how the broker is
+found (find_mqtt_broker). MQTTClient is a small asyncio wrapper around
+paho-mqtt, used by ha/mqtt_entities.py.
 """
 import asyncio
-from typing import Callable, Awaitable
+import json
+import urllib.error
+import urllib.request
+from typing import Awaitable, Callable, NamedTuple
 
 import paho.mqtt.client as paho_mqtt
 
-from sonorium.api import ApiSonorium
-from sonorium.device import Sonorium
 from sonorium import runtime
+from sonorium.api import WebApp
+from sonorium.device import Library
 from sonorium.obs import logger
+
+DEFAULT_MQTT_PORT = 1883
+# The Supervisor's record of the MQTT service (the Mosquitto add-on registers it)
+SUPERVISOR_MQTT_SERVICE = "/services/mqtt"
+# Shown when no broker is set and the Supervisor knows none
+NO_BROKER_HELP = (
+    "MQTT host not configured. No MQTT broker is registered with the Supervisor. Either:\n"
+    "  1. Install the Mosquitto broker addon in Home Assistant. If it is already\n"
+    "     installed, make sure it is started and 'Start on boot' is on, then restart Sonorium, or\n"
+    "  2. Set 'sonorium__mqtt_host' in addon configuration"
+)
 
 
 class MQTTClient:
@@ -45,10 +59,9 @@ class MQTTClient:
         self._topics: set[str] = set()
         self._loop: asyncio.AbstractEventLoop | None = None
 
-        # Set up callbacks
-        self._client.on_connect = self._on_connect
-        self._client.on_message = self._on_message
-        self._client.on_disconnect = self._on_disconnect
+        # paho calls these from its own network thread
+        paho = self._client
+        paho.on_connect, paho.on_disconnect, paho.on_message = self._on_connect, self._on_disconnect, self._on_message
 
         # Set credentials if provided
         if username and password:
@@ -171,155 +184,120 @@ class MQTTClient:
         logger.debug(f"  Subscribed to: {topic}")
 
 
-class ClientSonorium:
+class MqttBroker(NamedTuple):
+    """Where to reach the MQTT broker. No host: run without MQTT (standalone only)."""
+    host: str | None
+    port: int = DEFAULT_MQTT_PORT
+    username: str | None = None
+    password: str | None = None
+
+
+def _configured_broker(settings) -> MqttBroker:
+    """The broker as the settings give it (run.sh: the add-on options, or bashio's MQTT service). Unset parts are None."""
+    host = settings.mqtt_host
+    if not host or host.lower() in ("auto", "none"):
+        host = None
+    secret = settings.mqtt_password.get_secret_value() if settings.mqtt_password else None
+    return MqttBroker(host=host,
+                      port=settings.mqtt_port if settings.mqtt_port and settings.mqtt_port > 0 else None,
+                      username=settings.mqtt_username or None,
+                      password=secret or None)
+
+
+def _supervisor_mqtt_service(settings) -> dict | None:
+    """The Supervisor's MQTT service record (GET /services/mqtt), or None. Problems are logged, not raised."""
+    request = urllib.request.Request(
+        settings.ha_supervisor_api + SUPERVISOR_MQTT_SERVICE,
+        headers={"Authorization": f"Bearer {settings.token}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as reply:
+            body = json.loads(reply.read().decode())
+        service = body.get("data", body)  # the record, wrapped in "data" or not
+        logger.info(f"  Supervisor API response: {list(service.keys()) if isinstance(service, dict) else 'invalid'}")
+        if isinstance(service, dict) and service.get('host'):
+            return service
+        logger.warning("  Supervisor API returned no MQTT service data")
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode(errors="replace")[:200]
+        logger.warning(f"  Supervisor API error: HTTP {e.code} - {e.reason} {detail}")
+    except Exception as e:
+        logger.warning(f"  Supervisor API fallback failed: {type(e).__name__}: {e}")
+    return None
+
+
+def find_mqtt_broker(settings) -> MqttBroker:
     """
-    Sonorium client that manages MQTT connection and API server.
+    The broker Sonorium connects to. run.sh has usually filled the settings
+    already (the add-on options, else bashio's MQTT service); if not, the
+    Supervisor is asked directly. Standalone without a broker set, Sonorium
+    runs without MQTT. In the add-on, no broker at all stops the start.
+    """
+    logger.debug("Finding the MQTT broker...")
+    host, port, username, password = _configured_broker(settings)
+    if host and not port:
+        port = DEFAULT_MQTT_PORT
+        logger.info(f"  MQTT host configured, using default port: {port}")
+    if runtime.STANDALONE and not host:
+        return MqttBroker(host=None)
 
-    Replaces the HACO-based ClientHaco with a simpler paho-mqtt implementation.
+    if not host:
+        logger.info("  MQTT not configured, trying Supervisor API fallback...")
+        service = _supervisor_mqtt_service(settings)
+        if service is not None:
+            host = service.get('host')
+            port = service.get('port') or DEFAULT_MQTT_PORT
+            # Credentials set in the options win over the service's
+            if not username and 'username' in service:
+                username = service.get('username')
+            if not password and 'password' in service:
+                password = service.get('password')
+            logger.info(f"  Got MQTT config from Supervisor API: {host}:{port}")
+
+    if not host:
+        raise RuntimeError(NO_BROKER_HELP)
+    if not port:
+        port = DEFAULT_MQTT_PORT
+        logger.info(f"  Using default MQTT port: {port}")
+    logger.debug(f"  MQTT config: {host}:{port} ({'with credentials' if username else 'anonymous'})")
+    return MqttBroker(host, port, username, password)
+
+
+class Backend:
+    """
+    The running Sonorium: the theme library (`device`) and the MQTT link to
+    Home Assistant. run() connects to the broker and then serves the web app
+    (UI, API and streams) until it shuts down.
     """
 
-    API_CLASS = ApiSonorium
-
-    def __init__(
-        self,
-        device: Sonorium,
-        hostname: str,
-        port: int = 1883,
-        username: str | None = None,
-        password: str | None = None,
-    ):
+    def __init__(self, device: Library, broker: MqttBroker):
         self.device = device
-        self._mqtt = MQTTClient(
-            hostname=hostname,
-            port=port,
-            username=username,
-            password=password,
-        )
+        self._mqtt = MQTTClient(hostname=broker.host, port=broker.port,
+                                username=broker.username, password=broker.password)
 
     def __repr__(self) -> str:
-        """Safe repr that delegates to MQTTClient (never exposes password)."""
-        return f"ClientSonorium(mqtt={self._mqtt!r})"
+        return f"Backend(mqtt={self._mqtt!r})"  # MQTTClient's repr never shows the password
 
     @property
     def mqtt_client(self) -> MQTTClient:
-        """Get the MQTT client for entity managers."""
+        """The MQTT connection, for the entity manager and Settings > Connection."""
         return self._mqtt
 
-    @logger.instrument('Connecting MQTT client to {self._mqtt.username}@{self._mqtt.hostname}:{self._mqtt.port}...')
-    async def start(self):
-        """Start the MQTT client and API server."""
-        if runtime.STANDALONE:
-            # Standalone: the web UI must come up even without a working
-            # broker, so MQTT can be configured from it. paho keeps retrying.
-            if not self._mqtt.hostname:
-                logger.info("  MQTT not configured (Settings -> Connection); Home Assistant entities disabled")
-            else:
-                try:
-                    await self._mqtt.connect()
-                except RuntimeError as e:
-                    logger.warning(f"  {e}; continuing without MQTT for now")
+    async def run(self):
+        logger.debug(f"MQTT: connecting to {self._mqtt.hostname}:{self._mqtt.port} "
+                     f"as {self._mqtt.username or 'anonymous'}, then starting the web app...")
+        if not runtime.STANDALONE:
+            await self._mqtt.connect()  # the add-on needs its broker
+        elif not self._mqtt.hostname:
+            logger.info("  MQTT not configured (Settings -> Connection); Home Assistant entities disabled")
         else:
-            # Connect to MQTT broker
-            await self._mqtt.connect()
-
-        # Launch the API server
-        await self.API_CLASS.launch_async(self)
+            # The web UI must come up even when the broker is down, so MQTT
+            # can be fixed from it; paho keeps retrying meanwhile
+            try:
+                await self._mqtt.connect()
+            except RuntimeError as e:
+                logger.warning(f"  {e}; continuing without MQTT for now")
+        await WebApp(self).serve()
 
     async def stop(self):
-        """Stop the client."""
         await self._mqtt.disconnect()
-
-    @classmethod
-    @logger.instrument('Instantiating MQTT client...')
-    def from_supervisor(cls, device: Sonorium, **kwargs):
-        """
-        Create MQTT client with configuration from environment/settings.
-
-        Configuration priority (handled in run.sh before Python starts):
-        1. Manual config from addon options (sonorium__mqtt_host != "auto")
-        2. Auto-detect via bashio::services mqtt (recommended HA method)
-        3. Fallback: Direct Supervisor API call (this code, if above failed)
-
-        Username/password are optional (allows anonymous connections).
-        """
-        import urllib.request
-        import json
-        from sonorium.settings import settings
-
-        # Get config from environment (set by run.sh via bashio::services or manual config)
-        mqtt_host = settings.mqtt_host if settings.mqtt_host and settings.mqtt_host.lower() not in ("auto", "none") else None
-        mqtt_port = settings.mqtt_port if settings.mqtt_port and settings.mqtt_port > 0 else None
-        mqtt_username = settings.mqtt_username if settings.mqtt_username else None
-        # Extract password from SecretStr (never log this value!)
-        mqtt_password = settings.mqtt_password.get_secret_value() if settings.mqtt_password else None
-        mqtt_password = mqtt_password if mqtt_password else None  # Empty string -> None
-
-        # If host is set but port is not, use default port
-        if mqtt_host and not mqtt_port:
-            mqtt_port = 1883
-            logger.info(f"  MQTT host configured, using default port: {mqtt_port}")
-
-        if runtime.STANDALONE and not mqtt_host:
-            return cls(device=device, hostname=None, **kwargs)
-
-        # Fallback: Try Supervisor API directly if bashio::services didn't provide config
-        # This is a backup - bashio::services in run.sh should have already set these
-        if not mqtt_host:
-            logger.info("  MQTT not configured, trying Supervisor API fallback...")
-            try:
-                url = f"{settings.ha_supervisor_api}/services/mqtt"
-                req = urllib.request.Request(
-                    url,
-                    headers={
-                        "Authorization": f"Bearer {settings.token}",
-                        "Content-Type": "application/json",
-                    },
-                )
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    response_json = json.loads(response.read().decode())
-
-                # Handle both response formats: direct fields or wrapped in "data"
-                data = response_json.get("data", response_json)
-                logger.info(f"  Supervisor API response: {list(data.keys()) if isinstance(data, dict) else 'invalid'}")
-
-                if isinstance(data, dict) and data.get('host'):
-                    mqtt_host = data.get('host')
-                    mqtt_port = data.get('port') or 1883
-                    if not mqtt_username and 'username' in data:
-                        mqtt_username = data.get('username')
-                    if not mqtt_password and 'password' in data:
-                        mqtt_password = data.get('password')
-                    logger.info(f"  Got MQTT config from Supervisor API: {mqtt_host}:{mqtt_port}")
-                else:
-                    logger.warning("  Supervisor API returned no MQTT service data")
-            except urllib.error.HTTPError as e:
-                body = e.read().decode(errors="replace")[:200]
-                logger.warning(f"  Supervisor API error: HTTP {e.code} - {e.reason} {body}")
-            except Exception as e:
-                logger.warning(f"  Supervisor API fallback failed: {type(e).__name__}: {e}")
-
-        # Validate we have at least host and port
-        if not mqtt_host:
-            raise RuntimeError(
-                "MQTT host not configured. No MQTT broker is registered with the Supervisor. Either:\n"
-                "  1. Install the Mosquitto broker addon in Home Assistant. If it is already\n"
-                "     installed, make sure it is started and 'Start on boot' is on, then restart Sonorium, or\n"
-                "  2. Set 'sonorium__mqtt_host' in addon configuration"
-            )
-        if not mqtt_port:
-            mqtt_port = 1883  # Default MQTT port
-            logger.info(f"  Using default MQTT port: {mqtt_port}")
-
-        # Log final configuration (mask password)
-        auth_status = "with credentials" if mqtt_username else "anonymous"
-        logger.debug(f"  MQTT config: {mqtt_host}:{mqtt_port} ({auth_status})")
-
-        # Create client
-        return cls(
-            device=device,
-            hostname=mqtt_host,
-            port=mqtt_port,
-            username=mqtt_username,
-            password=mqtt_password,
-            **kwargs
-        )

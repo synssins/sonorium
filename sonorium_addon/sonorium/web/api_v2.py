@@ -8,6 +8,7 @@ theme cycling, and retrieve speaker hierarchy from Home Assistant.
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import Optional
 from dataclasses import asdict
 
@@ -52,6 +53,7 @@ class CreateSessionRequest(BaseModel):
     adhoc_selection: Optional[SpeakerSelectionModel] = None
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
+    announcements: Optional[bool] = None  # announcements play on it (default on)
 
 
 class UpdateSessionRequest(BaseModel):
@@ -62,6 +64,7 @@ class UpdateSessionRequest(BaseModel):
     adhoc_selection: Optional[SpeakerSelectionModel] = None
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
+    announcements: Optional[bool] = None  # announcements play on this channel
 
 
 class SessionResponse(BaseModel):
@@ -84,7 +87,9 @@ class SessionResponse(BaseModel):
     sequence: Optional[dict] = None  # Sequence status: name, step, current preset, next change
     playlist: Optional[dict] = None  # Playlist status: name, entry, theme, next change
     speakers_muted: bool = False  # the speakers' stream is silenced
+    announcements: bool = True  # announcements play on it (off: none plays, from anywhere)
     listening: bool = False  # a browser listens (its mix runs even with the speakers stopped)
+    outputs: list[dict] = Field(default_factory=list)  # devices the app reports playing it (core/outputs.py)
     recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
     created_at: str
     last_played_at: Optional[str]
@@ -216,6 +221,8 @@ class PluginResponse(BaseModel):
     description: str
     author: str
     enabled: bool
+    builtin: bool = False
+    auth_provider: bool = False  # the Users plugin: switching it off opens Sonorium
     settings: dict
     ui_schema: dict
     settings_schema: dict
@@ -252,6 +259,15 @@ def _preset_choice(session) -> Optional[str]:
     return choice_id(sequence_id) if sequence_id else getattr(session, 'preset_id', None)
 
 
+def _outputs_of(session, session_manager) -> list[dict]:
+    outputs = getattr(session_manager, "outputs", None)
+    try:
+        described = outputs.describe(session.id) if outputs is not None else []
+        return described if isinstance(described, list) else []
+    except Exception:
+        return []
+
+
 def _session_to_response(session, session_manager) -> SessionResponse:
     """Convert a Session to SessionResponse."""
     try:
@@ -278,7 +294,9 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         sequence=playback.get("sequence"),
         playlist=playback.get("playlist"),
         speakers_muted=session.speakers_muted,
+        announcements=getattr(session, "announcements", True),
         listening=session_manager.is_listened(session),
+        outputs=_outputs_of(session, session_manager),
         recent=list(reversed(session.recent)),
         created_at=session.created_at,
         last_played_at=session.last_played_at,
@@ -286,6 +304,12 @@ def _session_to_response(session, session_manager) -> SessionResponse:
 
 
 # --- API Router Factory ---
+
+def _caller(request: Request):
+    """Who made the request (sonorium/auth)."""
+    from sonorium.auth.middleware import principal_of
+    return principal_of(request)
+
 
 def create_api_router(
     session_manager,
@@ -324,13 +348,21 @@ def create_api_router(
         Configured APIRouter
     """
     router = APIRouter(prefix="/api", tags=["api"])
+
+    # A speaker's own volume and mute, set from the app (web/app_routes.py)
+    from sonorium.core.speaker_live import SpeakerLive
+    speaker_live = SpeakerLive(lambda: getattr(session_manager, "media_controller", None))
+
+    # Settings > Advanced's playback values: the mixer reads them from this store
+    from sonorium import playback_values
+    playback_values.set_source(lambda: state_store.settings.playback_values)
     
     # --- Debug Endpoint ---
     
     @router.get("/debug/speakers")
     async def debug_speakers() -> dict:
         """Debug endpoint to show raw speaker discovery data."""
-        from fmtr.tools import http
+        from sonorium import http_client as http
         from sonorium.settings import settings
         
         debug_info = {
@@ -410,11 +442,36 @@ def create_api_router(
     # --- Session Endpoints ---
     
     @router.get("/sessions")
-    async def list_sessions() -> list[SessionResponse]:
-        """List all sessions."""
-        sessions = session_manager.list()
+    async def list_sessions(http: Request) -> list[SessionResponse]:
+        """List all sessions (a key limited to some channels sees only those)."""
+        caller = _caller(http)
+        sessions = [s for s in session_manager.list() if caller.can_channel(s.id)]
         return [_session_to_response(s, session_manager) for s in sessions]
-    
+
+    @router.get("/now-playing")
+    async def now_playing(http: Request) -> dict:
+        """
+        The playing channels as the mixer has them right now (the Status page
+        asks a few times a second while it is open): each track's state, mode,
+        level and the seconds until its next change (sonorium/now_playing.py).
+        "at" is the server's time of the snapshot (seconds since the epoch).
+        """
+        import time
+        from sonorium.now_playing import channel_now
+        caller = _caller(http)
+        channels = []
+        for session in session_manager.list():
+            if not caller.can_channel(session.id):
+                continue
+            try:
+                entry = channel_now(session_manager, session)
+            except Exception as e:
+                logger.debug(f"Now playing: '{session.name}' not read: {e}")
+                entry = None
+            if entry is not None:
+                channels.append(entry)
+        return {"at": round(time.time(), 3), "channels": channels}
+
     @router.post("/sessions", status_code=status.HTTP_201_CREATED)
     async def create_session(request: CreateSessionRequest) -> SessionResponse:
         """Create a new session."""
@@ -431,6 +488,9 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e).strip("'\""))
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+        if request.announcements is False:
+            session.announcements = False
+            session_manager.state.save()
 
         if mqtt_manager:
             try:
@@ -450,11 +510,18 @@ def create_api_router(
         return _session_to_response(session, session_manager)
     
     @router.put("/sessions/{session_id}")
-    async def update_session(session_id: str, request: UpdateSessionRequest) -> SessionResponse:
+    async def update_session(session_id: str, request: UpdateSessionRequest, http: Request = None) -> SessionResponse:
         """Update an existing session."""
         # Get old session name to detect changes for MQTT discovery refresh
         old_session = session_manager.get(session_id)
         old_name = old_session.name if old_session else None
+
+        # Changing its speakers needs "Change speakers" (a key may only have "Change theme, preset and volume")
+        if old_session is not None and http is not None and not _caller(http).can("ch.speakers"):
+            new_selection = request.adhoc_selection.to_selection() if request.adhoc_selection else None
+            if ((request.speaker_group_id is not None and request.speaker_group_id != old_session.speaker_group_id)
+                    or (new_selection is not None and new_selection != old_session.adhoc_selection)):
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not allowed to change speakers")
 
         try:
             session, added_speakers, removed_speakers = session_manager.update(
@@ -472,6 +539,8 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        if request.announcements is not None and request.announcements != session.announcements:
+            session_manager.set_announcements(session_id, request.announcements)
 
         # Apply live speaker changes if session is playing
         if added_speakers or removed_speakers:
@@ -518,7 +587,8 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No theme selected")
         if not session_manager.get_theme(session.theme_id):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Theme not found")
-        
+        session_manager.guard("play", session)  # Zones: may refuse (ChannelRefused)
+
         speakers = session_manager.get_resolved_speakers(session)
         if not speakers:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No speakers selected")
@@ -552,6 +622,7 @@ def create_api_router(
         session = session_manager.get(session_id)
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        session_manager.guard("stop", session)
         session.is_playing = False
         state_store.save()
         _in_background(session_manager.pause(session_id), f"pausing '{session.name}'")
@@ -563,6 +634,7 @@ def create_api_router(
         session = session_manager.get(session_id)
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        session_manager.guard("stop", session)
         session.is_playing = False
         state_store.save()
         _in_background(session_manager.stop(session_id), f"stopping '{session.name}'")
@@ -576,30 +648,47 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         return {"volume": request.volume}
     
+    @router.put("/sessions/{session_id}/announcements")
+    async def set_session_announcements(session_id: str, request: dict) -> dict:
+        """{"on": true|false}: whether announcements play on the channel (rules, Home Assistant, MQTT, API, plugins)."""
+        on = request.get("on")
+        if not isinstance(on, bool):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="'on' must be true or false")
+        if not session_manager.set_announcements(session_id, on):
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        await _sync_mqtt(session_manager.get(session_id))  # the Announcements switch and Recent changes
+        return {"announcements": on}
+
     @router.put("/sessions/{session_id}/speakers-muted")
     async def mute_session_speakers(session_id: str, request: dict) -> dict:
         """Silence (or not) what the speakers get; a browser listening keeps hearing it."""
         muted = bool(request.get("muted"))
         if not session_manager.set_speakers_muted(session_id, muted):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        await _sync_mqtt(session_manager.get(session_id))  # the Speakers muted switch and Recent changes
         return {"speakers_muted": muted}
 
     @router.post("/sessions/{session_id}/listen")
-    async def listen_session(session_id: str) -> dict:
+    async def listen_session(session_id: str, request: Request) -> dict:
         """
         Listen here: this browser plays the channel's stream (GET stream_path
         with ?local=1). The mix starts without the speakers if they don't play,
         and runs until no browser listens. Play and Stop stay the speakers'.
+        Optional {"hold_seconds": 0-300} (or ?hold_seconds=): how long the mix
+        waits for a dropped stream to come back (default 15).
         """
+        from sonorium.web.app_routes import hold_seconds_of
+        hold = await hold_seconds_of(request)
         try:
-            channel = session_manager.listen(session_id)
+            channel = session_manager.listen(session_id, hold)
         except KeyError:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
         if channel is None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No free channel")
-        return {"channel_id": channel.id, "stream_path": channel.stream_path}
+        return {"channel_id": channel.id, "stream_path": channel.stream_path,
+                "hold_seconds": session_manager.listen_hold(session_id)}
 
     @router.delete("/sessions/{session_id}/listen")
     async def unlisten_session(session_id: str) -> dict:
@@ -949,7 +1038,7 @@ def create_api_router(
             before = session_manager.preset_overrides(theme_id, before_id)
             after = session_manager.preset_overrides(theme_id, after_id)
             result = []
-            for instance in list(theme.instances):
+            for instance in list(theme.tracks):
                 group = getattr(instance.meta, "group", None)
                 if group and group_mode(groups.get(group)) == GROUP_MODE_MERRY_GO_ROUND:
                     continue
@@ -1290,7 +1379,8 @@ def create_api_router(
         """List all available speakers (flat list)."""
         hierarchy = ha_registry.hierarchy
         speakers = hierarchy.get_all_speakers()
-        return [s.to_dict() for s in speakers]
+        # with "volume" and "muted" when they were set live (PUT /speakers/{id}/volume, /muted)
+        return [{**s.to_dict(), **speaker_live.state(s.entity_id)} for s in speakers]
     
     @router.get("/speakers/hierarchy")
     async def get_speaker_hierarchy() -> dict:
@@ -1715,6 +1805,41 @@ def create_api_router(
             master_gain=settings.master_gain,
         )
 
+    # --- Settings > Advanced: playback values ---
+
+    def _playback_values_response() -> dict:
+        return {"values": playback_values.values(), "defaults": dict(playback_values.DEFAULTS)}
+
+    @router.get("/settings/playback-values")
+    async def get_playback_values() -> dict:
+        """
+        The global playback values ("values", seconds; chances and randomness
+        as fractions, 0.3 = 30%) and their defaults.
+        """
+        return _playback_values_response()
+
+    @router.put("/settings/playback-values")
+    async def update_playback_values(request: Request) -> dict:
+        """
+        Change some playback values: {key: number, or null for the default}.
+        Unknown keys, non-numbers, negative values, chances above 1 and a range
+        whose min is above its max are 400. Playing channels follow at once
+        where they can, otherwise on the next play or loop.
+        """
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        settings = state_store.settings
+        try:
+            stored = playback_values.validate(body, settings.playback_values)
+        except ValueError as error:
+            raise HTTPException(status_code=400, detail=str(error))
+        settings.playback_values = stored
+        state_store.save()
+        logger.info(f"Settings: playback values changed: {body}")
+        return _playback_values_response()
+
     # --- Speaker Settings Endpoints ---
 
     @router.get("/settings/speakers")
@@ -1869,6 +1994,48 @@ def create_api_router(
     # NOTE: GET /themes is handled by app.py with full metadata support
     # api_v2.py only handles theme management (create, upload, delete, metadata)
 
+    def _publish(event_type: str, data: dict) -> None:
+        """An event on the plugin event bus (never fails the request)."""
+        try:
+            from sonorium.plugins import events
+            events.publish(event_type, data)
+        except Exception as e:
+            logger.debug(f"Event {event_type} not published: {e}")
+
+    async def _rescan_themes(reason: str) -> None:
+        """Rescan the themes now and wait for it (a failure is only logged)."""
+        if not on_themes_changed:
+            return
+        try:
+            task = on_themes_changed(0.0)
+            if task is not None:
+                await task
+        except asyncio.CancelledError:
+            # Another request rescheduled the refresh: that one runs instead
+            logger.debug(f"Theme refresh after {reason} was replaced by a newer one")
+        except Exception as e:
+            logger.warning(f"Theme refresh after {reason} failed: {e}")
+
+    async def _notify_theme_created(theme_id: str, theme_path) -> None:
+        """Tell the plugins about a new theme; a plugin's error never fails the theme operation."""
+        _publish("theme.created", {"theme_id": theme_id, "folder": Path(theme_path).name})
+        if not plugin_manager:
+            return
+        try:
+            await plugin_manager.notify_theme_created(theme_id, Path(theme_path))
+        except Exception as e:
+            logger.warning(f"Plugins couldn't be told about new theme '{theme_id}': {e}")
+
+    async def _notify_theme_deleted(theme_id: str) -> None:
+        """Tell the plugins a theme was deleted; a plugin's error never fails the theme operation."""
+        _publish("theme.deleted", {"theme_id": theme_id})
+        if not plugin_manager:
+            return
+        try:
+            await plugin_manager.notify_theme_deleted(theme_id)
+        except Exception as e:
+            logger.warning(f"Plugins couldn't be told about deleted theme '{theme_id}': {e}")
+
     @router.post("/themes/create")
     async def create_theme(request: Request):
         """Create a new theme folder."""
@@ -1937,13 +2104,8 @@ def create_api_router(
             (theme_path / "metadata.json").write_text(json.dumps(metadata, indent=2))
 
             # Load it now, so the editor can open it straight away
-            if on_themes_changed:
-                task = on_themes_changed(0.0)
-                if task is not None:
-                    try:
-                        await task
-                    except Exception as e:
-                        logger.warning(f"Theme refresh after creating '{name}' failed: {e}")
+            await _rescan_themes(f"creating '{name}'")
+            await _notify_theme_created(theme_id, theme_path)
 
             return {
                 "status": "ok",
@@ -2052,7 +2214,7 @@ def create_api_router(
         """Find theme folder by ID, handling sanitized names and UUID-based IDs."""
         import json
         from pathlib import Path
-        from fmtr.tools.string_tools import sanitize
+        from sonorium.utils import sanitize_id as sanitize
 
         media_paths = [
             Path("/media/sonorium"),
@@ -2156,6 +2318,13 @@ def create_api_router(
         if not theme_path:
             raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
 
+        # The theme's own id (theme_id may be its folder name), for the plugins
+        from sonorium.core.theme_presets import read_json
+        try:
+            deleted_id = (read_json(theme_path / "metadata.json") or {}).get("id") or theme_id
+        except Exception:
+            deleted_id = theme_id
+
         try:
             shutil.rmtree(theme_path)
             logger.info(f"Deleted theme folder: {theme_path}")
@@ -2169,6 +2338,7 @@ def create_api_router(
 
             if on_themes_changed:
                 on_themes_changed()
+            await _notify_theme_deleted(deleted_id)
 
             return {"status": "ok", "theme_id": theme_id, "message": "Theme deleted"}
         except Exception as e:
@@ -2341,17 +2511,22 @@ def create_api_router(
                 from sonorium.core.theme_metadata import load_theme_folder, save_theme_folder
                 import uuid
                 problems = []
+                new_id = None
                 try:
                     metadata = load_theme_folder(target_path)
                     problems = list(metadata.problems)
                     metadata.id = str(uuid.uuid4())
-                    if not save_theme_folder(target_path, metadata):
+                    if save_theme_folder(target_path, metadata):
+                        new_id = metadata.id
+                    else:
                         problems.append("Couldn't save the theme files")
                 except Exception as e:
                     logger.warning(f"Could not prepare imported theme files: {e}")
                     problems.append(f"Couldn't prepare the theme files: {e}")
 
                 logger.info(f"Imported theme '{theme_folder_name}' with {files_extracted} files")
+                if new_id:
+                    await _notify_theme_created(new_id, target_path)
 
                 return {
                     "status": "ok",
@@ -2371,6 +2546,28 @@ def create_api_router(
 
     # --- Plugin Endpoints ---
 
+    def _plugin_dir(plugin_id) -> Path:
+        """
+        The folder of a plugin id inside the plugins folder. 400 for an id
+        that isn't letters, digits, "_" and "-" or that would lead anywhere
+        else (an id is never a path: "%2E%2E" arrives as "..").
+        """
+        from sonorium.plugins.loader import is_valid_plugin_id
+        if not is_valid_plugin_id(plugin_id):
+            raise HTTPException(status_code=400, detail="Invalid plugin id")
+        plugins_dir = Path(plugin_manager.plugins_dir)
+        folder = plugins_dir / plugin_id
+        if folder.resolve().parent != plugins_dir.resolve():
+            raise HTTPException(status_code=400, detail="Invalid plugin id")
+        return folder
+
+    def _inside(folder: Path, path: Path) -> Path:
+        """path, if it is inside folder (a zip member can't write anywhere else); 400 if not."""
+        resolved = path.resolve()
+        if resolved != folder.resolve() and folder.resolve() not in resolved.parents:
+            raise HTTPException(status_code=400, detail=f"Invalid path in zip: {path.name}")
+        return path
+
     @router.get("/plugins", response_model=list[PluginResponse])
     async def list_plugins():
         """List all available plugins."""
@@ -2383,6 +2580,38 @@ def create_api_router(
 
     _catalog_cache: dict = {'data': None, 'timestamp': 0}
     CATALOG_CACHE_TTL = 3600  # 1 hour
+
+    from sonorium.plugins import loader
+
+    def _bundled_manifests() -> list:
+        """The manifests of the plugins that come with Sonorium."""
+        import json as _json
+        out = []
+        base = loader.BUILTIN_PLUGINS_DIR
+        if base is None or not base.exists():
+            return out
+        for item in sorted(base.iterdir()):
+            manifest = item / 'manifest.json'
+            if item.is_dir() and not item.name.startswith('_') and (item / 'plugin.py').exists() and manifest.exists():
+                try:
+                    data = _json.loads(manifest.read_text(encoding='utf-8'))
+                except (OSError, ValueError):
+                    continue
+                if data.get('id') == item.name:
+                    out.append(data)
+        return out
+
+    async def _install_bundled(plugin_id: str, manifest: dict):
+        """Install a built-in plugin again from the copy that comes with Sonorium."""
+        deleted = plugin_manager.state_store.settings.deleted_builtin_plugins
+        if plugin_id in deleted:
+            deleted.remove(plugin_id)
+            plugin_manager.state_store.save()
+        loader.copy_builtin_plugins(plugin_manager.plugins_dir, skip_plugins=list(deleted))
+        await plugin_manager.reload_plugins()
+        logger.info(f"Installed the built-in plugin {manifest.get('name', plugin_id)} again")
+        return {'status': 'ok', 'plugin_id': plugin_id, 'name': manifest.get('name', plugin_id),
+                'version': manifest.get('version')}
 
     @router.get("/plugins/catalog")
     async def get_plugin_catalog():
@@ -2424,12 +2653,28 @@ def create_api_router(
             if pid in installed_plugins:
                 plugin_copy['installed'] = True
                 plugin_copy['installed_version'] = installed_plugins[pid]
-                plugin_copy['update_available'] = plugin.get('version') != installed_plugins[pid]
+                newer = loader.parse_version(plugin.get('version'))
+                have = loader.parse_version(installed_plugins[pid])
+                plugin_copy['update_available'] = bool(newer and have and newer > have)
             else:
                 plugin_copy['installed'] = False
                 plugin_copy['installed_version'] = None
                 plugin_copy['update_available'] = False
             enriched_plugins.append(plugin_copy)
+
+        # Built-in plugins come with Sonorium: one that was uninstalled can be installed again
+        listed = {p.get('id') for p in enriched_plugins}
+        for manifest in _bundled_manifests():
+            pid = manifest.get('id')
+            if pid in listed:
+                continue
+            enriched_plugins.append({
+                'id': pid, 'name': manifest.get('name', pid), 'version': manifest.get('version'),
+                'description': manifest.get('description', ''), 'author': manifest.get('author', ''),
+                'category': 'Built-in', 'bundled': True,
+                'installed': pid in installed_plugins, 'installed_version': installed_plugins.get(pid),
+                'update_available': False,
+            })
 
         return {
             'version': catalog.get('version', 1),
@@ -2452,6 +2697,10 @@ def create_api_router(
         plugin_id = body.get('plugin_id')
         if not plugin_id:
             raise HTTPException(status_code=400, detail='plugin_id is required')
+
+        bundled = next((m for m in _bundled_manifests() if m.get('id') == plugin_id), None)
+        if bundled is not None and plugin_id not in plugin_manager.plugins:
+            return await _install_bundled(plugin_id, bundled)
 
         # Fetch catalog
         catalog_url = 'https://raw.githubusercontent.com/synssins/sonorium/main/plugins/catalog.json'
@@ -2501,7 +2750,10 @@ def create_api_router(
                 plugin_py = plugin_py_paths[0]
                 plugin_dir_name = plugin_py.rsplit('/', 1)[0] if '/' in plugin_py else ''
                 target_name = plugin_dir_name.split('/')[0] if plugin_dir_name else plugin_id
-                target_dir = plugin_manager.plugins_dir / target_name
+                target_dir = _plugin_dir(target_name)
+                for member in zf.namelist():
+                    if member.startswith('/') or '..' in member.replace('\\', '/').split('/'):
+                        raise HTTPException(status_code=400, detail=f'Invalid path in zip: {member}')
 
                 if target_dir.exists():
                     shutil.rmtree(target_dir)
@@ -2514,6 +2766,7 @@ def create_api_router(
                         continue
                     else:
                         target_path = target_dir / member
+                    _inside(target_dir, target_path)
 
                     if member.endswith('/'):
                         target_path.mkdir(parents=True, exist_ok=True)
@@ -2544,6 +2797,8 @@ def create_api_router(
                 'message': f'Plugin "{plugin_info.get("name", plugin_id)}" installed successfully'
             }
 
+        except HTTPException:
+            raise
         except zipfile.BadZipFile:
             raise HTTPException(status_code=400, detail='Invalid ZIP file from catalog')
         except Exception as e:
@@ -2601,28 +2856,51 @@ def create_api_router(
         return {
             "plugin_id": plugin_id,
             "settings": plugin.settings,
-            "schema": plugin.get_settings_schema(),
+            "schema": plugin.settings_schema(),
         }
 
     @router.put("/plugins/{plugin_id}/settings")
     async def update_plugin_settings(plugin_id: str, request: PluginSettingsRequest):
-        """Update settings for a plugin."""
+        """
+        Change some of a plugin's settings: {"settings": {name: value}}. The
+        values are checked against the plugin's settings schema (400 for an
+        unknown name or a wrong value, nothing is saved then); the others keep
+        their value. Answers with all the plugin's settings.
+        """
+        from sonorium.plugins.settings_schema import SettingsError
+
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
 
-        success = plugin_manager.update_plugin_settings(plugin_id, request.settings)
-        if not success:
-            raise HTTPException(status_code=400, detail=f"Failed to update plugin settings: {plugin_id}")
+        try:
+            settings = await plugin_manager.update_plugin_settings(plugin_id, request.settings)
+        except KeyError:
+            raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
+        except SettingsError as e:
+            raise HTTPException(status_code=400, detail=f"Invalid settings: {e}")
 
-        return {"status": "ok", "plugin_id": plugin_id, "settings": request.settings}
+        return {"status": "ok", "plugin_id": plugin_id, "settings": settings}
 
     @router.post("/plugins/{plugin_id}/action")
     async def execute_plugin_action(plugin_id: str, request: PluginActionRequest):
-        """Execute an action on a plugin."""
+        """
+        Execute an action on a plugin. When the result says the plugin changed
+        theme files ("refresh_themes": true), the themes are rescanned before
+        answering and the result gets "themes_changed": true, so the UI reloads
+        its theme list instead of saving a stale copy over the plugin's work.
+        A theme the plugin created ("data": {"is_new_theme", "theme_id",
+        "theme_path"}) is announced to the plugins' on_theme_created hooks.
+        """
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
 
         result = await plugin_manager.call_action(plugin_id, request.action, request.data)
+        if isinstance(result, dict) and result.get("success") and result.get("refresh_themes"):
+            await _rescan_themes(f"plugin {plugin_id} action '{request.action}'")
+            result["themes_changed"] = True
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            if data.get("is_new_theme") and data.get("theme_id") and data.get("theme_path"):
+                await _notify_theme_created(data["theme_id"], Path(data["theme_path"]))
         return result
 
     @router.post("/plugins/reload")
@@ -2706,7 +2984,7 @@ def create_api_router(
                     plugin_id = 'imported_plugin'
 
                 # Check if plugin already exists
-                target_dir = plugin_manager.plugins_dir / plugin_id
+                target_dir = _plugin_dir(plugin_id)
                 if target_dir.exists():
                     # Remove old version
                     shutil.rmtree(target_dir)
@@ -2770,6 +3048,8 @@ def create_api_router(
                     "plugin_id": plugin_id
                 }
 
+        except HTTPException:
+            raise
         except zipfile.BadZipFile:
             raise HTTPException(status_code=400, detail="Invalid or corrupted ZIP file")
         except Exception as e:
@@ -2794,8 +3074,8 @@ def create_api_router(
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
 
+        plugin_dir = _plugin_dir(plugin_id)
         plugin = plugin_manager.get_plugin(plugin_id)
-        plugin_dir = plugin_manager.plugins_dir / plugin_id
 
         # Check if plugin exists (either loaded or as directory)
         if not plugin and not plugin_dir.exists():
@@ -2817,6 +3097,11 @@ def create_api_router(
             if plugin_dir.exists():
                 shutil.rmtree(plugin_dir)
                 logger.info(f"Removed plugin directory: {plugin_dir}")
+
+            # Its scheduled jobs, trigger tokens and connection values (plugins/host.py)
+            remove_data = getattr(plugin_manager, "plugin_removed", None)
+            if callable(remove_data):
+                remove_data(plugin_id)
 
             # Remove plugin settings from state
             if plugin_id in plugin_manager.state_store.settings.plugin_settings:
@@ -2841,5 +3126,9 @@ def create_api_router(
         except Exception as e:
             logger.error(f"Failed to uninstall plugin {plugin_id}: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to uninstall plugin: {str(e)}")
+
+    # The Sonorium app's routes (docs/APP_API.md section 13)
+    from sonorium.web.app_routes import add_app_routes
+    add_app_routes(router, session_manager=session_manager, ha_registry=ha_registry, speaker_live=speaker_live)
 
     return router

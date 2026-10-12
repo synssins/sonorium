@@ -1,0 +1,9 @@
+{
+  "id": "trigger_play_channel",
+  "name": "Trigger Plays a Channel",
+  "version": "1.0.0",
+  "description": "Webhook triggers that play or stop a channel.",
+  "author": "Sonorium",
+  "entry_point": "plugin.py",
+  "plugin_class": "TriggerPlayChannel"
+}

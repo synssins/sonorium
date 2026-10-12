@@ -21,11 +21,11 @@ from typing import Optional, TYPE_CHECKING, Generator
 import numpy as np
 
 from sonorium.obs import logger
+from sonorium.mp3_out import Mp3Encoder, RealtimePacer
 from sonorium.recording import SAMPLE_RATE, CROSSFADE_SAMPLES
-import av
 
 if TYPE_CHECKING:
-    from sonorium.theme import ThemeDefinition, ThemeStream
+    from sonorium.theme import LoadedTheme, ThemeMix
 
 
 # Default length of a theme-to-theme crossfade and of a channel's start/stop
@@ -87,7 +87,7 @@ class Channel:
     name: str = ""
 
     # Current theme reference
-    _current_theme: Optional[ThemeDefinition] = field(default=None, repr=False)
+    _current_theme: Optional[LoadedTheme] = field(default=None, repr=False)
 
     # Theme version - increments when theme changes
     _theme_version: int = 0
@@ -118,11 +118,11 @@ class Channel:
     _data_available: threading.Condition = field(default_factory=threading.Condition, repr=False)
 
     # Shared audio state
-    _theme_stream: Optional[ThemeStream] = field(default=None, repr=False)
+    _theme_stream: Optional[ThemeMix] = field(default=None, repr=False)
     _chunk_generator: Optional[Generator] = field(default=None, repr=False)
 
     # Pending theme change (for thread-safe crossfade), and its length in seconds
-    _pending_theme: Optional[ThemeDefinition] = field(default=None, repr=False)
+    _pending_theme: Optional[LoadedTheme] = field(default=None, repr=False)
     _pending_crossfade: float = THEME_CROSSFADE_DURATION
 
     # This channel's preset layer for the theme it plays ({track: {field: value}},
@@ -161,13 +161,19 @@ class Channel:
     # Silence chunk
     _silence: np.ndarray = field(default=None, repr=False)
 
+    # After the start/stop fade: a volume ramp (core/ramps.py), then sounds
+    # played over the mix with their duck (core/overlay.py). Set by the
+    # framework's services; None (or idle) costs nothing.
+    ramp: Optional[object] = field(default=None, repr=False)
+    overlay: Optional[object] = field(default=None, repr=False)
+
     def __post_init__(self):
         if not self.name:
             self.name = f"Channel {self.id}"
         self._silence = np.zeros((1, CHUNK_SIZE), dtype=np.int16)
 
     @property
-    def current_theme(self) -> Optional[ThemeDefinition]:
+    def current_theme(self) -> Optional[LoadedTheme]:
         """Get the current theme."""
         return self._current_theme
 
@@ -205,6 +211,11 @@ class Channel:
     def is_gliding(self) -> bool:
         """A preset glide is in progress."""
         return self._glide is not None
+
+    @property
+    def speaker_clients(self) -> int:
+        """Clients pulling the stream that aren't browsers listening here (speakers, outputs)."""
+        return max(0, self._client_count - self._local_count)
 
     def idle_seconds(self) -> float:
         """Seconds since any listener pulled audio from this playing channel."""
@@ -246,7 +257,7 @@ class Channel:
             saved = (getattr(theme, "groups", None) or {}).get(key[len(GROUP_KEY_PREFIX):]) or {}
             value = saved.get(name)
             return 1.0 if value is None else value
-        for instance in list(getattr(theme, "instances", None) or []):
+        for instance in list(getattr(theme, "tracks", None) or []):
             if instance.name == key:
                 return getattr(instance, name, None)
         return None
@@ -340,7 +351,7 @@ class Channel:
             stream.label = f"{self.name}: {theme.name}"
 
     def schedule_transitions(self, plans: list) -> None:
-        """Plan tracks' advanced transitions on the playing mix (see theme.ThemeStream.schedule_transitions)."""
+        """Plan tracks' advanced transitions on the playing mix (see theme.ThemeMix.schedule_transitions)."""
         with self._lock:
             if self._pending_theme is not None:
                 self._pending_transitions = (time.monotonic(), [dict(p) for p in plans])
@@ -359,7 +370,7 @@ class Channel:
 
     # --- Theme ---
 
-    def set_theme(self, theme: ThemeDefinition, overrides: dict | None = None,
+    def set_theme(self, theme: LoadedTheme, overrides: dict | None = None,
                   crossfade: float = THEME_CROSSFADE_DURATION, fade_in: float = 0.0) -> None:
         """
         Set or change the theme for this channel, with the channel's preset
@@ -395,9 +406,9 @@ class Channel:
                 self._track_overrides = {key: dict(values) for key, values in (overrides or {}).items()}
                 self._glide = None
                 self._xfade_old = None
-                self._theme_stream = theme.get_stream(self._track_overrides)
+                self._theme_stream = theme.new_mix(self._track_overrides)
                 self._label_stream(self._theme_stream, theme)
-                self._chunk_generator = self._theme_stream.iter_chunks()
+                self._chunk_generator = self._theme_stream.blocks()
                 if fade_in and fade_in > 0:
                     self._out_level, self._out_target = 0.0, 1.0
                     self._out_rate = 1.0 / (fade_in * SAMPLE_RATE)
@@ -415,7 +426,7 @@ class Channel:
             return
 
         # Create new stream, with the channel's preset layer for the new theme
-        new_stream = theme.get_stream(overrides)
+        new_stream = theme.new_mix(overrides)
         self._label_stream(new_stream, theme)
         planned, self._pending_transitions = self._pending_transitions, None
         if planned is not None and hasattr(new_stream, "schedule_transitions"):
@@ -440,7 +451,7 @@ class Channel:
         self._current_theme = theme
         self._theme_stream = new_stream
         self._track_overrides = overrides
-        self._chunk_generator = new_stream.iter_chunks()
+        self._chunk_generator = new_stream.blocks()
         self._glide = None
 
     def _crossfade_step(self, new_chunk: np.ndarray) -> np.ndarray:
@@ -521,7 +532,31 @@ class Channel:
                     chunk = self._silence
             if self._xfade_old is not None:
                 chunk = self._crossfade_step(chunk)
-            return self._apply_output_fade(chunk)
+            chunk = self._apply_output_fade(chunk)
+        ramp, overlay = self.ramp, self.overlay
+        if ramp is not None and not ramp.idle:
+            chunk = ramp.apply(chunk)
+        if overlay is not None and overlay.busy:
+            chunk = overlay.mix(chunk)
+        return chunk
+
+    def run_silent(self) -> None:
+        """
+        Run the channel's stream without a theme (silence), for sounds played on
+        a channel that is stopped (core/overlay_service.py). A theme set later
+        fades in over it as usual.
+        """
+        with self._lock:
+            if self._generator_running or self.state == ChannelState.PLAYING:
+                return
+            self.state = ChannelState.PLAYING
+            self._current_theme = None
+            self._theme_stream = None
+            self._chunk_generator = None
+            self._last_listener_time = time.monotonic()
+            # Faded out: a theme starting now fades in from silence (Channel.fade_in)
+            self._out_level, self._out_target, self._out_rate = 0.0, 0.0, 0.0
+            self._ensure_generator_running()
 
     def _add_to_buffer(self, chunk: np.ndarray):
         """Add a chunk to the broadcast buffer and notify waiting clients."""
@@ -546,25 +581,12 @@ class Channel:
         """Background thread that generates audio chunks, paced in real time."""
         logger.debug(f"Channel {self.id}: Generator loop started")
 
-        start_time = time.time()
-        audio_time = 0.0
-
+        pacer = RealtimePacer()
         try:
             while self._generator_running and self.state == ChannelState.PLAYING:
                 chunk = self.next_chunk()
-
-                # Add to broadcast buffer (this notifies clients)
-                self._add_to_buffer(chunk)
-
-                # Maintain real-time pacing (crossfade chunks count too)
-                chunk_duration = chunk.shape[1] / SAMPLE_RATE
-                audio_time += chunk_duration
-
-                now = time.time()
-                ahead = audio_time - (now - start_time)
-                if ahead > 0:
-                    time.sleep(ahead)
-
+                self._add_to_buffer(chunk)  # every listener's stream picks it up from here
+                pacer.advance(chunk.shape[1] / SAMPLE_RATE)
         except Exception as e:
             logger.error(f"Channel {self.id}: Generator error: {e}")
         finally:
@@ -590,10 +612,14 @@ class Channel:
             self.state = ChannelState.IDLE
             self.speakers_muted = False
             self._broadcast_buffer.clear()
-
-            # Wake up any waiting clients
-            with self._data_available:
-                self._data_available.notify_all()
+            ramp, overlay = self.ramp, self.overlay
+        if ramp is not None:
+            ramp.reset()
+        if overlay is not None:
+            overlay.clear("stopped")
+        # Wake up any waiting clients
+        with self._data_available:
+            self._data_available.notify_all()
 
     def client_connected(self, local: bool = False) -> None:
         """Track a new client connection (local: a browser listening here)."""
@@ -680,35 +706,21 @@ class ChannelStream:
         return (chunk.astype(np.float32) * ramp).astype(chunk.dtype)
 
     def __iter__(self):
-        output = av.open(file='.mp3', mode="w")
-        bitrate = 128_000
-        out_stream = output.add_stream(codec_name='mp3', rate=SAMPLE_RATE, bit_rate=bitrate)
-
+        """This listener's MP3 stream: every chunk the channel broadcasts from now on, as it is made."""
+        encoder = Mp3Encoder()
         try:
             while self.channel.state == ChannelState.PLAYING or self.channel._generator_running:
-                # Get new chunks from broadcast buffer
-                chunks = self.channel.get_chunks_since(self._last_sequence)
-
-                if chunks:
-                    self.channel.mark_listener_active()
-                    for seq, chunk in chunks:
-                        self._last_sequence = seq
-
-                        chunk = self._apply_mute(chunk)
-                        # Encode to MP3
-                        frame = av.AudioFrame.from_ndarray(chunk, format='s16', layout='mono')
-                        frame.rate = SAMPLE_RATE
-
-                        for packet in out_stream.encode(frame):
-                            yield bytes(packet)
-                else:
-                    # No new chunks - wait for notification (blocks until data or timeout)
-                    self.channel.wait_for_data(timeout=0.05)
-
+                fresh = self.channel.get_chunks_since(self._last_sequence)
+                if not fresh:
+                    self.channel.wait_for_data(timeout=0.05)  # woken as soon as the next chunk is in
+                    continue
+                self.channel.mark_listener_active()
+                for self._last_sequence, chunk in fresh:
+                    yield from encoder.encode(self._apply_mute(chunk))
         finally:
             logger.debug(f'Channel {self.channel.id}: Client stream closed')
             self.channel.client_disconnected(self.local)
-            output.close()
+            encoder.close()
 
 
 class ChannelManager:

@@ -7,6 +7,17 @@ name: Add-on Version
 # main            -> 1.2.89, 1.3.0, ... (from Conventional Commit types)
 # any other branch -> 1.2.89-dev.1, -dev.2, ... (pre-releases for testing)
 #
+# Order (config.yaml has `image:`, so HA pulls {arch}-addon-sonorium:<version>):
+#   1. version     make the release commit and push only its addon-v* tag. The
+#                  tag reserves the number (branches share the -dev.N count)
+#                  and HA doesn't read tags, so nobody is offered it yet.
+#   2. addon-image build every arch from that tag and push :<version>
+#   3. publish     only when every image was pushed: move the branch to the
+#                  release commit, so HA never sees a version it can't pull
+#   4. addon-tags  move :latest (main), :dev (fixes) or :branch-<name>;
+#      docker      the standalone image, as before
+#   cleanup        if 2 or 3 failed, delete the tag again
+#
 # The release commit is pushed with GITHUB_TOKEN and tagged "[skip ci]",
 # so it does not re-trigger this or any other workflow.
 
@@ -33,9 +44,15 @@ concurrency:
 
 jobs:
   version:
-    name: Bump add-on version
+    name: Make release commit
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      base: ${{ steps.release.outputs.base }}
+      commit: ${{ steps.release.outputs.commit }}
 
     steps:
       - name: Checkout branch head
@@ -54,7 +71,8 @@ jobs:
       - name: Install python-semantic-release
         run: python -m pip install 'python-semantic-release==10.7.0'
 
-      - name: Release new add-on version
+      - name: Make the release commit and reserve its tag
+        id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BRANCH: ${{ github.ref_name }}
@@ -63,52 +81,196 @@ jobs:
           set -euo pipefail
           sr() { semantic-release -c releaserc.toml "$@"; }
           ver() { grep -Eo '^[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | tail -n1; }
+          base=$(git rev-parse HEAD)
 
-          next=$(sr --noop version --print 2>/dev/null | ver || true)
-          last=$(sr --noop version --print-last-released 2>/dev/null | ver || true)
-          echo "last released: ${last:-none}, next from commits: ${next:-none}"
+          release() {
+            next=$(sr --noop version --print 2>/dev/null | ver || true)
+            last=$(sr --noop version --print-last-released 2>/dev/null | ver || true)
+            echo "last released: ${last:-none}, next from commits: ${next:-none}"
 
-          # Commits without a fix:/feat: prefix don't bump on their own, but
-          # HA still needs a new version to see the change. Force a patch.
-          # On other branches, bump the -dev.N number when the last release was
-          # already a pre-release, rather than skipping to the next patch version.
-          force=()
-          # A merge can bring a branch's -dev tags along, so "next" may be a
-          # version that is already tagged: treat that like no bump at all
-          if [ -n "$next" ] && git rev-parse -q --verify "refs/tags/addon-v$next" >/dev/null; then
-            echo "addon-v$next already exists"
-            next=""
-          fi
-          if [ -z "$next" ] || [ "$next" = "$last" ]; then
-            if [ "$BRANCH" = "main" ]; then
-              force=(--patch)
-            elif [[ "$last" == *-dev.* ]]; then
-              force=(--prerelease)
-            else
-              force=(--patch --as-prerelease)
+            # Commits without a fix:/feat: prefix don't bump on their own, but
+            # HA still needs a new version to see the change. Force a patch.
+            # On other branches, bump the -dev.N number when the last release was
+            # already a pre-release, rather than skipping to the next patch version.
+            force=()
+            # A merge can bring a branch's -dev tags along, so "next" may be a
+            # version that is already tagged: treat that like no bump at all
+            if [ -n "$next" ] && git rev-parse -q --verify "refs/tags/addon-v$next" >/dev/null; then
+              echo "addon-v$next already exists"
+              next=""
             fi
-            echo "No Conventional Commit bump; forcing ${force[*]}"
+            if [ -z "$next" ] || [ "$next" = "$last" ]; then
+              if [ "$BRANCH" = "main" ]; then
+                force=(--patch)
+              elif [[ "$last" == *-dev.* ]]; then
+                force=(--prerelease)
+              else
+                force=(--patch --as-prerelease)
+              fi
+              echo "No Conventional Commit bump; forcing ${force[*]}"
+            fi
+
+            # A bigger release, chosen by hand when running the workflow
+            if [ "$BUMP" != "auto" ]; then
+              force=("--$BUMP")
+              [ "$BRANCH" = "main" ] || force+=(--as-prerelease)
+              echo "Manual $BUMP bump: ${force[*]}"
+            fi
+
+            # Commit and tag locally; the branch itself is pushed by "publish"
+            sr version "${force[@]}" --no-vcs-release --no-push
+            version=$(cat sonorium_addon/sonorium/version)
+          }
+
+          # Pushing the tag reserves the version number: another branch's run
+          # may have taken it a moment ago, then the push is refused and the
+          # next number is worked out. The tag also carries the release commit
+          # to GitHub for the image builds.
+          for attempt in 1 2 3 4 5; do
+            release
+            tag="refs/tags/addon-v$version"
+            if git push origin "$tag"; then
+              break
+            fi
+            echo "addon-v$version could not be pushed (taken by another run?); trying again ($attempt)"
+            git tag -d "addon-v$version"
+            git reset -q --hard "$base"
+            sleep $((attempt * 5))
+            git fetch -q --tags origin
+            [ "$attempt" -lt 5 ] || { echo "::error::could not reserve a version"; exit 1; }
+          done
+
+          commit=$(git rev-parse HEAD)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "Reserved addon-v$version ($commit); $BRANCH moves to it only after the images" >> "$GITHUB_STEP_SUMMARY"
+
+  addon-image:
+    name: Add-on images
+    needs: version
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/addon-image.yml
+    with:
+      branch: ${{ github.ref_name }}
+      ref: addon-v${{ needs.version.outputs.version }}
+      hold_branch_tag: true
+
+  publish:
+    name: Push release commit
+    # needs: skips this job unless every add-on image was built and pushed
+    needs: [version, addon-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.commit }}
+          # The release commit and its parent: git needs the parent (the
+          # branch head) to see that the push is a fast-forward
+          fetch-depth: 2
+
+      - name: Move the branch to the release commit
+        env:
+          BRANCH: ${{ github.ref_name }}
+          BASE: ${{ needs.version.outputs.base }}
+          COMMIT: ${{ needs.version.outputs.commit }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Someone pushed while the images were building: leave the branch
+          # alone. That push queued its own run, which makes a new version.
+          head=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+          if [ "$head" != "$BASE" ]; then
+            echo "::error::$BRANCH moved to $head while the images were building; $VERSION was not published"
+            exit 1
           fi
 
-          # A bigger release, chosen by hand when running the workflow
-          if [ "$BUMP" != "auto" ]; then
-            force=("--$BUMP")
-            [ "$BRANCH" = "main" ] || force+=(--as-prerelease)
-            echo "Manual $BUMP bump: ${force[*]}"
-          fi
-
-          # Commit and tag locally, then push with retries: GitHub has
-          # occasionally rejected the tag push with a bare "(failed)".
-          sr version "${force[@]}" --no-vcs-release --no-push
-          version=$(cat sonorium_addon/sonorium/version)
+          # Push with retries: GitHub has occasionally rejected pushes with a
+          # bare "(failed)". Fast-forward only: the release commit's parent is $BASE.
           retry() { for i in 1 2 3 4 5; do "$@" && return 0; echo "push failed, retrying ($i)"; sleep $((i * 5)); done; return 1; }
-          retry git push origin "HEAD:refs/heads/$BRANCH"
-          retry git push origin "refs/tags/addon-v$version"
-          echo "Add-on version is now $version" >> "$GITHUB_STEP_SUMMARY"
+          retry git push origin "$COMMIT:refs/heads/$BRANCH"
+          echo "Add-on version is now $VERSION" >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup:
+    name: Release the version number
+    # The version was reserved but not published: delete its tag, so the
+    # next run can use the number (its images are rebuilt by that run)
+    needs: [version, addon-image, publish]
+    if: failure() && needs.version.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.base }}
+
+      - name: Delete the tag unless the branch has the release
+        env:
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ needs.version.outputs.commit }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          head=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+          if [ "$head" = "$COMMIT" ]; then
+            echo "$BRANCH has $VERSION: keeping the tag"
+            exit 0
+          fi
+          git push origin ":refs/tags/addon-v$VERSION"
+          echo "$VERSION was not published; tag addon-v$VERSION deleted" >> "$GITHUB_STEP_SUMMARY"
+
+  addon-tags:
+    name: Add-on image tags
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Point the branch's tag at this version
+        env:
+          BRANCH: ${{ github.ref_name }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$BRANCH" = "main" ]; then
+            moving=latest
+          elif [ "$BRANCH" = "fixes" ]; then
+            moving=dev
+          else
+            # Other branches get their own tag, so they never replace what :dev points at
+            moving="branch-$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g')"
+          fi
+          for arch in amd64 aarch64; do
+            image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/$arch-addon-sonorium"
+            docker buildx imagetools create -t "$image:$moving" "$image:$VERSION"
+            echo "$image:$moving -> $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          done
 
   docker:
     name: Docker image
-    needs: version
+    needs: publish
     permissions:
       contents: read
       packages: write

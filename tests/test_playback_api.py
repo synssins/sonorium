@@ -188,11 +188,52 @@ def test_listen_here_starts_and_ends_a_browser_listener(api):
     sid = api.session.id
     r = c.post(f"/api/sessions/{sid}/listen")
     assert r.status_code == 200, r.text
-    assert r.json() == {"channel_id": 1, "stream_path": "/stream/channel1"}
+    assert r.json() == {"channel_id": 1, "stream_path": "/stream/channel1", "hold_seconds": 15}
     assert c.get(f"/api/sessions/{sid}").json()["is_playing"] is False  # the speakers stay off
+    assert c.get(f"/api/sessions/{sid}").json()["listening"] is True
     assert c.delete(f"/api/sessions/{sid}/listen").status_code == 200
     assert c.post("/api/sessions/nope/listen").status_code == 404
     assert c.delete("/api/sessions/nope/listen").status_code == 404
+
+
+def test_reported_outputs(api):
+    """G2: POST/PUT/DELETE /api/sessions/{id}/outputs, and the channel lists them."""
+    c = api.client
+    sid = api.session.id
+    r = c.post(f"/api/sessions/{sid}/outputs", json={"kind": "cast", "name": "Office display",
+                                                     "address": "192.168.10.249", "receiver_id": "a944"})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    oid = body["output_id"]
+    assert body["channel_id"] == 1 and body["stream_path"] == "/stream/channel1"
+    assert body["stream_url"] == "http://test/stream/channel1"  # the plain stream: speakers-muted applies
+    assert body["heartbeat_seconds"] == 60 and body["expire_seconds"] == 180 and body["expires_in"] == 180
+    assert body["by_device_id"] is None and body["since"]
+    channel = c.get(f"/api/sessions/{sid}").json()
+    assert channel["outputs"][0]["output_id"] == oid and channel["outputs"][0]["name"] == "Office display"
+    assert channel["is_playing"] is False and channel["listening"] is False
+    assert c.get(f"/api/sessions/{sid}/outputs").json()["outputs"][0]["kind"] == "cast"
+    assert c.put(f"/api/sessions/{sid}/outputs/{oid}").json()["output_id"] == oid  # heartbeat
+    assert c.put(f"/api/sessions/{sid}/outputs/o_nope").status_code == 404
+    assert c.delete(f"/api/sessions/{sid}/outputs/{oid}").json() == {"removed": True}
+    assert c.delete(f"/api/sessions/{sid}/outputs/{oid}").status_code == 404
+    assert c.get(f"/api/sessions/{sid}").json()["outputs"] == []
+    assert c.post(f"/api/sessions/{sid}/outputs", json={"kind": "??"}).status_code == 400
+    assert c.post(f"/api/sessions/{sid}/outputs", content="nope").status_code == 400
+    assert c.post("/api/sessions/nope/outputs", json={}).status_code == 404
+    assert c.get("/api/sessions/nope/outputs").status_code == 404
+
+
+def test_listen_hold_seconds(api):
+    """G3: {"hold_seconds": 0-300} in the body or the query."""
+    c = api.client
+    sid = api.session.id
+    assert c.post(f"/api/sessions/{sid}/listen", json={"hold_seconds": 120}).json()["hold_seconds"] == 120
+    assert c.post(f"/api/sessions/{sid}/listen?hold_seconds=200").json()["hold_seconds"] == 200
+    for bad in ({"hold_seconds": 301}, {"hold_seconds": -5}, {"hold_seconds": "long"}, {"hold_seconds": True}):
+        r = c.post(f"/api/sessions/{sid}/listen", json=bad)
+        assert r.status_code == 400 and "hold_seconds" in r.json()["detail"], bad
+    assert c.post(f"/api/sessions/{sid}/listen", content="[1]").status_code == 400
 
 
 def test_channel_sequence_playlist_and_next(api):
