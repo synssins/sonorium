@@ -11,8 +11,10 @@ A theme's package is exactly what the zip export holds (GET
 - each linked file (it lives in another theme's folder) at the path it has in
   this theme ("<key><.ext>", inside its group's folder when it has one);
 - metadata.json and presets.json as exported: the 2.0 layout, the links
-  dropped (their settings stay under the same keys), written as JSON with an
-  indent of 2, UTF-8, non-ASCII characters as they are.
+  dropped (their settings stay under the same keys), the entries following
+  the files as the server uses them (no entry for a track without a file,
+  such as an old "<file>.mp3" key; see theme_metadata.theme_documents_for_export),
+  written as JSON with an indent of 2, UTF-8, non-ASCII characters as they are.
 
 Paths use "/" and are relative to the theme folder.
 
@@ -158,9 +160,14 @@ def _signature(theme_path: Path) -> tuple:
 
 
 def _export_documents(theme_path: Path) -> tuple[dict, dict]:
-    """(metadata, presets) as exported, links still in metadata (a copy every call)."""
+    """
+    (metadata, presets) as exported, links still in metadata (a copy every call).
+    Kept while the theme's JSON files and its track files stay the same (the
+    entries follow the files, see theme_documents_for_export).
+    """
+    from sonorium.theme_files import theme_audio_files, track_key
     key = str(theme_path)
-    signature = _signature(theme_path)
+    signature = (_signature(theme_path), tuple(sorted(track_key(theme_path, f) for f in theme_audio_files(theme_path))))
     with _docs_lock:
         cached = _docs.get(key)
     if cached is None or cached[0] != signature:

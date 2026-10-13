@@ -259,6 +259,79 @@ def test_export_leaves_no_temporary_file(client, tmp_path):
         assert list((tmp_path / "tmp").iterdir()) == []
 
 
+# --- the documents are what the server uses ------------------------------------
+
+def _add_stale_entries(linker):
+    """Linker's metadata.json with entries no track has: old "<file>.ext" keys and a removed file."""
+    meta = json.loads((linker / "metadata.json").read_text(encoding="utf-8"))
+    meta["tracks"]["Hum"]["plugins"] = {"some-plugin": {"colour": "amber"}}
+    meta["tracks"].update({"Hum.wav": {"volume": 0.1}, "Low/Rumble.mp3": {"volume": 0.2}, "Gone": {"muted": True}})
+    (linker / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+    presets = {"presets": {"soft": {"name": "Soft", "tracks": {"Hum": {"volume": 0.3}, "Hum.wav": {"volume": 0.4}}}}}
+    (linker / "presets.json").write_text(json.dumps(presets), encoding="utf-8")
+    return (linker / "metadata.json").read_bytes(), (linker / "presets.json").read_bytes()
+
+
+def test_package_and_export_leave_out_entries_without_a_file(client, library):
+    _, _, linker = library
+    on_disk = _add_stale_entries(linker)
+    names_before = sorted(p.name for p in linker.iterdir())
+    body = client.get(f"/api/themes/{LINKER_ID}/package").json()
+    tracks = body["metadata"]["tracks"]
+    assert set(tracks) == {"Hum", "Low/Rumble", "Low/Drone"}
+    assert tracks["Hum"]["volume"] == 0.5 and tracks["Low/Rumble"]["volume"] == 0.4
+    assert tracks["Hum"]["plugins"] == {"some-plugin": {"colour": "amber"}}  # plugin attributes pass through
+    assert body["presets"]["presets"]["soft"]["tracks"] == {"Hum": {"volume": 0.3}}
+    # The served metadata.json is those documents, and the hash is of what is served
+    served = client.get(f"/api/themes/{LINKER_ID}/files/metadata.json").content
+    assert json.loads(served) == body["metadata"]
+    by_path = {f["path"]: f for f in body["files"]}
+    assert by_path["metadata.json"]["sha256"] == _sha(served)
+    lines = "".join(f"{f['path']}\t{f['size']}\t{f['sha256']}\n" for f in body["files"])
+    assert body["content_hash"] == "sha256:" + _sha(lines.encode("utf-8"))
+    # The export holds the same files
+    with zipfile.ZipFile(io.BytesIO(client.get(f"/api/themes/{LINKER_ID}/export").content)) as zf:
+        assert zf.read("Linker/metadata.json") == served
+    # Nothing is written to the theme folder
+    assert ((linker / "metadata.json").read_bytes(), (linker / "presets.json").read_bytes()) == on_disk
+    assert sorted(p.name for p in linker.iterdir()) == names_before
+
+
+def test_package_documents_follow_a_file_added_later(client, library):
+    _, _, linker = library
+    _add_stale_entries(linker)
+    first = client.get(f"/api/themes/{LINKER_ID}/package").json()
+    assert "Low/Hiss" not in first["metadata"]["tracks"]
+    import shutil
+    shutil.copy2(linker / "Hum.wav", linker / "Low" / "Hiss.wav")
+    second = client.get(f"/api/themes/{LINKER_ID}/package").json()
+    assert second["metadata"]["tracks"]["Low/Hiss"]["playback_mode"] == "auto"  # a new file's default entry
+    assert second["content_hash"] != first["content_hash"]
+
+
+def test_export_documents_of_a_1_0_theme_with_old_keys(tmp_path):
+    """A bundled 1.0 theme (as Tavern was): "<file>.mp3" keys beside the converted ones, Interval values."""
+    from sonorium.core.theme_metadata import theme_documents_for_export
+    folder = tmp_path / "Tavern"
+    write_wav(folder / "Fire.wav", sine(220.0, 1.0))
+    write_wav(folder / "Door.wav", sine(440.0, 1.0))
+    raw = {"id": "tavern", "name": "Tavern", "tracks": {
+        "Fire.mp3": {"presence": 1.0, "playback_mode": "auto"}, "Door.mp3": {"presence": 1.0, "playback_mode": "auto"},
+        "Fire": {"presence": 1.0, "playback_mode": "continuous"}, "Door": {"presence": 0.3, "playback_mode": "presence"}},
+        "presets": {"p": {"name": "P", "tracks": {"Door.mp3": {"volume": 0.2}, "Door": {"presence": 0.25}}}}}
+    (folder / "metadata.json").write_text(json.dumps(raw), encoding="utf-8")
+    meta, doc = theme_documents_for_export(folder)
+    assert set(meta["tracks"]) == {"Fire", "Door"} and meta["spec_version"] == 2
+    assert meta["ebb_duration"] is True and meta["tracks"]["Door"]["presence"] == 0.7  # Interval became Duration
+    assert doc["presets"]["p"]["tracks"] == {"Door": {"presence": 0.25}}  # as the server loads it (no mode in the preset)
+    from sonorium.core.theme_metadata import load_theme_folder
+    loaded = load_theme_folder(folder, convert=False)  # the server's reading, in memory
+    assert meta["tracks"]["Door"] == loaded.tracks["Door"].to_dict()
+    assert doc["presets"]["p"]["tracks"]["Door"] == loaded.presets["p"]["tracks"]["Door"]
+    assert json.loads((folder / "metadata.json").read_text(encoding="utf-8")) == raw  # written by nobody
+    assert sorted(p.name for p in folder.iterdir()) == ["Door.wav", "Fire.wav", "metadata.json"]
+
+
 # --- reference render -------------------------------------------------------------
 
 def test_render_is_deterministic_wav(client):

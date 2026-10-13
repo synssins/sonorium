@@ -779,7 +779,15 @@ def drop_unknown_plugin_data(folder: Path) -> bool:
 
 
 def theme_documents_for_export(folder: Path) -> tuple[dict, dict]:
-    """(metadata.json dict, presets.json dict) in the 2.0 layout, without writing anything."""
+    """
+    (metadata.json dict, presets.json dict) as the server uses them, without
+    writing anything (the zip export and theme packages serve these): the 2.0
+    layout, Ebb & Flow values in Duration (as load_theme_folder(convert=False)
+    reads them), plugin attributes as the installed plugins declare them, and
+    the entries following the theme's files (sync_entries_with_files): an entry
+    whose track has no file (e.g. an old "<file>.mp3" key) is left out, of the
+    theme and of every preset, and a file without one gets the default settings.
+    """
     folder = Path(folder)
     problems: list[str] = []
     metadata, raw = _read_metadata(folder, problems, rename_broken=False)
@@ -792,7 +800,14 @@ def theme_documents_for_export(folder: Path) -> tuple[dict, dict]:
     doc = dict(doc)
     presets = dict(legacy_presets) if isinstance(legacy_presets, dict) else {}
     presets.update(doc.get("presets") or {})
-    doc["presets"] = presets
+    plugin_data.filter_presets(presets, f"Theme '{metadata.name or folder.name}'")
+    metadata.presets = presets
+    _convert_ebb_duration(metadata, raw)
+    try:
+        sync_entries_with_files(folder, metadata)
+    except ImportError:
+        pass  # loaded without the sonorium.core package (tests)
+    doc["presets"] = metadata.presets
     return metadata.to_dict(), doc
 
 
