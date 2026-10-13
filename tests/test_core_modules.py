@@ -67,6 +67,23 @@ te.move_track(folder, "Chirp", "Small")
 te.delete_preset(folder, "quiet")
 assert te.get_preset(folder, made["preset_id"])["name"] == "Late evening"
 
+# Details, an imported preset, a step's tracks, groups, linked files, uploads (with their file operations)
+assert te.set_details(folder, name="Garden", description="d", icon="x", categories=["Nature"],
+                      short_file_threshold=10)["name"] == "Garden"
+assert te.import_preset(folder, '{{"Drone": {{"volume": 0.2}}}}', "Shared")["preset_id"] == "shared"
+assert "in" in te.transition_tracks(folder, "calm", made["preset_id"])
+assert te.rename_group(folder, "Birds", "Flock")["ops"][0] == {{"op": "move", "src": "Birds", "dst": "Flock"}}
+second = root / "Second Theme"
+assert te.add_links(folder, second, ["Tone"], "Flock")["links"][0]["added"]
+assert te.remove_link(folder, "Flock/Tone")["removed"] == "Flock/Tone"
+assert te.upload(folder, "Hum.wav", (folder / "Drone.wav").read_bytes(), "Hums")["track"] == "Hums/Hum"
+assert te.delete_group(folder, "Flock")["folder_removed"]
+te.convert_on_load = False
+te.set_track(folder, "Drone", volume=0.5)
+assert te.load(folder, convert=False).tracks["Drone"].volume == 0.5
+from sonorium.core import theme_metadata
+assert theme_metadata.track_seconds(folder / "metadata.json") is None
+
 # Playlists
 lookups = playlists.folder_lookups(root)
 store = {{}}
@@ -190,7 +207,8 @@ def test_the_server_builds_the_network_service_from_its_config_folder():
 
 @pytest.mark.parametrize("relative", ["network/discovery.py", "network/streaming.py", "network/models.py",
                                       "network/heos.py", "network/manual.py", "network/service.py",
-                                      "network/__init__.py", "core/theme_edit.py", "core/playlists.py"])
+                                      "network/__init__.py", "core/theme_edit.py", "core/playlists.py",
+                                      "core/transitions.py", "core/theme_groups.py"])
 def test_no_server_module_is_named_anywhere_in_the_core_modules(relative):
     """
     Not even inside a function: the modules other apps copy never reach for the

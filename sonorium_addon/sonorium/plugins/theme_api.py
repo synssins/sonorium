@@ -264,9 +264,9 @@ def resolve_auto(key: str, settings: TrackSettings, path: Optional[Path], thresh
         return settings
     seconds = None
     if path is not None:
-        from sonorium.core.theme_metadata import track_seconds
+        from sonorium.core.theme_metadata import played_seconds
         try:
-            seconds = track_seconds(path)
+            seconds = played_seconds(path)
         except Exception:
             seconds = None
     if seconds is not None and seconds >= threshold:

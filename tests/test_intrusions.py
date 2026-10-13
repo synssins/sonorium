@@ -766,7 +766,7 @@ def test_auto_playback_modes_are_resolved_once_with_backups(tmp_path, tones, mon
     original_meta, original_presets = (mix_folder / "metadata.json").read_text(), (mix_folder / "presets.json").read_text()
 
     # Lengths can't be read (playback not loaded): nothing changes, tried again next time
-    monkeypatch.setattr(m.meta, "track_seconds", lambda path: None)
+    monkeypatch.setattr(m.meta, "played_seconds", lambda path: None)
     assert m.meta.load_theme_folder(mix_folder).tracks["Long"].playback_mode == "auto"
     assert not (mix_folder / "metadata.json.pre-auto.bak").exists()
     assert (mix_folder / "metadata.json").read_text() == original_meta

@@ -29,9 +29,14 @@ Two layers:
 
 Errors are EditError (a ValueError) with a `status` (400, 404, 409 or 500, the
 HTTP status the server answers with) and the server's message.
+
+The functions that move or add files (rename_group, delete_group, add_links,
+remove_link, upload) also return the file operations they did, under "ops",
+so an app can repeat them in storage it can't write by path (see FileOps).
 """
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 from typing import Callable, Iterable, Optional
@@ -618,9 +623,19 @@ def delete_sequence(folder, sequence_id: str) -> None:
 # conversions of older themes), changes them and writes them back as the
 # server writes them (theme_metadata.save_theme_folder).
 
-def load(folder) -> tm.ThemeMetadata:
-    """A theme folder's metadata, with its presets."""
-    return tm.load_theme_folder(Path(folder))
+# False: every folder function here reads a theme without writing its one-time
+# conversions (theme_metadata.load_theme_folder(convert=False)). For an app that
+# edits a copy of a theme (e.g. with stand-ins for its audio files); the server
+# leaves it True.
+convert_on_load = True
+
+
+def load(folder, convert: Optional[bool] = None) -> tm.ThemeMetadata:
+    """
+    A theme folder's metadata, with its presets. convert=False (default:
+    convert_on_load) writes nothing: see theme_metadata.load_theme_folder.
+    """
+    return tm.load_theme_folder(Path(folder), convert=convert_on_load if convert is None else convert)
 
 
 def save(folder, metadata: tm.ThemeMetadata) -> None:
@@ -831,3 +846,491 @@ def drop_from_sequences(folder, preset_id: str) -> list[str]:
     except Exception as e:
         logger.warning(f"  Could not remove preset '{preset_id}' from the theme's sequences: {e}")
         return []
+
+
+# --- the theme's details ---------------------------------------------------------
+
+_UNSET = object()
+
+
+def _save_with(folder: Path, metadata: tm.ThemeMetadata, save_metadata, message: str) -> None:
+    """Save metadata.json and presets.json with `save_metadata` (default: theme_metadata.save_theme_folder)."""
+    saved = save_metadata(metadata) if save_metadata is not None else tm.save_theme_folder(folder, metadata)
+    if not saved:
+        raise SaveFailed(message)
+
+
+def rename_theme(folder, name, metadata: Optional[tm.ThemeMetadata] = None,
+                 save_metadata: Optional[Callable[[tm.ThemeMetadata], bool]] = None) -> tuple:
+    """
+    The theme's name as shown (metadata.json "name"; the folder keeps its
+    name, the theme its id). Returns (old name, new name). Raises EditError
+    ("Name is required") or SaveFailed.
+    """
+    folder = Path(folder)
+    name = name.strip() if isinstance(name, str) else ""
+    if not name:
+        raise EditError("Name is required")
+    metadata = metadata if metadata is not None else load(folder)
+    old = metadata.name
+    metadata.name = name
+    _save_with(folder, metadata, save_metadata, "Failed to save metadata")
+    return old, name
+
+
+def set_metadata_fields(folder, values: dict) -> dict:
+    """
+    The Theme Editor's details (PUT /api/themes/{id}/metadata): any of
+    "description", "icon" (empty: removed, the icon is picked from the name)
+    and "short_file_threshold" (seconds, 0 or more), written into
+    metadata.json as it is (every other key kept). Returns metadata.json as
+    written. Raises Conflict (metadata.json can't be read), EditError, SaveFailed;
+    a threshold that isn't a number raises ValueError.
+    """
+    folder = Path(folder)
+    path = folder / theme_presets.METADATA_FILE
+    try:
+        metadata = theme_presets.read_json(path) or {}
+    except theme_presets.BrokenJsonError as e:
+        raise Conflict(f"metadata.json can't be read ({e}); refresh themes to repair it first")
+    if "description" in values:
+        metadata["description"] = values["description"]
+    if "icon" in values:
+        if values["icon"]:
+            metadata["icon"] = values["icon"]
+        elif "icon" in metadata:
+            del metadata["icon"]  # picked from the name again
+    if "short_file_threshold" in values:
+        threshold = float(values["short_file_threshold"])
+        if threshold < 0:
+            raise EditError("short_file_threshold must be >= 0")
+        metadata["short_file_threshold"] = threshold
+    try:
+        theme_presets.write_json_atomic(path, metadata)
+    except Exception as e:
+        logger.error(f"Failed to write metadata: {e}")
+        raise SaveFailed("Could not write metadata")
+    return metadata
+
+
+def set_categories(folder, categories) -> list:
+    """
+    The theme's categories (metadata.json "categories"), written as the
+    server's Themes page writes them (presets.json rewritten with its
+    presets). Returns them. Raises SaveFailed.
+    """
+    folder = Path(folder)
+    try:
+        metadata = theme_presets.read_json(folder / theme_presets.METADATA_FILE)
+    except theme_presets.BrokenJsonError:
+        metadata = None
+    presets = theme_presets.load_presets(folder) if metadata is not None else None
+    metadata = metadata if metadata is not None else {}
+    metadata["categories"] = categories
+    try:
+        if presets is not None:
+            theme_presets.save_presets(folder, presets)
+        theme_presets.write_json_atomic(folder / theme_presets.METADATA_FILE, metadata)
+    except Exception as e:
+        logger.error(f"Failed to write metadata for theme {folder.name}: {e}")
+        raise SaveFailed("Failed to save categories")
+    return categories
+
+
+def set_details(folder, name=_UNSET, description=_UNSET, icon=_UNSET, categories=_UNSET,
+                short_file_threshold=_UNSET) -> dict:
+    """
+    The theme's details, any of: name (as shown), description, icon (""
+    removes it), categories (a list of names), short_file_threshold (seconds).
+    Leave out what stays. Written as the server's rename, details and
+    categories routes write them, in that order. The folder is never renamed:
+    returns {"folder": the theme folder (unchanged), "name", "description",
+    "icon", "categories"} as saved. Raises EditError, Conflict or SaveFailed.
+    """
+    folder = Path(folder)
+    if name is not _UNSET:
+        rename_theme(folder, name)
+    fields = {key: value for key, value in (("description", description), ("icon", icon),
+                                              ("short_file_threshold", short_file_threshold))
+              if value is not _UNSET}
+    if fields:
+        set_metadata_fields(folder, fields)
+    if categories is not _UNSET:
+        set_categories(folder, categories)
+    try:
+        saved = theme_presets.read_json(folder / theme_presets.METADATA_FILE) or {}
+    except theme_presets.BrokenJsonError:
+        saved = {}
+    return {"folder": str(folder), "name": saved.get("name"), "description": saved.get("description"),
+            "icon": saved.get("icon"), "categories": saved.get("categories") or []}
+
+
+# --- importing a preset ------------------------------------------------------------
+
+def clean_imported_preset(preset_json, name: Optional[str], track_names) -> tuple:
+    """
+    A preset to import (the Theme Editor's Import preset): preset_json is the
+    text of a preset ({"name", "tracks": {...}}) or of its tracks alone.
+    Only the theme's tracks (track_names) are kept, each with volume,
+    presence, playback_mode, seamless_loop, exclusive and muted. Returns
+    (name, tracks, unknown track keys, preset id from the name). Raises
+    EditError with the server's message.
+    """
+    if not preset_json:
+        raise EditError("No preset JSON provided")
+    try:
+        preset_data = json.loads(preset_json)
+    except json.JSONDecodeError as e:
+        raise EditError(f"Invalid JSON: {e}")
+    if not isinstance(preset_data, dict):
+        raise EditError("Preset must be a JSON object")
+    if "tracks" in preset_data:
+        tracks = preset_data["tracks"]
+        imported_name = preset_data.get("name", name or "Imported Preset")
+    else:
+        tracks = preset_data  # the tracks alone
+        imported_name = name or "Imported Preset"
+    if not isinstance(tracks, dict):
+        raise EditError("Tracks must be a JSON object")
+
+    valid = set(track_names)
+    validated, unknown = {}, []
+    for track_name, settings in tracks.items():
+        if track_name not in valid:
+            unknown.append(track_name)
+            continue
+        if not isinstance(settings, dict):
+            continue
+        validated[track_name] = {
+            "volume": float(settings.get("volume", 1.0)),
+            "presence": float(settings.get("presence", 1.0)),
+            "playback_mode": str(settings.get("playback_mode", "auto")),
+            "seamless_loop": bool(settings.get("seamless_loop", False)),
+            "exclusive": bool(settings.get("exclusive", False)),
+            "muted": bool(settings.get("muted", False)),
+        }
+    if not validated:
+        raise EditError("No valid track settings found in preset")
+    preset_id = re.sub(r'[^a-z0-9]+', '_', imported_name.lower()).strip('_') or "imported"
+    return imported_name, validated, unknown, preset_id
+
+
+def unique_preset_id(preset_id: str, presets: dict) -> str:
+    """preset_id, or preset_id_1, _2 ... when taken."""
+    base_id, counter = preset_id, 1
+    while preset_id in presets:
+        preset_id = f"{base_id}_{counter}"
+        counter += 1
+    return preset_id
+
+
+def import_preset(folder, preset_json, name: Optional[str] = None, track_names=None,
+                  metadata: Optional[tm.ThemeMetadata] = None,
+                  save_metadata: Optional[Callable[[tm.ThemeMetadata], bool]] = None) -> dict:
+    """
+    Import a preset from its JSON text (clean_imported_preset): a new preset,
+    not the default. track_names: the theme's tracks (default: track_keys).
+    Returns {"status": "ok", "preset_id", "name", "tracks_imported"} and, when
+    some weren't the theme's, "unknown_tracks" and "warning". Raises EditError or SaveFailed.
+    """
+    folder = Path(folder)
+    metadata = metadata if metadata is not None else load(folder)
+    names = track_names if track_names is not None else track_keys(folder, metadata)
+    imported_name, tracks, unknown, preset_id = clean_imported_preset(preset_json, name, names)
+    preset_id = unique_preset_id(preset_id, metadata.presets)
+    metadata.presets[preset_id] = {"name": imported_name, "is_default": False, "tracks": tracks}
+    _save_with(folder, metadata, save_metadata, "Failed to save preset")
+    result = {"status": "ok", "preset_id": preset_id, "name": imported_name, "tracks_imported": len(tracks)}
+    if unknown:
+        result["unknown_tracks"] = unknown
+        result["warning"] = f"{len(unknown)} track(s) not found in theme"
+    return result
+
+
+# --- a sequence step's tracks ------------------------------------------------------
+
+def preset_layer(preset: Optional[dict]) -> dict:
+    """What a channel playing a preset lays over the theme's own settings (its track and group overrides)."""
+    from sonorium.recording import preset_group_overrides, preset_track_overrides
+    if not preset:
+        return {}
+    return {**preset_track_overrides(preset.get("tracks", {})), **preset_group_overrides(preset.get("groups", {}))}
+
+
+def transition_tracks(folder, preset: str, prev: Optional[str] = None, next: Optional[str] = None,
+                      themes_root=None, decoder=None) -> dict:
+    """
+    The tracks a sequence step changes, for the Advanced dialog, as GET
+    /api/themes/{id}/transition_tracks answers: {"theme_id", "preset",
+    "prev", "next", "in": [rows], "out": [rows]} (transitions.step_tracks).
+    Linked files are looked for beside the theme or under themes_root; file
+    lengths are read with `decoder` (default: decoders' default). Nothing is
+    written. Raises NotFound ("Preset 'x' not found").
+    """
+    from contextlib import nullcontext
+    from sonorium import decoders
+    from sonorium.core.transitions import step_tracks
+    from sonorium.engine.theme_loader import load_theme, read_settings
+    folder = Path(folder)
+    with decoders.use_decoder(decoder) if decoder is not None else nullcontext():
+        try:
+            loaded = load_theme(folder, themes_root=themes_root)
+            tracks, metadata = loaded.theme.tracks, loaded.metadata
+            groups = loaded.theme.groups
+        except ValueError:  # no audio files: no tracks change
+            metadata, _ = read_settings(folder)
+            tracks, groups = [], metadata.groups
+        presets = dict(metadata.presets or {})
+        for value in (preset, prev, next):
+            if value and value not in presets:
+                raise NotFound(f"Preset '{value}' not found")
+        rows = step_tracks(tracks, groups, lambda preset_id: preset_layer(presets.get(preset_id)), preset, prev, next)
+    return {"theme_id": metadata.id, "preset": preset, "prev": prev, "next": next, **rows}
+
+
+# --- file operations ------------------------------------------------------------------
+
+class FileOps:
+    """
+    The file operations a folder function did, in order, for an app that
+    repeats them in storage it can't write by path (Android's shared storage):
+
+        {"op": "mkdir",  "src": None,    "dst": "Birds"}           a group folder made
+        {"op": "move",   "src": "Wind.wav", "dst": "Birds/Wind.wav"} a file or folder moved/renamed
+        {"op": "copy",   "src": <the source path given>, "dst": "Rain.wav"}
+        {"op": "write",  "src": None,    "dst": "metadata.json"}   written (take it from the folder)
+        {"op": "delete", "src": "Birds", "dst": None}              an empty folder removed
+
+    Paths are relative to the theme folder with "/" (a copy's src is the path
+    the caller gave). metadata.json and presets.json are listed as "write"
+    when their bytes changed, after the file operations.
+    """
+
+    JSON_FILES = (theme_presets.METADATA_FILE, theme_presets.PRESETS_FILE)
+
+    def __init__(self, folder):
+        self.folder = Path(folder)
+        self.ops: list[dict] = []
+        self._json = self._read_json_files()
+        try:
+            self._dirs = {p.name for p in self.folder.iterdir() if p.is_dir()}
+        except OSError:
+            self._dirs = set()
+
+    def _read_json_files(self) -> dict:
+        found = {}
+        for name in self.JSON_FILES:
+            try:
+                found[name] = (self.folder / name).read_bytes()
+            except OSError:
+                found[name] = None
+        return found
+
+    def path(self, path) -> str:
+        path = Path(path)
+        try:
+            return path.relative_to(self.folder).as_posix()
+        except ValueError:
+            return str(path)
+
+    def add(self, op: str, src=None, dst=None) -> None:
+        self.ops.append({"op": op, "src": None if src is None else self.path(src),
+                         "dst": None if dst is None else self.path(dst)})
+
+    def made_dir(self, path) -> None:
+        """A folder that group_target / upload_path may just have made."""
+        path = Path(path)
+        if path.parent == self.folder and path.name not in self._dirs and path.is_dir():
+            self.add("mkdir", dst=path)
+            self._dirs.add(path.name)
+
+    def change(self, change) -> None:
+        """A theme_groups.Change's file operations."""
+        for op, src, dst in getattr(change, "ops", None) or ():
+            self.add(op, src, dst)
+            if op == "mkdir":
+                self._dirs.add(Path(dst).name)
+
+    def done(self) -> list[dict]:
+        after = self._read_json_files()
+        for name in self.JSON_FILES:
+            if after[name] is not None and after[name] != self._json[name]:
+                self.add("write", dst=self.folder / name)
+        self._json = after
+        return self.ops
+
+
+# --- groups, linked files and uploads, with their file operations ----------------------
+
+def rename_group(folder, group: str, name, metadata: Optional[tm.ThemeMetadata] = None,
+                 save_metadata: Optional[Callable[[tm.ThemeMetadata], bool]] = None) -> dict:
+    """
+    Rename a group (its folder). Track keys follow in metadata.json, presets
+    and sequences. Returns {"name": new name, "tracks": {old key: new key},
+    "ops": FileOps}. Raises theme_groups.GroupError (its status says which) or SaveFailed.
+    """
+    from sonorium.core import theme_groups
+    folder = Path(folder)
+    ops = FileOps(folder)
+    metadata = metadata if metadata is not None else load(folder)
+    change = theme_groups.rename_group(folder, group, name)
+    ops.change(change)
+    if change.group_renames:
+        save_group_change(folder, metadata, change, save_metadata)
+    return {"name": change.group_renames.get(group, group), "tracks": change.track_keys, "ops": ops.done()}
+
+
+def delete_group(folder, group: str, metadata: Optional[tm.ThemeMetadata] = None,
+                 save_metadata: Optional[Callable[[tm.ThemeMetadata], bool]] = None) -> dict:
+    """
+    Delete a group: its audio files move up to the theme folder ("x (2)" on a
+    clash) and keep their settings; its linked files become ungrouped the
+    same way (re-keyed, nothing moves); the folder goes when nothing else is
+    in it. Audio files are never deleted. Returns {"name", "tracks": {old key:
+    new key}, "folder_removed"} (+ "left_behind" and "message" when the folder
+    stays), and "ops". Raises theme_groups.GroupError or SaveFailed.
+    """
+    from sonorium.core import intrusions, theme_groups
+    folder = Path(folder)
+    ops = FileOps(folder)
+    metadata = metadata if metadata is not None else load(folder)
+    links = intrusions.group_link_keys(metadata, group)
+    try:
+        change = theme_groups.delete_group(folder, group, reserved=intrusions.link_names(metadata, None))
+    except theme_groups.NotFound:
+        if not links:
+            raise
+        change = theme_groups.Change(group_renames={group: None})  # only links, no folder
+    ops.change(change)
+    change.track_keys.update(intrusions.regroup_link_keys(metadata, folder, links, None,
+                                                          taken=change.track_keys.values()))
+    save_group_change(folder, metadata, change, save_metadata)
+    result = {"name": group, "tracks": change.track_keys, "folder_removed": change.folder_removed}
+    if not change.folder_removed:
+        result["left_behind"] = change.left_behind
+        result["message"] = (f"The tracks moved to the top level; the folder '{group}' was kept "
+                             f"because it still holds other files")
+    result["ops"] = ops.done()
+    return result
+
+
+def clean_link_request(group, tracks) -> list[str]:
+    """The track keys to link (duplicates dropped). Raises EditError with the server's message."""
+    if group is not None and (not isinstance(group, str) or not group):
+        raise EditError("'group' must be a group name or null")
+    if (not isinstance(tracks, list) or not tracks or len(tracks) > 500
+            or not all(isinstance(k, str) and k for k in tracks)):
+        raise EditError("'tracks' must be a list of track keys")
+    return list(dict.fromkeys(tracks))
+
+
+def add_links(folder, source_folder, tracks, group: Optional[str] = None,
+              metadata: Optional[tm.ThemeMetadata] = None, source_metadata: Optional[tm.ThemeMetadata] = None,
+              save_metadata: Optional[Callable[[tm.ThemeMetadata], bool]] = None) -> dict:
+    """
+    Link files of another theme (source_folder) into this theme: nothing is
+    copied. Each new linked track starts with the source theme's settings
+    for it, muted; ungrouped (group None) it is Unassigned, in a group it is
+    the group's. A file already linked there is not linked again ("added":
+    false). Returns {"links": [{"key", "theme", "track", "added"}], "ops"}.
+    Raises EditError / NotFound with the server's messages,
+    theme_groups.GroupError or SaveFailed.
+    """
+    from sonorium.core import intrusions, theme_groups
+    keys = clean_link_request(group, tracks)
+    folder, source_folder = Path(folder), Path(source_folder)
+    ops = FileOps(folder)
+    metadata = metadata if metadata is not None else load(folder)
+    if group is not None and group not in group_members(folder, metadata):
+        raise NotFound("Group not found")
+    source_metadata = source_metadata if source_metadata is not None else load(source_folder)
+    if source_metadata.id == metadata.id:
+        raise EditError("A theme's own files can't be linked; move them into the group instead")
+    unknown = []
+    for key in keys:
+        try:
+            theme_groups.find_track_file(source_folder, key)
+        except theme_groups.GroupError:
+            unknown.append(key)
+    if unknown:
+        raise NotFound(f"Not a track of the source theme: {', '.join(unknown)}")
+    if group is not None:
+        # The group's folder exists, even with only links in it
+        ops.made_dir(theme_groups.group_target(folder, group))
+    results = intrusions.add_links(metadata, folder, group, source_metadata.id, source_metadata, keys)
+    _save_with(folder, metadata, save_metadata, "metadata.json couldn't be saved")
+    return {"links": results, "ops": ops.done()}
+
+
+def remove_link(folder, key: str, metadata: Optional[tm.ThemeMetadata] = None,
+                save_metadata: Optional[Callable[[tm.ThemeMetadata], bool]] = None) -> dict:
+    """
+    Remove a linked file from the theme: its link, settings and preset
+    entries (never a file). Returns {"removed": key, "ops"}. Raises NotFound
+    ("Linked track not found") or SaveFailed.
+    """
+    from sonorium.core import intrusions
+    folder = Path(folder)
+    ops = FileOps(folder)
+    metadata = metadata if metadata is not None else load(folder)
+    if not intrusions.remove_link(metadata, key):
+        raise NotFound("Linked track not found")
+    _save_with(folder, metadata, save_metadata, "metadata.json couldn't be saved")
+    return {"removed": key, "ops": ops.done()}
+
+
+UPLOAD_EXTENSIONS = ('.mp3', '.wav', '.flac', '.ogg')
+
+
+def upload(folder, filename, content, group: Optional[str] = None, metadata=_UNSET, manager=None) -> dict:
+    """
+    Add an audio file to the theme (the Theme Editor's upload), in the theme
+    folder or in group's folder (made if missing). `content`: the file's
+    bytes, or the path of a file to copy. Only the file's own name is used;
+    on a linked file's name it becomes "x (2)" etc.; a file of that name is
+    replaced and keeps its settings, a new one starts Unassigned (not played
+    until placed). Returns {"filename", "size", "group", "track", "ops"}.
+    Raises theme_groups.GroupError (a bad name) or EditError (not .mp3, .wav,
+    .flac or .ogg). `metadata`/`manager`: the server's loaded copy and its
+    saver (metadata None: metadata.json is changed as it is on disk).
+    """
+    import shutil
+    from sonorium.core import theme_groups
+    folder = Path(folder)
+    ops = FileOps(folder)
+    filename = theme_groups.safe_upload_name(filename)
+    ext = '.' + filename.split('.')[-1].lower() if '.' in filename else ''
+    if ext not in UPLOAD_EXTENSIONS:
+        raise EditError(f"Invalid file type. Supported: {', '.join(UPLOAD_EXTENSIONS)}")
+    file_path = theme_groups.upload_path(folder, filename, group)
+    target_folder = file_path.parent
+    ops.made_dir(target_folder)
+    group_name = target_folder.name if target_folder != folder else None
+    if metadata is _UNSET:
+        metadata = load(folder)
+    # A linked file's name there is taken: " (2)" etc. instead
+    if metadata is not None and metadata.links:
+        from sonorium.core.intrusions import link_names
+        reserved = link_names(metadata, group_name)
+        if file_path.stem.casefold() in {n.casefold() for n in reserved}:
+            file_path = target_folder / theme_groups.free_file_name(target_folder, file_path.name, reserved=reserved)
+            filename = file_path.name
+    key = f"{group_name}/{file_path.stem}" if group_name else file_path.stem
+    is_new = not file_path.exists()
+    if isinstance(content, (bytes, bytearray, memoryview)):
+        file_path.write_bytes(content)
+        size = len(content)
+        ops.add("write", dst=file_path)
+    else:
+        shutil.copyfile(content, file_path)
+        size = file_path.stat().st_size
+        ops.add("copy", src=content, dst=file_path)
+    if is_new:
+        try:
+            tm.add_unassigned_track(folder, key, metadata, manager)
+        except OSError as e:
+            # The file is there and plays as a track without settings would
+            logger.warning(f"Theme '{folder.name}': '{key}' uploaded, but it couldn't be made Unassigned ({e})")
+    # theme.changed even when no settings were written (a file uploaded over one)
+    theme_presets.theme_changed(folder)
+    return {"filename": filename, "size": size, "group": group_name, "track": key, "ops": ops.done()}

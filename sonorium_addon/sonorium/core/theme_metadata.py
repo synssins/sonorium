@@ -395,7 +395,26 @@ def _retire_intrusions(folder: Path, metadata: ThemeMetadata, doc: dict) -> bool
 
 
 def track_seconds(path: Path) -> Optional[float]:
-    """A file's length in seconds, as playback reads it (None when playback can't be loaded)."""
+    """
+    A file's length in seconds; None when it can't be read, holds no audio,
+    or playback can't be loaded. (played_seconds is the length playback uses.)
+    """
+    try:
+        from sonorium.recording import SAMPLE_RATE, file_length_samples
+    except Exception:
+        return None
+    try:
+        samples = file_length_samples(Path(path))
+    except Exception:
+        return None
+    return samples / SAMPLE_RATE if samples and samples > 0 else None
+
+
+def played_seconds(path: Path) -> Optional[float]:
+    """
+    A file's length in seconds as playback uses it: a file that can't be read
+    counts as one minute (recording.AudioFile). None when playback can't be loaded.
+    """
     try:
         from sonorium.recording import AudioFile
     except Exception:
@@ -457,7 +476,7 @@ def _retire_auto(folder: Path, metadata: ThemeMetadata) -> bool:
         if path is None:
             seconds[key] = None  # missing: left as "auto"
             continue
-        seconds[key] = track_seconds(path)
+        seconds[key] = played_seconds(path)
         if seconds[key] is None:
             return False  # lengths can't be read here: next time
 
@@ -592,9 +611,16 @@ def _save_presets_verified(folder: Path, presets: dict) -> None:
         raise OSError(f"{PRESETS_FILE} did not read back the same")
 
 
-def load_theme_folder(folder: Path) -> ThemeMetadata:
+def load_theme_folder(folder: Path, convert: bool = True) -> ThemeMetadata:
     """
     Load a theme folder's metadata and presets, converting a 1.0 theme to 2.0.
+
+    convert=False writes nothing at all (no conversion saved, no backup, no
+    broken file renamed): the 1.0 fields and Ebb & Flow Duration are converted
+    in memory only (a later save writes them, as the server would have), and
+    the conversions that move files or need the audio files' lengths
+    (intrusion groups, "auto" modes) are left undone and unmarked, so the
+    server makes them when it next loads the theme.
 
     Conversion (idempotent):
       - presets in metadata.json move to presets.json (presets.json wins on the
@@ -615,7 +641,7 @@ def load_theme_folder(folder: Path) -> ThemeMetadata:
     problems: list[str] = []
     meta_path = folder / METADATA_FILE
 
-    metadata, raw = _read_metadata(folder, problems, rename_broken=True)
+    metadata, raw = _read_metadata(folder, problems, rename_broken=convert)
     is_new = metadata is None
     if is_new:
         metadata = ThemeMetadata(name=folder.name)
@@ -626,7 +652,7 @@ def load_theme_folder(folder: Path) -> ThemeMetadata:
         legacy_presets = dict(raw["presets"])
     legacy = raw is not None and _is_legacy(raw)
 
-    doc, presets_broken = _read_presets_doc(folder, problems, rename_broken=True)
+    doc, presets_broken = _read_presets_doc(folder, problems, rename_broken=convert)
     presets = dict(legacy_presets)
     presets.update(doc.get("presets") or {})
     plugin_data.filter_presets(presets, f"Theme '{metadata.name or folder.name}'")
@@ -635,6 +661,11 @@ def load_theme_folder(folder: Path) -> ThemeMetadata:
     if legacy:
         _convert_fields(metadata)
     flipped = _convert_ebb_duration(metadata, raw)
+    if not convert:
+        if not metadata.name:
+            metadata.name = folder.name
+        metadata.problems = problems
+        return metadata
     # Moves files, so it backs up (and checks the folder can be written) first
     regrouped = _retire_intrusions(folder, metadata, doc)
     presets = metadata.presets
