@@ -121,8 +121,16 @@ def world(tmp_path):
     m.loader.BUILTIN_PLUGINS_DIR = None
     manager = m.manager.PluginManager(store, plugins_dir=plugins, audio_path=tmp_path / "audio", host=host)
     asyncio.run(manager.initialize())
+    # Not approved yet: known from their manifests only (WaitingPlugin), not loaded
     return SimpleNamespace(host=host, manager=manager, store=store, plugins=plugins, registry=registry, tmp=tmp_path,
-                           lights=manager.get_plugin("lights"), panel=manager.get_plugin("panel"))
+                           lights=manager.find_plugin("lights"), panel=manager.find_plugin("panel"))
+
+
+def allow(world, plugin_id):
+    """The user approves the plugin and switches it on: it is loaded then. Returns the loaded plugin."""
+    world.manager.approve_plugin(plugin_id)
+    assert asyncio.run(world.manager.enable_plugin(plugin_id)), world.manager.last_enable_error.get(plugin_id)
+    return world.manager.get_plugin(plugin_id)
 
 
 def test_nothing_runs_before_the_user_approves(world):
@@ -133,24 +141,24 @@ def test_nothing_runs_before_the_user_approves(world):
     assert [p["label"] for p in info["permissions_pending"]][:2] == ["Add devices: light", "Know when sounds play"]
     assert world.panel.to_dict()["permissions"] is None
     assert world.panel.to_dict()["permissions_pending"] == [{"id": "*", "label": "Everything a plugin can do"}]
+    assert world.manager.get_plugin("lights") is None and world.manager.get_plugin("panel") is None  # not loaded
+    assert {p["id"] for p in world.manager.list_plugins()} == {"lights", "panel"}
     assert asyncio.run(world.manager.enable_plugin("lights")) is False
     assert "Waiting for your approval" in world.manager.last_enable_error["lights"]
-    perms.approve(world.lights)
-    perms.approve(world.panel)
-    assert asyncio.run(world.manager.enable_plugin("lights")) and asyncio.run(world.manager.enable_plugin("panel"))
-    assert world.lights.to_dict()["permissions_pending"] == []
+    lights, panel = allow(world, "lights"), allow(world, "panel")
+    assert lights.enabled and panel.enabled
+    assert lights.to_dict()["permissions_pending"] == []
 
 
 def test_an_update_that_asks_for_more_waits_for_approval(world):
-    world.host.permissions.approve(world.lights)
-    asyncio.run(world.manager.enable_plugin("lights"))
+    allow(world, "lights")
     manifest = dict(LIGHTS_MANIFEST, permissions=LIGHTS_MANIFEST["permissions"] + ["audio.tap"])
     write(world.plugins / "lights", LIGHTS, manifest)
     asyncio.run(world.manager.reload_plugins())
-    lights = world.manager.get_plugin("lights")
-    assert not lights.enabled and world.host.permissions.pending(lights) == ["audio.tap"]
-    world.host.permissions.approve(lights)
-    assert asyncio.run(world.manager.enable_plugin("lights"))
+    assert world.manager.get_plugin("lights") is None  # off and not loaded until approved
+    waiting = world.manager.find_plugin("lights")
+    assert world.host.permissions.pending(waiting) == ["audio.tap"]
+    lights = allow(world, "lights")
     world.host.plugin_removed("lights")  # uninstalled: a new install asks again
     assert world.host.permissions.pending(lights)
 
@@ -164,11 +172,8 @@ def test_plugins_that_ran_before_approvals_existed_keep_running(tmp_path, world)
 
 
 def test_services_refuse_what_a_plugin_did_not_list(world):
-    for p in (world.lights, world.panel):
-        world.host.permissions.approve(p)
-        asyncio.run(world.manager.enable_plugin(p.id))
     E = m.actions.ActionError
-    lights, panel = world.lights, world.panel
+    lights, panel = allow(world, "lights"), allow(world, "panel")
     with pytest.raises(E) as e:
         lights.audio.tap("den", print)
     assert e.value.code == "forbidden" and "audio.tap" in e.value.message
@@ -196,8 +201,7 @@ def test_a_plugins_own_routes_carry_an_ability_each(world):
     pytest.importorskip("httpx")
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    world.host.permissions.approve(world.lights)
-    asyncio.run(world.manager.enable_plugin("lights"))
+    world.lights = allow(world, "lights")
     assert any("route open" in w for w in world.lights.ui_warnings())  # "public" isn't an ability
     found = world.registry.match("GET", "/api/plugins/lights/http/strips/porch")
     perms = {str(p.raw) for _, _, p in found}
@@ -222,10 +226,11 @@ def test_a_plugins_own_routes_carry_an_ability_each(world):
 def test_home_assistant_entities_follow_settings_and_actions(world):
     mqtt = FakeMqtt()
     world.host.mqtt.bind(mqtt)
-    world.host.permissions.approve(world.lights)
+    world.manager.approve_plugin("lights")
 
     async def main():
         await world.manager.enable_plugin("lights")
+        world.lights = world.manager.get_plugin("lights")
         await asyncio.sleep(0.05)
         configs = {t: json.loads(p) for t, p, r in mqtt.published if t.endswith("/config") and p}
         assert set(configs) == {f"homeassistant/{k}/sonorium_plugin_lights_{e}/config" for k, e in
@@ -276,3 +281,131 @@ def test_permission_routes(world):
     routes = m.permissions.ROUTES
     assert routes[("PUT", "/api/plugins/{plugin_id}/permissions")].any_of == {"admin.plugins"}
     assert routes[("GET", "/api/plugins/{plugin_id}/http/{path:path}")].public
+
+
+# --- Packages and code only after approval ---------------------------------------------------
+
+SERIAL = '''
+from pathlib import Path
+Path(__file__).with_name("imported.txt").write_text("plugin.py ran")  # top-level code: must wait for approval
+
+from sonorium.plugins.base import BasePlugin
+
+
+class Serial(BasePlugin):
+    id = "serial"
+    name = "Serial"
+    version = "1.0.0"
+    enabled_calls = []
+
+    async def on_enable(self):
+        Serial.enabled_calls.append(True)
+'''
+
+
+@pytest.fixture
+def serial(world):
+    """A plugin with a Python package; the installer is a fake that records what it installs."""
+    import sys
+    marker = sys.modules["sonorium.plugins.packages"].MARKER
+    installs = []
+    packages = world.host.packages
+
+    def fake_install(plugin_id, requirements):
+        installs.append((plugin_id, list(requirements)))
+        folder = packages.folder(plugin_id)
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / marker).write_text(json.dumps(packages._wanted(requirements)), encoding="utf-8")
+
+    packages.install = fake_install
+    world.host.packages_allowed = lambda: True  # Settings > Advanced > Plugin packages
+    manifest = {"id": "serial", "name": "Serial", "version": "1.0.0", "api_version": "1.2",
+                "permissions": ["devices.serial"], "requirements": ["pyserial==3.5"]}
+    write(world.plugins / "serial", SERIAL, manifest)
+    sys.modules.pop("sonorium_plugin_serial", None)
+    asyncio.run(world.manager.reload_plugins())
+    yield SimpleNamespace(installs=installs, manifest=manifest, imported=world.plugins / "serial" / "imported.txt")
+    sys.modules.pop("sonorium_plugin_serial", None)
+
+
+def test_packages_are_not_installed_and_code_not_run_before_approval(world, serial):
+    import sys
+    assert serial.installs == [] and not serial.imported.exists()  # read from the manifest only
+    assert world.manager.get_plugin("serial") is None and "sonorium_plugin_serial" not in sys.modules
+    row = next(p for p in world.manager.list_plugins() if p["id"] == "serial")
+    assert row["enabled"] is False and row["requirements"] == ["pyserial==3.5"]
+    assert [p["label"] for p in row["permissions_pending"]] == [
+        "Add devices: serial", "Install the Python package pyserial==3.5"]
+    assert row["permissions_pending"][-1]["id"] == "package:pyserial==3.5"
+    # Switching it on without the approval: still nothing installed or run
+    assert asyncio.run(world.manager.enable_plugin("serial")) is False
+    assert serial.installs == [] and not serial.imported.exists()
+
+
+def test_packages_are_installed_after_approval_then_the_plugin_loads(world, serial):
+    plugin = allow(world, "serial")
+    assert serial.installs == [("serial", ["pyserial==3.5"])]
+    assert serial.imported.exists() and plugin.enabled and type(plugin).enabled_calls == [True]
+    assert world.host.permissions.approved_requirements("serial") == ["pyserial==3.5"]
+    # A restart: approved, so it loads again with no question and no second install
+    asyncio.run(world.manager.reload_plugins())
+    assert world.manager.get_plugin("serial").enabled and len(serial.installs) == 1
+
+
+def test_packages_switched_off_refuse_the_plugin_after_approval(world, serial):
+    world.host.packages_allowed = lambda: False
+    world.manager.approve_plugin("serial")
+    assert asyncio.run(world.manager.enable_plugin("serial")) is False
+    assert "Plugin packages" in world.manager.last_enable_error["serial"]
+    assert serial.installs == [] and not serial.imported.exists()
+
+
+def test_an_update_asking_for_more_packages_stays_off_until_approved(world, serial):
+    allow(world, "serial")
+    serial.imported.unlink()
+    manifest = dict(serial.manifest, requirements=["pyserial==3.5", "crcmod==1.7"])
+    write(world.plugins / "serial", SERIAL, manifest)
+    asyncio.run(world.manager.reload_plugins())
+    assert world.manager.get_plugin("serial") is None and not serial.imported.exists()
+    assert world.host.permissions.pending(world.manager.find_plugin("serial")) == ["package:crcmod==1.7"]
+    assert len(serial.installs) == 1  # the new package isn't installed
+    plugin = allow(world, "serial")
+    assert serial.installs[-1] == ("serial", ["pyserial==3.5", "crcmod==1.7"]) and plugin.enabled
+
+
+def test_an_approval_from_before_packages_counts_for_the_installed_ones(world, serial):
+    allow(world, "serial")
+    del world.host.permissions._table()["serial"]["requirements"]  # as saved before packages were approved
+    asyncio.run(world.manager.reload_plugins())
+    assert world.manager.get_plugin("serial").enabled  # no new question: it ran with them
+    assert world.host.permissions.approved_requirements("serial") == ["pyserial==3.5"]
+
+
+def test_packages_that_are_not_approved_are_never_installed(world, serial):
+    with pytest.raises(Exception, match="aren't approved"):
+        world.host.packages.ensure("serial", serial.manifest, approved=[])
+    assert serial.installs == []
+
+
+def test_a_manifest_saying_builtin_does_not_skip_the_approval(world):
+    write(world.plugins / "fake_builtin", PANEL.replace('"panel"', '"fake_builtin"'),
+          {"id": "fake_builtin", "name": "Fake", "version": "1.0.0", "api_version": "1.2", "builtin": True})
+    asyncio.run(world.manager.reload_plugins())
+    assert world.manager.get_plugin("fake_builtin") is None
+    assert world.host.permissions.pending(world.manager.find_plugin("fake_builtin")) == [m.pp.FULL]
+
+
+def test_the_bundled_copy_of_a_builtin_plugin_needs_no_approval(world, tmp_path):
+    bundled = tmp_path / "bundled"
+    write(bundled / "panel", PANEL, {"id": "panel", "name": "Panel", "version": "1.0.0", "api_version": "1.2"})
+    m.loader.BUILTIN_PLUGINS_DIR = bundled
+    try:
+        asyncio.run(world.manager.reload_plugins())
+        panel = world.manager.get_plugin("panel")  # the same files as bundled: loaded, no question
+        assert panel is not None and panel._bundled and world.host.permissions.pending(panel) == []
+        assert world.manager.get_plugin("lights") is None  # not bundled: waits
+        (world.plugins / "panel" / "plugin.py").write_text(PANEL + "\n# changed\n", encoding="utf-8")
+        asyncio.run(world.manager.reload_plugins())
+        assert world.manager.get_plugin("panel") is None  # a different copy asks like any plugin
+    finally:
+        m.loader.BUILTIN_PLUGINS_DIR = None

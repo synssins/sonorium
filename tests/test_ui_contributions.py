@@ -218,9 +218,9 @@ def world(tmp_path):
     m.loader.BUILTIN_PLUGINS_DIR = None
     manager = m.manager.PluginManager(store, plugins_dir=plugins, audio_path=tmp_path / "audio", host=host)
     asyncio.run(manager.initialize())
-    plugin = manager.get_plugin("ui_everywhere")
-    host.permissions.approve(plugin)  # as the user does when switching it on
+    manager.approve_plugin("ui_everywhere")  # as the user does when switching it on
     asyncio.run(manager.enable_plugin("ui_everywhere"))
+    plugin = manager.get_plugin("ui_everywhere")
     yield SimpleNamespace(host=host, manager=manager, plugin=plugin, events=events, store=store, tmp=tmp_path)
     m.plugin_data.registry.unbind()
 

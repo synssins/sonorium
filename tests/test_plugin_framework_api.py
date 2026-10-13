@@ -113,7 +113,7 @@ def w(tmp_path):
         call(manager.initialize)
         call(host.start)  # as at Sonorium's start-up: the loop, the alert bar, the scheduler
         for plugin_id in ("trigger_play_channel", "helper"):
-            host.permissions.approve(manager.get_plugin(plugin_id))  # as the user does when switching it on
+            manager.approve_plugin(plugin_id)  # as the user does when switching it on
             assert call(manager.enable_plugin, plugin_id)
         helper = manager.get_plugin("helper")
         for name in ("page_calls", "tested", "changed", "scheduled"):

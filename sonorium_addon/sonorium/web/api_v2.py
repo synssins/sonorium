@@ -2764,7 +2764,7 @@ def create_api_router(
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
 
-        plugin = plugin_manager.get_plugin(plugin_id)
+        plugin = plugin_manager.find_plugin(plugin_id)  # one waiting for approval too
         if not plugin:
             raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
 
@@ -2779,11 +2779,11 @@ def create_api_router(
         refused = plugin_manager.refused.get(plugin_id)
         if refused and plugin_id not in plugin_manager.plugins:
             raise HTTPException(status_code=409, detail=f"{refused['name']} can't be switched on: {refused['problem']}")
-        waiting = plugin_manager.get_plugin(plugin_id)
+        waiting = plugin_manager.find_plugin(plugin_id)
         if waiting is not None and plugin_manager.permissions_pending(waiting):
-            from sonorium.plugins.permissions import FULL, label
+            from sonorium.plugins.permissions import label
             pending = plugin_manager.permissions_pending(waiting)
-            what = "everything a plugin can do" if pending == [FULL] else ", ".join(label(p) for p in pending)
+            what = ", ".join(label(p) for p in pending)
             raise HTTPException(status_code=409, detail=f"Approve what {waiting.name} asks for first: {what}")
         success = await plugin_manager.enable_plugin(plugin_id)
         if not success:
@@ -2988,6 +2988,8 @@ def create_api_router(
         is_builtin = plugin_id in builtin_ids
 
         try:
+            # One waiting for approval was never loaded: it is just forgotten
+            getattr(plugin_manager, "waiting", {}).pop(plugin_id, None)
             # Disable and unload if loaded
             if plugin:
                 if plugin.enabled:

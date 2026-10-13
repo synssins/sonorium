@@ -8,10 +8,23 @@ app to use the microphone?".
                     "ui", "network.lan"]
 
 An update that asks for more is not switched on until the user approves the
-new list (the plugin's row says what it asks for). Built-in plugins are part
-of Sonorium and need no approval. A plugin whose manifest has no
-"permissions" list says nothing about what it uses: it may use everything,
+new list (the plugin's row says what it asks for). A plugin whose manifest has
+no "permissions" list says nothing about what it uses: it may use everything,
 and the approval says so.
+
+Python packages (manifest "requirements") are part of the approval: each one
+is listed by name and version ("package:pyserial==3.5"), and none is
+installed before the user allows it. An update that adds or changes a package
+asks again.
+
+Nothing of a plugin runs before its approval: the manager reads only its
+manifest, so plugin.py is not imported (no top-level code runs) and no
+package is installed until then (manager.py).
+
+Built-in plugins need no approval: a plugin is built in when its folder holds
+the copy bundled with this Sonorium (loader.is_bundled_copy), not because its
+manifest says "builtin". A newer copy of a built-in plugin installed from
+elsewhere (the catalog, an upload) asks like any other plugin.
 
 Honest limit: a plugin's Python runs inside Sonorium. These checks are made
 by core's services, so they stop mistakes and show intent; a plugin written
@@ -19,7 +32,7 @@ to cheat could go around them (docs/PLUGIN_DEVELOPMENT.md section 11). The
 network permissions are shown, not enforced.
 
 Approvals live in the framework store (section "permissions"):
-{plugin_id: {"granted": [...], "full": bool}}.
+{plugin_id: {"granted": [...], "full": bool, "requirements": [...]}}.
 """
 from __future__ import annotations
 
@@ -52,10 +65,15 @@ PERMISSIONS: dict[str, str] = {
 SCOPED = {"devices": "Add devices: {}", "attributes": "Keep its own values on: {}"}
 _SCOPE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 FULL = "*"  # no list: everything
+PACKAGE = "package:"  # "package:<requirement>": a Python package it will install
 MAX_PERMISSIONS = 40
 
 
 def label(permission: str) -> str:
+    if permission == FULL:
+        return "Everything a plugin can do"
+    if permission.startswith(PACKAGE):
+        return f"Install the Python package {permission[len(PACKAGE):]}"
     if permission in PERMISSIONS:
         return PERMISSIONS[permission]
     base, _, scope = permission.partition(".")
@@ -131,6 +149,16 @@ class PluginPermissions:
         manifest = getattr(plugin, "_manifest", None) or {}
         return normalize(manifest.get("permissions"))[1]
 
+    @staticmethod
+    def requirements(plugin) -> list[str]:
+        """The Python packages the plugin will install ([] if none or not well formed: then it is refused anyway)."""
+        from sonorium.plugins.packages import PackageError, check_requirements
+        manifest = getattr(plugin, "_manifest", None) or {}
+        try:
+            return check_requirements(manifest.get("requirements"))
+        except PackageError:
+            return []
+
     def granted(self, plugin_id: str) -> list:
         entry = self._table().get(plugin_id) or {}
         out = list(entry.get("granted") or [])
@@ -138,26 +166,50 @@ class PluginPermissions:
             out.append(FULL)
         return out
 
+    def approved_requirements(self, plugin_id: str) -> list[str]:
+        """The packages the user allowed this plugin to install."""
+        return list((self._table().get(plugin_id) or {}).get("requirements") or [])
+
+    def adopt_requirements(self, plugin_id: str, requirements: list[str]) -> None:
+        """
+        An approval from before packages were part of it: the packages that
+        were already installed for the plugin count as approved (it ran with
+        them), so it isn't asked again for them.
+        """
+        entry = self._table().get(plugin_id)
+        if entry is None or "requirements" in entry:
+            return
+        entry["requirements"] = list(requirements)
+        self._save()
+
     def pending(self, plugin) -> list[str]:
-        """What the plugin asks for and the user hasn't approved yet ([FULL] for a plugin without a list)."""
-        if plugin is None or getattr(plugin, "_builtin", False):
+        """
+        What the plugin asks for and the user hasn't approved yet ([FULL] for a
+        plugin without a list), then each package not approved ("package:<requirement>").
+        """
+        if plugin is None or getattr(plugin, "_bundled", False):
             return []
         declared = self.declared(plugin)
         granted = self.granted(plugin.id)
         if declared is None:
-            return [] if FULL in granted else [FULL]
-        return [p for p in declared if p not in granted and not (FULL in granted)]
+            out = [] if FULL in granted else [FULL]
+        else:
+            out = [p for p in declared if p not in granted and not (FULL in granted)]
+        approved = set(self.approved_requirements(plugin.id))
+        return out + [PACKAGE + r for r in self.requirements(plugin) if r not in approved]
 
     def approve(self, plugin) -> list:
-        """The user approved what the plugin asks for now. Returns the granted list."""
+        """The user approved what the plugin asks for now, its packages too. Returns the granted list."""
         declared = self.declared(plugin)
+        requirements = self.requirements(plugin)
         table = self._table()
         if declared is None:
-            table[plugin.id] = {"granted": [], "full": True}
+            table[plugin.id] = {"granted": [], "full": True, "requirements": requirements}
         else:
-            table[plugin.id] = {"granted": list(declared), "full": False}
+            table[plugin.id] = {"granted": list(declared), "full": False, "requirements": requirements}
         self._save()
-        logger.info(f"Plugin {plugin.id}: permissions approved: {', '.join(declared) if declared is not None else 'everything'}")
+        logger.info(f"Plugin {plugin.id}: permissions approved: {', '.join(declared) if declared is not None else 'everything'}"
+                    + (f"; packages: {', '.join(requirements)}" if requirements else ""))
         return self.granted(plugin.id)
 
     def recorded(self, plugin_id: str) -> bool:
@@ -172,7 +224,7 @@ class PluginPermissions:
 
     def allowed(self, plugin_id: str, permission: str) -> bool:
         plugin = self.plugin_of(plugin_id)
-        if plugin is None or getattr(plugin, "_builtin", False):
+        if plugin is None or getattr(plugin, "_bundled", False):
             return True
         declared = self.declared(plugin)
         if declared is None:
@@ -194,8 +246,8 @@ class PluginPermissions:
         pending = self.pending(plugin)
         return {
             "permissions": None if declared is None else [{"id": p, "label": label(p)} for p in declared],
-            "permissions_pending": [{"id": p, "label": "Everything a plugin can do" if p == FULL else label(p)}
-                                    for p in pending],
+            "permissions_pending": [{"id": p, "label": label(p)} for p in pending],
+            "requirements": self.requirements(plugin),
             "permission_problems": self.problems(plugin),
         }
 
