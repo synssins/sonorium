@@ -120,6 +120,7 @@ class Actions:
             "speakers": list(speakers),
             "speaker_group_id": session.speaker_group_id,
             "entity_slug": session.get_entity_slug() if hasattr(session, "get_entity_slug") else None,
+            "sleep_until": getattr(session, "sleep_until", None),
         }
 
     # --- Reading ---
@@ -234,6 +235,24 @@ class Actions:
             await self._sessions.pause(channel_id)
         await self._changed(session)
         return self._channel(session)
+
+    async def set_sleep_timer(self, channel_id: str, minutes: float) -> dict:
+        """The playing channel fades out and stops after `minutes` (more than 0, at most 240)."""
+        from sonorium.core.sleep_timer import SleepError
+        self._session(channel_id)
+        try:
+            with self._as_origin():
+                self._sessions.sleep.set(channel_id, minutes)
+        except SleepError as e:
+            raise ActionError("conflict" if e.status == 409 else "invalid", str(e))
+        return self._channel(self._session(channel_id))
+
+    async def cancel_sleep_timer(self, channel_id: str) -> dict:
+        """Cancel the channel's sleep timer (it keeps playing)."""
+        self._session(channel_id)
+        with self._as_origin():
+            self._sessions.sleep.cancel(channel_id)
+        return self._channel(self._session(channel_id))
 
     async def stop_all(self) -> int:
         with self._as_origin():
@@ -380,7 +399,7 @@ GUARDED = {
     **{name: "channels.control" for name in (
         "create_channel", "start_channel", "stop_channel", "pause_channel", "stop_all", "set_theme",
         "set_preset", "set_speakers", "set_volume", "mute_speakers", "start_sequence", "stop_sequence",
-        "set_playlist", "clear_playlist", "next_step")},
+        "set_playlist", "clear_playlist", "next_step", "set_sleep_timer", "cancel_sleep_timer")},
     "play_sound": "audio.sounds",
     "cancel_sound": "audio.sounds",
 }

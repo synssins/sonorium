@@ -510,7 +510,7 @@ function renderSessionCard(session) {
             <div class="ch-head">
                 <span class="ch-icon" aria-hidden="true">${themeIconOf(session.theme_id)}</span>
                 <div class="ch-title"><span class="ch-name">${name}</span>${Sonorium.cardBadges(session)}${uiZone('channel.card', 'badges', ref, 'span')}<span class="ch-sub" title="Speakers"><span class="ch-sub-txt">${escapeHtml(speakers)}</span>${Sonorium.cardSub(session)}</span></div>
-                <span class="ch-state${isPlaying ? ' on' : ''}">${isPlaying ? 'Playing' : 'Stopped'}</span>
+                ${chStateHtml(session)}
                 <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
                 <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('channel.card', 'menu', ref)} onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
             </div>
@@ -550,6 +550,15 @@ function renderSessionCard(session) {
             </div>
         </div>
     `;
+}
+
+// Playing / Stopped; while a sleep timer runs, its time left instead of Playing (counted down by chTick)
+function chStateHtml(session) {
+    const sleepAt = session.is_playing ? chSleepAt(session) : null;
+    if (sleepAt) {
+        return `<span class="ch-state on ch-sleep" role="timer" aria-label="Sleep timer">${CH_ICON_SLEEP}<span class="ch-cd" data-at="${sleepAt}">${chClock((sleepAt - Date.now()) / 1000)}</span></span>`;
+    }
+    return `<span class="ch-state${session.is_playing ? ' on' : ''}">${session.is_playing ? 'Playing' : 'Stopped'}</span>`;
 }
 
 // A channel as the open spots see it (ext/contrib.js)
@@ -659,9 +668,85 @@ function chWhen(iso) {
 }
 
 function chMenu(button, sessionId) {
+    const session = sessions.find(s => s.id === sessionId);
     xMenu(`ch:${sessionId}`, button,
-        xMenuItem('Delete…', `spClosePop(); deleteSession(${spArg(sessionId)})`, { icon: SP_ICON_TRASH, cls: 'danger' }),
+        xMenuItem('Sleep timer…', `chSleepMenu(${spArg(sessionId)})`, { icon: CH_ICON_SLEEP, disabled: !session?.is_playing })
+        + X_SEP + xMenuItem('Delete…', `spClosePop(); deleteSession(${spArg(sessionId)})`, { icon: SP_ICON_TRASH, cls: 'danger' }),
         { cls: 'menu sp-menu x-menu' });
+}
+
+// ---------- Sleep timer: the playing channel fades out and stops after a while (up to 4 hours) ----------
+const CH_ICON_SLEEP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+const CH_SLEEP_PRESETS = [[15, '15 min'], [30, '30 min'], [45, '45 min'], [60, '1 h'], [120, '2 h'], [180, '3 h'], [240, '4 h']];
+const CH_SLEEP_MAX = 240;
+
+// When the channel's timer runs out (this device's clock, from the server's seconds left), or null
+function chSleepAt(session) {
+    if (!session?.sleep_until || session.sleep_seconds_left == null) return null;
+    if (session._sleepFor !== session.sleep_until) {
+        session._sleepFor = session.sleep_until;
+        session._sleepAt = Date.now() + session.sleep_seconds_left * 1000;
+    }
+    return session._sleepAt;
+}
+
+function chSleepMenu(sessionId) {
+    const button = spMenuAnchor();
+    const session = sessions.find(s => s.id === sessionId);
+    if (!button || !session) return;
+    const id = spArg(sessionId);
+    const items = CH_SLEEP_PRESETS.map(([minutes, label]) => xMenuItem(label, `chSetSleep(${id}, ${minutes})`)).join('')
+        + xMenuItem('Custom…', `chSleepCustom(${id})`)
+        + (session.sleep_until ? X_SEP + xMenuItem('Cancel timer', `chCancelSleep(${id})`) : '');
+    xMenu(`chsleep:${sessionId}`, button, items, { cls: 'menu sp-menu x-menu' });
+}
+
+function chSleepCustom(sessionId) {
+    const button = spMenuAnchor();
+    if (!button) return;
+    const pop = spOpenPop(`chsleepc:${sessionId}`, button, 'sp-confirm', `
+        <span class="pop-title">Sleep timer</span>
+        <input id="ch-sleep-min" class="inp sm" type="number" inputmode="numeric" min="1" max="${CH_SLEEP_MAX}" step="1" enterkeyhint="done"
+               placeholder="Minutes" aria-label="Minutes"
+               oninput="document.getElementById('ch-sleep-ok').disabled = !chSleepMinutes()"
+               onkeydown="if (event.key === 'Enter') { event.preventDefault(); document.getElementById('ch-sleep-ok').click(); }">
+        <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="spClosePop()">Cancel</button>
+            <button type="button" class="btn btn-sm btn-primary" id="ch-sleep-ok" disabled
+                    onclick="chSetSleep(${spArg(sessionId)}, chSleepMinutes())">OK</button></div>`, 'dialog');
+    pop?.querySelector('input')?.focus();
+}
+
+// The custom field's minutes (1 to 240), or 0
+function chSleepMinutes() {
+    const value = Number(document.getElementById('ch-sleep-min')?.value);
+    return Number.isFinite(value) && value >= 1 && value <= CH_SLEEP_MAX ? Math.round(value) : 0;
+}
+
+async function chSetSleep(sessionId, minutes) {
+    spClosePop();
+    if (!minutes) return;
+    try {
+        chSleepUpdate(sessionId, await api('PUT', `/sessions/${sessionId}/sleep`, { minutes }));
+    } catch (error) {
+        showToast(error.message || 'Failed to set the sleep timer', 'error');
+    }
+}
+
+async function chCancelSleep(sessionId) {
+    spClosePop();
+    try {
+        chSleepUpdate(sessionId, await api('DELETE', `/sessions/${sessionId}/sleep`));
+    } catch (error) {
+        showToast(error.message || 'Failed to cancel the sleep timer', 'error');
+    }
+}
+
+function chSleepUpdate(sessionId, result) {
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session || !result) return;
+    session.sleep_until = result.sleep_until;
+    session.sleep_seconds_left = result.seconds_left;
+    renderSessions();
 }
 
 // Listen here: this browser plays the channel's own stream (one channel at a time). The server
@@ -3632,7 +3717,9 @@ function teRenderRow(track, group, view = TE_VIEW) {
         const source = escapeHtml(link.theme_name || 'another theme');
         from = `<span class="lk-from" title="Linked from ${source}">${missing
             ? '<span class="badge badge-missing">Missing</span>'
-            : `<span class="lk-ic">${TE_ICON_LINK_SM}</span>`}<span class="lk-src">from ${source}</span></span>`;
+            : `<span class="lk-ic">${TE_ICON_LINK_SM}</span>`}<span class="lk-src">from ${source}</span>${view.edit && !missing
+            ? `<button type="button" class="lk-copy" aria-label="Copy into this theme: ${label}" onclick="teCopyLinkIn(${k})">${TE_ICON_DOWNLOAD}</button>`
+            : ''}</span>`;
     }
     let controls;
     if (section.mode === 'unassigned') {
@@ -4213,6 +4300,33 @@ async function teRemoveLink(key) {
     teLoadPresets(false);
 }
 
+// Copy a linked file into this theme, where it is (its group, or the top level). The row stays
+// in place and becomes the theme's own file (a new key on a name clash, e.g. "Rain (2)"), with
+// its settings; a playing preview or mix goes on.
+async function teCopyLinkIn(key) {
+    teCloseMenu();
+    const track = teTrack(key);
+    if (!track?.linked || track.linked.missing) return;
+    let newKey;
+    try {
+        newKey = (await api('POST', `/themes/${te.themeId}/links/${encodeURIComponent(key)}/copy-in`,
+            { group: trackGroupOf(key) || null }))?.track || key;
+    } catch (error) {
+        showToast(error.message || 'Failed to copy the file', 'error');
+        return;
+    }
+    track.name = newKey;
+    delete track.linked;
+    if (te.mixSnap?.tracks[key] && newKey !== key) {
+        te.mixSnap.tracks[newKey] = te.mixSnap.tracks[key];
+        delete te.mixSnap.tracks[key];
+    }
+    if (currentPreviewTrack === key) currentPreviewTrack = newKey;
+    teRenderTracks();
+    await teLoadTracks(false, false);  // the server rebuilt the theme before answering
+    teLoadPresets(false);
+}
+
 // Drag & drop (desktop): drag a track by its handle onto a group or a section
 function teDragStart(event, key) {
     te.drag = key;
@@ -4656,7 +4770,8 @@ function teMenuHtml(kind, arg) {
             }
             if (te.groupsOk) html += sep + moveRows(track, k, missing);
             html += sep + mi('Reset track', `teResetTrack(${k})`, { icon: TE_ICON_RESET, disabled: missing });
-            html += sep + mi('Remove link…', `teMenu('lnkdel', te.menuBtn, ${k})`, { icon: TE_ICON_UNLINK, cls: 'danger' });
+            html += sep + mi('Copy into this theme', `teCopyLinkIn(${k})`, { icon: TE_ICON_DOWNLOAD, disabled: missing });
+            html += mi('Remove link…', `teMenu('lnkdel', te.menuBtn, ${k})`, { icon: TE_ICON_UNLINK, cls: 'danger' });
             return { cls: 'menu', align: 'right', html };
         }
         case 'lnkdel':

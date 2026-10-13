@@ -745,13 +745,24 @@ class WebApp:
             entries = restart_resume.take(self._state_store.state_file.parent)
         except Exception as e:
             logger.warning(f"Could not read the channels to play again after the restart: {e}")
-            return
+            entries = []
+        # Sleep timers (core/sleep_timer.py): kept on the channels that play again, dropped on the
+        # others; a channel whose timer ran out during the restart is not played again
+        sleep = getattr(self._session_manager, "sleep", None)
+        if sleep is not None:
+            try:
+                expired = sleep.after_start(entry["id"] for entry in entries)
+                entries = [entry for entry in entries if entry["id"] not in expired]
+            except Exception as e:
+                logger.warning(f"Could not check the sleep timers after the restart: {e}")
         if not entries:
             return
         import asyncio
         on_started = self._mqtt_manager.update_session_state if self._mqtt_manager else None
         self._resume_task = asyncio.get_running_loop().create_task(
             restart_resume.resume(self._session_manager, entries, on_started=on_started))
+        if sleep is not None:
+            self._resume_task.add_done_callback(lambda _task: sleep.resume_done())
 
     # --- Sign-in (sonorium/auth) ---
 

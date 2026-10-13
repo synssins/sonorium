@@ -67,9 +67,19 @@ CATALOGUE: dict[str, dict] = {
     "channel.stopped": {
         "description": "A channel stopped playing on its speakers.",
         "fields": {"channel_id": "Channel id", "name": "Channel name",
-                   "reason": "stopped, paused, idle (no listener pulled audio), ended (playlist finished) or "
-                             "schedule (Kid mode's hours ended)"},
+                   "reason": "stopped, paused, idle (no listener pulled audio), ended (playlist finished), "
+                             "schedule (Kid mode's hours ended) or sleep (its sleep timer ran out)"},
         "summary": "{name} stopped",
+    },
+    "channel.sleep_timer": {
+        "description": "A channel's sleep timer was set, changed, cancelled or ran out (then the channel fades "
+                       "out and stops: channel.stopped with reason sleep).",
+        "fields": {"channel_id": "Channel id", "name": "Channel name",
+                   "reason": "set (also a change), cancelled, ended (it ran out) or stopped (the channel "
+                             "stopped another way first)",
+                   "sleep_until": "When it stops (UTC ISO time), or null when no timer is left",
+                   "seconds_left": "Seconds until then, or null"},
+        "summary": "{name}: sleep timer {reason}",
     },
     "channel.changed": {
         "description": "A channel's settings changed. Only the fields that changed are in 'changes'.",

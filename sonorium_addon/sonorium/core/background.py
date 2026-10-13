@@ -1,7 +1,8 @@
 """
 Sonorium's background loop.
 
-- Every second: moves sequences and playlists on (core/playback_runner.py).
+- Every second: moves sequences and playlists on (core/playback_runner.py)
+  and stops channels whose sleep timer ran out (core/sleep_timer.py).
 - Every 10 seconds: stops sessions nobody is listening to any more (#29).
 
 It replaced the theme cycle manager: theme cycling became playlists
@@ -64,6 +65,13 @@ class BackgroundLoop:
                     await self.session_manager.runner.tick()
             except Exception as e:
                 logger.error(f"BackgroundLoop: error running sequences/playlists: {e}")
+            try:
+                sleep = getattr(self.session_manager, "sleep", None)
+                if sleep is not None:
+                    sleep.on_stopped = self.on_session_stopped
+                    await sleep.tick()
+            except Exception as e:
+                logger.error(f"BackgroundLoop: error running sleep timers: {e}")
 
             if loop.time() >= next_idle_check:
                 next_idle_check = loop.time() + self.idle_check_interval

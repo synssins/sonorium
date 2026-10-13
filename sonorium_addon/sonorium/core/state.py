@@ -372,6 +372,9 @@ class Session:
     # Plugin attributes on this channel: {plugin_id: {name: value}} (core/plugin_data.py)
     plugins: dict = field(default_factory=dict)
 
+    # The sleep timer: when the channel fades out and stops (UTC ISO time), or None (core/sleep_timer.py)
+    sleep_until: Optional[str] = None
+
     def __post_init__(self):
         if not self.created_at:
             self.created_at = datetime.utcnow().isoformat()

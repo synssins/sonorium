@@ -125,6 +125,10 @@ class SessionManager:
         from sonorium.core.playback_runner import PlaybackRunner
         self.runner = PlaybackRunner(self)
 
+        # Sleep timers: a channel fades out and stops at a set time (core/sleep_timer.py)
+        from sonorium.core.sleep_timer import SleepTimers
+        self.sleep = SleepTimers(self)
+
         # Who may change a channel, and its speakers in use (core/channel_policy.py):
         # None = every channel open, as without zones
         self.policy = None

@@ -503,6 +503,12 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - **Channel popup.** Clicking a channel's name opens the channel as it looks on Sonorium's Channels page, with its recent changes.
 - When the cards can't be added automatically, **Settings → Connection** says why and offers the file to download (Docker).
 
+**Channels**
+- **Sleep timer.** A playing channel's ⋯ › **Sleep timer…**: 15, 30 or 45 minutes, 1 to 4 hours, or **Custom…** (up to 4 hours). The time left shows on the card instead of **Playing**; when it runs out the channel fades out and stops, as with Stop. Pick another time to change it, or **Cancel timer**. Stopping the channel removes its timer. The timer is kept by the server: it shows after a reload and in the app, and after a restart from Settings or the web UI the channel plays again until the same time (if that time passed during the restart, it stays stopped). After a stop or a crash the timer is gone.
+
+**Theme Editor**
+- **Copy a linked file into the theme.** The download button on a linked file's row (or **Copy into this theme** in its ⋯ menu) copies the file into the theme. The row stays where it is and becomes the theme's own file, with its settings.
+
 **Fixes**
 - **After a restart** from Settings or the web UI, the channels that were playing play again, with their theme, preset, sequence or playlist, and volume. After a stop or a crash they stay stopped.
 - **Max channels.** Starting a channel when the most channels are already playing is refused with a message, from the web UI, Home Assistant, MQTT, plugins and links; the channel stays stopped.
@@ -722,6 +728,7 @@ A theme is a set of tracks (sound files) mixed together. This help follows the e
 
 - **Linked file:** plays here but stays in its own theme. Add one with Add from another theme above the list; it starts in Unassigned, and can go anywhere your own files can. If the file is gone, it shows Missing.
 - **Presets:** turn linked files on and other tracks off, like rain that mutes the crickets. A preset that turns a linked file on shows ⚭.
+- **Copy into this theme:** the download button next to "from …" on a linked file's row, or its ⋯ menu. The file is copied into this theme, where the link was, and keeps its settings and preset values; from then on it is this theme's own file, not a link (a playing preview goes on). The original stays in its own theme.
 - **Remove link:** in a linked file's ⋯ menu. The file stays in its own theme.
 
 **Sequences**
@@ -785,6 +792,7 @@ Sonorium provides a REST API for integration:
 - `POST /api/sessions/{id}/next` - Skip to the sequence's next step or the playlist's next entry
 - `PUT /api/sessions/{id}/speakers-muted` - Mute or unmute the speakers (`{"muted": true}`)
 - `PUT /api/sessions/{id}/announcements` - Turn the channel's Announcements on or off (`{"on": false}`)
+- `PUT /api/sessions/{id}/sleep` - Sleep timer: the playing channel fades out and stops after `{"minutes": 45}` (more than 0, at most 240; replaces a running timer; 409 when it isn't playing). `GET` reads it, `DELETE` cancels it. Answers `{"channel_id", "sleep_until", "seconds_left"}`; a channel also lists `sleep_until` and `sleep_seconds_left`, and every change is a `channel.sleep_timer` event
 - `POST /api/announce` - Play a chime and/or speak text on channels (`{"channels": "Kitchen", "text": "Dinner is ready"}`; see [Announcements](#announcements-let-other-systems-use-sonorium))
 - `POST /api/sessions/{id}/listen` / `DELETE` - Start or stop listening in a browser (the stream is `stream_path` with `?local=1`)
 

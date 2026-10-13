@@ -93,6 +93,8 @@ class SessionResponse(BaseModel):
     listening: bool = False  # a browser listens (its mix runs even with the speakers stopped)
     outputs: list[dict] = Field(default_factory=list)  # devices the app reports playing it (core/outputs.py)
     recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
+    sleep_until: Optional[str] = None  # the sleep timer: when it fades out and stops (UTC ISO time), or null
+    sleep_seconds_left: Optional[int] = None  # seconds until then (by the server's clock), or null
     created_at: str
     last_played_at: Optional[str]
 
@@ -288,6 +290,8 @@ def _session_to_response(session, session_manager) -> SessionResponse:
     except Exception as e:
         logger.warning(f"Could not read the playback status of '{session.name}': {e}")
         playback = {}
+    timers = getattr(session_manager, "sleep", None)
+    sleep = timers.status(session) if timers is not None else {"sleep_until": None, "seconds_left": None}
     return SessionResponse(
         id=session.id,
         name=session.name,
@@ -311,6 +315,8 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         listening=session_manager.is_listened(session),
         outputs=_outputs_of(session, session_manager),
         recent=list(reversed(session.recent)),
+        sleep_until=sleep["sleep_until"],
+        sleep_seconds_left=sleep["seconds_left"],
         created_at=session.created_at,
         last_played_at=session.last_played_at,
     )
@@ -715,6 +721,49 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         await _sync_mqtt(session_manager.get(session_id))  # the Speakers muted switch and Recent changes
         return {"speakers_muted": muted}
+
+    # --- Sleep timer (core/sleep_timer.py) ---
+
+    def _sleep_answer(session) -> dict:
+        return {"channel_id": session.id, **session_manager.sleep.status(session)}
+
+    @router.get("/sessions/{session_id}/sleep")
+    async def get_session_sleep(session_id: str) -> dict:
+        """The channel's sleep timer: {"channel_id", "sleep_until" (UTC ISO time or null), "seconds_left"}."""
+        session = session_manager.get(session_id)
+        if not session:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        return _sleep_answer(session)
+
+    @router.put("/sessions/{session_id}/sleep")
+    async def set_session_sleep(session_id: str, request: Request) -> dict:
+        """
+        {"minutes": more than 0, at most 240}: the playing channel fades out and
+        stops after that long (replaces a running timer). 409 when it isn't playing.
+        """
+        from sonorium.core.sleep_timer import SleepError
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A JSON object is required")
+        try:
+            session_manager.sleep.set(session_id, body.get("minutes"))
+        except LookupError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        except SleepError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+        return _sleep_answer(session_manager.get(session_id))
+
+    @router.delete("/sessions/{session_id}/sleep")
+    async def cancel_session_sleep(session_id: str) -> dict:
+        """Cancel the channel's sleep timer (it keeps playing). {"cancelled": false} when it had none."""
+        try:
+            cancelled = session_manager.sleep.cancel(session_id)
+        except LookupError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        return {"cancelled": cancelled, **_sleep_answer(session_manager.get(session_id))}
 
     @router.post("/sessions/{session_id}/listen")
     async def listen_session(session_id: str, request: Request) -> dict:

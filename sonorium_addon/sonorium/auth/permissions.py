@@ -221,6 +221,9 @@ PUT     /api/sessions/{session_id}/speakers-muted       ch.change|sp.mute
 PUT     /api/sessions/{session_id}/announcements        ch.change
 POST    /api/sessions/{session_id}/listen               ch.play
 DELETE  /api/sessions/{session_id}/listen               ch.play
+GET     /api/sessions/{session_id}/sleep                ch.view
+PUT     /api/sessions/{session_id}/sleep                ch.play
+DELETE  /api/sessions/{session_id}/sleep                ch.play
 POST    /api/sessions/stop-all                          ch.play
 # the caller's own personal channel (web/personal_routes.py): hidden, local only, one per account
 GET     /api/me/channel                                 ch.view

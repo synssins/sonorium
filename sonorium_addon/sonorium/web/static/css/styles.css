@@ -3764,6 +3764,15 @@ html { scrollbar-gutter: stable; }
 .te .lk-from { display: flex; align-items: center; gap: .3rem; min-width: 0; font-size: .6875rem; line-height: 1.2; color: var(--text-muted); white-space: nowrap; }
 .te .lk-src { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .te .lk-ic { display: inline-flex; flex: none; color: #c4b5fd; }
+/* Copy a linked file into the theme: a small download button after "from <theme>" */
+.te .lk-copy { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 22px; margin: -4px 0; padding: 0;
+    border: 1px solid transparent; border-radius: .25rem; background: none; color: var(--text-secondary); cursor: pointer; }
+.te .lk-copy svg { width: 13px; height: 13px; }
+.te .lk-copy:hover, .te .lk-copy:focus-visible { color: var(--text-primary); border-color: var(--accent-secondary); }
+@media (max-width: 768px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
+    .te .lk-copy { width: 32px; height: 32px; margin: -8px 0; }
+    .te .lk-copy svg { width: 15px; height: 15px; }
+}
 .te .badge-missing { height: 16px; padding: 0 .3rem; background: rgba(239, 68, 68, .15); color: var(--accent-danger); font-size: .625rem; }
 /* Missing source: greyed; only ⋯ (Remove link) stays live */
 .te .trow.missing .trk-name, .te .trow.missing .mx, .te .trow.missing .c-mode, .te .trow.missing .track-preview-btn, .te .trow.missing .track-mute-btn { opacity: .4; }
@@ -3927,6 +3936,9 @@ button.pk-row { cursor: pointer; }
 .ch-sub > .ch-sub-txt { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ch-state { padding: .125rem .5rem; border-radius: 999px; font-size: .6875rem; color: var(--text-muted); background: var(--bg-secondary); }
 .ch-state.on { color: var(--accent-primary); background: rgba(6, 214, 160, .12); }
+/* A sleep timer runs: a moon and the time left instead of Playing */
+.ch-state.ch-sleep { display: inline-flex; align-items: center; gap: .25rem; font-variant-numeric: tabular-nums; }
+.ch-state.ch-sleep svg { width: 11px; height: 11px; flex: none; }
 /* Theme and Preset (or Playlist and Playing), with the buttons that choose between them */
 .ch-src { display: grid; grid-template-columns: 56px minmax(0, 1fr) 36px; grid-template-rows: 36px 36px; align-items: center; gap: .5rem; }
 .ch-modes { grid-column: 3; grid-row: 1 / 3; display: flex; flex-direction: column; gap: .5rem; }

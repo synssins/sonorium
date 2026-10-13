@@ -208,7 +208,8 @@ All events of a channel have `channel_id` and `name` (the channel's name).
 | `channel.created` | A channel was added | `channel_id`, `name`, `theme_id` |
 | `channel.deleted` | A channel was deleted | `channel_id`, `name` |
 | `channel.started` | A channel started playing on its speakers | `theme_id`, `preset_id`, `volume`, `speakers` |
-| `channel.stopped` | A channel stopped | `reason`: `stopped`, `paused`, `idle` (no speaker pulled audio for 90 s), `ended` (a playlist without repeat finished) or `schedule` (Kid mode's hours ended) |
+| `channel.stopped` | A channel stopped | `reason`: `stopped`, `paused`, `idle` (no speaker pulled audio for 90 s), `ended` (a playlist without repeat finished), `schedule` (Kid mode's hours ended) or `sleep` (its sleep timer ran out) |
+| `channel.sleep_timer` | A channel's sleep timer was set, changed, cancelled or ran out | `reason`: `set` (also a change), `cancelled`, `ended` or `stopped` (the channel stopped another way first); `sleep_until` (UTC ISO time, or null), `seconds_left` |
 | `channel.changed` | A channel's settings changed | `changes`: only what changed, any of `theme_id`, `preset_id`, `sequence_id`, `playlist_id`, `volume`, `speakers_muted`, `name`, `speakers` |
 | `sequence.step` | A sequence moved to a step (also step 1 when it starts) | `theme_id`, `sequence_id`, `step`, `steps`, `preset_id` |
 | `playlist.entry` | A playlist moved to an entry | `playlist_id`, `position`, `entries`, `theme_id` |
@@ -285,10 +286,11 @@ with `code` `not_found`, `invalid`, `conflict` or `unavailable`, and a `message`
 
 | Method | Does |
 |---|---|
-| `list_channels()` / `get_channel(id)` | Channels: `id`, `name`, `theme_id`, `theme_name`, `preset_id`, `sequence_id`, `playlist_id`, `volume`, `is_playing`, `speakers_muted`, `speakers`, `speaker_group_id` |
+| `list_channels()` / `get_channel(id)` | Channels: `id`, `name`, `theme_id`, `theme_name`, `preset_id`, `sequence_id`, `playlist_id`, `volume`, `is_playing`, `speakers_muted`, `speakers`, `speaker_group_id`, `sleep_until` |
 | `create_channel(theme_id, speakers, speaker_group_id, name, preset_id, volume)` | A new channel (stopped); all arguments optional |
 | `start_channel(id)` / `stop_channel(id)` / `pause_channel(id)` | Play, stop or pause (fades as set in Settings) |
 | `stop_all()` | Stop every channel; returns how many |
+| `set_sleep_timer(id, minutes)` / `cancel_sleep_timer(id)` | The playing channel fades out and stops after `minutes` (more than 0, at most 240; `conflict` when it isn't playing), or cancel that; the channel's `sleep_until` shows it |
 | `set_theme(id, theme_id, preset_id=None)` | Change the theme (crossfades if playing); no preset = the theme's default |
 | `set_preset(id, preset_id)` | Glide to a preset of the channel's theme (`""` = none) |
 | `set_speakers(id, speakers=[...])` or `set_speakers(id, speaker_group_id=...)` | Which speakers play the channel |
