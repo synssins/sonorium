@@ -170,6 +170,10 @@ class SonoriumSettings:
     # sonorium/playback_values.py). Format: {"loop_crossfade": 2.0}
     playback_values: dict[str, float] = field(default_factory=dict)
 
+    # Settings > Advanced > Server name: GET /api/info "name" and the mDNS TXT
+    # name (see sonorium/servername.py). "" = "Sonorium"
+    server_name: str = ""
+
     # Plugin attribute schemas, kept while each plugin is installed (switched off
     # too), so they are known before any plugin loads (core/plugin_data.py).
     # Format: {"wled": {"track": {"cue": {"type": "enum", "options": [...]}}}}

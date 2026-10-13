@@ -286,6 +286,9 @@ class WebApp:
             # Settings > Advanced's playback values: the mixer reads them from the store
             from sonorium import playback_values
             playback_values.set_source(lambda: self._state_store.settings.playback_values)
+            # Settings > Advanced > Server name: GET /api/info and mDNS read it from the store
+            from sonorium import servername
+            servername.set_source(lambda: self._state_store.settings.server_name)
             # Plugin attribute schemas live in state.json: known before themes and plugins load
             from sonorium.core import plugin_data
             plugin_data.registry.bind(lambda: self._state_store.settings.plugin_attributes,

@@ -164,6 +164,7 @@ class SettingsResponse(BaseModel):
     master_gain: int
     allow_multiple_local_outputs: bool = False  # more than one local audio output device plays at a time
     stereo: bool = False  # Settings > Audio Settings > Stereo: channels mix in stereo
+    server_name: str = ""  # Settings > Advanced > Server name ("" = "Sonorium"; GET /api/info "name")
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -176,6 +177,7 @@ class UpdateSettingsRequest(BaseModel):
     master_gain: Optional[int] = Field(default=None, ge=0, le=100)
     allow_multiple_local_outputs: Optional[bool] = None
     stereo: Optional[bool] = None
+    server_name: Optional[str] = None  # trimmed; "" = "Sonorium"; at most servername.MAX_LENGTH characters
 
 
 class SpeakerSettingsResponse(BaseModel):
@@ -395,7 +397,10 @@ def create_api_router(
     # Settings > Advanced's playback values: the mixer reads them from this store
     from sonorium import playback_values
     playback_values.set_source(lambda: state_store.settings.playback_values)
-    
+    # Settings > Advanced > Server name: GET /api/info and mDNS read it from this store
+    from sonorium import servername
+    servername.set_source(lambda: state_store.settings.server_name)
+
     # --- Debug Endpoint ---
     
     @router.get("/debug/speakers")
@@ -1865,12 +1870,19 @@ def create_api_router(
             master_gain=settings.master_gain,
             allow_multiple_local_outputs=settings.allow_multiple_local_outputs,
             stereo=settings.stereo,
+            server_name=settings.server_name,
         )
 
     @router.put("/settings")
     async def update_settings(request: UpdateSettingsRequest) -> SettingsResponse:
         """Update settings."""
         settings = state_store.settings
+        if request.server_name is not None:  # checked first: a refused name changes nothing
+            from sonorium import servername
+            try:
+                new_name = servername.clean(request.server_name)
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error))
 
         if request.default_volume is not None:
             settings.default_volume = request.default_volume
@@ -1891,6 +1903,9 @@ def create_api_router(
         if request.stereo is not None:
             settings.stereo = request.stereo
             apply_stereo(settings.stereo)
+        if request.server_name is not None and new_name != settings.server_name:
+            settings.server_name = new_name  # GET /api/info at once; mDNS within a few seconds
+            logger.info(f"Settings: server name is now {servername.get()!r}")
 
         state_store.save()
         _settings_changed("general", [k for k in request.model_fields_set if getattr(request, k) is not None])
@@ -1904,6 +1919,7 @@ def create_api_router(
             master_gain=settings.master_gain,
             allow_multiple_local_outputs=settings.allow_multiple_local_outputs,
             stereo=settings.stereo,
+            server_name=settings.server_name,
         )
 
     # --- Settings > Advanced: playback values ---

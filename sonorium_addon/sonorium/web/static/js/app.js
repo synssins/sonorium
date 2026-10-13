@@ -1904,6 +1904,7 @@ function findHierarchySpeaker(entityId) {
 // Settings › Plugins ⋯ › Allow output to more than one local device is on.
 let outputTypes = [];             // POST /api/audio-outputs/discover
 let allowMultipleLocal = false;   // GET /api/settings: allow_multiple_local_outputs
+let serverName = null;            // GET /api/settings: server_name ("" = Sonorium; null: an older server)
 let outputsLoading = null;
 
 function isOutputDevice(speaker) {
@@ -5598,6 +5599,7 @@ async function loadAudioSettings() {
             };
             audioDraft = { ...audioSettings };
             allowMultipleLocal = !!result.allow_multiple_local_outputs;
+            serverName = typeof result.server_name === 'string' ? result.server_name : null;
         }
     } catch (error) {
         console.log('Could not load audio settings, using defaults');
@@ -6089,9 +6091,36 @@ function pvRender() {
     if (!form || !head) return;
     head.style.display = playbackValues ? '' : 'none';
     // Plugins' sections first (slots.js: advanced), then the playback values
-    form.innerHTML = (playbackValues ? Sonorium.advancedHtml() : '') + (playbackValues ? PV_SECTIONS.map(section =>
+    form.innerHTML = pvGeneralSection() + (playbackValues ? Sonorium.advancedHtml() : '') + (playbackValues ? PV_SECTIONS.map(section =>
         `<h3 class="spv-sec">${escapeHtml(section.title)}</h3><div class="sp-lbody">${section.rows.map(pvRow).join('')}</div>`).join('') : '')
         + pvNetworkSection();
+}
+
+// General: the server's name (GET /api/info "name", the mDNS name). Kept in the settings; saved as it's changed.
+const SERVER_NAME_MAX = 40;   // the server's servername.MAX_LENGTH
+function pvGeneralSection() {
+    if (serverName === null || !playbackValues) return '';
+    return `<h3 class="spv-sec">General</h3><div class="sp-lbody"><div class="sp-lrow spv-grid${serverName ? ' changed' : ''}">
+        <span class="spv-name">Server name</span><span class="spv-desc">The name the app and other devices show for this server.</span><span class="spv-def">Sonorium</span>
+        <span class="spv-val"><input class="sp-inp spv-url" type="text" id="pv-server-name" aria-label="Server name" placeholder="Sonorium" maxlength="${SERVER_NAME_MAX}" value="${escapeHtml(serverName)}" onchange="pvServerNameChanged(this)"></span>
+        <button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="Server name: back to the default"${serverName ? '' : ' disabled'} onclick="pvServerNameChanged(null)">${SP_ICON_RESET}</button></div></div>`;
+}
+
+// Trimmed; at most SERVER_NAME_MAX characters, no control characters (the server checks the same)
+async function pvServerNameChanged(input) {
+    const value = input ? input.value.trim() : '';
+    if (input) {
+        const bad = value.length > SERVER_NAME_MAX || [...value].some(ch => ch.charCodeAt(0) < 32 || (ch.charCodeAt(0) >= 127 && ch.charCodeAt(0) < 160));
+        input.classList.toggle('bad', bad);
+        if (bad) return;
+    }
+    try {
+        const result = await api('PUT', '/settings', { server_name: value });
+        serverName = typeof result.server_name === 'string' ? result.server_name : value;
+    } catch (error) {
+        showToast(error.message || 'Not saved', 'error');
+    }
+    pvRender();
 }
 
 // Network: the stream URL speakers are given (Docker/Windows; the Home Assistant app sets it in
@@ -10848,6 +10877,8 @@ const PAGE_HELP = {
         ${helpTerm('Green', 'changed from the default.')}
         ${helpTerm('Amber', 'far outside the usual range. Allowed, but it may not sound right.')}
         ${helpTerm('Announcements and sounds', 'how announcements, alerts and sound effects play over a channel: the channel gets quieter (ducks), the sound plays, the channel comes back. A stopped channel is started for an announcement and stopped after it.')}
+        <h4>General</h4>
+        ${helpTerm('Server name', 'the name the Sonorium app and other devices on your network show for this server. Empty: Sonorium.')}
         <h4>Network</h4>
         ${helpTerm('Stream URL', 'the address speakers are given to reach Sonorium (port 8008). Automatic works out the address itself. A change restarts Sonorium; you confirm first.')}
         <h4>Top bar</h4>

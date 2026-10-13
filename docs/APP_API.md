@@ -323,7 +323,7 @@ not built (AUTH.md).
 | Field | Type | What the app does with it |
 |---|---|---|
 | `id` | string (UUID) | Must equal the QR `id` / stored ID. A mismatch: a different server. |
-| `name` | string | Always `"Sonorium"` today |
+| `name` | string | The server's name: Settings › Advanced › Server name (`server_name` in `GET /settings`, 7.7); `"Sonorium"` when none is set. Show it in the server list. The mDNS TXT `name` is the same. |
 | `version` | string | Show it in server details. Don't parse it for features; use `api` and the presence of fields. |
 | `api` | int | API version, `1`. Section 11.3. |
 | `install` | `"addon"`, `"docker"`, `"windows"`, `"linux"` | Wording ("Home Assistant app", "Docker"); `addon` means: no mDNS re-discovery, floors and areas come from HA. |
@@ -1002,8 +1002,8 @@ created_at, updated_at}`.
 
 | Method, path | Perm | Answer |
 |---|---|---|
-| `GET /settings` | ch.view | `{"default_volume": 60, "crossfade_duration": 3.0, "max_groups": 20, "show_in_sidebar": true, "auto_create_quick_play": true, "master_gain": 60}` |
-| `PUT /settings` | st.change, **Admin** | any of those fields → the same object |
+| `GET /settings` | ch.view | `{"default_volume": 60, "crossfade_duration": 3.0, "max_groups": 20, "show_in_sidebar": true, "auto_create_quick_play": true, "master_gain": 60, "server_name": ""}` (`server_name`: `""` = "Sonorium") |
+| `PUT /settings` | st.change, **Admin** | any of those fields → the same object. `server_name` is trimmed; longer than 40 characters or with control characters: 400 |
 | `GET /stream/url` | ch.view | section 9 |
 | `GET /install` | ch.view | `{"install", "label", "version", "features"}` |
 | `GET /status` | ch.view | `{"version", "current_theme", "themes": [...], "v2_enabled", "sessions", "speaker_groups", "channels", "active_channels", "playlist_sessions"}` |

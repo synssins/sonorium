@@ -34,12 +34,14 @@ from sonorium.obs import logger
 API_VERSION = 1
 UI_HOST_API = 1  # the web UI's window.SONORIUM_HOST contract (static/js/api.js SONORIUM_HOST_API)
 PAIR_RATE, PAIR_BURST = 5 / 60, 5  # pairing: 5 attempts a minute per address
-SERVER_NAME = "Sonorium"
+SERVER_NAME = "Sonorium"  # the name when Settings > Advanced > Server name is empty (servername.DEFAULT)
 
 
 def server_name() -> str:
-    """The server's name: GET /api/info "name" and the mDNS TXT name (announce.py) both read it."""
-    return SERVER_NAME
+    """The server's name (Settings > Advanced > Server name, "Sonorium" when empty):
+    GET /api/info "name" and the mDNS TXT name (announce.py) both read it."""
+    from sonorium import servername
+    return servername.get()
 
 
 def client_of(request: Request) -> str:

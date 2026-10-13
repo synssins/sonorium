@@ -313,6 +313,24 @@ def test_default_txt_name_matches_api_info():
     assert a._name() == routes.server_name() == "Sonorium"
 
 
+def test_txt_name_follows_the_server_name_setting(zc, tmp_path):
+    """Settings > Advanced > Server name: saved in the store, the next refresh re-announces it."""
+    with addon_modules("sonorium.servername", "sonorium.core.state") as mods:
+        store = mods.state.StateStore(tmp_path / "state.json")
+        store.load()
+        mods.servername.set_source(lambda: store.settings.server_name)
+        a = _start_named(mods.servername.get)  # api.py passes routes.server_name, which reads servername.get
+        zc_ = zc.instances[0]
+        assert zc_.registered[0].properties["name"] == "Sonorium"
+        assert a.refresh() is False
+        store.settings.server_name = "Living Room"
+        assert a.refresh() is True and zc_.registered[0].properties["name"] == "Living Room"
+        store.settings.server_name = ""
+        assert a.refresh() is True and zc_.registered[0].properties["name"] == "Sonorium"
+        a.stop()
+        mods.servername.set_source(None)
+
+
 def test_no_lan_address_no_announcement(zc):
     a, ok = announce(addresses=())
     assert not ok and a.hostname is None and not zc.instances
