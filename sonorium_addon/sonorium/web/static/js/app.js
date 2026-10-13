@@ -9745,6 +9745,17 @@ function playlistRef(p) {
     return uiRef('playlist', p.id, { playing: plPlayingOn(p.id).length > 0, order: p.order === 'shuffle' ? 'shuffle' : 'in_order', entries: p.entries.length });
 }
 
+// A playlist entry's plugin attributes changed (its ⋯ menu): the editor's copy follows, so Save keeps them
+document.addEventListener('sonorium:attributes', ev => {
+    const { ref, plugin, values } = ev.detail || {};
+    if (!ref || ref.kind !== 'playlist_entry' || !ple.id) return;
+    const [playlistId, entryId] = String(ref.id).split('/');
+    const entry = playlistId === ple.id ? ple.entries.find(e => e.id === entryId) : null;
+    if (!entry) return;
+    entry.plugins = { ...(entry.plugins || {}), [plugin]: values };
+    if (!Object.keys(values).length) delete entry.plugins[plugin];
+});
+
 function plToggleRow(playlistId) {
     plOpenRows[playlistId] = !plOpenRows[playlistId];
     plRenderList();
@@ -9819,7 +9830,8 @@ async function plOpen(playlistId = null) {
     const p = playlistId ? playlistById(playlistId) : null;
     if (playlistId && !p) { showToast('Playlist not found', 'error'); return; }
     ple.id = p ? p.id : null;
-    ple.entries = p ? p.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null })) : [];
+    ple.entries = p ? p.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null,
+                                           id: e.id, ...(e.plugins ? { plugins: e.plugins } : {}) })) : [];
     ple.order = p?.order === 'shuffle' ? 'shuffle' : 'in_order';
     ple.rowErr = false;
     const name = document.getElementById('pl-name');
@@ -9903,7 +9915,7 @@ function plRenderEntries() {
                 <button type="button" class="wsel eww" aria-haspopup="listbox" aria-label="Preset or sequence for entry ${i + 1}" ${theme ? '' : 'disabled'} onclick="plMenu('what', this, ${i})">
                     <span class="wsel-in">${theme ? plWhatHtml(e.theme_id, e.preset_id, e.sequence_id) : '<span class="wl dflt">Default settings</span>'}</span><span class="chev">${ICON_CHEV_DOWN}</span>
                 </button>
-                <button type="button" class="icon-btn sm" aria-label="More for entry ${i + 1}" aria-haspopup="menu"${uiAnchor('playlist.entry', 'menu', uiRef('playlist_entry', ple.id ? `${ple.id}/${i}` : null, { sequence: !!e.sequence_id }))} onclick="plMenu('row', this, ${i})">${TE_ICON_MORE}</button>
+                <button type="button" class="icon-btn sm" aria-label="More for entry ${i + 1}" aria-haspopup="menu"${uiAnchor('playlist.entry', 'menu', uiRef('playlist_entry', ple.id && e.id ? `${ple.id}/${e.id}` : null, { sequence: !!e.sequence_id }))} onclick="plMenu('row', this, ${i})">${TE_ICON_MORE}</button>
                 ${note ? `<span class="enote">${escapeHtml(note)}</span>` : ''}
             </div>`;
     }).join('')}</div>` : `<div class="eempty"><span>No entries</span><button type="button" class="link-btn" onclick="plAddEntry()">${TE_ICON_PLUS}Add entry</button></div>`;
@@ -10044,7 +10056,9 @@ async function plSave() {
     }
     const body = {
         name,
-        entries: ple.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null })),
+        // an entry's plugin attributes travel with it when the order changes
+        entries: ple.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null,
+                                         ...(e.id ? { id: e.id } : {}), ...(e.plugins ? { plugins: e.plugins } : {}) })),
         order: ple.order,
         repeat: document.getElementById('pl-repeat').checked,
         play_min: Math.round(r.min * 60),

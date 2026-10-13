@@ -40,7 +40,7 @@
         return `${ref.kind || ''}|${ref.theme || ''}|${ref.id}`;
     }
     U.refKey = refKey;
-    const ATTR_KINDS = ['theme', 'track', 'file', 'preset', 'channel', 'speaker', 'user'];
+    let ATTR_KINDS = [];  // every object kind keeps plugin attributes (GET /api/ui/contributions "attribute_kinds")
 
     window.uiRef = function (kind, id, facts, theme) {
         const ref = { kind, id: id === undefined ? null : id };
@@ -90,6 +90,7 @@
             data = { plugins: {}, elements: [], live: {} };
         }
         U.version = data.version;
+        ATTR_KINDS = data.attribute_kinds || [];
         U.plugins = data.plugins || {};
         U.elements = data.elements || [];
         U.live = data.live || {};
@@ -315,7 +316,13 @@
         }
         if (!list.length) return '';
         switch (spot) {
-            case 'header':  // like the screen's buttons: icon and label, the icon alone on a phone
+            case 'header':
+                // A phone has room for the screen's buttons only: the plugins' buttons go in the
+                // screen's title-bar ⋯ when it has one, else in one ⋯ of their own
+                if (PHONE.matches) {
+                    if (zone && zone.parentNode && zone.parentNode.querySelector(`[data-ui-target="${target}"][data-ui-spot~="menu"]`)) return '';
+                    return `<button type="button" class="icon-btn ui-hmore" aria-label="More" aria-haspopup="menu" data-ui-target="${X.esc(target)}" data-ui-spot="header" onclick="Sonorium.ui.headerMenu(this)">${X.more}</button>`;
+                }
                 return list.map(e => `<button type="button" class="btn btn-secondary sp-hbtn ui-act" data-ui-act="${X.esc(e.plugin)}/${X.esc(e.id)}" aria-label="${X.esc(e.label)}" title="${X.esc(e.help || e.label)}">${X.icon(U.plugins[e.plugin]?.icon, 16)}<span class="lbl">${X.esc(e.label)}</span></button>`).join('');
             case 'badges':
                 return list.map(e => badgeEl(e, ref)).join('');
@@ -352,7 +359,11 @@
         const target = button.getAttribute('data-ui-target');
         const spots = (button.getAttribute('data-ui-spot') || '').split(/\s+/);
         const ref = readRef(button);
-        const items = spots.includes('menu') ? U.list(target, 'menu', ref) : [];
+        // On a phone a screen's title-bar ⋯ also holds the plugins' header buttons
+        const header = spots.includes('header') || (spots.includes('menu') && target.startsWith('screen.') && PHONE.matches)
+            ? U.list(target, 'header', ref) : [];
+        if (header.length && !spots.includes('header')) spots.push('header');
+        const items = header.concat(spots.includes('menu') ? U.list(target, 'menu', ref) : []);
         const groups = spots.includes('settings') ? draw(target, 'settings', ref, null) : '';
         let html = [...byPlugin(items)].map(([pid, list]) => `<div class="mhead ui-mhead">${U.badge(pid)}</div>` + list.map(e => {
             if (e.kind === 'action') return `<button type="button" class="mi ui-mi" role="menuitem" data-ui-act="${X.esc(pid)}/${X.esc(e.id)}"${refAttr(ref)}>${X.esc(e.label)}${e.confirm ? '…' : ''}</button>`;
@@ -360,11 +371,15 @@
                 const on = !!fieldValue(pid, e, ref);
                 return `<button type="button" class="mi ui-mi" role="menuitemcheckbox" aria-checked="${on}" data-ui-tog="${X.esc(pid)}/${X.esc(e.id)}"${refAttr(ref)}>${X.esc(e.label)}<span class="sw${on ? ' on' : ''}"></span></button>`;
             }
-            if (e.kind === 'group') return `<div class="mi-row ui-mrow"><label>${X.esc(e.label)}</label>${e.fields.map(f => control(pid, f, ref, null)).join('')}</div>`;
+            // a toggle in a menu row is the menu's switch, like Gapless
+            if (e.kind === 'group') return `<div class="mi-row ui-mrow"><label>${X.esc(e.label)}</label>${e.fields.map(f => f.type === 'toggle'
+                ? `<button type="button" class="ui-swb" role="switch" aria-label="${X.esc(f.label)}" aria-checked="${!!fieldValue(pid, f, ref)}" data-ui-tog="${X.esc(pid)}/${X.esc(f.id)}"${refAttr(ref)}><span class="sw${fieldValue(pid, f, ref) ? ' on' : ''}"></span></button>`
+                : control(pid, f, ref, null)).join('')}</div>`;
             return `<div class="mi-row ui-mrow"><label>${X.esc(e.label)}</label>${control(pid, e, ref, null)}</div>`;
         }).join('')).join('');
         if (groups) html += `<div class="ui-mgrps">${groups}</div>`;
         if (!html) return;
+        pop.querySelector(':scope > .ui-menuzone')?.remove();
         const zone = document.createElement('div');
         zone.className = 'ui-zone ui-menuzone';
         zone.setAttribute('data-ui-target', target);
@@ -384,6 +399,12 @@
             pop.appendChild(zone);
         }
     };
+
+    // The ⋯ that holds the plugins' header buttons on a phone (a screen without a title-bar ⋯)
+    U.headerMenu = function (button) {
+        if (typeof spMenu === 'function') spMenu(`uih:${button.getAttribute('data-ui-target')}`, button, '');
+    };
+    PHONE.addEventListener('change', () => redraw(e => e.spot === 'header'));
 
     // ---------- filling the spots ----------
     function fill(zone) {
@@ -493,6 +514,8 @@
             const k = refKey(ref);
             U.attrs[k] = U.attrs[k] || {};
             U.attrs[k][pid] = result.values || {};
+            // a screen holding a copy of the object (an editor) keeps it current
+            document.dispatchEvent(new CustomEvent('sonorium:attributes', { detail: { ref, plugin: pid, values: result.values || {} } }));
         } else if (b.setting) {
             const result = await api('PUT', `/plugins/${encodeURIComponent(pid)}/settings`, { settings: { [b.setting]: value } });
             const p = (typeof plugins !== 'undefined' ? plugins : []).find(x => x.id === pid);

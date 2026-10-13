@@ -22,7 +22,7 @@ span.ui-badges { display: inline-flex; align-items: center; gap: .25rem; margin-
 .ui-hname { display: flex; align-items: center; min-width: 0; }
 .ui-columns { display: inline-flex; align-items: center; gap: .5rem; margin-left: auto; padding-left: .5rem; flex: none; }
 :has(> .ui-columns.on) { display: flex; align-items: center; min-width: 0; }
-:has(> .ui-columns.on) > .trk-name { flex: 0 1 auto; min-width: 0; }
+:has(> .ui-columns.on) > .trk-name { flex: 1 1 auto; min-width: 2em; }
 .ui-col { display: inline-flex; justify-content: flex-end; width: 72px; min-width: 0; font-size: .8125rem; color: var(--text-secondary); white-space: nowrap; }
 .ui-col.ui-colh { font: inherit; color: inherit; }
 .ui-colk { display: none; }
@@ -84,6 +84,8 @@ div.ui-settings { display: flex; flex-direction: column; gap: .375rem; }
 .te-pop .ui-mrow .sp-inp, .te-pop .ui-mrow .ui-num { flex: none; }
 .te-pop .ui-mrow select.sp-inp { max-width: 140px; }
 .te-pop .ui-mgrps { display: flex; flex-direction: column; gap: .25rem; padding: .25rem; }
+.te-pop .ui-swb { display: inline-flex; align-items: center; flex: none; padding: 0; border: 0; background: none; cursor: pointer; }
+.te-pop .ui-swb .sw { margin-left: 0; }
 .te-pop .ui-mgrps .ui-grp { min-width: 240px; }
 
 /* the ⋯ dot: anything in the menu differs from its default, whoever added it */

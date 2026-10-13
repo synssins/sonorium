@@ -74,13 +74,16 @@ const SNAP = `
     const opened = new Set();
     for (const b of anchors) {
         const key = b.getAttribute('data-ui-target');
-        if (opened.has(key)) continue;
-        opened.add(key);
+        const which = key + ' ' + b.getAttribute('data-ui-spot');
+        if (opened.has(which)) continue;
+        opened.add(which);
         b.click();
         await new Promise(r => setTimeout(r, 120));
         const zone = [...document.querySelectorAll('.te-pop:not([hidden]) .ui-menuzone')].find(z => z.getAttribute('data-ui-target') === key);
         if (zone) zone.getAttribute('data-ui-spot').split(' ').forEach(s => {
-            if (s === 'menu' ? zone.querySelector('.ui-mi, .ui-mrow') : zone.querySelector('.ui-grp')) drawn.push(key + '/' + s);
+            const hit = s === 'settings' ? zone.querySelector('.ui-grp')
+                : s === 'header' ? zone.querySelector('.ui-mi[data-ui-act]') : zone.querySelector('.ui-mi, .ui-mrow');
+            if (hit) drawn.push(key + '/' + s);
         });
         if (typeof spClosePop === 'function') spClosePop();
         if (typeof tpCloseMenu === 'function') tpCloseMenu();
@@ -157,9 +160,20 @@ const trips = await run(`
     out.afterSave = (await get('channel', sessions[0].id)).demo_level;
     await fetch('${base}/api/attributes/channel/ui_everywhere?id=' + sessions[0].id, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ demo_level: null }) });
     await fetch('${base}/api/attributes/speaker/ui_everywhere?id=' + encodeURIComponent(sid), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ demo_on: null }) });
-    const act = await fetch('${base}/api/ui/actions/ui_everywhere/' + document.querySelector('#view-actions [data-ui-act^="ui_everywhere/"]').getAttribute('data-ui-act').split('/')[1], { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const act = await fetch('${base}/api/ui/actions/ui_everywhere/' + Sonorium.ui.elements.find(e => e.plugin === 'ui_everywhere' && e.kind === 'action').id, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     out.action = (await act.json()).success;
     closeSessionModal();
+    // a playlist entry: its ⋯ toggle saves on the entry, and the playlist's Save keeps it
+    showView('playlists'); await plOpen(playlists[0].id); await new Promise(r => setTimeout(r, 500));
+    const entryBtn = document.querySelector('button[data-ui-target="playlist.entry"]');
+    const entryRef = JSON.parse(entryBtn.getAttribute('data-ui-ref'));
+    entryBtn.click(); await new Promise(r => setTimeout(r, 200));
+    const tog = document.querySelector('#sp-menu [data-ui-tog]');
+    const wasOn = tog.getAttribute('aria-checked') === 'true';
+    tog.click(); await new Promise(r => setTimeout(r, 600)); spClosePop();
+    await plSave(); await new Promise(r => setTimeout(r, 600));
+    out.entryKept = (await get('playlist_entry', entryRef.id)).demo_on === !wasOn;
+    await fetch('${base}/api/attributes/playlist_entry/ui_everywhere?id=' + encodeURIComponent(entryRef.id), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ demo_on: null }) });
     // switched off: everything it added goes; on again: back
     showView('settings-plugins'); await new Promise(r => setTimeout(r, 500));
     await togglePlugin('ui_everywhere', false); await new Promise(r => setTimeout(r, 500));
@@ -169,7 +183,7 @@ const trips = await run(`
     return out;`);
 const tripOk = trips.dotBefore === false && trips.saved === true && trips.dotAfter === true
     && trips.beforeSave === 50 && trips.afterSave === 7 && trips.action === true
-    && trips.drawnWhenOff === 0 && trips.drawnWhenOn > 0;
+    && trips.drawnWhenOff === 0 && trips.drawnWhenOn > 0 && trips.entryKept === true;
 console.log('round trips: ' + JSON.stringify(trips) + (tripOk ? ' ok' : ' FAILED'));
 if (!tripOk) errors.push('round trips failed');
 

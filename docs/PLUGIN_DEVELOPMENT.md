@@ -99,7 +99,7 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `mqtt` | 1.1 | MQTT (section 19) |
 | `homeassistant` | 1.1 | Home Assistant's API (section 20) |
 | `packages.pip`, `packages.binaries` | 1.1 | Packages and programs (section 21) |
-| `attributes` | 1.2 | Declared attributes on themes, tracks, files, presets, channels, speakers and users (section 23) |
+| `attributes` | 1.2 | Declared attributes on every object a screen shows: themes and their tracks, files, groups, presets, sequences and steps; channels, playlists and their entries, speakers, speaker groups, areas, users, keys, connections and plugins (section 23) |
 | `ui` | 1.2 | Fields, buttons, menu items, badges, columns and pages on any screen (section 24) |
 
 `GET /api/plugin-framework` gives the version, every capability and the ones this install
@@ -1176,6 +1176,13 @@ In `manifest.json` (`"attributes"`), from `get_attributes()`, or with
 | `channel` | A channel (not a personal one) | `state.json`, the channel |
 | `speaker` | A speaker | `state.json`, its speaker settings |
 | `user` | An account | `users.json`, the user |
+| `group` | A theme's group | its entry in `metadata.json` `groups`, `plugins` (a renamed group keeps them) |
+| `sequence` | A theme's sequence | the sequence in `presets.json`, `plugins` |
+| `step` | A step of a sequence (id `"<sequence id>/<preset id>"`) | the sequence's `step_plugins`, by preset; a step taken out takes its values with it |
+| `playlist` | A playlist | `state.json` `playlists`, the playlist |
+| `playlist_entry` | An entry of a playlist (id `"<playlist id>/<entry id>"`) | the entry; each entry has an `id` of its own, so it keeps its values when the order changes |
+| `speaker_group` | A speaker group | `state.json`, the group |
+| `area`, `key`, `connection`, `plugin` | An area, a key, a connection, a plugin (its row in Settings › Plugins) | `state.json` settings `object_plugins`, by kind and id (their records are kept elsewhere) |
 
 Theme files: docs/THEME_FORMAT.md 2.7.
 
@@ -1253,8 +1260,8 @@ plugin removes its values; other plugins' values stay).
   groups, speaker settings, channel changes, theme export and import.
 - **Switched off**: the schema and the values stay. Nothing is shown for the plugin; switch
   it on again and everything is there.
-- **Uninstalled**: the schema goes and the plugin's values are removed from every theme,
-  track, preset, channel, speaker and user Sonorium knows.
+- **Uninstalled**: the schema goes and the plugin's values are removed from every object
+  Sonorium knows.
 - **Size**: 4096 bytes of compact JSON per plugin per object by default. It is adjustable
   (`plugin_data_limit` in the Settings › Advanced values, `PUT /api/settings/playback-values`;
   0 = no limit). A change over it is refused with a message naming the limit; values already
@@ -1337,7 +1344,7 @@ A field is bound to one place:
 
 - `{"bind": {"attribute": "minutes"}}`: an attribute the plugin declares (section 23) on the
   object the screen shows (this channel, this speaker). Its type, range, options and default
-  come from the declaration: a `toggle` shows a `bool`, `number` and `slider` a `number`,
+  come from the declaration (every kind of object keeps attributes, section 23): a `toggle` shows a `bool`, `number` and `slider` a `number`,
   `select` an `enum`, `text` and `colour` a `string`, `list` a list of strings or numbers.
   Editing the field saves the attribute, checked against the declaration.
 - `{"bind": {"setting": "units"}}`: one of the plugin's settings (section 3), on its row in
@@ -1395,6 +1402,9 @@ declares, on that object). Each fact is a value, a list of values (any of them),
   settings. A track, a file, a group, a preset, a speaker and a user have no editor dialog:
   their group is at the end of their ⋯ menu.
 - **Menu items** come after the menu's items and before destructive ones (Delete, Remove).
+- **Header buttons on a phone** don't take a row of their own: they go in the screen's
+  title-bar ⋯ (Themes, Audio, Plugins), or, on a screen without one, in one ⋯ for all
+  plugins, so the screen's buttons and the help button keep their row.
 - **The ⋯ dot** shows when anything in the menu differs from its default, whichever item
   it is: a value bound to an attribute, or a live value of an action-bound field.
 - **The plugin badge** is the grey badge with the plugin's icon and its short name
@@ -1424,7 +1434,7 @@ there.
 
 | Spot | Element kinds | Per plugin | Label | Text | Field types | Binds to | Fields per element | Where |
 |---|---|---|---|---|---|---|---|---|
-| `header` | action | 1 | 20 | – | – | – | – | after the screen's buttons |
+| `header` | action | 1 | 20 | – | – | – | – | after the screen's buttons; on a phone, in the screen's title-bar ⋯ (or, without one, in one ⋯ for them), so the screen's buttons and help keep their row |
 | `top` | info, action, field | 3 | 24 | 120 | toggle, select, number, slider, text | setting, action | 1 | one strip per plugin, after the screen's bars, above its content |
 | `badges` | badge | 1 | 24 | 12 | – | – | – | after the item's badges |
 | `columns` | column | 1 | 12 | 16 | – | – | – | at the end of the name column, with its heading above |
@@ -1447,9 +1457,9 @@ there.
 | Target | Shows | Open spots | Fixed parts |
 |---|---|---|---|
 | `screen.playlists` | – | `header`, `top` | title, actions, list |
-| `playlist.row` | playlist | `badges`, `columns`, `menu` | name, entries, order, repeat, play |
-| `playlist.editor` | playlist | `settings`, `menu` | name, timing, order, entries, footer |
-| `playlist.entry` | playlist_entry | `menu` | theme, preset |
+| `playlist.row` | playlist (attributes) | `badges`, `columns`, `menu` | name, entries, order, repeat, play |
+| `playlist.editor` | playlist (attributes) | `settings`, `menu` | name, timing, order, entries, footer |
+| `playlist.entry` | playlist_entry (attributes) | `menu` | theme, preset |
 
 **Themes**
 
@@ -1460,18 +1470,18 @@ there.
 | `theme.editor` | theme (attributes) | `settings`, `menu` | name, icon, categories, description, tracks, footer |
 | `theme.track` | track (attributes) | `badges`, `menu`, `settings` (in its ⋯ menu) | name, mode, sliders, mute |
 | `theme.file` | file (attributes) | `badges`, `menu`, `settings` (in its ⋯ menu) | name, mode, sliders, mute |
-| `theme.group` | group | `badges`, `menu`, `settings` (in its ⋯ menu) | name, timing, sliders, mute |
+| `theme.group` | group (attributes) | `badges`, `menu`, `settings` (in its ⋯ menu) | name, timing, sliders, mute |
 | `theme.preset` | preset (attributes) | `menu`, `settings` (in its ⋯ menu) | preset, load, new |
-| `sequence.editor` | sequence | `settings`, `menu` | name, timing, order, presets, footer |
-| `sequence.step` | step | `menu` | preset |
-| `step.editor` | step | `menu` | tabs, tracks, footer |
+| `sequence.editor` | sequence (attributes) | `settings`, `menu` | name, timing, order, presets, footer |
+| `sequence.step` | step (attributes) | `menu` | preset |
+| `step.editor` | step (attributes) | `menu` | tabs, tracks, footer |
 
 **Settings › Connection**
 
 | Target | Shows | Open spots | Fixed parts |
 |---|---|---|---|
 | `screen.settings-connection` | – | `header`, `top` | title, actions, connections |
-| `connection.row` | connection | `menu` | name, summary, status |
+| `connection.row` | connection (attributes) | `menu` | name, summary, status |
 
 **Settings › Audio**
 
@@ -1484,7 +1494,7 @@ there.
 | Target | Shows | Open spots | Fixed parts |
 |---|---|---|---|
 | `screen.settings-spaces` | – | `header`, `top` | title, actions, floors |
-| `area.row` | area | `badges` | name, floor |
+| `area.row` | area (attributes) | `badges` | name, floor |
 
 **Settings › Speakers**
 
@@ -1498,15 +1508,15 @@ there.
 | Target | Shows | Open spots | Fixed parts |
 |---|---|---|---|
 | `screen.settings-groups` | – | `header`, `top` | title, actions, list |
-| `speaker_group.row` | speaker_group | `badges`, `columns`, `menu` | name, includes, speakers |
-| `speaker_group.editor` | speaker_group | `settings` | name, speakers, footer |
+| `speaker_group.row` | speaker_group (attributes) | `badges`, `columns`, `menu` | name, includes, speakers |
+| `speaker_group.editor` | speaker_group (attributes) | `settings` | name, speakers, footer |
 
 **Settings › Plugins**
 
 | Target | Shows | Open spots | Fixed parts |
 |---|---|---|---|
 | `screen.settings-plugins` | – | `header`, `top`, `menu` | title, actions, tabs, list |
-| `plugin.row` | plugin | `badges`, `menu`, `plugin` | name, version, description, author, on, settings |
+| `plugin.row` | plugin (attributes) | `badges`, `menu`, `plugin` | name, version, description, author, on, settings |
 
 **Settings › Logs**
 
@@ -1532,7 +1542,7 @@ there.
 | Target | Shows | Open spots | Fixed parts |
 |---|---|---|---|
 | `screen.plugin-keys` | – | `header`, `top` | title, actions, list |
-| `key.row` | key | `menu` | name, abilities |
+| `key.row` | key (attributes) | `menu` | name, abilities |
 
 **Status**
 
@@ -1554,19 +1564,19 @@ there.
 | theme | `favorite` (bool), `tracks` (number), `playing` (bool), `attr.<name>` |
 | track | `section` (unassigned / continuous / sparse / presence), `muted` (bool), `linked` (bool), `in_group` (bool), `attr.<name>` |
 | file | `section` (unassigned / continuous / sparse / presence), `muted` (bool), `linked` (bool), `in_group` (bool), `attr.<name>` |
-| group | `section` (continuous / sparse / presence), `muted` (bool), `tracks` (number) |
+| group | `section` (continuous / sparse / presence), `muted` (bool), `tracks` (number), `attr.<name>` |
 | preset | `default` (bool), `attr.<name>` |
-| playlist | `playing` (bool), `order` (in_order / shuffle), `entries` (number) |
-| playlist_entry | `sequence` (bool) |
-| sequence | `steps` (number), `end` (reverse / restart / stop) |
-| step | `advanced` (bool) |
+| playlist | `playing` (bool), `order` (in_order / shuffle), `entries` (number), `attr.<name>` |
+| playlist_entry | `sequence` (bool), `attr.<name>` |
+| sequence | `steps` (number), `end` (reverse / restart / stop), `attr.<name>` |
+| step | `advanced` (bool), `attr.<name>` |
 | speaker | `online` (bool), `enabled` (bool), `type` (text), `device` (bool), `attr.<name>` |
-| speaker_group | `speakers` (number) |
-| plugin | `enabled` (bool), `builtin` (bool) |
+| speaker_group | `speakers` (number), `attr.<name>` |
+| plugin | `enabled` (bool), `builtin` (bool), `attr.<name>` |
 | user | `role` (admin / user), `me` (bool), `attr.<name>` |
-| key | – |
-| connection | `configured` (bool) |
-| area | `speakers` (number) |
+| key | –, `attr.<name>` |
+| connection | `configured` (bool), `attr.<name>` |
+| area | `speakers` (number), `attr.<name>` |
 
 For all spots: `help` up to 120 characters, `confirm` up to 80, `unit` up to 8, a select up
 to 20 options of up to 24 characters, a list up to 20 items, a text value up to 200

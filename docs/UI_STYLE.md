@@ -120,6 +120,8 @@ built with the shared helpers:
   `uiZone(target, 'columns', ref, 'span')` at the end of the name cell, with
   `<span class="ui-zone ui-columns" data-ui-target="…" data-ui-spot="columns" data-ui-head>` in
   the name heading; `uiZone(target, 'info', ref)` after a card's lines.
+- **Header buttons**: on a phone the plugins' buttons go in the screen's title-bar ⋯, or in one
+  ⋯ for them when it has none: the screen's buttons and help keep their row.
 - **⋯ buttons**: `uiAnchor(target, 'menu', ref)` (`'menu settings'` for a thing without an
   editor dialog). Open menus with `spMenu` / `xMenu` / `teMenu` / `tpMenu`; destructive items
   carry `danger` so additions go above them. A dot on ⋯ (`adv-dot`, `sp-adv-dot`) shows any
