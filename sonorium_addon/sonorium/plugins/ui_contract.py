@@ -183,6 +183,7 @@ FACTS: dict[str, dict] = {
     "key": {},
     "connection": {"configured": "bool"},
     "area": {"speakers": "number"},
+    "device": {"online": "bool", "enabled": "bool", "kind": "text", "follows": "bool"},
 }
 GLOBAL_FACTS = {"phone": "bool"}
 
@@ -266,6 +267,9 @@ TARGETS: list[dict] = [
     # --- settings ---
     {"id": "plugin.row", "title": "Settings › Plugins: a plugin", "screen": "settings-plugins", "object": "plugin",
      "spots": ["badges", "menu", "plugin"], "fixed": ["name", "version", "description", "author", "on", "settings"]},
+    {"id": "device.row", "title": "Settings › Plugins: a device", "screen": "settings-plugins", "object": "device",
+     "spots": ["badges", "columns", "menu", "settings"], "settings_at": IN_MENU,
+     "fixed": ["name", "area", "actions", "use", "follows"]},
     {"id": "user.row", "title": "Settings › Users & devices: a user", "screen": "plugin-users", "object": "user",
      "spots": ["badges", "menu", "settings"], "settings_at": IN_MENU, "fixed": ["name", "role", "devices"]},
     {"id": "key.row", "title": "Settings › Keys: a key", "screen": "plugin-keys", "object": "key",

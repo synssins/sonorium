@@ -288,11 +288,11 @@ class BasePlugin(ABC):
         return self.host.ui.for_plugin(self)
 
     def ui_warnings(self) -> list[str]:
-        """Contributions refused by their spot's contract (never raises)."""
+        """Contributions refused by their spot's contract, and device kinds refused (never raises)."""
         host = getattr(self, "_host", None)
         if host is None or getattr(host, "ui", None) is None:
             return []
-        return host.ui.warnings(self)
+        return host.ui.warnings(self) + list((getattr(host, "device_problems", None) or {}).get(self.id) or [])
 
     # Events
 
@@ -430,6 +430,34 @@ class BasePlugin(ABC):
     def timeline(self):
         """Cues: which sound is heard on which speaker and when, ahead of time (TimelineV1)."""
         return self._service("timeline")
+
+    # Devices of any kind (core/devices.py): lights, displays, buttons, ...
+
+    @property
+    def devices(self):
+        """Device kinds, their devices, what they follow, actions (DevicesV1)."""
+        return self._service("devices")
+
+    def get_device_kinds(self) -> list[dict]:
+        """
+        The kinds of device the plugin brings: [{"id", "title", "icon",
+        "actions": [{"id", "label"}], "latency_ms", "one_channel"}]. Registered
+        when it is switched on. Default: the manifest's "device_kinds".
+        """
+        return list((getattr(self, "_manifest", None) or {}).get("device_kinds") or [])
+
+    async def discover_devices(self, kind: str) -> list[dict]:
+        """The devices of one of its kinds now: [{"id" (its own id for it), "name", "model"}]."""
+        return []
+
+    async def device_action(self, kind: str, device: dict, action: str, params: dict) -> dict:
+        """
+        One of the kind's actions on a device (a button, or another plugin's
+        self.devices.invoke): device is core's view of it ({"id", "device": the
+        plugin's own id, "name", "area", "channels", "areas", ...}).
+        Returns {"success", "message"}.
+        """
+        return {"success": False, "message": f"Unknown action: {action}"}
 
     def get_command_maps(self) -> list[dict]:
         """

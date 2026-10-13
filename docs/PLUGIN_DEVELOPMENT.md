@@ -70,6 +70,7 @@ More manifest keys (sections 15 to 22):
 | `requirements` | Python packages from PyPI, e.g. `["pyserial==3.5"]` |
 | `binaries` | Programs it ships, per platform, with their SHA-256 |
 | `command_maps` | Declarations, if the class doesn't give them |
+| `device_kinds` | Kinds of device it brings (section 26), if the class doesn't give them |
 
 ## 1a. API versions and capabilities
 
@@ -102,12 +103,13 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `attributes` | 1.2 | Declared attributes on every object a screen shows: themes and their tracks, files, groups, presets, sequences and steps; channels, playlists and their entries, speakers, speaker groups, areas, users, keys, connections and plugins (section 23) |
 | `ui` | 1.2 | Fields, buttons, menu items, badges, columns and pages on any screen (section 24) |
 | `timeline` | 1.2 | Cues: which sound is heard on which speaker and when, ahead of time (section 25) |
+| `devices` | 1.2 | Devices of any kind (lights, displays, buttons): listed, named, placed and assigned by Sonorium (section 26) |
 
 `GET /api/plugin-framework` gives the version, every capability and the ones this install
 offers now.
 
 Each 1.1 service is a facade on the plugin: `self.audio`, `self.ramps`, `self.audio_outputs`,
-`self.commands`, `self.mqtt`, `self.homeassistant`; 1.2 adds `self.timeline`. Every method that can fail raises
+`self.commands`, `self.mqtt`, `self.homeassistant`; 1.2 adds `self.timeline` and `self.devices`. Every method that can fail raises
 `ActionError` (`code` `invalid`, `not_found`, `conflict` or `unavailable`), as `self.actions`
 does.
 
@@ -226,6 +228,9 @@ All events of a channel have `channel_id` and `name` (the channel's name).
 | `sound.started` / `sound.ended` | A sound started or ended over a channel (section 15) | `sound_id`, `label`, `origin`; ended: `reason` (`finished`, `replaced`, `cancelled`, `stopped`, `error`), `capped`, `played` |
 | `ramp.started` / `ramp.finished` / `ramp.cancelled` | A channel's volume ramp (section 16) | `ramp_id`, `from`, `to`, `seconds`, `curve`, `then`; `level`; cancelled: `reason` |
 | `command.received` | An input plugin handed over a code (section 18) | `plugin_id`, `map_id`, `code`, `actions`, `learned` |
+| `device.added` / `device.removed` | A plugin listed a new device; a device was forgotten (section 26) | `device_id`, `kind`, `plugin_id` (added: also `name`) |
+| `device.changed` / `device.assigned` | A device's name, area or Use changed; what it follows changed | `device_id`; `changes`; `channels`, `areas` |
+| `device.available` / `device.unavailable` | A device came online or went offline | `device_id` |
 
 `GET /api/events/catalogue` returns the same list.
 
@@ -1183,7 +1188,7 @@ In `manifest.json` (`"attributes"`), from `get_attributes()`, or with
 | `playlist` | A playlist | `state.json` `playlists`, the playlist |
 | `playlist_entry` | An entry of a playlist (id `"<playlist id>/<entry id>"`) | the entry; each entry has an `id` of its own, so it keeps its values when the order changes |
 | `speaker_group` | A speaker group | `state.json`, the group |
-| `area`, `key`, `connection`, `plugin` | An area, a key, a connection, a plugin (its row in Settings › Plugins) | `state.json` settings `object_plugins`, by kind and id (their records are kept elsewhere) |
+| `area`, `key`, `connection`, `plugin`, `device` | An area, a key, a connection, a plugin (its row in Settings › Plugins), a plugin's device (section 26) | `state.json` settings `object_plugins`, by kind and id (their records are kept elsewhere) |
 
 Theme files: docs/THEME_FORMAT.md 2.7.
 
@@ -1519,6 +1524,7 @@ there.
 |---|---|---|---|
 | `screen.settings-plugins` | – | `header`, `top`, `menu` | title, actions, tabs, list |
 | `plugin.row` | plugin (attributes) | `badges`, `menu`, `plugin` | name, version, description, author, on, settings |
+| `device.row` | device (attributes) | `badges`, `columns`, `menu`, `settings` (in its ⋯ menu) | name, area, actions, use, follows |
 
 **Settings › Logs**
 
@@ -1778,3 +1784,116 @@ decided only when it comes.
 
 Both take what `/api/events/stream` takes: a key with "Read events", a signed-in user, or the
 events token. A personal channel's cues go only to its account's streams, never to plugins.
+
+## 26. Devices of any kind
+
+A plugin can bring a new kind of device (a light, a display, a fan, a button panel) and
+Sonorium lists, names, places and assigns it without knowing what it is. Think of a hotel's
+front desk: it keeps every guest's name and room, checked in or out, without knowing their
+job. Capability `devices`, plugin API 1.2.
+
+Sonorium knows one kind itself: speakers, because only audio goes through the mixer. A
+plugin that plays audio adds an output type (section 17) and its devices are speakers, in
+Settings › Speakers. Every other kind is a name to Sonorium.
+
+### Declaring a kind
+
+In `manifest.json` (`"device_kinds"`), from `get_device_kinds()`, or with
+`self.devices.register_kind(...)` once the plugin is on:
+
+```json
+"device_kinds": [
+  {"id": "light", "title": "Lights", "icon": "lightbulb", "latency_ms": 20,
+   "actions": [{"id": "test", "label": "Flash"}, {"id": "identify", "label": "Identify"}]}
+]
+```
+
+| Key | Meaning |
+|---|---|
+| `id` | a-z, 0-9 and `_`, starting with a letter (up to 32). One plugin per kind. `speaker`, `audio`, `output` are refused: those are speakers |
+| `title` | The section's title (up to 24 characters) |
+| `icon` | An icon name or a small SVG, as for pages |
+| `actions` | Up to 6 buttons on each device, `{id, label}` (label up to 24) |
+| `latency_ms` | How long a command takes to show (0 to 600000): for timing against cues (section 25) |
+| `one_channel` | A device follows one channel at most |
+
+A kind outside these rules is refused and listed on the plugin's row in Settings › Plugins,
+with the reason; the plugin's other kinds still count. Every limit is in `core/devices.py`
+(`LIMITS`).
+
+```python
+async def discover_devices(self, kind):
+    return [{"id": "192.168.10.40", "name": "Porch strip", "model": "Strip 2"}]   # "area": a suggestion
+
+async def device_action(self, kind, device, action, params):
+    await self.flash(device["device"], params.get("ms", 60))     # device["device"]: your own id
+    return {"success": True, "message": "Flashed"}
+```
+
+`discover_devices` is asked when the plugin is switched on and on Rescan (15 s limit).
+
+### What Sonorium does for every device
+
+- Remembers it by a stable id, `dev:<kind>:<plugin id>:<16 hex>`, even while it is offline,
+  and forgets it on Remove (offline devices only) or when the plugin is uninstalled.
+- Shows it on the plugin's row in Settings › Plugins, a section per kind: online or offline,
+  its name (the plugin's until the user renames it), its model, its area, the kind's action
+  buttons, its Use switch, and in its ⋯ menu Rename, the channels and areas it follows,
+  and the plugin's own fields for it.
+- Online means it was in the plugin's last listing; the plugin can also say so, with an
+  error to show: `self.devices.set_status(device, online=False, error="No answer")`.
+- Keeps plugin attributes on it: object class `device` (section 23), for example a
+  segment number, with fields in its ⋯ menu (target `device.row`, section 24).
+
+### Following channels
+
+A device follows the channels it is assigned to, and any channel playing on a speaker in one
+of its areas. A plugin asks which devices follow a channel:
+
+```python
+for light in await self.devices.assigned(channel_id, kind="light"):   # switched on only
+    ...   # light["follows_by"]: "channel" or "area"
+```
+
+`self.devices.following(device_id)` gives the channels one device follows now.
+
+### Plugins working together
+
+A plugin can list and drive another plugin's devices: `self.devices.list("light")` and
+`await self.devices.invoke(device_id, "flash", {"ms": 60})`, which Sonorium passes to the
+device's own plugin. So a "storm effects" plugin can flash any light, whoever made the
+light plugin. What each action means is agreed between plugins, not by Sonorium, in these
+written contracts:
+
+| Kind | Actions | Params |
+|---|---|---|
+| `light` | `on`, `off`, `colour`, `brightness`, `flash` | `colour`: `"#rrggbb"`; `brightness`: 0 to 100; `flash`: `ms`, `colour` |
+| `display` | `show_text`, `show_image`, `clear` | `text`; `url` or `path`; none |
+| `input` | none: it sends its codes to a command map (section 18) | |
+| `sensor` | `read` | returns `data`: `{"value", "unit"}` |
+
+A plugin may offer more actions than its kind's contract; others should only rely on these.
+
+### The rest of the API
+
+| `self.devices` | What |
+|---|---|
+| `register_kind(kind)`, `unregister_kinds()` | Kinds while the plugin runs |
+| `kinds()` | Every kind registered now |
+| `await discover(kind=None)` | List the plugin's own devices again |
+| `list(kind=None)`, `get(device_id)` | Devices of kinds registered now |
+| `set_status(device, online=None, error=None)` | One of its own devices (core id or its own id) |
+
+Events: `device.added`, `device.removed`, `device.changed`, `device.assigned`,
+`device.available`, `device.unavailable` (section 4).
+
+| Route | Permission | What |
+|---|---|---|
+| `GET /api/plugin-devices/kinds` | Speakers: view | The kinds registered now |
+| `GET /api/plugin-devices?kind=&plugin=` | Speakers: view | The devices |
+| `POST /api/plugin-devices/discover?kind=` | Speakers: view | Rescan |
+| `PUT /api/plugin-devices/{id}` | Speakers: change settings | `{name, area, use, channels, areas}` |
+| `DELETE /api/plugin-devices/{id}` | Speakers: change settings | Forget an offline device |
+| `POST /api/plugin-devices/{id}/actions/{action}` | Speakers: change settings | `{params}`: one of its actions |
+| `GET /api/sessions/{id}/plugin-devices` | Channels: view | The devices following a channel |
+

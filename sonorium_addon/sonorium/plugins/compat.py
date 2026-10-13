@@ -47,6 +47,7 @@ CAPABILITIES: dict[str, tuple[str, str]] = {
     "attributes": ("1.2", "Declared attributes on themes, tracks, files, presets, channels, speakers and users"),
     "ui": ("1.2", "Add fields, buttons, menu items, badges, columns and pages to any screen (GET /api/ui/targets)"),
     "timeline": ("1.2", "Cues: which sound is heard on which speaker and when, ahead of time"),
+    "devices": ("1.2", "Devices of any kind (lights, displays, ...): listed, named, placed and assigned by Sonorium"),
 }
 
 _VERSION = re.compile(r"^\s*(\d+)\.(\d+)\s*$")

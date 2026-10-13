@@ -9,6 +9,7 @@ bound to the plugin, versioned with the plugin API (compat.py).
     self.mqtt             MqttV1       publish / subscribe on the broker
     self.homeassistant    HomeAssistantV1
     self.timeline         TimelineV1   cues: which sound is heard where and when
+    self.devices          DevicesV1    devices of any kind: lights, displays, ...
 
 A facade's methods keep their names, arguments and results for every 1.x
 API version: new arguments are optional and new methods are only added.
@@ -300,8 +301,88 @@ class TimelineV1:
                 for c in self._svc().pending(channel) if c.get("_audience") is None]
 
 
+class DevicesV1:
+    """Devices of any kind (core/devices.py): Sonorium lists, names, places and assigns them."""
+
+    def __init__(self, host, plugin_id: str):
+        self._host, self._id = host, plugin_id
+
+    def _svc(self):
+        devices = getattr(self._host, "devices", None)
+        if devices is None:
+            raise _unavailable("Devices")
+        return devices
+
+    @staticmethod
+    async def _guard(work):
+        from sonorium.core.devices import DeviceError
+        try:
+            return await _call(work)
+        except DeviceError as e:
+            raise ActionError("invalid", str(e))
+
+    def register_kind(self, kind: dict) -> dict:
+        """A kind of device (as get_device_kinds() gives them); gone when the plugin is switched off."""
+        from sonorium.core.devices import DeviceError
+        try:
+            return self._svc().register_kind(self._id, kind)
+        except DeviceError as e:
+            raise ActionError("invalid", str(e))
+
+    def unregister_kinds(self) -> None:
+        self._svc().unregister_owner(self._id)
+
+    def kinds(self) -> list[dict]:
+        """Every kind registered now, by any plugin."""
+        return self._svc().kinds()
+
+    async def discover(self, kind: Optional[str] = None) -> list[dict]:
+        """List the devices of one of the plugin's kinds again (or all of them)."""
+        svc = self._svc()
+        if kind is not None and (svc.kind(kind) or {}).get("plugin_id") != self._id:
+            raise ActionError("not_found", f"The plugin has no device kind '{kind}'")
+        kinds = [kind] if kind else [k["id"] for k in svc.kinds() if k["plugin_id"] == self._id]
+        out = []
+        for one in kinds:
+            out.extend(await self._guard(svc.discover(one)))
+        return out
+
+    def list(self, kind: Optional[str] = None) -> list[dict]:
+        """The devices of a kind (any plugin's, so plugins can work together through the kind contracts)."""
+        return self._svc().list(kind)
+
+    def get(self, device_id: str) -> dict:
+        try:
+            return self._svc().get(device_id)
+        except LookupError as e:
+            raise ActionError("not_found", str(e).strip("'\""))
+
+    async def assigned(self, channel_id: str, kind: Optional[str] = None) -> list[dict]:
+        """The devices (switched on) following a channel: assigned to it, or in an area of its speakers."""
+        return self._svc().assigned(channel_id, kind)
+
+    def following(self, device_id: str) -> list[str]:
+        """The channels a device follows now."""
+        try:
+            return self._svc().following(device_id)
+        except LookupError as e:
+            raise ActionError("not_found", str(e).strip("'\""))
+
+    def set_status(self, device: str, online: Optional[bool] = None, error: Optional[str] = None) -> dict:
+        """One of the plugin's devices (core id or its own): online or not, its last error ("" clears it)."""
+        try:
+            return self._svc().set_status(self._id, device, online, error)
+        except LookupError as e:
+            raise ActionError("not_found", str(e).strip("'\""))
+
+    async def invoke(self, device_id: str, action: str, params: Optional[dict] = None) -> dict:
+        """An action on any plugin's device, through its owner (the kind contracts in the docs say which)."""
+        return await self._guard(self._svc().action(device_id, action, params))
+
+
 FACADES_V1 = {"audio": AudioV1, "ramps": RampsV1, "audio_outputs": OutputsV1, "commands": CommandsV1,
-              "mqtt": MqttV1, "homeassistant": HomeAssistantV1, "timeline": TimelineV1}
+              "mqtt": MqttV1, "homeassistant": HomeAssistantV1, "timeline": TimelineV1,
+              "devices": DevicesV1}
 
 
 def facade(host, plugin_id: str, name: str, api_major: int = 1):

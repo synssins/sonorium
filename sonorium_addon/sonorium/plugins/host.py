@@ -21,6 +21,7 @@ The plugin host: the services Sonorium gives every plugin, in one place.
     attributes     plugin attributes on core objects (attributes.py, core/plugin_data.py)
     ui             what plugins add to the web UI's screens (ui.py, ui_contract.py)
     timeline       the cue timeline: which sound is heard where and when (core/timeline.py)
+    devices        devices of any kind plugins bring: lights, displays, ... (core/devices.py)
 
 Plugins reach these through versioned facades (services.py): self.audio,
 self.ramps, self.audio_outputs, self.commands, self.mqtt, self.homeassistant.
@@ -85,6 +86,9 @@ class PluginHost:
         self.ui = UiService(self.attributes.registry, publish=self.bus.publish)
         from sonorium.core.timeline import get_timeline
         self.timeline = get_timeline()
+        from sonorium.core.devices import Devices
+        self.devices = Devices(self.store, session_manager, publish=self.bus.publish, plugin_of=self._plugin)
+        self.device_problems: dict[str, list] = {}  # plugin id -> device kinds refused (on its row)
         self.manager = None  # the PluginManager, set by it
         self.on_change: Optional[Callable] = None  # async callback(session): Home Assistant entities
         self._job_callbacks: dict[tuple, Callable] = {}
@@ -106,7 +110,7 @@ class PluginHost:
         """What this Sonorium offers plugins now (compat.CAPABILITIES names)."""
         have = {"events", "actions", "scheduler", "triggers", "pages", "connections",
                 "commands", "mqtt", "homeassistant", "audio.tts", "packages.pip", "packages.binaries",
-                "attributes", "ui", "timeline"}
+                "attributes", "ui", "timeline", "devices"}
         if self.overlay is not None:
             have.add("audio.sounds")
         if self.ramps is not None:
@@ -157,7 +161,27 @@ class PluginHost:
     # --- Plugin lifecycle (called by the plugin manager) ---
 
     def plugin_enabled(self, plugin) -> None:
+        self.device_problems[plugin.id] = self.devices.register_plugin(plugin)  # its kinds of device
+        if any(k["plugin_id"] == plugin.id for k in self.devices.kinds()):
+            self._spawn_discovery(plugin.id)
         self.bus.publish("plugin.enabled", {"plugin_id": plugin.id, "name": plugin.name})
+
+    def _spawn_discovery(self, plugin_id: str) -> None:
+        """List a plugin's devices as it is switched on (in the background; failures are logged)."""
+        async def run():
+            for kind in [k for k in self.devices.kinds() if k["plugin_id"] == plugin_id]:
+                try:
+                    await self.devices.discover(kind["id"])
+                except Exception as e:
+                    logger.warning(f"Plugin {plugin_id}: devices not listed: {e}")
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        task = loop.create_task(run())
+        self._discovery_tasks = getattr(self, "_discovery_tasks", set())
+        self._discovery_tasks.add(task)
+        task.add_done_callback(self._discovery_tasks.discard)
 
     def plugin_disabled(self, plugin) -> None:
         if self.auth is not None:
@@ -173,6 +197,7 @@ class PluginHost:
     def _release_services(self, plugin_id: str) -> None:
         """What a plugin registered with the services while it ran: its MQTT subscriptions, output types, ..."""
         self.mqtt.unsubscribe_owner(plugin_id)
+        self.devices.unregister_owner(plugin_id)
         self.tts.unregister_owner(plugin_id)
         self.commands.stop_learning(plugin_id)
         if self.outputs is not None:
@@ -191,6 +216,8 @@ class PluginHost:
         self._release_services(plugin_id)
         if self.outputs is not None:  # its audio output devices leave Settings > Speakers and the channels
             self.outputs.forget_owner(plugin_id)
+        self.devices.forget_owner(plugin_id)  # and its other devices are forgotten
+        self.device_problems.pop(plugin_id, None)
         self.commands.forget_plugin(plugin_id)
         self.packages.remove(plugin_id)
         self.scheduler.remove_plugin(plugin_id)

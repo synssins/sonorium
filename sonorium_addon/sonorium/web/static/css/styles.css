@@ -3297,6 +3297,23 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .spp-set-b > label:last-child { cursor: pointer; }
 .spp-set-err { flex: 1 1 100%; font-size: .75rem; color: #ef5350; }
 .spp-set .sp-inp.bad { border-color: rgba(239, 83, 80, .6); }
+/* A plugin's devices (lights, displays, ...) on its row: rows like Settings › Speakers' */
+.spd-hd { display: flex; align-items: center; gap: .625rem; }
+.spp-form > .spd-sec:first-child { padding-top: 0; border-top: 0; }
+.spd-hd .sp-cnt { font-size: .75rem; color: var(--text-muted); }
+.spd-scan { margin-left: auto; gap: .375rem; }
+.spd-list { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .5rem; }
+.spd-empty { padding: .75rem; font-size: .8125rem; color: var(--text-muted); }
+.spd-grid { display: grid; grid-template-columns: 28px minmax(110px, 190px) minmax(60px, 1fr) minmax(110px, 150px) auto 44px 32px; column-gap: .625rem; align-items: center; }
+.spd-row { box-sizing: border-box; min-height: 48px; padding: .375rem .75rem; border-bottom: 1px solid rgba(51, 65, 85, .55); }
+.spd-row:last-child { border-bottom: 0; }
+.spd-row:hover { background: var(--bg-card-hover); }
+.spd-row.off .sps-name, .spd-row.off .badges, .spd-row.off select { opacity: .55; }
+.spd-row.offline .sps-name { color: var(--text-secondary); }
+.spd-row .badges { flex-wrap: wrap; row-gap: .25rem; min-width: 0; }
+.spd-acts { display: flex; flex-wrap: wrap; gap: .375rem; }
+.spd-use { justify-self: center; }
+.spd-more { position: relative; }
 .spp-cat-state { display: flex; flex-direction: column; align-items: center; gap: .75rem; padding: 4rem 1rem; font-size: .875rem; color: var(--text-muted); }
 .spp-spin { width: 22px; height: 22px; border: 2px solid var(--border-color); border-top-color: var(--accent-primary); border-radius: 50%; animation: sp-spin 1s linear infinite; }
 .modal.sp-rq { width: 520px; max-width: 100%; min-width: 0; }
@@ -3618,6 +3635,17 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
     .spg-none { padding-left: 0; }
 }
 @container sp-col (max-width: 879px) {
+    /* Plugins: a plugin's devices, as speaker rows on a phone */
+    .spd-grid { grid-template-columns: 16px minmax(0, 1fr) auto 44px 40px; grid-template-areas: "dot name name use more" ". src src src src" ". area acts acts acts"; row-gap: .375rem; padding: .5rem .625rem .625rem; }
+    .spd-acts { flex-wrap: nowrap; }
+    .spd-grid .sps-dot { grid-area: dot; }
+    .spd-name { grid-area: name; }
+    .spd-src { grid-area: src; }
+    .spd-src:empty { display: none; }
+    .spd-area { grid-area: area; }
+    .spd-acts { grid-area: acts; justify-content: flex-end; }
+    .spd-use { grid-area: use; }
+    .spd-more { grid-area: more; justify-self: end; }
     /* Plugins: one card per plugin */
     .spp-tabs { display: flex; }
     .spp-tabs button { flex: 1; justify-content: center; }

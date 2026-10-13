@@ -549,6 +549,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 
     _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json)
     _add_attribute_routes(router, _host, _json)
+    _add_device_routes(router, _host, _json)
     from sonorium.web.ui_api import add_ui_routes
     add_ui_routes(router, plugin_manager, host)
     return router
@@ -558,11 +559,13 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 ATTRIBUTE_READ = {"theme": "th.view", "track": "th.view", "file": "th.view", "preset": "th.view", "group": "th.view",
                   "channel": "ch.view", "speaker": "sp.view", "speaker_group": "sp.view", "area": "sp.view",
                   "sequence": "pl.view", "step": "pl.view", "playlist": "pl.view", "playlist_entry": "pl.view",
-                  "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins"}
+                  "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins",
+                  "device": "sp.view"}
 ATTRIBUTE_WRITE = {"theme": "th.edit", "track": "th.edit", "file": "th.edit", "preset": "th.edit", "group": "th.edit",
                    "channel": "ch.change", "speaker": "sp.set", "speaker_group": "sp.set", "area": "st.change",
                    "sequence": "pl.edit", "step": "pl.edit", "playlist": "pl.edit", "playlist_entry": "pl.edit",
-                   "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins"}
+                   "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins",
+                   "device": "sp.set"}
 
 
 def _add_attribute_routes(router, _host, _json) -> None:
@@ -624,6 +627,75 @@ def _add_attribute_routes(router, _host, _json) -> None:
         service = _host().attributes
         values = _guard(lambda: service.set(ref, plugin_id, body))
         return {"kind": kind, "id": ref["id"], "theme": ref["theme"], "plugin_id": plugin_id, "values": values}
+
+
+def _add_device_routes(router, _host, _json) -> None:
+    """Devices of any kind plugins bring (core/devices.py)."""
+    from sonorium.core.devices import DeviceError
+
+    def _svc():
+        devices = getattr(_host(), "devices", None)
+        if devices is None:
+            raise HTTPException(status_code=503, detail="Devices are not available")
+        return devices
+
+    async def _guard(work):
+        try:
+            result = work()
+            return (await result) if asyncio.iscoroutine(result) else result
+        except LookupError as e:
+            raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+        except DeviceError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.get("/plugin-devices/kinds")
+    async def device_kinds():
+        """The kinds of device registered now (plugins switched on)."""
+        return {"kinds": _svc().kinds()}
+
+    @router.get("/plugin-devices")
+    async def list_devices(kind: Optional[str] = None, plugin: Optional[str] = None):
+        """The remembered devices of kinds registered now (?kind=, ?plugin=)."""
+        return {"devices": _svc().list(kind, plugin)}
+
+    @router.post("/plugin-devices/discover")
+    async def discover_devices(kind: Optional[str] = None):
+        """Ask the plugins for their devices again (one kind, or every kind)."""
+        return {"devices": await _guard(lambda: _svc().discover(kind))}
+
+    @router.put("/plugin-devices/{device_id}")
+    async def update_device(device_id: str, request: Request):
+        """{name (null: the plugin's), area ("" none), use, channels, areas}: the user's choices for a device."""
+        body = await _json(request)
+        svc = _svc()
+        settings = {k: body[k] for k in ("name", "area", "use") if k in body}
+        unknown = set(body) - {"name", "area", "use", "channels", "areas"}
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"Unknown device setting: {', '.join(sorted(unknown))}")
+        device = await _guard(lambda: svc.update(device_id, settings) if settings else svc.get(device_id))
+        if "channels" in body or "areas" in body:
+            device = await _guard(lambda: svc.assign(device_id, body.get("channels"), body.get("areas")))
+        return device
+
+    @router.delete("/plugin-devices/{device_id}")
+    async def remove_device(device_id: str):
+        await _guard(lambda: _svc().remove(device_id))
+        return {"removed": device_id}
+
+    @router.post("/plugin-devices/{device_id}/actions/{action}")
+    async def device_action(device_id: str, action: str, request: Request):
+        """One of the device's kind's actions (Test, Identify, ...): {"success", "message"}."""
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        params = body.get("params") if isinstance(body, dict) else None
+        return await _guard(lambda: _svc().action(device_id, action, params))
+
+    @router.get("/sessions/{session_id}/plugin-devices")
+    async def channel_devices(session_id: str, kind: Optional[str] = None):
+        """The devices following a channel: assigned to it, or in an area of its speakers."""
+        return {"devices": _svc().assigned(session_id, kind)}
 
 
 def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> None:

@@ -26,6 +26,7 @@ Object classes:
     key      a key                the same, under "key" (a key's record is the sign-in store's)
     connection  a connection      the same, under "connection" (Home Assistant, MQTT and
                                   plugins' connections keep their values elsewhere)
+    device   a plugin's device    the same, under "device" (core/devices.py keeps the device)
 
 On every object the values sit under the plugin's id, so two plugins can both
 have a "cue" attribute: {"plugins": {"wled": {"cue": "flash"}}}.
@@ -81,9 +82,9 @@ from typing import Any, Callable, Iterable, Optional
 from sonorium.obs import logger
 
 OBJECT_CLASSES = ("theme", "track", "file", "preset", "channel", "speaker", "user", "group", "sequence", "step",
-                  "playlist", "playlist_entry", "speaker_group", "area", "key", "connection", "plugin")
+                  "playlist", "playlist_entry", "speaker_group", "area", "key", "connection", "plugin", "device")
 # Kept in state.json settings "object_plugins" ({kind: {id: block}}): objects whose records live elsewhere
-SIDE_TABLE_CLASSES = ("area", "key", "connection", "plugin")
+SIDE_TABLE_CLASSES = ("area", "key", "connection", "plugin", "device")
 TYPES = ("string", "number", "bool", "enum", "list", "object")
 # Accepted for the same words as plugin settings use
 TYPE_ALIASES = {"boolean": "bool", "select": "enum", "text": "string", "dict": "object", "array": "list"}
