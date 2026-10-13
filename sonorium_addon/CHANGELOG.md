@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.20 (2026-10-13)
+
+### Bug Fixes
+
+- **playback**: A group's file that ends cut off fades out instead of stopping dead
+  ([`ac10c4a`](https://github.com/synssins/sonorium/commit/ac10c4a31db13ddd6bbd298c00ed6604fd97ff4f))
+
+
 ## v1.7.3-dev.15 (2026-10-12)
 
 ### Bug Fixes
