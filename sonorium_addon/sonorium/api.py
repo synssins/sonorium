@@ -318,6 +318,8 @@ class WebApp:
 
             # Settings > Audio Settings > Master output gain (0-100) is the mix's output gain
             self._apply_master_gain()
+            # Settings > Audio Settings > Stereo: the channel count mixes are made at
+            self._apply_stereo()
 
             # Initialize channel manager
             max_channels = getattr(settings, 'max_channels', 6)
@@ -604,6 +606,14 @@ class WebApp:
             self.backend.device.master_volume = max(0, min(100, gain)) / 100 * 10.0
         except Exception as e:
             logger.warning(f"  Could not apply the master output gain: {e}")
+
+    def _apply_stereo(self):
+        """Settings > Audio Settings > Stereo (off by default): channels mix in stereo or mono."""
+        try:
+            from sonorium.decoders import set_default_channels
+            set_default_channels(2 if self._state_store.settings.stereo else 1)
+        except Exception as e:
+            logger.warning(f"  Could not apply the Stereo setting: {e}")
 
     def _migrate_theme_data_to_metadata(self):
         """

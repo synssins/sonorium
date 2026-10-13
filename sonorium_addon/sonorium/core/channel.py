@@ -20,6 +20,7 @@ from typing import Optional, TYPE_CHECKING, Generator
 
 import numpy as np
 
+from sonorium.decoders import current_channels, to_channels
 from sonorium.obs import logger
 from sonorium.recording import SAMPLE_RATE, CROSSFADE_SAMPLES
 
@@ -489,23 +490,29 @@ class Channel:
         self._glide = None
 
     def _crossfade_step(self, new_chunk: np.ndarray) -> np.ndarray:
-        """Mix one chunk of a running theme crossfade."""
+        """
+        Mix one chunk of a running theme crossfade. A mono theme and a stereo
+        one (the Stereo switch changed between them) meet in stereo: the mono
+        one centred.
+        """
         try:
             old_chunk = next(self._xfade_old)
         except StopIteration:
             old_chunk = self._silence
         size = new_chunk.shape[1]
+        channels = max(old_chunk.shape[0], new_chunk.shape[0])
+        old_chunk, new_chunk = to_channels(old_chunk, channels), to_channels(new_chunk, channels)
         pos, total = self._xfade_pos, len(self._xfade_out)
         take = max(0, min(size, total - pos))
         fade_out = np.concatenate([self._xfade_out[pos:pos + take], np.zeros(size - take, dtype=np.float32)])
         fade_in = np.concatenate([self._xfade_in[pos:pos + take], np.ones(size - take, dtype=np.float32)])
-        mixed = old_chunk.astype(np.float32).reshape(-1)[:size] * fade_out + new_chunk.astype(np.float32).reshape(-1) * fade_in
+        mixed = old_chunk.astype(np.float32)[:, :size] * fade_out + new_chunk.astype(np.float32) * fade_in
         self._xfade_pos += size
         if self._xfade_pos >= total:
             self._xfade_old.close()
             self._xfade_old = None
             logger.info(f"Channel {self.id}: Crossfade complete")
-        return np.clip(mixed, -32768, 32767).astype(np.int16).reshape(1, -1)
+        return np.clip(mixed, -32768, 32767).astype(np.int16)
 
     # --- Start/stop fade ---
 
@@ -566,6 +573,8 @@ class Channel:
                     chunk = self._silence
             if self._xfade_old is not None:
                 chunk = self._crossfade_step(chunk)
+            if chunk.shape[0] > 1 and current_channels() == 1:
+                chunk = to_channels(chunk, 1)  # Stereo switched off: a stereo mix still playing folds to mono at once
             chunk = self._apply_output_fade(chunk)
         ramp, overlay = self.ramp, self.overlay
         if ramp is not None and not ramp.idle:

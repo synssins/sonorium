@@ -349,7 +349,25 @@ class OnePoleLowpass:
         return out, state
 
     def process(self, data, cutoff: float):
-        """Filter a chunk (any shape, int16 or float) at `cutoff` Hz; returns float64 of the same shape."""
+        """
+        Filter a chunk (int16 or float) at `cutoff` Hz; returns float64 of the
+        same shape. A (2, n) stereo chunk is filtered per channel, each side
+        with its own state (the first side's is self.state, as in mono); any
+        other shape runs as one signal.
+        """
+        import numpy as np
+        if np.ndim(data) == 2 and np.shape(data)[0] > 1:
+            rows = np.asarray(data, dtype=np.float64)
+            if not hasattr(self, "_sides"):
+                self._sides = [type(self)(self.rate) for _ in range(rows.shape[0] - 1)]
+            out = np.empty_like(rows)
+            out[0] = self._process_one(rows[0], cutoff)
+            for side, row in enumerate(rows[1:]):
+                out[side + 1] = self._sides[side]._process_one(row, cutoff)
+            return out
+        return self._process_one(data, cutoff)
+
+    def _process_one(self, data, cutoff: float):
         import numpy as np
         x = np.asarray(data, dtype=np.float64).reshape(-1)
         if not self.primed:

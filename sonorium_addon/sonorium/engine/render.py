@@ -4,8 +4,9 @@ every time for the same theme files, preset, values and seed.
 
     python -m sonorium.engine.render <theme_dir> --preset X --seconds 30 --seed 1 --out out.wav
 
-Options: --decoder pyav|pcm (pcm reads WAV copies from --pcm-cache, made
-with --predecode), --values '{"group_gap": 30}' (Settings > Advanced),
+Options: --decoder pyav|pcm (pcm reads the audio cache in --pcm-cache:
+FLAC copies, made with --predecode, or WAV copies of an older cache),
+--channels 1|2 (mono, the default, or stereo), --values '{"group_gap": 30}' (Settings > Advanced),
 --master-gain 60, --float (32-bit float WAV instead of 16-bit),
 --sequence ID (run a sequence of the theme), --playlist FILE (play a
 playlist, the server's playlist JSON; its themes are found under
@@ -24,27 +25,28 @@ import numpy as np
 
 
 def write_wav(path, samples: np.ndarray, rate: int) -> None:
-    """Mono 16-bit PCM WAV (the standard library writes the same header every time)."""
+    """16-bit PCM WAV, mono (n,) or stereo (n, 2) (the standard library writes the same header every time)."""
     with wave.open(str(path), "wb") as out:
-        out.setnchannels(1)
+        out.setnchannels(1 if np.ndim(samples) == 1 else np.shape(samples)[1])
         out.setsampwidth(2)
         out.setframerate(rate)
         out.writeframes(np.asarray(samples, dtype="<i2").tobytes())
 
 
 def write_float_wav(path, samples: np.ndarray, rate: int) -> None:
-    """Mono 32-bit float WAV (format 3), written by hand: the wave module writes integer PCM only."""
+    """32-bit float WAV (format 3), mono or stereo, written by hand: the wave module writes integer PCM only."""
     import struct
+    channels = 1 if np.ndim(samples) == 1 else np.shape(samples)[1]
     data = np.asarray(samples, dtype="<f4").tobytes()
     header = b"RIFF" + struct.pack("<I", 4 + 26 + 12 + 8 + len(data)) + b"WAVE"
-    fmt = b"fmt " + struct.pack("<IHHIIHHH", 18, 3, 1, rate, rate * 4, 4, 32, 0)
+    fmt = b"fmt " + struct.pack("<IHHIIHHH", 18, 3, channels, rate, rate * 4 * channels, 4 * channels, 32, 0)
     fact = b"fact" + struct.pack("<II", 4, len(samples))
     Path(path).write_bytes(header + fmt + fact + b"data" + struct.pack("<I", len(data)) + data)
 
 
 def render_to_file(theme_dir, out, seconds: float, seed: int = 0, preset=None, decoder=None,
                    playback_values=None, master_gain=None, as_float: bool = False, block: int = 4096,
-                   sequence=None, playlist=None, themes_root=None, crossfade=None) -> dict:
+                   sequence=None, playlist=None, themes_root=None, crossfade=None, channels: int = 1) -> dict:
     """Render `seconds` of the theme to `out`; returns {"samples", "cpu_seconds", "wall_seconds"}."""
     from sonorium.core.channel import THEME_CROSSFADE_DURATION
     from sonorium.engine import DEFAULT_MASTER_GAIN, Engine, SAMPLE_RATE
@@ -53,7 +55,7 @@ def render_to_file(theme_dir, out, seconds: float, seed: int = 0, preset=None, d
     engine = Engine(theme_dir, preset_id=preset, playback_values=playback_values, seed=seed, decoder=decoder,
                     master_gain=DEFAULT_MASTER_GAIN if master_gain is None else master_gain,
                     themes_root=themes_root, sequence_id=sequence,
-                    crossfade=THEME_CROSSFADE_DURATION if crossfade is None else crossfade)
+                    crossfade=THEME_CROSSFADE_DURATION if crossfade is None else crossfade, channels=channels)
     try:
         if playlist is not None:
             engine.start_playlist(playlist)
@@ -79,8 +81,9 @@ def main(argv=None) -> int:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", required=True, help="WAV file to write")
     parser.add_argument("--decoder", choices=("pyav", "pcm"), default="pyav")
-    parser.add_argument("--pcm-cache", default=None, help="folder of WAV copies for --decoder pcm")
-    parser.add_argument("--predecode", action="store_true", help="first write the WAV copies into --pcm-cache")
+    parser.add_argument("--pcm-cache", default=None, help="the audio cache folder for --decoder pcm")
+    parser.add_argument("--predecode", action="store_true", help="first write the FLAC copies into --pcm-cache")
+    parser.add_argument("--channels", type=int, choices=(1, 2), default=1, help="1 mono (default), 2 stereo")
     parser.add_argument("--values", default=None, help="Settings > Advanced values as JSON")
     parser.add_argument("--master-gain", type=float, default=None, help="Master output gain, 0-100 (default 60)")
     parser.add_argument("--float", action="store_true", help="write 32-bit float samples")
@@ -90,21 +93,21 @@ def main(argv=None) -> int:
     parser.add_argument("--crossfade", type=float, default=None, help="theme change crossfade, seconds (default 3)")
     args = parser.parse_args(argv)
 
-    from sonorium.decoders import PcmFileDecoder, PyAvDecoder, mirror_lookup
+    from sonorium.decoders import PcmFileDecoder, PyAvDecoder, cache_lookup
     decoder = PyAvDecoder()
     if args.decoder == "pcm":
         if args.pcm_cache:
             if args.predecode:
                 from sonorium.engine.pcm_cache import predecode_theme
                 predecode_theme(args.theme_dir, args.pcm_cache)
-            decoder = PcmFileDecoder(lookup=mirror_lookup(args.theme_dir, args.pcm_cache))
+            decoder = PcmFileDecoder(lookup=cache_lookup(args.theme_dir, args.pcm_cache))
         else:
             decoder = PcmFileDecoder()
     values = json.loads(args.values) if args.values else None
     playlist = json.loads(Path(args.playlist).read_text(encoding="utf-8-sig")) if args.playlist else None
     stats = render_to_file(args.theme_dir, args.out, args.seconds, args.seed, args.preset, decoder, values,
                            args.master_gain, args.float, sequence=args.sequence, playlist=playlist,
-                           themes_root=args.themes_root, crossfade=args.crossfade)
+                           themes_root=args.themes_root, crossfade=args.crossfade, channels=args.channels)
     print(f"{args.out}: {stats['samples']} samples, {stats['cpu_seconds']:.2f}s CPU, "
           f"{stats['wall_seconds']:.2f}s wall", file=sys.stderr)
     return 0

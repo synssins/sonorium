@@ -1,7 +1,7 @@
 # The playback engine (developer note)
 
 `sonorium.engine` runs Sonorium's mixer on its own: a theme folder in, mono
-PCM out, pulled by the caller. It uses the same code as the server
+or stereo PCM out, pulled by the caller. It uses the same code as the server
 (`theme.ThemeMix` for the tracks, `core.channel.Channel` for preset glides,
 theme crossfades and fades, `core.playback_runner.PlaybackRunner` for
 sequences and playlists) without the web server, Home Assistant, MQTT,
@@ -13,6 +13,7 @@ from sonorium.engine import Engine, PyAvDecoder
 
 eng = Engine("media/Tavern", preset_id=None, seed=1234, decoder=PyAvDecoder())
 pcm = eng.render(44100)      # numpy int16, shape (44100,): one second, mono, 44100 Hz
+eng.set_channels(2)          # stereo from the next sample: render() gives shape (n, 2)
 eng.set_preset("busy")       # glides over 3 s, as a preset picked on a playing channel
 eng.set_volume(0.5)          # output volume 0..1, after the mix
 eng.start_sequence("evening")  # steps through a sequence of the theme
@@ -36,14 +37,55 @@ eng.close()
 | `themes_root` | Where other themes are: linked files, playlist entries, `set_theme`. Default: the theme folder's parent. |
 | `crossfade` | Settings > Audio Settings > Crossfade: seconds a theme change crossfades (default 3). |
 | `sequence_id` | A sequence of the theme to run from the start, on its first preset. |
+| `channels` | 1: mono (the default, as the engine has always rendered); 2: stereo. See "Mono or stereo". |
 
 `render(n, dtype="int16" | "float32")` returns the next `n` samples, any
-length. Other calls: `set_preset(id, glide_seconds=3.0, fade_seconds=None,
+length: shape `(n,)` mono, `(n, 2)` stereo (left, right; `.tobytes()` gives
+interleaved frames, as `AudioTrack` takes them). Other calls: `set_channels`, `set_preset(id, glide_seconds=3.0, fade_seconds=None,
 step=None)`, `set_volume`, `set_master_gain`, `fade_in`, `fade_out`,
 `schedule_transitions` / `cancel_transitions` (advanced transitions,
 `core/transitions.py`), `reload_theme` (below), `close`. Read-only: `presets`,
 `sequences`, `tracks`, `theme_id`, `theme_dir`, `preset_id`, `sequence_id`,
-`missing_links`, `clock`.
+`missing_links`, `clock`, `channels`. `status()` has `"channels"`.
+
+### Mono or stereo
+
+The mixer is the same code in mono and in stereo (`decoders.py`,
+`recording.py`, `mixing.py`, `theme.py`, `core/channel.py`). In stereo:
+
+- a stereo file keeps its left and right (a file with more channels is
+  down-mixed to stereo by FFmpeg); a mono file plays centred, its samples
+  unchanged on both sides;
+- every gain is one value per sample on both channels alike: track volume,
+  Interval and Ebb & Flow, the file's fades, loop crossfades, Intermittent
+  fades, group crossfades, on/off fades, preset glides, advanced transitions
+  (the low-pass of Distant runs per channel), theme crossfades, the start/stop
+  fade, output volume, Master output gain;
+- the mix's level (how many tracks sound) is measured on each track's mono
+  fold, so it moves exactly as in a mono mix; the soft limiter acts on each
+  channel's samples.
+
+So a stereo render of mono files is the mono render on both sides, sample
+for sample, and its fold `(L + R) / 2` is the mono render
+(`tests/test_stereo.py`). With stereo files the fold matches the mono render
+to within rounding (2 LSB) below the limiter's knee; above it each channel is
+limited on its own.
+
+`Engine(..., channels=2)` mixes in stereo. `set_channels(1)` folds that mix
+to mono at the output from the next sample (left and right averaged, rounded
+half up as FFmpeg rounds), and `set_channels(2)` brings stereo back at once:
+the mix itself stays stereo, so switching never restarts or re-reads
+anything. An engine made with `channels=1` (exactly the mono mixer as
+before) and switched to 2 hands out its mono mix on both sides until its
+next theme change (`set_theme`, a playlist entry), which mixes in stereo. An
+app with a Stereo switch that is on by default makes its engine with
+`channels=2` and calls `set_channels` when the switch changes.
+
+`sonorium.decoders` has the pieces: `fold_to_mono(block)`,
+`to_channels(block, n)`, `current_channels()`, `use_channels(n)` (per thread,
+as `use_decoder`), `set_default_channels(n)` (the server's Stereo switch).
+Inside the mixer, mono samples are 1-D `(n,)` and stereo `(2, n)`; blocks
+between players and the mix are `(channels, 1024)` int16.
 
 ### Edits while it plays
 
@@ -106,15 +148,52 @@ A decoder has one method, `open(path)`, returning an object with:
   float32 on the int16 scale, any lengths, start to end; closes the file at the end
 - `close()`
 
+A decoder with `accepts_channels = True` is also called as
+`open(path, channels=2)` for a stereo mix and then gives `(2, n)` blocks
+(left, right). One without it only gives mono: in a stereo mix each of its
+blocks plays centred. `PyAvDecoder` and `PcmFileDecoder` accept channels.
+
 A loop does not seek: each pass opens the file again.
 
-- `PyAvDecoder` (default): any file FFmpeg reads, resampled to s16 mono
-  44100 Hz by PyAV's `AudioResampler`. The only playback code that imports `av`,
-  and only when it opens a file.
-- `PcmFileDecoder`: 16-bit PCM WAV at 44100 Hz (channels averaged to mono) or
-  raw 16-bit little-endian mono (`.pcm`, `.raw`), with the standard library.
-  No resampling. With `lookup=mirror_lookup(theme_dir, cache_dir)` it reads
-  WAV copies made with `sonorium.engine.pcm_cache.predecode_theme`.
+- `PyAvDecoder` (default): any file FFmpeg reads, resampled to s16 at
+  44100 Hz by PyAV's `AudioResampler`: mono, or stereo with `channels=2` (a
+  mono file is decoded mono and copied to both sides). The only playback code
+  that imports `av`, and only when it opens a file.
+- `PcmFileDecoder`: 16-bit PCM WAV at 44100 Hz (channels averaged to mono;
+  with `channels=2` a mono WAV centred, a stereo one as it is) or raw 16-bit
+  little-endian mono (`.pcm`, `.raw`), with the standard library; and FLAC at
+  44100 Hz (the audio cache) through PyAV, imported only for a `.flac` file.
+  No resampling. With `lookup=cache_lookup(theme_dir, cache_dir)` it reads
+  the audio cache made with `sonorium.engine.pcm_cache.predecode_theme`.
+
+### The audio cache
+
+`predecode_theme(theme_dir, cache_dir)` decodes every file of a theme once
+into `cache_dir`, in the same layout ("Rain/Lute/Song.mp3" ->
+"<cache>/Lute/Song.flac"): always **16-bit stereo FLAC** (lossless), a mono
+file stored centred (FLAC stores the identical second side at almost no
+cost). A mono mix folds a copy back to mono as it reads it (exactly the
+file's samples for a mono file), a stereo mix reads it as it is, so turning
+stereo on or off never decodes a theme again. Renders from the cache equal
+renders from the files, mono and stereo (`tests/test_stereo.py`).
+
+Older caches hold 16-bit WAV copies. `cache_lookup` reads a file's `.flac`
+copy, or its `.wav` copy when there is no FLAC one, so an old cache still
+plays (a mono WAV centred in a stereo mix); `predecode_theme` writes the
+FLAC copy and removes the old WAV. Without a FLAC encoder (`flac_available()`
+false) it writes stereo WAV instead (`flac=False` asks for that).
+
+Cost, one minute of a real 44.1 kHz stereo ambience (Intel Core Ultra 7
+265K, Python 3.13, PyAV 19.0.1; best of 10):
+
+| | Size | Write | Read stereo | Read folded to mono |
+|---|---|---|---|---|
+| FLAC | 5.4 MB (wind), 3.1 MB (bells) | 65 ms | 55 ms | 69 ms |
+| WAV | 10.6 MB | 21 ms | 15 ms | 26 ms |
+| The MP3 itself through PyAV | | | 52 ms | 51 ms |
+
+Reading FLAC costs about as much as decoding the MP3 (under 0.1 % of a core
+per playing file) and halves the cache's size.
 
 The engine sets its decoder, seed and playback values for the calling thread
 only, during its own calls; the server's playback in other threads keeps the
@@ -126,8 +205,8 @@ defaults.
 python -m sonorium.engine.render <theme_dir> --preset X --seconds 30 --seed 1 --out out.wav
 ```
 
-Writes a 16-bit mono WAV. Options: `--decoder pyav|pcm`, `--pcm-cache DIR`
-with `--predecode`, `--values '{"group_gap": 30}'`, `--master-gain 60`,
+Writes a 16-bit WAV, mono, or stereo with `--channels 2`. Options:
+`--decoder pyav|pcm`, `--pcm-cache DIR` (the audio cache) with `--predecode`, `--values '{"group_gap": 30}'`, `--master-gain 60`,
 `--float`, `--sequence ID`, `--playlist FILE.json` with `--themes-root DIR`,
 `--crossfade 3`. Run from `sonorium_addon/` (or with it on `PYTHONPATH`).
 
@@ -144,7 +223,7 @@ for compressed files.
 
 ## Limits
 
-- 44100 Hz mono only.
+- 44100 Hz only; mono or stereo (no more channels).
 - Sounds over the mix (announcements, alerts) and volume ramps are not included.
 - Sequence and playlist timers are checked before every 1024-sample block (the
   server checks them about once a second), so a step can come up to a second
@@ -156,7 +235,8 @@ for compressed files.
 - Log lines go to the `sonorium` logger (stdout) at `SONORIUM_LOG_LEVEL`.
 - One caller at a time per engine.
 
-Third-party imports: numpy; PyAV (`av`) for `PyAvDecoder` only. Python 3.10+.
+Third-party imports: numpy; PyAV (`av`) for `PyAvDecoder`, for reading a `.flac`
+cache copy and for writing the cache only. Python 3.10+.
 `tests/test_engine.py` imports the engine with the server's packages blocked.
 
 ## Theme editing, playlists and network speakers without the server

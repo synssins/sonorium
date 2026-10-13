@@ -77,17 +77,29 @@ class MixLevel:
         self.count = 0.0
 
     def mix(self, chunks: list[np.ndarray], output_gain: float) -> np.ndarray:
-        """`chunks`: one (1, n) int16 array per enabled track. Returns a (1, n) int16 array."""
-        data = np.vstack(chunks).astype(np.float32)
-        self.count = effective_count(data)
+        """
+        `chunks`: one (channels, n) int16 array per enabled track, all with
+        the same channel count (1 mono, 2 stereo). Returns a (channels, n)
+        int16 array. In stereo a track counts by the power of its mono fold
+        (so the level moves exactly as in a mono mix of the same sounds), and
+        the level, gain and limiter act on both channels alike.
+        """
+        channels = chunks[0].shape[0]
+        if channels == 1:
+            data = np.vstack(chunks).astype(np.float32)  # (tracks, n)
+            weigh = data
+        else:
+            data = np.stack(chunks).astype(np.float32)  # (tracks, channels, n)
+            weigh = data.mean(axis=1)  # each track as its mono fold: the level moves as the mono mix's would
+        self.count = effective_count(weigh)
         target = target_gain(self.count)
         rate = self._attack if target < self.gain else self._release
         new_gain = self.gain + (target - self.gain) * rate
 
         # Ramp from the last level to the new one across the chunk: no audible steps
-        ramp = np.linspace(self.gain, new_gain, data.shape[1], dtype=np.float32)
+        ramp = np.linspace(self.gain, new_gain, data.shape[-1], dtype=np.float32)
         self.gain = new_gain
 
         mixed = data.sum(axis=0) * ramp * output_gain
         mixed = soft_limit(mixed)
-        return np.clip(mixed, -32768, 32767).astype(np.int16).reshape(1, -1)
+        return np.clip(mixed, -32768, 32767).astype(np.int16).reshape(channels, -1)

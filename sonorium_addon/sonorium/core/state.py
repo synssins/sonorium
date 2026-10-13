@@ -84,6 +84,10 @@ class SonoriumSettings:
     # Master output gain (0-100, applied to all streams)
     master_gain: int = 60
 
+    # Settings > Audio Settings > Stereo: channels mix in stereo (a mono file
+    # centred). Off: mono, as Sonorium has always played (decoders.set_default_channels)
+    stereo: bool = False
+
     # (default_cycle_interval / default_cycle_randomize were removed with theme
     # cycling; from_dict drops them from older state files)
 

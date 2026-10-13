@@ -17,7 +17,8 @@ from functools import cached_property
 import numpy as np
 
 from sonorium.obs import logger
-from sonorium.recording import BLOCK_SAMPLES, SAMPLE_RATE, ExclusionGroupCoordinator, ThemeTrack, close_stream, playback_values
+from sonorium.recording import (BLOCK_SAMPLES, SAMPLE_RATE, ExclusionGroupCoordinator, ThemeTrack, close_stream, decoders,
+                                 playback_values)
 from sonorium.utils import IndexList
 
 
@@ -136,10 +137,15 @@ class ThemeMix:
 
     blocks() gives the mixed audio a block at a time; iterating the mix gives
     it as MP3 for a listener (a theme's own /stream/{id}).
+
+    A mix plays mono or stereo for its whole life: the channel count in use
+    when it is made (decoders.current_channels(): the server's Stereo switch,
+    or an engine's own), or `channels`.
     """
 
-    def __init__(self, theme: LoadedTheme, overrides: dict | None = None):
+    def __init__(self, theme: LoadedTheme, overrides: dict | None = None, channels: int | None = None):
         self.theme = theme
+        self.channels = decoders.current_channels() if channels is None else decoders.check_channels(channels)
         # This stream's preset values; changed in place when the channel's preset changes
         self.overrides = overrides if overrides is not None else {}
 
@@ -152,7 +158,7 @@ class ThemeMix:
 
         from sonorium.mixing import MixLevel
         self.mix_level = MixLevel(SAMPLE_RATE, BLOCK_SAMPLES)
-        self._silence = np.zeros((1, BLOCK_SAMPLES), np.int16)  # what plays when no track sounds
+        self._silence = np.zeros((self.channels, BLOCK_SAMPLES), np.int16)  # what plays when no track sounds
 
         # Track key -> its TrackView, and the streams in mixing order: one per
         # track, except a Merry-go-round group, which plays as one stream (its bed)
@@ -459,13 +465,17 @@ class ThemeMix:
     def blocks(self):
         """The mix, one int16 block (1, BLOCK_SAMPLES) at a time, for ever."""
         while True:
-            self._follow_group_modes()
-            sounding = self._pull(self._fade_step(switch_fade_seconds()))  # the Switch fade, read live
-            self.audio_seconds += BLOCK_SAMPLES / SAMPLE_RATE
-            # Sum the tracks with a smoothed level (sonorium/mixing.py); silence when none sounds
-            gain = getattr(self.theme.library, 'master_volume', DEFAULT_OUTPUT_GAIN)
-            block = self.mix_level.mix(sounding or [self._silence], gain)
-            self._log_mix_level()
+            # The players decode and make their blocks at this mix's channel
+            # count (set for this block only: never across the yield)
+            with decoders.use_channels(self.channels):
+                self._follow_group_modes()
+                sounding = self._pull(self._fade_step(switch_fade_seconds()))  # the Switch fade, read live
+                self.audio_seconds += BLOCK_SAMPLES / SAMPLE_RATE
+                # Sum the tracks with a smoothed level (sonorium/mixing.py); silence when none sounds
+                gain = getattr(self.theme.library, 'master_volume', DEFAULT_OUTPUT_GAIN)
+                sounding = [decoders.to_channels(chunk, self.channels) for chunk in sounding]
+                block = self.mix_level.mix(sounding or [self._silence], gain)
+                self._log_mix_level()
             yield block
 
     def _log_mix_level(self) -> None:
@@ -651,8 +661,8 @@ class ThemeMix:
             end_level = release["from"] + (target - release["from"]) * share
         data = next(stream)
         vref = transition.vref
-        out = data.astype(np.float32).reshape(-1) * np.linspace(start_level / vref, end_level / vref, size,
-                                                               dtype=np.float32)
+        # Samples on the last axis: (1, n) mono or (2, n) stereo, one gain per sample for both
+        out = data.astype(np.float32) * np.linspace(start_level / vref, end_level / vref, size, dtype=np.float32)
         if transition.filter is not None:
             cutoff = env.cutoff(t1 - chunk_seconds / 2)
             if cutoff is not None:
@@ -663,13 +673,13 @@ class ThemeMix:
             from sonorium.core.transitions import FRESH_FADE
             g0 = transition.old_level * max(0.0, 1.0 - t0 / FRESH_FADE) / vref
             g1 = transition.old_level * max(0.0, 1.0 - t1 / FRESH_FADE) / vref
-            old = next(transition.old_stream)
-            out = out + old.astype(np.float32).reshape(-1) * np.linspace(g0, g1, size, dtype=np.float32)
+            old = decoders.to_channels(next(transition.old_stream), out.shape[0])
+            out = out + old.astype(np.float32) * np.linspace(g0, g1, size, dtype=np.float32)
             if g1 <= 0.0:
                 close_stream(transition.old_stream)
                 transition.old_stream = None
         transition.level = end_level
-        data = np.clip(out, -32768, 32767).astype(np.int16).reshape(1, -1)
+        data = np.clip(out, -32768, 32767).astype(np.int16)
 
         # Finish then stop: once the play going out has finished, a short fade
         if transition.finishing and transition.release is None:

@@ -295,16 +295,16 @@ def test_pcm_decoder_reads_wav_raw_and_stereo(tmp_path):
 
 
 def test_pcm_decoder_reads_decoded_copies(theme, tmp_path):
-    """Pre-decoded copies (mirror_lookup) play the same as the files themselves."""
+    """Pre-decoded copies (the audio cache, cache_lookup) play the same as the files themselves."""
     pytest.importorskip("av")
     engine = _engine_modules()
     from sonorium.engine.pcm_cache import predecode_theme
     cache = tmp_path / "cache"
     written = predecode_theme(theme, cache)
-    assert (cache / "Birds" / "Bird 1.wav") in written
+    assert (cache / "Birds" / "Bird 1.flac") in written
     for path in theme.rglob("*.wav"):
         path.write_bytes(b"")  # the originals are only listed now: every read goes to the copies
-    copies = engine.PcmFileDecoder(lookup=engine.mirror_lookup(theme, cache))
+    copies = engine.PcmFileDecoder(lookup=engine.cache_lookup(theme, cache))
     e = engine.Engine(theme, playback_values=FAST_VALUES, seed=6, decoder=copies)
     assert np.abs(e.render(3 * RATE).astype(np.float64)).mean() > 100
     e.close()

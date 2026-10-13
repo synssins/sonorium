@@ -16,6 +16,7 @@ opens a sink on one for each channel that plays there:
 
     class MySink(Sink):
         def write(self, block):         # int16 numpy array, shape (1, n), mono, sample_rate
+                                        # (a type with stereo = True: (2, n), left and right)
             ...                         # may block: it runs in the attachment's own thread
         def close(self): ...
 
@@ -44,6 +45,11 @@ local device asks first (take_over). The setting "Allow output to more than
 one local device" (allow_multiple_local_outputs) lifts this: local devices
 then play like network speakers.
 
+Mono or stereo: a sink gets mono blocks (1, n), whatever the channel plays
+(a stereo mix, Settings > Audio Settings > Stereo, is folded to mono for it:
+left and right averaged). A type with stereo = True gets (2, n) blocks, left
+then right, always (a mono mix on both sides).
+
 Sonorium ships no output type of its own except CaptureOutput below (a test
 double that keeps what it was sent).
 """
@@ -59,6 +65,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from sonorium.decoders import to_channels
 from sonorium.obs import logger
 
 TYPE_ID = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
@@ -141,6 +148,7 @@ class OutputType:
     id: str = ""
     title: str = ""
     local: bool = False  # devices of the machine Sonorium runs on (read at register_type())
+    stereo: bool = False  # its sinks take (2, n) stereo blocks; else (1, n) mono (read at each open())
 
     def available(self) -> tuple[bool, str]:
         """(usable here, why not): e.g. no sound card in this container."""
@@ -194,8 +202,9 @@ class Attachment:
 
     def __init__(self, attachment_id: str, session_id: str, type_id: str, device_id: str, options: dict,
                  speaker_id: str = "", level: Optional[Callable[[], float]] = None,
-                 on_end: Optional[Callable[["Attachment"], None]] = None):
+                 on_end: Optional[Callable[["Attachment"], None]] = None, stereo: bool = False):
         self.id = attachment_id
+        self.channels = 2 if stereo else 1  # what its sink is given: mono (1, n) or stereo (2, n)
         self.session_id = session_id
         self.type_id = type_id
         self.device_id = device_id
@@ -254,6 +263,7 @@ class Attachment:
                     continue
                 channel.mark_listener_active()
                 for last, block in fresh:
+                    block = to_channels(block, self.channels)
                     target = self._target(channel)
                     if target != gain:  # mute, volume or Offset changed: ramp over this block
                         block = _scaled(block, np.linspace(gain, target, block.shape[-1], dtype=np.float32))
@@ -864,7 +874,8 @@ class AudioOutputs:
             return None
         self._failed.pop(key, None)
         attachment = Attachment(entry["id"], session.id, type_id, device_id, options, speaker_id=sid,
-                                level=self._level(session, sid), on_end=self._ended)
+                                level=self._level(session, sid), on_end=self._ended,
+                                stereo=bool(getattr(output_type, "stereo", False)))
         old = self._live.get(key)
         if old is not None:
             old.stop()
@@ -926,7 +937,8 @@ class AudioOutputs:
         except Exception as e:
             _raise_plugin_failure(type_id, output_type, "open()", e)
         samples = _scaled(tone_samples(rate=self.rate), TEST_VOLUME)
-        attachment = Attachment("test", "", type_id, device_id, {}, speaker_id=speaker_id)
+        attachment = Attachment("test", "", type_id, device_id, {}, speaker_id=speaker_id,
+                                stereo=bool(getattr(output_type, "stereo", False)))
         attachment.sink = sink
         attachment._thread = threading.Thread(target=self._play_test, args=(attachment, samples),
                                               name=f"output-test-{type_id}", daemon=True)
@@ -948,7 +960,7 @@ class AudioOutputs:
                 wait = started + start / self.rate - time.monotonic()
                 if wait > 0:
                     time.sleep(wait)
-                sink.write(samples[start:start + TEST_BLOCK].reshape(1, -1))
+                sink.write(to_channels(samples[start:start + TEST_BLOCK], attachment.channels))
         except Exception as e:
             logger.warning(f"Speaker test on {attachment.type_id}/{attachment.device_id} stopped: "
                            f"{str(e) or type(e).__name__}")

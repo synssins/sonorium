@@ -110,7 +110,9 @@ Home Assistant, MQTT and Streaming, each with its status (Docker).
 ![Settings → Connection](screenshots/Settings_Connection.png)
 
 #### Settings → Audio Settings
-Sound settings in one card, with Save and Cancel in the top bar.
+Sound settings in one card, with Save and Cancel in the top bar. **Stereo** (off by default) keeps left
+and right apart on every stream, for speakers set up as a pair; a mono file plays in the middle. Off,
+every stream is mono, as before. A channel that is playing turns stereo from the next theme it starts.
 
 ![Settings → Audio Settings](screenshots/Settings_Audio.png)
 
