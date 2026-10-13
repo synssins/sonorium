@@ -202,6 +202,9 @@
         drawUsers();
     }
 
+    // Link App linked a phone: the list, if it's on screen
+    document.addEventListener('sonorium:device-linked', () => { if (document.getElementById('us-wrap')) loadUsers(); });
+
     function deviceHtml(u, d) {
         const phone = d.kind === 'phone';
         const sub = phone ? `Sonorium app · linked ${shortDate(d.created)}`

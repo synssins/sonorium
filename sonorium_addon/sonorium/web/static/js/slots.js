@@ -429,12 +429,33 @@
             <p class="lk-exp" id="lk-exp"></p>
             ${link.words && link.words.length ? `<p class="lk-words">${link.words.map(S.esc).join(' ')}</p>` : ''}`;
         const ends = Date.now() + link.expires_in * 1000;
+        // Scanned: close and say which phone linked (its name as in Users & devices). Expired: close.
+        const check = async (last) => {
+            let state = null;
+            try {
+                state = await api('GET', `/link/${encodeURIComponent(link.link_id)}`);
+            } catch (e) {
+                if (e.status === 404) state = { state: 'expired' };  // forgotten: as expired
+            }
+            if (!document.getElementById('lk-body') || body.dataset.link !== link.link_id) return;
+            if (state && state.state === 'linked' && state.device) {
+                S.closeModal('link-app');
+                S.toast(`${state.device.name} connected`, 'success');
+                document.dispatchEvent(new CustomEvent('sonorium:device-linked', { detail: state.device }));
+            } else if (last || (state && state.state === 'expired')) {
+                S.closeModal('link-app');
+            }
+        };
+        body.dataset.link = link.link_id || '';
+        let n = 0;
         const tick = () => {
             const el = document.getElementById('lk-exp');
             if (!el) { clearInterval(linkTimer); return; }
             const left = Math.max(0, Math.round((ends - Date.now()) / 1000));
             el.textContent = left > 0 ? `This code works once and expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'This code has expired';
             body.classList.toggle('lk-expired', left <= 0);
+            if (!link.link_id) return;
+            if (left <= 0) { clearInterval(linkTimer); check(true); } else if (++n % 2 === 0) check(false);
         };
         clearInterval(linkTimer);
         tick();

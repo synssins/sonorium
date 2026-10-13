@@ -35,6 +35,7 @@ from sonorium.obs import logger
 SECURITY_FILE = "security.json"
 DEVICE_PREFIX = "sd_"
 PAIR_CODE_SECONDS = 300
+PAIR_LINK_KEEP = 60  # a dialog can still learn its code's outcome this long after it expires
 PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I
 # keys.py: part of Sonorium, so not listed as a plugin. users.py is part of Sonorium too, but "users"
 # stays in the "plugins" list of /api/info and /api/auth/me: released Sonorium apps read it to offer
@@ -60,6 +61,7 @@ class AuthService:
         self.expected_providers: set[str] = set()
         self.fresh_install: Optional[bool] = None
         self.pair_codes: dict[str, dict] = {}
+        self.pair_links: dict[str, dict] = {}  # a Link App dialog's code, by an id that isn't the code
         self.plugin_state: dict[str, object] = {}  # a plugin's live objects, kept across reloads (e.g. Accounts)
         self.https_only = lambda request: None     # set by the core routes
         self.supervisor_transport = None           # tests: an httpx transport standing in for HA's Supervisor
@@ -205,19 +207,23 @@ class AuthService:
         """A Link App code: works once, for 5 minutes. The previous code of the same user stops working."""
         self._expire_codes()
         for code in [c for c, v in self.pair_codes.items() if v["user_id"] == user_id]:
-            self.pair_codes.pop(code, None)
+            self.pair_links.pop(self.pair_codes.pop(code)["link"], None)
         code = "".join(secrets.choice(PAIR_ALPHABET) for _ in range(8))
         expires = self.clock() + PAIR_CODE_SECONDS
-        self.pair_codes[code] = {"user_id": user_id, "expires": expires}
+        link = secrets.token_urlsafe(12)
+        self.pair_codes[code] = {"user_id": user_id, "expires": expires, "link": link}
+        self.pair_links[link] = {"user_id": user_id, "expires": expires, "device_id": None}
         return code, expires
 
     def _expire_codes(self) -> None:
         now = self.clock()
         for code in [c for c, v in self.pair_codes.items() if v["expires"] <= now]:
             self.pair_codes.pop(code, None)
+        for link in [k for k, v in self.pair_links.items() if v["expires"] + PAIR_LINK_KEEP <= now]:
+            self.pair_links.pop(link, None)
 
-    def use_pair_code(self, code: str) -> tuple[bool, Optional[str]]:
-        """(valid, user id) for a code, which is then used up."""
+    def use_pair_code(self, code: str) -> tuple[bool, Optional[str], Optional[str]]:
+        """(valid, user id, link id) for a code, which is then used up."""
         self._expire_codes()
         code = (code or "").strip().upper().replace("-", "").replace(" ", "")
         match = None
@@ -225,8 +231,29 @@ class AuthService:
             if hmac.compare_digest(known, code):
                 match = known
         if match is None:
-            return False, None
-        return True, self.pair_codes.pop(match)["user_id"]
+            return False, None, None
+        entry = self.pair_codes.pop(match)
+        return True, entry["user_id"], entry["link"]
+
+    def pair_link_of(self, code: str) -> Optional[str]:
+        """The id the Link App dialog asks about its code with (GET /api/link/{link_id})."""
+        entry = self.pair_codes.get(code)
+        return entry["link"] if entry else None
+
+    def pair_linked(self, link: Optional[str], device_id: str) -> None:
+        """A code was used: the phone it linked, for the dialog that showed it."""
+        if link in self.pair_links:
+            self.pair_links[link]["device_id"] = device_id
+
+    def pair_link_state(self, link: str) -> Optional[dict]:
+        """A dialog's code: {"state": "waiting"|"linked"|"expired", "user_id", "device"}; None: unknown."""
+        self._expire_codes()
+        entry = self.pair_links.get(link)
+        if entry is None:
+            return None
+        device = self.device(entry["device_id"]) if entry["device_id"] else None
+        state = "linked" if device else "expired" if entry["expires"] <= self.clock() else "waiting"
+        return {"state": state, "user_id": entry["user_id"], "device": device}
 
     def add_device(self, user_id: Optional[str], name: str, platform: str = "", model: str = "") -> tuple[str, str]:
         """A linked phone. Returns (device id, token); the token is never shown again."""

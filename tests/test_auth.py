@@ -310,6 +310,40 @@ def test_pair_code_expires_and_needs_https(w):
     assert w.client(base_url="https://testserver").post("/api/pair", json={"code": link["code"]}).status_code == 401
 
 
+def test_link_dialog_learns_its_code_linked_a_phone(w):
+    """GET /api/link/{link_id}: waiting, then linked with the phone's row (its name as in Users & devices)."""
+    c, csrf = w.setup_admin()
+    link = c.post("/api/link", headers=H(None, csrf)).json()
+    assert link["link_id"] and link["link_id"] != link["code"]
+    assert c.get(f"/api/link/{link['link_id']}").json() == {"state": "waiting", "device": None}
+    r = w.client(base_url="https://testserver").post("/api/pair", json={"code": link["code"], "device_name": "Pixel 10 Pro"})
+    state = c.get(f"/api/link/{link['link_id']}").json()
+    assert state["state"] == "linked" and state["device"]["id"] == r.json()["device_id"]
+    assert state["device"]["name"] == "Pixel 10 Pro" == c.get("/api/devices").json()["devices"][0]["name"]
+    assert c.get("/api/link/nope").status_code == 404
+    # Another user can't ask about it; an admin can ask about another user's
+    assert c.post("/api/users", json={"username": "alex", "password": "alex password", "role": "user"},
+                  headers=H(None, csrf)).status_code == 200
+    alex, acsrf = w.sign_in("alex", "alex password")
+    assert alex.get(f"/api/link/{link['link_id']}").status_code == 404
+    theirs = alex.post("/api/link", headers=H(None, acsrf)).json()
+    assert alex.get(f"/api/link/{theirs['link_id']}").json()["state"] == "waiting"
+    assert c.get(f"/api/link/{theirs['link_id']}").json()["state"] == "waiting"
+    # A new code replaces the old one: the old one is forgotten
+    again = alex.post("/api/link", headers=H(None, acsrf)).json()
+    assert alex.get(f"/api/link/{theirs['link_id']}").status_code == 404
+    assert alex.get(f"/api/link/{again['link_id']}").json()["state"] == "waiting"
+
+
+def test_link_dialog_learns_its_code_expired(w):
+    c, csrf = w.setup_admin()
+    link = c.post("/api/link", headers=H(None, csrf)).json()
+    w.clock.now += 301
+    assert c.get(f"/api/link/{link['link_id']}").json() == {"state": "expired", "device": None}
+    w.clock.now += 60
+    assert c.get(f"/api/link/{link['link_id']}").status_code == 404
+
+
 def test_pairing_is_rate_limited(w):
     https = w.client(base_url="https://testserver")
     codes = [https.post("/api/pair", json={"code": "WRONG"}).status_code for _ in range(6)]
