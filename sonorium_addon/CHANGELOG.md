@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.32 (2026-10-13)
+
+### Bug Fixes
+
+- **plugins**: Nothing a plugin declares runs or installs before approval
+  ([`b21516e`](https://github.com/synssins/sonorium/commit/b21516e47484ba9d1c76a7747b7b9a945a751708))
+
+
 ## v1.7.3-dev.30 (2026-10-13)
 
 ### Features
