@@ -35,7 +35,9 @@
             <TextBlock Text="Right now" FontWeight="SemiBold" Margin="0,18,0,8" />
             <t:SettingCard>
                 <t:SettingRow x:Name="Channels" Glyph="&#xE930;">
-                    <Button Content="Open Status page" Click="StatusPage_Click" />
+                    <Button Click="StatusPage_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE8A7;" FontSize="16" /><TextBlock Text="Open Status page" /></StackPanel>
+                    </Button>
                 </t:SettingRow>
                 <t:SettingRow x:Name="HomeAssistant" Glyph="&#xE71B;" Title="Home Assistant">
                     <TextBlock x:Name="HaState" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -44,7 +46,10 @@
                     <TextBlock x:Name="MqttState" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                 </t:SettingRow>
                 <t:SettingRow x:Name="UpdatesRow" Glyph="&#xE895;" Title="Updates">
-                    <Button Content="Check now" Click="CheckNow_Click" />
+                    <!-- Goes to Updates and checks there (Chris, 2026-10-13) -->
+                    <Button Click="CheckNow_Click">
+                        <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE895;" FontSize="16" /><TextBlock Text="Check now" /></StackPanel>
+                    </Button>
                 </t:SettingRow>
             </t:SettingCard>
         </StackPanel>

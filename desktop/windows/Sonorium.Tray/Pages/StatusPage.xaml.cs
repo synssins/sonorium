@@ -56,6 +56,7 @@ public sealed partial class StatusPage : Page
         MqttState.Text = string.IsNullOrEmpty(mqttHost) ? "" : mqttUp ? "Connected" : "Not connected";
 
         UpdatesRow.Description = state.Update is { } u ? $"Sonorium {u.Version} is available"
+            : state.UpdateBusy is { } busy ? busy
             : state.Settings.LastUpdateCheck is { } at ? $"You're up to date. Last checked {Format.When(at)}" : null;
     }
 
@@ -69,9 +70,6 @@ public sealed partial class StatusPage : Page
 
     void StatusPage_Click(object sender, RoutedEventArgs e) => Actions.OpenSonorium();
 
-    async void CheckNow_Click(object sender, RoutedEventArgs e)
-    {
-        await Updater.Check();
-        Refresh();
-    }
+    // The Updates page, checking: its progress and result show there, and this row follows
+    void CheckNow_Click(object sender, RoutedEventArgs e) => Actions.ShowConsole("Updates", checkNow: true);
 }

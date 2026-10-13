@@ -36,7 +36,10 @@ public static class Updates
     {
         current ??= CurrentVersion;
         var client = http ?? Http.Value;
-        using var response = await client.GetAsync($"https://api.github.com/repos/{Repository}/releases?per_page=30", cancel);
+        // 100, the most GitHub gives in one page: preview builds come often, and a stable release
+        // must not drop off the first page behind them
+        using var response = await client.GetAsync($"https://api.github.com/repos/{Repository}/releases?per_page=100", cancel);
+        if (GitHubBusyException.From(response) is { } busy) throw busy;
         response.EnsureSuccessStatusCode();
         var releases = await JsonSerializer.DeserializeAsync<List<Release>>(await response.Content.ReadAsStreamAsync(cancel), cancellationToken: cancel) ?? [];
         return Newest(releases, preview, current);
@@ -85,6 +88,43 @@ public static class Updates
         [JsonPropertyName("browser_download_url")] public string Url { get; set; } = "";
         /// <summary>"sha256:…", which GitHub computes for every uploaded asset.</summary>
         [JsonPropertyName("digest")] public string? Digest { get; set; }
+    }
+}
+
+/// <summary>
+/// GitHub answered "rate limit exceeded" (403 or 429): it limits how often a computer may ask
+/// without signing in. Not a failure; the check is tried again later (RetryAt).
+/// </summary>
+public sealed class GitHubBusyException(DateTimeOffset retryAt, string detail)
+    : Exception(UserMessage)
+{
+    public const string UserMessage = "GitHub is busy right now. Sonorium will check again later.";
+
+    /// <summary>When GitHub says it will answer again (5 minutes to 1 hour from now).</summary>
+    public DateTimeOffset RetryAt { get; } = retryAt;
+
+    /// <summary>The HTTP answer, for the logs.</summary>
+    public string Detail { get; } = detail;
+
+    public static GitHubBusyException? From(HttpResponseMessage response)
+    {
+        var code = (int)response.StatusCode;
+        if (code != 403 && code != 429) return null;
+        string? Header(string name) => response.Headers.TryGetValues(name, out var v) ? v.FirstOrDefault() : null;
+        // A 403 is a rate limit only when GitHub says so (no requests left, or a Retry-After);
+        // any other 403 stays an error
+        var remaining = Header("x-ratelimit-remaining");
+        var retryAfter = response.Headers.RetryAfter;
+        if (code == 403 && remaining != "0" && retryAfter is null) return null;
+
+        var now = DateTimeOffset.Now;
+        var at = now.AddMinutes(15);
+        if (retryAfter?.Delta is { } delta) at = now + delta;
+        else if (retryAfter?.Date is { } date) at = date.ToLocalTime();
+        else if (long.TryParse(Header("x-ratelimit-reset"), out var reset)) at = DateTimeOffset.FromUnixTimeSeconds(reset).ToLocalTime().AddMinutes(1);
+        if (at < now.AddMinutes(5)) at = now.AddMinutes(5);
+        if (at > now.AddHours(1)) at = now.AddHours(1);
+        return new GitHubBusyException(at, $"{code} {response.ReasonPhrase} (rate limit), retry after {at:HH:mm}");
     }
 }
 

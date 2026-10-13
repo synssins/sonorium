@@ -18,10 +18,11 @@ using Sonorium.Desktop;
 //                     the one in Program Files.
 //   --system-run      That copy: installs the update named in the request.
 //
-// Exit codes: 0 installed or nothing to do, 1 failed. Logged in the logs folder (per user) or in
+// Exit codes: 0 installed or nothing to do, 1 failed, 3 GitHub too busy to answer (its rate
+// limit; the tray console tries again later). Logged in the logs folder (per user) or in
 // C:\ProgramData\Sonorium\Updates (the task).
 
-const int Ok = 0, Failed = 1;
+const int Ok = 0, Failed = 1, Busy = 3;
 var mode = args.FirstOrDefault();
 var channel = args.SkipWhile(a => a != "--channel").Skip(1).FirstOrDefault() is "preview" ? "preview" : "stable";
 var requestFile = Path.Combine(Paths.UpdatesFolder, "request.json");
@@ -73,6 +74,12 @@ async Task<int> InstallAsUser()
         if (setup.ExitCode != 0) StartTray();
         return setup.ExitCode == 0 ? Ok : Failed;
     }
+    catch (GitHubBusyException busy)
+    {
+        Log($"{busy.Message} ({busy.Detail})");
+        StartTray();
+        return Busy;
+    }
     catch (Exception e)
     {
         Log($"Update failed: {e.Message}");
@@ -104,7 +111,7 @@ async Task<int> ViaTask()
         }
         Log(status is { State: "done" } ? $"Update task: {status.Message}" : "The update task didn't finish in 30 minutes");
         StartTray();
-        return status is { State: "done", Code: 0 } ? Ok : Failed;
+        return status is { State: "done", Code: 0 } ? Ok : status is { State: "done", Code: Busy } ? Busy : Failed;
     }
     catch (Exception e)
     {
@@ -169,6 +176,12 @@ async Task<int> RunAsSystem()
         TryDelete(installer);
         Done(setup.ExitCode, setup.ExitCode == 0 ? $"Installed {update.Version}" : $"The installer ended with code {setup.ExitCode}");
         return setup.ExitCode == 0 ? Ok : Failed;
+    }
+    catch (GitHubBusyException busy)
+    {
+        Append(log, busy.Detail);
+        Done(Busy, busy.Message);
+        return Busy;
     }
     catch (Exception e)
     {

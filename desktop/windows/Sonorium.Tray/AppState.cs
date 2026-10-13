@@ -24,6 +24,8 @@ public sealed class AppState
     public IReadOnlyList<string> PlayingLines { get; private set; } = [];
     public JsonNode? Connection { get; private set; }
     public UpdateInfo? Update { get; private set; }
+    /// <summary>Set while GitHub is too busy to answer the update check; it's tried again later.</summary>
+    public string? UpdateBusy { get; private set; }
 
     public event Action? Changed;
 
@@ -106,6 +108,13 @@ public sealed class AppState
     public void SetUpdate(UpdateInfo? update)
     {
         Update = update;
+        UpdateBusy = null;
+        Raise();
+    }
+
+    public void SetUpdateBusy(string? message)
+    {
+        UpdateBusy = message;
         Raise();
     }
 
