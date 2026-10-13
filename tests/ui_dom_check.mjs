@@ -55,7 +55,7 @@ await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceSc
 await send('Page.navigate', { url: base + '/' });
 await sleep(5000);
 
-const catalogue = await run(`return (await (await fetch('${base}/api/ui/targets')).json()).targets.map(t => ({ id: t.id, spots: Object.keys(t.spots) }));`);
+const catalogue = await run(`return (await (await fetch('${base}/api/ui/targets')).json()).targets.filter(t => (t.client || 'web') === 'web').map(t => ({ id: t.id, spots: Object.keys(t.spots) }));`);
 const want = new Set(catalogue.flatMap(t => t.spots.map(s => `${t.id}/${s}`)));
 const seen = new Set(), drawn = new Set();
 

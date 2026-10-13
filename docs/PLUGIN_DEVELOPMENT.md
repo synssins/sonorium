@@ -71,6 +71,8 @@ More manifest keys (sections 15 to 22):
 | `binaries` | Programs it ships, per platform, with their SHA-256 |
 | `command_maps` | Declarations, if the class doesn't give them |
 | `device_kinds` | Kinds of device it brings (section 26), if the class doesn't give them |
+| `permissions` | What it uses (section 28); none: everything, once the user allows it |
+| `http`, `ha_entities` | Its own routes (section 29) and Home Assistant entities (section 30), if the class doesn't give them |
 
 ## 1a. API versions and capabilities
 
@@ -105,6 +107,9 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `timeline` | 1.2 | Cues: which sound is heard on which speaker and when, ahead of time (section 25) |
 | `audio.tap` | 1.2 | Read-only copies of what a channel plays, or of one track (section 27) |
 | `audio.decode` | 1.2 | A theme's files decoded by Sonorium, for analysis (section 27) |
+| `permissions` | 1.2 | What a plugin uses, approved by the user (section 28) |
+| `http` | 1.2 | Its own HTTP routes, an ability each (section 29) |
+| `ha.entities` | 1.2 | Home Assistant entities declared as data (section 30) |
 | `devices` | 1.2 | Devices of any kind (lights, displays, buttons): listed, named, placed and assigned by Sonorium (section 26) |
 
 `GET /api/plugin-framework` gives the version, every capability and the ones this install
@@ -112,7 +117,8 @@ offers now.
 
 Each 1.1 service is a facade on the plugin: `self.audio`, `self.ramps`, `self.audio_outputs`,
 `self.commands`, `self.mqtt`, `self.homeassistant`; 1.2 adds `self.timeline` and `self.devices`. Every method that can fail raises
-`ActionError` (`code` `invalid`, `not_found`, `conflict` or `unavailable`), as `self.actions`
+`ActionError` (`code` `invalid`, `not_found`, `conflict`, `unavailable`, or `forbidden` for
+something the plugin's permissions don't cover, section 28), as `self.actions`
 does.
 
 ## 2. Lifecycle
@@ -573,8 +579,11 @@ owner-only file (section 11).
   direct ports once Require login is on (docs/AUTH.md). The trigger and
   event stream endpoints are the ones meant for other devices, and they need a token or a
   key on every call.
-- **Every API route has a permission.** A plugin's own HTTP routes (built-in plugins only,
-  see section 14) list theirs; the server refuses an API route that has none.
+- **Every API route has a permission.** A plugin's own HTTP routes (section 29) declare the
+  ability each needs; the server refuses an API route that has none.
+- **Permissions** (section 28): a plugin lists what it uses, the user approves the list
+  before it first runs and again when an update asks for more, and Sonorium's services
+  refuse what isn't on it.
 - **Plugins run inside Sonorium** with its rights. Install plugins you trust, as you would an
   add-on.
 - A plugin never logs secrets or tokens itself; `connection_values()` is for the plugin's use only.
@@ -1568,6 +1577,13 @@ there.
 | `sidebar` | – | `pages` | logo, sections, version |
 | `settings.nav` | – | `pages` | entries |
 
+**Other clients** (drawn by that client from `GET /api/ui/contributions`, not by the web UI;
+`client` in `GET /api/ui/targets`)
+
+| Target | Client | Open spots | Fixed parts |
+|---|---|---|---|
+| `tray.menu` | the Windows tray app | `menu` (actions, toggles bound to an action) | status, open, pages, quit |
+
 | Object | Facts for `when` |
 |---|---|
 | channel | `playing` (bool), `mode` (theme / playlist), `theme` (text), `preset` (text), `muted` (bool), `speakers` (number), `attr.<name>` |
@@ -1681,8 +1697,8 @@ Fields bound to attributes save with `PUT /api/attributes/{kind}/{plugin_id}` (s
 fields bound to settings with `PUT /api/plugins/{id}/settings` (section 3). `GET /api/plugins`
 lists each plugin's refused elements as `ui_warnings`.
 
-A permission dialog for what a plugin may do (at install and on update) comes later; adding
-to screens doesn't need one.
+A plugin that lists its permissions (section 28) adds to the screens only with `ui` in the
+list; one that lists none may.
 
 ## 25. Cues: when a sound will be heard
 
@@ -1952,4 +1968,121 @@ Mono, 44.1 kHz, decoded by Sonorium (no FFmpeg in the plugin), in a thread. Only
 own audio files can be read, by track key; anything else is `ActionError` `not_found`. Up to
 30 minutes by default (`decode_max_seconds` in `LIMITS`). Store what you find as a file
 attribute (section 23), and add it to the file's `audible_at` when its cue comes.
+
+## 28. Permissions
+
+Each plugin lists what it uses; the user sees that list before the plugin first runs; and
+Sonorium's services refuse calls outside it. Like a phone asking "Allow this app to use the
+microphone?".
+
+```json
+"permissions": ["channels.control", "timeline", "devices.light", "attributes.track", "ui", "network.lan"]
+```
+
+| Permission | Lets it | The user sees |
+|---|---|---|
+| `channels.control` | Play, stop and change channels (`self.actions`), volume ramps, sending channels to its outputs | Control your channels |
+| `themes.write` | `self.new_theme()`, `self.open_theme()` | Change your themes |
+| `audio.sounds` | Sounds and announcements, text to speech, sound gates | Play sounds and announcements |
+| `audio.outputs` | Output types (section 17) | Add speakers |
+| `audio.tap` | Taps and decoding (section 27) | Listen to what plays |
+| `timeline` | Cues (section 25) | Know when sounds play |
+| `devices`, `devices.<kind>` | Device kinds, and driving other plugins' devices of that kind (section 26) | Add devices (: light) |
+| `attributes`, `attributes.<class>` | Its own values on objects (section 23) | Keep its own values on ... |
+| `ui` | Adding to the screens (section 24) | Add to the screens |
+| `http` | Its own routes (section 29) | Answer requests at its own address |
+| `ha.entities` | Home Assistant entities (section 30) | Add entities to Home Assistant |
+| `homeassistant` | Home Assistant's API (section 20) | Use your Home Assistant connection |
+| `mqtt` | Publishing and subscribing (section 19) | Use the MQTT broker |
+| `commands` | Handing codes to command maps (section 18) | Take commands from remotes and buttons |
+| `packages` | Python packages (section 21) | Install Python packages |
+| `network.lan`, `network.internet` | Shown to the user; not enforced | Talk to devices on your network; Reach the internet |
+
+Events, settings, pages, connections, the scheduler and webhook triggers need no permission.
+
+- **Switching on.** A plugin from outside Sonorium isn't switched on until the user approves
+  its list: Settings › Plugins shows "Allow “Lights” to:" with the list when it is switched
+  on. `GET /api/plugins/{id}/permissions`, `PUT /api/plugins/{id}/permissions`
+  (`{"approve": true}`; Admin). `PUT /api/plugins/{id}/enable` answers 409 until then.
+- **Updates.** An update that asks for more stays off, its row lists what it asks for, and
+  the alert bar says so, until the user approves again. Asking for less needs nothing.
+- **No list.** A plugin without `"permissions"` says nothing about what it uses: the user is
+  asked to allow everything a plugin can do. Plugins that were already switched on before
+  permissions existed keep running.
+- **Built-in plugins** are part of Sonorium and need no approval.
+- **Refused calls** raise `ActionError` with code `forbidden` (HTTP 403) naming the
+  permission to add. A device kind, screen additions, routes or entities it didn't list are
+  left out and listed on its row.
+
+**Honest limit.** Plugins are Python running inside Sonorium. The checks are made by
+Sonorium's services, so they stop mistakes and show intent; a plugin written to cheat could
+go around them. Install plugins you trust.
+
+## 29. A plugin's own HTTP routes
+
+A plugin can answer requests at its own address, `/api/plugins/{id}/http/...`, each route
+with the ability a caller needs (the abilities of keys and roles: `ch.view`, `pg.use`, ...,
+or `admin.plugins`). Sonorium's sign-in checks the ability before the plugin is called.
+Needs the permission `http`.
+
+```json
+"http": [
+  {"id": "status", "path": "strips/{strip}", "methods": ["GET"], "ability": "ch.view"},
+  {"id": "flash", "path": "flash", "methods": ["POST"], "ability": "pg.use"}
+]
+```
+
+```python
+async def http_request(self, route_id, request):
+    # request: method, path, params ({"strip": ...}), query, json, body (bytes), caller {kind, user_id, role}
+    if route_id == "status":
+        return {"status": 200, "json": {"strip": request["params"]["strip"], "on": True}}
+    return {"status": 204}
+```
+
+| Answer | Sent as |
+|---|---|
+| `{"status", "json"}` | `application/json` |
+| `{"status", "text"}` | `text/plain` |
+| `{"status", "body", "content_type"}` | bytes: JSON, text, CSV, PNG, JPEG, GIF, WebP, MP3, OGG, WAV, FLAC or octet-stream |
+
+Never a web page or a script: HTML, SVG, XML and JavaScript are refused (502), so nothing a
+plugin sends can run with the signed-in user's rights. Every answer carries `nosniff` and a
+sandboxing Content-Security-Policy. A path the plugin doesn't declare, or any path while it
+is switched off, is 404. Ids, paths (`a-z0-9_.-` and `{name}` segments), up to 20 routes,
+1 MB requests, 4 MB answers and 30 s per call: `plugins/http_routes.py` (`LIMITS`). A route
+that breaks the rules is left out and listed on the plugin's row.
+
+For a device or service outside Sonorium that needs no sign-in, use a webhook trigger
+(section 7) with its token.
+
+## 30. Home Assistant entities
+
+A plugin can declare entities and Sonorium publishes them under its own device in Home
+Assistant (MQTT discovery), so the plugin needs no Home Assistant code. Needs the permission
+`ha.entities` and a connected MQTT broker.
+
+```json
+"ha_entities": [
+  {"id": "lights", "type": "switch", "name": "Storm lights", "icon": "mdi:weather-lightning",
+   "bind": {"setting": "enabled"}},
+  {"id": "distance", "type": "number", "name": "Storm distance", "min": 0, "max": 5, "step": 0.5,
+   "unit": "km", "bind": {"setting": "distance"}},
+  {"id": "flash", "type": "button", "name": "Flash now", "bind": {"action": "flash"}},
+  {"id": "mode", "type": "select", "name": "Light mode", "options": ["mood", "storm"], "bind": {"action": "mode"}},
+  {"id": "online", "type": "sensor", "name": "Strips online", "bind": {"live": true}}
+]
+```
+
+| Bind | What happens |
+|---|---|
+| `setting` | One of its settings (section 3): a switch shows a boolean, a select a select, a number a number, a sensor any. A change from Home Assistant is checked against the schema and saved (`on_settings_changed` follows); a change in Sonorium shows in Home Assistant |
+| `action` | `ha_action(action, value)` is called (a button: `None`); returning `{"value": ...}` sets the entity's state |
+| `live` | Read-only: the plugin sets the state with `await self.ha_set_state("online", 2)` |
+
+Types: `switch`, `select`, `number`, `sensor`, `button`. Entity ids are `a-z0-9_`; the
+Home Assistant ids are `<type>.sonorium_plugin_<plugin>_<id>`. The entities appear while the
+plugin is on and leave Home Assistant when it is switched off. Up to 20 per plugin; every
+limit in `plugins/ha_entities.py` (`LIMITS`). An entity outside the rules is left out and
+listed on the plugin's row.
 

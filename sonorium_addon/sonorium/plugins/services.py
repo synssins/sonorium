@@ -60,6 +60,45 @@ async def _call(work):
         raise ActionError("unavailable", str(e))
 
 
+# What each facade method needs (plugins/permissions.py); the rest is free
+FACADE_PERMISSIONS = {
+    "audio": {"play": "audio.sounds", "cancel": "audio.sounds", "announce": "audio.sounds",
+              "register_tts": "audio.sounds", "add_gate": "audio.sounds", "tap": "audio.tap", "decode": "audio.tap"},
+    "ramps": {"start": "channels.control", "cancel": "channels.control"},
+    "audio_outputs": {"register_type": "audio.outputs", "attach": "channels.control", "detach": "channels.control"},
+    "commands": {"received": "commands", "set_entries": "commands"},
+    "mqtt": {"publish": "mqtt", "subscribe": "mqtt"},
+    "homeassistant": {"request": "homeassistant", "fetch": "homeassistant", "tts": "homeassistant",
+                      "tts_engines": "homeassistant"},
+    "timeline": {"subscribe": "timeline", "pending": "timeline"},
+    "devices": {"discover": "devices"},
+}
+
+
+class _Guarded:
+    """A facade whose methods check the plugin's permissions first."""
+
+    def __init__(self, inner, require, table: dict):
+        self._inner, self._require, self._table = inner, require, table
+
+    def __getattr__(self, name):
+        value = getattr(self._inner, name)
+        permission = self._table.get(name)
+        if permission is None or not callable(value):
+            return value
+        import inspect
+        require = self._require
+        if inspect.iscoroutinefunction(value):
+            async def checked(*args, **kwargs):
+                require(permission)
+                return await value(*args, **kwargs)
+        else:
+            def checked(*args, **kwargs):
+                require(permission)
+                return value(*args, **kwargs)
+        return checked
+
+
 class AudioV1:
     def __init__(self, host, plugin_id: str):
         self._host, self._id = host, plugin_id
@@ -369,6 +408,7 @@ class DevicesV1:
     def register_kind(self, kind: dict) -> dict:
         """A kind of device (as get_device_kinds() gives them); gone when the plugin is switched off."""
         from sonorium.core.devices import DeviceError
+        self._require(f"devices.{kind.get('id') if isinstance(kind, dict) else ''}")
         try:
             return self._svc().register_kind(self._id, kind)
         except DeviceError as e:
@@ -422,7 +462,14 @@ class DevicesV1:
 
     async def invoke(self, device_id: str, action: str, params: Optional[dict] = None) -> dict:
         """An action on any plugin's device, through its owner (the kind contracts in the docs say which)."""
+        kind = self.get(device_id).get("kind")
+        self._require(f"devices.{kind}")
         return await self._guard(self._svc().action(device_id, action, params))
+
+    def _require(self, permission: str) -> None:
+        permissions = getattr(self._host, "permissions", None)
+        if permissions is not None:
+            permissions.require(self._id, permission)
 
 
 FACADES_V1 = {"audio": AudioV1, "ramps": RampsV1, "audio_outputs": OutputsV1, "commands": CommandsV1,
@@ -431,8 +478,12 @@ FACADES_V1 = {"audio": AudioV1, "ramps": RampsV1, "audio_outputs": OutputsV1, "c
 
 
 def facade(host, plugin_id: str, name: str, api_major: int = 1):
-    """The facade a plugin of this API major version gets for a service."""
+    """The facade a plugin of this API major version gets for a service (its permissions checked)."""
     table = {1: FACADES_V1}.get(api_major)
     if table is None or name not in table:
         raise _unavailable(name)
-    return table[name](host, plugin_id)
+    inner = table[name](host, plugin_id)
+    permissions = getattr(host, "permissions", None)
+    if permissions is None or name not in FACADE_PERMISSIONS:
+        return inner
+    return _Guarded(inner, lambda permission: permissions.require(plugin_id, permission), FACADE_PERMISSIONS[name])

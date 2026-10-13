@@ -212,13 +212,21 @@ class BasePlugin(ABC):
         from sonorium.plugins.theme_api import list_themes
         return list_themes(self.audio_path)
 
+    def _require(self, permission: str) -> None:
+        host = getattr(self, "_host", None)
+        permissions = getattr(host, "permissions", None) if host is not None else None
+        if permissions is not None:
+            permissions.require(self.id, permission)
+
     def new_theme(self, name: str, **kwargs):
         """A ThemeEdit for a new theme (description, icon, attribution, categories); written by its commit()."""
+        self._require("themes.write")
         from sonorium.plugins.theme_api import ThemeEdit
         return ThemeEdit.new(self.audio_path, name, **kwargs)
 
     def open_theme(self, theme_id: str):
         """A ThemeEdit for an existing theme (by id or folder name); ThemeEditError if not found or broken."""
+        self._require("themes.write")
         from sonorium.plugins.theme_api import ThemeEdit
         return ThemeEdit.open(self.audio_path, theme_id)
 
@@ -288,11 +296,12 @@ class BasePlugin(ABC):
         return self.host.ui.for_plugin(self)
 
     def ui_warnings(self) -> list[str]:
-        """Contributions refused by their spot's contract, and device kinds refused (never raises)."""
+        """What was refused by its contract: screen additions, device kinds, routes, Home Assistant entities."""
         host = getattr(self, "_host", None)
         if host is None or getattr(host, "ui", None) is None:
             return []
-        return host.ui.warnings(self) + list((getattr(host, "device_problems", None) or {}).get(self.id) or [])
+        return (host.ui.warnings(self) + list((getattr(host, "device_problems", None) or {}).get(self.id) or [])
+                + list((getattr(host, "extra_problems", None) or {}).get(self.id) or []))
 
     # Events
 
@@ -446,6 +455,32 @@ class BasePlugin(ABC):
         """
         return list((getattr(self, "_manifest", None) or {}).get("device_kinds") or [])
 
+    # Its own HTTP routes (plugins/http_routes.py) and Home Assistant entities (plugins/ha_entities.py)
+
+    def get_http_routes(self) -> list[dict]:
+        """[{"id", "path", "methods", "ability"}] under /api/plugins/<id>/http/. Default: the manifest's "http"."""
+        return list((getattr(self, "_manifest", None) or {}).get("http") or [])
+
+    async def http_request(self, route_id: str, request: dict) -> dict:
+        """
+        One of its routes was called (the caller's ability already checked).
+        request: method, path, params, query, json, body, caller. Returns
+        {"status", "json"} or {"status", "text"} or {"status", "body", "content_type"}.
+        """
+        return {"status": 404, "json": {"detail": "Not found"}}
+
+    def get_ha_entities(self) -> list[dict]:
+        """Home Assistant entities: [{"id", "type", "name", "bind", ...}]. Default: the manifest's "ha_entities"."""
+        return list((getattr(self, "_manifest", None) or {}).get("ha_entities") or [])
+
+    async def ha_action(self, action: str, value: Any = None) -> dict:
+        """An action-bound entity was used in Home Assistant (a button: value None). {"value"} sets its state."""
+        return {}
+
+    async def ha_set_state(self, entity_id: str, value: Any) -> None:
+        """The state Home Assistant shows for an action- or live-bound entity."""
+        await self.host.ha_entities.set_state(self.id, entity_id, value)
+
     async def discover_devices(self, kind: str) -> list[dict]:
         """The devices of one of its kinds now: [{"id" (its own id for it), "name", "model"}]."""
         return []
@@ -522,4 +557,16 @@ class BasePlugin(ABC):
             "icon": self._manifest_icon(),
             "ui_warnings": self.ui_warnings() if self.enabled else [],
             "compatible": True,
+            **self._permissions_dict(),
         }
+
+    def _permissions_dict(self) -> dict:
+        """What it asks for (None: no list), and what waits for the user's approval (plugins/permissions.py)."""
+        host = getattr(self, "_host", None)
+        permissions = getattr(host, "permissions", None) if host is not None else None
+        if permissions is None:
+            return {}
+        try:
+            return permissions.describe(self)
+        except Exception:
+            return {}

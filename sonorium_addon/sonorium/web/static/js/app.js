@@ -7443,6 +7443,13 @@ function pluginHasOwnUi(plugin) {
 
 // Contributions refused by their spot's contract: named on the plugin's row
 function pluginWarningsHtml(plugin) {
+    const asks = plugin.permissions_pending || [];
+    const waiting = !plugin.enabled && asks.length && plugin.permissions !== undefined
+        ? `<div class="spp-uiwarn" role="note"><span class="hd">${SP_ICON_WARN_SM}Asks to</span><ul>${asks.map(p => `<li>${escapeHtml(p.label)}</li>`).join('')}</ul></div>` : '';
+    return waiting + pluginRefusedHtml(plugin);
+}
+
+function pluginRefusedHtml(plugin) {
     const list = plugin.ui_warnings || [];
     if (!list.length) return '';
     const shown = list.slice(0, 3).map(w => `<li>${escapeHtml(w)}</li>`).join('');
@@ -7659,6 +7666,24 @@ function onPluginField(el) {
 async function togglePlugin(pluginId, enable, confirmed = false) {
     // Switching off the plugin that guards sign-in (Users) asks first
     const plugin = plugins.find(p => p.id === pluginId);
+    // Switching on a plugin whose permissions aren't approved yet: the user sees what it asks for first
+    const pending = plugin?.permissions_pending || [];
+    if (enable && !confirmed && pending.length) {
+        const toggle = document.activeElement;
+        if (toggle && toggle.type === 'checkbox') toggle.checked = false;
+        spConfirm(`plg-perm:${pluginId}`, toggle && toggle.isConnected ? toggle : null,
+            { title: `Allow “${plugin.name}” to:`, items: pending.map(p => p.label), sub: 'It runs inside Sonorium.', ok: 'Allow' },
+            async () => {
+                try {
+                    await api('PUT', `/plugins/${encodeURIComponent(pluginId)}/permissions`, { approve: true });
+                } catch (error) {
+                    showToast(error.message || 'Not allowed', 'error');
+                    return;
+                }
+                togglePlugin(pluginId, true, true);
+            });
+        return;
+    }
     if (!enable && !confirmed && plugin && plugin.auth_provider) {
         const toggle = document.activeElement;
         if (toggle && toggle.type === 'checkbox') toggle.checked = true;
@@ -8188,9 +8213,10 @@ function spMenu(id, button, html) {
 }
 
 // Small "Are you sure?" popover next to the button that asked
-function spConfirm(id, button, { title, sub = '', ok, danger = false, onCancel = null }, onOk) {
+function spConfirm(id, button, { title, sub = '', items = null, ok, danger = false, onCancel = null }, onOk) {
     const pop = spOpenPop(id, button, 'sp-confirm', `
         <span class="pop-title">${escapeHtml(title)}</span>
+        ${items && items.length ? `<ul class="pop-list">${items.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>` : ''}
         ${sub ? `<span class="pop-sub">${escapeHtml(sub)}</span>` : ''}
         <div class="pop-acts">
             <button type="button" class="btn btn-sm btn-secondary" onclick="spClosePop()">Cancel</button>

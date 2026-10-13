@@ -169,14 +169,21 @@ class Devices:
         self._kinds[kind["id"]] = kind
         return dict(kind)
 
-    def register_plugin(self, plugin) -> list[str]:
-        """The kinds a plugin declares (get_device_kinds), registered as it is switched on. Returns the problems."""
+    def register_plugin(self, plugin, allowed=None) -> list[str]:
+        """
+        The kinds a plugin declares (get_device_kinds), registered as it is
+        switched on; allowed(kind id): its permissions let it. Returns the problems.
+        """
         problems = []
         try:
             decls = plugin.get_device_kinds() or []
         except Exception as e:
             return [f"get_device_kinds() failed: {e}"]
         for decl in decls if isinstance(decls, list) else []:
+            kind_id = decl.get("id") if isinstance(decl, dict) else None
+            if allowed is not None and isinstance(kind_id, str) and not allowed(kind_id):
+                problems.append(f"Device kind {kind_id}: not in its permissions (devices.{kind_id})")
+                continue
             try:
                 self.register_kind(plugin.id, decl)
             except DeviceError as e:

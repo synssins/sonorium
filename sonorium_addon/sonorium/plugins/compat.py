@@ -49,6 +49,9 @@ CAPABILITIES: dict[str, tuple[str, str]] = {
     "timeline": ("1.2", "Cues: which sound is heard on which speaker and when, ahead of time"),
     "audio.tap": ("1.2", "Read-only copies of what a channel plays, or of one track, as it plays"),
     "audio.decode": ("1.2", "A theme's files decoded by Sonorium, for analysis"),
+    "permissions": ("1.2", "A plugin lists what it uses; the user approves it; the rest is refused"),
+    "http": ("1.2", "Its own HTTP routes under /api/plugins/<id>/http/, an ability each"),
+    "ha.entities": ("1.2", "Home Assistant entities declared as data, published by Sonorium"),
     "devices": ("1.2", "Devices of any kind (lights, displays, ...): listed, named, placed and assigned by Sonorium"),
 }
 

@@ -322,6 +322,13 @@ POST    /api/events/token                               admin.keys
 DELETE  /api/events/token                               admin.keys
 GET     /api/events/stream                              ev.read+legacy
 GET     /api/timeline                                   ev.read+legacy
+GET     /api/plugin-permissions                         admin.plugins
+GET     /api/plugins/{plugin_id}/permissions            admin.plugins
+PUT     /api/plugins/{plugin_id}/permissions            admin.plugins
+GET     /api/plugins/{plugin_id}/http/{path:path}       public
+POST    /api/plugins/{plugin_id}/http/{path:path}       public
+PUT     /api/plugins/{plugin_id}/http/{path:path}       public
+DELETE  /api/plugins/{plugin_id}/http/{path:path}       public
 GET     /api/plugin-devices/kinds                       sp.view
 GET     /api/plugin-devices                             sp.view
 POST    /api/plugin-devices/discover                    sp.view

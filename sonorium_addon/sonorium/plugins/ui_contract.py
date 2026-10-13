@@ -276,6 +276,9 @@ TARGETS: list[dict] = [
      "spots": ["menu"], "fixed": ["name", "abilities"]},
     {"id": "connection.row", "title": "Settings › Connection: a connection", "screen": "settings-connection",
      "object": "connection", "spots": ["menu"], "fixed": ["name", "summary", "status"]},
+    # --- other clients: drawn by the client named, from GET /api/ui/contributions ---
+    {"id": "tray.menu", "title": "Windows tray: its menu", "screen": None, "object": None, "spots": ["menu"],
+     "fixed": ["status", "open", "pages", "quit"], "client": "tray"},
 ]
 
 _BY_ID = {t["id"]: t for t in TARGETS}
@@ -314,6 +317,7 @@ def catalogue() -> dict:
         if obj in ATTRIBUTE_KINDS:
             facts["attr.<name>"] = "an attribute the plugin declares, on the object"
         targets.append({"id": t["id"], "title": t["title"], "screen": t["screen"], "object": obj,
+                        "client": t.get("client", "web"),
                         "attributes": obj in ATTRIBUTE_KINDS, "fixed": list(t["fixed"]),
                         "spots": spots, "facts": facts})
     return {"version": CONTRACT_VERSION, "element_kinds": list(ELEMENT_KINDS), "field_types": list(FIELD_TYPES),

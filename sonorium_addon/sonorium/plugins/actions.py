@@ -23,7 +23,7 @@ from sonorium.plugins.events import current_origin
 
 
 class ActionError(Exception):
-    """An action that couldn't be done. code: not_found, invalid, conflict, unavailable."""
+    """An action that couldn't be done. code: not_found, invalid, conflict, unavailable, forbidden."""
 
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -53,6 +53,24 @@ class Actions:
         actions = Actions(self._sessions, self._state, self._registry, self._on_change, f"plugin:{plugin_id}")
         actions.overlay = self.overlay
         return actions
+
+    def guard(self, require) -> None:
+        """require(permission) raises when the plugin may not: the changing actions check it first."""
+        import functools
+        import inspect
+        for name, permission in GUARDED.items():
+            method = getattr(self, name, None)
+            if method is None:
+                continue
+            if inspect.iscoroutinefunction(method):
+                async def checked(*args, _m=method, _p=permission, **kwargs):
+                    require(_p)
+                    return await _m(*args, **kwargs)
+            else:
+                def checked(*args, _m=method, _p=permission, **kwargs):
+                    require(_p)
+                    return _m(*args, **kwargs)
+            setattr(self, name, functools.wraps(method)(checked))
 
     @contextlib.contextmanager
     def _as_origin(self):
@@ -355,3 +373,14 @@ class Actions:
         if self.overlay is None:
             raise ActionError("unavailable", "Playing sounds isn't available yet")
         return self.overlay.cancel(sound_id)
+
+
+# The actions that change something, and the permission each needs (plugins/permissions.py)
+GUARDED = {
+    **{name: "channels.control" for name in (
+        "create_channel", "start_channel", "stop_channel", "pause_channel", "stop_all", "set_theme",
+        "set_preset", "set_speakers", "set_volume", "mute_speakers", "start_sequence", "stop_sequence",
+        "set_playlist", "clear_playlist", "next_step")},
+    "play_sound": "audio.sounds",
+    "cancel_sound": "audio.sounds",
+}

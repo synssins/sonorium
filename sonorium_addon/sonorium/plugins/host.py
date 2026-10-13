@@ -23,6 +23,9 @@ The plugin host: the services Sonorium gives every plugin, in one place.
     timeline       the cue timeline: which sound is heard where and when (core/timeline.py)
     devices        devices of any kind plugins bring: lights, displays, ... (core/devices.py)
     taps           read-only copies of what channels play; theme files decoded (core/taps.py)
+    permissions    what each plugin may do, approved by the user (permissions.py)
+    http           each plugin's own routes under /api/plugins/{id}/http/ (http_routes.py)
+    ha_entities    Home Assistant entities plugins declare (ha_entities.py)
 
 Plugins reach these through versioned facades (services.py): self.audio,
 self.ramps, self.audio_outputs, self.commands, self.mqtt, self.homeassistant.
@@ -92,6 +95,16 @@ class PluginHost:
         self.device_problems: dict[str, list] = {}  # plugin id -> device kinds refused (on its row)
         from sonorium.core.taps import get_taps
         self.taps = get_taps()
+        from sonorium.plugins.permissions import PluginPermissions
+        self.permissions = PluginPermissions(self.store, plugin_of=self._plugin)
+        self.attributes.permissions = self.permissions
+        self.ui.permissions = self.permissions
+        from sonorium.plugins.ha_entities import PluginEntities
+        self.ha_entities = PluginEntities(self.mqtt, plugin_of=self._plugin, update_settings=self._update_settings)
+        self.http_routes: dict[str, list] = {}   # plugin id -> its routes while it is on
+        self.mqtt.on_bind.append(lambda: [self._spawn(self.ha_entities.publish(e["plugin_id"]))
+                                          for e in {x["plugin_id"]: x for x in self.ha_entities.entities()}.values()])
+        self.extra_problems: dict[str, list] = {}  # plugin id -> routes and entities refused (on its row)
         if session_manager is not None:
             self.taps.session_manager = session_manager
         self.manager = None  # the PluginManager, set by it
@@ -115,7 +128,8 @@ class PluginHost:
         """What this Sonorium offers plugins now (compat.CAPABILITIES names)."""
         have = {"events", "actions", "scheduler", "triggers", "pages", "connections",
                 "commands", "mqtt", "homeassistant", "audio.tts", "packages.pip", "packages.binaries",
-                "attributes", "ui", "timeline", "devices", "audio.tap", "audio.decode"}
+                "attributes", "ui", "timeline", "devices", "audio.tap", "audio.decode", "permissions",
+                "http", "ha.entities"}
         if self.overlay is not None:
             have.add("audio.sounds")
         if self.ramps is not None:
@@ -125,7 +139,9 @@ class PluginHost:
         return have
 
     def actions_for(self, plugin_id: str) -> Actions:
-        return self.actions.for_plugin(plugin_id)
+        actions = self.actions.for_plugin(plugin_id)
+        actions.guard(lambda permission: self.permissions.require(plugin_id, permission))
+        return actions
 
     def _plugin(self, plugin_id: str):
         return self.manager.get_plugin(plugin_id) if self.manager is not None else None
@@ -166,8 +182,61 @@ class PluginHost:
 
     # --- Plugin lifecycle (called by the plugin manager) ---
 
+    async def _update_settings(self, plugin_id: str, values: dict) -> dict:
+        if self.manager is None:
+            raise RuntimeError("no plugin manager")
+        return await self.manager.update_plugin_settings(plugin_id, values)
+
+    def plugin_settings_changed(self, plugin) -> None:
+        """Its settings were saved: Home Assistant entities showing them follow."""
+        self._spawn(self.ha_entities.publish_states(plugin.id))
+
+    def _spawn(self, coro) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            coro.close()
+            return
+        task = loop.create_task(coro)
+        self._discovery_tasks = getattr(self, "_discovery_tasks", set())
+        self._discovery_tasks.add(task)
+        task.add_done_callback(self._discovery_tasks.discard)
+
+    def _open_http(self, plugin) -> list:
+        """The plugin's own routes (http_routes.py), in the sign-in's table while it is on. Returns the problems."""
+        from sonorium.plugins.http_routes import normalize_routes, permission_table
+        try:
+            decls = plugin.get_http_routes()
+        except Exception as e:
+            return [f"get_http_routes() failed: {e}"]
+        routes, problems = normalize_routes(decls, plugin.id)
+        if routes and not self.permissions.allowed(plugin.id, "http"):
+            return problems + ["Routes: not in its permissions (http)"]
+        self.http_routes[plugin.id] = routes
+        registry = getattr(self.auth, "registry", None) if self.auth is not None else None
+        if routes and registry is not None:
+            try:
+                registry.register(f"http:{plugin.id}", permission_table(routes))
+            except ValueError as e:
+                self.http_routes.pop(plugin.id, None)
+                problems.append(f"Routes: {e}")
+        return problems
+
+    def _close_http(self, plugin_id: str) -> None:
+        self.http_routes.pop(plugin_id, None)
+        registry = getattr(self.auth, "registry", None) if self.auth is not None else None
+        if registry is not None:
+            registry.set_active(f"http:{plugin_id}", False)
+
     def plugin_enabled(self, plugin) -> None:
-        self.device_problems[plugin.id] = self.devices.register_plugin(plugin)  # its kinds of device
+        problems = self._open_http(plugin)
+        problems += self.ha_entities.declare(plugin, self.permissions.allowed(plugin.id, "ha.entities"))
+        self.extra_problems[plugin.id] = problems
+        if self.ha_entities.entities(plugin.id):
+            self._spawn(self.ha_entities.publish(plugin.id))
+        # its kinds of device, each one it lists in its permissions
+        self.device_problems[plugin.id] = self.devices.register_plugin(
+            plugin, allowed=lambda kind: self.permissions.allowed(plugin.id, f"devices.{kind}"))
         if any(k["plugin_id"] == plugin.id for k in self.devices.kinds()):
             self._spawn_discovery(plugin.id)
         self.bus.publish("plugin.enabled", {"plugin_id": plugin.id, "name": plugin.name})
@@ -198,6 +267,8 @@ class PluginHost:
         for key in [k for k in self._job_callbacks if k[0] == plugin.id]:
             self._job_callbacks.pop(key, None)
         self.ui.forget(plugin.id)  # its contributions leave every screen
+        self._close_http(plugin.id)
+        self._spawn(self.ha_entities.remove(plugin.id))
         self.bus.publish("plugin.disabled", {"plugin_id": plugin.id, "name": plugin.name})
 
     def _release_services(self, plugin_id: str) -> None:
@@ -224,6 +295,9 @@ class PluginHost:
         if self.outputs is not None:  # its audio output devices leave Settings > Speakers and the channels
             self.outputs.forget_owner(plugin_id)
         self.devices.forget_owner(plugin_id)  # and its other devices are forgotten
+        self.permissions.forget(plugin_id)  # an install again asks again
+        self._close_http(plugin_id)
+        self.extra_problems.pop(plugin_id, None)
         self.device_problems.pop(plugin_id, None)
         self.commands.forget_plugin(plugin_id)
         self.packages.remove(plugin_id)

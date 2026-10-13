@@ -50,7 +50,7 @@ from sonorium.plugins.triggers import MAX_PAYLOAD_BYTES, TRIGGER_ID
 EVENTS_SCOPE = "events"
 MAX_STREAMS = 20
 # ActionError.code as an HTTP status
-ACTION_ERROR_STATUS = {"not_found": 404, "invalid": 400, "conflict": 409, "unavailable": 503}
+ACTION_ERROR_STATUS = {"not_found": 404, "invalid": 400, "conflict": 409, "unavailable": 503, "forbidden": 403}
 KEEPALIVE_SECONDS = 15
 PAGE_TIMEOUT, ACTION_TIMEOUT, TEST_TIMEOUT = 10, 30, 20
 
@@ -550,6 +550,8 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
     _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json)
     _add_attribute_routes(router, _host, _json)
     _add_device_routes(router, _host, _json)
+    _add_permission_routes(router, _host, _plugin)
+    _add_plugin_http_routes(router, _host, _plugin, _call_plugin)
     from sonorium.web.ui_api import add_ui_routes
     add_ui_routes(router, plugin_manager, host)
     return router
@@ -627,6 +629,74 @@ def _add_attribute_routes(router, _host, _json) -> None:
         service = _host().attributes
         values = _guard(lambda: service.set(ref, plugin_id, body))
         return {"kind": kind, "id": ref["id"], "theme": ref["theme"], "plugin_id": plugin_id, "values": values}
+
+
+def _add_permission_routes(router, _host, _plugin) -> None:
+    """What each plugin may do, and the user's approval (plugins/permissions.py)."""
+    from sonorium.plugins.permissions import catalogue
+
+    @router.get("/plugin-permissions")
+    async def permission_catalogue():
+        """Every permission a plugin can ask for, as the user is shown it."""
+        return catalogue()
+
+    @router.get("/plugins/{plugin_id}/permissions")
+    async def plugin_permissions(plugin_id: str):
+        plugin = _plugin(plugin_id)
+        host = _host()
+        return {**host.permissions.describe(plugin), "granted": host.permissions.granted(plugin.id)}
+
+    @router.put("/plugins/{plugin_id}/permissions")
+    async def approve_plugin_permissions(plugin_id: str, request: Request):
+        """{"approve": true}: the user allows what the plugin asks for now (then it can be switched on)."""
+        plugin = _plugin(plugin_id)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict) or body.get("approve") is not True:
+            raise HTTPException(status_code=400, detail='Send {"approve": true}')
+        host = _host()
+        host.permissions.approve(plugin)
+        return {**host.permissions.describe(plugin), "granted": host.permissions.granted(plugin.id)}
+
+
+def _add_plugin_http_routes(router, _host, _plugin, _call_plugin) -> None:
+    """Each plugin's own routes (plugins/http_routes.py): the sign-in checked each route's ability first."""
+    from fastapi.responses import Response
+    from sonorium.plugins.http_routes import HEADERS, LIMITS, match, response_parts
+
+    @router.api_route("/plugins/{plugin_id}/http/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+    async def plugin_http(plugin_id: str, path: str, request: Request):
+        plugin = _plugin(plugin_id)
+        routes = _host().http_routes.get(plugin.id) if plugin.enabled else None
+        found = match(routes or [], request.method, path)
+        if found is None:
+            raise HTTPException(status_code=404, detail="Not Found")
+        route, params = found
+        body = await request.body()
+        if len(body) > LIMITS["body_max_bytes"]:
+            raise HTTPException(status_code=413, detail="Too large")
+        data = None
+        if body and "json" in (request.headers.get("content-type") or ""):
+            try:
+                data = json.loads(body)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid JSON body")
+        from sonorium.auth.middleware import principal_of
+        caller = principal_of(request)
+        info = {"method": request.method, "path": path, "params": params, "query": dict(request.query_params),
+                "json": data, "body": body,
+                "caller": {"kind": caller.kind, "user_id": getattr(caller, "user_id", None),
+                           "role": getattr(caller, "role", None)}}
+        result = await _call_plugin(plugin, f"http {route['id']}", plugin.http_request(route["id"], info),
+                                    LIMITS["timeout"])
+        try:
+            status, content, ctype = response_parts(result)
+        except ValueError as e:
+            logger.warning(f"Plugin {plugin.id}: route {route['id']} answered badly: {e}")
+            raise HTTPException(status_code=502, detail=f"The plugin's answer was refused: {e}")
+        return Response(content=content, status_code=status, media_type=ctype, headers=dict(HEADERS))
 
 
 def _add_device_routes(router, _host, _json) -> None:
