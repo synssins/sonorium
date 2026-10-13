@@ -19,6 +19,7 @@ The plugin host: the services Sonorium gives every plugin, in one place.
     homeassistant  Home Assistant's API (homeassistant.py), when configured
     packages       plugins' Python packages (packages.py)
     attributes     plugin attributes on core objects (attributes.py, core/plugin_data.py)
+    ui             what plugins add to the web UI's screens (ui.py, ui_contract.py)
 
 Plugins reach these through versioned facades (services.py): self.audio,
 self.ramps, self.audio_outputs, self.commands, self.mqtt, self.homeassistant.
@@ -49,6 +50,7 @@ from sonorium.plugins.scheduler import Scheduler
 from sonorium.plugins.store import FrameworkStore
 from sonorium.plugins.tokens import TokenStore
 from sonorium.plugins.triggers import Triggers
+from sonorium.plugins.ui import UiService
 
 
 class PluginFrameworkUnavailable(RuntimeError):
@@ -79,6 +81,7 @@ class PluginHost:
         self.packages_allowed: Callable[[], bool] = lambda: False
         self.packages = Packages(self.store.folder / "plugin_packages", allowed=lambda: self.packages_allowed())
         self.attributes = AttributeService(state_store, session_manager, auth, publish=self.bus.publish)
+        self.ui = UiService(self.attributes.registry, publish=self.bus.publish)
         self.manager = None  # the PluginManager, set by it
         self.on_change: Optional[Callable] = None  # async callback(session): Home Assistant entities
         self._job_callbacks: dict[tuple, Callable] = {}
@@ -98,7 +101,7 @@ class PluginHost:
         """What this Sonorium offers plugins now (compat.CAPABILITIES names)."""
         have = {"events", "actions", "scheduler", "triggers", "pages", "connections",
                 "commands", "mqtt", "homeassistant", "audio.tts", "packages.pip", "packages.binaries",
-                "attributes"}
+                "attributes", "ui"}
         if self.overlay is not None:
             have.add("audio.sounds")
         if self.ramps is not None:
@@ -155,6 +158,7 @@ class PluginHost:
         self._release_services(plugin.id)
         for key in [k for k in self._job_callbacks if k[0] == plugin.id]:
             self._job_callbacks.pop(key, None)
+        self.ui.forget(plugin.id)  # its contributions leave every screen
         self.bus.publish("plugin.disabled", {"plugin_id": plugin.id, "name": plugin.name})
 
     def _release_services(self, plugin_id: str) -> None:
@@ -183,6 +187,7 @@ class PluginHost:
         self.tokens.revoke(f"plugin:{plugin_id}")
         self.tokens.revoke_prefix(f"trigger:{plugin_id}/")
         self.connections.forget_plugin(plugin_id)
+        self.ui.forget(plugin_id)
 
     # --- Scheduler ---
 

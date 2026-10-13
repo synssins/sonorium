@@ -212,7 +212,8 @@ create/update/delete) and by the conversion. Each group's settings object is sto
 so unknown keys inside a group entry survive. Inside `presets.json`, each preset dict is kept
 as-is, so unknown preset fields survive, and other top-level keys of `presets.json` survive too.
 
-`plugins` blocks (top level, each track entry, each preset) are the one exception to "unknown
+`plugins` blocks (top level, each track entry, each group entry, each preset, each sequence
+and its `step_plugins`) are the one exception to "unknown
 is removed" and to "kept as-is": they are kept through every save, but only with the
 attributes an installed plugin declares (2.7). Everything else in them is left out when the
 theme loads.
@@ -247,6 +248,9 @@ both have a `cue`:
 | Track | its entry in `tracks`, `plugins` |
 | File in a group | the same entry (key `"Group/Name"`); track and file attributes share it, so a file moved into or out of a group keeps its values |
 | Preset | the preset in `presets.json`, `plugins` |
+| Group | its entry in `groups`, `plugins` (a renamed group keeps them; presets never copy them) |
+| Sequence | the sequence in `presets.json` `sequences`, `plugins` |
+| Step of a sequence | the sequence's `step_plugins`, `{preset id: block}` |
 
 What is kept, and when:
 

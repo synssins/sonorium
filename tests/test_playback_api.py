@@ -132,7 +132,9 @@ def test_playlist_crud(api):
     assert r.status_code == 201, r.text
     playlist = r.json()
     pid = playlist["id"]
-    assert playlist["entries"][2] == {"theme_id": "storm", "preset_id": None, "sequence_id": None}
+    entry = dict(playlist["entries"][2])
+    assert entry.pop("id")  # an id of its own: plugin attributes address the entry by it
+    assert entry == {"theme_id": "storm", "preset_id": None, "sequence_id": None}
     assert playlist["owner"] is None and playlist["order"] == "shuffle"
     assert [p["id"] for p in c.get("/api/playlists").json()["playlists"]] == [pid]
     assert playlist["fit_sequences"] is False  # default: a sequence entry plays one full pass

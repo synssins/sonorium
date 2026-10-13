@@ -590,7 +590,8 @@ class Engine:
                 playlist["theme_name"] = _theme_name(entry_folder)
             entries = (runner.playlist(session.playlist_id) or {}).get("entries") or []
             index = playlist.get("entry_index")
-            playlist["entry"] = dict(entries[index]) if index is not None and 0 <= index < len(entries) else None
+            playlist["entry"] = ({k: entries[index].get(k) for k in ("theme_id", "preset_id", "sequence_id")}
+                                 if index is not None and 0 <= index < len(entries) else None)
             result["playlist"] = playlist
         return result
 

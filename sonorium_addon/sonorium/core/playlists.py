@@ -29,6 +29,7 @@ migrate_cycling() turns each channel's cycling into a playlist once.
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Callable, Optional
 
@@ -41,6 +42,27 @@ MIN_PLAY_SECONDS = 1.0
 MAX_PLAY_SECONDS = 7 * 24 * 3600
 MAX_NAME = 100
 MAX_ENTRIES = 500
+
+
+ENTRY_ID = re.compile(r"^[a-z0-9]{1,16}$")
+
+
+def new_entry_id() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def ensure_entry_ids(playlist: dict) -> bool:
+    """Every entry with an id of its own, unique in the playlist (older playlists had none). True if one changed."""
+    seen, changed = set(), False
+    for entry in playlist.get("entries") or []:
+        if not isinstance(entry, dict):
+            continue
+        entry_id = entry.get("id")
+        if not isinstance(entry_id, str) or not ENTRY_ID.match(entry_id) or entry_id in seen:
+            entry["id"] = new_entry_id()
+            changed = True
+        seen.add(entry["id"])
+    return changed
 
 
 class PlaylistError(ValueError):
@@ -75,7 +97,16 @@ def clean_entry(entry, theme_exists: Callable[[str], bool],
     if sequence_id is not None:
         if not isinstance(sequence_id, str) or sequence_id not in theme_sequences(theme_id):
             raise PlaylistError(f"unknown sequence '{sequence_id}' for theme '{theme_id}'")
-    return {"theme_id": theme_id, "preset_id": preset_id, "sequence_id": sequence_id}
+    cleaned = {"theme_id": theme_id, "preset_id": preset_id, "sequence_id": sequence_id}
+    # A stable id: plugin attributes address the entry by it, whatever the order
+    entry_id = entry.get("id")
+    cleaned["id"] = entry_id if isinstance(entry_id, str) and ENTRY_ID.match(entry_id) else new_entry_id()
+    # Plugin attributes on the entry travel with it (a new order keeps them on their entry)
+    from sonorium.core import plugin_data
+    kept = plugin_data.clean_block(entry.get("plugins"), ("playlist_entry",), "Playlist entry")
+    if kept:
+        cleaned["plugins"] = kept
+    return cleaned
 
 
 def clean_playlist(data: dict, theme_exists, theme_presets, theme_sequences,
@@ -106,6 +137,7 @@ def clean_playlist(data: dict, theme_exists, theme_presets, theme_sequences,
         if len(entries) > MAX_ENTRIES:
             raise PlaylistError(f"a playlist has at most {MAX_ENTRIES} entries")
         result["entries"] = [clean_entry(e, theme_exists, theme_presets, theme_sequences) for e in entries]
+        ensure_entry_ids(result)  # a duplicated entry gets an id of its own
 
     if "order" in data:
         if data["order"] not in ORDERS:

@@ -22,6 +22,8 @@
  *   render(el), actions()}).
  * The framework's own renderers (static/js/ext/: plugin pages, Connection, the
  * alert bar, casting) load after the bundles and before app.js.
+ * Every screen's open spots, for any plugin (fields, buttons, menu items, badges, columns,
+ * pages, drawn from data and checked against each spot's contract): ext/contrib.js.
  * Helpers: Sonorium.modal({...}), closeModal(id), showScreen(html), hideScreen(),
  *   api(method, path, body), esc(text), toast(message, type), can(perm).
  */
@@ -119,8 +121,8 @@
         },
 
         // The framework's renderers (static/js/ext/), in order
-        CORE: ['users', 'zones', 'core', 'pages', 'commandmaps', 'connections', 'alerts', 'outputs', 'keys'],
-        CORE_CSS: ['users', 'zones', 'ext', 'keys'],
+        CORE: ['users', 'zones', 'core', 'contrib', 'pages', 'commandmaps', 'connections', 'alerts', 'outputs', 'keys'],
+        CORE_CSS: ['users', 'zones', 'ext', 'keys', 'ui'],
 
         async loadCore() {
             for (const name of S.CORE_CSS) {
@@ -166,6 +168,8 @@
             const view = typeof currentView === 'string' ? currentView : 'sessions';
             if (actions && !actions.dataset.slotted && view === 'sessions') {
                 actions.insertAdjacentHTML('afterbegin', S.headerButtons(view));
+                actions.insertAdjacentHTML('beforeend', uiZone('screen.sessions', 'header', null, 'span'));
+                if (typeof uiScreen === 'function') uiScreen('sessions');
             }
         },
 

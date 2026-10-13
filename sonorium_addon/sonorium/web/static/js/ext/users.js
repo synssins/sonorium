@@ -218,14 +218,19 @@
             + `<span class="us-dim seen">${seen === 'Now' || !seen ? seen : 'Last seen ' + (/^(Today|Yesterday)/.test(seen) ? seen.charAt(0).toLowerCase() + seen.slice(1) : seen)}</span>${button}</div>`;
     }
 
+    // A user as the open spots see it (contrib.js)
+    function userRef(u) {
+        return uiRef('user', u.id, { role: u.role === 'admin' ? 'admin' : 'user', me: !!u.you });
+    }
+
     function userHtml(u) {
         const open = ud.open.has(u.id) && u.devices.length > 0;
         return `<div class="us-row"><div class="sp-lrow us-grid">
             <button type="button" class="chev-btn us-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="Devices"${u.devices.length ? '' : ' disabled'} onclick="UsersUI.toggle(${arg(u.id)})">${svg(P_CHEV, 14)}</button>
-            <span class="us-name"><span class="sb-av">${esc(u.username.charAt(0).toUpperCase())}</span><span class="us-nm">${esc(u.username)}</span>${u.you ? '<span class="you">you</span>' : ''}${u.ha ? '<span class="us-ha">Home Assistant</span>' : ''}</span>
+            <span class="us-name"><span class="sb-av">${esc(u.username.charAt(0).toUpperCase())}</span><span class="us-nm">${esc(u.username)}</span>${u.you ? '<span class="you">you</span>' : ''}${u.ha ? '<span class="us-ha">Home Assistant</span>' : ''}${uiZone('user.row', 'badges', userRef(u), 'span')}</span>
             <span class="badge us-role${u.role === 'admin' ? ' admin' : ''}">${esc(u.role_label || u.role)}</span>
             <span class="us-dim d">${u.devices.length}</span><span class="us-dim d">${esc(when(u.last_seen))}</span>
-            <button type="button" class="icon-btn sm" aria-label="More" aria-haspopup="menu" onclick="UsersUI.menu(this, ${arg(u.id)})">${I_MORE}</button></div>
+            <button type="button" class="icon-btn sm" aria-label="More" aria-haspopup="menu"${uiAnchor('user.row', 'menu settings', userRef(u))} onclick="UsersUI.menu(this, ${arg(u.id)})">${I_MORE}</button></div>
             ${open ? `<div class="us-devs">${u.devices.map(d => deviceHtml(u, d)).join('')}</div>` : ''}</div>`;
     }
 

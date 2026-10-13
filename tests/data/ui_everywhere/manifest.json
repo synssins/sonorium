@@ -1,0 +1,11 @@
+{
+  "id": "ui_everywhere",
+  "name": "Everywhere",
+  "short_name": "Every",
+  "version": "1.0.0",
+  "description": "Adds one element of each kind to every open spot",
+  "author": "Tests",
+  "api_version": "1.2",
+  "entry_point": "plugin.py",
+  "plugin_class": "EverywherePlugin"
+}

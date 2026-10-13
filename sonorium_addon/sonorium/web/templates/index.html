@@ -184,6 +184,7 @@
                         </svg>
                         <span>Servers</span>
                     </div>
+                    <div class="ui-zone ui-pages" data-ui-target="settings.nav" data-ui-spot="pages"></div>
                 </div>
             </div>
 
@@ -196,6 +197,8 @@
                     <span>Status</span>
                 </div>
             </div>
+            <!-- Plugins' pages: entries after the menu's entries (static/js/ext/contrib.js) -->
+            <div class="nav-section ui-zone ui-pages" data-ui-target="sidebar" data-ui-spot="pages"></div>
         </nav>
 
         <div class="sidebar-footer">
@@ -271,7 +274,7 @@
             <!-- Playlists: column headers fixed, the playlist list scrolls (pl* in app.js) -->
             <div id="view-playlists" class="view sp sp-ui">
                 <div class="sp-bar sp-bar-head" id="pll-bar" hidden>
-                    <div class="sp-wrap"><div class="sp-lhead pll-grid"><span></span><span>Name</span><span class="c">Entries</span><span>Order</span><span>Play each</span><span class="c">Repeat</span><span></span><span></span></div></div>
+                    <div class="sp-wrap"><div class="sp-lhead pll-grid"><span></span><span class="ui-hname">Name<span class="ui-zone ui-columns" data-ui-target="playlist.row" data-ui-spot="columns" data-ui-head></span></span><span class="c">Entries</span><span>Order</span><span>Play each</span><span class="c">Repeat</span><span></span><span></span></div></div>
                 </div>
                 <div class="sp-scroll">
                     <div class="sp-wrap" id="playlists-list"></div>
@@ -352,7 +355,7 @@
                             <button class="icon-btn sm hd-more" id="te-help-btn" aria-label="Help" aria-expanded="false" aria-controls="te-help" onclick="teToggleHelp()">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                             </button>
-                            <button class="icon-btn sm hd-more" aria-label="More theme options" aria-haspopup="menu" onclick="teMenu('theme', this)">
+                            <button class="icon-btn sm hd-more" id="te-more-btn" aria-label="More theme options" aria-haspopup="menu" onclick="teMenu('theme', this)">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
                             </button>
                             <button class="modal-close" aria-label="Close" onclick="teCancel()">
@@ -495,6 +498,8 @@
                             <label class="fld-label" for="te-desc">Description</label>
                             <textarea id="te-desc" class="inp desc" rows="1" placeholder="Optional" oninput="teAutoGrow(this); teDetailsChanged()"></textarea>
                         </div>
+                        <!-- Plugins' settings for this theme: one collapsed group each, saved with Save theme -->
+                        <div class="ui-zone ui-settings" id="te-ui-settings" data-ui-target="theme.editor" data-ui-spot="settings" data-ui-commit></div>
                     </div>
 
                     <!-- Fixed: tracks toolbar (each section has its own column headings) -->
@@ -544,7 +549,7 @@
                         <div class="pgroup" role="group" aria-label="Presets">
                             <span class="pb-label">Preset</span>
                             <button class="pdd" id="te-preset-btn" aria-haspopup="listbox" onclick="teMenu('presets', this)"></button>
-                            <button class="icon-btn sm" aria-label="More preset actions" aria-haspopup="menu" onclick="teMenu('pmore', this)">
+                            <button class="icon-btn sm" id="te-pmore-btn" aria-label="More preset actions" aria-haspopup="menu" onclick="teMenu('pmore', this)">
                                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
                             </button>
                             <button class="btn btn-secondary" id="te-load-btn" onclick="teLoadPreset()">Load</button>
@@ -727,7 +732,7 @@ Example:
                                 <span class="lbl" id="spk-rescan-label">Rescan network</span>
                             </button>
                         </div>
-                        <div id="spk-lhead" class="sp-lhead sps-grid" hidden><span></span><span>Name</span><span>Source</span><span>Address</span><span>Area</span><span>Offset</span><span class="c">Test</span><span class="c">Use</span><span></span></div>
+                        <div id="spk-lhead" class="sp-lhead sps-grid" hidden><span></span><span class="ui-hname">Name<span class="ui-zone ui-columns" data-ui-target="speaker.row" data-ui-spot="columns" data-ui-head></span></span><span>Source</span><span>Address</span><span>Area</span><span>Offset</span><span class="c">Test</span><span class="c">Use</span><span></span></div>
                     </div>
                 </div>
                 <div class="sp-scroll">
@@ -743,7 +748,7 @@ Example:
             <!-- Speaker Groups: column headers fixed, the group list scrolls -->
             <div id="view-settings-groups" class="view sp sp-ui">
                 <div class="sp-bar sp-bar-head" id="grp-bar" hidden>
-                    <div class="sp-wrap"><div class="sp-lhead spg-grid"><span></span><span>Name</span><span>Includes</span><span class="c">Speakers</span><span></span><span></span></div></div>
+                    <div class="sp-wrap"><div class="sp-lhead spg-grid"><span></span><span class="ui-hname">Name<span class="ui-zone ui-columns" data-ui-target="speaker_group.row" data-ui-spot="columns" data-ui-head></span></span><span>Includes</span><span class="c">Speakers</span><span></span><span></span></div></div>
                 </div>
                 <div class="sp-scroll">
                     <div class="sp-wrap" id="settings-groups-list"></div>
@@ -886,6 +891,8 @@ Example:
                         <label for="session-announcements">Announcements</label>
                         <label class="toggle-switch"><input type="checkbox" id="session-announcements" checked><span class="toggle-slider"></span></label>
                     </div>
+                    <!-- Plugins' settings for this channel: one collapsed group each, saved with Save -->
+                    <div class="ui-zone ui-settings" id="ch-ui-settings" data-ui-target="channel.editor" data-ui-spot="settings" data-ui-commit></div>
                 </div>
 
                 <div class="col">
@@ -952,6 +959,7 @@ Example:
                         </div></div>
                 </div>
                 <div class="flow" id="sq-flow" aria-label="Order"></div>
+                <div class="ui-zone ui-settings" id="sq-ui-settings" data-ui-target="sequence.editor" data-ui-spot="settings" data-ui-commit></div>
             </div>
             <div class="sq-fix">
                 <div class="sq-head"><h3>Presets</h3><span class="badge badge-type" id="sq-count">0</span><span class="grow"></span>
@@ -1057,6 +1065,7 @@ Example:
                     <div class="fld"><span class="fld-label" id="pl-fit-lbl">Fit sequences into the playlist time</span>
                         <div class="sw-fld"><label class="toggle-switch"><input type="checkbox" id="pl-fit" aria-labelledby="pl-fit-lbl" onchange="plRenderEntries()"><span class="toggle-slider"></span></label></div></div>
                 </div>
+                <div class="ui-zone ui-settings" id="pl-ui-settings" data-ui-target="playlist.editor" data-ui-spot="settings" data-ui-commit></div>
             </div>
             <div class="ple-fix">
                 <div class="ple-head"><h3>Entries</h3><span class="badge badge-type" id="pl-count">0</span><span class="grow"></span>
@@ -1159,6 +1168,7 @@ Example:
             </div>
             <div class="sp-ed-top">
                 <div class="sp-fld sp-ed-name"><label class="sp-fld-label" for="group-name">Name</label><input type="text" id="group-name" class="sp-inp" maxlength="60" placeholder="Downstairs" oninput="this.classList.remove('bad')" onkeydown="onGroupNameKey(event)"></div>
+                <div class="ui-zone ui-settings" id="grp-ui-settings" data-ui-target="speaker_group.editor" data-ui-spot="settings" data-ui-commit></div>
             </div>
             <div class="sp-ed-fix"><div class="sp-ed-thead spe-grid"><span></span><span>Speakers</span><span>Type</span><span class="spe-stxt-h">Status</span></div></div>
             <div class="sp-ed-scroll" id="group-speaker-tree"></div>

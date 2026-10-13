@@ -16,6 +16,8 @@ Extensions      GET  /api/extensions
                 POST /api/plugins/{id}/pages/{page_id}/actions/{action}
                 GET|PUT /api/plugins/{id}/connections/{connection_id}
                 POST /api/plugins/{id}/connections/{connection_id}/test
+UI              GET  /api/ui/targets, GET /api/ui/contributions, POST /api/ui/objects,
+                POST /api/ui/actions/{plugin_id}/{element_id}   (web/ui_api.py)
 Attributes      GET  /api/attributes                 (every plugin's schema)
                 GET  /api/attributes/{kind}?id=..&theme=..
                 PUT  /api/attributes/{kind}/{plugin_id}?id=..&theme=..
@@ -477,14 +479,20 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 
     _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json)
     _add_attribute_routes(router, _host, _json)
+    from sonorium.web.ui_api import add_ui_routes
+    add_ui_routes(router, plugin_manager, host)
     return router
 
 
 # Who may read and change plugin attributes, by object kind (users: below)
-ATTRIBUTE_READ = {"theme": "th.view", "track": "th.view", "file": "th.view", "preset": "th.view",
-                  "channel": "ch.view", "speaker": "sp.view"}
-ATTRIBUTE_WRITE = {"theme": "th.edit", "track": "th.edit", "file": "th.edit", "preset": "th.edit",
-                   "channel": "ch.change", "speaker": "sp.set"}
+ATTRIBUTE_READ = {"theme": "th.view", "track": "th.view", "file": "th.view", "preset": "th.view", "group": "th.view",
+                  "channel": "ch.view", "speaker": "sp.view", "speaker_group": "sp.view", "area": "sp.view",
+                  "sequence": "pl.view", "step": "pl.view", "playlist": "pl.view", "playlist_entry": "pl.view",
+                  "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins"}
+ATTRIBUTE_WRITE = {"theme": "th.edit", "track": "th.edit", "file": "th.edit", "preset": "th.edit", "group": "th.edit",
+                   "channel": "ch.change", "speaker": "sp.set", "speaker_group": "sp.set", "area": "st.change",
+                   "sequence": "pl.edit", "step": "pl.edit", "playlist": "pl.edit", "playlist_entry": "pl.edit",
+                   "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins"}
 
 
 def _add_attribute_routes(router, _host, _json) -> None:
