@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.48 (2026-10-13)
+
+### Features
+
+- **settings**: Server name (Settings > Advanced > General)
+  ([`7898355`](https://github.com/synssins/sonorium/commit/7898355afa451cee19e3670769e0a5f8e1b9f3a6))
+
+
 ## v1.7.3-dev.46 (2026-10-13)
 
 ### Features
