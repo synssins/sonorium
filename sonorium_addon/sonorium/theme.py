@@ -173,6 +173,9 @@ class ThemeMix:
         self._context = {"label": theme.name}
         self._logged_gain: float | None = None
         self._lock = threading.Lock()  # adopt (API thread) and mode changes (mixing thread)
+        # Where the players announce the sounds they start (a channel points it at the cue timeline)
+        from sonorium.recording import CueRelay
+        self.cue_relay = CueRelay()
         self._build(theme)
 
     @property
@@ -196,6 +199,10 @@ class ThemeMix:
         coordinator = self.exclusion_coordinators.get(group) if group else None
         stream = track.open_stream(exclusion_coordinator=coordinator)
         stream.built_as = self._build_key(track)
+        stream.cue_relay = self.cue_relay
+        base = getattr(stream, "base_stream", None)
+        if base is not None:  # Ebb & Flow plays its file through a loop: its passes are its starts
+            base.cue_relay, base.cue_start = self.cue_relay, "ebb"
         ebb = getattr(track, "ebb_group_name", None)
         if ebb and hasattr(stream, "ebb_group"):
             from sonorium.recording import EbbGroup, group_pauses
@@ -257,7 +264,9 @@ class ThemeMix:
             return (getattr(self.theme, "groups", None) or {}).get(group)
 
         logger.info(f'ThemeMix "{self.theme.name}": group "{group}" plays as a merry-go-round')
-        return MerryGoRoundStream(group, members, settings)
+        bed = MerryGoRoundStream(group, members, settings)
+        bed.cue_relay = self.cue_relay
+        return bed
 
     def _build(self, theme):
         """

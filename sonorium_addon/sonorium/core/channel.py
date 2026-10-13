@@ -85,6 +85,9 @@ class Channel:
     id: int
     name: str = ""
 
+    # Its sounds go on the cue timeline (core/timeline.py); not for a mix rendered offline (sonorium/engine)
+    announces_cues = True
+
     # Current theme reference
     _current_theme: Optional[LoadedTheme] = field(default=None, repr=False)
 
@@ -363,9 +366,13 @@ class Channel:
     # --- Advanced transitions (core/transitions.py) ---
 
     def _label_stream(self, stream, theme) -> None:
-        """Name the mix for its "Playback:" log lines: this channel and the theme."""
+        """Name the mix for its "Playback:" log lines (this channel and the theme); its sounds go on the cue timeline."""
         if stream is not None and hasattr(stream, "label"):
             stream.label = f"{self.name}: {theme.name}"
+        relay = getattr(stream, "cue_relay", None)
+        if relay is not None and self.announces_cues:
+            from sonorium.core.timeline import get_timeline
+            relay.target = get_timeline().for_channel(self.id, getattr(theme, "id", None))
 
     def _transition_clock(self) -> float:
         """Time for transitions planned while a theme change is queued (the engine counts audio instead)."""

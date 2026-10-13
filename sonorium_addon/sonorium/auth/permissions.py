@@ -321,6 +321,8 @@ GET     /api/events/token                               admin.keys
 POST    /api/events/token                               admin.keys
 DELETE  /api/events/token                               admin.keys
 GET     /api/events/stream                              ev.read+legacy
+GET     /api/timeline                                   ev.read+legacy
+GET     /api/timeline/stream                            ev.read+legacy
 GET     /api/plugins/{plugin_id}/triggers               admin.plugins
 POST    /api/plugins/{plugin_id}/triggers/token         admin.keys
 DELETE  /api/plugins/{plugin_id}/triggers/token         admin.keys

@@ -101,12 +101,13 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `packages.pip`, `packages.binaries` | 1.1 | Packages and programs (section 21) |
 | `attributes` | 1.2 | Declared attributes on every object a screen shows: themes and their tracks, files, groups, presets, sequences and steps; channels, playlists and their entries, speakers, speaker groups, areas, users, keys, connections and plugins (section 23) |
 | `ui` | 1.2 | Fields, buttons, menu items, badges, columns and pages on any screen (section 24) |
+| `timeline` | 1.2 | Cues: which sound is heard on which speaker and when, ahead of time (section 25) |
 
 `GET /api/plugin-framework` gives the version, every capability and the ones this install
 offers now.
 
 Each 1.1 service is a facade on the plugin: `self.audio`, `self.ramps`, `self.audio_outputs`,
-`self.commands`, `self.mqtt`, `self.homeassistant`. Every method that can fail raises
+`self.commands`, `self.mqtt`, `self.homeassistant`; 1.2 adds `self.timeline`. Every method that can fail raises
 `ActionError` (`code` `invalid`, `not_found`, `conflict` or `unavailable`), as `self.actions`
 does.
 
@@ -1280,6 +1281,7 @@ The Status page's "as heard" and anything timed to the sound use this one number
 - `PUT /api/speakers/{id}/settings` with `{"sync": 4200}` (a whole number, 0 or more), or
   `{"sync": null}` to go back to the estimate.
 
+The cue timeline (section 25) gives each speaker's audible time from it.
 A plugin that needs its own timing per speaker declares a speaker attribute for it and names
 it after the feature, for example `light_sync` labelled "Light sync". Settings › Speakers
 has no Sync field yet: it is set through the API until the speaker editor gets one.
@@ -1673,3 +1675,106 @@ lists each plugin's refused elements as `ui_warnings`.
 
 A permission dialog for what a plugin may do (at install and on update) comes later; adding
 to screens doesn't need one.
+
+## 25. Cues: when a sound will be heard
+
+Sonorium tells plugins, ahead of time, which sound will be heard on which speaker and
+exactly when. Think of a theatre's stage manager calling "Lights, stand by... go": she
+doesn't run the lights, she knows the script and the timing and calls each cue early enough
+for the crew to act. Sonorium announces sounds; what a plugin does with them (a light, a
+display, a fan, a bass shaker) is up to the plugin. Capability `timeline`, plugin API 1.2.
+
+A network speaker plays seconds behind the mixer (its Sync, section 23). The cue leaves the
+mixer with the sound but reaches the plugin at once, so a plugin has those seconds to get
+ready: a flash can come a moment before the thunder is heard.
+
+### Following cues
+
+```python
+async def on_enable(self):
+    self.timeline.subscribe(self.on_cue)                    # every channel
+    # self.timeline.subscribe(self.on_cue, channels=[channel_id])
+
+async def on_cue(self, event):
+    cue = event.data
+    if event.type == "cue.scheduled" and cue["start"] == "intermittent":
+        mine = cue["attributes"].get("file", {}).get(self.id) or cue["attributes"].get("track", {}).get(self.id)
+        for speaker in cue["speakers"]:
+            await self.plan(speaker["area"], speaker["audible_at"], mine)
+    elif event.type == "cue.cancelled":
+        await self.forget(cue["cue_id"])
+```
+
+An async handler runs on the event loop, a plain one in a worker thread. The subscription
+ends when the plugin is switched off. `self.timeline.pending(channel=None)` lists the cues
+scheduled and not yet ended; `self.timeline.unsubscribe()` ends every subscription.
+
+Cues have their own queue for each subscriber (2048 waiting events, the oldest dropped when
+full), apart from the general event bus, and a subscriber gets only the channels it asked
+for.
+
+### The events
+
+| Event | When |
+|---|---|
+| `cue.scheduled` | A sound will be heard |
+| `cue.cancelled` | It won't after all (`reason`: `stopped`, `paused`, `theme_changed`, `skipped`, `no_audio`, `not_played`) |
+| `cue.ended` | Its last speaker finished it (`reason`: `finished`, or `stopped` when the channel stopped while it was heard) |
+
+`cue.scheduled`:
+
+```json
+{"cue_id": "c81", "channel_id": "2c62267b", "name": "Storm", "theme_id": "storm",
+ "start": "intermittent", "track": "Thunder/Close", "group": "Thunder", "file": "Thunder/Close.ogg",
+ "duration_ms": 7400, "gain": 0.82, "mixer_at": 1791843380.120, "lead_ms": 500, "confirmed": false,
+ "speakers": [{"speaker_id": "media_player.living_room", "area": "living_room", "sync_ms": 5000,
+               "delay_source": "estimate", "audible_at": 1791843385.120}],
+ "attributes": {"track": {"lights": {"cue": "flash"}}, "file": {"lights": {"colour": "#cfe0ff"}},
+                "theme": {"panel": {"artwork": "storm.png"}}}}
+```
+
+- `mixer_at`: when the sound's first sample leaves the mixer; `audible_at`: when a speaker
+  plays it, `mixer_at` plus its Sync. Unix seconds on the server's clock (milliseconds in the
+  fraction). A plugin on the server needs nothing else; a device that reads the stream itself
+  needs its clock set by NTP.
+- `delay_source`: `setting` (the speaker's Sync), `device` (an output device's own latency,
+  section 17) or `estimate` (the estimate for its kind). Estimates can be off by a second
+  until the user sets the speaker's Sync.
+- `attributes`: the plugin attributes (section 23) of the theme, the track and, for a file in
+  a group, the file, each by plugin id. Every plugin's values are there: the cue is about the
+  sound, not about one plugin.
+- `speakers` is empty while the channel plays only to listeners (Listen here, the app) or its
+  speakers are muted.
+
+| `start` | What started | Lead |
+|---|---|---|
+| `intermittent` | An Intermittent track plays | The speaker's Sync, plus the Look-ahead |
+| `loop` | A Background track starts a pass (and each loop) | Sync |
+| `ebb` | An Ebb & Flow track's file starts a pass | Sync |
+| `group` | A Merry-go-round group's next file | Sync |
+| `preset`, `step`, `theme` | The channel's preset, sequence step or theme changed; `levels` has each track's new `{volume, on}`, `preset_id` (and `step`) | Sync |
+| `sound` | A sound or announcement over the channel (`sound_id`, `label`); it ends with the sound | Sync |
+
+A moment inside a file (a thunder clap 4.2 s in) has no cue of its own: add your offset to the
+file's `audible_at`. Store such offsets as a file attribute.
+
+### Look-ahead and confirmation
+
+An Intermittent play is decided a set time before it starts and announced then: the
+**Look-ahead** in Settings › Advanced › Plugins (default 0.5 s; `timeline_lookahead` in
+`PUT /api/settings/playback-values`, seconds). The random choice is the same, only made
+earlier, so a fast local speaker still gives warning. Such a cue has `confirmed: false` and a
+`lead_ms`; when the play starts on time nothing more is sent. If it doesn't start (the
+channel stopped, the track was muted or set to never, its theme changed), `cue.cancelled`
+follows. Tracks in an Intermittent group are announced as they start: the group's turn is
+decided only when it comes.
+
+### Outside programs
+
+| Route | What |
+|---|---|
+| `GET /api/timeline?channels=a,b` | The events and their fields, the Look-ahead, the cues pending |
+| `GET /api/timeline/stream?channels=a,b` | Server-Sent Events, framed as `/api/events/stream` (section 4) |
+
+Both take what `/api/events/stream` takes: a key with "Read events", a signed-in user, or the
+events token. A personal channel's cues go only to its account's streams, never to plugins.

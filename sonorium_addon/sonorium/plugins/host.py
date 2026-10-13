@@ -20,6 +20,7 @@ The plugin host: the services Sonorium gives every plugin, in one place.
     packages       plugins' Python packages (packages.py)
     attributes     plugin attributes on core objects (attributes.py, core/plugin_data.py)
     ui             what plugins add to the web UI's screens (ui.py, ui_contract.py)
+    timeline       the cue timeline: which sound is heard where and when (core/timeline.py)
 
 Plugins reach these through versioned facades (services.py): self.audio,
 self.ramps, self.audio_outputs, self.commands, self.mqtt, self.homeassistant.
@@ -82,6 +83,8 @@ class PluginHost:
         self.packages = Packages(self.store.folder / "plugin_packages", allowed=lambda: self.packages_allowed())
         self.attributes = AttributeService(state_store, session_manager, auth, publish=self.bus.publish)
         self.ui = UiService(self.attributes.registry, publish=self.bus.publish)
+        from sonorium.core.timeline import get_timeline
+        self.timeline = get_timeline()
         self.manager = None  # the PluginManager, set by it
         self.on_change: Optional[Callable] = None  # async callback(session): Home Assistant entities
         self._job_callbacks: dict[tuple, Callable] = {}
@@ -96,12 +99,14 @@ class PluginHost:
         """The audio services (made by the app once playback is set up)."""
         self.overlay, self.ramps, self.outputs = overlay, ramps, outputs
         self.actions.overlay = overlay
+        if outputs is not None:
+            self.timeline.attach(outputs=outputs)
 
     def capabilities(self) -> set:
         """What this Sonorium offers plugins now (compat.CAPABILITIES names)."""
         have = {"events", "actions", "scheduler", "triggers", "pages", "connections",
                 "commands", "mqtt", "homeassistant", "audio.tts", "packages.pip", "packages.binaries",
-                "attributes", "ui"}
+                "attributes", "ui", "timeline"}
         if self.overlay is not None:
             have.add("audio.sounds")
         if self.ramps is not None:
@@ -127,6 +132,9 @@ class PluginHost:
         self.bus.bind_loop()
         if self._alerting is None:
             self._alerting = self.bus.subscribe("error", self._alert, owner=None)
+        self.timeline.attach(session_manager=self.session_manager, attributes=self.attributes,
+                             outputs=self.outputs, bus=self.bus)
+        self.timeline.bind_loop()
         await self.scheduler.start()
         self._started = True
 
@@ -155,6 +163,7 @@ class PluginHost:
         if self.auth is not None:
             self.auth.unregister(plugin.id)  # its sign-in, routes and web UI go with it
         self.bus.unsubscribe_owner(plugin.id)
+        self.timeline.unsubscribe_owner(plugin.id)
         self._release_services(plugin.id)
         for key in [k for k in self._job_callbacks if k[0] == plugin.id]:
             self._job_callbacks.pop(key, None)
@@ -178,6 +187,7 @@ class PluginHost:
         except Exception as e:
             logger.error(f"Plugin {plugin_id}: attributes not removed: {e}")
         self.bus.unsubscribe_owner(plugin_id)
+        self.timeline.unsubscribe_owner(plugin_id)
         self._release_services(plugin_id)
         if self.outputs is not None:  # its audio output devices leave Settings > Speakers and the channels
             self.outputs.forget_owner(plugin_id)

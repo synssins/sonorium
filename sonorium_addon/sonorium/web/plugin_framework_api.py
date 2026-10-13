@@ -208,6 +208,76 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         return StreamingResponse(generate(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    # --- The cue timeline (core/timeline.py) ---
+
+    def _timeline_reader(request: Request):
+        if not _allowed(request, "ev.read") and not _host().tokens.check(EVENTS_SCOPE, token_from_request(request)):
+            raise HTTPException(status_code=401, detail="A valid token is needed",
+                                headers={"WWW-Authenticate": "Bearer"})
+        timeline = getattr(_host(), "timeline", None)
+        if timeline is None:
+            raise HTTPException(status_code=503, detail="The cue timeline isn't available")
+        return timeline
+
+    def _channel_list(value: str):
+        names = [c.strip() for c in (value or "").split(",") if c.strip()]
+        return names or None
+
+    @router.get("/timeline")
+    async def timeline_info(request: Request, channels: str = ""):
+        """The cue events, the Look-ahead, and the cues scheduled and not yet ended."""
+        timeline = _timeline_reader(request)
+        from sonorium.web.personal_routes import audience_of
+        audience = audience_of(request)
+        wanted = _channel_list(channels)
+        pending = [{k: v for k, v in c.items() if not k.startswith("_")} for c in timeline.pending(audience=audience)
+                   if wanted is None or c["channel_id"] in wanted]
+        return {**timeline.describe(), "pending": pending}
+
+    @router.get("/timeline/stream")
+    async def timeline_stream(request: Request, channels: str = "", max_events: int = 0):
+        """
+        Server-Sent Events of cue.scheduled, cue.cancelled and cue.ended, as
+        /api/events/stream ("id: <boot_id>:<n>", "event: <type>", "data:
+        <JSON>"). channels: comma-separated channel ids (none: every channel).
+        """
+        timeline = _timeline_reader(request)
+        if streams["open"] >= MAX_STREAMS:
+            raise HTTPException(status_code=503, detail="Too many event streams open")
+        queue: asyncio.Queue = asyncio.Queue(maxsize=2000)
+
+        async def collect(event):
+            if queue.full():
+                queue.get_nowait()
+            queue.put_nowait(event)
+
+        from sonorium.web.personal_routes import audience_of
+        sub = timeline.subscribe(collect, _channel_list(channels), owner=None, audience=audience_of(request),
+                                 queue_size=2000)
+        streams["open"] += 1
+
+        async def generate():
+            sent = 0
+            try:
+                yield "retry: 5000\n\n"
+                while True:
+                    try:
+                        event = await asyncio.wait_for(queue.get(), KEEPALIVE_SECONDS)
+                    except asyncio.TimeoutError:
+                        yield ": keep-alive\n\n"
+                        continue
+                    yield (f"id: {ev.stream_id(event)}\nevent: {event.type}\n"
+                           f"data: {json.dumps(event.to_dict(), default=str)}\n\n")
+                    sent += 1
+                    if max_events and sent >= max_events:
+                        return
+            finally:
+                sub.close()
+                streams["open"] -= 1
+
+        return StreamingResponse(generate(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
     # --- Triggers ---
 
     @router.get("/plugins/{plugin_id}/triggers")

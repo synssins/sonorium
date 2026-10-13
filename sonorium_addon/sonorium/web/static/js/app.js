@@ -5910,6 +5910,12 @@ const PV_SECTIONS = [
         { name: 'Tail', keys: ['wake_tail'], unit: 's', usual: [0, 5],
           desc: 'After it, this long before the speakers stop.' },
     ] },
+    { title: 'Plugins', rows: [
+        { name: 'Look-ahead', keys: ['timeline_lookahead'], unit: 's', usual: [0.1, 5],
+          desc: 'How early an Intermittent sound is decided, so plugins hear of it before it plays.' },
+        { name: 'Data per object', keys: ['plugin_data_limit'], unit: 'bytes', usual: [1024, 65536],
+          desc: 'The most each plugin may keep on one theme, track, channel or other object. 0 is no limit.' },
+    ] },
 ];
 
 async function loadPlaybackValues() {

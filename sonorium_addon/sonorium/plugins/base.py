@@ -426,6 +426,11 @@ class BasePlugin(ABC):
         """Home Assistant's API through Sonorium's connection (HomeAssistantV1)."""
         return self._service("homeassistant")
 
+    @property
+    def timeline(self):
+        """Cues: which sound is heard on which speaker and when, ahead of time (TimelineV1)."""
+        return self._service("timeline")
+
     def get_command_maps(self) -> list[dict]:
         """
         The plugin's command maps, for the user to fill: [{"id", "title",

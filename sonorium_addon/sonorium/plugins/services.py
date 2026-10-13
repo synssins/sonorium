@@ -8,6 +8,7 @@ bound to the plugin, versioned with the plugin API (compat.py).
     self.commands         CommandsV1   command maps (remotes, MQTT, webhooks)
     self.mqtt             MqttV1       publish / subscribe on the broker
     self.homeassistant    HomeAssistantV1
+    self.timeline         TimelineV1   cues: which sound is heard where and when
 
 A facade's methods keep their names, arguments and results for every 1.x
 API version: new arguments are optional and new methods are only added.
@@ -263,8 +264,44 @@ class HomeAssistantV1:
         return await _call(self._svc().tts_engines())
 
 
+class TimelineV1:
+    """The cue timeline (core/timeline.py): sounds announced before they are heard."""
+
+    def __init__(self, host, plugin_id: str):
+        self._host, self._id = host, plugin_id
+
+    def _svc(self):
+        timeline = getattr(self._host, "timeline", None)
+        if timeline is None:
+            raise _unavailable("The cue timeline")
+        return timeline
+
+    def subscribe(self, handler: Callable, channels=None, types=None):
+        """
+        handler(event) for cue.scheduled, cue.cancelled and cue.ended (types:
+        some of them) of these channels (ids; None: every channel). An async
+        handler runs on the event loop, a plain one in a thread. Removed when
+        the plugin is disabled. Returns the Subscription (close() ends it).
+        """
+        if channels is not None and (isinstance(channels, str) or not all(isinstance(c, str) for c in channels)):
+            raise ActionError("invalid", "channels: a list of channel ids, or None for every channel")
+        try:
+            return self._svc().subscribe(handler, channels, owner=self._id, types=types)
+        except ValueError as e:
+            raise ActionError("invalid", str(e))
+
+    def unsubscribe(self) -> int:
+        """End every subscription of the plugin. Returns how many."""
+        return self._svc().unsubscribe_owner(self._id)
+
+    def pending(self, channel: Optional[str] = None) -> list[dict]:
+        """The cues scheduled and not yet ended (one channel's, or every channel's)."""
+        return [{k: v for k, v in c.items() if not k.startswith("_")}
+                for c in self._svc().pending(channel) if c.get("_audience") is None]
+
+
 FACADES_V1 = {"audio": AudioV1, "ramps": RampsV1, "audio_outputs": OutputsV1, "commands": CommandsV1,
-              "mqtt": MqttV1, "homeassistant": HomeAssistantV1}
+              "mqtt": MqttV1, "homeassistant": HomeAssistantV1, "timeline": TimelineV1}
 
 
 def facade(host, plugin_id: str, name: str, api_major: int = 1):
