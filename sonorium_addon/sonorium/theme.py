@@ -44,6 +44,12 @@ DEFAULT_SHORT_FILE_THRESHOLD = 15.0
 TRACK_TOGGLE_FADE_SECONDS = 3.0
 
 
+def push_track_blocks(taps, name, block, mixer_sample) -> None:
+    """A track's block to its taps (core/taps.py), never waiting."""
+    from sonorium.core.taps import push_track_blocks as push
+    push(taps, name, block, mixer_sample)
+
+
 def switch_fade_seconds() -> float:
     """The Switch fade now (Settings > Advanced), seconds."""
     return playback_values.get("switch_fade")
@@ -176,6 +182,9 @@ class ThemeMix:
         # Where the players announce the sounds they start (a channel points it at the cue timeline)
         from sonorium.recording import CueRelay
         self.cue_relay = CueRelay()
+        # Track taps (core/taps.py): {track key: [Tap]}, shared with the channel; its sample clock
+        self.track_taps: dict = {}
+        self.sample_clock = None
         self._build(theme)
 
     @property
@@ -399,6 +408,8 @@ class ThemeMix:
         """
         self._start_due_transitions()
         chunks, gains = [], {}
+        taps = self.track_taps or None
+        at = self.sample_clock() if taps and self.sample_clock is not None else 0
         for stream in list(self.sources):
             name = stream.instance.name
             transition = self._active.get(name)
@@ -406,6 +417,8 @@ class ThemeMix:
                 data, gains[name] = self._pull_transition(transition, stream)
                 if data is not None:
                     chunks.append(data)
+                    if taps:
+                        push_track_blocks(taps, name, data, at)
                 continue
             enabled = bool(stream.instance.is_enabled)
             was = self._toggle_on.get(name)
@@ -432,6 +445,8 @@ class ThemeMix:
                 ramp = np.linspace(old, new, data.shape[-1], dtype=np.float32)
                 data = (data.astype(np.float32) * ramp).astype(np.int16)
             chunks.append(data)
+            if taps:
+                push_track_blocks(taps, name, data, at)
         for name in [n for n in self._active if n not in gains]:
             self._finish_transition(name)  # its track left the theme
         self._toggle_gain = gains

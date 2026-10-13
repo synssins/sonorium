@@ -113,6 +113,51 @@ class AudioV1:
         """The audio of a spoken message (bytes of an audio file)."""
         return await _call(self._host.tts.speak(message, provider, **options))
 
+    # Listening (core/taps.py): read-only, never in the way of playback
+
+    def tap(self, channel: str, handler: Callable, track: Optional[str] = None):
+        """
+        handler(block) for each block a channel plays (core/taps.py TapBlock:
+        samples int16 (1, 1024) read-only, mixer_sample, mixer_at), in its own
+        thread (an async handler runs on the event loop, waited for). track: one
+        track's blocks before mixing instead (a copy per block: opt-in). Closed
+        when the plugin is switched off. Returns the Tap (close() ends it).
+        """
+        from sonorium.core.taps import TapError
+        taps = getattr(self._host, "taps", None)
+        if taps is None:
+            raise _unavailable("Audio taps")
+        try:
+            return taps.tap(channel, handler, track=track, owner=self._id)
+        except LookupError as e:
+            raise ActionError("not_found", str(e).strip("'\""))
+        except TapError as e:
+            raise ActionError("invalid", str(e))
+
+    def untap(self) -> int:
+        """Close every tap of the plugin. Returns how many."""
+        taps = getattr(self._host, "taps", None)
+        return taps.close_owner(self._id) if taps is not None else 0
+
+    async def decode(self, theme_id: str, key: str, max_seconds: Optional[float] = None):
+        """
+        One of a theme's own files, by track key ("Thunder/Close"), decoded by
+        Sonorium: numpy float32 in -1..1, mono, 44.1 kHz (at most max_seconds;
+        default Settings' decode limit, core/taps.py LIMITS).
+        """
+        import asyncio
+        from sonorium.core.taps import TapError, decode_theme_file
+        sm = getattr(self._host, "session_manager", None)
+        folder = sm.theme_folder(theme_id) if sm is not None and hasattr(sm, "theme_folder") else None
+        if folder is None:
+            raise ActionError("not_found", f"Theme not found: {theme_id}")
+        try:
+            return await asyncio.to_thread(decode_theme_file, folder, key, max_seconds)
+        except LookupError as e:
+            raise ActionError("not_found", str(e).strip("'\""))
+        except TapError as e:
+            raise ActionError("invalid", str(e))
+
     async def announce(self, channels, text: Optional[str] = None, *, sound=None, provider: Optional[str] = None,
                        language: Optional[str] = None, volume: float = 100, duck=True,
                        start_stopped: bool = True) -> dict:

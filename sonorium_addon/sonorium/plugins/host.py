@@ -22,6 +22,7 @@ The plugin host: the services Sonorium gives every plugin, in one place.
     ui             what plugins add to the web UI's screens (ui.py, ui_contract.py)
     timeline       the cue timeline: which sound is heard where and when (core/timeline.py)
     devices        devices of any kind plugins bring: lights, displays, ... (core/devices.py)
+    taps           read-only copies of what channels play; theme files decoded (core/taps.py)
 
 Plugins reach these through versioned facades (services.py): self.audio,
 self.ramps, self.audio_outputs, self.commands, self.mqtt, self.homeassistant.
@@ -89,6 +90,10 @@ class PluginHost:
         from sonorium.core.devices import Devices
         self.devices = Devices(self.store, session_manager, publish=self.bus.publish, plugin_of=self._plugin)
         self.device_problems: dict[str, list] = {}  # plugin id -> device kinds refused (on its row)
+        from sonorium.core.taps import get_taps
+        self.taps = get_taps()
+        if session_manager is not None:
+            self.taps.session_manager = session_manager
         self.manager = None  # the PluginManager, set by it
         self.on_change: Optional[Callable] = None  # async callback(session): Home Assistant entities
         self._job_callbacks: dict[tuple, Callable] = {}
@@ -110,7 +115,7 @@ class PluginHost:
         """What this Sonorium offers plugins now (compat.CAPABILITIES names)."""
         have = {"events", "actions", "scheduler", "triggers", "pages", "connections",
                 "commands", "mqtt", "homeassistant", "audio.tts", "packages.pip", "packages.binaries",
-                "attributes", "ui", "timeline", "devices"}
+                "attributes", "ui", "timeline", "devices", "audio.tap", "audio.decode"}
         if self.overlay is not None:
             have.add("audio.sounds")
         if self.ramps is not None:
@@ -139,6 +144,7 @@ class PluginHost:
         self.timeline.attach(session_manager=self.session_manager, attributes=self.attributes,
                              outputs=self.outputs, bus=self.bus)
         self.timeline.bind_loop()
+        self.taps.loop = asyncio.get_running_loop()
         await self.scheduler.start()
         self._started = True
 
@@ -198,6 +204,7 @@ class PluginHost:
         """What a plugin registered with the services while it ran: its MQTT subscriptions, output types, ..."""
         self.mqtt.unsubscribe_owner(plugin_id)
         self.devices.unregister_owner(plugin_id)
+        self.taps.close_owner(plugin_id)
         self.tts.unregister_owner(plugin_id)
         self.commands.stop_learning(plugin_id)
         if self.outputs is not None:

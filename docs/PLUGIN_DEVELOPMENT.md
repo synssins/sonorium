@@ -103,6 +103,8 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `attributes` | 1.2 | Declared attributes on every object a screen shows: themes and their tracks, files, groups, presets, sequences and steps; channels, playlists and their entries, speakers, speaker groups, areas, users, keys, connections and plugins (section 23) |
 | `ui` | 1.2 | Fields, buttons, menu items, badges, columns and pages on any screen (section 24) |
 | `timeline` | 1.2 | Cues: which sound is heard on which speaker and when, ahead of time (section 25) |
+| `audio.tap` | 1.2 | Read-only copies of what a channel plays, or of one track (section 27) |
+| `audio.decode` | 1.2 | A theme's files decoded by Sonorium, for analysis (section 27) |
 | `devices` | 1.2 | Devices of any kind (lights, displays, buttons): listed, named, placed and assigned by Sonorium (section 26) |
 
 `GET /api/plugin-framework` gives the version, every capability and the ones this install
@@ -1896,4 +1898,58 @@ Events: `device.added`, `device.removed`, `device.changed`, `device.assigned`,
 | `DELETE /api/plugin-devices/{id}` | Speakers: change settings | Forget an offline device |
 | `POST /api/plugin-devices/{id}/actions/{action}` | Speakers: change settings | `{params}`: one of its actions |
 | `GET /api/sessions/{id}/plugin-devices` | Channels: view | The devices following a channel |
+
+## 27. Listening to the audio
+
+A plugin can hear what a channel plays (a level meter on a display, lights pulsing with the
+rain) and read a theme's files (finding the loud moments in a thunder file). Both are
+read-only: they can never slow or change playback. Capabilities `audio.tap` and
+`audio.decode`, plugin API 1.2.
+
+### Taps
+
+```python
+def on_block(block):                        # in the tap's own thread
+    level = float(np.abs(block.samples).max()) / 32768
+    ...
+
+tap = self.audio.tap(channel_id, on_block)                  # the channel's mix
+tap = self.audio.tap(channel_id, on_block, track="Rain")    # one track, before mixing
+tap.close()                                                 # or self.audio.untap()
+```
+
+Each block is a `TapBlock`:
+
+| Field | What |
+|---|---|
+| `samples` | numpy int16, shape (1, 1024), mono, 44.1 kHz, read-only: the same array for every listener |
+| `mixer_sample` | Its first sample on the channel's sample clock (from when the channel started making audio) |
+| `mixer_at` | When it left the mixer (Unix seconds, server clock): the clock cues use (section 25) |
+| `channel_id`, `track` | Where it comes from (`track` None for the mix) |
+
+- The mix is what goes to the speakers: after fades, volume ramps and sounds over it. A tap
+  reads it the way a speaker does, in its own thread. A handler that is slower than the
+  audio falls behind alone; the blocks it missed are counted in `tap.dropped`.
+- A tap is not a listener: it never keeps a channel playing. It follows its channel when it
+  stops and starts again.
+- A track tap keeps a copy of each block of that track (a queue of about 1.5 s, the oldest
+  dropped), so ask for one only when you need it.
+- An `async def` handler runs on the event loop, one block at a time, at most 5 s each.
+- Taps close when the plugin is switched off. At most 16 per plugin. Every limit is in
+  `core/taps.py` (`LIMITS`).
+
+A tap gives no warning ahead: what it hears is already on its way to the speakers. For
+something that must happen before a sound is heard, use cues (section 25).
+
+### Decoding a theme's files
+
+```python
+pcm = await self.audio.decode(theme_id, "Thunder/Close")              # numpy float32, -1..1
+pcm = await self.audio.decode(theme_id, "Thunder/Close", max_seconds=30)
+```
+
+Mono, 44.1 kHz, decoded by Sonorium (no FFmpeg in the plugin), in a thread. Only the theme's
+own audio files can be read, by track key; anything else is `ActionError` `not_found`. Up to
+30 minutes by default (`decode_max_seconds` in `LIMITS`). Store what you find as a file
+attribute (section 23), and add it to the file's `audible_at` when its cue comes.
 
