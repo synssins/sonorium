@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.36 (2026-10-13)
+
+### Bug Fixes
+
+- **core**: Theme packages and Export serve the metadata the server uses
+  ([`0b7717c`](https://github.com/synssins/sonorium/commit/0b7717c9611e1f179ab7e9d780715751b981efcc))
+
+
 ## v1.7.3-dev.34 (2026-10-13)
 
 ### Features
