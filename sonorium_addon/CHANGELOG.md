@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.40 (2026-10-13)
+
+### Bug Fixes
+
+- **ui**: Channel card header buttons line up with the buttons below
+  ([`515c7cf`](https://github.com/synssins/sonorium/commit/515c7cfcee09da7b7674b153249f6fc293721bed))
+
+
 ## v1.7.3-dev.38 (2026-10-13)
 
 ### Continuous Integration
