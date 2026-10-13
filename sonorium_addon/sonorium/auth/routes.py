@@ -74,7 +74,7 @@ def capabilities(service: AuthService, features: dict, *, plugins: bool) -> list
 
     zones = service.plugin_state.get(ZONES_STATE)
     caps = ["channels.create", "speakers", "speaker_groups", "spaces", "audio_settings", "advanced",
-            "logs", "status", "listen", "theme_packages"]
+            "logs", "status", "listen", "theme_packages", "theme_backup"]
     caps += [name for name, present in (
         ("connection", on("connection_settings")),  # Home Assistant and MQTT settings (not in the HA app)
         ("plugins", plugins),  # the plugin system started

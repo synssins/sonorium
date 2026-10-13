@@ -679,7 +679,7 @@ def test_info_is_public(w):
 
 
 ALWAYS = {"channels.create", "speakers", "speaker_groups", "spaces", "audio_settings", "advanced", "logs",
-          "status", "listen", "theme_packages"}
+          "status", "listen", "theme_packages", "theme_backup"}
 
 
 def test_info_capabilities_follow_the_switches(w):
