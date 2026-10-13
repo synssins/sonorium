@@ -420,3 +420,60 @@ def step_plans(instances, before: dict, after: dict, step_in: dict, step_out: di
             "target_volume": lb, "target_presence": pb, "from_presence": pa,
         })
     return plans
+
+
+# ---------------------------------------------------------------- the Advanced dialog's track lists
+
+def step_tracks(tracks, groups: Optional[dict], layer, preset: str, prev: Optional[str] = None,
+                next: Optional[str] = None) -> dict:
+    """
+    The tracks a sequence step changes, for the Advanced dialog (the route
+    GET /api/themes/{id}/transition_tracks and theme_edit.transition_tracks):
+    {"in": the tracks `preset` turns on or makes louder after `prev`, "out":
+    the tracks `next` turns off or makes quieter after `preset`}. Each row:
+    key, name, group, mode ("Intermittent", "Ebb & Flow" or "Background"),
+    from/to (volume 0..1, 0 = off), presence_from/presence_to and
+    duration_seconds. Merry-go-round tracks are left out (their group's bed
+    plays them). `tracks`: the theme's recording.ThemeTrack list; `groups`:
+    its group settings; layer(preset_id): that preset's overrides (as a
+    channel playing it has them).
+    """
+    from sonorium.recording import GROUP_MODE_MERRY_GO_ROUND, PlaybackMode, TrackView, group_mode
+    groups = groups or {}
+    labels = {PlaybackMode.SPARSE: "Intermittent", PlaybackMode.PRESENCE: "Ebb & Flow",
+              PlaybackMode.CONTINUOUS: "Background"}
+
+    def rows(before_id, after_id, side):
+        if not before_id or not after_id:
+            return []
+        before = layer(before_id)
+        after = layer(after_id)
+        result = []
+        for instance in list(tracks):
+            group = getattr(instance.meta, "group", None)
+            if group and group_mode(groups.get(group)) == GROUP_MODE_MERRY_GO_ROUND:
+                continue
+            va, vb = TrackView(instance, before), TrackView(instance, after)
+            la, lb = track_level(va), track_level(vb)
+            if (side == "in" and lb > la + EPS) or (side == "out" and lb < la - EPS):
+                view = vb if side == "in" else va
+                try:
+                    mode = labels.get(view._resolve_playback_mode(), "Background")
+                except Exception:
+                    mode = "Background"
+                try:
+                    duration = round(float(instance.meta.duration_seconds), 1)
+                except Exception:
+                    duration = 0.0
+                result.append({
+                    "key": instance.name,
+                    "name": instance.name.split("/", 1)[-1],
+                    "group": group,
+                    "mode": mode,
+                    "from": round(la, 4), "to": round(lb, 4),
+                    "presence_from": round(float(va.presence), 4), "presence_to": round(float(vb.presence), 4),
+                    "duration_seconds": duration,
+                })
+        return result
+
+    return {"in": rows(prev, preset, "in"), "out": rows(preset, next, "out")}

@@ -2281,19 +2281,38 @@ class WebApp:
 
     async def rename_group_folder(self, theme_id: str, group: str, request: Request):
         """Rename a group. Body: {"name": "New"}. Track keys follow in metadata and presets."""
-        from sonorium.core import theme_groups
+        from sonorium.core import theme_edit
         theme, folder, metadata = self._theme_group_folder(theme_id)
         body = await self._json_object(request)
-        try:
-            change = theme_groups.rename_group(folder, group, body.get("name"))
-        except theme_groups.GroupError as e:
-            raise self._group_http_error(e)
-        new = change.group_renames.get(group, group)
-        if change.group_renames:
-            self._save_group_change(folder, metadata, change)
+        result = self._folder_change(lambda: theme_edit.rename_group(folder, group, body.get("name"),
+                                                                     metadata, self._manager_save))
+        new = result["name"]
+        if new != group:
             await self._refresh_now()
             logger.info(f"Theme '{metadata.name}': group '{group}' renamed to '{new}'")
-        return {"name": new, "tracks": change.track_keys}
+        return {"name": new, "tracks": result["tracks"]}
+
+    def _manager_save(self, metadata) -> bool:
+        """Save a theme's metadata.json and presets.json through the metadata manager (its copy follows)."""
+        return self._theme_metadata_manager.save_metadata(metadata.id, metadata)
+
+    def _folder_change(self, call, files_moved: bool = True) -> dict:
+        """
+        Run a theme_edit folder function for a route: its errors become the
+        HTTP answer. A failed save after files moved also rebuilds the themes
+        (as _save_group_change).
+        """
+        from sonorium.core import theme_edit, theme_groups
+        try:
+            return call()
+        except theme_groups.GroupError as e:
+            raise self._group_http_error(e)
+        except theme_edit.SaveFailed as e:
+            if files_moved:
+                self.schedule_theme_refresh()
+            raise HTTPException(status_code=500, detail=str(e))
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
     async def delete_group_folder(self, theme_id: str, group: str):
         """
@@ -2301,30 +2320,16 @@ class WebApp:
         "x (2)" on a clash) and keep their settings; its linked files become
         ungrouped the same way (re-keyed, nothing moves). Audio files are never deleted.
         """
-        from sonorium.core import intrusions, theme_groups
+        from sonorium.core import theme_edit
         theme, folder, metadata = self._theme_group_folder(theme_id)
-        links = intrusions.group_link_keys(metadata, group)
-        try:
-            change = theme_groups.delete_group(folder, group, reserved=intrusions.link_names(metadata, None))
-        except theme_groups.NotFound as e:
-            if not links:
-                raise self._group_http_error(e)
-            change = theme_groups.Change(group_renames={group: None})  # only links, no folder
-        except theme_groups.GroupError as e:
-            raise self._group_http_error(e)
-        change.track_keys.update(intrusions.regroup_link_keys(metadata, folder, links, None,
-                                                              taken=change.track_keys.values()))
-        self._save_group_change(folder, metadata, change)
+        result = self._folder_change(lambda: theme_edit.delete_group(folder, group, metadata, self._manager_save))
+        result.pop("ops", None)
         await self._refresh_now()
-        result = {"name": group, "tracks": change.track_keys, "folder_removed": change.folder_removed}
-        if change.folder_removed:
-            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(change.track_keys)} tracks moved to the top level")
+        if result["folder_removed"]:
+            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(result['tracks'])} tracks moved to the top level")
         else:
-            result["left_behind"] = change.left_behind
-            result["message"] = (f"The tracks moved to the top level; the folder '{group}' was kept "
-                                 f"because it still holds other files")
-            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(change.track_keys)} tracks moved "
-                        f"to the top level; folder kept for {len(change.left_behind)} other files")
+            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(result['tracks'])} tracks moved "
+                        f"to the top level; folder kept for {len(result['left_behind'])} other files")
         return result
 
     async def move_track_to_group(self, theme_id: str, track_name: str, request: Request):
@@ -2475,18 +2480,16 @@ class WebApp:
         201 {"links": [{"key", "theme", "track", "added"}]}.
         """
         from fastapi.responses import JSONResponse
-        from sonorium.core import intrusions, theme_groups
+        from sonorium.core import theme_edit
         theme, folder, metadata = self._theme_group_folder(theme_id)
         body = await self._json_object(request)
         source_id, keys, group = body.get("theme"), body.get("tracks"), body.get("group")
         if not isinstance(source_id, str) or not source_id:
             raise HTTPException(status_code=400, detail="'theme' (the source theme id) is required")
-        if group is not None and (not isinstance(group, str) or not group):
-            raise HTTPException(status_code=400, detail="'group' must be a group name or null")
-        if (not isinstance(keys, list) or not keys or len(keys) > 500
-                or not all(isinstance(k, str) and k for k in keys)):
-            raise HTTPException(status_code=400, detail="'tracks' must be a list of track keys")
-        keys = list(dict.fromkeys(keys))
+        try:
+            theme_edit.clean_link_request(group, keys)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
         _, _, members = self._theme_groups(theme_id)
         if group is not None and group not in members:
@@ -2497,25 +2500,8 @@ class WebApp:
                            if (source_folder and self._theme_metadata_manager) else None)
         if not source or not source_metadata:
             raise HTTPException(status_code=404, detail="Source theme not found")
-        if source_metadata.id == metadata.id:
-            raise HTTPException(status_code=400, detail="A theme's own files can't be linked; move them into the group instead")
-        unknown = []
-        for key in keys:
-            try:
-                theme_groups.find_track_file(source_folder, key)
-            except theme_groups.GroupError:
-                unknown.append(key)
-        if unknown:
-            raise HTTPException(status_code=404, detail=f"Not a track of the source theme: {', '.join(unknown)}")
-
-        if group is not None:
-            try:
-                theme_groups.group_target(folder, group)  # the group's folder exists, even with only links in it
-            except theme_groups.GroupError as e:
-                raise self._group_http_error(e)
-        results = intrusions.add_links(metadata, folder, group, source_metadata.id, source_metadata, keys)
-        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
-            raise HTTPException(status_code=500, detail="metadata.json couldn't be saved")
+        results = self._folder_change(lambda: theme_edit.add_links(
+            folder, source_folder, keys, group, metadata, source_metadata, self._manager_save), files_moved=False)["links"]
         added = [r for r in results if r["added"]]
         where = f"into group '{group}'" if group is not None else "as Unassigned"
         logger.info(f"Theme '{metadata.name}': {len(added)} file(s) of '{source_metadata.name}' linked {where}")
@@ -2571,12 +2557,10 @@ class WebApp:
 
     async def delete_link(self, theme_id: str, key: str):
         """Remove a linked file from a theme: its link, settings and preset entries. Never a file."""
-        from sonorium.core import intrusions
+        from sonorium.core import theme_edit
         theme, folder, metadata = self._theme_group_folder(theme_id)
-        if not intrusions.remove_link(metadata, key):
-            raise HTTPException(status_code=404, detail="Linked track not found")
-        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
-            raise HTTPException(status_code=500, detail="metadata.json couldn't be saved")
+        self._folder_change(lambda: theme_edit.remove_link(folder, key, metadata, self._manager_save),
+                            files_moved=False)
         logger.info(f"Theme '{metadata.name}': linked track '{key}' removed")
         await self._refresh_now()
         return {"removed": key}
@@ -2994,8 +2978,7 @@ class WebApp:
 
     async def import_preset(self, theme_id: str, request: Request):
         """Import a preset from JSON."""
-        import json
-        import re
+        from sonorium.core import theme_edit
 
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
         theme, _ = self._get_theme_by_id(theme_id)
@@ -3010,60 +2993,13 @@ class WebApp:
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid request body")
 
-        if not preset_json:
-            raise HTTPException(status_code=400, detail="No preset JSON provided")
-
-        # Parse the JSON
-        try:
-            preset_data = json.loads(preset_json)
-        except json.JSONDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
-
-        # Validate structure - must have tracks dict
-        if not isinstance(preset_data, dict):
-            raise HTTPException(status_code=400, detail="Preset must be a JSON object")
-
-        # Support both full preset format and tracks-only format
-        if "tracks" in preset_data:
-            tracks = preset_data["tracks"]
-            imported_name = preset_data.get("name", name or "Imported Preset")
-        else:
-            # Assume it's a tracks-only format
-            tracks = preset_data
-            imported_name = name or "Imported Preset"
-
-        if not isinstance(tracks, dict):
-            raise HTTPException(status_code=400, detail="Tracks must be a JSON object")
-
-        # Validate track settings and filter to only known tracks
+        # Checked and kept to the theme's tracks (core/theme_edit.py)
         valid_track_names = {inst.name for inst in theme.tracks}
-        validated_tracks = {}
-        unknown_tracks = []
-
-        for track_name, settings in tracks.items():
-            if track_name not in valid_track_names:
-                unknown_tracks.append(track_name)
-                continue
-
-            if not isinstance(settings, dict):
-                continue
-
-            validated_tracks[track_name] = {
-                "volume": float(settings.get("volume", 1.0)),
-                "presence": float(settings.get("presence", 1.0)),
-                "playback_mode": str(settings.get("playback_mode", "auto")),
-                "seamless_loop": bool(settings.get("seamless_loop", False)),
-                "exclusive": bool(settings.get("exclusive", False)),
-                "muted": bool(settings.get("muted", False)),
-            }
-
-        if not validated_tracks:
-            raise HTTPException(status_code=400, detail="No valid track settings found in preset")
-
-        # Generate preset ID
-        preset_id = re.sub(r'[^a-z0-9]+', '_', imported_name.lower()).strip('_')
-        if not preset_id:
-            preset_id = "imported"
+        try:
+            imported_name, validated_tracks, unknown_tracks, preset_id = theme_edit.clean_imported_preset(
+                preset_json, name, valid_track_names)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
         # Get theme folder for metadata manager
         _, theme_folder = self._get_theme_by_id(theme_id)
@@ -3072,45 +3008,18 @@ class WebApp:
         if self._theme_metadata_manager and theme_folder:
             metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
             if metadata_obj:
-                # Ensure unique ID
-                base_id = preset_id
-                counter = 1
-                while preset_id in metadata_obj.presets:
-                    preset_id = f"{base_id}_{counter}"
-                    counter += 1
-
-                # Save preset
-                metadata_obj.presets[preset_id] = {
-                    "name": imported_name,
-                    "is_default": False,
-                    "tracks": validated_tracks,
-                }
-
-                if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
-                    raise HTTPException(status_code=500, detail="Failed to save preset")
-
-                result = {
-                    "status": "ok",
-                    "preset_id": preset_id,
-                    "name": imported_name,
-                    "tracks_imported": len(validated_tracks),
-                }
-                if unknown_tracks:
-                    result["unknown_tracks"] = unknown_tracks
-                    result["warning"] = f"{len(unknown_tracks)} track(s) not found in theme"
-
-                return result
+                try:
+                    return theme_edit.import_preset(theme_folder, preset_json, name, valid_track_names,
+                                                    metadata_obj, self._manager_save)
+                except theme_edit.EditError as e:
+                    raise HTTPException(status_code=e.status, detail=str(e))
 
         # Fallback to direct file I/O
         metadata = self._read_theme_metadata(theme_id)
         if "presets" not in metadata:
             metadata["presets"] = {}
 
-        base_id = preset_id
-        counter = 1
-        while preset_id in metadata["presets"]:
-            preset_id = f"{base_id}_{counter}"
-            counter += 1
+        preset_id = theme_edit.unique_preset_id(preset_id, metadata["presets"])
 
         # Save preset
         metadata["presets"][preset_id] = {
@@ -3190,12 +3099,12 @@ class WebApp:
         if not metadata:
             raise HTTPException(status_code=404, detail="Theme metadata not found")
 
-        old_name = metadata.name
-
         # Update the name in metadata.json (folder stays the same)
-        metadata.name = new_name
-        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
-            raise HTTPException(status_code=500, detail="Failed to save metadata")
+        from sonorium.core import theme_edit
+        try:
+            old_name, new_name = theme_edit.rename_theme(folder, new_name, metadata, self._manager_save)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
         logger.info(f"Renamed theme '{old_name}' to '{new_name}' (folder: {folder.name})")
 
@@ -3377,11 +3286,11 @@ class WebApp:
         if not theme_folder:
             return {"error": "Theme not found"}
 
-        # Save categories to metadata.json
-        metadata = self._read_theme_metadata(theme_id)
-        metadata["categories"] = new_categories
-
-        if not self._write_theme_metadata(theme_id, metadata):
+        # Save categories to metadata.json (core/theme_edit.py)
+        from sonorium.core import theme_edit
+        try:
+            theme_edit.set_categories(theme_folder, new_categories)
+        except theme_edit.SaveFailed:
             return {"error": "Failed to save categories"}
 
         # Also update the metadata manager cache if available

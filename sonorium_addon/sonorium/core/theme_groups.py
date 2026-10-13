@@ -52,6 +52,9 @@ class Change:
     group_renames: dict[str, Optional[str]] = field(default_factory=dict)  # old -> new, None = removed
     folder_removed: bool = True
     left_behind: list[str] = field(default_factory=list)              # files kept in a group folder
+    # What was done on disk, in order: ("move", src, dst), ("mkdir", None, dst) or
+    # ("delete", src, None) for a removed (empty) folder (theme_edit's file operations)
+    ops: list[tuple] = field(default_factory=list)
 
 
 # --- names and lookups ------------------------------------------------------
@@ -258,6 +261,7 @@ def rename_group(theme_folder: Path, old: str, new: str) -> Change:
     return Change(
         track_keys={k: f"{new}/{k.split('/', 1)[1]}" for k in keys},
         group_renames={old: new},
+        ops=[("move", source, target)],
     )
 
 
@@ -301,7 +305,7 @@ def delete_group(theme_folder: Path, name: str, reserved: Iterable[str] = ()) ->
         keys[f"{name}/{f.stem}"] = target.stem
     _move_files(moves)
 
-    change = Change(track_keys=keys, group_renames={name: None})
+    change = Change(track_keys=keys, group_renames={name: None}, ops=[("move", s, t) for s, t in moves])
     try:
         left = sorted(p.name for p in group.iterdir())
     except OSError:
@@ -312,6 +316,7 @@ def delete_group(theme_folder: Path, name: str, reserved: Iterable[str] = ()) ->
     else:
         try:
             group.rmdir()
+            change.ops.append(("delete", group, None))
         except OSError:
             change.folder_removed = False
     return change
@@ -361,7 +366,8 @@ def move_track(theme_folder: Path, key: str, group: Optional[str], reserved: Ite
                 pass
         raise
     new_key = target.stem if target_folder == theme_folder else f"{target_folder.name}/{target.stem}"
-    return Change(track_keys={key: new_key}, group_renames={})
+    ops = ([("mkdir", None, target_folder)] if created else []) + [("move", source, target)]
+    return Change(track_keys={key: new_key}, group_renames={}, ops=ops)
 
 
 # --- key migration ------------------------------------------------------------
