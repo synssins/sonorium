@@ -195,13 +195,15 @@ and with these calls and checks the files are byte for byte the same.
 | `transition_tracks(folder, preset, prev=None, next=None)` | The tracks a sequence step brings in (`"in"`, after `prev`) and takes out (`"out"`, before `next`), for the Advanced dialog. Reads the audio files' lengths; writes nothing. |
 | `rename_group(folder, group, name)`, `delete_group(folder, group)` | A group renamed, or deleted (its files move up to the theme folder, "x (2)" on a clash; never deleted). Keys follow everywhere. Return the server's JSON plus `"ops"`. |
 | `add_links(folder, source_folder, tracks, group=None)`, `remove_link(folder, key)` | Files of another theme linked in (nothing copied), or a link removed (never a file). Return `{"links": [...]}` / `{"removed": key}` plus `"ops"`. |
+| `copy_link_in(folder, key, source_folder, group=None)` | A linked file copied into the theme (never moved): into `group`'s folder (made if missing), or the theme folder with `None`, "x (2)" on a clash. The link goes; its settings (plugin attributes too), preset values and sequence entries follow the new key. `source_folder` is the link's theme folder (`None` when it is gone: 409). Returns `{"track": new key}` plus `"ops"`; the copy's `src` is relative to `source_folder`. |
 | `upload(folder, filename, content, group=None)` | An audio file added (bytes, or a path to copy), in a group's folder if given (made if missing). A new track starts Unassigned. Returns `filename`, `size`, `group`, `track`, `"ops"`. |
 | `load(folder, convert=None)` | The theme's metadata with its presets. `convert=False` (or `theme_edit.convert_on_load = False` for every call) writes nothing: see below. |
 
 `"ops"` lists what was done to the files, in order, so an app can repeat it
 in storage it can't write by path (Android's shared folders):
 `{"op": "mkdir" | "move" | "copy" | "write" | "delete", "src", "dst"}`, paths
-relative to the theme folder with `/` (a copy's `src` is the path given).
+relative to the theme folder with `/` (a copy's `src` is the path given;
+for `copy_link_in`, relative to the linked theme's folder).
 `write` means take that file from the folder now (`metadata.json` and
 `presets.json` are listed when their bytes changed); `delete` is an emptied
 group folder.

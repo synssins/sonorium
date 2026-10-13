@@ -31,7 +31,7 @@ Errors are EditError (a ValueError) with a `status` (400, 404, 409 or 500, the
 HTTP status the server answers with) and the server's message.
 
 The functions that move or add files (rename_group, delete_group, add_links,
-remove_link, upload) also return the file operations they did, under "ops",
+remove_link, copy_link_in, upload) also return the file operations they did, under "ops",
 so an app can repeat them in storage it can't write by path (see FileOps).
 """
 from __future__ import annotations
@@ -1102,7 +1102,7 @@ class FileOps:
         {"op": "delete", "src": "Birds", "dst": None}              an empty folder removed
 
     Paths are relative to the theme folder with "/" (a copy's src is the path
-    the caller gave). metadata.json and presets.json are listed as "write"
+    the caller gave; copy_link_in's is relative to the linked theme's folder). metadata.json and presets.json are listed as "write"
     when their bytes changed, after the file operations.
     """
 
@@ -1277,6 +1277,61 @@ def remove_link(folder, key: str, metadata: Optional[tm.ThemeMetadata] = None,
         raise NotFound("Linked track not found")
     _save_with(folder, metadata, save_metadata, "metadata.json couldn't be saved")
     return {"removed": key, "ops": ops.done()}
+
+
+class CopyFailed(EditError):
+    status = 500
+
+
+def copy_link_in(folder, key: str, source_folder, group: Optional[str] = None,
+                 metadata: Optional[tm.ThemeMetadata] = None,
+                 save_metadata: Optional[Callable[[tm.ThemeMetadata], bool]] = None) -> dict:
+    """
+    Copy a linked file into the theme (the Theme Editor's "copy in"): the
+    source file is copied (never moved) into group's folder, or the theme
+    folder with group None ("x (2)" etc. on a clash), the link is removed and
+    the track's settings, preset values and sequence entries move to its new
+    key. `source_folder`: the folder of the link's theme (None when that
+    theme is gone). Returns {"track": new key, "ops"}; the copy's "src" is
+    the source file relative to source_folder. Raises NotFound ("Linked
+    track not found", "Group not found"), Conflict (409, the source file is
+    missing), theme_groups.GroupError, CopyFailed (500) or SaveFailed.
+    """
+    import shutil
+    from sonorium.core import intrusions, theme_groups
+    from sonorium.theme_files import track_display_name, track_key
+    folder = Path(folder)
+    ops = FileOps(folder)
+    metadata = metadata if metadata is not None else load(folder)
+    link = (getattr(metadata, "links", None) or {}).get(key)
+    if link is None:
+        raise NotFound("Linked track not found")
+    if group is not None and (not isinstance(group, str) or group not in group_members(folder, metadata)):
+        raise NotFound("Group not found")
+    source = intrusions.resolve_link(link, lambda _id: None if source_folder is None else Path(source_folder))
+    if source is None:
+        raise Conflict("The linked file is missing; it can't be copied")
+    target_folder = folder if group is None else theme_groups.group_target(folder, group)
+    ops.made_dir(target_folder)
+    # Another linked file there keeps its name; this one's key is free once it is copied in
+    reserved = intrusions.link_names(metadata, group) - (
+        {track_display_name(key)} if intrusions.link_group(key) == group else set())
+    target = target_folder / theme_groups.free_file_name(target_folder, source.name, reserved=reserved)
+    try:
+        shutil.copy2(source, target)
+    except OSError as e:
+        raise CopyFailed(f"Couldn't copy the file: {e}")
+    try:
+        src = source.relative_to(Path(source_folder)).as_posix()
+    except ValueError:
+        src = str(source)
+    ops.ops.append({"op": "copy", "src": src, "dst": ops.path(target)})
+    new_key = track_key(folder, target)
+    intrusions.remove_link_keep_settings(metadata, key)
+    # Its settings, preset values and sequence entries move to the new key
+    save_group_change(folder, metadata, theme_groups.Change(
+        track_keys={key: new_key} if new_key != key else {}), save_metadata)
+    return {"track": new_key, "ops": ops.done()}
 
 
 UPLOAD_EXTENSIONS = ('.mp3', '.wav', '.flac', '.ogg')
