@@ -125,6 +125,7 @@ GET     /api/auth/me                                    public
 GET     /api/ui/plugins                                 public
 GET     /plugin-ui/{plugin_id}/{path:path}              public
 POST    /api/link                                       self
+GET     /api/link/{link_id}                             self
 POST    /api/pair                                       public
 GET     /api/devices                                    self
 GET     /api/devices/self                               device

@@ -190,6 +190,31 @@ and with these calls and checks the files are byte for byte the same.
 | `load_preset(folder, id)` | A preset's values become the theme's own settings, as the Theme Editor's Load does. Returns the preset. |
 | `set_default_preset`, `rename_preset`, `delete_preset` | As in the Theme Editor; a deleted preset is taken out of the theme's sequences, and the first one left becomes the default if it was. |
 | `create_sequence(folder, data)`, `update_sequence(folder, id, data)`, `delete_sequence(folder, id)` | Sequences in `presets.json`, checked as the server checks them (`core/sequences.py`). |
+| `set_details(folder, name=, description=, icon=, categories=, short_file_threshold=)` | The theme's details; leave out what stays (`icon=""` removes it). The folder is never renamed. Returns `{"folder", "name", "description", "icon", "categories"}` as saved. The single steps: `rename_theme`, `set_metadata_fields`, `set_categories`. |
+| `import_preset(folder, preset_json, name=None)` | A preset from its JSON text (a preset, or its tracks alone), kept to the theme's tracks. Returns `status`, `preset_id`, `name`, `tracks_imported` (and `unknown_tracks`, `warning`). |
+| `transition_tracks(folder, preset, prev=None, next=None)` | The tracks a sequence step brings in (`"in"`, after `prev`) and takes out (`"out"`, before `next`), for the Advanced dialog. Reads the audio files' lengths; writes nothing. |
+| `rename_group(folder, group, name)`, `delete_group(folder, group)` | A group renamed, or deleted (its files move up to the theme folder, "x (2)" on a clash; never deleted). Keys follow everywhere. Return the server's JSON plus `"ops"`. |
+| `add_links(folder, source_folder, tracks, group=None)`, `remove_link(folder, key)` | Files of another theme linked in (nothing copied), or a link removed (never a file). Return `{"links": [...]}` / `{"removed": key}` plus `"ops"`. |
+| `upload(folder, filename, content, group=None)` | An audio file added (bytes, or a path to copy), in a group's folder if given (made if missing). A new track starts Unassigned. Returns `filename`, `size`, `group`, `track`, `"ops"`. |
+| `load(folder, convert=None)` | The theme's metadata with its presets. `convert=False` (or `theme_edit.convert_on_load = False` for every call) writes nothing: see below. |
+
+`"ops"` lists what was done to the files, in order, so an app can repeat it
+in storage it can't write by path (Android's shared folders):
+`{"op": "mkdir" | "move" | "copy" | "write" | "delete", "src", "dst"}`, paths
+relative to the theme folder with `/` (a copy's `src` is the path given).
+`write` means take that file from the folder now (`metadata.json` and
+`presets.json` are listed when their bytes changed); `delete` is an emptied
+group folder.
+
+Loading without conversions: the server converts an older theme the first
+time it loads it and writes the result (with backups). With `convert=False`
+nothing is written: 1.0 fields and Ebb & Flow Duration are converted in memory
+(the next save writes them, as the server would have), and the conversions
+that move files or need the audio's lengths (old intrusion groups, "auto"
+modes) are left for the server. `theme_metadata.track_seconds(path)` gives a
+file's length, or `None` when it can't be read or holds no audio;
+`played_seconds(path)` is the length playback uses (an unreadable file counts
+as one minute).
 
 Errors are `theme_edit.EditError` (a `ValueError`) with `status`: 400 for a
 value that can't be used, `NotFound` (404), `Conflict` (409, a name already
@@ -239,7 +264,9 @@ serves. The protocol libraries (`pychromecast`, `soco`, `async-upnp-client`,
 `sonorium/core/theme_edit.py` needs, besides the engine's files:
 `core/theme_metadata.py`, `core/theme_presets.py`, `core/theme_groups.py`,
 `core/intrusions.py`, `core/sequences.py`, `core/playlists.py`,
-`theme_files.py`, `recording.py`, `obs.py`. Network speakers:
+`core/transitions.py`, `core/plugin_data.py`, `theme_files.py`,
+`recording.py`, `obs.py` (`transition_tracks` also the engine's
+`engine/theme_loader.py`). Network speakers:
 `sonorium/network/` (`__init__.py`, `models.py`, `discovery.py`,
 `streaming.py`, `heos.py`, `manual.py`, `service.py`) and `display.py`.
 Saving `metadata.json` or `presets.json` tells the server's plugins the

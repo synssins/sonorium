@@ -1043,8 +1043,7 @@ def create_api_router(
         are 0..1 (volume 0 = off). Merry-go-round tracks are left out (their
         group's bed plays them).
         """
-        from sonorium.core.transitions import EPS, track_level
-        from sonorium.recording import GROUP_MODE_MERRY_GO_ROUND, PlaybackMode, TrackView, group_mode
+        from sonorium.core.transitions import step_tracks
         theme = session_manager.get_theme(theme_id)
         if theme is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Theme not found")
@@ -1052,45 +1051,9 @@ def create_api_router(
         for value in (preset, prev, next):
             if value and value not in presets:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Preset '{value}' not found")
-        groups = getattr(theme, "groups", None) or {}
-        labels = {PlaybackMode.SPARSE: "Intermittent", PlaybackMode.PRESENCE: "Ebb & Flow",
-                  PlaybackMode.CONTINUOUS: "Background"}
-
-        def rows(before_id, after_id, side):
-            if not before_id or not after_id:
-                return []
-            before = session_manager.preset_overrides(theme_id, before_id)
-            after = session_manager.preset_overrides(theme_id, after_id)
-            result = []
-            for instance in list(theme.tracks):
-                group = getattr(instance.meta, "group", None)
-                if group and group_mode(groups.get(group)) == GROUP_MODE_MERRY_GO_ROUND:
-                    continue
-                va, vb = TrackView(instance, before), TrackView(instance, after)
-                la, lb = track_level(va), track_level(vb)
-                if (side == "in" and lb > la + EPS) or (side == "out" and lb < la - EPS):
-                    view = vb if side == "in" else va
-                    try:
-                        mode = labels.get(view._resolve_playback_mode(), "Background")
-                    except Exception:
-                        mode = "Background"
-                    try:
-                        duration = round(float(instance.meta.duration_seconds), 1)
-                    except Exception:
-                        duration = 0.0
-                    result.append({
-                        "key": instance.name,
-                        "name": instance.name.split("/", 1)[-1],
-                        "group": group,
-                        "mode": mode,
-                        "from": round(la, 4), "to": round(lb, 4),
-                        "presence_from": round(float(va.presence), 4), "presence_to": round(float(vb.presence), 4),
-                        "duration_seconds": duration,
-                    })
-            return result
-
-        return {"theme_id": theme_id, "preset": preset, "prev": prev, "next": next,
-                "in": rows(prev, preset, "in"), "out": rows(preset, next, "out")}
+        rows = step_tracks(theme.tracks, getattr(theme, "groups", None),
+                           lambda preset_id: session_manager.preset_overrides(theme_id, preset_id), preset, prev, next)
+        return {"theme_id": theme_id, "preset": preset, "prev": prev, "next": next, **rows}
 
     # --- Playlists (global, stored in state.json) ---
 
@@ -2197,7 +2160,7 @@ def create_api_router(
         A new track starts Unassigned (playback_mode "unassigned": not played
         until it is placed); a file uploaded over one keeps its settings.
         """
-        from sonorium.core import theme_groups
+        from sonorium.core import theme_edit, theme_groups
 
         theme_path = _find_theme_folder(theme_id)
         if not theme_path:
@@ -2210,54 +2173,21 @@ def create_api_router(
             if not file:
                 raise HTTPException(status_code=400, detail="No file provided")
 
-            # Only the file's own name: no folders, no path tricks
-            try:
-                filename = theme_groups.safe_upload_name(file.filename)
-            except theme_groups.GroupError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-
-            # Validate file extension
-            valid_extensions = ['.mp3', '.wav', '.flac', '.ogg']
-            ext = '.' + filename.split('.')[-1].lower() if '.' in filename else ''
-
-            if ext not in valid_extensions:
-                raise HTTPException(status_code=400, detail=f"Invalid file type. Supported: {', '.join(valid_extensions)}")
-
-            # Optional group (created if missing)
+            # Optional group (created if missing). Only the file's own name is
+            # used (no folders, no path tricks); a linked file's name there is
+            # taken: " (2)" etc. instead (core/theme_edit.py)
             group = form.get("group") or request.query_params.get("group")
+            content = await file.read()
+            manager = getattr(session_manager, "theme_metadata_manager", None) if session_manager else None
             try:
-                file_path = theme_groups.upload_path(theme_path, filename, group)
+                saved = theme_edit.upload(theme_path, file.filename, content, group,
+                                          metadata=_cached_metadata(theme_id, theme_path), manager=manager)
             except theme_groups.GroupError as e:
                 raise HTTPException(status_code=e.status, detail=str(e))
-            target_folder = file_path.parent
-            group_name = target_folder.name if target_folder != theme_path else None
+            except theme_edit.EditError as e:
+                raise HTTPException(status_code=e.status, detail=str(e))
+            filename, group_name = saved["filename"], saved["group"]
 
-            # A linked file's name there is taken: " (2)" etc. instead
-            metadata = _cached_metadata(theme_id, theme_path)
-            if metadata is not None and metadata.links:
-                from sonorium.core.intrusions import link_names
-                reserved = link_names(metadata, group_name)
-                if file_path.stem.casefold() in {n.casefold() for n in reserved}:
-                    file_path = target_folder / theme_groups.free_file_name(target_folder, file_path.name, reserved=reserved)
-                    filename = file_path.name
-            key = f"{group_name}/{file_path.stem}" if group_name else file_path.stem
-            is_new = not file_path.exists()
-
-            # Read and write the file content
-            content = await file.read()
-            file_path.write_bytes(content)
-            if is_new:
-                from sonorium.core.theme_metadata import add_unassigned_track
-                manager = getattr(session_manager, "theme_metadata_manager", None) if session_manager else None
-                try:
-                    add_unassigned_track(theme_path, key, metadata, manager)
-                except OSError as e:
-                    # The file is there and plays as a track without settings would
-                    logger.warning(f"Theme '{theme_id}': '{key}' uploaded, but it couldn't be made Unassigned ({e})")
-
-            # theme.changed even when no settings were written (a file uploaded over one)
-            from sonorium.core.theme_presets import theme_changed
-            theme_changed(theme_path)
             where = f" in group '{group_name}'" if group_name else ""
             logger.info(f"Uploaded file to theme '{theme_id}'{where}: {filename} ({len(content)} bytes)")
             if on_themes_changed:
@@ -2266,10 +2196,10 @@ def create_api_router(
             return {
                 "status": "ok",
                 "filename": filename,
-                "size": len(content),
+                "size": saved["size"],
                 "theme_id": theme_id,
                 "group": group_name,
-                "track": key,
+                "track": saved["track"],
             }
 
         except HTTPException:
@@ -2340,49 +2270,20 @@ def create_api_router(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-        # Read existing metadata and merge. If it can't be read, refuse: writing
-        # only the edited fields would lose the theme's id and track settings.
-        from sonorium.core.theme_presets import BrokenJsonError, read_json, write_json_atomic
-        metadata_path = theme_path / "metadata.json"
+        # Merged into metadata.json as it is (core/theme_edit.py). If it can't
+        # be read, refused: writing only the edited fields would lose the
+        # theme's id and track settings.
+        from sonorium.core import theme_edit
         try:
-            metadata = read_json(metadata_path) or {}
-        except BrokenJsonError as e:
-            raise HTTPException(status_code=409, detail=f"metadata.json can't be read ({e}); refresh themes to repair it first")
+            metadata = theme_edit.set_metadata_fields(theme_path, body)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
-        if "description" in body:
-            metadata["description"] = body["description"]
-
-        if "icon" in body:
-            # Allow setting icon to empty string to clear it (use auto-detection)
-            icon_value = body["icon"]
-            if icon_value:
-                metadata["icon"] = icon_value
-            elif "icon" in metadata:
-                del metadata["icon"]  # Remove icon to use auto-detection
-
-        if "short_file_threshold" in body:
-            threshold = float(body["short_file_threshold"])
-            if threshold < 0:
-                raise HTTPException(status_code=400, detail="short_file_threshold must be >= 0")
-            metadata["short_file_threshold"] = threshold
-
-            # Also update the live theme object if it exists
-            if themes:
-                theme = themes.id.get(theme_id)
-                if theme:
-                    theme.short_file_threshold = threshold
-                    logger.info(f"Updated short_file_threshold for '{theme_id}' to {threshold}s")
-
-        # Write back (temporary file, then rename), and reload so the theme
-        # manager's copy can't overwrite the change later
-        try:
-            write_json_atomic(metadata_path, metadata)
-            if on_themes_changed:
-                on_themes_changed()
-            return {"status": "ok", "metadata": metadata}
-        except Exception as e:
-            logger.error(f"Failed to write metadata: {e}")
-            raise HTTPException(status_code=500, detail="Could not write metadata")
+        # Reload so the theme manager's copy can't overwrite the change later
+        # (the live theme takes a new short_file_threshold from it too)
+        if on_themes_changed:
+            on_themes_changed()
+        return {"status": "ok", "metadata": metadata}
 
     @router.delete("/themes/{theme_id}")
     async def delete_theme(theme_id: str):

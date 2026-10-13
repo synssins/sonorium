@@ -247,3 +247,302 @@ def test_sequences_on_a_folder(tmp_path):
     te.delete_sequence(folder, "night")
     with pytest.raises(te.NotFound, match="Sequence not found"):
         te.delete_sequence(folder, "night")
+
+
+# --- details, imported presets, groups, linked files, uploads (core gaps 2) ---
+
+PLUGINS_THEME = {"wled": {"scene": "fire"}}
+PLUGINS_TRACK = {"wled": {"cue": "flash"}}
+PLUGINS_PRESET = {"wled": {"mood": "calm"}}
+
+
+def with_plugins(folder: Path) -> Path:
+    """Plugin attributes on the theme, a grouped track and a preset (they must ride along unchanged)."""
+    meta = json.loads((folder / "metadata.json").read_text(encoding="utf-8"))
+    meta["plugins"] = PLUGINS_THEME
+    meta["tracks"]["Birds/Bird 1"]["plugins"] = PLUGINS_TRACK
+    (folder / "metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    presets = json.loads((folder / "presets.json").read_text(encoding="utf-8"))
+    presets["presets"]["calm"]["plugins"] = PLUGINS_PRESET
+    (folder / "presets.json").write_text(json.dumps(presets, indent=2), encoding="utf-8")
+    return folder
+
+
+@pytest.fixture
+def three(tmp_path):
+    """Two themes (the second is a source for linked files), served and as plain folders."""
+    from engine_theme import make_second_theme
+    one = with_plugins(make_theme(tmp_path / "server"))
+    second = make_second_theme(tmp_path / "server")
+    other, other_second = tmp_path / "folder" / one.name, tmp_path / "folder" / second.name
+    shutil.copytree(one, other)
+    shutil.copytree(second, other_second)
+    api = server(tmp_path / "server")
+    api._state_store = None
+    return SimpleNamespace(api=api, served=one, folder=other, source=other_second, root=tmp_path)
+
+
+def tree(folder: Path) -> dict:
+    """Every file (relative path -> bytes) and folder (relative path -> None) under folder."""
+    return {p.relative_to(folder).as_posix(): (p.read_bytes() if p.is_file() else None)
+            for p in sorted(folder.rglob("*"))}
+
+
+def repeat(ops, edited: Path, target: Path) -> None:
+    """Do the file operations on another copy, as an app does in storage it can't write by path."""
+    import os
+    for op in ops:
+        if op["op"] == "mkdir":
+            (target / op["dst"]).mkdir()
+        elif op["op"] == "move":
+            os.rename(target / op["src"], target / op["dst"])
+        elif op["op"] == "copy":
+            shutil.copyfile(op["src"], target / op["dst"])
+        elif op["op"] == "write":
+            shutil.copyfile(edited / op["dst"], target / op["dst"])
+        elif op["op"] == "delete":
+            (target / op["src"]).rmdir()
+        else:
+            raise AssertionError(op)
+
+
+def test_details_write_the_same_files(three):
+    api, te = three.api, m.te
+    run(api.rename_theme(TID, Body({"name": "  Night Garden  "})))
+    run(api.set_theme_categories(TID, Body({"categories": ["Nature", "Night"]})))
+    saved = te.set_details(three.folder, name="  Night Garden  ", categories=["Nature", "Night"])
+    assert {k: saved[k] for k in ("folder", "name", "categories")} == \
+        {"folder": str(three.folder), "name": "Night Garden", "categories": ["Nature", "Night"]}
+    same_files(three)
+    assert json.loads((three.folder / "metadata.json").read_text(encoding="utf-8"))["plugins"] == PLUGINS_THEME
+    with pytest.raises(te.EditError, match="Name is required"):
+        te.set_details(three.folder, name="  ")
+    with pytest.raises(te.EditError, match="short_file_threshold must be >= 0"):
+        te.set_details(three.folder, short_file_threshold=-1)
+
+
+def test_details_route_of_the_web_api_writes_the_same_files(three, monkeypatch):
+    pytest.importorskip("httpx")
+    from unittest.mock import MagicMock
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import sonorium.paths
+    import sonorium.web.api_v2 as api_v2
+    monkeypatch.setattr(sonorium.paths, "audio_dir", lambda: three.root / "server")
+    app = FastAPI()
+    sessions = SimpleNamespace(theme_metadata_manager=three.api._theme_metadata_manager)
+    app.include_router(api_v2.create_api_router(session_manager=sessions, group_manager=MagicMock(),
+                                                ha_registry=MagicMock(), state_store=MagicMock()))
+    client = TestClient(app)
+    body ={"description": "Crickets after dark", "icon": "🌙", "short_file_threshold": 12}
+    r = client.put(f"/api/themes/{TID}/metadata", json=body)
+    assert r.status_code == 200, r.text
+    te = m.te
+    saved = te.set_details(three.folder, description="Crickets after dark", icon="🌙", short_file_threshold=12)
+    assert saved["icon"] == "🌙" and r.json()["metadata"] == json.loads((three.folder / "metadata.json").read_bytes())
+    same_files(three)
+    client.put(f"/api/themes/{TID}/metadata", json={"icon": ""})
+    assert "icon" not in te.set_metadata_fields(three.folder, {"icon": ""})
+    same_files(three)
+    r = client.put(f"/api/themes/{TID}/metadata", json={"short_file_threshold": -2})
+    assert r.status_code == 400 and r.json()["detail"] == "short_file_threshold must be >= 0"
+
+    # Upload: a file into a new group, through the route and with theme_edit
+    run(three.api.refresh_themes())  # as the server's on_themes_changed does after a details change
+    wav = (three.served / "Drone.wav").read_bytes()
+    r = client.post(f"/api/themes/{TID}/upload", files={"file": ("Hum.wav", wav)}, data={"group": "Hums"})
+    assert r.status_code == 200, r.text
+    before = tree(three.folder)
+    phone = three.root / "phone"
+    shutil.copytree(three.folder, phone)
+    result = te.upload(three.folder, "Hum.wav", wav, "Hums")
+    assert {k: r.json()[k] for k in ("filename", "size", "group", "track")} == \
+        {k: result[k] for k in ("filename", "size", "group", "track")} == \
+        {"filename": "Hum.wav", "size": len(wav), "group": "Hums", "track": "Hums/Hum"}
+    assert result["ops"] == [{"op": "mkdir", "src": None, "dst": "Hums"},
+                             {"op": "write", "src": None, "dst": "Hums/Hum.wav"},
+                             {"op": "write", "src": None, "dst": "metadata.json"}]
+    same_files(three)
+    assert (three.served / "Hums" / "Hum.wav").read_bytes() == (three.folder / "Hums" / "Hum.wav").read_bytes()
+    repeat(result["ops"], three.folder, phone)
+    assert tree(phone) == tree(three.folder) != before
+    # Copied from a path; a bad type is refused as the route refuses it
+    copied = te.upload(three.folder, "Hum 2.wav", three.served / "Wind.wav")
+    assert copied["ops"][0] == {"op": "copy", "src": str(three.served / "Wind.wav"), "dst": "Hum 2.wav"}
+    r = client.post(f"/api/themes/{TID}/upload", files={"file": ("x.txt", b"x")})
+    with pytest.raises(te.EditError) as error:
+        te.upload(three.folder, "x.txt", b"x")
+    assert r.status_code == error.value.status == 400 and r.json()["detail"] == str(error.value)
+
+
+def test_import_preset_writes_the_same_files(three):
+    api, te = three.api, m.te
+    text = json.dumps({"name": "Shared Mix", "tracks": {"Drone": {"volume": 0.25, "plugins": {"x": 1}},
+                                                        "Nope": {"volume": 1}}})
+    routed = run(api.import_preset(TID, Body({"preset_json": text})))
+    result = te.import_preset(three.folder, text)
+    assert routed == result == {"status": "ok", "preset_id": "shared_mix", "name": "Shared Mix", "tracks_imported": 1,
+                                "unknown_tracks": ["Nope"], "warning": "1 track(s) not found in theme"}
+    run(api.import_preset(TID, Body({"preset_json": json.dumps({"Wind": {"muted": True}}), "name": "Shared Mix"})))
+    assert te.import_preset(three.folder, json.dumps({"Wind": {"muted": True}}), "Shared Mix")["preset_id"] == "shared_mix_1"
+    same_files(three)
+    presets = json.loads((three.folder / "presets.json").read_text(encoding="utf-8"))["presets"]
+    assert presets["calm"]["plugins"] == PLUGINS_PRESET
+    for bad, message in ((None, "No preset JSON provided"), ("{", "Invalid JSON"), ("[1]", "Preset must be a JSON object"),
+                         ('{"tracks": 3}', "Tracks must be a JSON object"),
+                         ('{"Nope": {}}', "No valid track settings found in preset")):
+        with pytest.raises(te.EditError, match=message):
+            te.import_preset(three.folder, bad)
+        with pytest.raises(m.api.HTTPException) as error:
+            run(api.import_preset(TID, Body({"preset_json": bad})))
+        assert error.value.status_code == 400 and message in error.value.detail
+
+
+def test_group_rename_and_delete_write_the_same_files_and_list_their_file_operations(three):
+    api, te = three.api, m.te
+    phone = three.root / "phone"
+    shutil.copytree(three.folder, phone)
+
+    assert run(api.rename_group_folder(TID, "Birds", Body({"name": "Flock"}))) == \
+        {"name": "Flock", "tracks": {f"Birds/Bird {i}": f"Flock/Bird {i}" for i in (1, 2, 3)}}
+    renamed = te.rename_group(three.folder, "Birds", "Flock")
+    assert renamed["name"] == "Flock" and renamed["ops"][0] == {"op": "move", "src": "Birds", "dst": "Flock"}
+    assert {op["dst"] for op in renamed["ops"][1:]} <= {"metadata.json", "presets.json"}
+    same_files(three)
+    meta = json.loads((three.folder / "metadata.json").read_text(encoding="utf-8"))
+    assert meta["tracks"]["Flock/Bird 1"]["plugins"] == PLUGINS_TRACK and meta["plugins"] == PLUGINS_THEME
+    repeat(renamed["ops"], three.folder, phone)
+    assert tree(phone) == tree(three.folder)
+
+    # A clash at the top level: " (2)"
+    shutil.copy(three.served / "Drone.wav", three.served / "Flock" / "Drone.wav")
+    shutil.copy(three.folder / "Drone.wav", three.folder / "Flock" / "Drone.wav")
+    shutil.copy(three.folder / "Drone.wav", phone / "Flock" / "Drone.wav")
+    run(api.refresh_themes())  # the server gives the new file its entry: the same in the other copies
+    for target in (three.folder, phone):
+        shutil.copy(three.served / "metadata.json", target / "metadata.json")
+    routed = run(api.delete_group_folder(TID, "Flock"))
+    deleted = te.delete_group(three.folder, "Flock")
+    assert {k: v for k, v in deleted.items() if k != "ops"} == routed
+    assert routed["tracks"]["Flock/Drone"] == "Drone (2)" and routed["folder_removed"] is True
+    assert {"op": "move", "src": "Flock/Drone.wav", "dst": "Drone (2).wav"} in deleted["ops"]
+    assert {"op": "delete", "src": "Flock", "dst": None} in deleted["ops"]
+    same_files(three)
+    meta = json.loads((three.folder / "metadata.json").read_text(encoding="utf-8"))
+    assert meta["tracks"]["Bird 1"]["plugins"] == PLUGINS_TRACK
+    repeat(deleted["ops"], three.folder, phone)
+    assert tree(phone) == tree(three.folder)
+
+    from sonorium.core import theme_groups
+    with pytest.raises(theme_groups.NotFound) as error:
+        te.rename_group(three.folder, "Nope", "X")
+    assert error.value.status == 404
+
+
+def test_linked_files_write_the_same_files_and_list_their_file_operations(three):
+    from fastapi.responses import JSONResponse
+    api, te = three.api, m.te
+    phone = three.root / "phone"
+    shutil.copytree(three.folder, phone)
+    routed = run(api.add_links(TID, Body({"theme": "engine-second-theme", "tracks": ["Tone", "Tone"], "group": "Birds"})))
+    assert isinstance(routed, JSONResponse)
+    linked = te.add_links(three.folder, three.source, ["Tone", "Tone"], "Birds")
+    assert json.loads(routed.body)["links"] == linked["links"] == [
+        {"key": "Birds/Tone", "theme": "engine-second-theme", "track": "Tone", "added": True}]
+    assert linked["ops"] == [{"op": "write", "src": None, "dst": "metadata.json"}]
+    same_files(three)
+    repeat(linked["ops"], three.folder, phone)
+    assert tree(phone) == tree(three.folder)
+
+    # Into another (empty) group
+    run(api.create_group_folder(TID, Body({"name": "Echo"})))
+    te.create_group(three.folder, "Echo")
+    (phone / "Echo").mkdir()
+    run(api.add_links(TID, Body({"theme": "engine-second-theme", "tracks": ["Tone"], "group": "Echo"})))
+    echoed = te.add_links(three.folder, three.source, ["Tone"], "Echo")
+    assert echoed["links"][0]["key"] == "Echo/Tone"
+    same_files(three)
+    repeat(echoed["ops"], three.folder, phone)
+
+    assert run(api.delete_link(TID, "Birds/Tone")) == {"removed": "Birds/Tone"}
+    removed = te.remove_link(three.folder, "Birds/Tone")
+    assert removed["removed"] == "Birds/Tone" and removed["ops"] == [{"op": "write", "src": None, "dst": "metadata.json"}]
+    same_files(three)
+    repeat(removed["ops"], three.folder, phone)
+    assert tree(phone) == tree(three.folder)
+
+    # Refused as the route refuses
+    for args, status, message in (((three.source, ["Tone"], "Nope"), 404, "Group not found"),
+                                  ((three.folder, ["Drone"], None), 400, "A theme's own files can't be linked"),
+                                  ((three.source, ["Gone"], None), 404, "Not a track of the source theme: Gone"),
+                                  ((three.source, [], None), 400, "'tracks' must be a list of track keys")):
+        with pytest.raises(te.EditError, match=message) as error:
+            te.add_links(three.folder, *args)
+        assert error.value.status == status
+    with pytest.raises(te.NotFound, match="Linked track not found"):
+        te.remove_link(three.folder, "Birds/Tone")
+
+
+def test_transition_tracks_on_a_folder_match_the_route(three):
+    pytest.importorskip("httpx")
+    import types
+    from unittest.mock import MagicMock
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    import sonorium.web.api_v2 as api_v2
+    from sonorium.core.session_manager import SessionManager
+    from sonorium.engine.theme_loader import load_theme
+    loaded = load_theme(three.folder)
+    sessions = SimpleNamespace(get_theme=lambda theme_id: loaded.theme if theme_id == TID else None,
+                               _theme_presets=lambda theme_id: dict(loaded.presets))
+    sessions.preset_overrides = types.MethodType(SessionManager.preset_overrides, sessions)
+    app = FastAPI()
+    app.include_router(api_v2.create_api_router(session_manager=sessions, group_manager=MagicMock(),
+                                                ha_registry=MagicMock(), state_store=MagicMock()))
+    client = TestClient(app)
+    for params in ({"preset": "busy", "prev": "calm", "next": "quiet"}, {"preset": "calm", "prev": "busy"},
+                   {"preset": "busy"}):
+        r = client.get(f"/api/themes/{TID}/transition_tracks", params=params)
+        assert r.status_code == 200, r.text
+        assert m.te.transition_tracks(three.folder, **params) == r.json()
+    assert r.json()["in"] == [] and r.json()["out"] == []
+    coming = m.te.transition_tracks(three.folder, "busy", "calm", "quiet")
+    assert {row["key"] for row in coming["in"]} >= {"Drone", "Wind"} and coming["out"]
+    r = client.get(f"/api/themes/{TID}/transition_tracks", params={"preset": "zz"})
+    with pytest.raises(m.te.NotFound) as error:
+        m.te.transition_tracks(three.folder, "zz")
+    assert r.status_code == error.value.status == 404 and r.json()["detail"] == str(error.value) == "Preset 'zz' not found"
+
+
+def test_loading_without_conversions_writes_nothing(tmp_path, monkeypatch):
+    """An older theme with empty stand-ins for its audio: read, edited, nothing converted wrongly."""
+    te, meta = m.te, m.meta
+    folder = tmp_path / "Old"
+    folder.mkdir()
+    for name in ("Rain.mp3", "Bell.mp3"):
+        (folder / name).write_bytes(b"")
+    (folder / "metadata.json").write_text(json.dumps({
+        "name": "Old", "id": "old-id",
+        "tracks": {"Rain": {"presence": 0.4, "playback_mode": "auto"}, "Bell": {"volume": 0.5}},
+        "presets": {"p": {"name": "P", "tracks": {"Rain": {"volume": 0.2}}}}}), encoding="utf-8")
+    before = tree(folder)
+
+    loaded = te.load(folder, convert=False)
+    assert tree(folder) == before  # nothing written, no backup
+    assert loaded.tracks["Rain"].playback_mode == "auto" and not loaded.auto_retired
+    assert loaded.spec_version == 2 and loaded.presets["p"]["name"] == "P"
+
+    monkeypatch.setattr(te, "convert_on_load", False)
+    te.set_track(folder, "Bell", volume=0.6)
+    saved = json.loads((folder / "metadata.json").read_text(encoding="utf-8"))
+    assert saved["tracks"]["Rain"]["playback_mode"] == "auto"  # left for the server, which has the audio
+    assert saved["tracks"]["Bell"]["volume"] == 0.6 and not saved.get("auto_retired")
+    assert json.loads((folder / "presets.json").read_text(encoding="utf-8"))["presets"]["p"]["name"] == "P"
+    assert not list(folder.glob("*.bak"))
+
+    # Lengths: None for an empty or unreadable file; playback still counts it as a minute
+    (folder / "Junk.mp3").write_bytes(b"not audio at all")
+    assert meta.track_seconds(folder / "Rain.mp3") is None and meta.track_seconds(folder / "Junk.mp3") is None
+    assert meta.played_seconds(folder / "Junk.mp3") == 60.0
+    shutil.copy(make_theme(tmp_path / "t") / "Drone.wav", folder / "Drone.wav")
+    assert meta.track_seconds(folder / "Drone.wav") == pytest.approx(6.0, abs=0.01)

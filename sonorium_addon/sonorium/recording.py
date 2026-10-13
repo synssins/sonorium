@@ -319,6 +319,23 @@ LOOP_CROSSFADE_DURATION = 1.5
 # Fade duration for tracks fading in/out of the mix
 TRACK_FADE_DURATION = 6.0
 GROUP_EDGE_FADE_SECONDS = 0.02  # grouped tracks: no audible fade, just no click
+# A file "ends loud" (cut off mid-sound, not decayed to quiet) when its last
+# ENDS_LOUD_TAIL_SECONDS are no more than ENDS_LOUD_DB below the file as a whole
+ENDS_LOUD_TAIL_SECONDS = 0.05
+ENDS_LOUD_DB = -20.0
+
+
+def ends_loud(samples) -> bool:
+    """The audio stops while still sounding: its tail is within ENDS_LOUD_DB of its overall level."""
+    audio = np.asarray(samples, dtype=np.float32).reshape(-1)
+    tail = int(ENDS_LOUD_TAIL_SECONDS * SAMPLE_RATE)
+    if len(audio) < 2 * tail:
+        return False
+    whole = float(np.sqrt(np.mean(np.square(audio, dtype=np.float64))))
+    if whole <= 0.0:
+        return False
+    end = float(np.sqrt(np.mean(np.square(audio[-tail:], dtype=np.float64))))
+    return end >= whole * 10.0 ** (ENDS_LOUD_DB / 20.0)
 # Sample rate
 SAMPLE_RATE = 44100
 # Calculated sample counts
@@ -1233,16 +1250,20 @@ class SparsePlaybackStream(BlockSource):
 
         grouped = bool(getattr(self.instance, "exclusion_group", None)) and self.exclusion_coordinator is not None
 
-        def fade_curves():
+        def fade_curves(audio):
             """Fade in and out curves for a play (the Track fade now; shorter for very short files)."""
-            fade_duration = min(playback_values.get("track_fade"), file_duration_seconds / 3)
+            length_seconds = len(audio) / SAMPLE_RATE
+            fade_in = fade_out = min(playback_values.get("track_fade"), length_seconds / 3)
             if grouped:
                 # A group's tracks just play, start to finish (a thunder crack keeps
-                # its attack, a song its first notes): only a click-free edge
-                fade_duration = min(GROUP_EDGE_FADE_SECONDS, file_duration_seconds / 3)
-            fade_samples = int(fade_duration * SAMPLE_RATE)
-            return (np.sin(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32),
-                    np.cos(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32))
+                # its attack, a song its first notes): only a click-free edge. A
+                # file cut off mid-sound (it ends loud) still fades out over the
+                # Track fade: a click-free edge alone is a hard cut.
+                fade_in = min(GROUP_EDGE_FADE_SECONDS, length_seconds / 3)
+                if not ends_loud(audio):
+                    fade_out = fade_in
+            return (np.sin(np.linspace(0, np.pi/2, int(fade_in * SAMPLE_RATE))).astype(np.float32),
+                    np.cos(np.linspace(0, np.pi/2, int(fade_out * SAMPLE_RATE))).astype(np.float32))
 
         def get_silent_interval():
             """
@@ -1370,7 +1391,7 @@ class SparsePlaybackStream(BlockSource):
                 self.playing = True
                 self.phase = "play"
                 self.phase_end = self.clock + -(-len(audio_data) // BLOCK_SAMPLES) * BLOCK_SAMPLES
-                fade_in_curve, fade_out_curve = fade_curves()
+                fade_in_curve, fade_out_curve = fade_curves(audio_data)
 
                 # Apply fade in at start
                 if len(fade_in_curve) <= len(audio_data):

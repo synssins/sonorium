@@ -6,6 +6,7 @@ The core's sign-in routes (Users and Keys add theirs: users.py, keys.py).
     GET    /api/ui/plugins               public: the built-in plugins' web UI bundles
     GET    /plugin-ui/{plugin_id}/{path} public: a file of such a bundle
     POST   /api/link                     a Link App QR code (bound to you when you're signed in)
+    GET    /api/link/{link_id}           the Link App dialog: has its code linked a phone yet
     POST   /api/pair                     public, HTTPS: one-time code -> phone token (shown once)
     GET    /api/devices                  linked phones: yours, or everyone's for an admin
     GET    /api/devices/self             a linked phone: its own record
@@ -169,7 +170,18 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
         logger.info(f"Link App: a code{' for ' + user['username'] if user else ''} (works once, for 5 minutes)")
         return {"uri": uri, "qr_svg": qr_svg(uri), "code": code, "username": user["username"] if user else None,
                 "expires_in": int(expires - service.clock()), "words": identity.words,
-                "host": host, "hosts": hosts, "http_port": http, "https_port": https_port() or None}
+                "host": host, "hosts": hosts, "http_port": http, "https_port": https_port() or None,
+                "link_id": service.pair_link_of(code)}
+
+    @router.get("/api/link/{link_id}")
+    async def link_state(link_id: str, request: Request):
+        """The Link App dialog: has its code linked a phone yet ("waiting", "linked" with the device, "expired")?"""
+        p = principal_of(request)
+        found = service.pair_link_state(link_id)
+        if found is None or (found["user_id"] != (p.user_id if service.describe_user(p.user_id) else None)
+                             and not p.can("admin.users")):
+            raise HTTPException(404, "No such code")
+        return {"state": found["state"], "device": found["device"]}
 
     @router.post("/api/pair")
     async def pair(request: Request):
@@ -178,12 +190,13 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
         limited(pair_limiter, client, spend=True)
         service.https_only(request)
         data = await json_body(request)
-        valid, user_id = service.use_pair_code(str(data.get("code") or ""))
+        valid, user_id, link = service.use_pair_code(str(data.get("code") or ""))
         if not valid:
             logger.warning(f"Link App: a phone at {client} tried a wrong or expired code")
             raise HTTPException(401, "This code doesn't work. Show a new code in Sonorium.")
         device_id, token = service.add_device(user_id, str(data.get("device_name") or ""),
                                               str(data.get("platform") or ""), str(data.get("model") or ""))
+        service.pair_linked(link, device_id)
         user = service.describe_user(user_id)
         logger.info(f"Link App: {data.get('device_name') or 'a phone'} at {client} is linked"
                     f"{' to ' + user['username'] if user else ''}")
