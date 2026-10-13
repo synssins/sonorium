@@ -2,6 +2,32 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.16 (2026-10-13)
+
+### Bug Fixes
+
+- **ui**: No ownership wording in the spots' positions and messages
+  ([`5ede97b`](https://github.com/synssins/sonorium/commit/5ede97bf9b8ea7b5c11152641f5570739c0fbef4))
+
+### Documentation
+
+- Adding to any screen (PLUGIN_DEVELOPMENT 24), extensible screens (UI_STYLE)
+  ([`a0c5b43`](https://github.com/synssins/sonorium/commit/a0c5b43f6b570b90e1c55bf84e244961a0da6dc9))
+
+### Features
+
+- **plugins**: UI contributions with a contract for every open spot
+  ([`80702e0`](https://github.com/synssins/sonorium/commit/80702e0098c552be7aae21b1a733b20f0175b524))
+
+- **ui**: One registry draws every screen's open spots
+  ([`87a9b93`](https://github.com/synssins/sonorium/commit/87a9b936ae51b30a590b8f9d99fe28388ee01856))
+
+### Testing
+
+- **ui**: A plugin in every spot, contracts refused per spot, the DOM check
+  ([`9c8b455`](https://github.com/synssins/sonorium/commit/9c8b455f6c7231c50e53c96e43841d823d1fe483))
+
+
 ## v1.7.3-dev.15 (2026-10-12)
 
 ### Bug Fixes
