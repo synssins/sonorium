@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
+using Sonorium.Desktop;
 
 namespace Sonorium.Tray.Pages;
 
@@ -57,6 +58,17 @@ public sealed partial class UpdatesPage : Page
         {
             Notes.Visibility = Visibility.Collapsed;
         }
+        // GitHub too busy to answer (here or in the background check): a note, not an error
+        if (state.UpdateBusy is { } busy)
+        {
+            Problem.Severity = InfoBarSeverity.Informational;
+            Problem.Message = busy;
+            Problem.IsOpen = true;
+        }
+        else if (Problem.Severity == InfoBarSeverity.Informational)
+        {
+            Problem.IsOpen = false;
+        }
         LastChecked.Description = state.Settings.LastUpdateCheck is { } at
             ? char.ToUpper(Format.When(at)[0]) + Format.When(at)[1..]
             : "Not yet";
@@ -70,8 +82,13 @@ public sealed partial class UpdatesPage : Page
         {
             await Updater.Check(throwOnError: true);
         }
+        catch (GitHubBusyException)
+        {
+            // Shown by Refresh, from the app's state
+        }
         catch (Exception ex)
         {
+            Problem.Severity = InfoBarSeverity.Warning;
             Problem.Message = $"Couldn't check for updates: {ex.Message}";
             Problem.IsOpen = true;
         }
