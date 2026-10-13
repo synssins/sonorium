@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.50 (2026-10-13)
+
+### Bug Fixes
+
+- **ui**: Channel cards drop Recent changes; cards as tall as their content
+  ([`9d29a35`](https://github.com/synssins/sonorium/commit/9d29a35a80e08102c55c7a5a2d3fd75c07c72288))
+
+
 ## v1.7.3-dev.48 (2026-10-13)
 
 ### Features
