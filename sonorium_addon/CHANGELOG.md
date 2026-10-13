@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.18 (2026-10-13)
+
+### Features
+
+- **core**: Theme details, preset import, step tracks, file operations, load without writing
+  ([`3f0831a`](https://github.com/synssins/sonorium/commit/3f0831adb7c58e9a43341f80e9184876e43de316))
+
+
 ## v1.7.3-dev.15 (2026-10-12)
 
 ### Bug Fixes
