@@ -873,14 +873,15 @@ class WebApp:
                 self._https_host_port = await asyncio.to_thread(config.addon_host_port, config.https_port())
             if runtime.STANDALONE:  # the add-on isn't on the host network: the QR code carries its address
                 from sonorium.auth.announce import Announcer
-                from sonorium.auth.routes import API_VERSION
+                from sonorium.auth.routes import API_VERSION, server_name
                 self._announcer = Announcer()
                 # in the background: checking that sonorium.local is free takes a moment
                 self._announce_task = asyncio.create_task(asyncio.to_thread(
                     self._announcer.start, server_id=identity.server_id, version=__version__, api=API_VERSION,
                     base_url=self._stream_base_url(),
                     https_port=self._https_port_outside() if identity.tls_ready else 0,
-                    login_required=self.auth.login_required))  # TXT pair follows Require login
+                    login_required=self.auth.login_required,  # TXT pair follows Require login
+                    name=server_name))  # TXT name follows the server's name
             else:
                 logger.info("mDNS: the Home Assistant add-on isn't on the host network, so sonorium.local isn't "
                             "announced; the app links with the QR code, which carries the address")

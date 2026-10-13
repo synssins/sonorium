@@ -34,6 +34,12 @@ from sonorium.obs import logger
 API_VERSION = 1
 UI_HOST_API = 1  # the web UI's window.SONORIUM_HOST contract (static/js/api.js SONORIUM_HOST_API)
 PAIR_RATE, PAIR_BURST = 5 / 60, 5  # pairing: 5 attempts a minute per address
+SERVER_NAME = "Sonorium"
+
+
+def server_name() -> str:
+    """The server's name: GET /api/info "name" and the mDNS TXT name (announce.py) both read it."""
+    return SERVER_NAME
 
 
 def client_of(request: Request) -> str:
@@ -122,7 +128,7 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
         identity = service.identity
         feats = features()
         return {
-            "id": identity.server_id, "name": "Sonorium", "version": version, "api": API_VERSION,
+            "id": identity.server_id, "name": server_name(), "version": version, "api": API_VERSION,
             "install": runtime.INSTALL, "features": feats,
             "capabilities": capabilities(service, feats, plugins=bool(plugins_available())),
             "ports": {"http": http, "https": https_port() or None}, "host": host, "hostname": mdns_host() or None,
