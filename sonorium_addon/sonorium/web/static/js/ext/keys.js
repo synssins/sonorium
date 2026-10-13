@@ -69,7 +69,7 @@
         return `<div class="sp-lrow ky-grid"><span class="ky-name">${esc(k.name)}</span>
             <span class="ky-chips">${(k.chips || []).map(c => `<span class="ky-chip">${esc(c)}</span>`).join('')}</span>
             <span class="ky-exp">${expires}</span><span class="ky-dim">${esc(when(k.last_used))}</span>
-            <button type="button" class="icon-btn sm" aria-label="More" aria-haspopup="menu" onclick="KeysUI.menu(this, ${arg(k.id)})">${I_MORE}</button></div>`;
+            <button type="button" class="icon-btn sm" aria-label="More" aria-haspopup="menu"${uiAnchor('key.row', 'menu', uiRef('key', k.id))} onclick="KeysUI.menu(this, ${arg(k.id)})">${I_MORE}</button></div>`;
     }
 
     function drawKeys() {

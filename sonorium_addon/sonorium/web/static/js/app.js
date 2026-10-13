@@ -350,9 +350,10 @@ function showView(viewName) {
         `,
         status: npModeHtml()
     };
-    // Plugins' buttons first, then the page's own (slots.js)
+    // Built-in plugins' buttons first, then the page's own (slots.js), then the header spot (ext/contrib.js)
     document.getElementById('view-actions').innerHTML = Sonorium.headerButtons(viewName)
-        + (actionsHtml[viewName] || (Sonorium.page(viewName)?.actions?.(Sonorium.me) ?? ''));
+        + (actionsHtml[viewName] || (Sonorium.page(viewName)?.actions?.(Sonorium.me) ?? ''))
+        + (uiOwnPage(viewName) ? '' : uiZone(`screen.${viewName}`, 'header', null, 'span'));
     if (viewName === 'settings-plugins') renderPluginUploadState();
     // Page actions (Save / Cancel, Restart now) sit in the top bar of their own page
     document.querySelectorAll('.main-header .hdr-pacts').forEach(el => {
@@ -389,9 +390,25 @@ function showView(viewName) {
     }
     if (viewName === 'status') renderStatus(); else npStop();
     if (Sonorium.isPage(viewName)) Sonorium.renderPage(viewName);
+    uiScreen(viewName);
 
     // Close mobile sidebar when navigating to a new view
     closeSidebar();
+}
+
+// A plugin's own page (left menu or Settings, drawn from its schema): it has no open spots for others
+function uiOwnPage(viewName) {
+    return /^(ext|uip)-/.test(viewName);
+}
+
+// Every screen's open spots (ext/contrib.js): the top strip above its content, and its ⋯ menu
+// in the title bar. A new screen gets them here without doing anything.
+function uiScreen(viewName) {
+    if (uiOwnPage(viewName)) return;
+    const target = `screen.${viewName}`;
+    const view = document.getElementById(`view-${viewName}`);
+    if (view && !view.querySelector(':scope > .ui-top')) view.insertAdjacentHTML('afterbegin', uiZone(target, 'top', null, 'div', 'ui-top'));
+    document.querySelectorAll('#view-actions .icon-btn[aria-haspopup="menu"]').forEach(btn => Sonorium.ui.setAnchor(btn, target, 'menu', null));
 }
 
 function toggleNavSection(sectionId) {
@@ -485,16 +502,17 @@ function renderSessionCard(session) {
     const playlistMode = !!session.playlist_id || chPlaylistMode.has(id);
     const name = escapeHtml(session.name);
     const speakers = session.speaker_summary || (session.speakers?.length === 0 ? 'No speakers selected' : `${session.speakers?.length || 0} speaker${(session.speakers?.length || 0) !== 1 ? 's' : ''}`);
+    const ref = channelRef(session);
 
     return `
         <div class="ch-card${isPlaying ? ' on' : ''}${Sonorium.cardCls(session)}" data-session-id="${escapeHtml(id)}">
             ${Sonorium.cardTop(session)}
             <div class="ch-head">
                 <span class="ch-icon" aria-hidden="true">${themeIconOf(session.theme_id)}</span>
-                <div class="ch-title"><span class="ch-name">${name}</span>${Sonorium.cardBadges(session)}<span class="ch-sub" title="Speakers"><span class="ch-sub-txt">${escapeHtml(speakers)}</span>${Sonorium.cardSub(session)}</span></div>
+                <div class="ch-title"><span class="ch-name">${name}</span>${Sonorium.cardBadges(session)}${uiZone('channel.card', 'badges', ref, 'span')}<span class="ch-sub" title="Speakers"><span class="ch-sub-txt">${escapeHtml(speakers)}</span>${Sonorium.cardSub(session)}</span></div>
                 <span class="ch-state${isPlaying ? ' on' : ''}">${isPlaying ? 'Playing' : 'Stopped'}</span>
                 <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
-                <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
+                <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('channel.card', 'menu', ref)} onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
             </div>
             <div class="ch-a">
             ${Sonorium.cardPickers(session)}
@@ -507,6 +525,7 @@ function renderSessionCard(session) {
             </div>
             ${chNowHtml(session)}
             ${Sonorium.cardStrips(session)}
+            ${uiZone('channel.card', 'info', ref)}
             </div>
             <div class="ch-b">
             <div class="ch-vol" title="Volume on the speakers">
@@ -531,6 +550,15 @@ function renderSessionCard(session) {
             </div>
         </div>
     `;
+}
+
+// A channel as the open spots see it (ext/contrib.js)
+function channelRef(session) {
+    if (!session) return uiRef('channel', null, { playing: false, mode: 'theme' });
+    return uiRef('channel', session.id, {
+        playing: !!session.is_playing, mode: session.playlist_id ? 'playlist' : 'theme', theme: session.theme_id || '',
+        preset: session.preset_id || '', muted: !!session.speakers_muted, speakers: (session.speakers || []).length,
+    });
 }
 
 // Theme mode: the Theme and Preset fields
@@ -1237,6 +1265,7 @@ function openNewSessionModal() {
     refreshPickerOutputs();
     renderSpeakerGroupSelect();
     Sonorium.channelEditorOpen(null);  // plugins' fields (slots.js)
+    Sonorium.ui.bind('ch-ui-settings', channelRef(null));
 
     document.getElementById('session-modal').classList.add('active');
     scrollSelectedThemeIntoView();
@@ -1256,6 +1285,7 @@ function editSession(sessionId) {
 
     selectedTheme = session.theme_id;
     selectedSpeakerGroupId = session.speaker_group_id || null;
+    Sonorium.ui.bind('ch-ui-settings', channelRef(session));
 
     // Store the session's preset (or running sequence) to restore after loading presets
     selectedChannelPreset = sessionChoice(session);
@@ -1380,6 +1410,7 @@ async function saveSession() {
             await api('PUT', `/sessions/${sessionId}/playlist`, { playlist_id: chPlaylistId });
         }
         if (sessionId) await Sonorium.channelEditorSave(sessionId, session);  // plugins' fields
+        if (sessionId) await Sonorium.ui.commit(document.getElementById('session-modal'), channelRef({ ...(session || {}), id: sessionId }));
         showToast(editId ? 'Channel updated' : 'Channel created', 'success');
         closeSessionModal();
         await loadSessions();
@@ -2507,17 +2538,23 @@ function tpParts(theme) {
             ${playable ? '' : 'disabled'} onclick="tpPreview(${id})">${pv ? TP_ICON_STOP : TP_ICON_PLAY}</button>`,
         pvLabeled: `<button type="button" class="btn btn-sm btn-secondary pv-btn${pv ? ' on' : ''}" title="${pvTitle}"
             ${playable ? '' : 'disabled'} onclick="tpPreview(${id})">${pv ? TP_ICON_STOP : TP_ICON_PLAY}${pv ? 'Stop' : 'Preview'}</button>`,
-        more: `<button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu"
+        more: `<button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('theme.card', 'menu', themeRef(theme))}
             onclick="tpMenu('theme', this, ${id})">${TE_ICON_MORE}</button>`,
+        ui: uiZone('theme.card', 'badges', themeRef(theme), 'span'),
         nameEl: (cls) => `<span class="trk-name${cls ? ' ' + cls : ''}" title="${name}"><span class="mq-in">${name}</span></span>`,
     };
+}
+
+// A theme as the open spots see it (ext/contrib.js)
+function themeRef(theme) {
+    return uiRef('theme', theme.id, { favorite: !!theme.is_favorite, tracks: theme.total_tracks || 0, playing: tpPlayingOn(theme.id).length > 0 });
 }
 
 function tpCardHtml(theme) {
     const p = tpParts(theme);
     const phone = TP_PHONE.matches;
     const edit = `<button type="button" class="btn btn-sm btn-secondary" onclick="tpEdit(${p.id})">${phone ? '' : TP_ICON_EDIT}Edit</button>`;
-    const tags = `<div class="tc-tags">${p.air}${p.cats}</div>`;
+    const tags = `<div class="tc-tags">${p.air}${p.cats}${p.ui}</div>`;
     return `
     <div class="tcard${p.onAir ? ' on-air' : ''}${p.pv ? ' pv' : ''}">
         <div class="tc-top">
@@ -2537,7 +2574,7 @@ function tpRowHtml(theme) {
     return `
     <div class="lrow lgrid${p.pv ? ' pv' : ''}">
         ${p.pvRound}
-        <div class="lname"><span class="ic" aria-hidden="true">${p.icon}</span>${p.nameEl('')}${p.air}</div>
+        <div class="lname"><span class="ic" aria-hidden="true">${p.icon}</span>${p.nameEl('')}${p.air}${p.ui}</div>
         <div class="tc-tags">${p.cats || '<span class="notag">—</span>'}</div>
         <span class="lnum c" title="${p.meta}">${p.tracks}</span>
         ${p.star}
@@ -2718,6 +2755,7 @@ function tpMenu(kind, button, arg = null) {
     tp.menu = id;
     tp.menuBtn = button;
     button.setAttribute('aria-expanded', 'true');
+    Sonorium.ui.menu(pop, button);
     tePlaceMenu(pop, button, spec.align || 'right', 'down');
     const focus = pop.querySelector('input') || pop.querySelector('button:not([disabled])');
     if (focus) focus.focus();
@@ -3106,6 +3144,9 @@ function openThemeEditModal(themeId) {
     te.saved = teDetailsSnap();
     teDetailsChanged();
     teRenderPresetField();
+    const ref = themeRef(theme);
+    Sonorium.ui.bind('te-ui-settings', ref);
+    Sonorium.ui.setAnchor(document.getElementById('te-more-btn'), 'theme.editor', 'menu', ref);
 
     document.getElementById('te-tracks').innerHTML = '<div class="empty-row">Loading tracks…</div>';
     document.getElementById('theme-edit-modal').style.display = 'flex';
@@ -3358,6 +3399,7 @@ async function teSaveTheme(quiet = false) {
         }
         const body = { description, icon: te.icon || '' };
         await api('PUT', `/themes/${themeId}/metadata`, body);
+        await Sonorium.ui.commit(document.getElementById('theme-edit-modal'));
         await api('POST', `/themes/${themeId}/categories`, { categories: [...te.cats] });
         if (theme) {
             theme.name = name;
@@ -3580,6 +3622,10 @@ function teRenderRow(track, group, view = TE_VIEW) {
     const muted = track.muted || (group && group.settings?.muted);
     const cls = ['trow', 'tgrid2', group ? 'in-grp' : '', muted ? 'muted' : '', link ? 'linked' : '', missing ? 'missing' : '',
         playing ? 'previewing' : ''].filter(Boolean).join(' ');
+    // The open spots (ext/contrib.js) in the Theme Editor itself, not in a sequence step's view
+    const fileKind = !!group || key.includes('/');
+    const ui = view.edit ? { target: fileKind ? 'theme.file' : 'theme.track', ref: uiRef(fileKind ? 'file' : 'track', key,
+        { section: section.mode, muted: !!muted, linked: !!link, in_group: !!group }, te.themeId) } : null;
     const label = escapeHtml(name);
     let from = '';
     if (link) {
@@ -3619,13 +3665,13 @@ function teRenderRow(track, group, view = TE_VIEW) {
             ${TE_ICON_PLAY.replace('<svg', `<svg style="display:${playing ? 'none' : 'block'}"`)}
             ${TE_ICON_STOP.replace('<svg', `<svg style="display:${playing ? 'block' : 'none'}"`)}
         </button>
-        <div class="nm-cell"><span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>${from}</div>
+        <div class="nm-cell"><span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>${from}${ui ? uiZone(ui.target, 'badges', ui.ref, 'span') : ''}</div>
         <div class="c-mode">
             <span class="c-lbl">Mode</span>
             ${mode}
         </div>
         ${controls}
-        <button class="icon-btn sm more-btn" aria-label="More for ${label}" aria-haspopup="menu"
+        <button class="icon-btn sm more-btn" aria-label="More for ${label}" aria-haspopup="menu"${ui ? uiAnchor(ui.target, 'menu settings', ui.ref) : ''}
                 onclick="${on.menu}('${link ? 'link' : 'track'}', this, ${k})">${TE_ICON_MORE}${advOn ? '<span class="adv-dot"></span>' : ''}</button>
     </div>`;
 }
@@ -3648,6 +3694,7 @@ function teRenderGroup(group, view = TE_VIEW) {
     const renaming = view.edit && te.renaming === name;
     const confirming = view.edit && te.confirmDel === name;
     const count = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
+    const gui = view.edit ? uiRef('group', name, { section: teGroupSection(group)?.mode || '', muted, tracks: tracks.length }, te.themeId) : null;
     // Under the group's name: Gap (Intermittent), Crossfade (Merry-go-round, not in a sequence step) or the
     // Pause between plays switch (Ebb & Flow). On a phone, Gap and Crossfade get their own line in the header (.gap-row).
     const gap = (cls) => `
@@ -3685,7 +3732,7 @@ function teRenderGroup(group, view = TE_VIEW) {
     } else {
         nameCell = `${view.edit ? `<button class="gname" title="Double-click to rename" ondblclick="teStartRename(${n})">${label}</button>`
                                 : `<span class="gname">${label}</span>`}
-                    <span class="badge badge-type">${count}</span>`;
+                    <span class="badge badge-type">${count}</span>${gui ? uiZone('theme.group', 'badges', gui, 'span') : ''}`;
     }
     const section = teGroupSection(group);
     const masterSlider = (kind, text, value, ends = false) => teSliderCell(kind, text, value,
@@ -3709,7 +3756,7 @@ function teRenderGroup(group, view = TE_VIEW) {
             <button class="track-mute-btn${muted ? ' muted' : ''}${ovr(['muted'])}" title="${muted ? 'Unmute group' : 'Mute group'}"
                     aria-label="${muted ? 'Unmute group' : 'Mute group'}: ${label}" aria-pressed="${muted}"
                     onclick="${on.group}(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
-            <button class="icon-btn sm" aria-label="More for group ${label}" aria-haspopup="menu" onclick="${on.menu}('group', this, ${n})">${TE_ICON_MORE}</button>
+            <button class="icon-btn sm" aria-label="More for group ${label}" aria-haspopup="menu"${gui ? uiAnchor('theme.group', 'menu settings', gui) : ''} onclick="${on.menu}('group', this, ${n})">${TE_ICON_MORE}</button>
         </div>
         ${open ? `
         ${tracks.map(t => teRenderRow(t, group, view)).join('')}
@@ -4333,6 +4380,9 @@ function teRenderPresetField() {
     load.textContent = seq ? 'Edit' : 'Reload';
     document.getElementById('te-savepreset-btn').disabled = !preset;
     document.getElementById('te-dirty').hidden = !(preset && te.mixDirty);
+    // The preset ⋯ shows the loaded preset's open spots (ext/contrib.js)
+    Sonorium.ui.setAnchor(document.getElementById('te-pmore-btn'), 'theme.preset', 'menu settings',
+        preset ? uiRef('preset', preset.id, { default: !!preset.is_default }, te.themeId) : null);
 }
 
 function teChoosePreset(id) {
@@ -4689,6 +4739,7 @@ function teMenu(kind, button, arg = null, keepOpen = false) {
     te.menu = id;
     te.menuBtn = button;
     button.setAttribute('aria-expanded', 'true');
+    Sonorium.ui.menu(pop, button);
     tePlaceMenu(pop, button, spec.align || 'right', spec.dir || 'down');
     const focus = (spec.focusButton ? null : pop.querySelector('input')) || (keepOpen ? null : pop.querySelector('button:not([disabled])'));
     if (focus) { focus.focus(); if (focus.select && focus.value) focus.select(); }
@@ -5565,7 +5616,7 @@ function renderSpaceArea(area, floorId, editable) {
     const remove = editable && area.local_id
         ? `<button class="icon-btn" title="Delete area" onclick="deleteSpace('area', '${escapeHtml(area.local_id)}', '${escapeHtml(area.name)}')">${TRASH_ICON}</button>`
         : '';
-    return `<div class="space-row">${name}<span class="space-badges">${spaceBadges(area)}</span>${floor}
+    return `<div class="space-row">${name}<span class="space-badges">${spaceBadges(area)}${uiZone('area.row', 'badges', uiRef('area', area.id || area.local_id, { speakers: Number(area.speakers) || 0 }), 'span')}</span>${floor}
         <span class="space-count">${spaceCount(area.speakers)}</span><div class="spk-actions">${remove}</div></div>`;
 }
 
@@ -6343,6 +6394,7 @@ function renderSettingsSpeakerRow(speaker, rooms) {
     const offsetOptions = offsets.map(v => `<option value="${v}" ${v === offset ? 'selected' : ''}>${formatOffset(v)}</option>`).join('');
     const testing = !!spkTesting[id];
     const device = isOutputDevice(speaker);
+    const ref = uiRef('speaker', id, { online, enabled, type: speaker.type || '', device });
     const address = device ? (speaker.output.is_default ? 'Default' : '') : escapeHtml(speaker.address || id);
     const nameCell = spkEditId === id
         ? `<input class="sp-inp sm sps-nm-inp" type="text" maxlength="100" enterkeyhint="done" aria-label="Name"
@@ -6354,8 +6406,8 @@ function renderSettingsSpeakerRow(speaker, rooms) {
     return `
         <div class="sps-row sps-grid${enabled ? '' : ' off'}${online ? '' : ' offline'}" data-id="${escapeHtml(id)}">
             <span class="channel-status${online ? ' active' : ''} sps-dot" title="${online ? 'Online' : 'Offline'}" role="img" aria-label="${online ? 'Online' : 'Offline'}"></span>
-            <div class="sps-namecell">${nameCell}</div>
-            <div class="badges sps-src">${speakerBadges(speaker)}</div>
+            <div class="sps-namecell">${nameCell}${uiZone('speaker.row', 'columns', ref, 'span')}</div>
+            <div class="badges sps-src">${speakerBadges(speaker)}${uiZone('speaker.row', 'badges', ref, 'span')}</div>
             <span class="sps-addr${speaker.address || device ? '' : ' eid'}" title="${address}">${address}</span>
             <select class="sp-inp sm sps-area" aria-label="Area for ${name}" onchange="saveSpeakerRoom(this)">${roomOptions}</select>
             <select class="sp-inp sm sps-off" aria-label="Volume offset for ${name}" title="Volume offset" onchange="saveSpeakerOffset(this)">${offsetOptions}</select>
@@ -6365,7 +6417,7 @@ function renderSettingsSpeakerRow(speaker, rooms) {
                 <input type="checkbox" aria-label="Use ${name}" ${enabled ? 'checked' : ''} onchange="toggleSpeakerEnabled(speakerRowId(this), this.checked)">
                 <span class="toggle-slider"></span>
             </label>
-            <button type="button" class="icon-btn sm sps-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openSpeakerMenu(this)">${SP_ICON_MORE}${advanced ? '<i class="sp-adv-dot"></i>' : ''}</button>
+            <button type="button" class="icon-btn sm sps-more" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('speaker.row', 'menu settings', ref)} onclick="openSpeakerMenu(this)">${SP_ICON_MORE}${advanced ? '<i class="sp-adv-dot"></i>' : ''}</button>
         </div>`;
 }
 
@@ -6834,12 +6886,17 @@ function npWhereHtml(ch) {
     return out.join('');
 }
 
+function npRef(ch) {
+    return channelRef(sessions.find(s => s.id === ch.id) || { id: ch.id, is_playing: true });
+}
+
 function npCardHtml(ch, past) {
     const plays = npPlaysHtml(ch), where = npWhereHtml(ch);
     return `<div class="np-card" data-ch="${escapeHtml(ch.id)}">
         <div class="np-hd"><span class="ch-icon" aria-hidden="true">${themeIconOf(ch.theme_id)}</span>
-            <div class="np-title"><span class="np-cname">${escapeHtml(ch.name)}</span><span class="np-plays" data-v="${escapeHtml(plays)}">${plays}</span></div>
+            <div class="np-title"><span class="np-cname">${escapeHtml(ch.name)}${uiZone('status.channel', 'badges', npRef(ch), 'span')}</span><span class="np-plays" data-v="${escapeHtml(plays)}">${plays}</span></div>
             <span class="np-where" data-v="${escapeHtml(where)}">${where}</span></div>
+        ${uiZone('status.channel', 'info', npRef(ch))}
         <div class="np-cols"><span></span><span>Name</span><span>Mode</span><span>Now</span><span>Level</span></div>
         ${ch.sections.map(sec => `<div class="np-sec"><div class="np-sec-hd">${escapeHtml(sec.title)}</div>${sec.rows.map(r => npRowHtml(ch.id, r, false, past)).join('')}</div>`).join('')}
     </div>`;
@@ -7001,6 +7058,7 @@ function renderSettingsGroupsList() {
         const members = resolveGroupMembers(g, idx);
         const count = members.filter(m => !m.excluded).length;
         const name = escapeHtml(g.name);
+        const gref = uiRef('speaker_group', g.id, { speakers: count });
         const chips = []
             .concat((g.include_floors || []).filter(id => idx.floorById[id]).map(id => groupChip('fl', SP_ICON_FLOOR, idx.floorById[id].name, 'Floor')))
             .concat((g.include_areas || []).filter(id => idx.areaById[id]).map(id => groupChip('ar', SP_ICON_AREA, idx.areaById[id].name, 'Area')))
@@ -7030,11 +7088,11 @@ function renderSettingsGroupsList() {
             <div class="spg-grp" data-id="${escapeHtml(g.id)}">
                 <div class="sp-lrow spg-grid spg-row">
                     <button type="button" class="chev-btn spg-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Hide' : 'Show'} speakers in ${name}" onclick="toggleGroupOpen(${spArg(g.id)})">${SP_ICON_CHEV}</button>
-                    <div class="spg-name"><span class="spg-ic" aria-hidden="true">🔊</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span></div>
+                    <div class="spg-name"><span class="spg-ic" aria-hidden="true">🔊</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${uiZone('speaker_group.row', 'badges', gref, 'span')}${uiZone('speaker_group.row', 'columns', gref, 'span')}</div>
                     <div class="spg-chips" title="${escapeHtml(parts.join(', '))}">${chips.slice(0, chipMax).join('')}${rest > 0 ? `<span class="spg-more-n">+${rest}</span>` : ''}</div>
                     <span class="spg-num c" title="${spPlural(count, 'speaker')}">${count}</span>
                     <button type="button" class="btn btn-sm btn-secondary spg-edit" onclick="openGroupModal(${spArg(g.id)})">Edit</button>
-                    <button type="button" class="icon-btn sm spg-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openGroupMenu(this, ${spArg(g.id)})">${SP_ICON_MORE}</button>
+                    <button type="button" class="icon-btn sm spg-more" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('speaker_group.row', 'menu', gref)} onclick="openGroupMenu(this, ${spArg(g.id)})">${SP_ICON_MORE}</button>
                 </div>
                 ${open ? `<div class="spg-subs">${memberRows || '<div class="sp-muted spg-none">No speakers</div>'}</div>` : ''}
             </div>`;
@@ -7085,6 +7143,7 @@ function openGroupModal(groupId = null) {
     const nameInput = document.getElementById('group-name');
     nameInput.value = group ? group.name : '';
     nameInput.classList.remove('bad');
+    Sonorium.ui.bind('grp-ui-settings', uiRef('speaker_group', group ? group.id : null, { speakers: group ? (group.include_speakers || []).length : 0 }));
     document.getElementById('group-speaker-tree').scrollTop = 0;
     renderGroupSpeakerTree();
     document.getElementById('group-modal').classList.add('active');
@@ -7229,8 +7288,10 @@ async function saveGroup() {
         } else {
             const created = await api('POST', '/groups', payload);
             if (created?.id) grpOpen[created.id] = true;
+            if (created?.id) await Sonorium.ui.commit(document.getElementById('group-modal'), uiRef('speaker_group', created.id));
             showToast('Group created', 'success');
         }
+        if (grpEd.id) await Sonorium.ui.commit(document.getElementById('group-modal'));
         closeGroupModal();
         await loadSpeakerGroups();
         renderSettingsGroupsList();
@@ -7362,8 +7423,26 @@ async function installFromCatalog(pluginId) {
 }
 
 function pluginHasForm(plugin) {
-    return !!(plugin.ui_schema && plugin.ui_schema.fields && plugin.ui_schema.fields.length);
+    return !!(plugin.ui_schema && plugin.ui_schema.fields && plugin.ui_schema.fields.length) || pluginHasOwnUi(plugin);
 }
+
+// What the plugin adds to its own row (ext/contrib.js, spot "plugin")
+function pluginRef(plugin) {
+    return uiRef('plugin', plugin.id, { enabled: !!plugin.enabled, builtin: !!plugin.builtin });
+}
+function pluginHasOwnUi(plugin) {
+    return Sonorium.ui.has('plugin.row', 'plugin', pluginRef(plugin));
+}
+
+// Contributions refused by their spot's contract: named on the plugin's row
+function pluginWarningsHtml(plugin) {
+    const list = plugin.ui_warnings || [];
+    if (!list.length) return '';
+    const shown = list.slice(0, 3).map(w => `<li>${escapeHtml(w)}</li>`).join('');
+    const more = list.length > 3 ? `<li class="more" title="${escapeHtml(list.slice(3).join('\n'))}">+${list.length - 3} more</li>` : '';
+    return `<div class="spp-uiwarn" role="note"><span class="hd">${SP_ICON_WARN_SM}${list.length === 1 ? '1 addition refused' : `${list.length} additions refused`}</span><ul>${shown}${more}</ul></div>`;
+}
+const SP_ICON_WARN_SM = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
 
 function pluginHasSettings(plugin) {
     return !!(plugin.settings_schema && Object.keys(plugin.settings_schema).length);
@@ -7386,7 +7465,7 @@ function renderInstalledPlugins() {
                 <div class="sp-lrow spp-igrid">
                     <button type="button" class="chev-btn spp-chev${open ? ' open' : ''}" ${canOpen ? '' : 'disabled'} aria-expanded="${open}"
                             aria-label="${open ? 'Hide' : 'Show'} ${name}"${chevTitle ? ` title="${chevTitle}"` : ''} onclick="togglePluginForm(${spArg(plugin.id)})">${SP_ICON_CHEV}</button>
-                    <div class="spp-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span></div>
+                    <div class="spp-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${uiZone('plugin.row', 'badges', pluginRef(plugin), 'span')}</div>
                     <span class="spp-ver">v${escapeHtml(plugin.version)}${plugin.builtin ? '<span class="badge sp-badge-bi">Built-in</span>' : ''}</span>
                     <span class="spp-desc" title="${description}">${description}</span>
                     <span class="spp-auth" title="${author}">${author}</span>
@@ -7394,8 +7473,9 @@ function renderInstalledPlugins() {
                         <input type="checkbox" aria-label="Enabled: ${name}" ${plugin.enabled ? 'checked' : ''} onchange="togglePlugin(${spArg(plugin.id)}, this.checked)">
                         <span class="toggle-slider"></span>
                     </label>
-                    <button type="button" class="icon-btn sm spp-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openPluginMenu(this, ${spArg(plugin.id)})">${SP_ICON_MORE}</button>
+                    <button type="button" class="icon-btn sm spp-more" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('plugin.row', 'menu', pluginRef(plugin))} onclick="openPluginMenu(this, ${spArg(plugin.id)})">${SP_ICON_MORE}</button>
                 </div>
+                ${pluginWarningsHtml(plugin)}
                 ${open ? renderPluginUI(plugin) : ''}
             </div>`;
     }).join('')}</div>`;
@@ -7427,9 +7507,10 @@ function pluginFieldShown(plugin, field) {
 }
 
 function renderPluginUI(plugin) {
-    const hasForm = pluginHasForm(plugin);
-    if (!hasForm && !pluginHasSettings(plugin)) return '';
-    if (!hasForm) return `<div class="spp-form">${renderPluginSettings(plugin)}</div>`;
+    const own = uiZone('plugin.row', 'plugin', pluginRef(plugin));
+    const hasForm = !!(plugin.ui_schema && plugin.ui_schema.fields && plugin.ui_schema.fields.length);
+    if (!hasForm && !pluginHasSettings(plugin) && !pluginHasOwnUi(plugin)) return '';
+    if (!hasForm) return `<div class="spp-form">${renderPluginSettings(plugin)}${own}</div>`;
     const fields = plugin.ui_schema.fields.map(field => renderPluginField(plugin, field)).join('');
     const actions = (plugin.ui_schema.actions || []).slice()
         .sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0))
@@ -7440,6 +7521,7 @@ function renderPluginUI(plugin) {
             <div class="spp-fields">${fields}</div>
             ${actions ? `<div class="spp-acts">${actions}</div>` : ''}
             ${renderPluginSettings(plugin)}
+            ${own}
         </div>`;
 }
 
@@ -7582,6 +7664,7 @@ async function togglePlugin(pluginId, enable, confirmed = false) {
         if (enable) pluginOpen[pluginId] = true;
         showToast(`Plugin ${enable ? 'enabled' : 'disabled'}`, 'success');
         await loadPlugins();
+        await Sonorium.ui.reload();  // what it adds to the screens comes or goes
     } catch (error) {
         showToast(error.message || 'Failed to toggle plugin', 'error');
     }
@@ -7748,6 +7831,7 @@ async function uninstallPlugin(pluginId, pluginName) {
 
         // Reload plugins list and clear catalog cache so it refreshes
         await loadPlugins();
+        await Sonorium.ui.reload();
         pluginCatalog = null;
         pluginCatalogState = 'idle';
         renderPluginsView();
@@ -7852,6 +7936,7 @@ function spOpenPop(id, button, cls, html, role) {
     spm.id = id;
     spm.btn = button;
     button.setAttribute('aria-expanded', 'true');
+    Sonorium.ui.menu(pop, button);
     spPlacePop(pop, button);
     return pop;
 }
@@ -8474,11 +8559,22 @@ function sqOpen(id) {
     const name = document.getElementById('sq-name');
     name.value = seq ? seq.name : '';
     name.classList.remove('err');
+    const ref = sequenceRef();
+    Sonorium.ui.bind('sq-ui-settings', ref);
+    Sonorium.ui.setAnchor(document.getElementById('sq-more-btn'), 'sequence.editor', 'menu', ref);
     sqRenderHead();
     sqRender();
     document.getElementById('sq-modal').classList.add('active');
     document.querySelector('#sq-modal .sq-list').scrollTop = 0;
     if (!seq) setTimeout(() => name.focus(), 50);
+}
+
+// A sequence and its steps as the open spots see them (ext/contrib.js)
+function sequenceRef(id = sq.id) {
+    return uiRef('sequence', id || null, { steps: sq.presets.length, end: sq.end }, te.themeId);
+}
+function stepRef(presetId) {
+    return uiRef('step', sq.id ? `${sq.id}/${presetId}` : null, { advanced: sqStepChanged(presetId) }, te.themeId);
 }
 
 function sqRenderHead() {
@@ -8548,7 +8644,7 @@ function sqRender() {
                 <span class="drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag ${name}" ondragstart="rowDragStart(event, 'sq', ${i})" ondragend="rowDragEnd()">${TE_ICON_GRIP}</span>
                 <span class="sq-n">${i + 1}</span>
                 <span class="sq-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${presetMarks(!!p?.is_default, !!p?.has_intrusion)}</span>
-                <button type="button" class="icon-btn sm more-btn" aria-label="More for ${name}" aria-haspopup="menu" onclick="sqMenu('row', this, ${i})">${TE_ICON_MORE}${sqStepChanged(id) ? '<span class="adv-dot" title="Advanced set"></span>' : ''}</button>
+                <button type="button" class="icon-btn sm more-btn" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('sequence.step', 'menu', stepRef(id))} onclick="sqMenu('row', this, ${i})">${TE_ICON_MORE}${sqStepChanged(id) ? '<span class="adv-dot" title="Advanced set"></span>' : ''}</button>
             </div>`;
     }).join('') : `<div class="sq-empty"><button type="button" class="link-btn" onclick="sqMenu('add', this)">${TE_ICON_PLUS}Add preset</button></div>`;
     spUpdateMarquees(rows);
@@ -8667,6 +8763,7 @@ async function sqSave({ keepOpen = false, quiet = false } = {}) {
                             : await api('POST', `/themes/${te.themeId}/sequences`, body);
         // Steps' While playing layers from the Advanced dialog, for the presets still in it
         const id = saved?.id || sq.id;
+        await Sonorium.ui.commit(document.getElementById('sq-modal'), sequenceRef(id));
         for (const [preset, layer] of Object.entries(sq.layers)) {
             if (sq.presets.includes(preset)) {
                 await api('PUT', `/themes/${te.themeId}/sequences/${encodeURIComponent(id)}/while/${encodeURIComponent(preset)}`, layer);
@@ -8917,6 +9014,7 @@ async function txOpen(index) {
     txHelp.close();
     txStopPreview();
     document.getElementById('tx-modal').classList.add('active');
+    Sonorium.ui.setAnchor(document.getElementById('tx-more-btn'), 'step.editor', 'menu', stepRef(step));
     txRender();
     try {
         const q = new URLSearchParams({ preset: step });
@@ -9613,6 +9711,7 @@ function plRenderList() {
         const playing = plPlayingOn(p.id);
         const n = p.entries.length;
         const shuffle = p.order === 'shuffle';
+        const ref = playlistRef(p);
         const subs = p.entries.map((e, i) => {
             const theme = themeById(e.theme_id);
             return `
@@ -9626,18 +9725,24 @@ function plRenderList() {
             <div class="pll-grp" data-id="${escapeHtml(p.id)}">
                 <div class="sp-lrow pll-grid pll-row">
                     <button type="button" class="chev-btn pll-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Hide' : 'Show'} entries of ${name}" onclick="plToggleRow(${spArg(p.id)})">${SP_ICON_CHEV}</button>
-                    <div class="pll-name"><span class="pl-ic">${ICON_PLAYLIST}</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${playing.length ? `<span class="channel-status active" title="Playing on ${escapeHtml(playing.join(', '))}"></span>` : ''}</div>
+                    <div class="pll-name"><span class="pl-ic">${ICON_PLAYLIST}</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${playing.length ? `<span class="channel-status active" title="Playing on ${escapeHtml(playing.join(', '))}"></span>` : ''}${uiZone('playlist.row', 'badges', ref, 'span')}${uiZone('playlist.row', 'columns', ref, 'span')}</div>
                     <span class="pll-num c" title="${n} ${n === 1 ? 'entry' : 'entries'}">${n}<span class="ph-only"> ${n === 1 ? 'entry' : 'entries'}</span></span>
                     <span class="pll-meta"><span class="pll-ord">${shuffle ? ICON_SHUFFLE : ICON_IN_ORDER}${shuffle ? 'Shuffle' : 'In order'}</span>
                     <span class="pll-time">${seqMinutes(p.play_min)}–${seqMinutes(p.play_max)} min</span>
                     <span class="pll-rep c">${p.repeat ? `<span class="rep-ic" title="Repeats">${ICON_REPEAT}<span class="ph-only">Repeat</span></span>` : '<span class="dash" title="Stops after the last entry">–</span>'}</span></span>
                     <button type="button" class="btn btn-sm btn-secondary pll-edit" onclick="plOpen(${spArg(p.id)})">Edit</button>
-                    <button type="button" class="icon-btn sm pll-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="plRowMenu(this, ${spArg(p.id)})">${SP_ICON_MORE}</button>
+                    <button type="button" class="icon-btn sm pll-more" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('playlist.row', 'menu', ref)} onclick="plRowMenu(this, ${spArg(p.id)})">${SP_ICON_MORE}</button>
                 </div>
                 ${open ? `<div class="pll-subs">${subs || '<div class="sp-muted pll-none">No entries</div>'}</div>` : ''}
             </div>`;
     }).join('')}</div>`;
     spUpdateMarquees(container);
+}
+
+// A playlist and its entries as the open spots see them (ext/contrib.js)
+function playlistRef(p) {
+    if (!p) return uiRef('playlist', null, { playing: false, order: ple.order, entries: ple.entries.length });
+    return uiRef('playlist', p.id, { playing: plPlayingOn(p.id).length > 0, order: p.order === 'shuffle' ? 'shuffle' : 'in_order', entries: p.entries.length });
 }
 
 function plToggleRow(playlistId) {
@@ -9725,6 +9830,9 @@ async function plOpen(playlistId = null) {
     ['pl-min', 'pl-max'].forEach(id => document.getElementById(id).classList.remove('err'));
     document.getElementById('pl-repeat').checked = p ? !!p.repeat : true;
     document.getElementById('pl-fit').checked = !!p?.fit_sequences;
+    const ref = playlistRef(p);
+    Sonorium.ui.bind('pl-ui-settings', ref);
+    Sonorium.ui.setAnchor(document.getElementById('pl-more-btn'), 'playlist.editor', 'menu', ref);
     plRenderHead();
     plRenderOrder();
     plRenderEntries();
@@ -9795,7 +9903,7 @@ function plRenderEntries() {
                 <button type="button" class="wsel eww" aria-haspopup="listbox" aria-label="Preset or sequence for entry ${i + 1}" ${theme ? '' : 'disabled'} onclick="plMenu('what', this, ${i})">
                     <span class="wsel-in">${theme ? plWhatHtml(e.theme_id, e.preset_id, e.sequence_id) : '<span class="wl dflt">Default settings</span>'}</span><span class="chev">${ICON_CHEV_DOWN}</span>
                 </button>
-                <button type="button" class="icon-btn sm" aria-label="More for entry ${i + 1}" aria-haspopup="menu" onclick="plMenu('row', this, ${i})">${TE_ICON_MORE}</button>
+                <button type="button" class="icon-btn sm" aria-label="More for entry ${i + 1}" aria-haspopup="menu"${uiAnchor('playlist.entry', 'menu', uiRef('playlist_entry', ple.id ? `${ple.id}/${i}` : null, { sequence: !!e.sequence_id }))} onclick="plMenu('row', this, ${i})">${TE_ICON_MORE}</button>
                 ${note ? `<span class="enote">${escapeHtml(note)}</span>` : ''}
             </div>`;
     }).join('')}</div>` : `<div class="eempty"><span>No entries</span><button type="button" class="link-btn" onclick="plAddEntry()">${TE_ICON_PLUS}Add entry</button></div>`;
@@ -9947,6 +10055,7 @@ async function plSave() {
         const isNew = !ple.id;
         const saved = isNew ? await api('POST', '/playlists', body) : await api('PUT', `/playlists/${encodeURIComponent(ple.id)}`, body);
         if (isNew && saved?.id) plOpenRows[saved.id] = true;
+        await Sonorium.ui.commit(document.getElementById('pl-modal'), playlistRef(saved?.id ? { ...saved, entries: saved.entries || [] } : null));
         plClose();
         await Promise.all([loadPlaylists(), loadSessions()]);
         if (currentView === 'playlists') plRenderList();
