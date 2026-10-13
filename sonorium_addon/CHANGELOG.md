@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.44 (2026-10-13)
+
+### Features
+
+- **themes**: Theme audio standardized to MP3 320 kb/s, 44.1 kHz, stereo
+  ([`6c1399d`](https://github.com/synssins/sonorium/commit/6c1399d68b501e32ef6c8c2b701c5d2eef9c6e27))
+
+
 ## v1.7.3-dev.42 (2026-10-13)
 
 
