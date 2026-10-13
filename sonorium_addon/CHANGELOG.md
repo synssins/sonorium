@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.22 (2026-10-13)
+
+### Bug Fixes
+
+- **ui**: Phone header keeps one row; menu toggles in groups; entries keep their values
+  ([`8c9823c`](https://github.com/synssins/sonorium/commit/8c9823c8c9f25a03954167f5713798ad224daa07))
+
+### Features
+
+- **plugins**: Attributes on every object a screen shows
+  ([`7781fde`](https://github.com/synssins/sonorium/commit/7781fde0032cf48501e40230a6892418c86862c9))
+
+
 ## v1.7.3-dev.21 (2026-10-13)
 
 ### Bug Fixes
