@@ -329,13 +329,26 @@ Core:
 
 | Route | Who |
 |---|---|
-| `GET /api/info` | anyone: server id, name, version, `api`, install type, features, ports, `host` (the speakers' address), `hostname` (the mDNS name, or null), `login_required`, fingerprint, `boot_id` (new at every start), `ui` (the web UI's version and hook version) |
+| `GET /api/info` | anyone: server id, name, version, `api`, install type, features, ports, `host` (the speakers' address), `hostname` (the mDNS name, or null), `login_required`, fingerprint, `boot_id` (new at every start), `ui` (the web UI's version and hook version), `capabilities` (below) |
 | `GET /api/auth/me` | anyone: who you are, your permissions, CSRF token, bypass, `accounts` |
 | `POST /api/link` | signed in (or open access): a Link App code and QR |
 | `POST /api/pair` | anyone, HTTPS: code → phone token |
 | `GET /api/devices`, `DELETE /api/devices/{id}` | your phones; an Admin: everyone's (a phone: only itself) |
 | `GET`, `PUT`, `DELETE /api/devices/self` | a linked phone: its own record, a new name, unlinking itself |
 | `GET /api/stream/url` | the stream URLs on the direct port |
+
+`capabilities` in `GET /api/info` lists what this server offers, so an app shows only those
+menus. A server without the list is older: it offers everything. The list describes the server,
+the same for every caller; what a caller may do is still checked per route.
+
+| Name | Present |
+|---|---|
+| `channels.create`, `speakers`, `speaker_groups`, `spaces`, `audio_settings`, `advanced`, `logs`, `status`, `listen`, `theme_packages` | always |
+| `connection` | Home Assistant and MQTT settings are shown here (not in the HA app) |
+| `plugins` | the plugin system started |
+| `users` | user accounts are loaded (Users & devices) |
+| `keys` | Settings > Advanced > Keys is on |
+| `zones` | Settings > Advanced > Zones is on (Zones are part of Sonorium; the switch itself is under `advanced`) |
 
 Users (`sonorium/auth/users.py`): `POST /api/auth/setup`, `/api/auth/login`, `/api/auth/logout`,
 `/api/auth/code-login`, `/api/auth/new-password`, `PUT /api/auth/require-login`,

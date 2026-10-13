@@ -61,10 +61,35 @@ def limited(limiter: RateLimiter, key: str, spend: bool) -> None:
                             headers={"Retry-After": str(int(wait) + 1)})
 
 
+def capabilities(service: AuthService, features: dict, *, plugins: bool) -> list[str]:
+    """
+    The "capabilities" list of /api/info: what this server offers, so the app hides
+    the rest. It describes the server, not the caller (permissions stay per route).
+    """
+    from sonorium.auth import keys
+    from sonorium.auth.users import ZONES_STATE
+
+    def on(name: str) -> bool:
+        return bool((features.get(name) or {}).get("enabled"))
+
+    zones = service.plugin_state.get(ZONES_STATE)
+    caps = ["channels.create", "speakers", "speaker_groups", "spaces", "audio_settings", "advanced",
+            "logs", "status", "listen", "theme_packages"]
+    caps += [name for name, present in (
+        ("connection", on("connection_settings")),  # Home Assistant and MQTT settings (not in the HA app)
+        ("plugins", plugins),  # the plugin system started
+        ("users", service.accounts_loaded),  # Users & devices
+        ("keys", keys.enabled(service)),  # Settings > Advanced > Keys is on
+        ("zones", bool(zones is not None and zones.enabled)),  # Settings > Advanced > Zones is on
+    ) if present]
+    return sorted(caps)
+
+
 def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], str],
                             features: Callable[[], dict], version: str,
                             https_host_port: Callable[[], int],
-                            mdns_host: Callable[[], Optional[str]] = lambda: None) -> APIRouter:
+                            mdns_host: Callable[[], Optional[str]] = lambda: None,
+                            plugins_available: Callable[[], bool] = lambda: False) -> APIRouter:
     router = APIRouter(tags=["auth"])
     pair_limiter = RateLimiter(PAIR_RATE, PAIR_BURST)
 
@@ -95,9 +120,11 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
         """Public: what this server is, for the app (works before linking)."""
         host, http = link_address()
         identity = service.identity
+        feats = features()
         return {
             "id": identity.server_id, "name": "Sonorium", "version": version, "api": API_VERSION,
-            "install": runtime.INSTALL, "features": features(),
+            "install": runtime.INSTALL, "features": feats,
+            "capabilities": capabilities(service, feats, plugins=bool(plugins_available())),
             "ports": {"http": http, "https": https_port() or None}, "host": host, "hostname": mdns_host() or None,
             "login_required": login_required(), "pair": True, "fingerprint": identity.fingerprint,
             "plugins": service.plugin_ids(),  # "users" kept for released apps; use "accounts"

@@ -145,6 +145,7 @@ class WebApp:
             version=__version__,
             https_host_port=self._https_port_outside,
             mdns_host=lambda: self._announcer.hostname if self._announcer is not None else None,
+            plugins_available=lambda: self._plugin_manager is not None,
         ))
         # Users (accounts, sign-in): sign-in stays closed until they have loaded (auth/users.py)
         self.auth.expected_providers.add("users")  # auth/users.py PLUGIN_ID

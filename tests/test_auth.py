@@ -678,6 +678,34 @@ def test_info_is_public(w):
     assert info["personal_channel"] is True  # GET/PUT /api/me/channel
 
 
+ALWAYS = {"channels.create", "speakers", "speaker_groups", "spaces", "audio_settings", "advanced", "logs",
+          "status", "listen", "theme_packages"}
+
+
+def test_info_capabilities_follow_the_switches(w):
+    """capabilities: what the server offers (the same for every caller); keys and zones follow their switches."""
+    caps = w.client().get("/api/info").json()["capabilities"]
+    assert set(caps) == ALWAYS | {"users", "keys"} and caps == sorted(caps)  # no plugin system, no connection here
+    m.keys.set_enabled(w.service, False)  # Settings > Advanced > Keys off
+    assert "keys" not in w.client().get("/api/info").json()["capabilities"]
+    zones = w.service.plugin_state["users.zones"]
+    zones.set_enabled(True)  # Settings > Advanced > Zones on
+    assert "zones" in w.client().get("/api/info").json()["capabilities"]
+    zones.set_enabled(False)
+    assert "zones" not in w.client().get("/api/info").json()["capabilities"]
+
+
+def test_capabilities_follow_features_and_plugins(tmp_path, monkeypatch):
+    """connection follows the connection_settings feature (hidden in the HA app); plugins, the plugin system."""
+    w = World(tmp_path, monkeypatch, users=False, keys=False)
+    caps = m.routes.capabilities
+    assert set(caps(w.service, {}, plugins=False)) == ALWAYS  # no accounts, keys or plugins
+    on = {"connection_settings": {"enabled": True}}
+    assert set(caps(w.service, on, plugins=True)) == ALWAYS | {"connection", "plugins"}
+    off = {"connection_settings": {"enabled": False}}
+    assert "connection" not in caps(w.service, off, plugins=True)
+
+
 # --- Home Assistant's users (add-on) ---------------------------------------------------
 
 class FakeWebSocket:
