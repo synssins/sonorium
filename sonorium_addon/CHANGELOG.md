@@ -2,6 +2,26 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.38 (2026-10-13)
+
+### Continuous Integration
+
+- **windows**: A GitHub rate limit in the clean-runner update check warns instead of failing the
+  release
+  ([`a671baa`](https://github.com/synssins/sonorium/commit/a671baab4cdd1379137fee91826c283493b0ded7))
+
+### Features
+
+- **backups**: Theme backups from the app, per account and phone
+  ([`d901989`](https://github.com/synssins/sonorium/commit/d901989d2710aa4fae4a0989cb303dc68360de11))
+
+- **engine**: Stereo in the shared mixer, a server Stereo switch, and a FLAC audio cache
+  ([`2342c93`](https://github.com/synssins/sonorium/commit/2342c935e54667937f17259042778284f090e06e))
+
+- **web**: Copy a linked file into the theme; sleep timer on channels
+  ([`395e01d`](https://github.com/synssins/sonorium/commit/395e01de75bd04599e34a37a4adbad166670eaee))
+
+
 ## v1.7.3-dev.36 (2026-10-13)
 
 ### Bug Fixes
