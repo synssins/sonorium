@@ -157,7 +157,7 @@ const trips = await run(`
     out.afterSave = (await get('channel', sessions[0].id)).demo_level;
     await fetch('${base}/api/attributes/channel/ui_everywhere?id=' + sessions[0].id, { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ demo_level: null }) });
     await fetch('${base}/api/attributes/speaker/ui_everywhere?id=' + encodeURIComponent(sid), { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ demo_on: null }) });
-    const act = await fetch('${base}/api/ui/actions/ui_everywhere/' + document.querySelector('[data-ui-target="screen.sessions"] [data-ui-act], #view-actions [data-ui-act]').getAttribute('data-ui-act').split('/')[1], { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const act = await fetch('${base}/api/ui/actions/ui_everywhere/' + document.querySelector('#view-actions [data-ui-act^="ui_everywhere/"]').getAttribute('data-ui-act').split('/')[1], { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     out.action = (await act.json()).success;
     closeSessionModal();
     // switched off: everything it added goes; on again: back

@@ -180,7 +180,7 @@
     U.list = function (target, spot, ref) {
         return (U.index[`${target}/${spot}`] || []).filter(e => {
             if (!U.plugins[e.plugin]) return false;
-            if (spot === 'plugin' && (!ref || ref.id !== e.plugin)) return false;  // a plugin's own row only
+            if (spot === 'plugin' && (!ref || ref.id !== e.plugin)) return false;  // in the plugin's row only
             return passes(e.when, facts(ref, e.plugin));
         });
     };
@@ -291,7 +291,7 @@
         if (!v || v.text === '') return '';
         return `<span class="badge badge-type ui-badge${STATE_CLS[v.state] || ''}"${e.label || e.help ? ` title="${X.esc(e.label || e.help)}"` : ''}>${X.esc(v.text)}</span>`;
     }
-    // The elements of an editor group, a plugin's own UI or a page section
+    // The elements of an editor group, a plugin's row or a page section
     function block(list, ref, pending) {
         return list.map(e => {
             const el = { ...e, plugin: e.plugin };
@@ -315,7 +315,7 @@
         }
         if (!list.length) return '';
         switch (spot) {
-            case 'header':  // like the screen's own: icon and label, the icon alone on a phone
+            case 'header':  // like the screen's buttons: icon and label, the icon alone on a phone
                 return list.map(e => `<button type="button" class="btn btn-secondary sp-hbtn ui-act" data-ui-act="${X.esc(e.plugin)}/${X.esc(e.id)}" aria-label="${X.esc(e.label)}" title="${X.esc(e.help || e.label)}">${X.icon(U.plugins[e.plugin]?.icon, 16)}<span class="lbl">${X.esc(e.label)}</span></button>`).join('');
             case 'badges':
                 return list.map(e => badgeEl(e, ref)).join('');
@@ -344,7 +344,7 @@
         }
     }
 
-    // ⋯ menus: the plugins' items after the menu's own, before destructive ones; then the settings
+    // ⋯ menus: the plugins' items after the menu's items, before destructive ones; then the settings
     // groups of things without an editor dialog
     U.menu = function (pop, button) {
         if (!pop || !button || !button.getAttribute || !button.hasAttribute('data-ui-target')) return;

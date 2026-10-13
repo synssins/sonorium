@@ -350,7 +350,7 @@ function showView(viewName) {
         `,
         status: npModeHtml()
     };
-    // Built-in plugins' buttons first, then the page's own (slots.js), then the header spot (ext/contrib.js)
+    // Built-in plugins' buttons first (slots.js), then the page's buttons, then the header spot (ext/contrib.js)
     document.getElementById('view-actions').innerHTML = Sonorium.headerButtons(viewName)
         + (actionsHtml[viewName] || (Sonorium.page(viewName)?.actions?.(Sonorium.me) ?? ''))
         + (uiOwnPage(viewName) ? '' : uiZone(`screen.${viewName}`, 'header', null, 'span'));
@@ -396,7 +396,7 @@ function showView(viewName) {
     closeSidebar();
 }
 
-// A plugin's own page (left menu or Settings, drawn from its schema): it has no open spots for others
+// A page a plugin draws (left menu or Settings, from its schema): no open spots for other plugins
 function uiOwnPage(viewName) {
     return /^(ext|uip)-/.test(viewName);
 }
@@ -7426,7 +7426,7 @@ function pluginHasForm(plugin) {
     return !!(plugin.ui_schema && plugin.ui_schema.fields && plugin.ui_schema.fields.length) || pluginHasOwnUi(plugin);
 }
 
-// What the plugin adds to its own row (ext/contrib.js, spot "plugin")
+// What the plugin adds to its row in Settings › Plugins (ext/contrib.js, spot "plugin")
 function pluginRef(plugin) {
     return uiRef('plugin', plugin.id, { enabled: !!plugin.enabled, builtin: !!plugin.builtin });
 }

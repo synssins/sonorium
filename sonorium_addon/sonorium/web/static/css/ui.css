@@ -11,7 +11,7 @@ span.ui-header { display: contents; }
 .ui-pb .nav-icon, .ui-pb .ext-svg { width: 12px; height: 12px; margin: 0; flex: none; }
 .ui-pb span { overflow: hidden; text-overflow: ellipsis; }
 
-/* badges after an item's own */
+/* badges after an item's badges */
 span.ui-badges { display: inline-flex; align-items: center; gap: .25rem; margin-left: .375rem; vertical-align: middle; flex: none; }
 .ui-badge.ui-ok { background: rgba(6, 214, 160, .15); color: var(--accent-primary); }
 .ui-badge.ui-warn { background: rgba(245, 165, 36, .15); color: #f5a524; }
@@ -74,11 +74,11 @@ div.ui-settings { display: flex; flex-direction: column; gap: .375rem; }
 .ui-grp[open] .ui-chev { transform: rotate(90deg); }
 .ui-grp-b { padding: .125rem .625rem .5rem; }
 .te-top .ui-settings, .sq-top .ui-settings, .ple-top .ui-settings, .sp-ed-top .ui-settings { margin-top: .5rem; }
-/* in a dialog the editor's own fields stay in place: an open group scrolls on its own */
+/* in a dialog the editor's fields stay in place: an open group scrolls */
 .modal .ui-settings { flex: none; }
 .modal .ui-grp-b { max-height: min(calc(40vh / var(--zoom, 1)), 320px); overflow-y: auto; scrollbar-width: thin; }
 
-/* menus: the plugins' items after the menu's own, before destructive ones */
+/* menus: the plugins' items after the menu's items, before destructive ones */
 .te-pop .ui-mhead { padding-top: .25rem; }
 .te-pop .ui-mhead .ui-pb { text-transform: none; letter-spacing: 0; }
 .te-pop .ui-mrow .sp-inp, .te-pop .ui-mrow .ui-num { flex: none; }
@@ -91,7 +91,7 @@ div.ui-settings { display: flex; flex-direction: column; gap: .375rem; }
 .ui-dot { position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-primary); pointer-events: none; }
 .adv-dot ~ .ui-dot, .sp-adv-dot ~ .ui-dot { display: none; }
 
-/* a plugin's own UI in Settings › Plugins, and what was refused */
+/* a plugin's UI in its row in Settings › Plugins, and what was refused */
 .ui-own { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .25rem 1.5rem; max-width: 864px; margin-top: .75rem; }
 .ui-own .ui-acts, .ui-own .ui-line, .ui-own .ui-sub { grid-column: 1 / -1; }
 .spp-uiwarn { margin: 0 0 .5rem 2.75rem; font-size: .75rem; color: #f5a524; }

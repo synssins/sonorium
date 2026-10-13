@@ -9,15 +9,15 @@ A target is a part of the web UI with a stable id: a screen
 change, hide, reorder or remove, and OPEN SPOTS, where plugins may add. A
 plugin only adds, and only in the open spots:
 
-    header     buttons after a screen's own buttons
+    header     buttons after a screen's buttons
     top        one strip per plugin above a screen's content
-    menu       items in a ⋯ menu, after its own items, before destructive ones
+    menu       items in a ⋯ menu, after its items, before destructive ones
     settings   one collapsed group per plugin in an editor (or in the ⋯ menu
                of a thing without an editor dialog: a track, a speaker)
-    badges     a small badge after a row's own badges
+    badges     a small badge after a row's badges
     columns    a value at the end of a row's name column, with a heading
-    info       one line on a card, after its own lines
-    plugin     the plugin's own UI in Settings › Plugins (its own row only)
+    info       one line on a card, after its lines
+    plugin     the plugin's UI in its row in Settings › Plugins
     pages      an entry in the left menu or in Settings, opening a page drawn
                from the same element kinds
 
@@ -34,7 +34,7 @@ Element kinds:
 
     field    one control bound to a value: {"bind": {"attribute": name}} (the
              plugin's declared attribute on the object the spot shows),
-             {"bind": {"setting": name}} (the plugin's own setting) or
+             {"bind": {"setting": name}} (one of the plugin's settings) or
              {"bind": {"action": id}} (no stored value: the plugin's
              ui_action() gets each change). Types: text, number, slider,
              toggle, select, colour, list.
@@ -105,18 +105,18 @@ SPOT_TYPES: dict[str, dict] = {
     "header": {
         "kinds": ("action",), "max_per_plugin": 1, "label_max": 20, "text_max": 0,
         "field_types": (), "bindings": (), "max_fields_per_item": 0, "collapsible": False,
-        "position": "after the screen's own buttons",
+        "position": "after the screen's buttons",
     },
     "top": {
         "kinds": ("info", "action", "field"), "max_per_plugin": 3, "label_max": 24, "text_max": 120,
         "field_types": ("toggle", "select", "number", "slider", "text"), "bindings": ("setting", "action"),
         "max_fields_per_item": 1, "collapsible": False,
-        "position": "one strip per plugin, after the screen's own bars, above its content",
+        "position": "one strip per plugin, after the screen's bars, above its content",
     },
     "badges": {
         "kinds": ("badge",), "max_per_plugin": 1, "label_max": 24, "text_max": 12,
         "field_types": (), "bindings": (), "max_fields_per_item": 0, "collapsible": False,
-        "position": "after the item's own badges",
+        "position": "after the item's badges",
     },
     "columns": {
         "kinds": ("column",), "max_per_plugin": 1, "label_max": 12, "text_max": 16,
@@ -126,31 +126,31 @@ SPOT_TYPES: dict[str, dict] = {
     "info": {
         "kinds": ("info",), "max_per_plugin": 1, "label_max": 24, "text_max": 80,
         "field_types": (), "bindings": (), "max_fields_per_item": 0, "collapsible": False,
-        "position": "one line after the card's own lines",
+        "position": "one line after the card's lines",
     },
     "menu": {
         "kinds": ("action", "field", "group"), "max_per_plugin": 3, "label_max": 20, "text_max": 0,
         "field_types": ("toggle", "select", "number"), "bindings": ("attribute", "action"),
         "max_fields_per_item": 2, "collapsible": False,
-        "position": "after the menu's own items, before destructive ones",
+        "position": "after the menu's items, before destructive ones",
     },
     "settings": {
         "kinds": ("field", "info", "action", "group"), "max_per_plugin": 8, "label_max": 24, "text_max": 120,
         "field_types": FIELD_TYPES, "bindings": ("attribute", "action"),
         "max_fields_per_item": 6, "collapsible": True,
-        "position": "one collapsed group per plugin, after the editor's own settings",
+        "position": "one collapsed group per plugin, after the editor's settings",
     },
     "plugin": {
         "kinds": ("field", "info", "action", "group"), "max_per_plugin": 20, "label_max": 24, "text_max": 200,
         "field_types": FIELD_TYPES, "bindings": ("setting", "action"),
         "max_fields_per_item": 6, "collapsible": False, "own_only": True,
-        "position": "the plugin's own row in Settings › Plugins, after its settings",
+        "position": "the plugin's row in Settings › Plugins, after its settings",
     },
     "pages": {
         "kinds": ("page",), "max_per_plugin": 2, "label_max": 24, "text_max": 0,
         "field_types": FIELD_TYPES, "bindings": ("setting", "action"),
         "max_fields_per_item": 6, "collapsible": False,
-        "position": "after the menu's own entries",
+        "position": "after the menu's entries",
     },
 }
 
@@ -160,7 +160,7 @@ IN_MENU = "in its ⋯ menu, after the menu items"
 
 # Facts a visibility condition ("when") can test, per kind of object. Every
 # condition may also test "phone" (the phone layout) and, on objects that keep
-# plugin attributes, "attr.<name>" (the plugin's own attribute).
+# plugin attributes, "attr.<name>" (an attribute the plugin declares).
 FACTS: dict[str, dict] = {
     "channel": {"playing": "bool", "mode": ["theme", "playlist"], "theme": "text", "preset": "text",
                 "muted": "bool", "speakers": "number"},
@@ -307,7 +307,7 @@ def catalogue() -> dict:
         facts = dict(GLOBAL_FACTS)
         facts.update(FACTS.get(obj, {}) if obj else {})
         if obj in ATTRIBUTE_KINDS:
-            facts["attr.<name>"] = "the plugin's own attribute on the object"
+            facts["attr.<name>"] = "an attribute the plugin declares, on the object"
         targets.append({"id": t["id"], "title": t["title"], "screen": t["screen"], "object": obj,
                         "attributes": obj in ATTRIBUTE_KINDS, "fixed": list(t["fixed"]),
                         "spots": spots, "facts": facts})
@@ -459,7 +459,7 @@ def _check_field(element: dict, rules: dict, ctx: dict, label_max: int) -> dict:
             raise Refused(f"the action id is not a plain id ({COMMON['id_words']})")
         if "default" in element:
             out["default"] = element["default"]
-    # The element's own range and options (an attribute's or setting's come first)
+    # The element's range and options (an attribute's or setting's come first)
     if kind in ("number", "slider"):
         for key in ("min", "max", "step"):
             if key in element and key not in out:
@@ -518,7 +518,7 @@ def _check_element(element: Any, rules: dict, ctx: dict, kinds, in_page: bool = 
         if confirm:
             out["confirm"] = confirm
         if element.get("style") not in (None, "secondary"):
-            raise Refused("an action's style is 'secondary' (the screen's own buttons are primary or destructive)")
+            raise Refused("an action's style is 'secondary' (primary and destructive buttons are fixed parts)")
     elif kind in ("badge", "column", "info"):
         if kind == "column":
             out["label"] = _text(element, "label", label_max, "the heading", required=True)
@@ -597,7 +597,7 @@ def _check_page(element: dict, ctx: dict) -> dict:
         for item in elements:
             eid = item.get("id") if isinstance(item, dict) else None
             if not isinstance(eid, str) or not re.fullmatch(COMMON["id_pattern"], eid) or eid in seen:
-                raise Refused(f"section {n}: every element needs its own plain 'id'")
+                raise Refused(f"section {n}: every element needs a plain 'id' of its own")
             seen.add(eid)
             try:
                 clean.append({"id": eid, **_check_element(item, page_rules, page_ctx, PAGE["kinds"], in_page=True)})
