@@ -2518,41 +2518,21 @@ class WebApp:
         settings and preset values move to its new key. 404 if it is not a
         link or the group is unknown; 409 when the source file is missing.
         """
-        import shutil
-        from sonorium.core import intrusions, theme_groups
-        from sonorium.theme_files import track_display_name, track_key
+        from sonorium.core import theme_edit
         theme, folder, metadata = self._theme_group_folder(theme_id)
         body = await self._json_object(request)
         if "group" not in body:
             raise HTTPException(status_code=400, detail="'group' is required (a group name, or null for the top level)")
-        group = body["group"]
         link = (getattr(metadata, "links", None) or {}).get(key)
-        if link is None:
-            raise HTTPException(status_code=404, detail="Linked track not found")
-        _, _, members = self._theme_groups(theme_id)
-        if group is not None and (not isinstance(group, str) or group not in members):
-            raise HTTPException(status_code=404, detail="Group not found")
-        source = intrusions.resolve_link(link, self._folder_for_theme_id)
-        if source is None:
-            raise HTTPException(status_code=409, detail="The linked file is missing; it can't be copied")
         try:
-            target_folder = folder if group is None else theme_groups.group_target(folder, group)
-        except theme_groups.GroupError as e:
-            raise self._group_http_error(e)
-        # Another linked file there keeps its name; this one's key is free once it is copied in
-        reserved = intrusions.link_names(metadata, group) - (
-            {track_display_name(key)} if intrusions.link_group(key) == group else set())
-        target = target_folder / theme_groups.free_file_name(target_folder, source.name, reserved=reserved)
-        try:
-            shutil.copy2(source, target)
-        except OSError as e:
-            raise HTTPException(status_code=500, detail=f"Couldn't copy the file: {e}")
-        new_key = track_key(folder, target)
-        intrusions.remove_link_keep_settings(metadata, key)
-        # Its settings, preset values and sequence entries move to the new key
-        self._save_group_change(folder, metadata, theme_groups.Change(
-            track_keys={key: new_key} if new_key != key else {}))
+            source_folder = self._folder_for_theme_id(link.get("theme")) if link is not None else None
+        except Exception:
+            source_folder = None
+        result = self._folder_change(lambda: theme_edit.copy_link_in(
+            folder, key, source_folder, body["group"], metadata, self._manager_save))
+        new_key = result["track"]
         await self._refresh_now()
+        source = next((Path(source_folder) / op["src"] for op in result["ops"] if op["op"] == "copy"), None)
         logger.info(f"Theme '{metadata.name}': linked track '{key}' copied in as '{new_key}' (from {source})")
         return {"track": new_key}
 

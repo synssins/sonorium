@@ -14,6 +14,7 @@ import shutil
 import sys
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Optional
 
 import pytest
 
@@ -288,8 +289,11 @@ def tree(folder: Path) -> dict:
             for p in sorted(folder.rglob("*"))}
 
 
-def repeat(ops, edited: Path, target: Path) -> None:
-    """Do the file operations on another copy, as an app does in storage it can't write by path."""
+def repeat(ops, edited: Path, target: Path, source: Optional[Path] = None) -> None:
+    """
+    Do the file operations on another copy, as an app does in storage it can't
+    write by path (a copy's src relative to `source`, when given).
+    """
     import os
     for op in ops:
         if op["op"] == "mkdir":
@@ -297,7 +301,7 @@ def repeat(ops, edited: Path, target: Path) -> None:
         elif op["op"] == "move":
             os.rename(target / op["src"], target / op["dst"])
         elif op["op"] == "copy":
-            shutil.copyfile(op["src"], target / op["dst"])
+            shutil.copyfile(Path(source or "") / op["src"], target / op["dst"])
         elif op["op"] == "write":
             shutil.copyfile(edited / op["dst"], target / op["dst"])
         elif op["op"] == "delete":
@@ -481,6 +485,76 @@ def test_linked_files_write_the_same_files_and_list_their_file_operations(three)
         assert error.value.status == status
     with pytest.raises(te.NotFound, match="Linked track not found"):
         te.remove_link(three.folder, "Birds/Tone")
+
+
+def test_copying_a_link_in_writes_the_same_files_and_lists_its_file_operations(three):
+    api, te = three.api, m.te
+    phone = three.root / "phone"
+    shutil.copytree(three.folder, phone)
+    second = three.root / "server" / three.source.name
+
+    def link(group):
+        run(api.add_links(TID, Body({"theme": "engine-second-theme", "tracks": ["Tone"], "group": group})))
+        linked = te.add_links(three.folder, three.source, ["Tone"], group)
+        repeat(linked["ops"], three.folder, phone)
+
+    def copy_in(key, group):
+        routed = run(api.copy_link_in(TID, key, Body({"group": group})))
+        copied = te.copy_link_in(three.folder, key, three.source, group)
+        assert {k: v for k, v in copied.items() if k != "ops"} == routed
+        same_files(three)
+        repeat(copied["ops"], three.folder, phone, three.source)
+        assert tree(phone) == tree(three.folder)
+        return copied
+
+    # A linked file with plugin attributes, copied to the top level: settings and plugins follow its new key
+    link("Birds")
+    metadata = api._theme_metadata_manager.get_metadata_by_folder(three.served)
+    metadata.tracks["Birds/Tone"].plugins = dict(PLUGINS_TRACK)
+    api._theme_metadata_manager.save_metadata(metadata.id, metadata)
+    for target in (three.folder, phone):
+        shutil.copy(three.served / "metadata.json", target / "metadata.json")
+    copied = copy_in("Birds/Tone", None)
+    assert copied["track"] == "Tone"
+    assert copied["ops"][0] == {"op": "copy", "src": "Tone.wav", "dst": "Tone.wav"}
+    assert {op["op"] for op in copied["ops"][1:]} == {"write"}
+    assert (three.served / "Tone.wav").read_bytes() == (second / "Tone.wav").read_bytes()
+    meta = json.loads((three.folder / "metadata.json").read_text(encoding="utf-8"))
+    assert "links" not in meta or "Birds/Tone" not in meta["links"]
+    assert meta["tracks"]["Tone"]["plugins"] == PLUGINS_TRACK and "Birds/Tone" not in meta["tracks"]
+    assert meta["plugins"] == PLUGINS_THEME
+
+    # Into a group of links only whose folder is gone: the folder is made
+    run(api.create_group_folder(TID, Body({"name": "Echo"})))
+    te.create_group(three.folder, "Echo")
+    (phone / "Echo").mkdir()
+    link("Echo")
+    for target in (three.served, three.folder, phone):
+        (target / "Echo").rmdir()
+    copied = copy_in("Echo/Tone", "Echo")
+    assert copied["track"] == "Echo/Tone"
+    assert copied["ops"][:2] == [{"op": "mkdir", "src": None, "dst": "Echo"},
+                                 {"op": "copy", "src": "Tone.wav", "dst": "Echo/Tone.wav"}]
+
+    # Again to the top level: the name is taken, so "Tone (2)"
+    link("Birds")
+    assert copy_in("Birds/Tone", None)["track"] == "Tone (2)"
+
+    # Refused as the route refuses
+    link("Birds")
+    for args, error, status, message in (
+            (("Drone", three.source, None), te.NotFound, 404, "Linked track not found"),
+            (("Birds/Tone", three.source, "Nope"), te.NotFound, 404, "Group not found"),
+            (("Birds/Tone", three.source, 5), te.NotFound, 404, "Group not found"),
+            (("Birds/Tone", None, None), te.Conflict, 409, "The linked file is missing")):
+        with pytest.raises(error, match=message) as raised:
+            te.copy_link_in(three.folder, *args)
+        assert raised.value.status == status
+        if args[1] is not None:  # the server finds the source itself
+            with pytest.raises(m.api.HTTPException) as refused:
+                run(api.copy_link_in(TID, args[0], Body({"group": args[2]})))
+            assert refused.value.status_code == status and refused.value.detail == message
+    same_files(three)
 
 
 def test_transition_tracks_on_a_folder_match_the_route(three):

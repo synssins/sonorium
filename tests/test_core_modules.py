@@ -76,6 +76,9 @@ assert te.rename_group(folder, "Birds", "Flock")["ops"][0] == {{"op": "move", "s
 second = root / "Second Theme"
 assert te.add_links(folder, second, ["Tone"], "Flock")["links"][0]["added"]
 assert te.remove_link(folder, "Flock/Tone")["removed"] == "Flock/Tone"
+assert te.add_links(folder, second, ["Tone"])["links"][0]["key"] == "Tone"
+copied = te.copy_link_in(folder, "Tone", second)
+assert copied["track"] == "Tone" and copied["ops"][0] == {{"op": "copy", "src": "Tone.wav", "dst": "Tone.wav"}}
 assert te.upload(folder, "Hum.wav", (folder / "Drone.wav").read_bytes(), "Hums")["track"] == "Hums/Hum"
 assert te.delete_group(folder, "Flock")["folder_removed"]
 te.convert_on_load = False
