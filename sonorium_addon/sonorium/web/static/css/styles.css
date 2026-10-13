@@ -281,6 +281,7 @@ body {
 .btn-primary {
     background: var(--accent-primary);
     color: var(--bg-primary);
+    border: 1px solid transparent;  /* the same height as the bordered Secondary / Danger buttons beside it */
 }
 
 .btn-primary:hover {
@@ -2461,6 +2462,8 @@ body.sidebar-open .sidebar-overlay {
 .te .modal-header .sub { overflow: hidden; text-overflow: ellipsis; font-size: .875rem; font-weight: 400; color: var(--text-muted); }
 .te .hd-acts { display: flex; align-items: center; gap: .25rem; flex: none; }
 .te .hd-acts .modal-close { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; }
+/* Dialog title bars (Theme Editor, sequence, playlist, transitions): ? and ⋯ the size of × */
+.hd-acts .icon-btn.hd-more { width: 36px; height: 36px; }
 
 /* Fields: sized to their content */
 .te .fld { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
@@ -2642,6 +2645,7 @@ body.sidebar-open .sidebar-overlay {
 .te .foot .btn { white-space: nowrap; }
 .te .foot .btn[disabled] { opacity: .4; cursor: default; transform: none; }
 .te .pgroup { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.te .pgroup .icon-btn.sm { width: 38px; height: 38px; flex: none; }  /* the height of the preset field and buttons */
 .te .pb-label { font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
 .te .pdd { display: inline-flex; align-items: center; gap: .5rem; box-sizing: border-box; width: 260px; min-width: 0; min-height: 38px; padding: 0 .625rem 0 .75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; color: var(--text-primary); font: inherit; font-size: .875rem; font-weight: 500; text-align: left; cursor: pointer; }
 .te .pdd:hover { border-color: var(--accent-primary); }
@@ -2670,7 +2674,7 @@ body.sidebar-open .sidebar-overlay {
     .te .modal-header { height: 52px; box-sizing: border-box; padding: 0 .5rem 0 1rem; }
     .te .modal-header h2 { font-size: 1.0625rem; }
     .te .modal-header .sub { display: none; }
-    .te .hd-acts .hd-more { width: 44px; height: 44px; border: 0; background: none; }
+    .te .hd-acts .icon-btn.hd-more { width: 44px; height: 44px; border: 0; background: none; }
     .te .hd-acts .modal-close { width: 44px; height: 44px; }
     .te-top { padding: .625rem 1rem; }
     .te .top-row { flex-wrap: wrap; gap: .5rem; }
@@ -3465,6 +3469,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
     .header-actions { width: auto; flex-wrap: nowrap; gap: .375rem; }
     .header-actions .btn { flex: none; min-width: 0; }
     .header-actions .icon-btn { width: 44px; height: 44px; }
+    .main-header .btn { min-height: 44px; }  /* the height of the bar's icon buttons */
     :root { --page-pad: .75rem; --page-top: .75rem; --box-gap: 12px; }
 }
 
@@ -3477,6 +3482,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
     .sp-inp { min-height: 44px; font-size: 1rem; }
     .sp-inp.sm { min-height: 40px; }
     .sp-ui .icon-btn.sm { width: 40px; height: 40px; }
+    .sp-lrow .btn.btn-sm { min-height: 40px; }  /* the height of the row's ⋯ */
     .sp-ui .chev-btn { width: 36px; height: 36px; }
     #sp-menu .mi { min-height: 44px; font-size: .875rem; }
     #sp-menu .btn-sm { min-height: 40px; }
