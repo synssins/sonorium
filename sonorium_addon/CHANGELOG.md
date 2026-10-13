@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.46 (2026-10-13)
+
+### Features
+
+- **mdns**: TXT name carries the server's name and follows a rename
+  ([`15cc848`](https://github.com/synssins/sonorium/commit/15cc84848a3106e64646f1312eb375e417f11237))
+
+
 ## v1.7.3-dev.44 (2026-10-13)
 
 ### Features
