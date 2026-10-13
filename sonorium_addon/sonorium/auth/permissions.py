@@ -339,6 +339,11 @@ PUT     /api/plugins/{plugin_id}/connections/{connection_id}        admin.plugin
 POST    /api/plugins/{plugin_id}/connections/{connection_id}/test   admin.plugins
 
 GET     /api/plugin-framework                           pg.use|admin.plugins
+# what plugins add to the screens (web/ui_api.py): anyone who sees a screen; objects are checked per kind
+GET     /api/ui/targets                                 ch.view|th.view|pl.view|sp.view|st.view|pg.use|admin.plugins|self
+GET     /api/ui/contributions                           ch.view|th.view|pl.view|sp.view|st.view|pg.use|admin.plugins|self
+POST    /api/ui/objects                                 ch.view|th.view|pl.view|sp.view|st.view|pg.use|admin.plugins|self
+POST    /api/ui/actions/{plugin_id}/{element_id}        pg.use
 # plugin attributes: the route checks the ability for the object's kind (web/plugin_framework_api.py)
 GET     /api/attributes                                 th.view|ch.view|sp.view|admin.plugins
 GET     /api/attributes/{kind}                          th.view|ch.view|sp.view|self|admin.users

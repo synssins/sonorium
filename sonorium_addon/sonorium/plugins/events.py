@@ -329,6 +329,17 @@ CATALOGUE: dict[str, dict] = {
                    "keys": "The attribute names sent, or null when all of the plugin's were removed"},
         "summary": "{plugin_id} attributes changed on {kind} {id}",
     },
+    "ui.value": {
+        "description": "A plugin sent a live value for one of its UI elements (plugins/ui.py).",
+        "fields": {"plugin_id": "Plugin id", "element": "The element's id",
+                   "ref": "'*' for every object, else 'kind|theme|id'", "value": "The value (null: removed)"},
+        "summary": "{plugin_id}: {element} = {value}",
+    },
+    "ui.changed": {
+        "description": "A plugin registered new UI contributions (self.ui.register).",
+        "fields": {"plugin_id": "Plugin id"},
+        "summary": "{plugin_id}: UI contributions changed",
+    },
     "schedule.fired": {
         "description": "A scheduled job ran.",
         "fields": {"plugin_id": "Plugin id", "job_id": "Job id", "name": "Job name", "data": "Job data",

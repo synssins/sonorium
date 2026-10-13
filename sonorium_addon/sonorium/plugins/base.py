@@ -261,6 +261,39 @@ class BasePlugin(ABC):
         """The plugin's attribute values on objects: declare(), schema(), get(ref), set(ref, values), clear(ref)."""
         return self.host.attributes.for_plugin(self.id)
 
+    # Contributions to the web UI's screens (plugins/ui_contract.py, docs/PLUGIN_DEVELOPMENT.md)
+
+    def get_ui(self) -> list[dict]:
+        """
+        What the plugin adds to the web UI: a list of elements, each with its
+        "target" and "spot" (GET /api/ui/targets) and its "id" and "kind".
+        Checked against each spot's contract when the plugin is enabled; an
+        element outside it is refused and listed on the plugin's row in
+        Settings > Plugins. Default: the manifest's "ui".
+        """
+        return list((getattr(self, "_manifest", None) or {}).get("ui") or [])
+
+    async def ui_action(self, element_id: str, ref: Optional[dict], value: Any = None) -> dict:
+        """
+        An action element was pressed, or an action-bound field changed (value:
+        its new value). ref: the object the screen shows ({"kind", "id",
+        "theme"}), or None on a screen or page. Returns {"success", "message",
+        "refresh"}; "value" sets the field's shown value.
+        """
+        return {"success": False, "message": f"Unknown action: {element_id}"}
+
+    @property
+    def ui(self):
+        """The plugin's contributions and live values: register(), warnings(), set_value()."""
+        return self.host.ui.for_plugin(self)
+
+    def ui_warnings(self) -> list[str]:
+        """Contributions refused by their spot's contract (never raises)."""
+        host = getattr(self, "_host", None)
+        if host is None or getattr(host, "ui", None) is None:
+            return []
+        return host.ui.warnings(self)
+
     # Events
 
     def subscribe(self, patterns, handler, **kwargs):
@@ -415,6 +448,19 @@ class BasePlugin(ABC):
         """Update plugin settings (call save separately)."""
         self.settings.update(new_settings)
 
+    def short_name(self) -> str:
+        """The name on the plugin badge: manifest "short_name" (up to 16 characters), else the name."""
+        from sonorium.plugins.ui_contract import COMMON
+        short = (getattr(self, "_manifest", None) or {}).get("short_name")
+        if isinstance(short, str) and 0 < len(short.strip()) <= COMMON["short_name_max"]:
+            return short.strip()
+        return self.name or self.id
+
+    def _manifest_icon(self) -> Optional[dict]:
+        from sonorium.plugins.extensions import check_icon
+        icon = (getattr(self, "_manifest", None) or {}).get("icon")
+        return check_icon(icon) if isinstance(icon, str) else None
+
     def settings_schema(self) -> dict:
         """get_settings_schema() with only well-formed fields (never raises)."""
         try:
@@ -438,5 +484,9 @@ class BasePlugin(ABC):
             "ui_schema": self.get_ui_schema(),
             "settings_schema": self.settings_schema(),
             "api_version": str((self._manifest or {}).get("api_version") or "1.0"),
+            # The plugin badge: a short name (manifest "short_name", default the name) and its icon
+            "short_name": self.short_name(),
+            "icon": self._manifest_icon(),
+            "ui_warnings": self.ui_warnings() if self.enabled else [],
             "compatible": True,
         }

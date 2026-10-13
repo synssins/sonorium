@@ -232,6 +232,9 @@ class PluginResponse(BaseModel):
     settings: dict
     ui_schema: dict
     settings_schema: dict
+    short_name: str = ""
+    icon: Optional[dict] = None
+    ui_warnings: list[str] = []
 
 
 class PluginActionRequest(BaseModel):

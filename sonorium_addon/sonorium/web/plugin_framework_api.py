@@ -16,6 +16,8 @@ Extensions      GET  /api/extensions
                 POST /api/plugins/{id}/pages/{page_id}/actions/{action}
                 GET|PUT /api/plugins/{id}/connections/{connection_id}
                 POST /api/plugins/{id}/connections/{connection_id}/test
+UI              GET  /api/ui/targets, GET /api/ui/contributions, POST /api/ui/objects,
+                POST /api/ui/actions/{plugin_id}/{element_id}   (web/ui_api.py)
 Attributes      GET  /api/attributes                 (every plugin's schema)
                 GET  /api/attributes/{kind}?id=..&theme=..
                 PUT  /api/attributes/{kind}/{plugin_id}?id=..&theme=..
@@ -477,6 +479,8 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 
     _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json)
     _add_attribute_routes(router, _host, _json)
+    from sonorium.web.ui_api import add_ui_routes
+    add_ui_routes(router, plugin_manager, host)
     return router
 
 
