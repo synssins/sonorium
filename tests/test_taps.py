@@ -79,12 +79,19 @@ def test_a_slow_tap_falls_behind_alone(world):
         gate.wait(5)
         slow.append(block)
     slow_tap = world.taps.tap("den", stuck, owner="slow")
-    world.taps.tap("den", fast.append, owner="fast")
+    fast_tap = world.taps.tap("den", fast.append, owner="fast")
     time.sleep(0.05)
     world.play(1)
-    time.sleep(0.05)
-    world.play(BROADCAST_BUFFER_SIZE + 20, start=1)
-    assert wait_for(lambda: len(fast) == BROADCAST_BUFFER_SIZE + 21)
+    assert wait_for(lambda: len(fast) == 1)
+    # Played in steps the fast tap keeps up with (a loaded machine can starve its
+    # thread for longer than one burst takes to wrap the broadcast); the stuck tap
+    # still misses most of them: more than the broadcast holds are played past it.
+    total = BROADCAST_BUFFER_SIZE + 21
+    while len(fast) < total:
+        played = len(fast)
+        world.play(min(10, total - played), start=played)
+        assert wait_for(lambda: len(fast) == min(played + 10, total), seconds=10)
+    assert fast_tap.dropped == 0 and [int(b.samples[0, 0]) for b in fast] == list(range(total))
     gate.set()
     assert wait_for(lambda: slow_tap.dropped > 0)
     assert slow_tap.dropped + len(slow) <= BROADCAST_BUFFER_SIZE + 21
@@ -132,7 +139,10 @@ def test_a_track_tap_gets_one_tracks_blocks_before_mixing(tmp_path):
     blocks = int(2 * RATE / 1024)
     for _ in range(blocks):
         engine.render(1024)
-    assert wait_for(lambda: len(drone) == blocks)
+        # More blocks than a track tap's queue holds: let it keep up, so a loaded
+        # machine starving its thread can't drop any
+        assert wait_for(lambda: len(one._queue) < 32, seconds=10)
+    assert wait_for(lambda: len(drone) == blocks, seconds=10) and one.dropped == 0
     assert [b.mixer_sample for b in drone[:3]] == [0, 1024, 2048] and drone[0].track == "Drone"
     assert max(int(np.abs(b.samples).max()) for b in drone) > 1000  # its own sound (a 220 Hz sine)
     assert len(chirp) <= blocks  # only blocks it was pulled for
