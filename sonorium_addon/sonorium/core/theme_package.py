@@ -7,7 +7,8 @@ A theme's package is exactly what the zip export holds (GET
 
 - every file in the theme folder (audio, group subfolders, ATTRIBUTION.md,
   MANIFEST.json, anything else), except the theme's own metadata.json and
-  presets.json and their backup or broken copies;
+  presets.json and their backup or broken copies, and the originals of
+  audio converted to MP3 (the "_originals" folder, core/theme_mp3.py);
 - each linked file (it lives in another theme's folder) at the path it has in
   this theme ("<key><.ext>", inside its group's folder when it has one);
 - metadata.json and presets.json as exported: the 2.0 layout, the links
@@ -143,7 +144,10 @@ def _is_theme_json(theme_path: Path, path: Path) -> bool:
 
 
 def _own_files(theme_path: Path) -> list[Path]:
-    return sorted(p for p in theme_path.rglob("*") if p.is_file() and not _is_theme_json(theme_path, p))
+    """The theme folder's files, without its JSON files, the originals of converted audio (_originals) and MP3s being written."""
+    from sonorium.core.theme_mp3 import is_originals_path, is_temp_file
+    return sorted(p for p in theme_path.rglob("*") if p.is_file() and not _is_theme_json(theme_path, p)
+                  and not is_originals_path(theme_path, p) and not is_temp_file(p))
 
 
 def _signature(theme_path: Path) -> tuple:

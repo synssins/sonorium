@@ -569,6 +569,9 @@ class ThemeEdit:
         else:
             self._commit_existing()
         self._done = True
+        # Its audio becomes MP3 in the background on the server (core/theme_mp3.py)
+        from sonorium.core import theme_mp3
+        theme_mp3.request(self.folder)
         logger.info(f"Theme '{self.metadata.name}' {'created' if self.is_new else 'updated'} "
                     f"in {self.folder.name}: {len(self._added)} track(s) added")
         return {"theme_id": self.metadata.id, "folder": self.folder, "name": self.metadata.name,

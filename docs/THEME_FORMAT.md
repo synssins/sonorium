@@ -137,6 +137,38 @@ with presets inside `metadata.json` (version 1) still works: the server converts
 The plan includes per-user preset files. They are kept on the server, not in the theme
 folder, and a generator never writes them.
 
+### 1.6 One audio format on the server (built)
+
+The server keeps every track as an MP3: 320 kbit/s constant bit rate, 44100 Hz, stereo
+(`core/theme_mp3.py`). A theme that comes in (zip import, an upload in the Theme Editor, a linked
+file copied in, a theme a plugin writes, files put in a theme folder by hand) is converted in the
+background, ahead of anything else waiting; every theme already present is converted once after
+the update. One theme at a time, one file at a time, at low priority; start-up and playback don't
+wait for it, and playing channels follow the new files (a rescan).
+
+- A file that is not an MP3 (WAV, FLAC, Ogg) becomes `<name>.mp3`. A mono file becomes stereo with
+  the same samples on both sides (no level change).
+- An MP3 at 44100 Hz stereo is kept byte for byte, whatever its bit rate. Any other MP3 (another
+  rate, mono) is encoded again under its own name.
+- The key is the file name without the extension (1.2), so `Rain.wav` -> `Rain.mp3` keeps the key
+  `Rain`: settings, presets, sequences and links don't change. Only a taken name changes: with
+  `Rain.wav` and `Rain.mp3` both in a folder (one key for two files), the converted WAV becomes
+  `Rain (2).mp3` (key `Rain (2)`) and gets a copy of what `Rain` has in `tracks`, in each preset's
+  `tracks` and in each sequence's `transitions` and `while`. A linked file's name counts as taken.
+  `MANIFEST.json` `channels[].local_filename` follows the new name.
+- The original is kept in the theme's `_originals/` folder, at the same place inside it
+  (`_originals/Wind/Gust 1.flac`), and `_originals/originals.json` lists each original, what it
+  became (`mp3`), where it is kept (`kept_as`) and when. The folder starts with `_`, so it is never a
+  group, a track or part of an export or package (`core/theme_package.py`). Deleting originals
+  instead is one switch (`KEEP_ORIGINALS`), off for now.
+- Idempotent and resumable: a theme of standard MP3s is left as it is; the server remembers
+  which themes it found standard (`<config>/theme_mp3.json`, by their audio files' paths, sizes
+  and times) and checks a theme again only when those change. `originals.json` is also the journal
+  that finishes or undoes a file's conversion cut off by a restart. A file that can't be read stays
+  as it is; a file in use (Windows) is tried again 10 minutes later.
+- Needs PyAV with FFmpeg's MP3 encoder (the add-on, Docker and Windows builds have it). Without it
+  nothing is converted and themes play as they are; the decoders still read every format.
+
 ---
 
 ## 2. metadata.json schema
@@ -906,6 +938,8 @@ Every preset ID in a sequence (and in its `transitions`) must exist in `presets`
 - Track file names are the keys: choose short, readable names ("Fireplace", "Rain on roof"). Avoid two files with the same name and different extensions in one folder (same key).
 - Do not start names with `.` or `_`. No folders deeper than one level.
 - 44.1 kHz, mono (or stereo for a sound with a left/right image), `.wav`, `.flac`, `.ogg` or `.mp3`.
+  The server converts every track to MP3, 320 kbit/s, 44.1 kHz, stereo (1.6): a 44.1 kHz stereo MP3
+  is the one format it keeps as delivered.
 - Keep levels modest: with the default output gain of 6, one track's peaks above about -18.7 dBFS reach the limiter (3.8).
 
 ### 6.2 Beds and events

@@ -61,6 +61,7 @@ class WebApp:
     API, sign-in and plugins add theirs as they start. serve() runs it.
     """
     port = WEB_PORT
+    MP3_START_DELAY = 30.0  # seconds after start-up before themes are checked for audio to convert
 
     def __init__(self, backend: "Backend"):
         self.app = web_server.new_app(f'Sonorium {__version__} Streaming API')
@@ -85,6 +86,7 @@ class WebApp:
         self._theme_metadata_manager = None
         self._network_service = None  # standalone only
         self._cards = None  # Home Assistant dashboard cards (ha/cards.py)
+        self._mp3_service = None  # core/theme_mp3.py: theme audio converted to MP3 in the background
 
         # Home Assistant loads the dashboard cards from Sonorium (Docker /
         # Windows): a module script from another origin needs CORS
@@ -522,6 +524,9 @@ class WebApp:
             # Channels that were playing before a requested restart play again
             self._resume_after_restart()
 
+            # Theme audio becomes MP3 in the background (core/theme_mp3.py)
+            self._start_mp3_conversion()
+
             # Plugin scheduler and the alert bar for failures
             if self._plugin_host:
                 try:
@@ -725,6 +730,11 @@ class WebApp:
     async def shutdown_v2(self):
         """Shutdown v2 components gracefully."""
         self._remember_for_restart()
+        if getattr(self, "_mp3_service", None):
+            import asyncio
+            from sonorium.core import theme_mp3
+            theme_mp3.set_service(None)
+            await asyncio.to_thread(self._mp3_service.stop)
         if self._background:
             await self._background.stop()
         if self._plugin_host:
@@ -734,6 +744,32 @@ class WebApp:
                 logger.warning(f"Plugin framework stop failed: {e}")
         if self._network_service:
             await self._network_service.stop()
+
+    def _start_mp3_conversion(self):
+        """
+        Every theme's audio becomes MP3 (core/theme_mp3.py), in a background
+        thread that starts a little after start-up: themes that came in first,
+        then each theme already here, once. A converted theme is rescanned, so
+        playing channels follow its new files.
+        """
+        import asyncio
+        from sonorium.core import theme_mp3
+        if not self._state_store or not self.backend or not self.backend.device:
+            return
+        loop = asyncio.get_running_loop()
+
+        def converted(folder, result):
+            loop.call_soon_threadsafe(self.schedule_theme_refresh)
+
+        try:
+            self._mp3_service = theme_mp3.Mp3Service(self.backend.device.audio_dir,
+                                                     self._state_store.state_file.parent, on_converted=converted,
+                                                     start_delay=self.MP3_START_DELAY)
+            theme_mp3.set_service(self._mp3_service)
+            self._mp3_service.start()
+        except Exception as e:
+            logger.warning(f"  Theme audio conversion to MP3 unavailable: {e}")
+            self._mp3_service = None
 
     def _remember_for_restart(self):
         """A requested restart (not a stop or a crash): the playing channels play again afterwards."""
@@ -1938,6 +1974,12 @@ class WebApp:
             except Exception as e:
                 logger.warning(f"Failed to refresh MQTT theme options: {e}")
 
+        # Audio that came in by any way (a file copied into a theme folder by
+        # hand too) becomes MP3; themes already converted are only stat()ed
+        service = getattr(self, "_mp3_service", None)
+        if service:
+            service.request_all()
+
         return {
             "status": "ok",
             "themes_count": len(device.themes),
@@ -2552,6 +2594,8 @@ class WebApp:
         result = self._folder_change(lambda: theme_edit.copy_link_in(
             folder, key, source_folder, body["group"], metadata, self._manager_save))
         new_key = result["track"]
+        from sonorium.core import theme_mp3
+        theme_mp3.request(folder)  # the copy becomes MP3 if it isn't one
         await self._refresh_now()
         source = next((Path(source_folder) / op["src"] for op in result["ops"] if op["op"] == "copy"), None)
         logger.info(f"Theme '{metadata.name}': linked track '{key}' copied in as '{new_key}' (from {source})")

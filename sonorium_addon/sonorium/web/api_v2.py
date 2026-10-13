@@ -2261,6 +2261,9 @@ def create_api_router(
 
             where = f" in group '{group_name}'" if group_name else ""
             logger.info(f"Uploaded file to theme '{theme_id}'{where}: {filename} ({len(content)} bytes)")
+            # A file that isn't a 44.1 kHz stereo MP3 becomes one in the background (core/theme_mp3.py)
+            from sonorium.core import theme_mp3
+            theme_mp3.request(theme_path)
             if on_themes_changed:
                 on_themes_changed()
 
@@ -2543,6 +2546,9 @@ def create_api_router(
                     problems.append(f"Couldn't prepare the theme files: {e}")
 
                 logger.info(f"Imported theme '{theme_folder_name}' with {files_extracted} files")
+                # Its audio becomes MP3 in the background, ahead of other themes (core/theme_mp3.py)
+                from sonorium.core import theme_mp3
+                theme_mp3.request(target_path)
                 if new_id:
                     await _notify_theme_created(new_id, target_path)
 
