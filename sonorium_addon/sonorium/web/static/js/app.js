@@ -543,7 +543,6 @@ function renderSessionCard(session) {
                        oninput="chSetLocalVolume(this)">
                 <span class="ch-vol-val">${chLocalVolume()}%</span>
             </div>
-            ${chRecentHtml(session)}
             <div class="ch-foot">
                 <button type="button" class="btn ${isPlaying ? 'btn-danger' : 'btn-primary'} ch-play" onclick="togglePlayback(${spArg(id)}, this)">${isPlaying ? `${CH_ICON_STOP}Stop` : `${CH_ICON_PLAY}Play`}</button>
             </div>
@@ -647,24 +646,6 @@ function chClock(seconds) {
     const m = Math.floor((s % 3600) / 60);
     const ss = String(s % 60).padStart(2, '0');
     return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
-}
-
-function chRecentHtml(session) {
-    const items = (session.recent || []).map(e =>
-        `<li><time datetime="${escapeHtml(e.at)}">${chWhen(e.at)}</time><span title="${escapeHtml(e.text)}">${escapeHtml(e.text)}</span></li>`).join('');
-    return `<div class="ch-recent"><div class="ch-recent-hd">Recent changes</div><ul>${items}</ul></div>`;
-}
-
-// An event's time: HH:MM today, "Yesterday HH:MM", else a short date
-function chWhen(iso) {
-    const at = new Date(iso);
-    if (Number.isNaN(at.getTime())) return '';
-    const hm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
-    const day = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-    const days = Math.round((day(new Date()) - day(at)) / 86400000);
-    if (days <= 0) return hm;
-    if (days === 1) return `Yesterday ${hm}`;
-    return at.toLocaleDateString([], { day: 'numeric', month: 'short' });
 }
 
 function chMenu(button, sessionId) {
@@ -10706,7 +10687,6 @@ const PAGE_HELP = {
         ${helpTerm('Play / Stop', 'starts or stops the speakers. The browser keeps playing if it listens.')}
         ${helpTerm('Edit', 'changes the channel\'s name, theme or playlist, preset, volume and speakers.')}
         ${helpTerm('Delete', 'removes the channel. You confirm first.')}
-        ${helpTerm('Recent changes', 'the channel\'s latest changes with their times: started, stopped, muted, theme, preset, sequence step, playlist entry.')}
         <h4>New channel</h4>
         ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it Channel and a number, for example Channel 1.')}
         ${helpTerm('Speakers', 'pick floors, areas or single speakers. Only speakers turned on under Settings › Speakers are listed.')}

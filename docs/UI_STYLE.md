@@ -94,14 +94,13 @@ Editor design "C — Aligned table".
   Plugins and Status below 880 px, the other tables below 740 px. A new table
   with a phone layout gets a copy too.
 - **Width ≤ 400:** on a channel card the Theme and Preset labels go above their
-  fields, so preset names fit. **Width ≤ 400 and height ≤ 600:** the card is
-  445 px tall so Play stays on screen; Recent changes shows one line.
+  fields, so preset names fit.
 - **Height ≤ 480:** one 48 px header row: the menu button, logo, page title and
   the page's actions.
 - **Phone layout at width ≥ 600:** the channel card splits in two halves (3 : 2):
   left Theme, Preset and the sequence / playlist line; right both volume
-  sliders, Recent changes and Play. One card per row, never wider than 864 px;
-  251 px tall on short screens, 287 px otherwise. The halves are `.ch-a` /
+  sliders and Play, with Play level with the bottom of the left half. One card
+  per row, never wider than 864 px. The halves are `.ch-a` /
   `.ch-b`, which have no box of their own (`display: contents`) in every other
   layout.
 - **Touch screen, width ≥ 1000 (tablets):** the desktop layout, everything
@@ -109,6 +108,10 @@ Editor design "C — Aligned table".
   by `var(--zoom, 1)` so it still fits the screen; a new one must be too.
 - The channel card grid is the same everywhere: auto-fill, cards at least
   340 px wide.
+- Channel cards are all one height, the height of their content (`min-height`):
+  326 px on desktop, 350 px in the phone layout, 388 px at width ≤ 400, 218 px
+  in two halves. Play is the last row, with no space under it; a row a card
+  adds (a linked channel's link row, a plugin's row) makes that card taller.
 
 ## Extensible screens
 Every screen takes what plugins add the same way (docs/PLUGIN_DEVELOPMENT.md, section 24;

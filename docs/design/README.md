@@ -77,8 +77,6 @@ exactly the same size (fixed height), three per row on desktop, one on a phone:
     listening. The slider sets the volume on this device only (kept in the browser), not the speakers'.
   - Listening and the speakers are independent: start on headphones, add speakers, press Play and they join
     the same stream; Stop stops the speakers only. Next works while only a browser listens.
-- "Recent changes": the channel's last events with their times (started, stopped, muted, theme,
-  preset, sequence step, playlist entry; not Ebb & Flow movement), in a fixed-height box.
 - A full-width Play button at the bottom, accent coloured; while playing it is Stop, highlighted
   in red (btn-danger), not grey. A playing block has an accent border.
 

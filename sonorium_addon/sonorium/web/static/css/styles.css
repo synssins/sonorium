@@ -3930,7 +3930,7 @@ button.pk-row { cursor: pointer; }
 
 /* Channels page (docs/design/Channels_Blocks.dc.html): equal-size channel blocks */
 .session-grid.ch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--box-gap, .875rem); align-items: start; }
-.ch-card { display: flex; flex-direction: column; gap: .5rem; height: 404px; box-sizing: border-box; padding: .875rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .625rem; }
+.ch-card { display: flex; flex-direction: column; gap: .5rem; min-height: 326px; box-sizing: border-box; padding: .875rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .625rem; }
 .ch-card.on { border-color: rgba(6, 214, 160, .45); }
 .ch-head { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto auto; align-items: center; column-gap: .5rem; }
 /* Edit and ⋯: the same size as the card's mode buttons, so the header ends on their right edge */
@@ -3984,17 +3984,11 @@ button.pk-row { cursor: pointer; }
 .ch-vol-ic.ch-listen, .ch-vol-ic.ch-mute { cursor: pointer; }
 .ch-vol-ic.ch-listen:not(.on):hover, .ch-vol-ic.ch-mute:not(.on):not(.muted):hover { color: var(--text-primary); border-color: var(--accent-secondary); }
 .ch-vol-val { font-size: .75rem; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
-.ch-recent { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: .25rem; padding: .5rem .625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; overflow: hidden; }
-.ch-recent-hd { font-size: .6875rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-.ch-recent ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .125rem; overflow-y: auto; scrollbar-width: thin; }
-.ch-recent li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .5rem; font-size: .75rem; color: var(--text-secondary); }
-.ch-recent time { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ch-recent li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ch-foot { display: flex; }
+.ch-foot { display: flex; margin-top: auto; }
 .ch-play { flex: 1; justify-content: center; min-height: 40px; gap: .375rem; }
 @media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .session-grid.ch-grid { grid-template-columns: minmax(0, 1fr); }
-    .ch-card { height: 472px; }  /* the larger touch targets need room for three Recent changes lines */
+    .ch-card { min-height: 350px; }
     .ch-src { grid-template-columns: 56px minmax(0, 1fr) 44px; grid-template-rows: 44px 44px; }
     .ch-pick { min-height: 44px; height: 44px; }
     .ch-mode { width: 44px; height: 44px; }
@@ -4434,11 +4428,7 @@ body.screen-on .sidebar, body.screen-on .main-wrapper, body.screen-on .mobile-to
     .ch-src .ch-mode:first-child { grid-area: 2 / 2; }
     .ch-src .ch-mode:last-child { grid-area: 4 / 2; }
     .ch-now { padding-left: 0; }
-    .ch-card { height: 481px; }
-}
-/* Narrow, short phones: Play stays on screen; Recent changes shows one line */
-@media (max-width: 400px) and (max-height: 600px) {
-    .ch-card { height: 445px; }
+    .ch-card { min-height: 388px; }
 }
 
 /* Short screens (landscape phones): one header row - menu, logo, page title, actions */
@@ -4471,16 +4461,10 @@ body.screen-on .sidebar, body.screen-on .main-wrapper, body.screen-on .mobile-to
 
 /* Wide phone screens (foldable, landscape, portrait tablet): the card in two halves, one card per row */
 @media (min-width: 600px) and (max-width: 768px), (min-width: 600px) and (max-height: 480px), (pointer: coarse) and (min-width: 600px) and (max-width: 999px) {
-    .ch-card { --ch-h: 251px; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 1rem; row-gap: .5rem; height: var(--ch-h); max-width: var(--sp-col); }
-    /* A linked channel's link row (zones) adds its own height, so Recent changes keeps its room */
-    .ch-card:has(> .ch-link) { grid-template-rows: auto auto minmax(0, 1fr); height: calc(var(--ch-h) + 42px); }
+    .ch-card { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-content: start; column-gap: 1rem; row-gap: .5rem; min-height: 218px; max-width: var(--sp-col); }
     .ch-card > :not(.ch-a):not(.ch-b) { grid-column: 1 / -1; }
     .ch-a, .ch-b { display: flex; flex-direction: column; gap: .5rem; min-height: 0; }
     .ch-b { gap: .25rem; }
-    .ch-b .ch-recent { flex: 1 1 auto; }
-}
-@media (min-width: 600px) and (max-width: 768px) and (min-height: 481px), (pointer: coarse) and (min-width: 600px) and (max-width: 999px) and (min-height: 481px) {
-    .ch-card { --ch-h: 287px; }
 }
 
 /* Tablets (touch screen, desktop layout): everything one size larger.

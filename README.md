@@ -502,7 +502,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 **Home Assistant dashboard cards**
 - **Sonorium's cards** are added to Home Assistant automatically when Home Assistant and MQTT are linked. Search for **Sonorium** in the card picker.
 - **Four layouts:** **Tile**, **Channel**, **Player** and **All channels**, changed in the card's editor along with what each one shows.
-- **Channel popup.** Clicking a channel's name opens the channel as it looks on Sonorium's Channels page, with its recent changes.
+- **Channel popup.** Clicking a channel's name opens the channel as it looks on Sonorium's Channels page.
 - When the cards can't be added automatically, **Settings → Connection** says why and offers the file to download (Docker).
 
 **Channels**
