@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.34 (2026-10-13)
+
+### Features
+
+- **core**: Theme_edit.copy_link_in, the copy-in route delegates to it
+  ([`aa58623`](https://github.com/synssins/sonorium/commit/aa5862322fa0df2a228022e1ebee30819708c0a6))
+
+
 ## v1.7.3-dev.32 (2026-10-13)
 
 ### Bug Fixes
