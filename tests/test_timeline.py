@@ -166,7 +166,7 @@ def test_a_cue_carries_audible_times_attributes_and_reaches_who_asked(world):
         cue = world.got["lamp"][0].data
         assert cue["start"] == "intermittent" and cue["track"] == "Thunder/Close" and cue["group"] == "Thunder"
         assert cue["file"] == "Thunder/Close.ogg" and cue["duration_ms"] == 2000 and cue["gain"] == 0.8
-        assert cue["confirmed"] is True and cue["lead_ms"] == 0 and before <= cue["mixer_at"] <= time.time()
+        assert cue["confirmed"] is True and cue["lead_ms"] == 0 and before - 0.001 <= cue["mixer_at"] <= time.time() + 0.001  # milliseconds
         speakers = {s["speaker_id"]: s for s in cue["speakers"]}
         assert speakers["media_player.living"]["delay_source"] == "setting"
         assert speakers["media_player.living"]["audible_at"] == pytest.approx(cue["mixer_at"] + 4.2, abs=0.002)
