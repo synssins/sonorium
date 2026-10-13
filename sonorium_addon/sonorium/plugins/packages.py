@@ -18,6 +18,10 @@ Python packages (requirements)
   runs with Sonorium's rights, like the plugin itself, and comes from the
   internet. A plugin that needs packages while it's off is refused with that
   message.
+- Approved by the user with the plugin's permissions (permissions.py): the
+  approval lists each package and version, and nothing is installed (and
+  plugin.py isn't imported) before it. An update that adds or changes a
+  package asks again.
 - Each requirement is a package name with optional extras and version
   conditions; no URLs, paths or pip options.
 - Installed with pip, wheels only (no package builds or setup scripts run at
@@ -137,16 +141,23 @@ class Packages:
                 "folder": str(self.folder(plugin_id)) if requirements else None}
         return {**base, **self._status.get(plugin_id, {})}
 
-    def ensure(self, plugin_id: str, manifest: dict) -> Optional[Path]:
+    def ensure(self, plugin_id: str, manifest: dict, approved: Optional[list] = None) -> Optional[Path]:
         """
         The plugin's packages ready (installed now if needed): its folder,
         added to the end of sys.path; None if it needs none. PackageError
         (refuses the plugin) when they're switched off or can't be installed.
+        approved: the packages the user allowed (permissions.py); one not in
+        it is never installed. None only for a built-in plugin.
         Blocking: pip may run for minutes.
         """
         requirements = check_requirements(manifest.get("requirements"))
         if not requirements:
             return None
+        if approved is not None:
+            missing = [r for r in requirements if r not in set(approved)]
+            if missing:
+                raise PackageError(f"{manifest.get('name') or plugin_id}: the packages {', '.join(missing)} "
+                                   f"aren't approved")
         if not self.allowed():
             raise PackageError(f"{manifest.get('name') or plugin_id} needs Python packages "
                                f"({', '.join(requirements)}). Switch on Plugin packages in Settings › Advanced "

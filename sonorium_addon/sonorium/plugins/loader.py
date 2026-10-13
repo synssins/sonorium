@@ -232,6 +232,32 @@ def get_builtin_plugin_ids() -> list[str]:
     return plugin_ids
 
 
+def is_bundled_copy(plugin_dir: Path) -> bool:
+    """
+    The folder holds the built-in plugin bundled with this Sonorium: one of
+    the bundled plugins (same folder name), and every bundled file is in it,
+    byte for byte. Built-in plugins need no permission approval
+    (permissions.py); a manifest saying "builtin" doesn't make a plugin
+    built in, and a newer copy from elsewhere (catalog, upload) isn't one.
+    Reads files only: nothing of the plugin runs.
+    """
+    if BUILTIN_PLUGINS_DIR is None:
+        return False
+    bundled = Path(BUILTIN_PLUGINS_DIR) / Path(plugin_dir).name
+    if not (bundled / "plugin.py").is_file():
+        return False
+    try:
+        for source in bundled.rglob("*"):
+            if not source.is_file() or "__pycache__" in source.parts or source.suffix == ".pyc":
+                continue
+            copy = Path(plugin_dir) / source.relative_to(bundled)
+            if copy.is_symlink() or not copy.is_file() or copy.read_bytes() != source.read_bytes():
+                return False
+    except OSError:
+        return False
+    return True
+
+
 def discover_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR) -> list[Path]:
     """
     Discover plugin directories.

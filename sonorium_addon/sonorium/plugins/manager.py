@@ -19,6 +19,7 @@ from sonorium.plugins.loader import (
     load_manifest,
     load_plugin_class,
     instantiate_plugin,
+    is_bundled_copy,
     save_manifest,
     copy_builtin_plugins,
     remove_retired_plugins,
@@ -29,6 +30,43 @@ from sonorium.obs import logger
 
 if TYPE_CHECKING:
     from sonorium.core.state import StateStore
+
+
+class WaitingPlugin:
+    """
+    A plugin waiting for the user's approval, known from its manifest only:
+    its plugin.py is not imported (none of its code has run) and its packages
+    are not installed. Settings › Plugins lists it with what it asks for;
+    approving and switching it on loads it (PluginManager.enable_plugin).
+    """
+
+    enabled = False
+
+    def __init__(self, plugin_dir: Path, manifest: dict, host=None, bundled: bool = False):
+        self.plugin_dir = plugin_dir
+        self._manifest = manifest
+        self._host = host
+        self._bundled = bundled
+        self._builtin = bool(manifest.get("builtin"))
+        self.id = manifest.get("id") or plugin_dir.name
+        self.name = manifest.get("name") or self.id
+        self.version = str(manifest.get("version") or "")
+        self.description = manifest.get("description") or ""
+        self.author = manifest.get("author") or ""
+
+    def to_dict(self) -> dict:
+        info = {
+            "id": self.id, "name": self.name, "version": self.version, "description": self.description,
+            "author": self.author, "enabled": False, "builtin": self._builtin, "auth_provider": False,
+            "settings": {}, "ui_schema": {}, "settings_schema": {},
+            "api_version": str(self._manifest.get("api_version") or "1.0"), "compatible": True,
+            "short_name": self._manifest.get("short_name") or self.name, "icon": None, "ui_warnings": [],
+            "waiting_for_approval": True,
+        }
+        permissions = getattr(self._host, "permissions", None) if self._host is not None else None
+        if permissions is not None:
+            info.update(permissions.describe(self))
+        return info
 
 
 class PluginManager:
@@ -68,6 +106,8 @@ class PluginManager:
         self.plugins: dict[str, BasePlugin] = {}
         # Plugins that can't run here (API version, capabilities, packages): id -> what Settings > Plugins shows
         self.refused: dict[str, dict] = {}
+        # Plugins waiting for the user's approval, not loaded (none of their code has run): id -> WaitingPlugin
+        self.waiting: dict[str, WaitingPlugin] = {}
         self.last_enable_error: dict[str, str] = {}  # why switching a plugin on failed (shown to the user)
         self._initialized = False
 
@@ -106,20 +146,16 @@ class PluginManager:
 
         # Enable previously enabled plugins
         enabled_list = self.state_store.settings.enabled_plugins
-        permissions = getattr(self.host, "permissions", None) if self.host is not None else None
         for plugin_id in list(enabled_list):
             if plugin_id in self.plugins:
-                if permissions is not None and not permissions.recorded(plugin_id):
-                    permissions.approve(self.plugins[plugin_id])  # it ran before approvals existed
                 await self.enable_plugin(plugin_id)
-                waiting = self.permissions_pending(self.plugins[plugin_id])
-                if waiting and not self.plugins[plugin_id].enabled:  # an update asks for more
-                    try:
-                        from sonorium import alerts
-                        alerts.report(f"Plugin {self.plugins[plugin_id].name} asks for more: "
-                                      f"approve it in Settings › Plugins", "plugin")
-                    except Exception:
-                        pass
+            elif plugin_id in self.waiting:  # an update asks for more: off (not loaded) until approved
+                try:
+                    from sonorium import alerts
+                    alerts.report(f"Plugin {self.waiting[plugin_id].name} asks for more: "
+                                  f"approve it in Settings › Plugins", "plugin")
+                except Exception:
+                    pass
 
         # Built-in plugins that start switched on (manifest "enabled_by_default"),
         # the first time they're seen only
@@ -147,9 +183,32 @@ class PluginManager:
             settings = self.state_store.settings.plugin_settings.get(plugin_id, {})
 
             # Can it run here? Decided before any of its code is loaded
-            # (API version, capabilities, packages, binaries)
+            # (API version, capabilities, binaries)
             self.refused.pop(plugin_id, None)
+            self.waiting.pop(plugin_id, None)
             problem, binaries = await self._check_runnable(plugin_id, plugin_dir, manifest)
+            if problem:
+                self._refuse(plugin_id, manifest, problem)
+                return None
+
+            # Approved by the user? Until then it is known from its manifest
+            # only: plugin.py isn't imported and its packages aren't installed.
+            # A built-in plugin (the copy bundled with Sonorium) needs no approval.
+            bundled = is_bundled_copy(plugin_dir)
+            waiting = WaitingPlugin(plugin_dir, manifest, self.host, bundled=bundled)
+            permissions = self._permissions()
+            if permissions is not None and not bundled:
+                self._carry_over_approval(permissions, waiting)
+                pending = permissions.pending(waiting)
+                if pending:
+                    self.waiting[plugin_id] = waiting
+                    logger.info(f"Plugin {waiting.name} waits for your approval ({self._describe_pending(pending)}): "
+                                f"not loaded")
+                    return None
+
+            # Its Python packages: the approved ones only (built-in: its own)
+            problem = await self._ensure_packages(
+                plugin_id, manifest, None if bundled or permissions is None else permissions.approved_requirements(plugin_id))
             if problem:
                 self._refuse(plugin_id, manifest, problem)
                 return None
@@ -167,6 +226,7 @@ class PluginManager:
             plugin._manifest = manifest
             plugin._host = self.host
             plugin._binaries = binaries
+            plugin._bundled = bundled
 
             # Set builtin flag from manifest if present
             if manifest.get("builtin", False):
@@ -220,19 +280,47 @@ class PluginManager:
     async def _check_runnable(self, plugin_id: str, plugin_dir: Path, manifest: dict) -> tuple:
         """(why it can't run or None, its binaries {name: path})."""
         from sonorium.plugins import compat
-        from sonorium.plugins.packages import PackageError, check_binaries
+        from sonorium.plugins.packages import PackageError, check_binaries, check_requirements
         problem = compat.check(manifest, self.host.capabilities() if self.host is not None else None)
         if problem:
             return problem, {}
         try:
             binaries = check_binaries(plugin_dir, manifest)
-            if manifest.get("requirements"):
-                if self.host is None:
-                    return "Python packages need the plugin framework", {}
-                await asyncio.to_thread(self.host.packages.ensure, plugin_id, manifest)
+            check_requirements(manifest.get("requirements"))  # well formed (installed after approval)
         except PackageError as e:
             return str(e), {}
         return None, binaries
+
+    async def _ensure_packages(self, plugin_id: str, manifest: dict, approved: Optional[list]) -> Optional[str]:
+        """Its packages installed (only once approved): why they can't be, or None."""
+        from sonorium.plugins.packages import PackageError
+        if not manifest.get("requirements"):
+            return None
+        if self.host is None:
+            return "Python packages need the plugin framework"
+        try:
+            await asyncio.to_thread(self.host.packages.ensure, plugin_id, manifest, approved)
+        except PackageError as e:
+            return str(e)
+        return None
+
+    def _permissions(self):
+        return getattr(self.host, "permissions", None) if self.host is not None else None
+
+    def _carry_over_approval(self, permissions, waiting: WaitingPlugin) -> None:
+        """Approvals from before they covered everything: no new question for what already ran."""
+        if not permissions.recorded(waiting.id):
+            if waiting.id in self.state_store.settings.enabled_plugins:
+                permissions.approve(waiting)  # it ran before approvals existed
+            return
+        requirements = permissions.requirements(waiting)
+        installed = bool(requirements) and self.host.packages.installed(waiting.id, requirements)
+        permissions.adopt_requirements(waiting.id, requirements if installed else [])
+
+    @staticmethod
+    def _describe_pending(pending: list) -> str:
+        from sonorium.plugins.permissions import label
+        return ", ".join(label(p) for p in pending)
 
     def _refuse(self, plugin_id: str, manifest: dict, problem: str) -> None:
         logger.warning(f"Plugin {plugin_id} not loaded: {problem}")
@@ -257,6 +345,7 @@ class PluginManager:
 
         self.plugins.clear()
         self.refused.clear()
+        self.waiting.clear()
         self._initialized = False
 
         # Reinitialize
@@ -303,11 +392,29 @@ class PluginManager:
             List of plugin info dicts
         """
         loaded = [plugin.to_dict() for plugin in self.plugins.values()]
-        return loaded + [dict(r) for pid, r in self.refused.items() if pid not in self.plugins]
+        waiting = [w.to_dict() for pid, w in self.waiting.items() if pid not in self.plugins]
+        return loaded + waiting + [dict(r) for pid, r in self.refused.items()
+                                   if pid not in self.plugins and pid not in self.waiting]
 
     def get_plugin(self, plugin_id: str) -> Optional[BasePlugin]:
-        """Get a plugin by ID."""
+        """Get a plugin by ID (a loaded one: not one waiting for approval)."""
         return self.plugins.get(plugin_id)
+
+    def find_plugin(self, plugin_id: str):
+        """A loaded plugin, or one waiting for approval (WaitingPlugin), or None."""
+        return self.plugins.get(plugin_id) or self.waiting.get(plugin_id)
+
+    def approve_plugin(self, plugin_id: str) -> list:
+        """
+        The user allows what the plugin asks for now, its packages too.
+        Nothing is installed or loaded here: switching it on does that
+        (enable_plugin). Returns the granted permissions.
+        """
+        plugin = self.find_plugin(plugin_id)
+        permissions = self._permissions()
+        if plugin is None or permissions is None:
+            raise KeyError(plugin_id)
+        return permissions.approve(plugin)
 
     async def enable_plugin(self, plugin_id: str) -> bool:
         """
@@ -320,6 +427,19 @@ class PluginManager:
             True if enabled successfully
         """
         plugin = self.plugins.get(plugin_id)
+        if plugin is None and plugin_id in self.waiting:
+            # Not loaded yet: approved now? Then its packages are installed and its code loaded
+            waiting = self.waiting[plugin_id]
+            pending = self.permissions_pending(waiting)
+            if pending:
+                what = self._describe_pending(pending)
+                self.last_enable_error[plugin_id] = f"Waiting for your approval: {what}"
+                logger.info(f"Plugin {waiting.name} is not switched on until it is approved ({what})")
+                return False
+            plugin = await self._load_plugin(waiting.plugin_dir)
+            if plugin is None:
+                self.last_enable_error[plugin_id] = (self.refused.get(plugin_id) or {}).get("problem")                     or "The plugin could not be loaded"
+                return False
         if plugin is None:
             logger.error(f"Plugin not found: {plugin_id}")
             return False
@@ -329,8 +449,7 @@ class PluginManager:
 
         pending = self.permissions_pending(plugin)
         if pending:
-            from sonorium.plugins.permissions import FULL, label
-            what = "everything a plugin can do" if pending == [FULL] else ", ".join(label(p) for p in pending)
+            what = self._describe_pending(pending)
             self.last_enable_error[plugin_id] = f"Waiting for your approval: {what}"
             logger.info(f"Plugin {plugin.name} is not switched on until its permissions are approved ({what})")
             return False

@@ -54,6 +54,7 @@ class BasePlugin(ABC):
         self.audio_path = audio_path or audio_dir()
         self._enabled = False
         self._builtin = self.builtin  # Can be overridden by manifest
+        self._bundled = False  # the copy bundled with Sonorium: no approval needed (permissions.py)
         self._manifest_settings_schema: dict = {}  # Set by the manager from manifest.json
         self._manifest: dict = {}  # manifest.json, set by the manager
         self._host = None  # the PluginHost (plugins/host.py), set by the manager

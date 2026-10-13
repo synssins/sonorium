@@ -140,7 +140,7 @@ def w(tmp_path):
         call = client.portal.call
         call(manager.initialize)
         call(host.start)
-        host.permissions.approve(manager.get_plugin("remote"))  # as the user does when switching it on
+        manager.approve_plugin("remote")  # as the user does when switching it on
         assert call(manager.enable_plugin, "remote")
         switch = {"on": True}  # Settings > Advanced > Announcements
         m.announce.set_enabled_source(lambda: switch["on"])

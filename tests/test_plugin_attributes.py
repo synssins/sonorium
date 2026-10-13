@@ -503,6 +503,9 @@ def test_plugin_facade_and_manifest_declaration(world, tmp_path):
     m.loader.BUILTIN_PLUGINS_DIR = None
     manager = m.manager.PluginManager(world.store, plugins_dir=plugins_dir, audio_path=tmp_path / "audio", host=host)
     asyncio.run(manager.initialize())
+    assert manager.get_plugin("lights") is None and "lights" in manager.waiting  # not loaded before approval
+    manager.approve_plugin("lights")
+    assert asyncio.run(manager.enable_plugin("lights"))
     plugin = manager.get_plugin("lights")
     assert plugin is not None
     assert world.store.settings.plugin_attributes["lights"] == {"channel": {"zone": {"type": "string", "default": "all"}}}

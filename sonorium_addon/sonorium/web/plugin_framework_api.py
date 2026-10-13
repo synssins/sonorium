@@ -550,7 +550,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
     _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json)
     _add_attribute_routes(router, _host, _json)
     _add_device_routes(router, _host, _json)
-    _add_permission_routes(router, _host, _plugin)
+    _add_permission_routes(router, plugin_manager, _host)
     _add_plugin_http_routes(router, _host, _plugin, _call_plugin)
     from sonorium.web.ui_api import add_ui_routes
     add_ui_routes(router, plugin_manager, host)
@@ -631,7 +631,7 @@ def _add_attribute_routes(router, _host, _json) -> None:
         return {"kind": kind, "id": ref["id"], "theme": ref["theme"], "plugin_id": plugin_id, "values": values}
 
 
-def _add_permission_routes(router, _host, _plugin) -> None:
+def _add_permission_routes(router, plugin_manager, _host) -> None:
     """What each plugin may do, and the user's approval (plugins/permissions.py)."""
     from sonorium.plugins.permissions import catalogue
 
@@ -640,16 +640,29 @@ def _add_permission_routes(router, _host, _plugin) -> None:
         """Every permission a plugin can ask for, as the user is shown it."""
         return catalogue()
 
+    def _plugin_or_waiting(plugin_id: str):
+        """A loaded plugin or one waiting for approval (not loaded: none of its code has run)."""
+        _host()
+        if not is_valid_plugin_id(plugin_id):
+            raise HTTPException(status_code=400, detail="Invalid plugin id")
+        plugin = plugin_manager.find_plugin(plugin_id)
+        if plugin is None:
+            raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
+        return plugin
+
     @router.get("/plugins/{plugin_id}/permissions")
     async def plugin_permissions(plugin_id: str):
-        plugin = _plugin(plugin_id)
+        plugin = _plugin_or_waiting(plugin_id)
         host = _host()
         return {**host.permissions.describe(plugin), "granted": host.permissions.granted(plugin.id)}
 
     @router.put("/plugins/{plugin_id}/permissions")
     async def approve_plugin_permissions(plugin_id: str, request: Request):
-        """{"approve": true}: the user allows what the plugin asks for now (then it can be switched on)."""
-        plugin = _plugin(plugin_id)
+        """
+        {"approve": true}: the user allows what the plugin asks for now, its
+        Python packages too. Switching it on then installs them and loads it.
+        """
+        plugin = _plugin_or_waiting(plugin_id)
         try:
             body = await request.json()
         except Exception:
@@ -657,7 +670,7 @@ def _add_permission_routes(router, _host, _plugin) -> None:
         if not isinstance(body, dict) or body.get("approve") is not True:
             raise HTTPException(status_code=400, detail='Send {"approve": true}')
         host = _host()
-        host.permissions.approve(plugin)
+        plugin_manager.approve_plugin(plugin.id)
         return {**host.permissions.describe(plugin), "granted": host.permissions.granted(plugin.id)}
 
 
@@ -860,10 +873,10 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
     @router.get("/plugins/{plugin_id}/packages")
     async def plugin_packages(plugin_id: str):
         """A plugin's Python packages: what it asks for, whether they're allowed and installed."""
-        plugin_id_ok = plugin_manager.get_plugin(plugin_id) or plugin_manager.refused.get(plugin_id)
+        plugin_id_ok = plugin_manager.find_plugin(plugin_id) or plugin_manager.refused.get(plugin_id)
         if plugin_id_ok is None:
             raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
-        plugin = plugin_manager.get_plugin(plugin_id)
+        plugin = plugin_manager.find_plugin(plugin_id)
         manifest = plugin._manifest if plugin is not None else {}
         if plugin is None:
             from sonorium.plugins.loader import load_manifest

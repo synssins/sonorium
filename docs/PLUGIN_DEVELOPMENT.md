@@ -641,7 +641,7 @@ bundled `version` in `manifest.json` is newer: **raise it with every change**.
 
 | Field | Meaning |
 |---|---|
-| `"builtin": true` | Shipped with Sonorium |
+| `"builtin": true` | Shipped with Sonorium (shown on its row). Skipping the permission approval depends on the folder matching the bundled copy, not on this field (section 28) |
 | `"enabled_by_default": true` | Switched on the first time Sonorium sees it, never again after the user switches it off |
 | `"auth_provider": true` | Guards sign-in: switching it off or uninstalling it asks first. No plugin uses it since Users became part of Sonorium (`sonorium/auth/users.py`) |
 
@@ -1118,9 +1118,13 @@ they come back.
 **Python packages.** `"requirements": ["pyserial==3.5"]` in the manifest: a package name
 with optional extras and version conditions (no URLs, paths or pip options).
 
+- Approved by the user first. The approval (section 28) lists every package with its
+  version ("Install the Python package pyserial==3.5"), and nothing is installed before
+  the user allows it. An update that adds a package or changes a version asks again.
 - Off until Settings › Advanced › **Plugin packages** is switched on (then restart). A
   package comes from the internet and runs with Sonorium's rights, like the plugin. A
-  plugin that needs packages while the switch is off is refused with that sentence.
+  plugin that needs packages while the switch is off is refused with that sentence, even
+  once approved: both have to say yes.
 - Installed with pip, wheels only (nothing is built and no setup script runs at install
   time), into `<config>/plugin_packages/<plugin id>/`, once, and again when the
   requirements or Python change. Removed with the plugin.
@@ -1998,20 +2002,35 @@ microphone?".
 | `mqtt` | Publishing and subscribing (section 19) | Use the MQTT broker |
 | `commands` | Handing codes to command maps (section 18) | Take commands from remotes and buttons |
 | `packages` | Python packages (section 21) | Install Python packages |
+| (from `requirements`) | Each package it installs, added to the list for you | Install the Python package pyserial==3.5 |
 | `network.lan`, `network.internet` | Shown to the user; not enforced | Talk to devices on your network; Reach the internet |
 
 Events, settings, pages, connections, the scheduler and webhook triggers need no permission.
 
+- **Nothing runs before the approval.** Think of a parcel held at the door: Sonorium reads
+  the label (`manifest.json`) but doesn't open the box. Until the user approves, `plugin.py`
+  is not imported, so none of its code runs (not even top-level lines), and none of its
+  packages are installed. Settings › Plugins lists it, switched off, with what it asks for.
 - **Switching on.** A plugin from outside Sonorium isn't switched on until the user approves
-  its list: Settings › Plugins shows "Allow “Lights” to:" with the list when it is switched
-  on. `GET /api/plugins/{id}/permissions`, `PUT /api/plugins/{id}/permissions`
-  (`{"approve": true}`; Admin). `PUT /api/plugins/{id}/enable` answers 409 until then.
-- **Updates.** An update that asks for more stays off, its row lists what it asks for, and
-  the alert bar says so, until the user approves again. Asking for less needs nothing.
+  its list: Settings › Plugins shows "Allow “Lights” to:" with the list, packages and their
+  versions included, when it is switched on. After **Allow**, in this order: its packages
+  are installed (section 21; the Plugin packages switch still applies), `plugin.py` is
+  imported, `on_load` and then `on_enable` run. `GET /api/plugins/{id}/permissions`,
+  `PUT /api/plugins/{id}/permissions` (`{"approve": true}`; Admin).
+  `PUT /api/plugins/{id}/enable` answers 409 until then.
+- **Updates.** An update that asks for more (a permission, a new package, a package at
+  another version) stays off and isn't loaded; its row lists what it asks for, and the alert
+  bar says so, until the user approves again. Its new packages are installed only after
+  that. Asking for less needs nothing.
 - **No list.** A plugin without `"permissions"` says nothing about what it uses: the user is
   asked to allow everything a plugin can do. Plugins that were already switched on before
-  permissions existed keep running.
-- **Built-in plugins** are part of Sonorium and need no approval.
+  permissions existed keep running, and packages already installed for an approved plugin
+  count as approved.
+- **Built-in plugins** need no approval: they ship inside Sonorium, so they are trusted like
+  the rest of it, packages included (the Plugin packages switch still applies). A plugin
+  counts as built in when its folder holds the exact copy bundled with this Sonorium, file
+  for file. `"builtin": true` in a manifest doesn't make a plugin built in, and a newer copy
+  of a built-in plugin from the catalog or an upload asks like any other plugin.
 - **Refused calls** raise `ActionError` with code `forbidden` (HTTP 403) naming the
   permission to add. A device kind, screen additions, routes or entities it didn't list are
   left out and listed on its row.
