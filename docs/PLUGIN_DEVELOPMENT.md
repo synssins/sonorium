@@ -73,6 +73,7 @@ More manifest keys (sections 15 to 22):
 | `device_kinds` | Kinds of device it brings (section 26), if the class doesn't give them |
 | `permissions` | What it uses (section 28); none: everything, once the user allows it |
 | `http`, `ha_entities` | Its own routes (section 29) and Home Assistant entities (section 30), if the class doesn't give them |
+| `automation` | Its "do" actions and "only if" conditions (section 31), if the class doesn't give them |
 
 ## 1a. API versions and capabilities
 
@@ -107,6 +108,7 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `timeline` | 1.2 | Cues: which sound is heard on which speaker and when, ahead of time (section 25) |
 | `audio.tap` | 1.2 | Read-only copies of what a channel plays, or of one track (section 27) |
 | `audio.decode` | 1.2 | A theme's files decoded by Sonorium, for analysis (section 27) |
+| `automation` | 1.2 | "Do" actions and "only if" conditions for command maps (section 31) |
 | `permissions` | 1.2 | What a plugin uses, approved by the user (section 28) |
 | `http` | 1.2 | Its own HTTP routes, an ability each (section 29) |
 | `ha.entities` | 1.2 | Home Assistant entities declared as data (section 30) |
@@ -2085,4 +2087,61 @@ Home Assistant ids are `<type>.sonorium_plugin_<plugin>_<id>`. The entities appe
 plugin is on and leave Home Assistant when it is switched off. Up to 20 per plugin; every
 limit in `plugins/ha_entities.py` (`LIMITS`). An entity outside the rules is left out and
 listed on the plugin's row.
+
+## 31. Automation: when, only if, do
+
+Command maps (section 18) are Sonorium's rules: **when** a code comes in (a remote's button,
+an MQTT topic, a webhook, anything a plugin hands over with `self.commands.received`),
+**only if** every condition holds, **do** an action. There is no separate rules screen;
+Home Assistant, which is a rule engine, can use a plugin's actions through its entities
+(section 30). Capability `automation`, plugin API 1.2.
+
+A plugin adds its own pieces as data, next to Sonorium's:
+
+```json
+"automation": {
+  "actions": [{"id": "flash", "title": "Flash the lights",
+               "args": {"ms": {"type": "number", "label": "Length", "min": 20, "max": 2000, "default": 60}}},
+              {"id": "dim", "title": "Dim the channel's lights", "channel": true}],
+  "conditions": [{"id": "dark", "title": "It's dark outside"},
+                 {"id": "weather", "title": "The weather is",
+                  "args": {"kind": {"type": "select", "label": "Weather", "options": ["rain", "storm"]}}}]
+}
+```
+
+```python
+async def automation_action(self, action, channel, args, value=None):
+    await self.flash(args.get("ms", 60))            # value: what came with the code
+    return {"success": True}
+
+async def automation_condition(self, condition, channel, args):
+    return self.is_dark()                            # 2 s at most; an error counts as false
+```
+
+- In a map their ids are `<plugin id>:<id>`; `GET /api/command-actions` and
+  `GET /api/command-conditions` list Sonorium's pieces first, then the plugins' (with their
+  `plugin_id`). Argument types: `number`, `string`, `url`, `time` (HH:MM), `select`, `boolean`.
+- Sonorium's conditions: The channel is playing, The channel is stopped, The time is between.
+- An entry's `"only_if"`: up to 5 conditions, `[{"condition", "channel", "args"}]`; the
+  entry runs only when all of them hold. In a map on a plugin's page they are under ⋯ ›
+  Only if…, and ⋯ carries a dot while an entry has any.
+- A plugin switched off keeps the entries that use its pieces: they don't run, and its
+  conditions don't hold, until it is on again.
+- What the user mapped runs as the user set it: an input plugin's own permissions (section 28)
+  don't limit the actions of its map.
+- Up to 20 actions and 20 conditions per plugin, 3 arguments each, 30 s per action: every
+  limit is in `plugins/automation.py` (`LIMITS`). A piece outside the rules is left out and
+  listed on the plugin's row.
+
+## Not part of the framework yet
+
+These were planned and are left until a real plugin needs them:
+
+- **Sound sources** (audio a plugin supplies, played like a file or as a channel's content).
+  They need a track that isn't a file in the theme format, the Theme Editor and the mixer.
+- **Effects** that change the audio before the speakers get it: the one piece that could
+  stall playback.
+- **Sandboxed plugin views**: a plugin's own web page in a locked box. Data contributions
+  (section 24) cover the screens.
+- **A process per plugin** (a real sandbox): plugins run inside Sonorium (section 11).
 

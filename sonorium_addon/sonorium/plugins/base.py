@@ -494,6 +494,20 @@ class BasePlugin(ABC):
         """
         return {"success": False, "message": f"Unknown action: {action}"}
 
+    # Automation pieces for command maps (plugins/automation.py)
+
+    def get_automation(self) -> dict:
+        """{"actions": [{"id", "title", "channel", "args"}], "conditions": [...]}. Default: the manifest's "automation"."""
+        return dict((getattr(self, "_manifest", None) or {}).get("automation") or {})
+
+    async def automation_action(self, action: str, channel: Optional[str], args: dict, value: Any = None) -> dict:
+        """One of its "do" actions, from a command map entry (value: what came with the code)."""
+        return {"success": False, "message": f"Unknown action: {action}"}
+
+    async def automation_condition(self, condition: str, channel: Optional[str], args: dict) -> bool:
+        """One of its "only if" conditions: does it hold now? (2 s at most; an error is false)"""
+        return False
+
     def get_command_maps(self) -> list[dict]:
         """
         The plugin's command maps, for the user to fill: [{"id", "title",

@@ -281,7 +281,9 @@ class CommandsV1:
 
     async def received(self, map_id: str, code, value=None) -> dict:
         """A code came in on one of the plugin's maps: the user's entries for it run (or it's learnt)."""
-        return await self._host.commands.received(self._id, map_id, code, self._host.actions_for(self._id), value)
+        # What the user mapped runs as the user set it: not limited by the input plugin's own permissions
+        return await self._host.commands.received(self._id, map_id, code, self._host.actions.for_plugin(self._id),
+                                                  value)
 
     async def entries(self, map_id: str) -> list[dict]:
         return self._host.commands.entries(self._id, map_id)

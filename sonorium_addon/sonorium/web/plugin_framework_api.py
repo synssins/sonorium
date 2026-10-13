@@ -1037,8 +1037,13 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
 
     @router.get("/command-actions")
     async def command_actions():
-        """What a command map entry can do."""
-        return {"actions": cmd.catalogue()}
+        """What a command map entry can do (Sonorium's actions, then the plugins')."""
+        return {"actions": cmd.catalogue(getattr(_host(), "automation", None))}
+
+    @router.get("/command-conditions")
+    async def command_conditions():
+        """What an entry's "only if" can check (Sonorium's conditions, then the plugins')."""
+        return {"conditions": cmd.conditions(getattr(_host(), "automation", None))}
 
     def _map_decl(plugin, map_id: str) -> dict:
         for decl in plugin.get_command_maps() or []:
@@ -1080,5 +1085,5 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
         body = await _json(request)
         if not isinstance(body.get("code"), str):
             raise HTTPException(status_code=400, detail="'code' must be text")
-        return await host.commands.received(plugin.id, map_id, body["code"], host.actions_for(plugin.id),
+        return await host.commands.received(plugin.id, map_id, body["code"], host.actions.for_plugin(plugin.id),
                                             body.get("value"))

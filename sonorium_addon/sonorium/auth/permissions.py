@@ -323,6 +323,7 @@ DELETE  /api/events/token                               admin.keys
 GET     /api/events/stream                              ev.read+legacy
 GET     /api/timeline                                   ev.read+legacy
 GET     /api/plugin-permissions                         admin.plugins
+GET     /api/command-conditions                         admin.plugins
 GET     /api/plugins/{plugin_id}/permissions            admin.plugins
 PUT     /api/plugins/{plugin_id}/permissions            admin.plugins
 GET     /api/plugins/{plugin_id}/http/{path:path}       public

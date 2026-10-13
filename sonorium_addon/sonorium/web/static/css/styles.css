@@ -3299,6 +3299,13 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .spp-set .sp-inp.bad { border-color: rgba(239, 83, 80, .6); }
 /* A plugin's devices (lights, displays, ...) on its row: rows like Settings › Speakers' */
 .spd-hd { display: flex; align-items: center; gap: .625rem; }
+#sp-menu.cm-if { width: 360px; }
+.cm-if-row { display: flex; flex-wrap: wrap; align-items: center; gap: .375rem; padding-bottom: .5rem; border-bottom: 1px solid rgba(51, 65, 85, .55); }
+.cm-if-t { flex: 1 1 100%; font-size: .8125rem; color: var(--text-primary); }
+.cm-if-row.bare .cm-if-t { flex: 1 1 auto; }
+.cm-if-row .sp-inp { flex: 1 1 0; min-width: 0; }
+.cm-if-row .icon-btn { margin-left: auto; }
+.cm-more { position: relative; }
 .sp-confirm .pop-list { margin: .125rem 0 0; padding-left: 1.125rem; font-size: .8125rem; color: var(--text-primary); line-height: 1.5; }
 .spp-form > .spd-sec:first-child { padding-top: 0; border-top: 0; }
 .spd-hd .sp-cnt { font-size: .75rem; color: var(--text-muted); }

@@ -81,6 +81,9 @@ class PluginHost:
         self.outputs = None
         self.tts = TtsProviders()
         self.commands = CommandMaps(self.store, self.bus.publish)
+        from sonorium.plugins.automation import AutomationPieces
+        self.automation = AutomationPieces(plugin_of=self._plugin)
+        self.commands.pieces = self.automation
         self.mqtt = MqttRouter()
         self.homeassistant = None
         # Settings > Advanced > Plugin packages (api.py points this at the setting)
@@ -129,7 +132,7 @@ class PluginHost:
         have = {"events", "actions", "scheduler", "triggers", "pages", "connections",
                 "commands", "mqtt", "homeassistant", "audio.tts", "packages.pip", "packages.binaries",
                 "attributes", "ui", "timeline", "devices", "audio.tap", "audio.decode", "permissions",
-                "http", "ha.entities"}
+                "http", "ha.entities", "automation"}
         if self.overlay is not None:
             have.add("audio.sounds")
         if self.ramps is not None:
@@ -231,6 +234,7 @@ class PluginHost:
     def plugin_enabled(self, plugin) -> None:
         problems = self._open_http(plugin)
         problems += self.ha_entities.declare(plugin, self.permissions.allowed(plugin.id, "ha.entities"))
+        problems += self.automation.register_plugin(plugin)
         self.extra_problems[plugin.id] = problems
         if self.ha_entities.entities(plugin.id):
             self._spawn(self.ha_entities.publish(plugin.id))
@@ -276,6 +280,7 @@ class PluginHost:
         self.mqtt.unsubscribe_owner(plugin_id)
         self.devices.unregister_owner(plugin_id)
         self.taps.close_owner(plugin_id)
+        self.automation.unregister_owner(plugin_id)
         self.tts.unregister_owner(plugin_id)
         self.commands.stop_learning(plugin_id)
         if self.outputs is not None:
