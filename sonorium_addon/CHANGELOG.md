@@ -2,6 +2,18 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.41 (2026-10-13)
+
+### Bug Fixes
+
+- **ui**: Channel card header buttons line up with the buttons below
+  ([`515c7cf`](https://github.com/synssins/sonorium/commit/515c7cfcee09da7b7674b153249f6fc293721bed))
+
+- **windows**: Status "Check now" opens Updates and checks there; GitHub rate limit is "busy",
+  retried later
+  ([`3d167f8`](https://github.com/synssins/sonorium/commit/3d167f84e551f7a19b0f938bc4f9e565ec403cbb))
+
+
 ## v1.7.3-dev.38 (2026-10-13)
 
 ### Continuous Integration
