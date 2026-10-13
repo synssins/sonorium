@@ -67,11 +67,13 @@ class _PullChannel(Channel):
 
 class Engine:
     """
-    A theme mixed to mono 16-bit PCM at 44100 Hz, with its sequences, playlists
-    and theme changes run as a server channel runs them.
+    A theme mixed to 16-bit PCM at 44100 Hz, mono or stereo, with its
+    sequences, playlists and theme changes run as a server channel runs them.
 
         eng = Engine("themes/Rain", preset_id="calm", seed=1234)
         block = eng.render(44100)     # one second, numpy int16, shape (44100,)
+        eng = Engine("themes/Rain", channels=2)
+        block = eng.render(44100)     # shape (44100, 2): left, right interleaved
         eng.set_preset("storm")       # glides over 3 s, as on the server
         eng.start_sequence("gentle")  # steps through the sequence's presets
         eng.reload_theme()            # after edits saved to the theme's files (core/theme_edit.py)
@@ -95,16 +97,22 @@ class Engine:
                       theme folder's parent)
     crossfade         Settings > Audio Settings > Crossfade: seconds a theme change crossfades
     sequence_id       a sequence of the theme to run from the start (its first preset), or None
+    channels          1: mono (render() gives (n,)); 2: stereo (render() gives (n, 2)). A
+                      mono file plays centred; set_channels() changes it while playing
     """
 
     def __init__(self, theme_dir, preset_id: Optional[str] = None, playback_values: Optional[dict] = None,
                  seed: int = 0, sample_rate: int = SAMPLE_RATE, decoder: Optional[decoders.Decoder] = None,
                  clock: Optional[SampleClock] = None, master_gain: float = DEFAULT_MASTER_GAIN,
                  volume: float = 1.0, fade_in: float = 0.0, step: Optional[dict] = None, themes_root=None,
-                 crossfade: float = THEME_CROSSFADE_DURATION, sequence_id: Optional[str] = None):
+                 crossfade: float = THEME_CROSSFADE_DURATION, sequence_id: Optional[str] = None,
+                 channels: int = 1):
         if int(sample_rate) != SAMPLE_RATE:
             raise ValueError(f"The mixer runs at {SAMPLE_RATE} Hz only (asked for {sample_rate})")
         self.sample_rate = SAMPLE_RATE
+        # What render() hands out (1 or 2), and what the mix runs at: stereo
+        # once stereo was asked for (a stereo mix folds to mono at the output)
+        self._channels = self._mix_channels = decoders.check_channels(channels)
         self.seed = seed
         self.decoder = decoder if decoder is not None else decoders.PyAvDecoder()
         self.playback_values = _module_values().validate(dict(playback_values or {}))
@@ -272,9 +280,9 @@ class Engine:
 
     @contextlib.contextmanager
     def _scope(self):
-        """This engine's random numbers, decoder and playback values, in this thread, for the call."""
+        """This engine's random numbers, decoder, channel count and playback values, in this thread, for the call."""
         with rng.use_rng(self._rng), decoders.use_decoder(self.decoder), \
-                _module_values().use_values(self.playback_values):
+                decoders.use_channels(self._mix_channels), _module_values().use_values(self.playback_values):
             yield
 
     def _check_open(self) -> None:
@@ -288,10 +296,11 @@ class Engine:
 
     def render(self, n_samples: int, dtype: str = "int16") -> np.ndarray:
         """
-        The next `n_samples` of the mix, mono: int16, or float32 in -1..1 with
-        dtype="float32". Any length; the mix runs in blocks of BLOCK_SAMPLES
-        and keeps what is left over for the next call. Sequence steps and
-        playlist entries change between blocks, when their time comes.
+        The next `n_samples` of the mix: int16, or float32 in -1..1 with
+        dtype="float32"; mono shape (n,), stereo (n, 2) (left, right: the
+        bytes are interleaved frames). Any length; the mix runs in blocks of
+        BLOCK_SAMPLES and keeps what is left over for the next call. Sequence
+        steps and playlist entries change between blocks, when their time comes.
         """
         self._check_open()
         n = int(n_samples)
@@ -301,16 +310,20 @@ class Engine:
             while self._held_count < n:
                 if self._runner.next_due() <= self._mix_seconds():
                     drive(self._runner.tick())
-                chunk = self._channel.next_chunk().reshape(-1)
-                self._mixed += len(chunk)
+                chunk = self._channel.next_chunk()  # (channels, n): the mix as it was made
+                self._mixed += chunk.shape[-1]
                 if self._retired:
                     self._close_retired()
                 self._held.append(self._apply_volume(chunk))
-                self._held_count += len(chunk)
-        joined = np.concatenate(self._held) if len(self._held) != 1 else self._held[0]
-        out, rest = joined[:n], joined[n:]
-        self._held = [rest] if len(rest) else []
-        self._held_count = len(rest)
+                self._held_count += chunk.shape[-1]
+        if len(self._held) == 1:
+            joined = self._held[0]
+        else:
+            rows = max(part.shape[0] for part in self._held)
+            joined = np.concatenate([decoders.to_channels(part, rows) for part in self._held], axis=-1)
+        out, rest = self._output(joined[..., :n]), joined[..., n:]
+        self._held = [rest] if rest.shape[-1] else []
+        self._held_count = rest.shape[-1]
         self.clock.advance(n)
         if dtype == "int16":
             return out
@@ -323,6 +336,33 @@ class Engine:
         while True:
             yield self.render(n_samples, dtype)
 
+    def _output(self, chunk: np.ndarray) -> np.ndarray:
+        """A mixed block (channels, n) as render() hands it out: (n,) mono, (n, 2) stereo."""
+        if self._channels == 1:
+            return decoders.to_channels(chunk, 1).reshape(-1)
+        return np.ascontiguousarray(decoders.to_channels(chunk, 2).T)
+
+    # --- mono or stereo ---
+
+    @property
+    def channels(self) -> int:
+        """What render() hands out: 1 (mono) or 2 (stereo)."""
+        return self._channels
+
+    def set_channels(self, channels: int) -> None:
+        """
+        Mono (1) or stereo (2) from the next sample rendered, without a gap.
+        From stereo to mono the stereo mix folds to mono (left and right
+        averaged); back to stereo it is stereo again at once. An engine that
+        started mono and is switched to stereo hands out its mono mix on both
+        sides until the next theme change (set_theme, a playlist entry), which
+        mixes in stereo from then on.
+        """
+        channels = decoders.check_channels(channels)
+        if channels == self._channels:
+            return
+        self._channels = channels
+        self._mix_channels = max(self._mix_channels, channels)
     def _apply_volume(self, chunk: np.ndarray) -> np.ndarray:
         """The output volume, ramped over the block when it changes (no click)."""
         start, end = self._volume, self._target_volume
@@ -332,7 +372,7 @@ class Engine:
         if start == end:
             gain = start
         else:
-            gain = np.linspace(start, end, len(chunk), dtype=np.float32)
+            gain = np.linspace(start, end, chunk.shape[-1], dtype=np.float32)  # one per sample, both channels
         return np.clip(chunk.astype(np.float32) * gain, -32768, 32767).astype(np.int16)
 
     # --- theme changes ---
@@ -560,6 +600,7 @@ class Engine:
         channel = self._channel
         result = {
             "playing": session.is_playing,
+            "channels": self._channels,
             "ended": self._ended,
             "seconds_rendered": round(self.clock.seconds, 3),
             "theme_id": folder.theme.id,

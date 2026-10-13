@@ -399,13 +399,18 @@ API (`api.py`):
 | Item | Value | Code |
 |---|---|---|
 | Sample rate | 44100 Hz | `recording.py:199` |
-| Channels | mono. Every file is decoded and resampled to s16 mono 44100 Hz by ffmpeg's resampler (PyAV `AudioResampler`), so stereo is down-mixed by libswresample defaults | `decoders.py` `PyAvDecoder` (every read goes through `recording.AudioReader`) |
+| Channels | mono by default: every file is decoded and resampled to s16 mono 44100 Hz by ffmpeg's resampler (PyAV `AudioResampler`), so stereo is down-mixed by libswresample defaults (0.5 L + 0.5 R). With Settings > Audio Settings > **Stereo** on (`stereo`, off by default), new mixes are stereo: a stereo file keeps left and right (more channels are down-mixed to stereo), a mono file plays centred (its samples on both sides, unchanged). Every gain (volume, fades, crossfades, Ebb & Flow, transitions, ducking, ramps, output gain) is one value per sample on both channels alike | `decoders.py` `PyAvDecoder` (every read goes through `recording.AudioReader`); `decoders.set_default_channels` |
 | Chunk size | 1024 samples (about 23.2 ms) for every stream and the mix | `recording.py:484`, `:537`, `:719`, `:932`; `theme.py:123` |
-| Per-track chunk type | int16, shape (1, 1024). Float results are clipped to [-32768, 32767] and cast with truncation toward zero | `recording.py:682`, `:891`, `:1088` |
-| Stream output | MP3, 128 kbit/s, 44100 Hz, mono | `core/channel.py` `ChannelStream`, `theme.py:156-158` |
+| Per-track chunk type | int16, shape (1, 1024) mono, (2, 1024) stereo (left, right). Float results are clipped to [-32768, 32767] and cast with truncation toward zero | `recording.py:682`, `:891`, `:1088` |
+| Stream output | MP3, 128 kbit/s, 44100 Hz, two channels: the mono mix on both (3 dB down on each, ffmpeg's mono-to-stereo), or the stereo mix's left and right (3 dB down on each too, so a centred sound is as loud either way) | `mp3_out.py` `Mp3Encoder`, `core/channel.py` `ChannelStream` |
 | Pacing | real time: the generator sleeps when ahead of the wall clock (crossfade chunks included) | `core/channel.py` `_generator_loop` |
 
-Generators should deliver 44.1 kHz mono files so no resampling or down-mix happens.
+Generators should deliver 44.1 kHz files, mono or stereo, so no resampling happens. A stereo file
+plays down-mixed to mono unless Stereo is on.
+
+In a stereo mix, step 2 of the mix (3.8) weighs each track by the power of its mono fold (`(L + R) / 2`), so the
+level moves exactly as it would in a mono mix of the same sounds; the soft limiter acts on each channel's
+samples. A mix of mono files only is the mono mix on both channels, sample for sample.
 
 ### 3.2 playback_mode and how "auto" resolves (built)
 
@@ -900,7 +905,7 @@ Every preset ID in a sequence (and in its `transitions`) must exist in `presets`
 
 - Track file names are the keys: choose short, readable names ("Fireplace", "Rain on roof"). Avoid two files with the same name and different extensions in one folder (same key).
 - Do not start names with `.` or `_`. No folders deeper than one level.
-- 44.1 kHz mono, `.wav`, `.flac`, `.ogg` or `.mp3`.
+- 44.1 kHz, mono (or stereo for a sound with a left/right image), `.wav`, `.flac`, `.ogg` or `.mp3`.
 - Keep levels modest: with the default output gain of 6, one track's peaks above about -18.7 dBFS reach the limiter (3.8).
 
 ### 6.2 Beds and events

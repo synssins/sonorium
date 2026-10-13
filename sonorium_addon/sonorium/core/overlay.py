@@ -28,6 +28,8 @@ or waiting and no duck, the channel skips this module (core/channel.py).
 
 Samples are float32 in the int16 range (what the mixer produces), mono, at
 the stream's sample rate: decode.py turns files, URLs and buffers into that.
+Over a stereo mix (Settings > Audio Settings > Stereo) a sound plays centred,
+the same on both sides, and the duck lowers both alike.
 """
 from __future__ import annotations
 
@@ -277,7 +279,7 @@ class ChannelOverlay:
             self._pending = []
             size = chunk.shape[-1]
             curve = self._duck_curve(size)
-            out = chunk.astype(np.float32).reshape(-1)
+            out = chunk.astype(np.float32)  # (channels, n): the duck and each sound act on every channel alike
             if curve.any():
                 out = out * (10.0 ** (-curve / 20.0)).astype(np.float32)
             for sound in list(self._sounds):
@@ -300,7 +302,7 @@ class ChannelOverlay:
                         total = max(1, int(CUT_FADE_SECONDS * self.rate))
                         part = part * (np.arange(left, left - take, -1, dtype=np.float32) / total)
                         sound.cut_left -= take
-                    out[start:start + take] += part
+                    out[..., start:start + take] += part  # a mono sound: centred in a stereo mix
                     sound.pos += take
                 if sound.pos >= sound.pcm.shape[-1] or (sound.cut_left is not None and sound.cut_left <= 0):
                     self._sounds.remove(sound)

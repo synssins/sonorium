@@ -736,7 +736,7 @@ await self.audio.play(["kitchen", "office"], "https://example.com/ghost.mp3",
 |---|---|
 | `channels` | Channel ids |
 | `source` | A file path, an http(s) URL, or the bytes of an audio file (anything FFmpeg reads) |
-| `samples`, `sample_rate` | Instead of `source`: a numpy array (mono `(n,)` or `(channels, n)`; float -1..1 or int16) |
+| `samples`, `sample_rate` | Instead of `source`: a numpy array (mono `(n,)` or `(channels, n)`; float -1..1 or int16). A sound is mixed down to mono and, over a stereo channel (Settings › Audio Settings › Stereo), plays centred |
 | `volume` | 0-200 (100: the file's own level) |
 | `duck` | `True` (Settings › Advanced › Duck amount, attack and release), `False`, or `{"db", "attack", "release"}` |
 | `policy` | `now`: plays at once, over anything playing (sound effects). `queue` (default): after the sounds playing now, higher `priority` first. `replace`: cuts what plays or waits with the same or a lower priority; a higher one keeps playing and this one waits |
@@ -857,6 +857,7 @@ class HostAudio(OutputType):
     id = "host_audio"
     title = "This computer"
     local = True                          # sound devices of the machine Sonorium runs on
+    # stereo = True                       # write() gets (2, n) blocks, left and right (see Mono or stereo)
 
     def available(self):                 # called often, on the event loop: no I/O
         return (True, "") if HAVE_SOUNDDEVICE else (False, "sounddevice isn't installed")
@@ -908,6 +909,14 @@ its own and holds its level, since the device's clock drifts from the computer's
 options)` → a new `Sink`. `OutputType` and `Sink` are plain classes with no `__init__`.
 `open()` raises `OutputError("sentence for the user")` when it can't give a sink.
 
+**Mono or stereo.** A sink gets mono blocks, int16 `(1, n)`, whatever the channel plays: when
+Settings › Audio Settings › Stereo is on, the channel's stereo mix is folded to mono for it (left
+and right averaged; a sound that is the same on both sides comes through unchanged). That is the
+contract every output type had before Stereo existed, so a type written for it keeps working. A
+type that sets `stereo = True` (a class attribute, read at each `open()`) gets `(2, n)` blocks
+instead, left then right, always: a mono mix arrives as the same samples on both rows. Open a
+two-channel device for it and write `block.T` (frames of left, right).
+
 **Devices.** `discover()` returns dicts: `id` (str, required, stable; only ever sent in JSON
 bodies), `name` (required), `api` (shown under the name), `is_default` (the **Default**
 marker), `channels` (int) and `sample_rates` (int list), shown with the device. Entries that
@@ -925,7 +934,7 @@ channels; uninstalling the plugin does that for all of its devices.
 
 **Playing.** When a channel starts, Sonorium calls `open(device_id, 44100, options)` for
 each of its switched-on devices (listed now or not) and a writer thread per sink reads the
-channel's mix and calls `write(block)`: int16, `(1, 1024)`, mono, the same read-only array
+channel's mix and calls `write(block)`: int16, `(1, 1024)`, mono (see **Mono or stereo**), the same read-only array
 every listener gets, in real time (a 50-block buffer; a slow sink falls behind alone). The
 blocks are already scaled by the channel's volume with the device's Offset (a linear gain,
 `volume / 100`, on the samples; neither Sonorium nor the plugin changes the device's own
@@ -1946,7 +1955,7 @@ Each block is a `TapBlock`:
 
 | Field | What |
 |---|---|
-| `samples` | numpy int16, shape (1, 1024), mono, 44.1 kHz, read-only: the same array for every listener |
+| `samples` | numpy int16, shape (1, 1024), mono, 44.1 kHz, read-only: the same array for every listener. A channel playing stereo (Settings › Audio Settings › Stereo) is folded to mono for taps (left and right averaged), so a tap always gets mono |
 | `mixer_sample` | Its first sample on the channel's sample clock (from when the channel started making audio) |
 | `mixer_at` | When it left the mixer (Unix seconds, server clock): the clock cues use (section 25) |
 | `channel_id`, `track` | Where it comes from (`track` None for the mix) |

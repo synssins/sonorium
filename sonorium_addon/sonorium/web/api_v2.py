@@ -19,6 +19,17 @@ from sonorium.core.state import SpeakerSelection, NameSource
 from sonorium.obs import logger
 
 
+def apply_stereo(on: bool) -> None:
+    """
+    Settings > Audio Settings > Stereo: mixes made from now on are stereo (or
+    mono). Turned off, a stereo mix still playing folds to mono at once
+    (core/channel.py); turned on, each channel is stereo from its next theme.
+    """
+    from sonorium.decoders import set_default_channels
+    set_default_channels(2 if on else 1)
+    logger.info(f"Audio: {'stereo' if on else 'mono'} from the next theme played")
+
+
 # --- Request/Response Models ---
 
 class SpeakerSelectionModel(BaseModel):
@@ -152,6 +163,7 @@ class SettingsResponse(BaseModel):
     auto_create_quick_play: bool
     master_gain: int
     allow_multiple_local_outputs: bool = False  # more than one local audio output device plays at a time
+    stereo: bool = False  # Settings > Audio Settings > Stereo: channels mix in stereo
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -163,6 +175,7 @@ class UpdateSettingsRequest(BaseModel):
     auto_create_quick_play: Optional[bool] = None
     master_gain: Optional[int] = Field(default=None, ge=0, le=100)
     allow_multiple_local_outputs: Optional[bool] = None
+    stereo: Optional[bool] = None
 
 
 class SpeakerSettingsResponse(BaseModel):
@@ -1851,6 +1864,7 @@ def create_api_router(
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
             allow_multiple_local_outputs=settings.allow_multiple_local_outputs,
+            stereo=settings.stereo,
         )
 
     @router.put("/settings")
@@ -1874,6 +1888,9 @@ def create_api_router(
                 on_master_gain()
         if request.allow_multiple_local_outputs is not None:
             settings.allow_multiple_local_outputs = request.allow_multiple_local_outputs
+        if request.stereo is not None:
+            settings.stereo = request.stereo
+            apply_stereo(settings.stereo)
 
         state_store.save()
         _settings_changed("general", [k for k in request.model_fields_set if getattr(request, k) is not None])
@@ -1886,6 +1903,7 @@ def create_api_router(
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
             allow_multiple_local_outputs=settings.allow_multiple_local_outputs,
+            stereo=settings.stereo,
         )
 
     # --- Settings > Advanced: playback values ---

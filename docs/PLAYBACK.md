@@ -83,6 +83,14 @@ turn, plays a while, fades out and hands the turn back.
 The channel's volume setting never changes during a fade: the fade is applied to the
 channel's audio. Settings > Audio Settings > Master output gain is the output gain of every mix.
 
+Settings > Audio Settings > Stereo (off by default) makes every new mix stereo: a stereo file keeps
+its left and right, a mono file plays centred, and every fade, glide, crossfade, duck and ramp acts on
+both channels alike. Turned off, a stereo mix still playing folds to mono at once; turned on, a playing
+channel turns stereo at its next theme (a theme crossfade from mono to stereo plays the mono side
+centred). Speakers get stereo MP3 either way; plugin audio outputs get mono unless their type says it
+takes stereo (PLUGIN_DEVELOPMENT.md); audio taps and the cue timeline are unchanged (taps hear the
+mono fold).
+
 ## Sequences
 
 A sequence is a theme's presets in order (see THEME_FORMAT.md section 5). A channel runs

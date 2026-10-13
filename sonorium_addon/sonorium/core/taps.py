@@ -8,7 +8,9 @@ only falls behind itself (blocks it missed are counted in `dropped`), and it
 never counts as a listener, so it keeps no channel running. Blocks are the
 mix as it goes to the speakers (after fades, ramps and sounds over it):
 int16, shape (1, 1024), mono, 44.1 kHz, read-only, the same array for every
-listener, each with its place on the channel's sample clock:
+listener (a stereo mix, Settings > Audio Settings > Stereo, is folded to mono
+for taps: left and right averaged), each with its place on the channel's
+sample clock:
 
     TapBlock(samples, mixer_sample, mixer_at)
         mixer_sample  the block's first sample, counted from when the channel
@@ -39,6 +41,7 @@ from typing import Callable, Optional
 
 import numpy as np
 
+from sonorium.decoders import to_channels
 from sonorium.obs import logger
 
 SAMPLE_RATE = 44100
@@ -65,7 +68,8 @@ class TapError(ValueError):
 
 
 def _read_only(block: np.ndarray) -> np.ndarray:
-    view = block.view()
+    """The block as taps get it: mono (a stereo block folded), read-only."""
+    view = to_channels(block, 1).view()
     view.flags.writeable = False
     return view
 

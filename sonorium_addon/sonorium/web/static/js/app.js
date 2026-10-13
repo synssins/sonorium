@@ -5572,14 +5572,16 @@ function importThemeZip() {
 
 // Audio Settings
 // --- Settings > Audio: sliders change a draft; Save settings / Cancel ---
-const AUDIO_DEFAULTS = { crossfade_duration: 3.0, default_volume: 60, master_gain: 60 };
+const AUDIO_DEFAULTS = { crossfade_duration: 3.0, default_volume: 60, master_gain: 60, stereo: false };
 const AUDIO_FIELDS = [
     { key: 'crossfade_duration', id: 'settings-crossfade', label: 'Crossfade', short: 'Crossfade', tip: 'Fade when changing themes', tipShort: 'Fade between themes',
       min: 0, max: 10, step: 0.5, fmt: v => `${Number(v).toFixed(1)} s`, num: v => parseFloat(v) },
     { key: 'default_volume', id: 'settings-default-volume', label: 'Default volume', short: 'Volume', tip: 'Starting volume for new channels', tipShort: 'New channels',
       min: 0, max: 100, step: 5, fmt: v => `${v}%`, num: v => parseInt(v, 10) },
     { key: 'master_gain', id: 'settings-master-gain', label: 'Master output gain', short: 'Gain', tip: 'Multiplier for every stream', tipShort: 'All streams',
-      min: 0, max: 100, step: 5, fmt: v => `${v}%`, num: v => parseInt(v, 10) }
+      min: 0, max: 100, step: 5, fmt: v => `${v}%`, num: v => parseInt(v, 10) },
+    { key: 'stereo', id: 'settings-stereo', label: 'Stereo', short: 'Stereo', tip: 'Separate left and right for every stream', tipShort: 'Left and right',
+      type: 'switch', fmt: v => (v ? 'On' : 'Off'), num: v => !!v }
 ];
 let audioSettings = { ...AUDIO_DEFAULTS };   // saved
 let audioDraft = { ...AUDIO_DEFAULTS };      // on screen
@@ -5591,7 +5593,8 @@ async function loadAudioSettings() {
             audioSettings = {
                 crossfade_duration: result.crossfade_duration ?? AUDIO_DEFAULTS.crossfade_duration,
                 default_volume: result.default_volume ?? AUDIO_DEFAULTS.default_volume,
-                master_gain: result.master_gain ?? AUDIO_DEFAULTS.master_gain
+                master_gain: result.master_gain ?? AUDIO_DEFAULTS.master_gain,
+                stereo: !!(result.stereo ?? AUDIO_DEFAULTS.stereo)
             };
             audioDraft = { ...audioSettings };
             allowMultipleLocal = !!result.allow_multiple_local_outputs;
@@ -5611,7 +5614,9 @@ function renderAudioSettings() {
     rows.innerHTML = AUDIO_FIELDS.map(f => `
         <div class="sp-srow" data-key="${f.key}">
             <span class="sp-slab"><label for="${f.id}">${f.label}</label><span class="sp-tip" title="${f.tip}" aria-label="${f.tip}">${SP_ICON_INFO}</span><span class="sp-mod-dot sp-ph" title="Changed" hidden></span></span>
-            <div class="track-slider-wrapper sp-sl"><input type="range" class="track-slider" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${audioDraft[f.key]}" oninput="onAudioInput('${f.key}', this.value)"></div>
+            ${f.type === 'switch'
+                ? `<div class="sp-sl"><label class="toggle-switch"><input type="checkbox" id="${f.id}" ${audioDraft[f.key] ? 'checked' : ''} onchange="onAudioInput('${f.key}', this.checked)"><span class="toggle-slider"></span></label></div>`
+                : `<div class="track-slider-wrapper sp-sl"><input type="range" class="track-slider" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${audioDraft[f.key]}" oninput="onAudioInput('${f.key}', this.value)"></div>`}
             <span class="sp-sval"></span>
             <span class="sp-sdef"><span class="sp-ph">${f.tipShort} · default </span>${f.fmt(AUDIO_DEFAULTS[f.key])}</span>
             <span class="sp-schg"><span class="sp-mod-dot" title="Changed, not saved" hidden></span></span>
@@ -10745,6 +10750,7 @@ const PAGE_HELP = {
         ${helpTerm('Crossfade', 'how long the fade lasts, in seconds, when a channel changes theme.')}
         ${helpTerm('Default volume', 'the starting volume of a new channel.')}
         ${helpTerm('Master output gain', 'scales the volume of every stream.')}
+        ${helpTerm('Stereo', 'keeps left and right apart on every stream (a mono file plays in the middle). Off: every stream is mono. Turned on, a channel plays stereo from the next theme it starts.')}
         ${helpTerm('Default', 'the value out of the box. A dot marks a change that is not saved yet.')}
         <h4>Top bar</h4>
         ${helpTerm('Save settings', 'saves the changes.')}
