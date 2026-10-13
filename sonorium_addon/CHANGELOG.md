@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.26 (2026-10-13)
+
+### Features
+
+- **api**: Capabilities list in GET /api/info
+  ([`44f6aef`](https://github.com/synssins/sonorium/commit/44f6aef1cee0c17e6a304570c074c913f49902cb))
+
+
 ## v1.7.3-dev.22 (2026-10-13)
 
 ### Bug Fixes

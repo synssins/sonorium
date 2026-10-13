@@ -99,6 +99,6 @@ RUN chmod a+x /run.sh /usr/local/bin/sonorium-supervise
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.7.3-dev.22}"
+LABEL io.hass.version="${ADDON_VERSION:-1.7.3-dev.26}"
 
 CMD [ "/run.sh" ]
