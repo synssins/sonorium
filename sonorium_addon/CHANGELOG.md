@@ -2,6 +2,28 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.17 (2026-10-13)
+
+### Bug Fixes
+
+- **playback**: A group's file that ends cut off fades out instead of stopping dead
+  ([`ac10c4a`](https://github.com/synssins/sonorium/commit/ac10c4a31db13ddd6bbd298c00ed6604fd97ff4f))
+
+- **ui**: Phone header keeps one row; menu toggles in groups; entries keep their values
+  ([`8c9823c`](https://github.com/synssins/sonorium/commit/8c9823c8c9f25a03954167f5713798ad224daa07))
+
+- **web**: Link App dialog closes itself when its code links a phone or expires
+  ([`084e63f`](https://github.com/synssins/sonorium/commit/084e63f9f496ef0c4ad6d7759994ee3ab2540fcb))
+
+### Features
+
+- **core**: Theme details, preset import, step tracks, file operations, load without writing
+  ([`3f0831a`](https://github.com/synssins/sonorium/commit/3f0831adb7c58e9a43341f80e9184876e43de316))
+
+- **plugins**: Attributes on every object a screen shows
+  ([`7781fde`](https://github.com/synssins/sonorium/commit/7781fde0032cf48501e40230a6892418c86862c9))
+
+
 ## v1.7.3-dev.16 (2026-10-13)
 
 ### Bug Fixes
