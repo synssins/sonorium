@@ -189,6 +189,7 @@ V2_ROUTES = [
     ('APIRoute', 'PUT', '/api/themes/{theme_id}/metadata', 'update_theme_metadata'),
     ('APIRoute', 'DELETE', '/api/themes/{theme_id}', 'delete_theme'),
     ('APIRoute', 'GET', '/api/themes/{theme_id}/export', 'export_theme'),
+    ('APIRoute', 'POST', '/api/themes/{theme_id}/duplicate', 'duplicate_theme'),
     ('APIRoute', 'POST', '/api/themes/import', 'import_theme'),
     ('APIRoute', 'GET', '/api/plugins', 'list_plugins'),
     ('APIRoute', 'GET', '/api/plugins/catalog', 'get_plugin_catalog'),

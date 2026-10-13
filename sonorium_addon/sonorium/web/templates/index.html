@@ -306,7 +306,8 @@
                     </div>
                 </div>
 
-                <div id="themes-browser" class="tp-scroll" onscroll="tpOnScroll()">
+                <div id="themes-browser" class="tp-scroll" onscroll="tpOnScroll()"
+                     ondragover="tpDragOver(event)" ondragleave="tpDragLeave(event)" ondrop="tpDrop(event)">
                     <div class="loading">
                         <div class="spinner"></div>
                         Loading themes...
@@ -610,6 +611,20 @@
                         <button type="button" class="btn btn-sm btn-secondary" id="tp-cm-add" disabled onclick="tpAddCategory()">Add</button>
                     </div>
                     <div class="modal-footer"><button type="button" class="btn btn-primary" onclick="tpCloseCats()">Done</button></div>
+                </div>
+            </div>
+
+            <!-- Import theme with several zips: progress, then each file's result (tpImportFiles) -->
+            <div id="tp-imp-modal" class="modal-backdrop" onclick="if(event.target===this) tpCloseImport()">
+                <div class="modal tp-cm" role="dialog" aria-modal="true" aria-labelledby="tp-imp-title">
+                    <div class="modal-header">
+                        <h2 id="tp-imp-title">Import themes</h2>
+                        <button class="modal-close" aria-label="Close" onclick="tpCloseImport()">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                        </button>
+                    </div>
+                    <div class="modal-body" id="tp-imp-list"></div>
+                    <div class="modal-footer"><span class="imp-prog" id="tp-imp-prog" role="status"></span><button type="button" class="btn btn-primary" id="tp-imp-done" onclick="tpCloseImport()">Done</button></div>
                 </div>
             </div>
 

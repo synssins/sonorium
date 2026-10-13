@@ -2763,6 +2763,80 @@ async function tpCreateTheme() {
     }
 }
 
+// ---------- Duplicate theme (Themes page ⋯ and the Theme Editor's ⋯) ----------
+
+const THEME_NAME_TAKEN = 'A theme with this name already exists';
+
+function themeNameKey(name) {
+    return String(name || '').trim().toLowerCase();
+}
+
+// "<name> 01": the lowest free number from 01 (two digits; 100 and up keep counting)
+function themeCopyName(name) {
+    const base = String(name || '').trim();
+    const taken = new Set(themes.map(t => themeNameKey(t.name)));
+    let n = 1;
+    while (taken.has(themeNameKey(`${base} ${String(n).padStart(2, '0')}`))) n++;
+    return `${base} ${String(n).padStart(2, '0')}`;
+}
+
+// The name prompt; prefix: 'tp' (Themes page) or 'te' (Theme Editor), close: its menu's close function
+function themeDupHtml(prefix, themeId, close) {
+    const theme = themes.find(t => t.id === themeId);
+    const id = jsArg(themeId);
+    return `
+        <span class="pop-title">Duplicate theme</span>
+        <input id="${prefix}-dup-name" class="inp sm" type="text" maxlength="80" enterkeyhint="done" autocomplete="off"
+               placeholder="Name" aria-label="Name" value="${escapeHtml(themeCopyName(theme ? theme.name : ''))}"
+               oninput="themeDupInput('${prefix}')"
+               onkeydown="if (event.key === 'Enter') { event.preventDefault(); themeDupOk('${prefix}', ${id}, '${close}'); }">
+        <span class="pop-err" id="${prefix}-dup-err" role="alert" hidden>${THEME_NAME_TAKEN}</span>
+        <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="${close}()">Cancel</button>
+            <button type="button" class="btn btn-sm btn-primary" id="${prefix}-dup-ok" onclick="themeDupOk('${prefix}', ${id}, '${close}')">OK</button></div>`;
+}
+
+function themeDupTaken(prefix, taken) {
+    const input = document.getElementById(`${prefix}-dup-name`);
+    const err = document.getElementById(`${prefix}-dup-err`);
+    if (input) input.classList.toggle('err', taken);
+    if (err) err.hidden = !taken;
+}
+
+function themeDupInput(prefix) {
+    const input = document.getElementById(`${prefix}-dup-name`);
+    document.getElementById(`${prefix}-dup-ok`).disabled = !input.value.trim();
+    themeDupTaken(prefix, false);
+}
+
+async function themeDupOk(prefix, themeId, close) {
+    const input = document.getElementById(`${prefix}-dup-name`);
+    const okBtn = document.getElementById(`${prefix}-dup-ok`);
+    const name = input ? input.value.trim() : '';
+    if (!name || (okBtn && okBtn.disabled)) return;
+    if (themes.some(t => themeNameKey(t.name) === themeNameKey(name))) {
+        themeDupTaken(prefix, true);
+        input.focus();
+        return;
+    }
+    if (okBtn) okBtn.disabled = true;
+    try {
+        await api('POST', `/themes/${encodeURIComponent(themeId)}/duplicate`, { name });
+        window[close]();
+        await loadThemes();
+        renderThemesBrowser();
+        renderThemeSelector();
+        showToast('Duplicated', 'success');
+    } catch (error) {
+        if (okBtn) okBtn.disabled = false;
+        if (error.status === 409) {
+            themeDupTaken(prefix, true);
+            input.focus();
+        } else {
+            showToast(error.message || 'Failed to duplicate theme', 'error');
+        }
+    }
+}
+
 // ---------- Menus and popovers (one floating element) ----------
 
 function tpMenuSpec(kind, arg) {
@@ -2784,9 +2858,13 @@ function tpMenuSpec(kind, arg) {
             if (!theme) return null;
             const id = jsArg(arg);
             return { cls: 'menu', align: 'right', html: `
+                ${mi('Duplicate', `tpMenu('dup', tp.menuBtn, ${id})`, { icon: ICON_COPY })}
                 ${mi('Export', `tpExport(${id})`, { icon: TE_ICON_DOWNLOAD })}
                 ${sep}${mi('Delete…', `tpMenu('del', tp.menuBtn, ${id})`, { cls: 'danger', icon: TP_ICON_TRASH })}` };
         }
+        case 'dup':
+            if (!tpTheme(arg)) return null;
+            return { cls: 'pop', align: 'right', role: 'dialog', html: themeDupHtml('tp', arg, 'tpCloseMenu') };
         case 'del': {
             const theme = tpTheme(arg);
             if (!theme) return null;
@@ -2852,6 +2930,8 @@ document.addEventListener('keydown', event => {
         const button = tp.menuBtn;
         tpCloseMenu();
         button?.focus();
+    } else if (tpImportOpen()) {
+        tpCloseImport();
     } else if (tpCatsOpen()) {
         if (tp.catConfirm) {
             tp.catConfirm = null;
@@ -2873,7 +2953,7 @@ window.addEventListener('resize', () => {
 
 // The collection scrolled away from the card a menu hangs from
 function tpOnScroll() {
-    if (tp.menu && (tp.menu.startsWith('theme:') || tp.menu.startsWith('del:'))) tpCloseMenu();
+    if (tp.menu && (tp.menu.startsWith('theme:') || tp.menu.startsWith('del:') || tp.menu.startsWith('dup:'))) tpCloseMenu();
 }
 
 // ---------- Manage categories dialog ----------
@@ -4690,7 +4770,11 @@ function teMenuHtml(kind, arg) {
     switch (kind) {
         case 'theme':
             return { cls: 'menu', align: 'right', html: `
+                ${mi('Duplicate', "teMenu('tdup', te.menuBtn)", { icon: ICON_COPY })}
                 ${mi('Export theme', 'teExportTheme()', { icon: TE_ICON_DOWNLOAD })}` };
+        case 'tdup':
+            if (!te.themeId) return null;
+            return { cls: 'pop', align: 'right', role: 'dialog', html: themeDupHtml('te', te.themeId, 'teCloseMenu') };
         case 'icon': {
             const current = te.icon;
             return { cls: 'menu', align: 'left', html: `
@@ -5506,50 +5590,133 @@ async function exportThemeZip(themeId = document.getElementById('theme-edit-id')
     }
 }
 
+// Import theme…: one zip or several. Several are imported one after another
+// (each import converts its audio, core/theme_mp3.py), with the progress and
+// then each file's result in a small dialog; one failing doesn't stop the rest.
 function importThemeZip() {
-    // Create a hidden file input
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.zip';
+    input.multiple = true;
     input.style.display = 'none';
 
-    input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
+    input.onchange = (e) => tpImportFiles([...(e.target.files || [])]);
 
+    document.body.appendChild(input);
+    input.click();
+    document.body.removeChild(input);
+}
+
+const TP_NOT_A_ZIP = 'Not a theme zip';
+const tpImp = { busy: false, files: [], done: 0, results: [] };
+
+// One zip through POST /api/themes/import; throws with the reason it failed
+async function tpImportOne(file) {
+    if (!/\.zip$/i.test(file.name)) throw new Error(TP_NOT_A_ZIP);
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${BASE_PATH}/api/themes/import`, { method: 'POST', body: formData });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || 'Import failed');
+    }
+    return response.json();
+}
+
+async function tpImportFiles(files) {
+    if (!files.length || tpImp.busy) return;
+    if (files.length === 1) {
+        const file = files[0];
         try {
             showToast('Importing theme...', 'info');
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const response = await fetch(`${BASE_PATH}/api/themes/import`, {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Import failed');
-            }
-
-            const result = await response.json();
-
+            const result = await tpImportOne(file);
             // Trigger backend theme refresh then reload UI
             await api('POST', '/themes/refresh');
             await loadThemes();
             renderThemesBrowser();
-
             showToast(`Imported "${result.theme_folder}" (${result.files_extracted} files)`, 'success');
         } catch (error) {
             console.error('Import failed:', error);
             showToast(error.message || 'Failed to import theme', 'error');
         }
-    };
+        return;
+    }
+    tpImp.busy = true;
+    tpImp.files = files;
+    tpImp.done = 0;
+    tpImp.results = [];
+    tpRenderImport();
+    document.getElementById('tp-imp-modal').classList.add('active');
+    for (const file of files) {
+        try {
+            const result = await tpImportOne(file);
+            tpImp.results.push({ file: file.name, ok: true, name: result.name || result.theme_folder });
+        } catch (error) {
+            tpImp.results.push({ file: file.name, ok: false, why: error.message || 'Import failed' });
+        }
+        tpImp.done++;
+        tpRenderImport();
+    }
+    try {
+        if (tpImp.results.some(r => r.ok)) {
+            await api('POST', '/themes/refresh');
+            await loadThemes();
+            renderThemesBrowser();
+            renderThemeSelector();
+        }
+    } catch (error) {
+        console.error('Theme refresh after import failed:', error);
+    }
+    tpImp.busy = false;
+    tpRenderImport();
+}
 
-    document.body.appendChild(input);
-    input.click();
-    document.body.removeChild(input);
+function tpRenderImport() {
+    const n = tpImp.files.length;
+    const ok = tpImp.results.filter(r => r.ok).length;
+    document.getElementById('tp-imp-prog').textContent = tpImp.busy
+        ? `Importing ${Math.min(tpImp.done + 1, n)} of ${n}…`
+        : `${ok} of ${n} imported`;
+    document.getElementById('tp-imp-done').disabled = tpImp.busy;
+    document.getElementById('tp-imp-list').innerHTML = tpImp.results.map(r => `
+        <div class="cm-row">
+            <span class="imp-file"><span class="cm-name" title="${escapeHtml(r.file)}">${escapeHtml(r.file)}</span>${r.ok ? ''
+                : `<span class="imp-why">${escapeHtml(r.why)}</span>`}</span>
+            <span class="imp-st ${r.ok ? 'ok' : 'err'}">${r.ok ? 'Imported' : 'Failed'}</span>
+        </div>`).join('');
+}
+
+function tpImportOpen() {
+    return document.getElementById('tp-imp-modal')?.classList.contains('active');
+}
+
+function tpCloseImport() {
+    if (tpImp.busy) return;  // closes once every file is done
+    document.getElementById('tp-imp-modal').classList.remove('active');
+}
+
+// Theme zips dropped on the Themes page's list
+function tpDragHasFiles(event) {
+    return [...(event.dataTransfer?.types || [])].includes('Files');
+}
+
+function tpDragOver(event) {
+    if (!tpDragHasFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    event.currentTarget.classList.add('over');
+}
+
+function tpDragLeave(event) {
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    event.currentTarget.classList.remove('over');
+}
+
+function tpDrop(event) {
+    if (!tpDragHasFiles(event)) return;
+    event.preventDefault();
+    event.currentTarget.classList.remove('over');
+    tpImportFiles([...(event.dataTransfer.files || [])]);
 }
 
 // Audio Settings

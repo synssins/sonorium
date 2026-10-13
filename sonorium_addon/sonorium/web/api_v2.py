@@ -2188,9 +2188,9 @@ def create_api_router(
         if not name:
             raise HTTPException(status_code=400, detail="Theme name is required")
 
-        # Generate a safe folder name from the theme name
-        folder_name = re.sub(r'[^\w\s-]', '', name.lower())
-        folder_name = re.sub(r'[-\s]+', '_', folder_name).strip('_')
+        # A safe folder name from the theme name (core/theme_names.py)
+        from sonorium.core import theme_names
+        folder_name = theme_names.folder_name_for(name)
 
         if not folder_name:
             raise HTTPException(status_code=400, detail="Invalid theme name - could not generate folder name")
@@ -2205,13 +2205,14 @@ def create_api_router(
                 logger.error(f"Failed to create media path: {e}")
                 raise HTTPException(status_code=500, detail="Media path not available")
 
-        # Create the theme folder
-        theme_path = media_path / folder_name
-        if theme_path.exists():
-            raise HTTPException(status_code=409, detail=f"Theme folder '{folder_name}' already exists")
+        # No two themes share a name (trimmed, case ignored). The folder is the
+        # name's, or "_1", "_2", ... after it when another theme has that folder
+        if theme_names.is_taken(media_path, name):
+            raise HTTPException(status_code=409, detail=theme_names.TAKEN_MESSAGE)
+        theme_path = theme_names.free_folder(media_path, folder_name)
 
         try:
-            theme_path.mkdir(parents=True, exist_ok=True)
+            theme_path.mkdir(parents=True, exist_ok=False)
             logger.info(f"Created theme folder: {theme_path}")
 
             # metadata.json from the start: it gives the theme its id and the
@@ -2461,6 +2462,58 @@ def create_api_router(
         return FileResponse(tmp, media_type="application/zip", filename=filename,
                             content_disposition_type="attachment", background=BackgroundTask(remove, tmp))
 
+    @router.post("/themes/{theme_id}/duplicate")
+    async def duplicate_theme(theme_id: str, request: Request):
+        """
+        A full, independent copy of a theme, named {"name": ...} (core/theme_duplicate.py).
+        409 when another theme has the name (trimmed, case ignored).
+        """
+        from fastapi.concurrency import run_in_threadpool
+        from sonorium.core import theme_duplicate, theme_names, theme_presets
+
+        source = _find_theme_folder(theme_id)
+        if not source:
+            raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        name = body.get("name") if isinstance(body, dict) else None
+        if not isinstance(name, str) or not name.strip():
+            raise HTTPException(status_code=400, detail="Name is required")
+
+        try:
+            made = await run_in_threadpool(theme_duplicate.duplicate, source, name)
+        except theme_names.NameTaken as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+        except theme_duplicate.DuplicateError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+
+        folder = made["folder"]
+        # Its audio becomes MP3 in the background if the source's isn't yet (core/theme_mp3.py)
+        from sonorium.core import theme_mp3
+        theme_mp3.request(folder)
+        await _rescan_themes(f"duplicating '{name.strip()}'")
+        await _notify_theme_created(made["theme_id"], folder)
+
+        try:
+            meta = theme_presets.read_json(folder / theme_presets.METADATA_FILE) or {}
+        except theme_presets.BrokenJsonError:
+            meta = {}
+        return {
+            "status": "ok",
+            "theme_id": made["theme_id"],
+            "theme": {
+                "id": made["theme_id"],
+                "name": made["name"],
+                "folder": folder.name,
+                "description": meta.get("description", ""),
+                "icon": meta.get("icon", ""),
+                "categories": meta.get("categories", []),
+                "is_favorite": False,
+            },
+        }
+
     @router.post("/themes/import")
     async def import_theme(request: Request):
         """Import a theme from a zip file."""
@@ -2514,15 +2567,16 @@ def create_api_router(
                 except ZipLayoutError as e:
                     raise HTTPException(status_code=400, detail=str(e))
 
-                # Check if theme already exists
-                target_path = audio_path / theme_folder_name
-                if target_path.exists():
-                    # Generate unique name
-                    counter = 1
-                    while target_path.exists():
-                        target_path = audio_path / f"{theme_folder_name}_{counter}"
-                        counter += 1
-                    theme_folder_name = target_path.name
+                # The name it gets: metadata.json's, else its folder's. No two
+                # themes share a name (core/theme_names.py): refused, nothing written
+                from sonorium.core import theme_names
+                import_name = theme_name.strip() if theme_name and theme_name.strip() else theme_folder_name
+                if theme_names.is_taken(audio_path, import_name):
+                    raise HTTPException(status_code=409, detail=theme_names.TAKEN_MESSAGE)
+
+                # Another theme's folder has the name: "_1", "_2", ... after it
+                target_path = theme_names.free_folder(audio_path, theme_folder_name)
+                theme_folder_name = target_path.name
 
                 # Extract files
                 target_path.mkdir(parents=True, exist_ok=True)
@@ -2553,6 +2607,7 @@ def create_api_router(
                     metadata = load_theme_folder(target_path)
                     problems = list(metadata.problems)
                     metadata.id = str(uuid.uuid4())
+                    metadata.name = import_name  # trimmed; not the folder's "_1" name
                     if save_theme_folder(target_path, metadata):
                         new_id = metadata.id
                     else:
@@ -2571,6 +2626,8 @@ def create_api_router(
                 return {
                     "status": "ok",
                     "theme_folder": theme_folder_name,
+                    "theme_id": new_id,
+                    "name": import_name,
                     "files_extracted": files_extracted,
                     "path": str(target_path),
                     "problems": problems,

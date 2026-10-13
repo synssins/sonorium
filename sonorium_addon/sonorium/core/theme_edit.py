@@ -865,12 +865,16 @@ def rename_theme(folder, name, metadata: Optional[tm.ThemeMetadata] = None,
     """
     The theme's name as shown (metadata.json "name"; the folder keeps its
     name, the theme its id). Returns (old name, new name). Raises EditError
-    ("Name is required") or SaveFailed.
+    ("Name is required"), Conflict (another theme in the themes folder has
+    the name, core/theme_names.py) or SaveFailed.
     """
+    from sonorium.core import theme_names
     folder = Path(folder)
     name = name.strip() if isinstance(name, str) else ""
     if not name:
         raise EditError("Name is required")
+    if theme_names.is_taken(folder.parent, name, except_folder=folder):
+        raise Conflict(theme_names.TAKEN_MESSAGE)
     metadata = metadata if metadata is not None else load(folder)
     old = metadata.name
     metadata.name = name

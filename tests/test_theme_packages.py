@@ -410,8 +410,11 @@ def test_import_a_zip_with_the_files_at_its_root_keeps_the_groups(client, librar
     assert (theme / "Wind" / "Gust.wav").read_bytes() == b"gust" and (theme / "Wind" / "Breeze.wav").exists()
     assert not (theme / "Gust.wav").exists() and not (theme / "__MACOSX").exists() and not (theme / ".DS_Store").exists()
     assert json.loads((theme / "metadata.json").read_text(encoding="utf-8"))["tracks"]["Wind/Gust"]["volume"] == 0.5
-    # Again: a new folder beside it; without metadata.json the zip's name is used
-    assert _import(client, _zip(_storm())).json()["theme_folder"] == "Thunder Storm_1"
+    # Again: refused, a theme has that name (core/theme_names.py); nothing written
+    again = _import(client, _zip(_storm()))
+    assert again.status_code == 409 and again.json()["detail"] == "A theme with this name already exists"
+    assert not (root / "Thunder Storm_1").exists()
+    # Without metadata.json the zip's name is used
     r = _import(client, _zip({"Rain.wav": b"rain", "Wind/Gust.wav": b"gust"}), "Night rain.zip")
     assert r.json()["theme_folder"] == "Night rain" and (root / "Night rain" / "Wind" / "Gust.wav").exists()
 

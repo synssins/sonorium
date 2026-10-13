@@ -814,7 +814,8 @@ left); don't show it as a listener count.
 | `GET /themes/{id}/groups` | th.view | `{"groups": [...]}` (THEME_FORMAT.md 2.5) |
 | `GET /categories` | th.view | `{"categories": ["Weather", "Christmas", "Fantasy"]}` |
 | `POST /themes/{id}/favorite` | th.edit, **Admin** | toggles favorite |
-| `PUT /themes/{id}/rename` | th.edit, **Admin** | `{"name"}` |
+| `PUT /themes/{id}/rename` | th.edit, **Admin** | `{"name"}`; 409 when another theme has the name (below) |
+| `POST /themes/{id}/duplicate` | th.upload, **Admin** | Body `{"name"}`. A full, independent copy (below): `{"status": "ok", "theme_id", "theme": {"id", "name", "folder", "description", "icon", "categories", "is_favorite": false}}`; 409 when another theme has the name, 404 unknown theme |
 | `PUT /themes/{id}/tracks/{key}/{presence|muted|volume|playback_mode|seamless_loop|fades|ebb|exclusive}` | th.edit, **Admin** | Changes the theme's own track settings (every channel on it). *(code only)* |
 | `POST /themes/create`, `/themes/{id}/upload`, `/themes/import`, `DELETE /themes/{id}`, `PUT /themes/{id}/metadata` | th.upload / th.edit, **Admin** | Theme management; leave it to the web UI |
 | `GET /themes/{id}/export` | th.view | zip (section 10) |
@@ -848,6 +849,16 @@ Theme summary (`GET /themes`):
   (THEME_FORMAT.md); show a warning badge when non-empty.
 - Empty theme folders appear with `has_audio: false`, `total_tracks: 0` and
   no `short_file_threshold`.
+- **Theme names are unique:** two names are the same with the spaces around
+  them trimmed and case ignored. Create, rename, import and duplicate answer
+  409 `{"detail": "A theme with this name already exists"}` for a name
+  another theme has; nothing is written.
+- **Duplicate** copies the theme folder: audio files and groups,
+  `metadata.json` (track and group settings, links, categories, description,
+  icon) and `presets.json` (presets and sequences). The copy gets a new id,
+  its own folder (named from the new name, as Create theme does) and
+  `is_favorite: false`. Linked files stay links to the same theme's files.
+  The web UI suggests the name `"<name> 01"`, the lowest free number from 01.
 
 Track object (`GET /themes/{id}/tracks`):
 

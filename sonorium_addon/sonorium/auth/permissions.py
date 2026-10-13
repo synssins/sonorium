@@ -189,6 +189,7 @@ POST    /api/categories                                 th.edit
 DELETE  /api/categories/{category_name}                 th.edit
 POST    /api/themes/{theme_id}/categories               th.edit
 POST    /api/themes/create                              th.upload
+POST    /api/themes/{theme_id}/duplicate                th.upload
 POST    /api/themes/{theme_id}/upload                   th.upload
 PUT     /api/themes/{theme_id}/metadata                 th.edit
 DELETE  /api/themes/{theme_id}                          th.upload

@@ -2544,6 +2544,9 @@ body.sidebar-open .sidebar-overlay {
 .te-pop .inp { box-sizing: border-box; width: 100%; min-height: 32px; padding: 0 .625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; color: var(--text-primary); font: inherit; font-size: .875rem; }
 .te-pop .inp:focus { outline: none; border-color: var(--accent-primary); }
 .te-pop .pop-acts { display: flex; justify-content: flex-end; gap: .5rem; }
+/* Duplicate theme: a taken name, said under the field */
+.te-pop .inp.err { border-color: var(--accent-danger); }
+.te-pop .pop-err { margin-top: -.25rem; font-size: .75rem; color: var(--accent-danger); }
 .te-pop .btn[disabled] { opacity: .4; cursor: default; transform: none; }
 
 /* Tracks toolbar (fixed) */
@@ -2956,6 +2959,15 @@ body.preview-active .tp-scroll { padding-bottom: calc(1.5rem + 56px); }
 .tp-cm .cm-add { display: flex; align-items: center; gap: .5rem; padding: .75rem 1.25rem; border-top: 1px solid var(--border-color); }
 .tp-cm .cm-add .inp { flex: 1; min-width: 0; }
 .tp-cm .modal-footer { padding: .75rem 1.25rem; }
+/* Import themes (several zips): each file's result; theme zips dropped on the list */
+.tp-cm .imp-file { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tp-cm .imp-file .cm-name { flex: none; }
+.tp-cm .imp-why { font-size: .75rem; color: var(--text-muted); overflow-wrap: anywhere; }
+.tp-cm .imp-st { flex: none; font-size: .8125rem; font-weight: 600; }
+.tp-cm .imp-st.ok { color: var(--accent-primary); }
+.tp-cm .imp-st.err { color: var(--accent-danger); }
+.tp-cm .imp-prog { margin-right: auto; align-self: center; font-size: .8125rem; color: var(--text-secondary); }
+.tp-scroll.over { outline: 2px dashed var(--accent-primary); outline-offset: -6px; background: rgba(6, 214, 160, .06); }
 
 /* Title bar on small screens: title stays readable, buttons keep their size */
 @media (max-width: 768px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
