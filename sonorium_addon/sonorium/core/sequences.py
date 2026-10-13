@@ -298,7 +298,8 @@ def _checked_while(data, presets: list, where: str, warn) -> dict:
     return result
 
 
-KNOWN_SEQUENCE_FIELDS = ("name", "presets", "at_end", "owner", "transitions", "while") + TIMING_FIELDS
+KNOWN_SEQUENCE_FIELDS = ("name", "presets", "at_end", "owner", "transitions", "while", "plugins",
+                         "step_plugins") + TIMING_FIELDS
 
 
 def check_loaded_sequence(sequence_id: str, data: dict, defaults: dict, warn) -> dict:
@@ -359,6 +360,14 @@ def check_loaded_sequence(sequence_id: str, data: dict, defaults: dict, warn) ->
         layers = _checked_while(data["while"], result["presets"], f"{where} while", warn)
         if layers:
             result["while"] = layers
+    # Plugin attributes on the sequence and its steps (core/plugin_data.py)
+    from sonorium.core import plugin_data
+    probe = {sequence_id: {k: data[k] for k in ("plugins", "step_plugins") if k in data}}
+    probe[sequence_id]["presets"] = result["presets"]
+    plugin_data.filter_sequences(probe, where)
+    for key in ("plugins", "step_plugins"):
+        if probe[sequence_id].get(key):
+            result[key] = probe[sequence_id][key]
     return result
 
 
@@ -503,6 +512,10 @@ def clean_sequence(data: dict, preset_ids, current: Optional[dict] = None) -> di
         result["while"] = {p: layer for p, layer in result["while"].items() if p in presets_now}
     if not result.get("while"):
         result.pop("while", None)
+    if result.get("step_plugins"):  # a step taken out takes its plugin values with it
+        result["step_plugins"] = {p: b for p, b in result["step_plugins"].items() if p in presets_now}
+    if not result.get("step_plugins"):
+        result.pop("step_plugins", None)
     return result
 
 

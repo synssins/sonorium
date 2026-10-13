@@ -171,6 +171,10 @@ class SonoriumSettings:
     # Format: {"wled": {"track": {"cue": {"type": "enum", "options": [...]}}}}
     plugin_attributes: dict[str, dict] = field(default_factory=dict)
 
+    # Plugin attributes on objects whose records are kept elsewhere (areas, keys,
+    # connections): {kind: {object_id: {plugin_id: {name: value}}}} (core/plugin_data.py)
+    object_plugins: dict[str, dict] = field(default_factory=dict)
+
     # Deleted builtin plugins (prevents auto-reinstall on startup)
     # When a user deletes a builtin plugin, its ID is added here so it won't be restored
     deleted_builtin_plugins: list[str] = field(default_factory=list)
@@ -277,6 +281,9 @@ class SpeakerGroup:
     
     created_at: str = ""  # ISO format
     updated_at: str = ""  # ISO format
+
+    # Plugin attributes on this group: {plugin_id: {name: value}} (core/plugin_data.py)
+    plugins: dict = field(default_factory=dict)
     
     def __post_init__(self):
         now = datetime.utcnow().isoformat()
@@ -480,6 +487,9 @@ class SonoriumState:
 
         if isinstance(data.get("playlists"), dict):
             state.playlists = {k: dict(v) for k, v in data["playlists"].items() if isinstance(v, dict)}
+            from sonorium.core.playlists import ensure_entry_ids
+            for playlist in state.playlists.values():
+                ensure_entry_ids(playlist)
         state.cycling_migrated = bool(data.get("cycling_migrated", False))
 
         if isinstance(data.get("personal_channels"), dict):

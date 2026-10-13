@@ -345,9 +345,9 @@ GET     /api/ui/contributions                           ch.view|th.view|pl.view|
 POST    /api/ui/objects                                 ch.view|th.view|pl.view|sp.view|st.view|pg.use|admin.plugins|self
 POST    /api/ui/actions/{plugin_id}/{element_id}        pg.use
 # plugin attributes: the route checks the ability for the object's kind (web/plugin_framework_api.py)
-GET     /api/attributes                                 th.view|ch.view|sp.view|admin.plugins
-GET     /api/attributes/{kind}                          th.view|ch.view|sp.view|self|admin.users
-PUT     /api/attributes/{kind}/{plugin_id}              th.edit|ch.change|sp.set|self|admin.users
+GET     /api/attributes                                 th.view|ch.view|sp.view|pl.view|admin.plugins
+GET     /api/attributes/{kind}                          th.view|ch.view|sp.view|pl.view|self|admin.users|admin.keys|admin.connection|admin.plugins
+PUT     /api/attributes/{kind}/{plugin_id}              th.edit|ch.change|sp.set|st.change|pl.edit|self|admin.users|admin.keys|admin.connection|admin.plugins
 GET     /api/plugins/{plugin_id}/packages               admin.plugins
 GET     /api/alerts                                     st.view
 POST    /api/alerts/{alert_id}/dismiss                  st.view

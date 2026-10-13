@@ -105,7 +105,8 @@ SPOT_TYPES: dict[str, dict] = {
     "header": {
         "kinds": ("action",), "max_per_plugin": 1, "label_max": 20, "text_max": 0,
         "field_types": (), "bindings": (), "max_fields_per_item": 0, "collapsible": False,
-        "position": "after the screen's buttons",
+        "position": "after the screen's buttons; on a phone, in the screen's title-bar ⋯ (or, without one, "
+                    "in one ⋯ for them), so the screen's buttons and help keep their row",
     },
     "top": {
         "kinds": ("info", "action", "field"), "max_per_plugin": 3, "label_max": 24, "text_max": 120,
@@ -185,8 +186,8 @@ FACTS: dict[str, dict] = {
 }
 GLOBAL_FACTS = {"phone": "bool"}
 
-# Object kinds whose plugin attributes are stored (core/plugin_data.py)
-ATTRIBUTE_KINDS = ("theme", "track", "file", "preset", "channel", "speaker", "user")
+# Object kinds whose plugin attributes are stored (core/plugin_data.py): every object a target shows
+from sonorium.core.plugin_data import OBJECT_CLASSES as ATTRIBUTE_KINDS  # noqa: E402
 
 
 def _screen(view: str, title: str, fixed: list, menu: bool = False) -> dict:

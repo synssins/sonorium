@@ -730,13 +730,15 @@ def drop_unknown_plugin_data(folder: Path) -> bool:
                     else:
                         del entry["plugins"]
             plugin_data.filter_presets(raw.get("presets"), label, strict=True)  # a 1.0 theme's presets
+            plugin_data.filter_groups(raw.get("groups"), label, strict=True)
             if json.dumps(raw, sort_keys=True) != before:
                 theme_presets.write_json_atomic(folder / METADATA_FILE, raw)
                 changed = True
         doc = theme_presets.read_json(folder / PRESETS_FILE)
-        if doc is not None and isinstance(doc.get("presets"), dict):
+        if doc is not None and (isinstance(doc.get("presets"), dict) or isinstance(doc.get("sequences"), dict)):
             before = json.dumps(doc, sort_keys=True)
-            plugin_data.filter_presets(doc["presets"], label, strict=True)
+            plugin_data.filter_presets(doc.get("presets"), label, strict=True)
+            plugin_data.filter_sequences(doc.get("sequences"), label, strict=True)
             if json.dumps(doc, sort_keys=True) != before:
                 theme_presets.write_json_atomic(folder / PRESETS_FILE, doc)
                 changed = True

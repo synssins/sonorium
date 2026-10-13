@@ -14,6 +14,18 @@ Object classes:
     channel  a channel            state.json, the channel's "plugins"
     speaker  a speaker            state.json, its speaker settings' "plugins"
     user     an account           users.json, the user's "plugins"
+    group    a theme's group      metadata.json, the group's entry in "groups" ("plugins")
+    sequence a theme's sequence   presets.json, the sequence's "plugins"
+    step     a step of a sequence presets.json, the sequence's "step_plugins" {preset_id: block}
+                                  (id "<sequence_id>/<preset_id>")
+    playlist a playlist           state.json "playlists", the playlist's "plugins"
+    playlist_entry  an entry      the entry's "plugins" (id "<playlist_id>/<entry id>": an entry
+                                  keeps its id, and its values, when the order changes)
+    speaker_group  a speaker group  state.json, the group's "plugins"
+    area     an area              state.json settings "object_plugins" {"area": {id: block}}
+    key      a key                the same, under "key" (a key's record is the sign-in store's)
+    connection  a connection      the same, under "connection" (Home Assistant, MQTT and
+                                  plugins' connections keep their values elsewhere)
 
 On every object the values sit under the plugin's id, so two plugins can both
 have a "cue" attribute: {"plugins": {"wled": {"cue": "flash"}}}.
@@ -68,7 +80,10 @@ from typing import Any, Callable, Iterable, Optional
 
 from sonorium.obs import logger
 
-OBJECT_CLASSES = ("theme", "track", "file", "preset", "channel", "speaker", "user")
+OBJECT_CLASSES = ("theme", "track", "file", "preset", "channel", "speaker", "user", "group", "sequence", "step",
+                  "playlist", "playlist_entry", "speaker_group", "area", "key", "connection", "plugin")
+# Kept in state.json settings "object_plugins" ({kind: {id: block}}): objects whose records live elsewhere
+SIDE_TABLE_CLASSES = ("area", "key", "connection", "plugin")
 TYPES = ("string", "number", "bool", "enum", "list", "object")
 # Accepted for the same words as plugin settings use
 TYPE_ALIASES = {"boolean": "bool", "select": "enum", "text": "string", "dict": "object", "array": "list"}
@@ -493,6 +508,43 @@ def filter_theme(metadata, where: str = "", strict: bool = False) -> None:
         if hasattr(track, "plugins"):
             track.plugins = clean_block(track.plugins, TRACK_CLASSES, f"{label}, track '{key}'", strict)
     filter_presets(getattr(metadata, "presets", None), label, strict)
+    filter_groups(getattr(metadata, "groups", None), label, strict)
+
+
+def filter_groups(groups: Any, where: str = "", strict: bool = False) -> None:
+    """Each theme group's "plugins" cut down to the schema, in place (dropped when empty)."""
+    for name, settings in (groups or {}).items() if isinstance(groups, dict) else ():
+        if not isinstance(settings, dict) or "plugins" not in settings:
+            continue
+        kept = clean_block(settings.get("plugins"), ("group",), f"{where}, group '{name}'", strict)
+        if kept:
+            settings["plugins"] = kept
+        else:
+            del settings["plugins"]
+
+
+def filter_sequences(sequences: Any, where: str = "", strict: bool = False) -> None:
+    """Each sequence's "plugins" and its steps' ("step_plugins") cut down to the schema, in place."""
+    for sid, sequence in (sequences or {}).items() if isinstance(sequences, dict) else ():
+        if not isinstance(sequence, dict):
+            continue
+        if "plugins" in sequence:
+            kept = clean_block(sequence.get("plugins"), ("sequence",), f"{where}, sequence '{sid}'", strict)
+            if kept:
+                sequence["plugins"] = kept
+            else:
+                del sequence["plugins"]
+        steps = sequence.get("step_plugins")
+        if steps is not None:
+            clean = {}
+            for preset_id, block in steps.items() if isinstance(steps, dict) else ():
+                kept = clean_block(block, ("step",), f"{where}, sequence '{sid}' step '{preset_id}'", strict)
+                if kept and preset_id in (sequence.get("presets") or []):
+                    clean[preset_id] = kept
+            if clean:
+                sequence["step_plugins"] = clean
+            else:
+                del sequence["step_plugins"]
 
 
 def filter_presets(presets: Any, where: str = "", strict: bool = False) -> None:

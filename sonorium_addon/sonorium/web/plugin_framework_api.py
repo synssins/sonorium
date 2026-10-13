@@ -485,10 +485,14 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 
 
 # Who may read and change plugin attributes, by object kind (users: below)
-ATTRIBUTE_READ = {"theme": "th.view", "track": "th.view", "file": "th.view", "preset": "th.view",
-                  "channel": "ch.view", "speaker": "sp.view"}
-ATTRIBUTE_WRITE = {"theme": "th.edit", "track": "th.edit", "file": "th.edit", "preset": "th.edit",
-                   "channel": "ch.change", "speaker": "sp.set"}
+ATTRIBUTE_READ = {"theme": "th.view", "track": "th.view", "file": "th.view", "preset": "th.view", "group": "th.view",
+                  "channel": "ch.view", "speaker": "sp.view", "speaker_group": "sp.view", "area": "sp.view",
+                  "sequence": "pl.view", "step": "pl.view", "playlist": "pl.view", "playlist_entry": "pl.view",
+                  "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins"}
+ATTRIBUTE_WRITE = {"theme": "th.edit", "track": "th.edit", "file": "th.edit", "preset": "th.edit", "group": "th.edit",
+                   "channel": "ch.change", "speaker": "sp.set", "speaker_group": "sp.set", "area": "st.change",
+                   "sequence": "pl.edit", "step": "pl.edit", "playlist": "pl.edit", "playlist_entry": "pl.edit",
+                   "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins"}
 
 
 def _add_attribute_routes(router, _host, _json) -> None:

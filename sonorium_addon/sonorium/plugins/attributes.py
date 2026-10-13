@@ -12,6 +12,13 @@ An object reference is a small dict:
     {"kind": "channel", "id": channel id}
     {"kind": "speaker", "id": speaker id}
     {"kind": "user",    "id": user id}
+    {"kind": "group",   "theme": theme_id, "id": group name}
+    {"kind": "sequence", "theme": theme_id, "id": sequence id}
+    {"kind": "step",    "theme": theme_id, "id": "<sequence id>/<preset id>"}
+    {"kind": "playlist", "id": playlist id}
+    {"kind": "playlist_entry", "id": "<playlist id>/<entry id>"}
+    {"kind": "speaker_group", "id": group id}
+    {"kind": "area" | "key" | "connection", "id": its id}
 
 A plugin uses self.attributes (PluginAttributes): declare(), schema(),
 get(ref), set(ref, values), clear(ref). Outside programs use
@@ -143,6 +150,111 @@ class AttributeService:
                 self._save_theme(manager, metadata)
             return _Target(kind, ref_id, theme, lambda: preset.get("plugins") or {}, write)
 
+        if kind == "group":
+            manager, metadata = self._theme(theme)
+            settings = (metadata.groups or {}).get(ref_id)
+            if not isinstance(settings, dict):
+                raise ActionError("not_found", f"No group '{ref_id}' in theme {theme}")
+
+            def write(block):
+                if block:
+                    settings["plugins"] = block
+                else:
+                    settings.pop("plugins", None)
+                self._save_theme(manager, metadata)
+            return _Target(kind, ref_id, theme, lambda: settings.get("plugins") or {}, write)
+
+        if kind in ("sequence", "step"):
+            from sonorium.core import sequences as seq_mod
+            manager, metadata = self._theme(theme)
+            folder = manager.get_folder_for_id(theme) if hasattr(manager, "get_folder_for_id") else None
+            if folder is None:
+                raise ActionError("not_found", f"Theme not found: {theme}")
+            all_sequences = seq_mod.load_sequences(folder)
+            sequence_id, _, preset_id = ref_id.partition("/") if kind == "step" else (ref_id, "", "")
+            sequence = all_sequences.get(sequence_id)
+            if sequence is None:
+                raise ActionError("not_found", f"No sequence '{sequence_id}' in theme {theme}")
+            if kind == "step" and preset_id not in (sequence.get("presets") or []):
+                raise ActionError("not_found", f"No step '{preset_id}' in sequence '{sequence_id}'")
+
+            def save():
+                try:
+                    seq_mod.save_sequences(folder, all_sequences)
+                except OSError as e:
+                    raise ActionError("unavailable", f"The theme's files couldn't be saved: {e}")
+
+            if kind == "sequence":
+                def write(block):
+                    if block:
+                        sequence["plugins"] = block
+                    else:
+                        sequence.pop("plugins", None)
+                    save()
+                return _Target(kind, ref_id, theme, lambda: sequence.get("plugins") or {}, write)
+
+            def write_step(block):
+                steps = dict(sequence.get("step_plugins") or {})
+                if block:
+                    steps[preset_id] = block
+                else:
+                    steps.pop(preset_id, None)
+                if steps:
+                    sequence["step_plugins"] = steps
+                else:
+                    sequence.pop("step_plugins", None)
+                save()
+            return _Target(kind, ref_id, theme, lambda: (sequence.get("step_plugins") or {}).get(preset_id) or {},
+                           write_step)
+
+        if kind in ("playlist", "playlist_entry"):
+            if self.state_store is None:
+                raise ActionError("unavailable", "Playlists are not available")
+            playlist_id, _, index = ref_id.partition("/") if kind == "playlist_entry" else (ref_id, "", "")
+            playlist = (self.state_store.playlists or {}).get(playlist_id)
+            if not isinstance(playlist, dict):
+                raise ActionError("not_found", f"Playlist not found: {playlist_id}")
+            holder = playlist
+            if kind == "playlist_entry":
+                holder = next((e for e in playlist.get("entries") or []
+                               if isinstance(e, dict) and e.get("id") == index), None)
+                if holder is None:
+                    raise ActionError("not_found", f"No entry '{index}' in playlist {playlist_id}")
+
+            def write(block):
+                if block:
+                    holder["plugins"] = block
+                else:
+                    holder.pop("plugins", None)
+                self.state_store.save()
+            return _Target(kind, ref_id, None, lambda: holder.get("plugins") or {}, write)
+
+        if kind == "speaker_group":
+            group = (self.state_store.speaker_groups if self.state_store is not None else {}).get(ref_id)
+            if group is None:
+                raise ActionError("not_found", f"Speaker group not found: {ref_id}")
+
+            def write(block):
+                group.plugins = block or {}
+                self.state_store.save()
+            return _Target(kind, ref_id, None, lambda: group.plugins or {}, write)
+
+        if kind in plugin_data.SIDE_TABLE_CLASSES:
+            if self.state_store is None:
+                raise ActionError("unavailable", "Settings are not available")
+            table = self.state_store.settings.object_plugins
+
+            def write(block):
+                objects = table.setdefault(kind, {})
+                if block:
+                    objects[ref_id] = block
+                else:
+                    objects.pop(ref_id, None)
+                if not objects:
+                    table.pop(kind, None)
+                self.state_store.save()
+            return _Target(kind, ref_id, None, lambda: (table.get(kind) or {}).get(ref_id) or {}, write)
+
         if kind == "channel":
             session = self._session(ref_id)
 
@@ -241,14 +353,22 @@ class AttributeService:
     def forget_plugin(self, plugin_id: str) -> int:
         """
         The plugin was uninstalled: its schema goes, and its values are removed
-        from every theme, track, preset, channel, speaker and user. Returns how
-        many objects changed.
+        from every object that keeps them (themes and their tracks, files,
+        presets, groups, sequences and steps; channels, speakers, users,
+        playlists and their entries, speaker groups, areas, keys, connections
+        and plugins). Returns how many objects changed.
         """
         self.registry.forget(plugin_id)
         changed = 0
         manager = getattr(self.session_manager, "theme_metadata_manager", None)
         for metadata in list((getattr(manager, "_metadata_cache", None) or {}).values()):
             touched = bool(metadata.plugins.pop(plugin_id, None) is not None)
+            for settings in (metadata.groups or {}).values():
+                plugins = settings.get("plugins") if isinstance(settings, dict) else None
+                if isinstance(plugins, dict) and plugins.pop(plugin_id, None) is not None:
+                    touched = True
+                    if not plugins:
+                        del settings["plugins"]
             for settings in (metadata.tracks or {}).values():
                 plugins = getattr(settings, "plugins", None)
                 if plugins and plugins.pop(plugin_id, None) is not None:
@@ -264,6 +384,8 @@ class AttributeService:
                 if not manager.save_metadata(metadata.id, metadata):
                     logger.warning(f"Plugin {plugin_id} removed, but theme '{metadata.name}' couldn't be saved "
                                    f"without its values (they go the next time it loads)")
+            # after the theme's own save, which writes presets.json too
+            changed += self._forget_in_sequences(manager, metadata, plugin_id)
         store = self.state_store
         if store is not None:
             touched_state = False
@@ -272,6 +394,24 @@ class AttributeService:
                 if isinstance(getattr(session, "plugins", None), dict) and session.plugins.pop(plugin_id, None) is not None:
                     touched_state = True
                     changed += 1
+            for holder in self._state_holders(store):
+                plugins = holder.get("plugins") if isinstance(holder, dict) else getattr(holder, "plugins", None)
+                if isinstance(plugins, dict) and plugins.pop(plugin_id, None) is not None:
+                    touched_state = True
+                    changed += 1
+                    if not plugins and isinstance(holder, dict):
+                        del holder["plugins"]
+            if (store.settings.object_plugins.get("plugin") or {}).pop(plugin_id, None) is not None:
+                touched_state = True  # values other plugins kept on this plugin's row
+            for kind, objects in list((store.settings.object_plugins or {}).items()):
+                for object_id, block in list(objects.items()):
+                    if isinstance(block, dict) and block.pop(plugin_id, None) is not None:
+                        touched_state = True
+                        changed += 1
+                        if not block:
+                            del objects[object_id]
+                if not objects:
+                    del store.settings.object_plugins[kind]
             all_settings = store.settings.speaker_settings
             for speaker_id, settings in list(all_settings.items()):
                 plugins = (settings or {}).get("plugins")
@@ -302,6 +442,52 @@ class AttributeService:
         if changed:
             logger.info(f"Plugin {plugin_id} uninstalled: its attributes were removed from {changed} object(s)")
         return changed
+
+    @staticmethod
+    def _state_holders(store) -> list:
+        """Playlists, their entries and speaker groups: what in state.json carries a "plugins" block."""
+        holders = list((getattr(store, "speaker_groups", None) or {}).values())
+        for playlist in (getattr(store, "playlists", None) or {}).values():
+            if isinstance(playlist, dict):
+                holders.append(playlist)
+                holders.extend(e for e in playlist.get("entries") or [] if isinstance(e, dict))
+        return holders
+
+    @staticmethod
+    def _forget_in_sequences(manager, metadata, plugin_id: str) -> int:
+        """A theme's sequences and steps without the plugin's values (presets.json). Returns 1 if it changed."""
+        from sonorium.core import sequences as seq_mod
+        folder = manager.get_folder_for_id(metadata.id) if hasattr(manager, "get_folder_for_id") else None
+        if folder is None:
+            return 0
+        try:  # the file as it is: a load would already leave out an uninstalled plugin's values
+            doc = seq_mod._doc(folder)
+        except Exception:
+            return 0
+        all_sequences = doc.get("sequences") if isinstance(doc.get("sequences"), dict) else {}
+        touched = False
+        for sequence in all_sequences.values():
+            if not isinstance(sequence, dict):
+                continue
+            if isinstance(sequence.get("plugins"), dict) and sequence["plugins"].pop(plugin_id, None) is not None:
+                touched = True
+                if not sequence["plugins"]:
+                    del sequence["plugins"]
+            steps = sequence.get("step_plugins") if isinstance(sequence.get("step_plugins"), dict) else {}
+            for preset_id, block in list(steps.items()):
+                if isinstance(block, dict) and block.pop(plugin_id, None) is not None:
+                    touched = True
+                    if not block:
+                        del sequence["step_plugins"][preset_id]
+            if "step_plugins" in sequence and not sequence["step_plugins"]:
+                del sequence["step_plugins"]
+        if touched:
+            try:
+                seq_mod.write_json_atomic(folder / seq_mod.PRESETS_FILE, doc)
+            except OSError as e:
+                logger.warning(f"Plugin {plugin_id} removed, but theme '{metadata.name}' sequences couldn't be saved: {e}")
+                return 0
+        return 1 if touched else 0
 
     def for_plugin(self, plugin_id: str) -> "PluginAttributes":
         return PluginAttributes(self, plugin_id)

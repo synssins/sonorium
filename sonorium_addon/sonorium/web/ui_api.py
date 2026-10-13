@@ -74,7 +74,7 @@ def add_ui_routes(router: APIRouter, plugin_manager, host, prefix: str = "/ui") 
             plugins[plugin.id] = {"name": plugin.name, "short_name": plugin.short_name(), "icon": plugin._manifest_icon()}
             elements.extend(accepted)
         return {"version": ui_contract.CONTRACT_VERSION, "plugins": plugins, "elements": elements,
-                "live": host.ui.live(plugins.keys())}
+                "live": host.ui.live(plugins.keys()), "attribute_kinds": list(ui_contract.ATTRIBUTE_KINDS)}
 
     @router.post(prefix + "/objects")
     async def objects(request: Request):
