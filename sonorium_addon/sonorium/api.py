@@ -415,7 +415,7 @@ class WebApp:
             if self._plugin_host:
                 self._init_framework_services()
 
-            # Zones (Users: Settings > Advanced > Zones) on the channels, and Kid mode's hours
+            # Zones (Users: Settings > Advanced > Zones) on the channels, and Child Mode's hours
             try:
                 from sonorium.auth import users as core_users
                 core_users.attach_zones(self.auth, self._session_manager,

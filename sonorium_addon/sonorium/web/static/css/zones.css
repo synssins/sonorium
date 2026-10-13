@@ -1,7 +1,7 @@
 /* Zones (boards: Zones_Channels, Zones_Channels_Phone, Zones_Link, Zones_Editor, Zones_Advanced, Zones_Users) */
 .ch-owner { display: inline-flex; align-items: center; gap: .25rem; font-size: .6875rem; color: var(--text-secondary); }
 .ch-owner svg { color: var(--text-muted); }
-.zn-kid { display: inline-flex; align-items: center; gap: .2rem; font-size: .6875rem; color: #f5a524; }
+.zn-kid { display: inline-flex; align-items: center; margin-left: .3rem; color: #f5a524; }
 .zn-home { font-size: .75rem; color: var(--text-muted); white-space: nowrap; margin-left: auto; }
 .ch-link { display: flex; align-items: center; gap: .5rem; margin: -.25rem -.25rem 0; padding: .375rem .625rem; border-radius: .5rem; background: rgba(139, 92, 246, .14); color: #c4b5fd; font-size: .75rem; }
 .ch-link .sp { flex: 1; }

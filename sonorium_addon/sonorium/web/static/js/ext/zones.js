@@ -1,4 +1,4 @@
-/* Zones (sonorium/core/zones.py): a channel's owner and Kid mode on its card and in
+/* Zones (sonorium/core/zones.py): a channel's owner and Child Mode on its card and in
  * its editor, linked channels (the bar above the cards, Link channels), a speaker in use
  * or with another home in the editor's picker, the switch on Settings › Advanced, and
  * "Can leave a link" in Users & devices (users.js). Boards: Zones_*.dc.html. */
@@ -12,7 +12,7 @@
     const P_USER = '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>';
     const arg = v => esc(JSON.stringify(String(v)));
     const DESC = "Channels can belong to a user. A speaker playing in one channel can't be taken by another, "
-        + "except by its home channel, the one it was added to first. Kid mode lets only an admin change a channel's speakers. "
+        + "except by its home channel, the one it was added to first. Child Mode lets only an admin change a channel's speakers. "
         + 'An admin can link channels to play one thing in all of them.';
 
     const Z = { st: null, sig: '', timer: null };
@@ -36,7 +36,7 @@
         return changed;
     }
 
-    // What changed elsewhere (another browser, Home Assistant, Kid mode's hours) shows within a few seconds
+    // What changed elsewhere (another browser, Home Assistant, Child Mode's hours) shows within a few seconds
     async function refresh(force = false) {
         const changed = await load();
         if (!changed && !force) return;
@@ -78,7 +78,7 @@
     function cardSub(session) {
         const zone = on() ? zoneOf(session.id) : null;
         if (!zone) return '';
-        return (zone.kid_mode ? ` · <span class="zn-kid">${svg(P_LOCK, 10)}Kid mode</span>` : '')
+        return (zone.kid_mode ? `<span class="zn-kid" role="img" aria-label="Child Mode" title="Child Mode">${svg(P_LOCK, 10)}</span>` : '')
             + (zone.owner_name ? ` · <span class="ch-owner">${svg(P_USER, 11)}${esc(zone.owner_name)}</span>` : '');
     }
 
@@ -124,8 +124,8 @@
         if (!admin() && !zone.kid_mode) return '';
         const hours = zone.schedule || { start: '', end: '' };
         const off = admin() ? '' : ' disabled';
-        return `<div class="zn-lock"><div>Kid mode<small>Only an admin can change the speakers of ${esc(session.name)}.</small></div>`
-            + `<label class="toggle-switch"><input type="checkbox" id="zn-kid" aria-label="Kid mode"${zone.kid_mode ? ' checked' : ''}${off} onchange="ZonesUI.kidToggled(this.checked)"><span class="toggle-slider"></span></label></div>`
+        return `<div class="zn-lock"><div>Child Mode<small>Only an admin can change the speakers of ${esc(session.name)}.</small></div>`
+            + `<label class="toggle-switch"><input type="checkbox" id="zn-kid" aria-label="Child Mode"${zone.kid_mode ? ' checked' : ''}${off} onchange="ZonesUI.kidToggled(this.checked)"><span class="toggle-slider"></span></label></div>`
             + `<div class="zn-hours" id="zn-hours"${zone.kid_mode ? '' : ' hidden'}><label for="zn-from">Hours</label>`
             + `<input type="time" class="sp-inp" id="zn-from" value="${esc(hours.start)}"${off}><span>to</span>`
             + `<input type="time" class="sp-inp" id="zn-to" value="${esc(hours.end)}" aria-label="Hours end"${off}></div>`;
