@@ -68,7 +68,7 @@ CATALOGUE: dict[str, dict] = {
         "description": "A channel stopped playing on its speakers.",
         "fields": {"channel_id": "Channel id", "name": "Channel name",
                    "reason": "stopped, paused, idle (no listener pulled audio), ended (playlist finished), "
-                             "schedule (Kid mode's hours ended) or sleep (its sleep timer ran out)"},
+                             "schedule (Child Mode's hours ended) or sleep (its sleep timer ran out)"},
         "summary": "{name} stopped",
     },
     "channel.sleep_timer": {
@@ -186,7 +186,7 @@ CATALOGUE: dict[str, dict] = {
         "summary": "Zones: {on}",
     },
     "zone.changed": {
-        "description": "A channel's owner, Kid mode or Kid mode hours changed. Only the fields that changed are "
+        "description": "A channel's owner, Child Mode or Child Mode hours changed. Only the fields that changed are "
                        "in 'changes'.",
         "fields": {"channel_id": "Channel id", "name": "Channel name",
                    "changes": "Changed fields, any of: owner (user id or null), kid_mode, schedule ({start, end} "
@@ -209,7 +209,7 @@ CATALOGUE: dict[str, dict] = {
         "summary": "{speaker_id}: home is {name}",
     },
     "zone.schedule_ended": {
-        "description": "A channel in Kid mode reached the end of its hours: what its user started fades out.",
+        "description": "A channel in Child Mode reached the end of its hours: what its user started fades out.",
         "fields": {"channel_id": "Channel id", "name": "Channel name"},
         "summary": "{name}: hours ended",
     },

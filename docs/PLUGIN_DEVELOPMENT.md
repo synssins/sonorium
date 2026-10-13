@@ -208,16 +208,16 @@ All events of a channel have `channel_id` and `name` (the channel's name).
 | `channel.created` | A channel was added | `channel_id`, `name`, `theme_id` |
 | `channel.deleted` | A channel was deleted | `channel_id`, `name` |
 | `channel.started` | A channel started playing on its speakers | `theme_id`, `preset_id`, `volume`, `speakers` |
-| `channel.stopped` | A channel stopped | `reason`: `stopped`, `paused`, `idle` (no speaker pulled audio for 90 s), `ended` (a playlist without repeat finished), `schedule` (Kid mode's hours ended) or `sleep` (its sleep timer ran out) |
+| `channel.stopped` | A channel stopped | `reason`: `stopped`, `paused`, `idle` (no speaker pulled audio for 90 s), `ended` (a playlist without repeat finished), `schedule` (Child Mode's hours ended) or `sleep` (its sleep timer ran out) |
 | `channel.sleep_timer` | A channel's sleep timer was set, changed, cancelled or ran out | `reason`: `set` (also a change), `cancelled`, `ended` or `stopped` (the channel stopped another way first); `sleep_until` (UTC ISO time, or null), `seconds_left` |
 | `channel.changed` | A channel's settings changed | `changes`: only what changed, any of `theme_id`, `preset_id`, `sequence_id`, `playlist_id`, `volume`, `speakers_muted`, `name`, `speakers` |
 | `sequence.step` | A sequence moved to a step (also step 1 when it starts) | `theme_id`, `sequence_id`, `step`, `steps`, `preset_id` |
 | `playlist.entry` | A playlist moved to an entry | `playlist_id`, `position`, `entries`, `theme_id` |
 | `zone.switched` | Zones were switched on or off (Settings › Advanced) | `on` |
-| `zone.changed` | A channel's owner, Kid mode or hours changed | `channel_id`, `name`, `changes`: any of `owner`, `kid_mode`, `schedule` |
+| `zone.changed` | A channel's owner, Child Mode or hours changed | `channel_id`, `name`, `changes`: any of `owner`, `kid_mode` (Child Mode), `schedule` |
 | `zone.speaker_taken` | A channel took a speaker another one was playing on (its home, or an admin) | `channel_id`, `name`, `speaker_id`, `from_channel_id`, `by`: `home` or `admin` |
 | `zone.home_changed` | A speaker has a new home channel | `speaker_id`, `channel_id`, `name`, `reason`: `deleted`, `removed` or `admin` |
-| `zone.schedule_ended` | Kid mode's hours ended: what the user started fades out | `channel_id`, `name` |
+| `zone.schedule_ended` | Child Mode's hours ended: what the user started fades out | `channel_id`, `name` |
 | `link.created` / `link.removed` | An admin linked channels, or unlinked them | `link_id`, `name` (created: also `channels`, `theme_id`, `preset_id`, `playlist_id`) |
 | `link.changed` | A link's name, channels or what it plays changed | `link_id`, `name`, `changes` |
 | `link.left` / `link.rejoined` | A channel left a link, or joined it again | `link_id`, `name`, `channel_id` (rejoined: also `by`: `owner` or `admin`) |

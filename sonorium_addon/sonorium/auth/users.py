@@ -16,7 +16,7 @@ Add-on: Home Assistant's users are Sonorium's users, with their role from HA
 (ha_users.py), and sign in with their HA username and password.
 
 Zones (core/zones.py, Settings > Advanced > Zones, off by default): channels
-owned by a user, Kid mode, speaker homes and linked channels.
+owned by a user, Child Mode, speaker homes and linked channels.
 """
 from __future__ import annotations
 
@@ -510,7 +510,7 @@ def create_router(service) -> APIRouter:
 
     @router.get("/zones")
     async def zones_view(request: Request):
-        """Zones: on or off, each channel's owner and Kid mode, speaker homes and use, links."""
+        """Zones: on or off, each channel's owner and Child Mode, speaker homes and use, links."""
         return zones().view(Actor.current())
 
     @router.put("/zones/switch")
@@ -530,7 +530,7 @@ def create_router(service) -> APIRouter:
     @router.put("/zones/{channel_id}")
     @refusals
     async def zones_set(channel_id: str, request: Request):
-        """An admin sets a channel's owner ({"owner": user id or null}), Kid mode and its hours."""
+        """An admin sets a channel's owner ({"owner": user id or null}), Child Mode and its hours."""
         data = await json_body(request)
         z = zones_on()
         session = z.sm.get(channel_id)
@@ -614,7 +614,7 @@ def install(service) -> Optional[Accounts]:
 
 
 def attach_zones(service, session_manager, on_change=None, timers: bool = True) -> None:
-    """Once the channels exist: Zones' policy on them, and Kid mode's hours (timers)."""
+    """Once the channels exist: Zones' policy on them, and Child Mode's hours (timers)."""
     zones = service.plugin_state.get(ZONES_STATE)
     if zones is None:
         return

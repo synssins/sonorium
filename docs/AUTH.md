@@ -184,7 +184,7 @@ channel is open, as above. Think of each channel as a room's radio.
   an admin gives them an owner (the channel editor's **Owner**).
 - **A user's zone:** only its owner and admins change it (what it plays, its
   volume, its speakers, play and stop, delete). Other users can see it.
-- **Kid mode** (per zone, by an admin): only an admin changes its speakers.
+- **Child Mode** (per zone, by an admin): only an admin changes its speakers.
   Its **Hours** (also the admin's): outside them the owner can't play it or
   change what it plays; stopping always works. At the end of the hours, what
   the owner started fades out over 30 seconds and stops; what an admin started
@@ -316,7 +316,7 @@ without the extra names: the app checks the fingerprint, not the names.
 |---|---|
 | `security.json` (0600) | The signing secret (CSRF) and every token's SHA-256: phones, browser sessions, keys |
 | `users.json` (0600) | Accounts (Argon2id hashes; none for Home Assistant's users), Require login, Can leave a link |
-| `zones.json` | Zones: on or off, owners, Kid mode and hours, speaker homes, links |
+| `zones.json` | Zones: on or off, owners, Child Mode and hours, speaker homes, links |
 | `server.json` | The server ID |
 | `tls/cert.pem`, `tls/key.pem` (0600) | The HTTPS certificate (ECDSA P-256, 20 years) |
 | `plugin_secrets.json` (0600) | The plugin framework's older trigger and event-stream tokens (hashes) |
@@ -358,15 +358,16 @@ Users (`sonorium/auth/users.py`): `POST /api/auth/setup`, `/api/auth/login`, `/a
 `PUT /api/users/{id}` also takes `{"can_leave_link": bool}`.
 
 Zones: `GET /api/zones` (anyone who sees channels: on or off,
-owners, Kid mode, each speaker's home and the channel using it, links; for an
+owners, Child Mode, each speaker's home and the channel using it, links; for an
 admin also the users), `PUT /api/zones/switch` `{"on"}`, `PUT /api/zones/{channel_id}`
-`{"owner", "kid_mode", "schedule": {"start": "HH:MM", "end": "HH:MM"}}`,
+`{"owner", "kid_mode", "schedule": {"start": "HH:MM", "end": "HH:MM"}}` (`kid_mode` is Child Mode;
+the field keeps its name),
 `PUT /api/zones/homes/{speaker_id}` `{"channel_id"}`, `POST /api/links`
 `{"name", "channels", "theme_id", "preset_id"}` or `{..., "playlist_id"}`,
 `PUT|DELETE /api/links/{link_id}` (settings changes: Settings › Change),
 `POST /api/links/{link_id}/leave` and `/rejoin` `{"channel_id"}` (Play and stop,
 then the owner's Can leave a link, or an admin). A refused change to a channel
-answers 403 (not yours, Kid mode, outside the hours) or 409 (a speaker in use,
+answers 403 (not yours, Child Mode, outside the hours) or 409 (a speaker in use,
 a linked channel) with the reason in `detail`.
 
 Keys: `GET|POST /api/keys`, `PUT|DELETE /api/keys/{id}` (404 while Keys are off).

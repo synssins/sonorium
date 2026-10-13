@@ -1,5 +1,5 @@
 """
-Zones: channels that belong to a user, Kid mode, speaker homes and linked
+Zones: channels that belong to a user, Child Mode, speaker homes and linked
 channels. Off until an admin turns on Settings > Advanced > Zones; while off,
 Sonorium behaves as if this file didn't exist (the session manager has no
 policy).
@@ -10,7 +10,7 @@ Think of the house's speakers as rooms' radios:
   Given an owner (a user, set by an admin), it's that user's zone: only the
   owner and admins change it. Channels that existed before Zones were turned
   on have no owner until an admin gives them one.
-- Kid mode (per zone, set by an admin): only an admin changes its speakers.
+- Child Mode (per zone, set by an admin): only an admin changes its speakers.
   Its hours (also the admin's): outside them the owner can't play it or
   change what it plays; at the end, what the owner started fades out
   (KID_FADE_SECONDS), what an admin started keeps playing.
@@ -55,8 +55,8 @@ from sonorium.core.channel_policy import ChannelRefused
 from sonorium.obs import logger
 
 ZONES_FILE = "zones.json"
-KID_FADE_SECONDS = 30.0   # what a kid started fades out over this long when Kid mode's hours end
-TICK_SECONDS = 20.0       # how often Kid mode's hours are checked
+KID_FADE_SECONDS = 30.0   # what a kid started fades out over this long when Child Mode's hours end
+TICK_SECONDS = 20.0       # how often Child Mode's hours are checked
 
 _SYSTEM: ContextVar[bool] = ContextVar("sonorium_zones_system", default=False)
 
@@ -202,7 +202,7 @@ class Zones:
         publish("zone.switched", {"on": on})
 
     def start(self) -> None:
-        """Kid mode's hours, checked every TICK_SECONDS (while Sonorium runs)."""
+        """Child Mode's hours, checked every TICK_SECONDS (while Sonorium runs)."""
         if self._task is None:
             self._task = asyncio.get_event_loop().create_task(self._run())
 
@@ -214,7 +214,7 @@ class Zones:
                 try:
                     await self.tick()
                 except Exception as e:
-                    logger.warning(f"Zones: checking Kid mode's hours failed: {e}")
+                    logger.warning(f"Zones: checking Child Mode's hours failed: {e}")
         finally:
             _SYSTEM.reset(token)
 
@@ -449,10 +449,10 @@ class Zones:
         self.save()
         self._home_event(speaker_id, "admin")
 
-    # ------------------------------------------------------------ owners and Kid mode
+    # ------------------------------------------------------------ owners and Child Mode
 
     def set_zone(self, channel_id: str, changes: dict) -> dict:
-        """An admin sets a channel's owner, Kid mode and hours. Returns what changed."""
+        """An admin sets a channel's owner, Child Mode and hours. Returns what changed."""
         zone = dict(self.zone(channel_id))
         done = {}
         if "owner" in changes:
@@ -486,7 +486,7 @@ class Zones:
         self.save()
 
     async def tick(self) -> None:
-        """Kid mode's hours ended: what the zone's user started fades out and stops (an admin's plays on)."""
+        """Child Mode's hours ended: what the zone's user started fades out and stops (an admin's plays on)."""
         if not self.enabled or self.sm is None:
             return
         now = self.now()
