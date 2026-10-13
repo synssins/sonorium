@@ -110,6 +110,29 @@ Editor design "C — Aligned table".
 - The channel card grid is the same everywhere: auto-fill, cards at least
   340 px wide.
 
+## Extensible screens
+Every screen takes what plugins add the same way (docs/PLUGIN_DEVELOPMENT.md, section 24;
+`static/js/ext/contrib.js`). A new screen, list, menu or editor stays extensible when it is
+built with the shared helpers:
+- **A page** gets its header and top spots from `showView()`, and its title-bar ⋯ the menu
+  spot, without doing anything.
+- **Rows and cards**: `uiZone(target, 'badges', ref, 'span')` after the row's badges,
+  `uiZone(target, 'columns', ref, 'span')` at the end of the name cell, with
+  `<span class="ui-zone ui-columns" data-ui-target="…" data-ui-spot="columns" data-ui-head>` in
+  the name heading; `uiZone(target, 'info', ref)` after a card's lines.
+- **⋯ buttons**: `uiAnchor(target, 'menu', ref)` (`'menu settings'` for a thing without an
+  editor dialog). Open menus with `spMenu` / `xMenu` / `teMenu` / `tpMenu`; destructive items
+  carry `danger` so additions go above them. A dot on ⋯ (`adv-dot`, `sp-adv-dot`) shows any
+  change from default; the helpers add plugin values to it.
+- **Editors**: `<div class="ui-zone ui-settings" data-ui-target="…" data-ui-spot="settings"
+  data-ui-commit>` after the editor's settings; `Sonorium.ui.bind(el, ref)` when it opens and
+  `await Sonorium.ui.commit(dialog, ref)` in its Save.
+- `ref` is `uiRef(kind, id, facts, theme)`: the object shown, and the facts conditions test.
+- Add the target to `TARGETS` in `plugins/ui_contract.py` (its fixed parts and open spots);
+  tests/test_ui_contributions.py fails while the web UI and that list disagree.
+- Plugins only add, in the open spots. Never draw plugin HTML in a screen, and never give
+  additions a look of their own: they use the components above.
+
 ## Process
 - Structural UI changes are drafted as Claude Design boards first and
   approved by the owner before they're built.

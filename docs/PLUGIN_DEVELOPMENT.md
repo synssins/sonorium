@@ -40,6 +40,8 @@ Installed plugins live in `/config/sonorium/plugins/` (kept across updates).
 | `settings_schema` | Settings fields (section 3), if the class doesn't give them. |
 | `triggers`, `pages`, `connections` | Declarations (sections 7, 9, 10), if the class doesn't give them. |
 | `attributes` | Attributes the plugin keeps on Sonorium's objects (section 23), if the class doesn't give them. |
+| `ui` | What it adds to the screens (section 24), if the class doesn't give it. |
+| `short_name`, `icon` | The plugin badge: a short name (up to 16 characters; default the name) and an icon name or small SVG. |
 
 `plugin.py`:
 
@@ -98,6 +100,7 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `homeassistant` | 1.1 | Home Assistant's API (section 20) |
 | `packages.pip`, `packages.binaries` | 1.1 | Packages and programs (section 21) |
 | `attributes` | 1.2 | Declared attributes on themes, tracks, files, presets, channels, speakers and users (section 23) |
+| `ui` | 1.2 | Fields, buttons, menu items, badges, columns and pages on any screen (section 24) |
 
 `GET /api/plugin-framework` gives the version, every capability and the ones this install
 offers now.
@@ -213,6 +216,8 @@ All events of a channel have `channel_id` and `name` (the channel's name).
 | `theme.deleted` | A theme was deleted | `theme_id` |
 | `plugin.enabled` / `plugin.disabled` | A plugin was enabled or disabled | `plugin_id`, `name` |
 | `attribute.changed` | A plugin's attributes on an object changed (section 23) | `kind`, `id`, `theme_id` (theme objects), `plugin_id`, `keys` (null: all removed) |
+| `ui.value` | A plugin sent a live value for one of its screen elements (section 24) | `plugin_id`, `element`, `ref` (`*` or `kind\|theme\|id`), `value` (null: removed) |
+| `ui.changed` | A plugin registered its screen elements again (`self.ui.register()`) | `plugin_id` |
 | `schedule.fired` | A scheduled job ran | `plugin_id`, `job_id`, `name`, `data`, `scheduled_for`, `missed` |
 | `trigger.received` | A webhook trigger was called (and authenticated) | `plugin_id`, `trigger`, `payload`, `method` |
 | `error` | Something failed that nobody was waiting for | `where` (`event_handler`, `schedule`, `trigger`, `channel.start`, a plugin method), `message`, `plugin_id` |
@@ -1134,6 +1139,7 @@ The config folder is kept across updates on every install, so packages are insta
 | Command maps | On the plugin's page | `{"type": "command_map"}` (section 18) |
 | Casting | A strip on a channel's card while a phone casts it | the app's outputs |
 | Alerts | A bar at the top when something has failed | errors, refused plugins |
+| Anything on any screen | The open spots of every screen, row, menu and editor | `get_ui()` (section 24) |
 
 The renderers are one module each in `web/static/js/ext/`, styled in `web/static/css/ext.css`.
 
@@ -1270,3 +1276,390 @@ The Status page's "as heard" and anything timed to the sound use this one number
 A plugin that needs its own timing per speaker declares a speaker attribute for it and names
 it after the feature, for example `light_sync` labelled "Light sync". Settings › Speakers
 has no Sync field yet: it is set through the API until the speaker editor gets one.
+
+## 24. Adding to any screen
+
+A plugin can add fields, buttons, menu items, badges, columns, lines of text and whole pages
+to any screen of the web UI. It sends them as data; Sonorium draws them with the same
+controls as everything else, so they look and behave like the rest of the screen. Capability
+`ui`, plugin API 1.2.
+
+Think of each screen as a form with labelled boxes: some boxes are filled in and locked (the
+**fixed parts**: a channel card's name, pickers, volume and Play button), others are left
+open for additions (the **open spots**: a badge after the name, an item in the ⋯ menu, a
+group in the editor). A plugin only adds, only in the open spots, and only what the spot's
+**contract** allows. It can never change, hide, move or restyle a fixed part, and what it
+adds never touches another plugin's additions.
+
+`GET /api/ui/targets` lists every target (a screen, a kind of row or card, an editor, the
+left menu), its fixed parts, its open spots with their contracts, and the facts its
+conditions can test. The tables below are the same list.
+
+### Adding
+
+In `manifest.json` (`"ui"`), from `get_ui()`, or at any time with `self.ui.register()`:
+
+```python
+def get_ui(self):
+    return [
+        {"target": "channel.editor", "spot": "settings", "id": "minutes", "kind": "field",
+         "type": "slider", "label": "Stop after", "unit": " min", "bind": {"attribute": "minutes"}},
+        {"target": "channel.card", "spot": "badges", "id": "left", "kind": "badge",
+         "value": {"live": True}, "when": {"playing": True}},
+        {"target": "channel.card", "spot": "menu", "id": "stop30", "kind": "action",
+         "label": "Stop in 30 min"},
+    ]
+```
+
+Every element has its `target`, its `spot`, an `id` (a-z, 0-9, `_` and `-`, up to 40
+characters, unique in the plugin) and a `kind`. Sonorium checks them when the plugin is
+switched on (or calls `register()`).
+
+### Element kinds
+
+| Kind | What it is | Keys |
+|---|---|---|
+| `field` | One control with a value | `type`, `label`, `bind`; `help`, `unit`, `placeholder`, `min`, `max`, `step`, `options`, `default`, `compact` |
+| `action` | A button, or a menu item | `label`; `confirm` (a question asked first), `help` |
+| `badge` | A short badge | `text`, or `value`; `state` (`ok`, `warning`, `error`, `off`), `label` (its tooltip) |
+| `column` | A value in a row, with a heading | `label` (the heading), `value`; `text` while there is no value |
+| `info` | A line of text | `text`, or `value`; `label` (bold, before it), `style` (`normal`, `muted`, `success`, `warning`, `error`) |
+| `group` | A titled set of fields | `label`, `fields` (each a field with its own `id`) |
+| `page` | A whole page, opened from the left menu or Settings | `title`, `icon`, `sections`: `[{"title", "elements": [...]}]` of fields, actions, info lines, groups and badges |
+
+Field types: `text`, `number`, `slider` (needs `min` and `max`), `toggle`, `select` (needs
+`options`: values, or `{"value", "label"}`), `colour` (`#rrggbb`) and `list` (text or numbers,
+typed as `a, b, c`).
+
+### Where a value comes from
+
+A field is bound to one place:
+
+- `{"bind": {"attribute": "minutes"}}`: an attribute the plugin declares (section 23) on the
+  object the screen shows (this channel, this speaker). Its type, range, options and default
+  come from the declaration: a `toggle` shows a `bool`, `number` and `slider` a `number`,
+  `select` an `enum`, `text` and `colour` a `string`, `list` a list of strings or numbers.
+  Editing the field saves the attribute, checked against the declaration.
+- `{"bind": {"setting": "units"}}`: one of the plugin's settings (section 3), on its row in
+  Settings › Plugins, on its pages and in a screen's top strip.
+- `{"bind": {"action": "set_mode"}}`: no stored value. Each change calls
+  `ui_action("set_mode", ref, value)`; the field shows `default` until the plugin answers
+  with `"value"` or sends a live value.
+
+Badges, columns and info lines show `text`, or a value:
+
+- `{"value": {"attribute": "minutes"}}`: the attribute on the object;
+- `{"value": {"live": true}}`: what the plugin sends with
+  `self.ui.set_value(element_id, value, ref=None)`. `ref` is the object
+  (`{"kind": "speaker", "id": "..."}`; `None` for every object). A value is text, a number,
+  true/false, or `{"text", "state"}` for a badge; `None` removes it. The web UI follows
+  them on the event stream (`ui.value`), so they change on screen as they are sent.
+
+### Actions
+
+A button, a menu item or an action-bound field calls the plugin:
+
+```python
+async def ui_action(self, element_id, ref, value=None):
+    if element_id == "stop30":
+        ...  # a volume ramp down over 30 minutes, then stop (section 16)
+        return {"success": True, "message": "Stops in 30 minutes"}
+    return {"success": False, "message": f"Unknown action: {element_id}"}
+```
+
+`ref` is the object the screen shows: `{"kind", "id", "theme"}` (theme objects carry their
+theme), or `None` on a screen or a page. The answer's `message` is shown as a toast;
+`"refresh": true` draws the plugin's additions again; `"value"` sets the field's value.
+Actions keep their ability: pressing one needs "Use plugin pages and buttons" (`pg.use`).
+Adding to a screen needs no ability of its own.
+
+### Conditions
+
+`"when"` shows an element only for some objects or states. It tests the facts of the object
+(the table below), `phone` (the phone layout), and `attr.<name>` (an attribute the plugin
+declares, on that object). Each fact is a value, a list of values (any of them), or
+`{"not": value}`; all facts of a condition must hold; a list of conditions means any of them:
+
+```json
+"when": {"mode": "theme", "playing": true}
+"when": [{"section": "sparse"}, {"attr.cue": {"not": "none"}}]
+```
+
+### Where things go
+
+- **The plugin's settings** go on its row in Settings › Plugins (spot `plugin` of
+  `plugin.row`, bound to settings), where it is switched on and off and uninstalled. Most of
+  a plugin's configuration belongs there.
+- **Settings about one thing** (a channel, a theme, a track, a speaker) go in that thing's
+  editor: one collapsed group per plugin, marked with the plugin badge, after the editor's
+  settings. A track, a file, a group, a preset, a speaker and a user have no editor dialog:
+  their group is at the end of their ⋯ menu.
+- **Menu items** come after the menu's items and before destructive ones (Delete, Remove).
+- **The ⋯ dot** shows when anything in the menu differs from its default, whichever item
+  it is: a value bound to an attribute, or a live value of an action-bound field.
+- **The plugin badge** is the grey badge with the plugin's icon and its short name
+  (manifest `"short_name"`, up to 16 characters; default the name).
+- **On a phone** rows become cards, columns show as "heading value", and a field with
+  `"compact": true` drops its label (like Offset).
+- **Switched off**, a plugin's additions leave every screen; switched on, they are back.
+  Uninstalled, they are gone, and its attribute values go as section 23 says.
+
+### Contracts
+
+Each open spot takes what its contract allows. An element that breaks it is **refused**:
+not drawn, logged once, and listed on the plugin's row in Settings › Plugins with the spot
+and the rule, for example:
+
+> speaker.row/menu: 'long': the label is 39 characters; the limit here is 20; refused
+
+Nothing is cut short to fit. Too many elements in a spot refuses all of the plugin's
+elements in that spot; the rest of the plugin still counts. A fixed part, an unknown target
+or spot, a kind or field type the spot doesn't take, a binding it doesn't allow, an
+attribute the plugin doesn't declare for that object, an unknown fact: each is refused the
+same way. `self.ui.register()` and `self.ui.warnings()` return the warnings.
+
+The contracts are versioned with the plugin API: a later 1.x only adds targets, spots and
+kinds, or raises a limit. Every limit is in one place (`plugins/ui_contract.py`), adjustable
+there.
+
+| Spot | Element kinds | Per plugin | Label | Text | Field types | Binds to | Fields per element | Where |
+|---|---|---|---|---|---|---|---|---|
+| `header` | action | 1 | 20 | – | – | – | – | after the screen's buttons |
+| `top` | info, action, field | 3 | 24 | 120 | toggle, select, number, slider, text | setting, action | 1 | one strip per plugin, after the screen's bars, above its content |
+| `badges` | badge | 1 | 24 | 12 | – | – | – | after the item's badges |
+| `columns` | column | 1 | 12 | 16 | – | – | – | at the end of the name column, with its heading above |
+| `info` | info | 1 | 24 | 80 | – | – | – | one line after the card's lines |
+| `menu` | action, field, group | 3 | 20 | – | toggle, select, number | attribute, action | 2 | after the menu's items, before destructive ones |
+| `settings` | field, info, action, group | 8 | 24 | 120 | text, number, slider, toggle, select, colour, list | attribute, action | 6 | one collapsed group per plugin, after the editor's settings |
+| `plugin` | field, info, action, group | 20 | 24 | 200 | text, number, slider, toggle, select, colour, list | setting, action | 6 | the plugin's row in Settings › Plugins, after its settings |
+| `pages` | page | 2 | 24 | – | text, number, slider, toggle, select, colour, list | setting, action | 6 | after the menu's entries |
+
+**Channels**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.sessions` | – | `header`, `top` | title, actions, cards |
+| `channel.card` | channel (attributes) | `badges`, `info`, `menu` | name, pickers, volume, recent, play, edit |
+| `channel.editor` | channel (attributes) | `settings` | name, plays, theme, preset, volume, speakers, footer |
+
+**Playlists**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.playlists` | – | `header`, `top` | title, actions, list |
+| `playlist.row` | playlist | `badges`, `columns`, `menu` | name, entries, order, repeat, play |
+| `playlist.editor` | playlist | `settings`, `menu` | name, timing, order, entries, footer |
+| `playlist.entry` | playlist_entry | `menu` | theme, preset |
+
+**Themes**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.themes` | – | `header`, `top`, `menu` | title, actions, search, filters, collection |
+| `theme.card` | theme (attributes) | `badges`, `menu` | name, description, categories, preview, favorite, edit |
+| `theme.editor` | theme (attributes) | `settings`, `menu` | name, icon, categories, description, tracks, footer |
+| `theme.track` | track (attributes) | `badges`, `menu`, `settings` (in its ⋯ menu) | name, mode, sliders, mute |
+| `theme.file` | file (attributes) | `badges`, `menu`, `settings` (in its ⋯ menu) | name, mode, sliders, mute |
+| `theme.group` | group | `badges`, `menu`, `settings` (in its ⋯ menu) | name, timing, sliders, mute |
+| `theme.preset` | preset (attributes) | `menu`, `settings` (in its ⋯ menu) | preset, load, new |
+| `sequence.editor` | sequence | `settings`, `menu` | name, timing, order, presets, footer |
+| `sequence.step` | step | `menu` | preset |
+| `step.editor` | step | `menu` | tabs, tracks, footer |
+
+**Settings › Connection**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.settings-connection` | – | `header`, `top` | title, actions, connections |
+| `connection.row` | connection | `menu` | name, summary, status |
+
+**Settings › Audio**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.settings-audio` | – | `header`, `top`, `menu` | title, actions, settings |
+
+**Settings › Floors & Areas**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.settings-spaces` | – | `header`, `top` | title, actions, floors |
+| `area.row` | area | `badges` | name, floor |
+
+**Settings › Speakers**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.settings-speakers` | – | `header`, `top` | title, actions, toolbar, list |
+| `speaker.row` | speaker (attributes) | `badges`, `columns`, `menu`, `settings` (in its ⋯ menu) | name, source, address, area, offset, test, use |
+
+**Settings › Speaker Groups**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.settings-groups` | – | `header`, `top` | title, actions, list |
+| `speaker_group.row` | speaker_group | `badges`, `columns`, `menu` | name, includes, speakers |
+| `speaker_group.editor` | speaker_group | `settings` | name, speakers, footer |
+
+**Settings › Plugins**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.settings-plugins` | – | `header`, `top`, `menu` | title, actions, tabs, list |
+| `plugin.row` | plugin | `badges`, `menu`, `plugin` | name, version, description, author, on, settings |
+
+**Settings › Logs**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.settings-logs` | – | `header`, `top` | title, actions, log |
+
+**Settings › Advanced**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.settings-advanced` | – | `header`, `top` | title, actions, features, values |
+
+**Settings › Users & devices**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.plugin-users` | – | `header`, `top` | title, actions, list |
+| `user.row` | user (attributes) | `badges`, `menu`, `settings` (in its ⋯ menu) | name, role, devices |
+
+**Settings › Keys**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.plugin-keys` | – | `header`, `top` | title, actions, list |
+| `key.row` | key | `menu` | name, abilities |
+
+**Status**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `screen.status` | – | `header`, `top` | title, actions, tiles, channels |
+| `status.channel` | channel (attributes) | `badges`, `info` | name, tracks |
+
+**The left menu and Settings menu**
+
+| Target | Shows | Open spots | Fixed parts |
+|---|---|---|---|
+| `sidebar` | – | `pages` | logo, sections, version |
+| `settings.nav` | – | `pages` | entries |
+
+| Object | Facts for `when` |
+|---|---|
+| channel | `playing` (bool), `mode` (theme / playlist), `theme` (text), `preset` (text), `muted` (bool), `speakers` (number), `attr.<name>` |
+| theme | `favorite` (bool), `tracks` (number), `playing` (bool), `attr.<name>` |
+| track | `section` (unassigned / continuous / sparse / presence), `muted` (bool), `linked` (bool), `in_group` (bool), `attr.<name>` |
+| file | `section` (unassigned / continuous / sparse / presence), `muted` (bool), `linked` (bool), `in_group` (bool), `attr.<name>` |
+| group | `section` (continuous / sparse / presence), `muted` (bool), `tracks` (number) |
+| preset | `default` (bool), `attr.<name>` |
+| playlist | `playing` (bool), `order` (in_order / shuffle), `entries` (number) |
+| playlist_entry | `sequence` (bool) |
+| sequence | `steps` (number), `end` (reverse / restart / stop) |
+| step | `advanced` (bool) |
+| speaker | `online` (bool), `enabled` (bool), `type` (text), `device` (bool), `attr.<name>` |
+| speaker_group | `speakers` (number) |
+| plugin | `enabled` (bool), `builtin` (bool) |
+| user | `role` (admin / user), `me` (bool), `attr.<name>` |
+| key | – |
+| connection | `configured` (bool) |
+| area | `speakers` (number) |
+
+For all spots: `help` up to 120 characters, `confirm` up to 80, `unit` up to 8, a select up
+to 20 options of up to 24 characters, a list up to 20 items, a text value up to 200
+characters, a slider up to 1000 steps, `when` up to 4 conditions of up to 4 facts, and up to
+500 elements per plugin. A page has up to 6 sections of up to 12 elements; its title is up to
+24 characters.
+
+"Section" facts are the Theme Editor's sections: `continuous` (Background), `sparse`
+(Intermittent), `presence` (Ebb & Flow), `unassigned`.
+
+### Example: a sleep timer
+
+A plugin that stops channels after a while. Its time per channel is an attribute, set in the
+channel editor; the card shows what is left while it plays; the card's menu has a quick
+choice; its default fade is a setting on its row in Settings › Plugins.
+
+```json
+{
+  "id": "sleep_timer", "name": "Sleep Timer", "short_name": "Sleep", "version": "1.0.0",
+  "api_version": "1.2", "requires": ["attributes", "ui"],
+  "settings_schema": {"fade": {"type": "number", "label": "Fade out (s)", "min": 0, "max": 600, "default": 60}},
+  "attributes": {"channel": {"minutes": {"type": "number", "min": 0, "max": 240, "default": 0,
+                                         "label": "Stop after"}}},
+  "ui": [
+    {"target": "channel.editor", "spot": "settings", "id": "minutes", "kind": "field", "type": "slider",
+     "label": "Stop after", "unit": " min", "bind": {"attribute": "minutes"}},
+    {"target": "channel.card", "spot": "badges", "id": "left", "kind": "badge", "value": {"live": true},
+     "when": {"playing": true, "attr.minutes": {"not": 0}}},
+    {"target": "channel.card", "spot": "menu", "id": "stop30", "kind": "action", "label": "Stop in 30 min",
+     "when": {"playing": true}},
+    {"target": "plugin.row", "spot": "plugin", "id": "fade", "kind": "field", "type": "number",
+     "label": "Fade out", "unit": "s", "bind": {"setting": "fade"}}
+  ]
+}
+```
+
+While a channel counts down, the plugin sends what is left:
+`self.ui.set_value("left", "25 min", {"kind": "channel", "id": channel_id})`.
+
+### Example: room temperatures
+
+A plugin that reads a temperature sensor per room. Each speaker can name its sensor (an
+attribute in the speaker's ⋯ menu); Settings › Speakers shows a Temp column; Status shows
+the warmest room; a page in the left menu holds its options.
+
+```python
+class RoomClimate(BasePlugin):
+    id = "room_climate"
+    name = "Room Climate"
+
+    def get_settings_schema(self):
+        return {"interval": {"type": "number", "label": "Read every", "min": 1, "max": 60, "default": 5}}
+
+    def get_attributes(self):
+        return {"speaker": {"sensor": {"type": "string", "max_length": 80, "default": "",
+                                       "label": "Sensor"}}}
+
+    def get_ui(self):
+        return [
+            {"target": "speaker.row", "spot": "settings", "id": "sensor", "kind": "field",
+             "type": "text", "label": "Sensor", "placeholder": "sensor.kitchen",
+             "bind": {"attribute": "sensor"}},
+            {"target": "speaker.row", "spot": "columns", "id": "temp", "kind": "column",
+             "label": "Temp", "value": {"live": True}, "text": "–"},
+            {"target": "screen.status", "spot": "top", "id": "warmest", "kind": "info",
+             "label": "Warmest", "value": {"live": True}},
+            {"target": "sidebar", "spot": "pages", "id": "climate", "kind": "page",
+             "title": "Climate", "icon": "cloud", "sections": [
+                {"title": "Readings", "elements": [
+                    {"id": "every", "kind": "field", "type": "number", "label": "Read every",
+                     "unit": "min", "bind": {"setting": "interval"}},
+                    {"id": "now", "kind": "action", "label": "Read now"}]}]},
+        ]
+
+    async def ui_action(self, element_id, ref, value=None):
+        if element_id == "now":
+            await self.read_all()          # sends set_value("temp", "21.5°", speaker ref) per speaker
+            return {"success": True, "message": "Read"}
+        return {"success": False, "message": f"Unknown action: {element_id}"}
+```
+
+### HTTP
+
+| Route | What |
+|---|---|
+| `GET /api/ui/targets` | Every target, its fixed parts, its open spots and their contracts, the facts |
+| `GET /api/ui/contributions` | The switched-on plugins' accepted elements, their badges, their live values |
+| `POST /api/ui/objects` | `{"refs": [{"kind", "id", "theme"}]}`: the plugin attributes of those objects the caller may see |
+| `POST /api/ui/actions/{plugin_id}/{element_id}` | `{"ref", "value"}`: an action, or an action-bound field (`pg.use`) |
+
+Fields bound to attributes save with `PUT /api/attributes/{kind}/{plugin_id}` (section 23),
+fields bound to settings with `PUT /api/plugins/{id}/settings` (section 3). `GET /api/plugins`
+lists each plugin's refused elements as `ui_warnings`.
+
+A permission dialog for what a plugin may do (at install and on update) comes later; adding
+to screens doesn't need one.
