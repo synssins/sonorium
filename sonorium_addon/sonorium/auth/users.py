@@ -476,6 +476,9 @@ def create_router(service) -> APIRouter:
         zones_state = service.plugin_state.get(ZONES_STATE)
         if zones_state is not None:
             zones_state.forget_user(user_id)
+        # Their theme backups go with the account (core/backups.py)
+        from sonorium.core.backups import FOLDER, remove_account
+        remove_account(f"user:{user_id}", service.folder / FOLDER)
         logger.info(f"Users: {user['username']} removed")
         return {"removed": True}
 

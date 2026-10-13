@@ -227,6 +227,22 @@ GET     /api/me/channel                                 ch.view
 PUT     /api/me/channel                                 ch.change
 POST    /api/me/channel/listen                          ch.play
 DELETE  /api/me/channel/listen                          ch.play
+# the caller's own theme backups (web/backup_routes.py): own account only; only a linked phone
+# writes, only its own; a key reads and deletes for the user who made it
+GET     /api/me/backups                                 self|device|th.view
+GET     /api/me/backups/settings                        self|device|th.view
+PUT     /api/me/backups/settings                        self|device
+GET     /api/me/backups/{device_id}/playlists           self|device|th.view
+PUT     /api/me/backups/{device_id}/playlists           device
+GET     /api/me/backups/{device_id}/themes/{key}        self|device|th.view
+PUT     /api/me/backups/{device_id}/themes/{key}        device
+DELETE  /api/me/backups/{device_id}/themes/{key}        self|device|th.upload
+GET     /api/me/backups/{device_id}/themes/{key}/package        self|device|th.view
+PUT     /api/me/backups/{device_id}/themes/{key}/package        device
+GET     /api/me/backups/{device_id}/themes/{key}/upload         device
+GET     /api/me/backups/{device_id}/themes/{key}/files/{path:path}  self|device|th.view
+PUT     /api/me/backups/{device_id}/themes/{key}/files/{path:path}  device
+DELETE  /api/me/backups/{device_id}                     self|device|th.upload
 GET     /api/sessions/{session_id}/playback             ch.view
 POST    /api/sessions/{session_id}/sequence             pl.run
 DELETE  /api/sessions/{session_id}/sequence             pl.run

@@ -5916,6 +5916,10 @@ const PV_SECTIONS = [
         { name: 'Data per object', keys: ['plugin_data_limit'], unit: 'bytes', usual: [1024, 65536],
           desc: 'The most each plugin may keep on one theme, track, channel or other object. 0 is no limit.' },
     ] },
+    { title: 'Backups', rows: [
+        { name: 'Backup space per user', keys: ['backup_limit_mb'], unit: 'MB', usual: [0, 102400],
+          desc: 'The most theme backups from the app may take for one user. 0 is no limit.' },
+    ] },
 ];
 
 async function loadPlaybackValues() {

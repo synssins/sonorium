@@ -215,6 +215,21 @@ V2_ROUTES = [
     ('APIRoute', 'PUT', '/api/me/channel', 'update_personal_channel'),
     ('APIRoute', 'POST', '/api/me/channel/listen', 'listen_personal_channel'),
     ('APIRoute', 'DELETE', '/api/me/channel/listen', 'unlisten_personal_channel'),
+    # Theme backups from the app (web/backup_routes.py)
+    ('APIRoute', 'GET', '/api/me/backups', 'list_backups'),
+    ('APIRoute', 'GET', '/api/me/backups/settings', 'get_backup_settings'),
+    ('APIRoute', 'PUT', '/api/me/backups/settings', 'put_backup_settings'),
+    ('APIRoute', 'GET', '/api/me/backups/{device_id}/playlists', 'get_backup_playlists'),
+    ('APIRoute', 'PUT', '/api/me/backups/{device_id}/playlists', 'put_backup_playlists'),
+    ('APIRoute', 'GET', '/api/me/backups/{device_id}/themes/{key}', 'get_backup_theme'),
+    ('APIRoute', 'PUT', '/api/me/backups/{device_id}/themes/{key}', 'put_backup_mix'),
+    ('APIRoute', 'DELETE', '/api/me/backups/{device_id}/themes/{key}', 'delete_backup_theme'),
+    ('APIRoute', 'DELETE', '/api/me/backups/{device_id}', 'delete_backup_device'),
+    ('APIRoute', 'GET', '/api/me/backups/{device_id}/themes/{key}/package', 'get_backup_package'),
+    ('APIRoute', 'PUT', '/api/me/backups/{device_id}/themes/{key}/package', 'put_backup_package'),
+    ('APIRoute', 'GET', '/api/me/backups/{device_id}/themes/{key}/upload', 'get_backup_upload'),
+    ('APIRoute', 'PUT', '/api/me/backups/{device_id}/themes/{key}/files/{path:path}', 'put_backup_file'),
+    ('APIRoute', 'GET', '/api/me/backups/{device_id}/themes/{key}/files/{path:path}', 'get_backup_file'),
 ]
 
 

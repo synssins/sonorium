@@ -3043,4 +3043,8 @@ def create_api_router(
     from sonorium.web.personal_routes import add_personal_routes
     add_personal_routes(router, session_manager=session_manager, to_response=_session_to_response)
 
+    # Theme backups from the app: each account's own, by phone (web/backup_routes.py)
+    from sonorium.web.backup_routes import add_backup_routes
+    add_backup_routes(router, session_manager=session_manager)
+
     return router

@@ -49,6 +49,8 @@ DEFAULTS: dict[str, float] = {
     "plugin_data_limit": 4096.0,
     # The cue timeline (core/timeline.py): how early an Intermittent play is decided and announced
     "timeline_lookahead": 0.5,
+    # Theme backups from the app: space per account, MB (0: no limit; core/backups.py)
+    "backup_limit_mb": 10240.0,
 }
 
 # (min key, max key): the min may not be above the max
