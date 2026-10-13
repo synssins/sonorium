@@ -2,6 +2,19 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.52 (2026-10-13)
+
+### Features
+
+- **themes**: Bulk theme import, Duplicate theme, unique theme names
+  ([`3319a01`](https://github.com/synssins/sonorium/commit/3319a014edbafdb6ae891b902542fad485888f31))
+
+### Testing
+
+- **taps**: Slow-tap and track-tap tests no longer race the tap threads
+  ([`581ac91`](https://github.com/synssins/sonorium/commit/581ac9155991e49591c4a323cda1f796d1d7b44c))
+
+
 ## v1.7.3-dev.50 (2026-10-13)
 
 ### Bug Fixes
