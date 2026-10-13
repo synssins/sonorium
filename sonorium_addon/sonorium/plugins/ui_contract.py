@@ -183,6 +183,7 @@ FACTS: dict[str, dict] = {
     "key": {},
     "connection": {"configured": "bool"},
     "area": {"speakers": "number"},
+    "device": {"online": "bool", "enabled": "bool", "kind": "text", "follows": "bool"},
 }
 GLOBAL_FACTS = {"phone": "bool"}
 
@@ -266,12 +267,18 @@ TARGETS: list[dict] = [
     # --- settings ---
     {"id": "plugin.row", "title": "Settings › Plugins: a plugin", "screen": "settings-plugins", "object": "plugin",
      "spots": ["badges", "menu", "plugin"], "fixed": ["name", "version", "description", "author", "on", "settings"]},
+    {"id": "device.row", "title": "Settings › Plugins: a device", "screen": "settings-plugins", "object": "device",
+     "spots": ["badges", "columns", "menu", "settings"], "settings_at": IN_MENU,
+     "fixed": ["name", "area", "actions", "use", "follows"]},
     {"id": "user.row", "title": "Settings › Users & devices: a user", "screen": "plugin-users", "object": "user",
      "spots": ["badges", "menu", "settings"], "settings_at": IN_MENU, "fixed": ["name", "role", "devices"]},
     {"id": "key.row", "title": "Settings › Keys: a key", "screen": "plugin-keys", "object": "key",
      "spots": ["menu"], "fixed": ["name", "abilities"]},
     {"id": "connection.row", "title": "Settings › Connection: a connection", "screen": "settings-connection",
      "object": "connection", "spots": ["menu"], "fixed": ["name", "summary", "status"]},
+    # --- other clients: drawn by the client named, from GET /api/ui/contributions ---
+    {"id": "tray.menu", "title": "Windows tray: its menu", "screen": None, "object": None, "spots": ["menu"],
+     "fixed": ["status", "open", "pages", "quit"], "client": "tray"},
 ]
 
 _BY_ID = {t["id"]: t for t in TARGETS}
@@ -310,6 +317,7 @@ def catalogue() -> dict:
         if obj in ATTRIBUTE_KINDS:
             facts["attr.<name>"] = "an attribute the plugin declares, on the object"
         targets.append({"id": t["id"], "title": t["title"], "screen": t["screen"], "object": obj,
+                        "client": t.get("client", "web"),
                         "attributes": obj in ATTRIBUTE_KINDS, "fixed": list(t["fixed"]),
                         "spots": spots, "facts": facts})
     return {"version": CONTRACT_VERSION, "element_kinds": list(ELEMENT_KINDS), "field_types": list(FIELD_TYPES),

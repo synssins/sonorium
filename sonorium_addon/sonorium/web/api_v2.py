@@ -235,6 +235,10 @@ class PluginResponse(BaseModel):
     short_name: str = ""
     icon: Optional[dict] = None
     ui_warnings: list[str] = []
+    # What it uses (None: it lists nothing) and what waits for the user's approval (plugins/permissions.py)
+    permissions: Optional[list[dict]] = None
+    permissions_pending: list[dict] = []
+    permission_problems: list[str] = []
 
 
 class PluginActionRequest(BaseModel):
@@ -2775,6 +2779,12 @@ def create_api_router(
         refused = plugin_manager.refused.get(plugin_id)
         if refused and plugin_id not in plugin_manager.plugins:
             raise HTTPException(status_code=409, detail=f"{refused['name']} can't be switched on: {refused['problem']}")
+        waiting = plugin_manager.get_plugin(plugin_id)
+        if waiting is not None and plugin_manager.permissions_pending(waiting):
+            from sonorium.plugins.permissions import FULL, label
+            pending = plugin_manager.permissions_pending(waiting)
+            what = "everything a plugin can do" if pending == [FULL] else ", ".join(label(p) for p in pending)
+            raise HTTPException(status_code=409, detail=f"Approve what {waiting.name} asks for first: {what}")
         success = await plugin_manager.enable_plugin(plugin_id)
         if not success:
             reason = plugin_manager.last_enable_error.get(plugin_id)

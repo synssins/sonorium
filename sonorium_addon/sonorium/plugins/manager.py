@@ -12,6 +12,7 @@ from sonorium.paths import audio_dir
 from typing import TYPE_CHECKING, Optional
 
 from sonorium.plugins.base import BasePlugin
+from sonorium.plugins.permissions import PluginPermissions
 from sonorium.plugins.loader import (
     DEFAULT_PLUGINS_DIR,
     discover_plugins,
@@ -105,9 +106,20 @@ class PluginManager:
 
         # Enable previously enabled plugins
         enabled_list = self.state_store.settings.enabled_plugins
+        permissions = getattr(self.host, "permissions", None) if self.host is not None else None
         for plugin_id in list(enabled_list):
             if plugin_id in self.plugins:
+                if permissions is not None and not permissions.recorded(plugin_id):
+                    permissions.approve(self.plugins[plugin_id])  # it ran before approvals existed
                 await self.enable_plugin(plugin_id)
+                waiting = self.permissions_pending(self.plugins[plugin_id])
+                if waiting and not self.plugins[plugin_id].enabled:  # an update asks for more
+                    try:
+                        from sonorium import alerts
+                        alerts.report(f"Plugin {self.plugins[plugin_id].name} asks for more: "
+                                      f"approve it in Settings › Plugins", "plugin")
+                    except Exception:
+                        pass
 
         # Built-in plugins that start switched on (manifest "enabled_by_default"),
         # the first time they're seen only
@@ -180,6 +192,12 @@ class PluginManager:
             # on_load. Kept while it is installed, switched on or off.
             try:
                 declared = plugin.get_attributes()
+                listed = PluginPermissions.declared(plugin)
+                if declared and listed is not None and isinstance(declared, dict):
+                    from sonorium.plugins.permissions import covers
+                    for kind in [k for k in declared if not covers(listed, f"attributes.{k}")]:
+                        logger.warning(f"Plugin {plugin.id}: attributes on {kind} left out: not in its permissions")
+                        declared = {k: v for k, v in declared.items() if k != kind}
                 if declared:
                     from sonorium.core.plugin_data import registry as attribute_registry
                     attribute_registry.declare(plugin.id, declared)
@@ -268,6 +286,11 @@ class PluginManager:
         except Exception as e:
             logger.error(f"Plugin host {name} failed: {e}")
 
+    def permissions_pending(self, plugin) -> list:
+        """What the plugin asks for that the user hasn't approved (plugins/permissions.py)."""
+        permissions = getattr(self.host, "permissions", None) if self.host is not None else None
+        return permissions.pending(plugin) if permissions is not None else []
+
     def plugin_removed(self, plugin_id: str) -> None:
         """A plugin was uninstalled: the host forgets its jobs, tokens and connection values."""
         self._host_call("plugin_removed", plugin_id)
@@ -303,6 +326,14 @@ class PluginManager:
 
         if plugin.enabled:
             return True  # Already enabled
+
+        pending = self.permissions_pending(plugin)
+        if pending:
+            from sonorium.plugins.permissions import FULL, label
+            what = "everything a plugin can do" if pending == [FULL] else ", ".join(label(p) for p in pending)
+            self.last_enable_error[plugin_id] = f"Waiting for your approval: {what}"
+            logger.info(f"Plugin {plugin.name} is not switched on until its permissions are approved ({what})")
+            return False
 
         try:
             await plugin.on_enable()
@@ -434,6 +465,8 @@ class PluginManager:
             await plugin.on_settings_changed(dict(updated))
         except Exception as e:
             logger.error(f"Error in {plugin_id}.on_settings_changed: {e}")
+        if plugin.enabled:
+            self._host_call("plugin_settings_changed", plugin)
 
         return dict(updated)
 

@@ -294,6 +294,38 @@ CATALOGUE: dict[str, dict] = {
         "fields": {"speaker_id": "Speaker id", "name": "Speaker name"},
         "summary": "Speaker online: {name}",
     },
+    # --- Devices a plugin brings (core/devices.py) ---
+    "device.added": {
+        "description": "A plugin listed a device Sonorium didn't know (a light, a display, ...).",
+        "fields": {"device_id": "Device id", "kind": "Its kind (light, display, ...)", "plugin_id": "Its plugin",
+                   "name": "Its name"},
+        "summary": "Device added: {name}",
+    },
+    "device.removed": {
+        "description": "A device was forgotten (removed, or its plugin uninstalled).",
+        "fields": {"device_id": "Device id", "kind": "Its kind", "plugin_id": "Its plugin"},
+        "summary": "Device removed: {device_id}",
+    },
+    "device.changed": {
+        "description": "A device's name, area or Use switch changed.",
+        "fields": {"device_id": "Device id", "changes": "The settings sent: any of name, area, use"},
+        "summary": "Device changed: {device_id}",
+    },
+    "device.assigned": {
+        "description": "What a device follows changed.",
+        "fields": {"device_id": "Device id", "channels": "Channel ids", "areas": "Area ids"},
+        "summary": "Device assigned: {device_id}",
+    },
+    "device.available": {
+        "description": "An offline device is back online.",
+        "fields": {"device_id": "Device id"},
+        "summary": "Device online: {device_id}",
+    },
+    "device.unavailable": {
+        "description": "A device went offline (its plugin no longer lists it, or said so).",
+        "fields": {"device_id": "Device id"},
+        "summary": "Device offline: {device_id}",
+    },
     # --- Themes ---
     "theme.created": {
         "description": "A theme was created, uploaded or imported.",

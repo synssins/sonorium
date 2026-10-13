@@ -14,7 +14,12 @@ plugin_framework.json and a page can show it ({"type": "command_map"}).
 
 An entry:
     {"code": "KEY_VOLUMEUP", "label": "Volume +", "action": "channel.volume_up",
-     "channel": "<channel id>", "args": {"step": 5}, "enabled": true}
+     "channel": "<channel id>", "args": {"step": 5}, "enabled": true,
+     "only_if": [{"condition": "channel.playing", "channel": "<channel id>"}]}
+
+"only_if" and actions of plugins ("<plugin id>:<id>") are the automation
+pieces (automation.py): when a code comes in, only if every condition holds,
+do the action.
 
 The actions run through the plugin's actions API, so they behave like the
 same change in the UI. Every code received publishes command.received.
@@ -65,17 +70,48 @@ class CommandError(ValueError):
     """A map or an entry that isn't valid (the message is shown to the user)."""
 
 
-def catalogue() -> list[dict]:
-    return [{"id": k, "title": v["title"], "channel": v["channel"], "args": v["args"]} for k, v in ACTIONS.items()]
+def catalogue(pieces=None) -> list[dict]:
+    """Every action: Sonorium's, then the plugins' (with their plugin_id)."""
+    own = [{"id": k, "title": v["title"], "channel": v["channel"], "args": v["args"]} for k, v in ACTIONS.items()]
+    return own + (pieces.actions() if pieces is not None else [])
 
 
-def check_entry(entry) -> dict:
+def conditions(pieces=None) -> list[dict]:
+    """Every condition for "only if": Sonorium's, then the plugins'."""
+    from sonorium.plugins.automation import CONDITIONS
+    own = [{"id": k, **v} for k, v in CONDITIONS.items()]
+    return own + (pieces.conditions() if pieces is not None else [])
+
+
+def check_entry(entry, pieces=None) -> dict:
     if not isinstance(entry, dict):
         raise CommandError("An entry must be an object")
     code = entry.get("code")
     if not isinstance(code, str) or not code.strip() or len(code) > MAX_CODE:
         raise CommandError("Each entry needs a code (text)")
+    from sonorium.plugins.automation import AutomationError, AutomationPieces, check_args
+    pieces = pieces if pieces is not None else AutomationPieces()
+    try:
+        only_if = pieces.check_conditions(entry.get("only_if"))
+    except AutomationError as e:
+        raise CommandError(str(e))
     action = entry.get("action")
+    if isinstance(action, str) and ":" in action and action not in ACTIONS:
+        spec = pieces.action(action)
+        channel = entry.get("channel")
+        if spec is None:  # a plugin's action while it is off: kept as it is, it doesn't run
+            return {"code": code.strip(), "label": str(entry.get("label") or "")[:80], "action": action,
+                    "channel": channel, "args": dict(entry.get("args") or {}),
+                    "enabled": bool(entry.get("enabled", True)), "only_if": only_if}
+        if spec["channel"] and not (isinstance(channel, str) and channel):
+            raise CommandError(f"'{spec['title']}' needs a channel")
+        try:
+            args = check_args(spec, entry.get("args"), spec["title"])
+        except AutomationError as e:
+            raise CommandError(str(e))
+        return {"code": code.strip(), "label": str(entry.get("label") or "")[:80], "action": action,
+                "channel": channel if spec["channel"] else None, "args": args,
+                "enabled": bool(entry.get("enabled", True)), "only_if": only_if}
     if action not in ACTIONS:
         raise CommandError(f"Unknown action '{action}'")
     spec = ACTIONS[action]
@@ -99,13 +135,14 @@ def check_entry(entry) -> dict:
             raise CommandError(f"{field['label']} must be text")
     return {"code": code.strip(), "label": str(entry.get("label") or "")[:80], "action": action,
             "channel": channel if spec["channel"] else None, "args": dict(args),
-            "enabled": bool(entry.get("enabled", True))}
+            "enabled": bool(entry.get("enabled", True)), "only_if": only_if}
 
 
 class CommandMaps:
-    def __init__(self, store, publish=None):
+    def __init__(self, store, publish=None, pieces=None):
         self.store = store
         self.publish = publish or (lambda *a, **k: None)
+        self.pieces = pieces  # the plugins' automation pieces (automation.py), set by the plugin host
         self._learning: dict[tuple, asyncio.Future] = {}
 
     def _maps(self, plugin_id: str, create: bool = False) -> dict:
@@ -120,7 +157,7 @@ class CommandMaps:
             raise CommandError("Invalid map id")
         if not isinstance(entries, list) or len(entries) > MAX_ENTRIES:
             raise CommandError(f"'entries' must be a list of at most {MAX_ENTRIES}")
-        clean = [check_entry(e) for e in entries]
+        clean = [check_entry(e, self.pieces) for e in entries]
         self._maps(plugin_id, create=True)[map_id] = {"entries": clean}
         self.store.main.save()
         return self.entries(plugin_id, map_id)
@@ -169,11 +206,15 @@ class CommandMaps:
                                               "actions": [], "learned": True})
             return {"learned": True, "ran": [], "errors": []}
         ran, errors = [], []
+        from sonorium.plugins.automation import AutomationPieces
+        pieces = self.pieces if self.pieces is not None else AutomationPieces()
         for entry in self.entries(plugin_id, map_id):
             if not entry["enabled"] or entry["code"] != code:
                 continue
+            if entry.get("only_if") and not await pieces.all_hold(entry["only_if"], actions):
+                continue  # only if: a condition doesn't hold
             try:
-                await run_action(actions, entry, value)
+                await run_action(actions, entry, value, pieces)
                 ran.append(entry["action"])
             except Exception as e:
                 message = getattr(e, "message", None) or str(e) or type(e).__name__
@@ -184,10 +225,15 @@ class CommandMaps:
         return {"learned": False, "ran": ran, "errors": errors}
 
 
-async def run_action(actions, entry: dict, value=None) -> None:
+async def run_action(actions, entry: dict, value=None, pieces=None) -> None:
     """Do an entry's action through a plugin's actions API (value: what came with the code, e.g. a number)."""
     action, channel, args = entry["action"], entry.get("channel"), entry.get("args") or {}
     if action == "nothing":
+        return
+    if ":" in action and action not in ACTIONS:
+        if pieces is None:
+            raise CommandError("Plugins' actions aren't available here")
+        await pieces.run_action(action, channel, args, value)
         return
     if action == "stop_all":
         await actions.stop_all()

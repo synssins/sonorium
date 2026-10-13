@@ -70,6 +70,10 @@ More manifest keys (sections 15 to 22):
 | `requirements` | Python packages from PyPI, e.g. `["pyserial==3.5"]` |
 | `binaries` | Programs it ships, per platform, with their SHA-256 |
 | `command_maps` | Declarations, if the class doesn't give them |
+| `device_kinds` | Kinds of device it brings (section 26), if the class doesn't give them |
+| `permissions` | What it uses (section 28); none: everything, once the user allows it |
+| `http`, `ha_entities` | Its own routes (section 29) and Home Assistant entities (section 30), if the class doesn't give them |
+| `automation` | Its "do" actions and "only if" conditions (section 31), if the class doesn't give them |
 
 ## 1a. API versions and capabilities
 
@@ -101,13 +105,22 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `packages.pip`, `packages.binaries` | 1.1 | Packages and programs (section 21) |
 | `attributes` | 1.2 | Declared attributes on every object a screen shows: themes and their tracks, files, groups, presets, sequences and steps; channels, playlists and their entries, speakers, speaker groups, areas, users, keys, connections and plugins (section 23) |
 | `ui` | 1.2 | Fields, buttons, menu items, badges, columns and pages on any screen (section 24) |
+| `timeline` | 1.2 | Cues: which sound is heard on which speaker and when, ahead of time (section 25) |
+| `audio.tap` | 1.2 | Read-only copies of what a channel plays, or of one track (section 27) |
+| `audio.decode` | 1.2 | A theme's files decoded by Sonorium, for analysis (section 27) |
+| `automation` | 1.2 | "Do" actions and "only if" conditions for command maps (section 31) |
+| `permissions` | 1.2 | What a plugin uses, approved by the user (section 28) |
+| `http` | 1.2 | Its own HTTP routes, an ability each (section 29) |
+| `ha.entities` | 1.2 | Home Assistant entities declared as data (section 30) |
+| `devices` | 1.2 | Devices of any kind (lights, displays, buttons): listed, named, placed and assigned by Sonorium (section 26) |
 
 `GET /api/plugin-framework` gives the version, every capability and the ones this install
 offers now.
 
 Each 1.1 service is a facade on the plugin: `self.audio`, `self.ramps`, `self.audio_outputs`,
-`self.commands`, `self.mqtt`, `self.homeassistant`. Every method that can fail raises
-`ActionError` (`code` `invalid`, `not_found`, `conflict` or `unavailable`), as `self.actions`
+`self.commands`, `self.mqtt`, `self.homeassistant`; 1.2 adds `self.timeline` and `self.devices`. Every method that can fail raises
+`ActionError` (`code` `invalid`, `not_found`, `conflict`, `unavailable`, or `forbidden` for
+something the plugin's permissions don't cover, section 28), as `self.actions`
 does.
 
 ## 2. Lifecycle
@@ -225,6 +238,9 @@ All events of a channel have `channel_id` and `name` (the channel's name).
 | `sound.started` / `sound.ended` | A sound started or ended over a channel (section 15) | `sound_id`, `label`, `origin`; ended: `reason` (`finished`, `replaced`, `cancelled`, `stopped`, `error`), `capped`, `played` |
 | `ramp.started` / `ramp.finished` / `ramp.cancelled` | A channel's volume ramp (section 16) | `ramp_id`, `from`, `to`, `seconds`, `curve`, `then`; `level`; cancelled: `reason` |
 | `command.received` | An input plugin handed over a code (section 18) | `plugin_id`, `map_id`, `code`, `actions`, `learned` |
+| `device.added` / `device.removed` | A plugin listed a new device; a device was forgotten (section 26) | `device_id`, `kind`, `plugin_id` (added: also `name`) |
+| `device.changed` / `device.assigned` | A device's name, area or Use changed; what it follows changed | `device_id`; `changes`; `channels`, `areas` |
+| `device.available` / `device.unavailable` | A device came online or went offline | `device_id` |
 
 `GET /api/events/catalogue` returns the same list.
 
@@ -565,8 +581,11 @@ owner-only file (section 11).
   direct ports once Require login is on (docs/AUTH.md). The trigger and
   event stream endpoints are the ones meant for other devices, and they need a token or a
   key on every call.
-- **Every API route has a permission.** A plugin's own HTTP routes (built-in plugins only,
-  see section 14) list theirs; the server refuses an API route that has none.
+- **Every API route has a permission.** A plugin's own HTTP routes (section 29) declare the
+  ability each needs; the server refuses an API route that has none.
+- **Permissions** (section 28): a plugin lists what it uses, the user approves the list
+  before it first runs and again when an update asks for more, and Sonorium's services
+  refuse what isn't on it.
 - **Plugins run inside Sonorium** with its rights. Install plugins you trust, as you would an
   add-on.
 - A plugin never logs secrets or tokens itself; `connection_values()` is for the plugin's use only.
@@ -1182,7 +1201,7 @@ In `manifest.json` (`"attributes"`), from `get_attributes()`, or with
 | `playlist` | A playlist | `state.json` `playlists`, the playlist |
 | `playlist_entry` | An entry of a playlist (id `"<playlist id>/<entry id>"`) | the entry; each entry has an `id` of its own, so it keeps its values when the order changes |
 | `speaker_group` | A speaker group | `state.json`, the group |
-| `area`, `key`, `connection`, `plugin` | An area, a key, a connection, a plugin (its row in Settings › Plugins) | `state.json` settings `object_plugins`, by kind and id (their records are kept elsewhere) |
+| `area`, `key`, `connection`, `plugin`, `device` | An area, a key, a connection, a plugin (its row in Settings › Plugins), a plugin's device (section 26) | `state.json` settings `object_plugins`, by kind and id (their records are kept elsewhere) |
 
 Theme files: docs/THEME_FORMAT.md 2.7.
 
@@ -1280,6 +1299,7 @@ The Status page's "as heard" and anything timed to the sound use this one number
 - `PUT /api/speakers/{id}/settings` with `{"sync": 4200}` (a whole number, 0 or more), or
   `{"sync": null}` to go back to the estimate.
 
+The cue timeline (section 25) gives each speaker's audible time from it.
 A plugin that needs its own timing per speaker declares a speaker attribute for it and names
 it after the feature, for example `light_sync` labelled "Light sync". Settings › Speakers
 has no Sync field yet: it is set through the API until the speaker editor gets one.
@@ -1517,6 +1537,7 @@ there.
 |---|---|---|---|
 | `screen.settings-plugins` | – | `header`, `top`, `menu` | title, actions, tabs, list |
 | `plugin.row` | plugin (attributes) | `badges`, `menu`, `plugin` | name, version, description, author, on, settings |
+| `device.row` | device (attributes) | `badges`, `columns`, `menu`, `settings` (in its ⋯ menu) | name, area, actions, use, follows |
 
 **Settings › Logs**
 
@@ -1557,6 +1578,13 @@ there.
 |---|---|---|---|
 | `sidebar` | – | `pages` | logo, sections, version |
 | `settings.nav` | – | `pages` | entries |
+
+**Other clients** (drawn by that client from `GET /api/ui/contributions`, not by the web UI;
+`client` in `GET /api/ui/targets`)
+
+| Target | Client | Open spots | Fixed parts |
+|---|---|---|---|
+| `tray.menu` | the Windows tray app | `menu` (actions, toggles bound to an action) | status, open, pages, quit |
 
 | Object | Facts for `when` |
 |---|---|
@@ -1671,5 +1699,449 @@ Fields bound to attributes save with `PUT /api/attributes/{kind}/{plugin_id}` (s
 fields bound to settings with `PUT /api/plugins/{id}/settings` (section 3). `GET /api/plugins`
 lists each plugin's refused elements as `ui_warnings`.
 
-A permission dialog for what a plugin may do (at install and on update) comes later; adding
-to screens doesn't need one.
+A plugin that lists its permissions (section 28) adds to the screens only with `ui` in the
+list; one that lists none may.
+
+## 25. Cues: when a sound will be heard
+
+Sonorium tells plugins, ahead of time, which sound will be heard on which speaker and
+exactly when. Think of a theatre's stage manager calling "Lights, stand by... go": she
+doesn't run the lights, she knows the script and the timing and calls each cue early enough
+for the crew to act. Sonorium announces sounds; what a plugin does with them (a light, a
+display, a fan, a bass shaker) is up to the plugin. Capability `timeline`, plugin API 1.2.
+
+A network speaker plays seconds behind the mixer (its Sync, section 23). The cue leaves the
+mixer with the sound but reaches the plugin at once, so a plugin has those seconds to get
+ready: a flash can come a moment before the thunder is heard.
+
+### Following cues
+
+```python
+async def on_enable(self):
+    self.timeline.subscribe(self.on_cue)                    # every channel
+    # self.timeline.subscribe(self.on_cue, channels=[channel_id])
+
+async def on_cue(self, event):
+    cue = event.data
+    if event.type == "cue.scheduled" and cue["start"] == "intermittent":
+        mine = cue["attributes"].get("file", {}).get(self.id) or cue["attributes"].get("track", {}).get(self.id)
+        for speaker in cue["speakers"]:
+            await self.plan(speaker["area"], speaker["audible_at"], mine)
+    elif event.type == "cue.cancelled":
+        await self.forget(cue["cue_id"])
+```
+
+An async handler runs on the event loop, a plain one in a worker thread. The subscription
+ends when the plugin is switched off. `self.timeline.pending(channel=None)` lists the cues
+scheduled and not yet ended; `self.timeline.unsubscribe()` ends every subscription.
+
+Cues have their own queue for each subscriber (2048 waiting events, the oldest dropped when
+full), apart from the general event bus, and a subscriber gets only the channels it asked
+for.
+
+### The events
+
+| Event | When |
+|---|---|
+| `cue.scheduled` | A sound will be heard |
+| `cue.cancelled` | It won't after all (`reason`: `stopped`, `paused`, `theme_changed`, `skipped`, `no_audio`, `not_played`) |
+| `cue.ended` | Its last speaker finished it (`reason`: `finished`, or `stopped` when the channel stopped while it was heard) |
+
+`cue.scheduled`:
+
+```json
+{"cue_id": "c81", "channel_id": "2c62267b", "name": "Storm", "theme_id": "storm",
+ "start": "intermittent", "track": "Thunder/Close", "group": "Thunder", "file": "Thunder/Close.ogg",
+ "duration_ms": 7400, "gain": 0.82, "mixer_at": 1791843380.120, "lead_ms": 500, "confirmed": false,
+ "speakers": [{"speaker_id": "media_player.living_room", "area": "living_room", "sync_ms": 5000,
+               "delay_source": "estimate", "audible_at": 1791843385.120}],
+ "attributes": {"track": {"lights": {"cue": "flash"}}, "file": {"lights": {"colour": "#cfe0ff"}},
+                "theme": {"panel": {"artwork": "storm.png"}}}}
+```
+
+- `mixer_at`: when the sound's first sample leaves the mixer; `audible_at`: when a speaker
+  plays it, `mixer_at` plus its Sync. Unix seconds on the server's clock (milliseconds in the
+  fraction). A plugin on the server needs nothing else; a device that reads the stream itself
+  needs its clock set by NTP.
+- `delay_source`: `setting` (the speaker's Sync), `device` (an output device's own latency,
+  section 17) or `estimate` (the estimate for its kind). Estimates can be off by a second
+  until the user sets the speaker's Sync.
+- `attributes`: the plugin attributes (section 23) of the theme, the track and, for a file in
+  a group, the file, each by plugin id. Every plugin's values are there: the cue is about the
+  sound, not about one plugin.
+- `speakers` is empty while the channel plays only to listeners (Listen here, the app) or its
+  speakers are muted.
+
+| `start` | What started | Lead |
+|---|---|---|
+| `intermittent` | An Intermittent track plays | The speaker's Sync, plus the Look-ahead |
+| `loop` | A Background track starts a pass (and each loop) | Sync |
+| `ebb` | An Ebb & Flow track's file starts a pass | Sync |
+| `group` | A Merry-go-round group's next file | Sync |
+| `preset`, `step`, `theme` | The channel's preset, sequence step or theme changed; `levels` has each track's new `{volume, on}`, `preset_id` (and `step`) | Sync |
+| `sound` | A sound or announcement over the channel (`sound_id`, `label`); it ends with the sound | Sync |
+
+A moment inside a file (a thunder clap 4.2 s in) has no cue of its own: add your offset to the
+file's `audible_at`. Store such offsets as a file attribute.
+
+### Look-ahead and confirmation
+
+An Intermittent play is decided a set time before it starts and announced then: the
+**Look-ahead** in Settings › Advanced › Plugins (default 0.5 s; `timeline_lookahead` in
+`PUT /api/settings/playback-values`, seconds). The random choice is the same, only made
+earlier, so a fast local speaker still gives warning. Such a cue has `confirmed: false` and a
+`lead_ms`; when the play starts on time nothing more is sent. If it doesn't start (the
+channel stopped, the track was muted or set to never, its theme changed), `cue.cancelled`
+follows. Tracks in an Intermittent group are announced as they start: the group's turn is
+decided only when it comes.
+
+### Outside programs
+
+| Route | What |
+|---|---|
+| `GET /api/timeline?channels=a,b` | The events and their fields, the Look-ahead, the cues pending |
+| `GET /api/timeline/stream?channels=a,b` | Server-Sent Events, framed as `/api/events/stream` (section 4) |
+
+Both take what `/api/events/stream` takes: a key with "Read events", a signed-in user, or the
+events token. A personal channel's cues go only to its account's streams, never to plugins.
+
+## 26. Devices of any kind
+
+A plugin can bring a new kind of device (a light, a display, a fan, a button panel) and
+Sonorium lists, names, places and assigns it without knowing what it is. Think of a hotel's
+front desk: it keeps every guest's name and room, checked in or out, without knowing their
+job. Capability `devices`, plugin API 1.2.
+
+Sonorium knows one kind itself: speakers, because only audio goes through the mixer. A
+plugin that plays audio adds an output type (section 17) and its devices are speakers, in
+Settings › Speakers. Every other kind is a name to Sonorium.
+
+### Declaring a kind
+
+In `manifest.json` (`"device_kinds"`), from `get_device_kinds()`, or with
+`self.devices.register_kind(...)` once the plugin is on:
+
+```json
+"device_kinds": [
+  {"id": "light", "title": "Lights", "icon": "lightbulb", "latency_ms": 20,
+   "actions": [{"id": "test", "label": "Flash"}, {"id": "identify", "label": "Identify"}]}
+]
+```
+
+| Key | Meaning |
+|---|---|
+| `id` | a-z, 0-9 and `_`, starting with a letter (up to 32). One plugin per kind. `speaker`, `audio`, `output` are refused: those are speakers |
+| `title` | The section's title (up to 24 characters) |
+| `icon` | An icon name or a small SVG, as for pages |
+| `actions` | Up to 6 buttons on each device, `{id, label}` (label up to 24) |
+| `latency_ms` | How long a command takes to show (0 to 600000): for timing against cues (section 25) |
+| `one_channel` | A device follows one channel at most |
+
+A kind outside these rules is refused and listed on the plugin's row in Settings › Plugins,
+with the reason; the plugin's other kinds still count. Every limit is in `core/devices.py`
+(`LIMITS`).
+
+```python
+async def discover_devices(self, kind):
+    return [{"id": "192.168.10.40", "name": "Porch strip", "model": "Strip 2"}]   # "area": a suggestion
+
+async def device_action(self, kind, device, action, params):
+    await self.flash(device["device"], params.get("ms", 60))     # device["device"]: your own id
+    return {"success": True, "message": "Flashed"}
+```
+
+`discover_devices` is asked when the plugin is switched on and on Rescan (15 s limit).
+
+### What Sonorium does for every device
+
+- Remembers it by a stable id, `dev:<kind>:<plugin id>:<16 hex>`, even while it is offline,
+  and forgets it on Remove (offline devices only) or when the plugin is uninstalled.
+- Shows it on the plugin's row in Settings › Plugins, a section per kind: online or offline,
+  its name (the plugin's until the user renames it), its model, its area, the kind's action
+  buttons, its Use switch, and in its ⋯ menu Rename, the channels and areas it follows,
+  and the plugin's own fields for it.
+- Online means it was in the plugin's last listing; the plugin can also say so, with an
+  error to show: `self.devices.set_status(device, online=False, error="No answer")`.
+- Keeps plugin attributes on it: object class `device` (section 23), for example a
+  segment number, with fields in its ⋯ menu (target `device.row`, section 24).
+
+### Following channels
+
+A device follows the channels it is assigned to, and any channel playing on a speaker in one
+of its areas. A plugin asks which devices follow a channel:
+
+```python
+for light in await self.devices.assigned(channel_id, kind="light"):   # switched on only
+    ...   # light["follows_by"]: "channel" or "area"
+```
+
+`self.devices.following(device_id)` gives the channels one device follows now.
+
+### Plugins working together
+
+A plugin can list and drive another plugin's devices: `self.devices.list("light")` and
+`await self.devices.invoke(device_id, "flash", {"ms": 60})`, which Sonorium passes to the
+device's own plugin. So a "storm effects" plugin can flash any light, whoever made the
+light plugin. What each action means is agreed between plugins, not by Sonorium, in these
+written contracts:
+
+| Kind | Actions | Params |
+|---|---|---|
+| `light` | `on`, `off`, `colour`, `brightness`, `flash` | `colour`: `"#rrggbb"`; `brightness`: 0 to 100; `flash`: `ms`, `colour` |
+| `display` | `show_text`, `show_image`, `clear` | `text`; `url` or `path`; none |
+| `input` | none: it sends its codes to a command map (section 18) | |
+| `sensor` | `read` | returns `data`: `{"value", "unit"}` |
+
+A plugin may offer more actions than its kind's contract; others should only rely on these.
+
+### The rest of the API
+
+| `self.devices` | What |
+|---|---|
+| `register_kind(kind)`, `unregister_kinds()` | Kinds while the plugin runs |
+| `kinds()` | Every kind registered now |
+| `await discover(kind=None)` | List the plugin's own devices again |
+| `list(kind=None)`, `get(device_id)` | Devices of kinds registered now |
+| `set_status(device, online=None, error=None)` | One of its own devices (core id or its own id) |
+
+Events: `device.added`, `device.removed`, `device.changed`, `device.assigned`,
+`device.available`, `device.unavailable` (section 4).
+
+| Route | Permission | What |
+|---|---|---|
+| `GET /api/plugin-devices/kinds` | Speakers: view | The kinds registered now |
+| `GET /api/plugin-devices?kind=&plugin=` | Speakers: view | The devices |
+| `POST /api/plugin-devices/discover?kind=` | Speakers: view | Rescan |
+| `PUT /api/plugin-devices/{id}` | Speakers: change settings | `{name, area, use, channels, areas}` |
+| `DELETE /api/plugin-devices/{id}` | Speakers: change settings | Forget an offline device |
+| `POST /api/plugin-devices/{id}/actions/{action}` | Speakers: change settings | `{params}`: one of its actions |
+| `GET /api/sessions/{id}/plugin-devices` | Channels: view | The devices following a channel |
+
+## 27. Listening to the audio
+
+A plugin can hear what a channel plays (a level meter on a display, lights pulsing with the
+rain) and read a theme's files (finding the loud moments in a thunder file). Both are
+read-only: they can never slow or change playback. Capabilities `audio.tap` and
+`audio.decode`, plugin API 1.2.
+
+### Taps
+
+```python
+def on_block(block):                        # in the tap's own thread
+    level = float(np.abs(block.samples).max()) / 32768
+    ...
+
+tap = self.audio.tap(channel_id, on_block)                  # the channel's mix
+tap = self.audio.tap(channel_id, on_block, track="Rain")    # one track, before mixing
+tap.close()                                                 # or self.audio.untap()
+```
+
+Each block is a `TapBlock`:
+
+| Field | What |
+|---|---|
+| `samples` | numpy int16, shape (1, 1024), mono, 44.1 kHz, read-only: the same array for every listener |
+| `mixer_sample` | Its first sample on the channel's sample clock (from when the channel started making audio) |
+| `mixer_at` | When it left the mixer (Unix seconds, server clock): the clock cues use (section 25) |
+| `channel_id`, `track` | Where it comes from (`track` None for the mix) |
+
+- The mix is what goes to the speakers: after fades, volume ramps and sounds over it. A tap
+  reads it the way a speaker does, in its own thread. A handler that is slower than the
+  audio falls behind alone; the blocks it missed are counted in `tap.dropped`.
+- A tap is not a listener: it never keeps a channel playing. It follows its channel when it
+  stops and starts again.
+- A track tap keeps a copy of each block of that track (a queue of about 1.5 s, the oldest
+  dropped), so ask for one only when you need it.
+- An `async def` handler runs on the event loop, one block at a time, at most 5 s each.
+- Taps close when the plugin is switched off. At most 16 per plugin. Every limit is in
+  `core/taps.py` (`LIMITS`).
+
+A tap gives no warning ahead: what it hears is already on its way to the speakers. For
+something that must happen before a sound is heard, use cues (section 25).
+
+### Decoding a theme's files
+
+```python
+pcm = await self.audio.decode(theme_id, "Thunder/Close")              # numpy float32, -1..1
+pcm = await self.audio.decode(theme_id, "Thunder/Close", max_seconds=30)
+```
+
+Mono, 44.1 kHz, decoded by Sonorium (no FFmpeg in the plugin), in a thread. Only the theme's
+own audio files can be read, by track key; anything else is `ActionError` `not_found`. Up to
+30 minutes by default (`decode_max_seconds` in `LIMITS`). Store what you find as a file
+attribute (section 23), and add it to the file's `audible_at` when its cue comes.
+
+## 28. Permissions
+
+Each plugin lists what it uses; the user sees that list before the plugin first runs; and
+Sonorium's services refuse calls outside it. Like a phone asking "Allow this app to use the
+microphone?".
+
+```json
+"permissions": ["channels.control", "timeline", "devices.light", "attributes.track", "ui", "network.lan"]
+```
+
+| Permission | Lets it | The user sees |
+|---|---|---|
+| `channels.control` | Play, stop and change channels (`self.actions`), volume ramps, sending channels to its outputs | Control your channels |
+| `themes.write` | `self.new_theme()`, `self.open_theme()` | Change your themes |
+| `audio.sounds` | Sounds and announcements, text to speech, sound gates | Play sounds and announcements |
+| `audio.outputs` | Output types (section 17) | Add speakers |
+| `audio.tap` | Taps and decoding (section 27) | Listen to what plays |
+| `timeline` | Cues (section 25) | Know when sounds play |
+| `devices`, `devices.<kind>` | Device kinds, and driving other plugins' devices of that kind (section 26) | Add devices (: light) |
+| `attributes`, `attributes.<class>` | Its own values on objects (section 23) | Keep its own values on ... |
+| `ui` | Adding to the screens (section 24) | Add to the screens |
+| `http` | Its own routes (section 29) | Answer requests at its own address |
+| `ha.entities` | Home Assistant entities (section 30) | Add entities to Home Assistant |
+| `homeassistant` | Home Assistant's API (section 20) | Use your Home Assistant connection |
+| `mqtt` | Publishing and subscribing (section 19) | Use the MQTT broker |
+| `commands` | Handing codes to command maps (section 18) | Take commands from remotes and buttons |
+| `packages` | Python packages (section 21) | Install Python packages |
+| `network.lan`, `network.internet` | Shown to the user; not enforced | Talk to devices on your network; Reach the internet |
+
+Events, settings, pages, connections, the scheduler and webhook triggers need no permission.
+
+- **Switching on.** A plugin from outside Sonorium isn't switched on until the user approves
+  its list: Settings › Plugins shows "Allow “Lights” to:" with the list when it is switched
+  on. `GET /api/plugins/{id}/permissions`, `PUT /api/plugins/{id}/permissions`
+  (`{"approve": true}`; Admin). `PUT /api/plugins/{id}/enable` answers 409 until then.
+- **Updates.** An update that asks for more stays off, its row lists what it asks for, and
+  the alert bar says so, until the user approves again. Asking for less needs nothing.
+- **No list.** A plugin without `"permissions"` says nothing about what it uses: the user is
+  asked to allow everything a plugin can do. Plugins that were already switched on before
+  permissions existed keep running.
+- **Built-in plugins** are part of Sonorium and need no approval.
+- **Refused calls** raise `ActionError` with code `forbidden` (HTTP 403) naming the
+  permission to add. A device kind, screen additions, routes or entities it didn't list are
+  left out and listed on its row.
+
+**Honest limit.** Plugins are Python running inside Sonorium. The checks are made by
+Sonorium's services, so they stop mistakes and show intent; a plugin written to cheat could
+go around them. Install plugins you trust.
+
+## 29. A plugin's own HTTP routes
+
+A plugin can answer requests at its own address, `/api/plugins/{id}/http/...`, each route
+with the ability a caller needs (the abilities of keys and roles: `ch.view`, `pg.use`, ...,
+or `admin.plugins`). Sonorium's sign-in checks the ability before the plugin is called.
+Needs the permission `http`.
+
+```json
+"http": [
+  {"id": "status", "path": "strips/{strip}", "methods": ["GET"], "ability": "ch.view"},
+  {"id": "flash", "path": "flash", "methods": ["POST"], "ability": "pg.use"}
+]
+```
+
+```python
+async def http_request(self, route_id, request):
+    # request: method, path, params ({"strip": ...}), query, json, body (bytes), caller {kind, user_id, role}
+    if route_id == "status":
+        return {"status": 200, "json": {"strip": request["params"]["strip"], "on": True}}
+    return {"status": 204}
+```
+
+| Answer | Sent as |
+|---|---|
+| `{"status", "json"}` | `application/json` |
+| `{"status", "text"}` | `text/plain` |
+| `{"status", "body", "content_type"}` | bytes: JSON, text, CSV, PNG, JPEG, GIF, WebP, MP3, OGG, WAV, FLAC or octet-stream |
+
+Never a web page or a script: HTML, SVG, XML and JavaScript are refused (502), so nothing a
+plugin sends can run with the signed-in user's rights. Every answer carries `nosniff` and a
+sandboxing Content-Security-Policy. A path the plugin doesn't declare, or any path while it
+is switched off, is 404. Ids, paths (`a-z0-9_.-` and `{name}` segments), up to 20 routes,
+1 MB requests, 4 MB answers and 30 s per call: `plugins/http_routes.py` (`LIMITS`). A route
+that breaks the rules is left out and listed on the plugin's row.
+
+For a device or service outside Sonorium that needs no sign-in, use a webhook trigger
+(section 7) with its token.
+
+## 30. Home Assistant entities
+
+A plugin can declare entities and Sonorium publishes them under its own device in Home
+Assistant (MQTT discovery), so the plugin needs no Home Assistant code. Needs the permission
+`ha.entities` and a connected MQTT broker.
+
+```json
+"ha_entities": [
+  {"id": "lights", "type": "switch", "name": "Storm lights", "icon": "mdi:weather-lightning",
+   "bind": {"setting": "enabled"}},
+  {"id": "distance", "type": "number", "name": "Storm distance", "min": 0, "max": 5, "step": 0.5,
+   "unit": "km", "bind": {"setting": "distance"}},
+  {"id": "flash", "type": "button", "name": "Flash now", "bind": {"action": "flash"}},
+  {"id": "mode", "type": "select", "name": "Light mode", "options": ["mood", "storm"], "bind": {"action": "mode"}},
+  {"id": "online", "type": "sensor", "name": "Strips online", "bind": {"live": true}}
+]
+```
+
+| Bind | What happens |
+|---|---|
+| `setting` | One of its settings (section 3): a switch shows a boolean, a select a select, a number a number, a sensor any. A change from Home Assistant is checked against the schema and saved (`on_settings_changed` follows); a change in Sonorium shows in Home Assistant |
+| `action` | `ha_action(action, value)` is called (a button: `None`); returning `{"value": ...}` sets the entity's state |
+| `live` | Read-only: the plugin sets the state with `await self.ha_set_state("online", 2)` |
+
+Types: `switch`, `select`, `number`, `sensor`, `button`. Entity ids are `a-z0-9_`; the
+Home Assistant ids are `<type>.sonorium_plugin_<plugin>_<id>`. The entities appear while the
+plugin is on and leave Home Assistant when it is switched off. Up to 20 per plugin; every
+limit in `plugins/ha_entities.py` (`LIMITS`). An entity outside the rules is left out and
+listed on the plugin's row.
+
+## 31. Automation: when, only if, do
+
+Command maps (section 18) are Sonorium's rules: **when** a code comes in (a remote's button,
+an MQTT topic, a webhook, anything a plugin hands over with `self.commands.received`),
+**only if** every condition holds, **do** an action. There is no separate rules screen;
+Home Assistant, which is a rule engine, can use a plugin's actions through its entities
+(section 30). Capability `automation`, plugin API 1.2.
+
+A plugin adds its own pieces as data, next to Sonorium's:
+
+```json
+"automation": {
+  "actions": [{"id": "flash", "title": "Flash the lights",
+               "args": {"ms": {"type": "number", "label": "Length", "min": 20, "max": 2000, "default": 60}}},
+              {"id": "dim", "title": "Dim the channel's lights", "channel": true}],
+  "conditions": [{"id": "dark", "title": "It's dark outside"},
+                 {"id": "weather", "title": "The weather is",
+                  "args": {"kind": {"type": "select", "label": "Weather", "options": ["rain", "storm"]}}}]
+}
+```
+
+```python
+async def automation_action(self, action, channel, args, value=None):
+    await self.flash(args.get("ms", 60))            # value: what came with the code
+    return {"success": True}
+
+async def automation_condition(self, condition, channel, args):
+    return self.is_dark()                            # 2 s at most; an error counts as false
+```
+
+- In a map their ids are `<plugin id>:<id>`; `GET /api/command-actions` and
+  `GET /api/command-conditions` list Sonorium's pieces first, then the plugins' (with their
+  `plugin_id`). Argument types: `number`, `string`, `url`, `time` (HH:MM), `select`, `boolean`.
+- Sonorium's conditions: The channel is playing, The channel is stopped, The time is between.
+- An entry's `"only_if"`: up to 5 conditions, `[{"condition", "channel", "args"}]`; the
+  entry runs only when all of them hold. In a map on a plugin's page they are under ⋯ ›
+  Only if…, and ⋯ carries a dot while an entry has any.
+- A plugin switched off keeps the entries that use its pieces: they don't run, and its
+  conditions don't hold, until it is on again.
+- What the user mapped runs as the user set it: an input plugin's own permissions (section 28)
+  don't limit the actions of its map.
+- Up to 20 actions and 20 conditions per plugin, 3 arguments each, 30 s per action: every
+  limit is in `plugins/automation.py` (`LIMITS`). A piece outside the rules is left out and
+  listed on the plugin's row.
+
+## Not part of the framework yet
+
+These were planned and are left until a real plugin needs them:
+
+- **Sound sources** (audio a plugin supplies, played like a file or as a channel's content).
+  They need a track that isn't a file in the theme format, the Theme Editor and the mixer.
+- **Effects** that change the audio before the speakers get it: the one piece that could
+  stall playback.
+- **Sandboxed plugin views**: a plugin's own web page in a locked box. Data contributions
+  (section 24) cover the screens.
+- **A process per plugin** (a real sandbox): plugins run inside Sonorium (section 11).
+

@@ -47,6 +47,8 @@ DEFAULTS: dict[str, float] = {
     "wake_tail": 1.0,                   # ... and this long after it before they stop
     # Plugin attributes: bytes per plugin per object (0: no limit; core/plugin_data.py)
     "plugin_data_limit": 4096.0,
+    # The cue timeline (core/timeline.py): how early an Intermittent play is decided and announced
+    "timeline_lookahead": 0.5,
 }
 
 # (min key, max key): the min may not be above the max

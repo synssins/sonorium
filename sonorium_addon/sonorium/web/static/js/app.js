@@ -5910,6 +5910,12 @@ const PV_SECTIONS = [
         { name: 'Tail', keys: ['wake_tail'], unit: 's', usual: [0, 5],
           desc: 'After it, this long before the speakers stop.' },
     ] },
+    { title: 'Plugins', rows: [
+        { name: 'Look-ahead', keys: ['timeline_lookahead'], unit: 's', usual: [0.1, 5],
+          desc: 'How early an Intermittent sound is decided, so plugins hear of it before it plays.' },
+        { name: 'Data per object', keys: ['plugin_data_limit'], unit: 'bytes', usual: [1024, 65536],
+          desc: 'The most each plugin may keep on one theme, track, channel or other object. 0 is no limit.' },
+    ] },
 ];
 
 async function loadPlaybackValues() {
@@ -7317,6 +7323,7 @@ async function loadPlugins() {
         console.error('Failed to load plugins:', error);
         plugins = [];
     }
+    await loadPluginDevices();
 }
 
 // Track active plugins tab
@@ -7436,6 +7443,13 @@ function pluginHasOwnUi(plugin) {
 
 // Contributions refused by their spot's contract: named on the plugin's row
 function pluginWarningsHtml(plugin) {
+    const asks = plugin.permissions_pending || [];
+    const waiting = !plugin.enabled && asks.length && plugin.permissions !== undefined
+        ? `<div class="spp-uiwarn" role="note"><span class="hd">${SP_ICON_WARN_SM}Asks to</span><ul>${asks.map(p => `<li>${escapeHtml(p.label)}</li>`).join('')}</ul></div>` : '';
+    return waiting + pluginRefusedHtml(plugin);
+}
+
+function pluginRefusedHtml(plugin) {
     const list = plugin.ui_warnings || [];
     if (!list.length) return '';
     const shown = list.slice(0, 3).map(w => `<li>${escapeHtml(w)}</li>`).join('');
@@ -7453,7 +7467,7 @@ function renderInstalledPlugins() {
         return `<div class="sp-empty">${SP_ICON_PLUGINS}<strong>No plugins installed</strong></div>`;
     }
     return `<div class="sp-lbody">${plugins.map(plugin => {
-        const hasForm = pluginHasForm(plugin) || pluginHasSettings(plugin);
+        const hasForm = pluginHasForm(plugin) || pluginHasSettings(plugin) || pluginDeviceKinds(plugin).length > 0;
         const canOpen = hasForm && plugin.enabled;
         const open = canOpen && pluginOpen[plugin.id] !== false;
         const name = escapeHtml(plugin.name);
@@ -7509,8 +7523,9 @@ function pluginFieldShown(plugin, field) {
 function renderPluginUI(plugin) {
     const own = uiZone('plugin.row', 'plugin', pluginRef(plugin));
     const hasForm = !!(plugin.ui_schema && plugin.ui_schema.fields && plugin.ui_schema.fields.length);
-    if (!hasForm && !pluginHasSettings(plugin) && !pluginHasOwnUi(plugin)) return '';
-    if (!hasForm) return `<div class="spp-form">${renderPluginSettings(plugin)}${own}</div>`;
+    const devices = renderPluginDevices(plugin);
+    if (!hasForm && !pluginHasSettings(plugin) && !pluginHasOwnUi(plugin) && !devices) return '';
+    if (!hasForm) return `<div class="spp-form">${renderPluginSettings(plugin)}${devices}${own}</div>`;
     const fields = plugin.ui_schema.fields.map(field => renderPluginField(plugin, field)).join('');
     const actions = (plugin.ui_schema.actions || []).slice()
         .sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0))
@@ -7521,6 +7536,7 @@ function renderPluginUI(plugin) {
             <div class="spp-fields">${fields}</div>
             ${actions ? `<div class="spp-acts">${actions}</div>` : ''}
             ${renderPluginSettings(plugin)}
+            ${devices}
             ${own}
         </div>`;
 }
@@ -7650,6 +7666,24 @@ function onPluginField(el) {
 async function togglePlugin(pluginId, enable, confirmed = false) {
     // Switching off the plugin that guards sign-in (Users) asks first
     const plugin = plugins.find(p => p.id === pluginId);
+    // Switching on a plugin whose permissions aren't approved yet: the user sees what it asks for first
+    const pending = plugin?.permissions_pending || [];
+    if (enable && !confirmed && pending.length) {
+        const toggle = document.activeElement;
+        if (toggle && toggle.type === 'checkbox') toggle.checked = false;
+        spConfirm(`plg-perm:${pluginId}`, toggle && toggle.isConnected ? toggle : null,
+            { title: `Allow “${plugin.name}” to:`, items: pending.map(p => p.label), sub: 'It runs inside Sonorium.', ok: 'Allow' },
+            async () => {
+                try {
+                    await api('PUT', `/plugins/${encodeURIComponent(pluginId)}/permissions`, { approve: true });
+                } catch (error) {
+                    showToast(error.message || 'Not allowed', 'error');
+                    return;
+                }
+                togglePlugin(pluginId, true, true);
+            });
+        return;
+    }
     if (!enable && !confirmed && plugin && plugin.auth_provider) {
         const toggle = document.activeElement;
         if (toggle && toggle.type === 'checkbox') toggle.checked = true;
@@ -7664,6 +7698,12 @@ async function togglePlugin(pluginId, enable, confirmed = false) {
         if (enable) pluginOpen[pluginId] = true;
         showToast(`Plugin ${enable ? 'enabled' : 'disabled'}`, 'success');
         await loadPlugins();
+        if (enable) {  // its devices, listed as it comes on
+            for (const kind of pluginDevices.kinds.filter(k => k.plugin_id === pluginId)) {
+                try { await api('POST', `/plugin-devices/discover?kind=${encodeURIComponent(kind.id)}`); } catch (e) { /* shown on Rescan */ }
+            }
+            await loadPluginDevices();
+        }
         await Sonorium.ui.reload();  // what it adds to the screens comes or goes
     } catch (error) {
         showToast(error.message || 'Failed to toggle plugin', 'error');
@@ -7713,6 +7753,216 @@ async function executePluginAction(pluginId, actionId) {
     } catch (error) {
         showToast(error.message || 'Failed to execute action', 'error');
     }
+}
+
+// --- Devices a plugin brings (core/devices.py): lights, displays, ... Set up on the plugin's row,
+// as speakers are in Settings › Speakers: name, area, Use, the kind's actions, what each follows ---
+let pluginDevices = { kinds: [], devices: [] };
+let devEditId = null;
+
+async function loadPluginDevices() {
+    try {
+        const [k, d] = await Promise.all([api('GET', '/plugin-devices/kinds'), api('GET', '/plugin-devices')]);
+        pluginDevices = { kinds: k.kinds || [], devices: d.devices || [] };
+    } catch (error) {
+        pluginDevices = { kinds: [], devices: [] };
+    }
+}
+
+function pluginDeviceKinds(plugin) {
+    return plugin.enabled ? pluginDevices.kinds.filter(k => k.plugin_id === plugin.id) : [];
+}
+
+function findPluginDevice(id) {
+    return pluginDevices.devices.find(d => d.id === id);
+}
+
+function deviceRef(d) {
+    return uiRef('device', d.id, { online: !!d.online, enabled: !!d.use, kind: d.kind || '',
+        follows: !!((d.channels || []).length || (d.areas || []).length) });
+}
+
+function deviceAdvanced(d) {
+    return !!(d.renamed || (d.channels || []).length || (d.areas || []).length);
+}
+
+function renderPluginDevices(plugin) {
+    const kinds = pluginDeviceKinds(plugin);
+    if (!kinds.length) return '';
+    const rooms = allSpeakerRooms();
+    return kinds.map(kind => {
+        const list = pluginDevices.devices.filter(d => d.kind === kind.id && d.plugin_id === plugin.id);
+        const rows = list.length ? list.map(d => renderDeviceRow(d, rooms)).join('') : '<div class="spd-empty">None found</div>';
+        return `<div class="spp-set spd-sec">
+            <div class="spd-hd"><span class="spp-set-hd">${escapeHtml(kind.title)}</span><span class="sp-cnt">${list.length}</span>
+                <button type="button" class="btn btn-sm btn-secondary spd-scan" onclick="rescanPluginDevices(${spArg(kind.id)}, this)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Rescan</button></div>
+            <div class="spd-list">${rows}</div></div>`;
+    }).join('');
+}
+
+function renderDeviceRow(d, rooms) {
+    const name = escapeHtml(d.name);
+    const ref = deviceRef(d);
+    const known = rooms.some(r => r.id === d.area);
+    const roomOptions = `<option value="" ${d.area ? '' : 'selected'}>No area</option>`
+        + rooms.map(r => `<option value="${escapeHtml(r.id)}" ${r.id === d.area ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')
+        + (d.area && !known ? `<option value="${escapeHtml(d.area)}" selected>${escapeHtml(d.area)}</option>` : '');
+    const nameCell = devEditId === d.id
+        ? `<input class="sp-inp sm sps-nm-inp" type="text" maxlength="100" enterkeyhint="done" aria-label="Name"
+                  placeholder="${escapeHtml(d.found_name || d.name)}" value="${name}" onkeydown="onDeviceNameKey(event)" onblur="saveDeviceName(this)">`
+        : `<button type="button" class="trk-name sps-name" title="${d.renamed ? `${name} (${escapeHtml(d.found_name)})` : name}"
+                   aria-label="Rename ${name}" onclick="startDeviceRename(${spArg(d.id)})"><span class="mq-in">${name}</span></button>`;
+    const actions = (d.actions || []).map(a => `<button type="button" class="btn btn-sm btn-secondary" ${d.online ? '' : 'disabled'}
+            onclick="runDeviceAction(${spArg(d.id)}, ${spArg(a.id)}, this)">${escapeHtml(a.label)}</button>`).join('');
+    const error = d.error ? `<span class="badge sp-badge-warn" title="${escapeHtml(d.error)}"><i></i>Error</span>` : '';
+    return `
+        <div class="spd-row spd-grid${d.use ? '' : ' off'}${d.online ? '' : ' offline'}" data-dev="${escapeHtml(d.id)}">
+            <span class="channel-status${d.online ? ' active' : ''} sps-dot" title="${d.online ? 'Online' : 'Offline'}" role="img" aria-label="${d.online ? 'Online' : 'Offline'}"></span>
+            <div class="sps-namecell spd-name">${nameCell}${uiZone('device.row', 'columns', ref, 'span')}</div>
+            <div class="badges spd-src">${d.model ? `<span class="badge badge-type">${escapeHtml(d.model)}</span>` : ''}${error}${uiZone('device.row', 'badges', ref, 'span')}</div>
+            <select class="sp-inp sm spd-area" aria-label="Area for ${name}" onchange="saveDeviceArea(this)">${roomOptions}</select>
+            <div class="spd-acts">${actions}</div>
+            <label class="toggle-switch spd-use" title="Use ${name}">
+                <input type="checkbox" aria-label="Use ${name}" ${d.use ? 'checked' : ''} onchange="saveDevice(deviceRowId(this), { use: this.checked })">
+                <span class="toggle-slider"></span>
+            </label>
+            <button type="button" class="icon-btn sm spd-more" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('device.row', 'menu settings', ref)} onclick="openDeviceMenu(this)">${SP_ICON_MORE}${deviceAdvanced(d) ? '<i class="sp-adv-dot"></i>' : ''}</button>
+        </div>`;
+}
+
+function deviceRowId(element) {
+    return element.closest('.spd-row')?.dataset.dev;
+}
+
+async function saveDevice(id, changes, doneMessage = '') {
+    try {
+        const device = await api('PUT', `/plugin-devices/${encodeURIComponent(id)}`, changes);
+        const i = pluginDevices.devices.findIndex(d => d.id === id);
+        if (i >= 0) pluginDevices.devices[i] = device;
+        if (doneMessage) showToast(doneMessage, 'success');
+    } catch (error) {
+        showToast(error.message || 'Not saved', 'error');
+        await loadPluginDevices();
+    }
+    renderPluginsView();
+}
+
+function startDeviceRename(id) {
+    spClosePop();
+    devEditId = id;
+    renderPluginsView();
+    document.querySelector(`.spd-row[data-dev="${CSS.escape(id)}"] .sps-nm-inp`)?.focus();
+}
+
+function onDeviceNameKey(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        event.target.blur();
+    } else if (event.key === 'Escape') {
+        event.stopPropagation();
+        devEditId = null;
+        renderPluginsView();
+    }
+}
+
+function saveDeviceName(input) {
+    const id = deviceRowId(input);
+    if (!id || devEditId !== id) return;
+    devEditId = null;
+    const device = findPluginDevice(id);
+    const name = input.value.trim();
+    if (!device || name === device.name) {
+        renderPluginsView();
+        return;
+    }
+    const reset = !name || name === device.found_name;
+    saveDevice(id, { name: reset ? null : name }, reset ? `Name reset to “${device.found_name}”` : `Renamed to “${name}”`);
+}
+
+function saveDeviceArea(select) {
+    const label = select.options[select.selectedIndex]?.text || 'No area';
+    const device = findPluginDevice(deviceRowId(select));
+    saveDevice(deviceRowId(select), { area: select.value }, device ? `“${device.name}” moved to ${label}` : '');
+}
+
+async function runDeviceAction(id, action, button) {
+    button.disabled = true;
+    try {
+        const result = await api('POST', `/plugin-devices/${encodeURIComponent(id)}/actions/${encodeURIComponent(action)}`, {});
+        if (result.message || !result.success) showToast(result.message || 'Failed', result.success ? 'success' : 'error');
+    } catch (error) {
+        showToast(error.message || 'Failed', 'error');
+    }
+    button.disabled = false;
+}
+
+async function rescanPluginDevices(kind, button) {
+    button.disabled = true;
+    try {
+        await api('POST', `/plugin-devices/discover?kind=${encodeURIComponent(kind)}`);
+    } catch (error) {
+        showToast(error.message || 'Not listed', 'error');
+    }
+    await loadPluginDevices();
+    renderPluginsView();
+}
+
+function openDeviceMenu(button) {
+    const id = deviceRowId(button);
+    const d = findPluginDevice(id);
+    if (!d) return;
+    const tog = (list, value, label) => {
+        const on = (d[list] || []).includes(value);
+        return `<button type="button" class="mi" role="menuitemcheckbox" aria-checked="${on}" onclick="toggleDeviceFollow(this, ${spArg(id)}, '${list}', ${spArg(value)})">${escapeHtml(label)}<span class="sw${on ? ' on' : ''}"></span></button>`;
+    };
+    let html = `<button type="button" class="mi" role="menuitem" onclick="startDeviceRename(${spArg(id)})">${SP_ICON_PENCIL}Rename</button>
+        <button type="button" class="mi" role="menuitem" ${d.renamed ? '' : 'disabled'} onclick="resetDeviceName(${spArg(id)})">${SP_ICON_RESET}Reset name${d.renamed ? `<span class="mi-note">${escapeHtml(d.found_name)}</span>` : ''}</button>`;
+    const channelList = (sessions || []).filter(s => !s.owner);
+    if (channelList.length) html += '<div class="msep"></div><div class="mhead">Channels</div>' + channelList.map(s => tog('channels', s.id, s.name)).join('');
+    const rooms = allSpeakerRooms();
+    if (rooms.length) html += '<div class="msep"></div><div class="mhead">Areas</div>' + rooms.map(r => tog('areas', r.id, r.name)).join('');
+    if (!d.online) html += `<div class="msep"></div><button type="button" class="mi danger" role="menuitem" onclick="askRemoveDevice(${spArg(id)})">${SP_ICON_TRASH}Remove…</button>`;
+    spMenu(`dev:${id}`, button, html);
+}
+
+async function toggleDeviceFollow(item, id, list, value) {
+    const d = findPluginDevice(id);
+    if (!d) return;
+    const on = !(d[list] || []).includes(value);
+    const next = on ? [...(d[list] || []), value] : (d[list] || []).filter(v => v !== value);
+    try {
+        const device = await api('PUT', `/plugin-devices/${encodeURIComponent(id)}`, { [list]: next });
+        Object.assign(d, device);
+        item.setAttribute('aria-checked', String(on));
+        item.querySelector('.sw')?.classList.toggle('on', on);
+        const more = document.querySelector(`.spd-row[data-dev="${CSS.escape(id)}"] .spd-more`);
+        if (more) {
+            more.querySelector('.sp-adv-dot')?.remove();
+            if (deviceAdvanced(d)) more.insertAdjacentHTML('beforeend', '<i class="sp-adv-dot"></i>');
+        }
+    } catch (error) {
+        showToast(error.message || 'Not saved', 'error');
+    }
+}
+
+function resetDeviceName(id) {
+    spClosePop();
+    const d = findPluginDevice(id);
+    saveDevice(id, { name: null }, d ? `Name reset to “${d.found_name}”` : '');
+}
+
+function askRemoveDevice(id) {
+    const d = findPluginDevice(id);
+    spConfirm(`dev-rm:${id}`, spMenuAnchor(), { title: `Remove “${d ? d.name : id}”?`, ok: 'Remove', danger: true }, async () => {
+        try {
+            await api('DELETE', `/plugin-devices/${encodeURIComponent(id)}`);
+        } catch (error) {
+            showToast(error.message || 'Not removed', 'error');
+        }
+        await loadPluginDevices();
+        renderPluginsView();
+    });
 }
 
 function openPluginMenu(button, pluginId) {
@@ -7963,9 +8213,10 @@ function spMenu(id, button, html) {
 }
 
 // Small "Are you sure?" popover next to the button that asked
-function spConfirm(id, button, { title, sub = '', ok, danger = false, onCancel = null }, onOk) {
+function spConfirm(id, button, { title, sub = '', items = null, ok, danger = false, onCancel = null }, onOk) {
     const pop = spOpenPop(id, button, 'sp-confirm', `
         <span class="pop-title">${escapeHtml(title)}</span>
+        ${items && items.length ? `<ul class="pop-list">${items.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>` : ''}
         ${sub ? `<span class="pop-sub">${escapeHtml(sub)}</span>` : ''}
         <div class="pop-acts">
             <button type="button" class="btn btn-sm btn-secondary" onclick="spClosePop()">Cancel</button>

@@ -958,6 +958,15 @@ class AudioOutputs:
             except Exception:
                 pass
 
+    def latency(self, session_id: str, speaker_id: str) -> Optional[float]:
+        """Seconds from write() to sound on the device playing this channel now (its sink's own), else None."""
+        live = self._live.get((session_id, speaker_id))
+        sink = getattr(live, "sink", None) if live is not None else None
+        value = getattr(sink, "latency", None) if sink is not None else None
+        if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0:
+            return float(value)
+        return None
+
     # --- The channel's outputs (self.audio_outputs, /api/sessions/{id}/audio-outputs) ---
 
     def attachments(self, session_id: Optional[str] = None) -> list[dict]:

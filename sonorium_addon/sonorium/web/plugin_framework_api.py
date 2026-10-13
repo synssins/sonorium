@@ -50,7 +50,7 @@ from sonorium.plugins.triggers import MAX_PAYLOAD_BYTES, TRIGGER_ID
 EVENTS_SCOPE = "events"
 MAX_STREAMS = 20
 # ActionError.code as an HTTP status
-ACTION_ERROR_STATUS = {"not_found": 404, "invalid": 400, "conflict": 409, "unavailable": 503}
+ACTION_ERROR_STATUS = {"not_found": 404, "invalid": 400, "conflict": 409, "unavailable": 503, "forbidden": 403}
 KEEPALIVE_SECONDS = 15
 PAGE_TIMEOUT, ACTION_TIMEOUT, TEST_TIMEOUT = 10, 30, 20
 
@@ -203,6 +203,76 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
                         return
             finally:
                 bus.unsubscribe(sub)
+                streams["open"] -= 1
+
+        return StreamingResponse(generate(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    # --- The cue timeline (core/timeline.py) ---
+
+    def _timeline_reader(request: Request):
+        if not _allowed(request, "ev.read") and not _host().tokens.check(EVENTS_SCOPE, token_from_request(request)):
+            raise HTTPException(status_code=401, detail="A valid token is needed",
+                                headers={"WWW-Authenticate": "Bearer"})
+        timeline = getattr(_host(), "timeline", None)
+        if timeline is None:
+            raise HTTPException(status_code=503, detail="The cue timeline isn't available")
+        return timeline
+
+    def _channel_list(value: str):
+        names = [c.strip() for c in (value or "").split(",") if c.strip()]
+        return names or None
+
+    @router.get("/timeline")
+    async def timeline_info(request: Request, channels: str = ""):
+        """The cue events, the Look-ahead, and the cues scheduled and not yet ended."""
+        timeline = _timeline_reader(request)
+        from sonorium.web.personal_routes import audience_of
+        audience = audience_of(request)
+        wanted = _channel_list(channels)
+        pending = [{k: v for k, v in c.items() if not k.startswith("_")} for c in timeline.pending(audience=audience)
+                   if wanted is None or c["channel_id"] in wanted]
+        return {**timeline.describe(), "pending": pending}
+
+    @router.get("/timeline/stream")
+    async def timeline_stream(request: Request, channels: str = "", max_events: int = 0):
+        """
+        Server-Sent Events of cue.scheduled, cue.cancelled and cue.ended, as
+        /api/events/stream ("id: <boot_id>:<n>", "event: <type>", "data:
+        <JSON>"). channels: comma-separated channel ids (none: every channel).
+        """
+        timeline = _timeline_reader(request)
+        if streams["open"] >= MAX_STREAMS:
+            raise HTTPException(status_code=503, detail="Too many event streams open")
+        queue: asyncio.Queue = asyncio.Queue(maxsize=2000)
+
+        async def collect(event):
+            if queue.full():
+                queue.get_nowait()
+            queue.put_nowait(event)
+
+        from sonorium.web.personal_routes import audience_of
+        sub = timeline.subscribe(collect, _channel_list(channels), owner=None, audience=audience_of(request),
+                                 queue_size=2000)
+        streams["open"] += 1
+
+        async def generate():
+            sent = 0
+            try:
+                yield "retry: 5000\n\n"
+                while True:
+                    try:
+                        event = await asyncio.wait_for(queue.get(), KEEPALIVE_SECONDS)
+                    except asyncio.TimeoutError:
+                        yield ": keep-alive\n\n"
+                        continue
+                    yield (f"id: {ev.stream_id(event)}\nevent: {event.type}\n"
+                           f"data: {json.dumps(event.to_dict(), default=str)}\n\n")
+                    sent += 1
+                    if max_events and sent >= max_events:
+                        return
+            finally:
+                sub.close()
                 streams["open"] -= 1
 
         return StreamingResponse(generate(), media_type="text/event-stream",
@@ -479,6 +549,9 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 
     _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json)
     _add_attribute_routes(router, _host, _json)
+    _add_device_routes(router, _host, _json)
+    _add_permission_routes(router, _host, _plugin)
+    _add_plugin_http_routes(router, _host, _plugin, _call_plugin)
     from sonorium.web.ui_api import add_ui_routes
     add_ui_routes(router, plugin_manager, host)
     return router
@@ -488,11 +561,13 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
 ATTRIBUTE_READ = {"theme": "th.view", "track": "th.view", "file": "th.view", "preset": "th.view", "group": "th.view",
                   "channel": "ch.view", "speaker": "sp.view", "speaker_group": "sp.view", "area": "sp.view",
                   "sequence": "pl.view", "step": "pl.view", "playlist": "pl.view", "playlist_entry": "pl.view",
-                  "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins"}
+                  "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins",
+                  "device": "sp.view"}
 ATTRIBUTE_WRITE = {"theme": "th.edit", "track": "th.edit", "file": "th.edit", "preset": "th.edit", "group": "th.edit",
                    "channel": "ch.change", "speaker": "sp.set", "speaker_group": "sp.set", "area": "st.change",
                    "sequence": "pl.edit", "step": "pl.edit", "playlist": "pl.edit", "playlist_entry": "pl.edit",
-                   "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins"}
+                   "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins",
+                   "device": "sp.set"}
 
 
 def _add_attribute_routes(router, _host, _json) -> None:
@@ -554,6 +629,143 @@ def _add_attribute_routes(router, _host, _json) -> None:
         service = _host().attributes
         values = _guard(lambda: service.set(ref, plugin_id, body))
         return {"kind": kind, "id": ref["id"], "theme": ref["theme"], "plugin_id": plugin_id, "values": values}
+
+
+def _add_permission_routes(router, _host, _plugin) -> None:
+    """What each plugin may do, and the user's approval (plugins/permissions.py)."""
+    from sonorium.plugins.permissions import catalogue
+
+    @router.get("/plugin-permissions")
+    async def permission_catalogue():
+        """Every permission a plugin can ask for, as the user is shown it."""
+        return catalogue()
+
+    @router.get("/plugins/{plugin_id}/permissions")
+    async def plugin_permissions(plugin_id: str):
+        plugin = _plugin(plugin_id)
+        host = _host()
+        return {**host.permissions.describe(plugin), "granted": host.permissions.granted(plugin.id)}
+
+    @router.put("/plugins/{plugin_id}/permissions")
+    async def approve_plugin_permissions(plugin_id: str, request: Request):
+        """{"approve": true}: the user allows what the plugin asks for now (then it can be switched on)."""
+        plugin = _plugin(plugin_id)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict) or body.get("approve") is not True:
+            raise HTTPException(status_code=400, detail='Send {"approve": true}')
+        host = _host()
+        host.permissions.approve(plugin)
+        return {**host.permissions.describe(plugin), "granted": host.permissions.granted(plugin.id)}
+
+
+def _add_plugin_http_routes(router, _host, _plugin, _call_plugin) -> None:
+    """Each plugin's own routes (plugins/http_routes.py): the sign-in checked each route's ability first."""
+    from fastapi.responses import Response
+    from sonorium.plugins.http_routes import HEADERS, LIMITS, match, response_parts
+
+    @router.api_route("/plugins/{plugin_id}/http/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+    async def plugin_http(plugin_id: str, path: str, request: Request):
+        plugin = _plugin(plugin_id)
+        routes = _host().http_routes.get(plugin.id) if plugin.enabled else None
+        found = match(routes or [], request.method, path)
+        if found is None:
+            raise HTTPException(status_code=404, detail="Not Found")
+        route, params = found
+        body = await request.body()
+        if len(body) > LIMITS["body_max_bytes"]:
+            raise HTTPException(status_code=413, detail="Too large")
+        data = None
+        if body and "json" in (request.headers.get("content-type") or ""):
+            try:
+                data = json.loads(body)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid JSON body")
+        from sonorium.auth.middleware import principal_of
+        caller = principal_of(request)
+        info = {"method": request.method, "path": path, "params": params, "query": dict(request.query_params),
+                "json": data, "body": body,
+                "caller": {"kind": caller.kind, "user_id": getattr(caller, "user_id", None),
+                           "role": getattr(caller, "role", None)}}
+        result = await _call_plugin(plugin, f"http {route['id']}", plugin.http_request(route["id"], info),
+                                    LIMITS["timeout"])
+        try:
+            status, content, ctype = response_parts(result)
+        except ValueError as e:
+            logger.warning(f"Plugin {plugin.id}: route {route['id']} answered badly: {e}")
+            raise HTTPException(status_code=502, detail=f"The plugin's answer was refused: {e}")
+        return Response(content=content, status_code=status, media_type=ctype, headers=dict(HEADERS))
+
+
+def _add_device_routes(router, _host, _json) -> None:
+    """Devices of any kind plugins bring (core/devices.py)."""
+    from sonorium.core.devices import DeviceError
+
+    def _svc():
+        devices = getattr(_host(), "devices", None)
+        if devices is None:
+            raise HTTPException(status_code=503, detail="Devices are not available")
+        return devices
+
+    async def _guard(work):
+        try:
+            result = work()
+            return (await result) if asyncio.iscoroutine(result) else result
+        except LookupError as e:
+            raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+        except DeviceError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.get("/plugin-devices/kinds")
+    async def device_kinds():
+        """The kinds of device registered now (plugins switched on)."""
+        return {"kinds": _svc().kinds()}
+
+    @router.get("/plugin-devices")
+    async def list_devices(kind: Optional[str] = None, plugin: Optional[str] = None):
+        """The remembered devices of kinds registered now (?kind=, ?plugin=)."""
+        return {"devices": _svc().list(kind, plugin)}
+
+    @router.post("/plugin-devices/discover")
+    async def discover_devices(kind: Optional[str] = None):
+        """Ask the plugins for their devices again (one kind, or every kind)."""
+        return {"devices": await _guard(lambda: _svc().discover(kind))}
+
+    @router.put("/plugin-devices/{device_id}")
+    async def update_device(device_id: str, request: Request):
+        """{name (null: the plugin's), area ("" none), use, channels, areas}: the user's choices for a device."""
+        body = await _json(request)
+        svc = _svc()
+        settings = {k: body[k] for k in ("name", "area", "use") if k in body}
+        unknown = set(body) - {"name", "area", "use", "channels", "areas"}
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"Unknown device setting: {', '.join(sorted(unknown))}")
+        device = await _guard(lambda: svc.update(device_id, settings) if settings else svc.get(device_id))
+        if "channels" in body or "areas" in body:
+            device = await _guard(lambda: svc.assign(device_id, body.get("channels"), body.get("areas")))
+        return device
+
+    @router.delete("/plugin-devices/{device_id}")
+    async def remove_device(device_id: str):
+        await _guard(lambda: _svc().remove(device_id))
+        return {"removed": device_id}
+
+    @router.post("/plugin-devices/{device_id}/actions/{action}")
+    async def device_action(device_id: str, action: str, request: Request):
+        """One of the device's kind's actions (Test, Identify, ...): {"success", "message"}."""
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        params = body.get("params") if isinstance(body, dict) else None
+        return await _guard(lambda: _svc().action(device_id, action, params))
+
+    @router.get("/sessions/{session_id}/plugin-devices")
+    async def channel_devices(session_id: str, kind: Optional[str] = None):
+        """The devices following a channel: assigned to it, or in an area of its speakers."""
+        return {"devices": _svc().assigned(session_id, kind)}
 
 
 def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> None:
@@ -825,8 +1037,13 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
 
     @router.get("/command-actions")
     async def command_actions():
-        """What a command map entry can do."""
-        return {"actions": cmd.catalogue()}
+        """What a command map entry can do (Sonorium's actions, then the plugins')."""
+        return {"actions": cmd.catalogue(getattr(_host(), "automation", None))}
+
+    @router.get("/command-conditions")
+    async def command_conditions():
+        """What an entry's "only if" can check (Sonorium's conditions, then the plugins')."""
+        return {"conditions": cmd.conditions(getattr(_host(), "automation", None))}
 
     def _map_decl(plugin, map_id: str) -> dict:
         for decl in plugin.get_command_maps() or []:
@@ -868,5 +1085,5 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
         body = await _json(request)
         if not isinstance(body.get("code"), str):
             raise HTTPException(status_code=400, detail="'code' must be text")
-        return await host.commands.received(plugin.id, map_id, body["code"], host.actions_for(plugin.id),
+        return await host.commands.received(plugin.id, map_id, body["code"], host.actions.for_plugin(plugin.id),
                                             body.get("value"))

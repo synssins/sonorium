@@ -962,11 +962,35 @@ class BlockSource:
     A player writes _blocks() as a generator. It starts at the first pull,
     so settings are read as playback begins, not when the player is made.
     close() ends it, letting go of any file it has open.
+
+    A player announces each sound it starts through its mix's CueRelay
+    (cue_relay, set by the mix): _cue() when a file starts (lead: samples
+    from the start of the block being made now to the sound's first sample).
     """
     _source = None
+    cue_relay = None  # the mix's CueRelay (None: nobody follows this mix)
+    cue_start = None  # how its starts are named, when not by the player's own kind
 
     def _blocks(self):
         raise NotImplementedError
+
+    def _cue(self, start: str, duration_samples, lead: int = 0, track=None):
+        """Announce a sound starting `lead` samples from now (a token for _confirm/_uncue, or None)."""
+        relay = self.cue_relay
+        if relay is None:
+            return None
+        return relay.announce(self, self.cue_start or start, track or getattr(self.instance, "name", None),
+                              duration_samples, lead)
+
+    def _confirm(self, token) -> None:
+        """An announced sound starts now."""
+        if token is not None and self.cue_relay is not None:
+            self.cue_relay.confirm(token)
+
+    def _uncue(self, token, reason: str = "skipped") -> None:
+        """An announced sound won't play."""
+        if token is not None and self.cue_relay is not None:
+            self.cue_relay.cancel(token, reason)
 
     def __iter__(self):
         return self
@@ -981,6 +1005,54 @@ class BlockSource:
             self._source = iter(())  # never started: it stays empty
         else:
             self._source.close()
+
+
+class CueRelay:
+    """
+    Where a mix's players announce the sounds they start (core/timeline.py
+    turns them into cues). One per mix; its target is set by whoever plays
+    the mix and cares (a channel), else None and announcing costs nothing.
+    A target's announce/confirm/cancel must be quick: they run in the mixing
+    thread.
+    """
+    __slots__ = ("target",)
+
+    def __init__(self):
+        self.target = None
+
+    def announce(self, stream, start: str, track, duration_samples, lead: int):
+        target = self.target
+        if target is None:
+            return None
+        try:
+            return target.announce(stream, start, track, duration_samples, lead)
+        except Exception as e:  # a cue never costs the sound
+            logger.debug(f"Cue not announced: {e}")
+            return None
+
+    def confirm(self, token) -> None:
+        target = self.target
+        if target is not None:
+            try:
+                target.confirm(token)
+            except Exception as e:
+                logger.debug(f"Cue not confirmed: {e}")
+
+    def cancel(self, token, reason: str) -> None:
+        target = self.target
+        if target is not None:
+            try:
+                target.cancel(token, reason)
+            except Exception as e:
+                logger.debug(f"Cue not cancelled: {e}")
+
+
+def look_ahead_samples() -> int:
+    """Settings > Advanced's Look-ahead: how early an Intermittent play is decided and announced."""
+    try:
+        return max(0, int(float(playback_values.get("timeline_lookahead")) * SAMPLE_RATE))
+    except Exception:
+        return 0
 
 
 def close_stream(stream) -> None:
@@ -1017,6 +1089,8 @@ class HardLoopStream(BlockSource):
         while True:
             passes = decode_faded(self.instance.meta.path, *file_fade_samples(self.instance))
             for count, block in enumerate(fixed_blocks(passes)):
+                if count == 0:
+                    self._cue("loop", self.instance.meta.duration_samples)
                 # Volume is read for each block as it goes out, so it follows a glide or transition at once
                 block, self._volume = apply_volume(block.reshape(1, -1), eases_from(self.instance, self._volume),
                                                    self.instance.volume)
@@ -1117,6 +1191,8 @@ class CrossfadeRecordingStream(BlockSource):
                 buffer = np.concatenate([buffer, np.zeros(BLOCK_SAMPLES - len(buffer), dtype=np.float32)])
 
             # Check if we should start crossfade
+            if chunk_count == 0:
+                self._cue("loop", track_duration)  # the first pass
             if not in_crossfade and (samples_played >= crossfade_start or current_done):
                 logger.debug(f'CrossfadeStream: Starting crossfade at sample {samples_played}')
                 in_crossfade = True
@@ -1124,6 +1200,7 @@ class CrossfadeRecordingStream(BlockSource):
                 next_decoder = self._create_decoder()
                 next_buffer = np.empty(0, dtype=np.float32)
                 next_done = False
+                self._cue("loop", track_duration)  # the next pass starts under the crossfade
 
             # If in crossfade, also fill next_buffer
             if in_crossfade:
@@ -1332,6 +1409,15 @@ class SparsePlaybackStream(BlockSource):
         silence_chunk = np.zeros((1, BLOCK_SAMPLES), dtype=np.int16)
         first_play = True
         volume = None  # the volume reached, easing toward the track's (see apply_volume)
+        # The next play, once announced ahead (Look-ahead): its cue token. A
+        # group's turn is decided when it comes, so grouped plays are announced as they start.
+        announced = None
+
+        def look_ahead(chunks_left: int, ahead: int):
+            """The play starts after chunks_left more blocks: announce it once it is within the Look-ahead."""
+            nonlocal announced
+            if announced is None and not grouped and self.cue_relay is not None                     and 0 < chunks_left * BLOCK_SAMPLES <= ahead:
+                announced = self._cue("intermittent", file_duration_samples, chunks_left * BLOCK_SAMPLES)
 
         while True:
             # Check for updated presence
@@ -1341,6 +1427,8 @@ class SparsePlaybackStream(BlockSource):
             # starts no new play: stay silent, checking again every second
             if presence <= 0.0 or not getattr(self.instance, "is_enabled", True):
                 self.phase, self.phase_end = "off", None
+                self._uncue(announced)
+                announced = None
                 for _ in range(max(1, SAMPLE_RATE // BLOCK_SAMPLES)):
                     yield silence_chunk
                 continue
@@ -1357,14 +1445,19 @@ class SparsePlaybackStream(BlockSource):
                 self.phase, self.phase_end = "wait", self.clock + initial_delay_chunks * BLOCK_SAMPLES
                 if initial_delay_chunks > 0:
                     logger.debug(f'SparsePlaybackStream: {self.instance.name} initial delay: {initial_delay_samples/SAMPLE_RATE:.1f}s')
-                    for _ in range(initial_delay_chunks):
+                    ahead = look_ahead_samples()
+                    for waited in range(initial_delay_chunks):
+                        look_ahead(initial_delay_chunks - waited, ahead)
                         chunk_count += 1
                         yield silence_chunk
+                    continue  # its Interval or mute may have changed while it waited: checked again first
 
             # For exclusive tracks, first check if we're blocked
             if is_blocked_exclusive():
                 # Output silence for a while before checking again
                 self.phase, self.phase_end = "turn", None
+                self._uncue(announced)
+                announced = None
                 wait_chunks = get_block_wait_chunks()
                 for _ in range(wait_chunks):
                     chunk_count += 1
@@ -1375,6 +1468,8 @@ class SparsePlaybackStream(BlockSource):
             if not try_start_exclusive():
                 # Another track claimed it first - wait and retry
                 self.phase, self.phase_end = "turn", None
+                self._uncue(announced)
+                announced = None
                 wait_chunks = get_block_wait_chunks()
                 for _ in range(wait_chunks):
                     chunk_count += 1
@@ -1383,6 +1478,14 @@ class SparsePlaybackStream(BlockSource):
 
             # Decode and play the file once with fade in/out
             audio_data = decode_file_once()
+
+            if len(audio_data) == 0:
+                self._uncue(announced, "no_audio")
+            elif announced is not None:
+                self._confirm(announced)  # announced ahead: it starts now
+            else:
+                self._cue("intermittent", len(audio_data))
+            announced = None
 
             if len(audio_data) > 0:
                 group = getattr(self.instance, "exclusion_group", None) if grouped else None
@@ -1441,10 +1544,14 @@ class SparsePlaybackStream(BlockSource):
             remaining = float(silent_chunks)
             if remaining >= 1.0:
                 self.phase, self.phase_end = "wait", self.clock + int(remaining) * BLOCK_SAMPLES
+            ahead = look_ahead_samples()
             while remaining >= 1.0:
+                look_ahead(int(remaining), ahead)
                 chunk_count += 1
                 remaining -= 1.0
                 yield silence_chunk
+                if announced is not None:
+                    continue  # decided and announced: the wait left no longer moves
                 now = self.instance.presence if getattr(self.instance, "interval_live", False) else waited_at
                 now_range = playback_values.wait_range()
                 if abs(now - waited_at) > 0.005 or now_range != waited_range:
@@ -1620,6 +1727,8 @@ class PresenceMixingStream(BlockSource):
         old = self.base_stream
         close_stream(old)
         self.base_stream = type(old)(old.instance)
+        self.base_stream.cue_relay = getattr(old, "cue_relay", None)
+        self.base_stream.cue_start = getattr(old, "cue_start", None)
 
     def _blocks(self):
         if self.exclusion_coordinator is None:
@@ -2185,6 +2294,7 @@ class MerryGoRoundStream(BlockSource):
         self._voices.append(voice)
         self._current = voice
         self.events.append((self._samples + offset, "start", voice.name))
+        self._cue("group", voice.end if voice.end is not None else voice.estimate, offset, track=voice.name)
         logger.debug(f'MerryGoRound "{self.group}": "{voice.name}" starts at {(self._samples + offset) / SAMPLE_RATE:.1f}s, '
                      f'fade in {voice.fade_in / SAMPLE_RATE:.1f}s')
 

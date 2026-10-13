@@ -1005,3 +1005,27 @@ def test_ha_migration(tmp_path, monkeypatch, fake):
     assert c.post("/api/auth/login", json={"username": "synthesis", "password": "ha password 1"}).status_code == 200
     assert c.get("/api/auth/me").json()["user"]["id"] == "u_syn"
     w.sign_in("dana", "dana password")
+
+
+def test_a_plugins_own_routes_need_their_declared_ability(w):
+    """/api/plugins/{id}/http/...: the sign-in checks each declared route's ability (plugins/http_routes.py)."""
+    seen = []
+
+    async def handler(plugin_id: str, path: str):
+        seen.append(path)
+        return {"ok": path}
+    for method in ("GET", "POST"):
+        w.app.add_api_route("/api/plugins/{plugin_id}/http/{path:path}", handler, methods=[method])
+    w.service.registry.register("http:demo", m.permissions.parse(
+        "GET /api/plugins/demo/http/strips/{strip} ch.view\nPOST /api/plugins/demo/http/flash pg.use"))
+    c, csrf = w.setup_admin()
+    viewer = make_key(c, csrf, abilities=["ch.view"])["key"]
+    themes = make_key(c, csrf, abilities=["th.view"])["key"]
+    k = w.client()
+    assert k.get("/api/plugins/demo/http/strips/porch", headers=H(viewer)).status_code == 200
+    assert k.get("/api/plugins/demo/http/strips/porch", headers=H(themes)).status_code == 403
+    assert k.post("/api/plugins/demo/http/flash", headers=H(viewer)).status_code == 403
+    assert k.get("/api/plugins/demo/http/strips/porch").status_code == 401  # nobody signed in
+    w.service.registry.set_active("http:demo", False)  # switched off: the path isn't its any more
+    assert k.get("/api/plugins/demo/http/strips/porch", headers=H(themes)).status_code == 200  # the handler says 404
+    assert seen == ["strips/porch", "strips/porch"]

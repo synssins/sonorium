@@ -8,6 +8,8 @@ bound to the plugin, versioned with the plugin API (compat.py).
     self.commands         CommandsV1   command maps (remotes, MQTT, webhooks)
     self.mqtt             MqttV1       publish / subscribe on the broker
     self.homeassistant    HomeAssistantV1
+    self.timeline         TimelineV1   cues: which sound is heard where and when
+    self.devices          DevicesV1    devices of any kind: lights, displays, ...
 
 A facade's methods keep their names, arguments and results for every 1.x
 API version: new arguments are optional and new methods are only added.
@@ -56,6 +58,45 @@ async def _call(work):
         raise ActionError("invalid", str(e))
     except (HomeAssistantError, TtsError) as e:
         raise ActionError("unavailable", str(e))
+
+
+# What each facade method needs (plugins/permissions.py); the rest is free
+FACADE_PERMISSIONS = {
+    "audio": {"play": "audio.sounds", "cancel": "audio.sounds", "announce": "audio.sounds",
+              "register_tts": "audio.sounds", "add_gate": "audio.sounds", "tap": "audio.tap", "decode": "audio.tap"},
+    "ramps": {"start": "channels.control", "cancel": "channels.control"},
+    "audio_outputs": {"register_type": "audio.outputs", "attach": "channels.control", "detach": "channels.control"},
+    "commands": {"received": "commands", "set_entries": "commands"},
+    "mqtt": {"publish": "mqtt", "subscribe": "mqtt"},
+    "homeassistant": {"request": "homeassistant", "fetch": "homeassistant", "tts": "homeassistant",
+                      "tts_engines": "homeassistant"},
+    "timeline": {"subscribe": "timeline", "pending": "timeline"},
+    "devices": {"discover": "devices"},
+}
+
+
+class _Guarded:
+    """A facade whose methods check the plugin's permissions first."""
+
+    def __init__(self, inner, require, table: dict):
+        self._inner, self._require, self._table = inner, require, table
+
+    def __getattr__(self, name):
+        value = getattr(self._inner, name)
+        permission = self._table.get(name)
+        if permission is None or not callable(value):
+            return value
+        import inspect
+        require = self._require
+        if inspect.iscoroutinefunction(value):
+            async def checked(*args, **kwargs):
+                require(permission)
+                return await value(*args, **kwargs)
+        else:
+            def checked(*args, **kwargs):
+                require(permission)
+                return value(*args, **kwargs)
+        return checked
 
 
 class AudioV1:
@@ -110,6 +151,51 @@ class AudioV1:
     async def tts(self, message: str, provider: Optional[str] = None, **options) -> bytes:
         """The audio of a spoken message (bytes of an audio file)."""
         return await _call(self._host.tts.speak(message, provider, **options))
+
+    # Listening (core/taps.py): read-only, never in the way of playback
+
+    def tap(self, channel: str, handler: Callable, track: Optional[str] = None):
+        """
+        handler(block) for each block a channel plays (core/taps.py TapBlock:
+        samples int16 (1, 1024) read-only, mixer_sample, mixer_at), in its own
+        thread (an async handler runs on the event loop, waited for). track: one
+        track's blocks before mixing instead (a copy per block: opt-in). Closed
+        when the plugin is switched off. Returns the Tap (close() ends it).
+        """
+        from sonorium.core.taps import TapError
+        taps = getattr(self._host, "taps", None)
+        if taps is None:
+            raise _unavailable("Audio taps")
+        try:
+            return taps.tap(channel, handler, track=track, owner=self._id)
+        except LookupError as e:
+            raise ActionError("not_found", str(e).strip("'\""))
+        except TapError as e:
+            raise ActionError("invalid", str(e))
+
+    def untap(self) -> int:
+        """Close every tap of the plugin. Returns how many."""
+        taps = getattr(self._host, "taps", None)
+        return taps.close_owner(self._id) if taps is not None else 0
+
+    async def decode(self, theme_id: str, key: str, max_seconds: Optional[float] = None):
+        """
+        One of a theme's own files, by track key ("Thunder/Close"), decoded by
+        Sonorium: numpy float32 in -1..1, mono, 44.1 kHz (at most max_seconds;
+        default Settings' decode limit, core/taps.py LIMITS).
+        """
+        import asyncio
+        from sonorium.core.taps import TapError, decode_theme_file
+        sm = getattr(self._host, "session_manager", None)
+        folder = sm.theme_folder(theme_id) if sm is not None and hasattr(sm, "theme_folder") else None
+        if folder is None:
+            raise ActionError("not_found", f"Theme not found: {theme_id}")
+        try:
+            return await asyncio.to_thread(decode_theme_file, folder, key, max_seconds)
+        except LookupError as e:
+            raise ActionError("not_found", str(e).strip("'\""))
+        except TapError as e:
+            raise ActionError("invalid", str(e))
 
     async def announce(self, channels, text: Optional[str] = None, *, sound=None, provider: Optional[str] = None,
                        language: Optional[str] = None, volume: float = 100, duck=True,
@@ -195,7 +281,9 @@ class CommandsV1:
 
     async def received(self, map_id: str, code, value=None) -> dict:
         """A code came in on one of the plugin's maps: the user's entries for it run (or it's learnt)."""
-        return await self._host.commands.received(self._id, map_id, code, self._host.actions_for(self._id), value)
+        # What the user mapped runs as the user set it: not limited by the input plugin's own permissions
+        return await self._host.commands.received(self._id, map_id, code, self._host.actions.for_plugin(self._id),
+                                                  value)
 
     async def entries(self, map_id: str) -> list[dict]:
         return self._host.commands.entries(self._id, map_id)
@@ -263,13 +351,141 @@ class HomeAssistantV1:
         return await _call(self._svc().tts_engines())
 
 
+class TimelineV1:
+    """The cue timeline (core/timeline.py): sounds announced before they are heard."""
+
+    def __init__(self, host, plugin_id: str):
+        self._host, self._id = host, plugin_id
+
+    def _svc(self):
+        timeline = getattr(self._host, "timeline", None)
+        if timeline is None:
+            raise _unavailable("The cue timeline")
+        return timeline
+
+    def subscribe(self, handler: Callable, channels=None, types=None):
+        """
+        handler(event) for cue.scheduled, cue.cancelled and cue.ended (types:
+        some of them) of these channels (ids; None: every channel). An async
+        handler runs on the event loop, a plain one in a thread. Removed when
+        the plugin is disabled. Returns the Subscription (close() ends it).
+        """
+        if channels is not None and (isinstance(channels, str) or not all(isinstance(c, str) for c in channels)):
+            raise ActionError("invalid", "channels: a list of channel ids, or None for every channel")
+        try:
+            return self._svc().subscribe(handler, channels, owner=self._id, types=types)
+        except ValueError as e:
+            raise ActionError("invalid", str(e))
+
+    def unsubscribe(self) -> int:
+        """End every subscription of the plugin. Returns how many."""
+        return self._svc().unsubscribe_owner(self._id)
+
+    def pending(self, channel: Optional[str] = None) -> list[dict]:
+        """The cues scheduled and not yet ended (one channel's, or every channel's)."""
+        return [{k: v for k, v in c.items() if not k.startswith("_")}
+                for c in self._svc().pending(channel) if c.get("_audience") is None]
+
+
+class DevicesV1:
+    """Devices of any kind (core/devices.py): Sonorium lists, names, places and assigns them."""
+
+    def __init__(self, host, plugin_id: str):
+        self._host, self._id = host, plugin_id
+
+    def _svc(self):
+        devices = getattr(self._host, "devices", None)
+        if devices is None:
+            raise _unavailable("Devices")
+        return devices
+
+    @staticmethod
+    async def _guard(work):
+        from sonorium.core.devices import DeviceError
+        try:
+            return await _call(work)
+        except DeviceError as e:
+            raise ActionError("invalid", str(e))
+
+    def register_kind(self, kind: dict) -> dict:
+        """A kind of device (as get_device_kinds() gives them); gone when the plugin is switched off."""
+        from sonorium.core.devices import DeviceError
+        self._require(f"devices.{kind.get('id') if isinstance(kind, dict) else ''}")
+        try:
+            return self._svc().register_kind(self._id, kind)
+        except DeviceError as e:
+            raise ActionError("invalid", str(e))
+
+    def unregister_kinds(self) -> None:
+        self._svc().unregister_owner(self._id)
+
+    def kinds(self) -> list[dict]:
+        """Every kind registered now, by any plugin."""
+        return self._svc().kinds()
+
+    async def discover(self, kind: Optional[str] = None) -> list[dict]:
+        """List the devices of one of the plugin's kinds again (or all of them)."""
+        svc = self._svc()
+        if kind is not None and (svc.kind(kind) or {}).get("plugin_id") != self._id:
+            raise ActionError("not_found", f"The plugin has no device kind '{kind}'")
+        kinds = [kind] if kind else [k["id"] for k in svc.kinds() if k["plugin_id"] == self._id]
+        out = []
+        for one in kinds:
+            out.extend(await self._guard(svc.discover(one)))
+        return out
+
+    def list(self, kind: Optional[str] = None) -> list[dict]:
+        """The devices of a kind (any plugin's, so plugins can work together through the kind contracts)."""
+        return self._svc().list(kind)
+
+    def get(self, device_id: str) -> dict:
+        try:
+            return self._svc().get(device_id)
+        except LookupError as e:
+            raise ActionError("not_found", str(e).strip("'\""))
+
+    async def assigned(self, channel_id: str, kind: Optional[str] = None) -> list[dict]:
+        """The devices (switched on) following a channel: assigned to it, or in an area of its speakers."""
+        return self._svc().assigned(channel_id, kind)
+
+    def following(self, device_id: str) -> list[str]:
+        """The channels a device follows now."""
+        try:
+            return self._svc().following(device_id)
+        except LookupError as e:
+            raise ActionError("not_found", str(e).strip("'\""))
+
+    def set_status(self, device: str, online: Optional[bool] = None, error: Optional[str] = None) -> dict:
+        """One of the plugin's devices (core id or its own): online or not, its last error ("" clears it)."""
+        try:
+            return self._svc().set_status(self._id, device, online, error)
+        except LookupError as e:
+            raise ActionError("not_found", str(e).strip("'\""))
+
+    async def invoke(self, device_id: str, action: str, params: Optional[dict] = None) -> dict:
+        """An action on any plugin's device, through its owner (the kind contracts in the docs say which)."""
+        kind = self.get(device_id).get("kind")
+        self._require(f"devices.{kind}")
+        return await self._guard(self._svc().action(device_id, action, params))
+
+    def _require(self, permission: str) -> None:
+        permissions = getattr(self._host, "permissions", None)
+        if permissions is not None:
+            permissions.require(self._id, permission)
+
+
 FACADES_V1 = {"audio": AudioV1, "ramps": RampsV1, "audio_outputs": OutputsV1, "commands": CommandsV1,
-              "mqtt": MqttV1, "homeassistant": HomeAssistantV1}
+              "mqtt": MqttV1, "homeassistant": HomeAssistantV1, "timeline": TimelineV1,
+              "devices": DevicesV1}
 
 
 def facade(host, plugin_id: str, name: str, api_major: int = 1):
-    """The facade a plugin of this API major version gets for a service."""
+    """The facade a plugin of this API major version gets for a service (its permissions checked)."""
     table = {1: FACADES_V1}.get(api_major)
     if table is None or name not in table:
         raise _unavailable(name)
-    return table[name](host, plugin_id)
+    inner = table[name](host, plugin_id)
+    permissions = getattr(host, "permissions", None)
+    if permissions is None or name not in FACADE_PERMISSIONS:
+        return inner
+    return _Guarded(inner, lambda permission: permissions.require(plugin_id, permission), FACADE_PERMISSIONS[name])

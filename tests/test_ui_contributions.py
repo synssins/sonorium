@@ -56,6 +56,11 @@ def all_spots():
     return {(t["id"], s) for t in m.c.TARGETS for s in t["spots"]}
 
 
+def web_spots():
+    """The spots the web UI draws (other clients, such as the Windows tray, draw their own)."""
+    return {(t["id"], s) for t in m.c.TARGETS if t.get("client", "web") == "web" for s in t["spots"]}
+
+
 # --- the catalogue ---------------------------------------------------------------------------
 
 def test_the_catalogue_names_every_target_once_with_its_contracts():
@@ -214,6 +219,7 @@ def world(tmp_path):
     manager = m.manager.PluginManager(store, plugins_dir=plugins, audio_path=tmp_path / "audio", host=host)
     asyncio.run(manager.initialize())
     plugin = manager.get_plugin("ui_everywhere")
+    host.permissions.approve(plugin)  # as the user does when switching it on
     asyncio.run(manager.enable_plugin("ui_everywhere"))
     yield SimpleNamespace(host=host, manager=manager, plugin=plugin, events=events, store=store, tmp=tmp_path)
     m.plugin_data.registry.unbind()
@@ -367,4 +373,5 @@ def test_every_target_and_spot_is_marked_in_the_web_ui_and_nothing_else():
     screens = {(t["id"], s) for t in m.c.TARGETS if t["id"].startswith("screen.") for s in t["spots"]}
     assert "uiZone(`screen.${viewName}`, 'header'" in text and "uiZone(target, 'top'" in text
     assert "Sonorium.ui.setAnchor(btn, target, 'menu', null)" in text
-    assert found | screens == all_spots(), (all_spots() - found - screens, found - all_spots())
+    assert found | screens == web_spots(), (web_spots() - found - screens, found - web_spots())
+    assert {t["id"] for t in m.c.TARGETS if t.get("client", "web") != "web"} == {"tray.menu"}

@@ -64,6 +64,7 @@ class AttributeService:
         self.auth = auth
         self.publish = publish
         self.registry = registry or plugin_data.registry
+        self.permissions = None  # plugins/permissions.py (set by the plugin host)
 
     # --- where each kind lives -----------------------------------------------------
 
@@ -500,8 +501,15 @@ class PluginAttributes:
         self._service = service
         self.plugin_id = plugin_id
 
+    def _require(self, kind) -> None:
+        permissions = getattr(self._service, "permissions", None)
+        if permissions is not None and isinstance(kind, str):
+            permissions.require(self.plugin_id, f"attributes.{kind}")
+
     def declare(self, attributes: dict) -> dict:
         """The plugin's whole schema ({class: {name: field}}), replacing what it declared before. Returns it as kept."""
+        for kind in (attributes or {}) if isinstance(attributes, dict) else []:
+            self._require(kind)
         return self._service.registry.declare(self.plugin_id, attributes)
 
     def schema(self) -> dict:
@@ -513,8 +521,10 @@ class PluginAttributes:
 
     def set(self, ref: dict, values: dict) -> dict:
         """Change values ({name: value or None}); ActionError if they don't fit. Returns the values afterwards."""
+        self._require(ref.get("kind") if isinstance(ref, dict) else None)
         return self._service.set(ref, self.plugin_id, values, origin=f"plugin:{self.plugin_id}")
 
     def clear(self, ref: dict) -> dict:
         """Remove all of the plugin's values from an object."""
+        self._require(ref.get("kind") if isinstance(ref, dict) else None)
         return self._service.set(ref, self.plugin_id, None, origin=f"plugin:{self.plugin_id}")

@@ -54,6 +54,7 @@ class SampleClock:
 
 class _PullChannel(Channel):
     """A Channel whose mix is pulled by the caller (next_chunk), with no generator thread."""
+    announces_cues = False  # offline: nothing is heard on a speaker
 
     def _ensure_generator_running(self):
         # Nothing to start: the caller pulls. Marked running so a theme change crossfades.

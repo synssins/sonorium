@@ -46,6 +46,14 @@ CAPABILITIES: dict[str, tuple[str, str]] = {
     "packages.binaries": ("1.1", "Ship programs per platform (e.g. ffmpeg)"),
     "attributes": ("1.2", "Declared attributes on themes, tracks, files, presets, channels, speakers and users"),
     "ui": ("1.2", "Add fields, buttons, menu items, badges, columns and pages to any screen (GET /api/ui/targets)"),
+    "timeline": ("1.2", "Cues: which sound is heard on which speaker and when, ahead of time"),
+    "audio.tap": ("1.2", "Read-only copies of what a channel plays, or of one track, as it plays"),
+    "audio.decode": ("1.2", "A theme's files decoded by Sonorium, for analysis"),
+    "automation": ("1.2", "\"Do\" actions and \"only if\" conditions for command maps"),
+    "permissions": ("1.2", "A plugin lists what it uses; the user approves it; the rest is refused"),
+    "http": ("1.2", "Its own HTTP routes under /api/plugins/<id>/http/, an ability each"),
+    "ha.entities": ("1.2", "Home Assistant entities declared as data, published by Sonorium"),
+    "devices": ("1.2", "Devices of any kind (lights, displays, ...): listed, named, placed and assigned by Sonorium"),
 }
 
 _VERSION = re.compile(r"^\s*(\d+)\.(\d+)\s*$")

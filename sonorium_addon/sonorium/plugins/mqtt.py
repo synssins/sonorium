@@ -58,6 +58,7 @@ class MqttRouter:
         self._subs: list[tuple[str, str, Callable]] = []   # (owner, filter, handler)
         # Home Assistant discovery configs published through here (Announcements, plugins)
         self._discovery: set[str] = set()
+        self.on_bind: list[Callable[[], None]] = []  # called when a broker is linked (plugins' entities)
 
     @property
     def available(self) -> bool:
@@ -72,6 +73,11 @@ class MqttRouter:
             client.set_message_handler(self.dispatch)
             for _, topic_filter, _ in self._subs:
                 self._subscribe(topic_filter)
+            for callback in list(self.on_bind):
+                try:
+                    callback()
+                except Exception as e:
+                    logger.warning(f"MQTT: after linking the broker: {e}")
 
     def _subscribe(self, topic_filter: str) -> None:
         if self.client is not None:

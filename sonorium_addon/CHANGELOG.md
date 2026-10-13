@@ -8,6 +8,12 @@
 
 - **api**: Capabilities list in GET /api/info
   ([`44f6aef`](https://github.com/synssins/sonorium/commit/44f6aef1cee0c17e6a304570c074c913f49902cb))
+## v1.7.3-dev.23 (2026-10-13)
+
+### Features
+
+- **plugins**: The cue timeline: which sound is heard where and when
+  ([`dbc7ada`](https://github.com/synssins/sonorium/commit/dbc7ada177fe84c3f37f4b91a8b75246a5d1e9a2))
 
 
 ## v1.7.3-dev.22 (2026-10-13)

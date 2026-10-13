@@ -81,12 +81,16 @@ class UiService:
             settings = plugin.settings_schema()
         except Exception:
             settings = {}
-        fingerprint = repr((raw, attributes, settings))
+        permissions = getattr(self, "permissions", None)
+        allowed = permissions is None or permissions.allowed(plugin.id, "ui")
+        fingerprint = repr((raw, attributes, settings, allowed))
         cached = self._checked.get(plugin.id)
         if cached and cached[0] == fingerprint:
             return cached[1], cached[2]
         if isinstance(raw, dict) and "__error__" in raw:
             elements, warnings = [], [raw["__error__"]]
+        elif raw and not allowed:
+            elements, warnings = [], ["Additions to the screens: not in its permissions (ui)"]
         else:
             elements, warnings = ui_contract.validate(plugin.id, raw, attributes=attributes, settings=settings)
         for w in warnings:
