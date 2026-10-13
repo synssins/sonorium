@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.30 (2026-10-13)
+
+### Features
+
+- **plugins**: Automation pieces: when, only if, do in command maps
+  ([`4a97681`](https://github.com/synssins/sonorium/commit/4a9768169158e6d8ce82ba0fa8f47e20c4bd8719))
+
+- **plugins**: Permissions, a plugin's own routes, Home Assistant entities
+  ([`b735ee4`](https://github.com/synssins/sonorium/commit/b735ee44477d9c5c07c6eb20b484b44c5abb6c45))
+
+
 ## v1.7.3-dev.26 (2026-10-13)
 
 ### Features
