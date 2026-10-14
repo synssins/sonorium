@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.54 (2026-10-14)
+
+### Bug Fixes
+
+- **demo**: Virtual speakers offered in channels; no Windows build on demo
+  ([`8296976`](https://github.com/synssins/sonorium/commit/829697612266e949ec6765dfe24dc6f6bc3d7b0d))
+
+
 ## v1.7.3-dev.53 (2026-10-14)
 
 ### Features
