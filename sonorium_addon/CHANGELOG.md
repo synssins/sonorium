@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.8.0 (2026-10-14)
+
+### Bug Fixes
+
+- **ui**: Stereo switch on Audio Settings draws its track
+  ([`34861bf`](https://github.com/synssins/sonorium/commit/34861bf6293cdd14d19b22b109e1d71a77f7a3b9))
+
+
 > ## ⭐ 1.8.0: Plugin Framework 2, MP3 themes, hosting and security
 >
 > Plugins can add to any screen, theme audio is stored as MP3, themes import several at a time, and Sonorium is ready to run behind a reverse proxy and outside the home network. After the update, existing theme audio is converted to MP3 in the background; the originals are kept in each theme's `_originals` folder.
