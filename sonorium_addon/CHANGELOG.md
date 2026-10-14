@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.59 (2026-10-14)
+
+### Features
+
+- **api**: POST /api/sessions/{id}/previous; device wording in server strings
+  ([`8101544`](https://github.com/synssins/sonorium/commit/8101544b18e5da30e73851483ab360d62a8fcee1))
+
+
 ## v1.7.3-dev.56 (2026-10-14)
 
 ### Bug Fixes

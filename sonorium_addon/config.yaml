@@ -1,5 +1,5 @@
 name: Sonorium
-version: "1.7.3-dev.56"
+version: "1.7.3-dev.59"
 slug: sonorium
 description: "Multi-zone ambient soundscape mixer for Home Assistant"
 url: https://github.com/synssins/sonorium
