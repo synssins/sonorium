@@ -1547,7 +1547,8 @@ list `"virtual_speakers"` in `plugins`. No key: an ordinary server, do nothing.
 - `playing`: a playing channel has this speaker (`channel` names it; null otherwise).
 - `listening`: some client of this user holds the speaker and was heard
   from in the last 15 s (its status poll or an open stream). While nobody
-  listens, the speaker is listed offline and channels play on without it.
+  listens, channels play on without it. The speaker itself is always listed
+  online (`/api/speakers`), so channel pickers offer it like any speaker.
 - `this_client`: this client holds the speaker. Only then is `stream_path` set.
 - Only the caller's own speaker is ever returned; no route takes a speaker
   or user id. 404 `"No virtual speaker for this sign-in"`: no account.
@@ -1573,7 +1574,7 @@ or nothing plays.
 
 **Start and stop:** poll the status every `poll_seconds` (3) while the user
 wants to listen; the poll is also the heartbeat that keeps the speaker
-online. Then:
+active. Then:
 
 | status | do |
 |---|---|

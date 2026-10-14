@@ -18,9 +18,11 @@ and its status says this_client: false. While a channel that has the speaker
 plays, the claiming client streams GET /stream/virtual/<token> (the channel's
 broadcast, the same pipeline as a speaker's stream, at the speaker's volume:
 the channel's volume with the speaker's Offset, and its own volume and mute).
-The speaker is online while its claiming client is heard from (a status poll
-with its client id, or an open stream) within STALE_SECONDS; otherwise it is
-offline and channels play on without it.
+The speaker is always listed online, so it can be picked for channels like any
+speaker (pickers leave offline speakers out). Whether someone listens is the
+status's "listening": its claiming client was heard from (a status poll with
+its client id, or an open stream) within STALE_SECONDS. While nobody listens,
+channels play on without it.
 
 API (docs/APP_API.md, "Virtual speakers"):
 
@@ -103,7 +105,6 @@ class VirtualSpeakers:
         self._lock = threading.RLock()
         self._claims: dict[str, Claim] = {}          # user id -> the claim
         self._live: dict[str, dict] = {}             # speaker id -> {"volume", "muted"} (PUT /api/speakers/...)
-        self._online: dict[str, bool] = {}           # last listed online state, to refresh the registry on a change
         self._task = None
         if folder is not None:
             from sonorium.auth.secrets import JsonFile
@@ -116,6 +117,8 @@ class VirtualSpeakers:
         registry = self._registry()
         if registry is not None and hasattr(registry, "add_speaker_source"):
             registry.add_speaker_source(self.speaker_entries)
+            # The speakers were listed before this source was added: list them now, not at the next change
+            self._refresh_registry()
 
     # --- Storage: the accounts that have a speaker (to notice one removed while Sonorium was off) ---
 
@@ -170,10 +173,6 @@ class VirtualSpeakers:
                     changed = True
                 if changed:
                     self._save()
-            online = {speaker_id_for(uid): self.listening(uid) for uid in (accounts or {})}
-            if online != self._online:
-                self._online = online
-                changed = True
         if changed:
             self._refresh_registry()
         return changed
@@ -230,7 +229,7 @@ class VirtualSpeakers:
         if accounts is None:  # not loaded (yet): the remembered ones, offline
             accounts = dict(self._known())
         return [{"entity_id": speaker_id_for(uid), "name": name, "type": SPEAKER_TYPE,
-                 "online": self.listening(uid), "source": [SPEAKER_TYPE], "address": ADDRESS}
+                 "online": True, "source": [SPEAKER_TYPE], "address": ADDRESS}
                 for uid, name in accounts.items()]
 
     def name_of(self, user_id: str) -> str:
@@ -307,9 +306,6 @@ class VirtualSpeakers:
         session = self.playing_session(user_id)
         sid = speaker_id_for(user_id)
         listening = self.listening(user_id)
-        if self._online.get(sid) is not None and self._online.get(sid) != listening:
-            self._online[sid] = listening
-            self._refresh_registry()
         return {
             "id": sid, "name": self.name_of(user_id),
             "playing": session is not None,

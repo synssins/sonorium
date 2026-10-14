@@ -172,6 +172,8 @@ jobs:
   windows:
     name: Windows installer
     needs: version
+    # Branch demo (the hosted demo server) ships only the Docker image: no installer
+    if: github.ref_name != 'demo'
     # The called workflow only reads; its own pre-release job (skipped here, it
     # runs only on pushes to windows-app) declares contents: write, and GitHub
     # refuses the call if a nested job asks for more than the caller grants.
@@ -186,6 +188,8 @@ jobs:
     # needs: skips this job unless every add-on image was built and pushed
     # and the Windows installer was built and passed its tests
     needs: [version, addon-image, windows]
+    # demo: windows is skipped, which would skip this job (and everything after it) too
+    if: ${{ !cancelled() && needs.addon-image.result == 'success' && (needs.windows.result == 'success' || (needs.windows.result == 'skipped' && github.ref_name == 'demo')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -257,6 +261,7 @@ jobs:
   addon-tags:
     name: Add-on image tags
     needs: [version, publish]
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -295,6 +300,7 @@ jobs:
   docker:
     name: Docker image
     needs: publish
+    if: ${{ !cancelled() && needs.publish.result == 'success' }}
     permissions:
       contents: read
       packages: write

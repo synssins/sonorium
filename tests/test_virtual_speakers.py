@@ -25,7 +25,7 @@ m = SimpleNamespace()
 @pytest.fixture(autouse=True, scope="module")
 def modules():
     with addon_modules(*MODULES, "sonorium.virtual_speakers", "sonorium.core.speaker_live",
-                       "sonorium.auth.principal") as mods:
+                       "sonorium.auth.principal", "sonorium.web.api_v2") as mods:
         m.__dict__.update(mods.__dict__)
         yield
 
@@ -63,7 +63,8 @@ def test_every_account_has_one_speaker_named_after_it(w):
     speakers = listed(w)
     assert set(speakers) == {ANN, BOB}
     assert speakers[ANN].name == "ann" and speakers[ANN].type == "virtual" and speakers[ANN].address == "Virtual"
-    assert not speakers[ANN].online  # nobody listens yet
+    assert speakers[ANN].online  # always: pickers leave offline speakers out
+    assert not w.vs.status("u_ann")["listening"]  # nobody listens yet
     # switched on in Settings › Speakers (this world lists the speakers that are on)
     assert w.state.settings.speaker_enabled(ANN) and w.state.settings.speaker_enabled(BOB)
     assert w.vs.sync() is False  # nothing changed: nothing done
@@ -87,6 +88,10 @@ def test_speakers_follow_accounts_added_renamed_removed(w, tmp_path):
     assert channel.adhoc_selection.include_speakers == ["net:a"] and group.include_speakers == ["net:a"]
     assert "virtual:u_cy" not in w.state.settings.enabled_speakers
     assert "virtual:u_cy" not in w.state.settings.speaker_settings
+    # a restart: the speakers are listed at once, though no account changed
+    w.registry._speakers.clear()
+    m.virtual_speakers.VirtualSpeakers(w.sm, lambda: w.users, tmp_path)
+    assert {ANN, BOB} <= set(listed(w))
     # an account removed while Sonorium was off: noticed at the next start (remembered on disk)
     again = m.virtual_speakers.VirtualSpeakers(None, lambda: {"u_ann": {"username": "ann"}}, tmp_path)
     assert set(again._known()) == {"u_ann", "u_bob"}
@@ -156,8 +161,6 @@ def test_claim_gives_this_client_the_stream_and_the_last_claim_wins(w):
     first = w.vs.claim("u_ann", "web-aaaaaaaa", "web")
     assert first["this_client"] and first["stream_path"].startswith("/stream/virtual/")
     assert first["listening"] and first["listener_kind"] == "web"
-    w.vs.sync()
-    assert listed(w)[ANN].online
     again = w.vs.claim("u_ann", "web-aaaaaaaa", "web")
     assert again["stream_path"] == first["stream_path"]  # asking again keeps its stream
     second = w.vs.claim("u_ann", "app-device-1", "app")
@@ -182,7 +185,7 @@ def test_offline_when_the_listening_client_goes_quiet(w):
     w.clock.now += m.virtual_speakers.STALE_SECONDS + 1
     assert not w.vs.status("u_ann")["listening"]
     w.vs.sync()
-    assert not listed(w)[ANN].online
+    assert listed(w)[ANN].online  # still offered for channels
 
 
 def test_bad_claims(w):
@@ -283,3 +286,92 @@ def test_permission_table_covers_the_routes():
     table = P.parse(m.virtual_speakers.PERMISSIONS)
     paths = {(meth, r.path) for r in router.routes for meth in r.methods if meth != "HEAD"}
     assert paths == set(table)
+
+
+# --- Through the web UI's routes: per-speaker settings stay per speaker; pickable for channels ----
+
+def ui_client(w):
+    from unittest.mock import MagicMock
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(m.api_v2.create_api_router(session_manager=w.sm, group_manager=MagicMock(),
+                                                  ha_registry=w.registry, state_store=w.state))
+
+    @app.middleware("http")
+    async def signed_in(request, call_next):
+        request.state.auth = m.principal.Principal("local", perms=frozenset({"ch.speakers", "sp.set", "sp.mute"}))
+        return await call_next(request)
+    return TestClient(app)
+
+
+def snapshot(http):
+    rows = {s["entity_id"]: s for s in http.get("/api/speakers").json() if s["entity_id"].startswith("virtual:")}
+    enabled = set(http.get("/api/settings/speakers").json()["enabled_speakers"])
+    return {sid: (sid in enabled, r["area_id"], r["volume_offset"], r["name"], r.get("volume"), r.get("muted"))
+            for sid, r in rows.items()}
+
+
+def test_each_speakers_settings_are_its_own(w):
+    w.users["u_cy"] = {"username": "cy"}
+    w.vs.sync()
+    CY = "virtual:u_cy"
+    w.registry.set_local_spaces_source(lambda: {"floors": [], "areas": [{"id": "den", "name": "Den"}]})
+    w.registry.merge_extra_speakers()
+    http = ui_client(w)
+    m.speaker_live.LOCAL_HANDLERS["virtual:"] = w.vs
+    for sid in (ANN, BOB, CY):  # all off
+        assert http.post("/api/settings/speakers/disable", json={"entity_id": sid}).status_code == 200
+    before = snapshot(http)
+    assert not any(v[0] for v in before.values())
+
+    def only_ann_changed(after, field, value):
+        assert after[ANN][field] == value
+        for sid in (BOB, CY):
+            assert after[sid] == before[sid], (field, sid)
+
+    assert http.post("/api/settings/speakers/enable", json={"entity_id": ANN}).status_code == 200
+    w.vs.sync()
+    only_ann_changed(snapshot(http), 0, True)
+    before = snapshot(http)
+    r = http.put(f"/api/speakers/{ANN}/settings", json={"volume_offset": 10})
+    assert r.status_code == 200, r.text
+    only_ann_changed(snapshot(http), 2, 10)
+    before = snapshot(http)
+    r = http.put(f"/api/speakers/{ANN}/settings", json={"room": "den"})
+    assert r.status_code == 200, r.text
+    only_ann_changed(snapshot(http), 1, "den")
+    before = snapshot(http)
+    assert http.put(f"/api/speakers/{ANN}/settings", json={"name": "Ann's room"}).status_code == 200
+    only_ann_changed(snapshot(http), 3, "Ann's room")
+    before = snapshot(http)
+    assert http.put(f"/api/speakers/{ANN}/volume", json={"volume": 40}).status_code == 200
+    only_ann_changed(snapshot(http), 4, 40)
+    before = snapshot(http)
+    assert http.put(f"/api/speakers/{ANN}/muted", json={"muted": True}).status_code == 200
+    only_ann_changed(snapshot(http), 5, True)
+    before = snapshot(http)
+    assert http.post("/api/settings/speakers/disable", json={"entity_id": ANN}).status_code == 200
+    w.vs.sync()
+    only_ann_changed(snapshot(http), 0, False)
+
+
+def test_offered_in_the_pickers_and_plays_in_a_channel_made_through_the_api(w):
+    http = ui_client(w)
+    hierarchy = http.get("/api/speakers/hierarchy").json()
+    listed_ids = {s["entity_id"]: s for s in hierarchy["unassigned_speakers"]}
+    assert listed_ids[ANN]["online"] and listed_ids[BOB]["online"]  # the pickers show online speakers
+    assert ANN in http.get("/api/settings/speakers").json()["enabled_speakers"]
+    r = http.post("/api/sessions", json={"theme_id": "storm", "custom_name": "Den",
+                                         "adhoc_selection": {"include_speakers": [ANN]}})
+    assert r.status_code in (200, 201), r.text
+    sid = r.json()["id"]
+    session = w.sm.get(sid)
+    assert w.sm.get_resolved_speakers(session) == [ANN]
+    assert w.play(session)
+    assert w.vs.status("u_ann")["channel"]["id"] == sid
+    # changed to Bob's speaker through the same route the channel editor uses
+    r = http.put(f"/api/sessions/{sid}", json={"adhoc_selection": {"include_speakers": [BOB]}})
+    assert r.status_code == 200, r.text
+    assert not w.vs.status("u_ann")["playing"] and w.vs.status("u_bob")["playing"]
