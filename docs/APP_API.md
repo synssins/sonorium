@@ -1519,6 +1519,78 @@ paused (`paused`), deleted (`deleted`), or goes idle because nothing pulled
 its audio for 90 s (`idle`). They live in memory: a restart forgets them (a
 new `boot_id`); report again.
 
+### 9.6 Virtual speakers (demo server only)
+
+The hosted demo server (branch `demo`, image `ghcr.io/synssins/sonorium:branch-demo`)
+gives every account one **virtual speaker**, named after the account. It is a
+speaker like any other (channels, speaker groups, area, Offset, volume, mute,
+linking); when a channel that has it plays, the mix streams to the client of
+that user that claimed it last. Other servers don't have it: show and use it
+only when the server reports it.
+
+**Is it there?** `GET /api/auth/me` has the key `virtual_speaker` (an object,
+or `null` for a caller without an account); `/api/info` and `/api/auth/me`
+list `"virtual_speakers"` in `plugins`. No key: an ordinary server, do nothing.
+
+**Status:** `GET /api/me/speaker?client=<client id>` (`ch.view`):
+
+```json
+{"id": "virtual:u_68fbcffbe37cceec", "name": "ann",
+ "playing": true, "channel": {"id": "f85cd35a", "name": "Demo"},
+ "listening": true, "listener_kind": "app", "this_client": true,
+ "stream_path": "/stream/virtual/2c9b2250612ebfb4ee119905f193f4c4",
+ "status_url": "/api/me/speaker", "claim_url": "/api/me/speaker/claim", "poll_seconds": 3}
+```
+
+- `client`: the app's own id for this install, 8-64 of `A-Z a-z 0-9 . _ : -`
+  (e.g. `app-<device id>`). Keep it stable.
+- `playing`: a playing channel has this speaker (`channel` names it; null otherwise).
+- `listening`: some client of this user holds the speaker and was heard
+  from in the last 15 s (its status poll or an open stream). While nobody
+  listens, the speaker is listed offline and channels play on without it.
+- `this_client`: this client holds the speaker. Only then is `stream_path` set.
+- Only the caller's own speaker is ever returned; no route takes a speaker
+  or user id. 404 `"No virtual speaker for this sign-in"`: no account.
+
+**Claim (the user pressed Listen):** `POST /api/me/speaker/claim`
+`{"client": "<client id>", "kind": "app"}` (`ch.play`) → the status, with
+`this_client: true` and `stream_path`. The last client to claim wins: the
+browser or other device that held it loses it, and its stream ends. Claiming
+again from the same client keeps the same `stream_path`. 400 for a bad client id.
+
+**Let go (the user pressed Stop listening):** `DELETE /api/me/speaker/claim?client=<client id>`
+→ `{"released": true|false, ...status}`; `false` when another client holds it
+(nothing changes then).
+
+**Playing:** while `playing && this_client`, play
+`http://<host>:<ports.http><stream_path>` (progressive MP3, as in 9.2; no
+`?local=1`). It is the channel's broadcast at the speaker's level (channel
+volume with the speaker's Offset, the speaker's own volume and mute; the
+channel's speakers-muted switch silences it like any speaker). The stream
+ends when the channel stops, the speaker leaves the channel, or another
+client claims; it answers **404** when the claim is no longer this client's
+or nothing plays.
+
+**Start and stop:** poll the status every `poll_seconds` (3) while the user
+wants to listen; the poll is also the heartbeat that keeps the speaker
+online. Then:
+
+| status | do |
+|---|---|
+| `playing && this_client`, not playing locally | open `stream_path` |
+| `playing && this_client`, stream ended | open it again on the next poll |
+| `!playing` | stop the player, keep polling |
+| `!this_client` | stop the player; another client took it (show it as playing elsewhere; claiming again takes it back) |
+
+There is no event for this; polling is the contract. Claims live in memory:
+after a server restart (new `boot_id`) nobody holds the speaker; a client
+that held it may claim again without asking the user.
+
+In the web UI a signed-in browser shows a strip with **Enable sound** while
+the speaker plays and the page isn't playing it (browsers need a click
+before they play sound); pressing it claims the speaker for that page. The
+web UI inside the app's WebView leaves this to the app.
+
 ---
 
 ## 10. Theme packages for offline playback

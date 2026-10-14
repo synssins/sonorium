@@ -19,6 +19,13 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 NETWORK_PREFIX = "net:"
+# Speakers Sonorium plays itself and keeps the volume of (sonorium/virtual_speakers.py):
+# speaker id prefix -> handler with set_volume(id, volume) and set_muted(id, muted), each -> bool
+LOCAL_HANDLERS: dict = {}
+
+
+def _local_handler(speaker_id: str):
+    return next((h for prefix, h in list(LOCAL_HANDLERS.items()) if speaker_id.startswith(prefix)), None)
 
 
 class SpeakerLive:
@@ -49,6 +56,12 @@ class SpeakerLive:
 
     async def set_volume(self, speaker_id: str, volume: int) -> bool:
         """Set the speaker's volume (0-100). False: the speaker didn't take it."""
+        local = _local_handler(speaker_id)
+        if local is not None:
+            ok = bool(local.set_volume(speaker_id, volume))
+            if ok:
+                self.known.setdefault(speaker_id, {})["volume"] = volume
+            return ok
         controller, target = self._route(speaker_id)
         known = self.known.setdefault(speaker_id, {})
         if known.get("muted") and target.startswith(NETWORK_PREFIX):
@@ -61,6 +74,12 @@ class SpeakerLive:
 
     async def set_muted(self, speaker_id: str, muted: bool) -> bool:
         """Mute or unmute the speaker. False: it couldn't be done."""
+        local = _local_handler(speaker_id)
+        if local is not None:
+            ok = bool(local.set_muted(speaker_id, muted))
+            if ok:
+                self.known.setdefault(speaker_id, {})["muted"] = bool(muted)
+            return ok
         controller, target = self._route(speaker_id)
         known = self.known.setdefault(speaker_id, {})
         if target.startswith(NETWORK_PREFIX):

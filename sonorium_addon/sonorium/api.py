@@ -428,6 +428,13 @@ class WebApp:
             except Exception as e:
                 logger.warning(f"  Zones unavailable: {e}")
 
+            # Demo branch: a virtual speaker for every account (sonorium/virtual_speakers.py)
+            try:
+                from sonorium import virtual_speakers
+                self._virtual_speakers = virtual_speakers.install(self.auth, self._session_manager)
+            except Exception as e:
+                logger.warning(f"  Virtual speakers unavailable: {e}")
+
             # Initialize plugin manager
             try:
                 from sonorium.plugins.manager import PluginManager

@@ -431,7 +431,7 @@ class HARegistry:
                 source=sources,
                 type=item.get("type") or "other",
                 online=bool(item.get("online", True)),
-                address=ip or entity_id,
+                address=item.get("address") or ip or entity_id,
                 output=item.get("output"),
             )
 
