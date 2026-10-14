@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.57 (2026-10-14)
+
+### Bug Fixes
+
+- **demo**: Virtual speaker streams count against the stream limits
+  ([`6e7ef8e`](https://github.com/synssins/sonorium/commit/6e7ef8eb345c9c4d56798967738451ffcd8957c7))
+
+- **security**: Exposure fixes for servers reachable from outside the LAN
+  ([`40d2773`](https://github.com/synssins/sonorium/commit/40d277304df6cd3286dc6f4e69e257e524c68e06))
+
+
 ## v1.7.3-dev.54 (2026-10-14)
 
 ### Bug Fixes
