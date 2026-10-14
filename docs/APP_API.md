@@ -767,7 +767,8 @@ Status objects (PLAYBACK.md):
 | `DELETE /sessions/{id}/sequence` | pl.run | | playback object | 404 |
 | `PUT /sessions/{id}/playlist` | pl.run | `{"playlist_id": "1a2b3c4d"}` | playback object | 400, 404, 409 |
 | `DELETE /sessions/{id}/playlist` | pl.run | | playback object | 404 |
-| `POST /sessions/{id}/next` | pl.run | none | `{"skipped": ..., ...playback}` | 409 `"The channel is not playing"`, 409 `"No playlist or sequence is running"` |
+| `POST /sessions/{id}/next` | pl.run | none | `{"skipped": "playlist"\|"sequence"\|"preset"\|"end", ...playback}` | 404, 409 `"The channel is not playing"`, 409 `"Nothing to go to next"` |
+| `POST /sessions/{id}/previous` | pl.run | none | `{"skipped": "playlist"\|"sequence"\|"preset"\|"end", ...playback}` | 404, 409 `"The channel is not playing"`, 409 `"Nothing to go back to"` |
 
 Notes:
 
@@ -777,6 +778,20 @@ Notes:
 - **Preset:** `PUT` `{"preset_id": "rain"}` (3 s glide; stops a running
   sequence). `""` = no preset. `"seq:<sequence_id>"` starts that sequence
   (same as `POST .../sequence`).
+- **Next** (`POST .../next`): with a playlist, its next entry (`"end"`
+  when a playlist that doesn't repeat was on its last entry: the channel
+  stops); else with a sequence, its next step (a 3 s glide); else the
+  theme's next preset (a 3 s glide), with Default settings (`preset_id`
+  null) first in the list and Default settings again after the last preset.
+  409 `"Nothing to go to next"` only when the theme has no presets.
+  `skipped` says which.
+- **Previous** (`POST .../previous`, the mirror of Next): with a playlist,
+  its previous entry (from the first entry it wraps to the round's last if
+  the playlist repeats, else the first entry starts again); else with a
+  sequence, its previous step (a 3 s glide; from the first step it wraps to
+  the last when At the end is restart, else that step starts again); else
+  the theme's previous preset, with Default settings (`preset_id` null)
+  first in the list and the last preset before it. `skipped` says which.
 - **Speakers:** `PUT` `{"speaker_group_id": "..."}` or `{"adhoc_selection":
   {...}}`. A playing channel starts and stops speakers live.
 - **Play/stop/pause** answer at once; the fade and speaker commands follow in

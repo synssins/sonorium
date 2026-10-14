@@ -401,7 +401,7 @@
                             <p class="hi lv2"><b>Interval:</b> the wait between plays. In a group, how fast its weight wears off. Higher comes back sooner; lower plays less often.</p>
                             <h5>Intermittent group</h5>
                             <p class="hi lv2"><b>Take turns:</b> only one track plays at a time, never overlapping. On its turn, a track plays its whole file once, start to finish, then hands over. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.</p>
-                            <p class="hi lv2"><b>Gap:</b> under the group's name: after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other. Presets keep their own Gap.</p>
+                            <p class="hi lv2"><b>Gap:</b> under the group's name: after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other. Presets keep their Gap.</p>
                             <p class="hi lv2"><b>Weight:</b> each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.</p>
                             <p class="hi lv2"><b>Volume, Interval, Mute:</b> apply to every track in the group.</p>
                             <h4>Ebb &amp; Flow</h4>
@@ -414,11 +414,11 @@
                             <p class="hi lv3"><b>Pause between plays:</b> off, the file loops and is always heard. On, it plays once from start to finish, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.</p>
                             <p class="hi lv3"><b>Pause:</b> how long it stays quiet, in seconds, picked at random between the two numbers each time (600 is 10 minutes). It also staggers when tracks first start, so they don't all begin together.</p>
                             <h5>Ebb &amp; Flow group</h5>
-                            <p class="hi lv2"><b>Ebb &amp; Flow group:</b> every file plays at once, each between its own minimum and maximum volume. Each file keeps its own settings; the group's Volume and Duration scale them down.</p>
-                            <p class="hi lv2"><b>Pause between plays:</b> under the group's name. On, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its own Pause between plays.</p>
+                            <p class="hi lv2"><b>Ebb &amp; Flow group:</b> every file plays at once, each between its minimum and maximum volume. Each file keeps its settings; the group's Volume and Duration scale them down.</p>
+                            <p class="hi lv2"><b>Pause between plays:</b> under the group's name. On, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its Pause between plays.</p>
                             <p class="hi lv2"><b>Volume, Duration, Mute:</b> apply to every track in the group.</p>
                             <h6>Its ⋯ menu</h6>
-                            <p class="hi lv3"><b>Same Rise for every file:</b> one Rise for the whole group instead of each file's own.</p>
+                            <p class="hi lv3"><b>Same Rise for every file:</b> one Rise for the whole group instead of one per file.</p>
                             <h4>A track's ⋯ menu</h4>
                             <p class="hi"><b>Fade in / Fade out:</b> for a file that starts or ends abruptly. Set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.</p>
                             <p class="hi"><b>Move to:</b> Unassigned, or a group.</p>
@@ -428,9 +428,9 @@
                             <p class="hi"><b>Rename:</b> also by double-clicking the group name.</p>
                             <p class="hi"><b>Delete group:</b> keeps its files; they move back into its section.</p>
                             <h4>Files from another theme</h4>
-                            <p class="hi"><b>Linked file:</b> plays here but stays in its own theme. Add one with Add from another theme above the list; it starts in Unassigned, and can go anywhere your own files can. If the file is gone, it shows Missing.</p>
+                            <p class="hi"><b>Linked file:</b> plays here but stays in its theme. Add one with Add from another theme above the list; it starts in Unassigned, and can go anywhere the theme's other files can. If the file is gone, it shows Missing.</p>
                             <p class="hi"><b>Presets:</b> turn linked files on and other tracks off, like rain that mutes the crickets. A preset that turns a linked file on shows <span class="int-ic" role="img" aria-label="two circles icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.25" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/></svg></span>.</p>
-                            <p class="hi"><b>Remove link:</b> in a linked file's ⋯ menu. The file stays in its own theme.</p>
+                            <p class="hi"><b>Remove link:</b> in a linked file's ⋯ menu. The file stays in its theme.</p>
                             <h4>Sequences</h4>
                             <p class="hi"><b>Sequence:</b> plays presets of this theme in the order you choose, gliding from one to the next. Marked <span class="seq-ic" role="img" aria-label="sequence icon"><svg class="seqsh" width="18" height="10" viewBox="0 0 28 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><rect x="1" y="2.5" width="7" height="7" rx="1"/><path d="M10.5 9.5 14 2.5 17.5 9.5Z"/><circle cx="23" cy="6" r="3.5"/></svg></span>.</p>
                             <p class="hi"><b>Picking one:</b> preset lists show the sequences after the presets. Picking a preset by hand stops a running sequence.</p>
@@ -448,7 +448,7 @@
                             <p class="hi lv2"><b>Coming in / Leaving:</b> tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.</p>
                             <h6>Coming in and Leaving</h6>
                             <p class="hi lv3"><b>Smooth:</b> no button on. The track follows the sequence's ramp.</p>
-                            <p class="hi lv3"><b>Buttons:</b> click to turn a style on, click again to turn it off. Each style that's on shows its own setting under Setting.</p>
+                            <p class="hi lv3"><b>Buttons:</b> click to turn a style on, click again to turn it off. Each style that's on shows its setting under Setting.</p>
                             <p class="hi lv3"><b>Pre-fade:</b> starts the change this many seconds before the step.</p>
                             <p class="hi lv3"><b>Gusts / Gusts dying down:</b> rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.</p>
                             <p class="hi lv3"><b>Swell / Smooth fade:</b> one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.</p>
@@ -456,7 +456,7 @@
                             <p class="hi lv3"><b>Distance / Recede:</b> starts faint and muffled, like far-off thunder, and ends clear at the preset volume; or drifts away. How far sets the distance.</p>
                             <p class="hi lv3"><b>Start fresh / Finish then stop:</b> plays from the start of the file with a short fade, for music, voices and rhythm; or lets the current play finish, then stops.</p>
                             <p class="hi lv3"><b>Preview:</b> ▶ plays that track's change on this device and follows your edits.</p>
-                            <p class="hi lv3"><b>File fades:</b> a file's own Fade in and Fade out apply on top of every style.</p>
+                            <p class="hi lv3"><b>File fades:</b> a file's Fade in and Fade out apply on top of every style.</p>
                             <p class="hi lv3"><b>Combining styles:</b> several styles can be on together. They all work over the same fade time (pre-fade plus ramp). For example:</p>
                             <p class="hi ex lv3"><b>Gusts + Distance:</b> wind starts far off and muffled, and surges unevenly as it comes closer.</p>
                             <p class="hi ex lv3"><b>Gusts + Swell:</b> the surges ride on one curved rise instead of a steady one.</p>
@@ -1158,7 +1158,7 @@ Example:
                     </div>
                     <div class="sp-fld sp-fill"><label class="sp-fld-label" for="as-room">Area</label><select id="as-room" class="sp-inp"><option value="">No area</option></select></div>
                 </div>
-                <div class="sp-fld"><label class="sp-fld-label" for="as-name">Name</label><input type="text" id="as-name" class="sp-inp" maxlength="100" placeholder="Speaker's own name"></div>
+                <div class="sp-fld"><label class="sp-fld-label" for="as-name">Name</label><input type="text" id="as-name" class="sp-inp" maxlength="100" placeholder="Speaker's name"></div>
                 <div id="as-result" class="check-result" style="display: none;" role="status"></div>
             </div>
             <div class="modal-footer">

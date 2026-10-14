@@ -24,7 +24,7 @@ function page(host, origin = 'http://127.0.0.1:5000', pathname = '/') {
         const url = new URL(String(input), location.href).href;
         calls.push(['fetch', url, Object.fromEntries(new Headers(init.headers || {}).entries())]);
         const status = url.endsWith('/unlinked') ? 401 : 200;
-        const body = status === 401 ? { detail: 'This phone is not linked to Sonorium. Link it again.', pair: true } : {};
+        const body = status === 401 ? { detail: 'This device is not linked to Sonorium. Link it again.', pair: true } : {};
         return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
     };
     const document = { createElement: () => ({}), head: { appendChild() {} } };

@@ -108,7 +108,7 @@ def resolve(service: AuthService, scope, headers: dict) -> tuple[Principal, Opti
         found = service.tokens.verify(token, "device")
         if not found:
             return Principal("anonymous", listener=listener, token_given=True), Reject(
-                401, {"detail": "This phone is not linked to Sonorium. Link it again.", "pair": True})
+                401, {"detail": "This device is not linked to Sonorium. Link it again.", "pair": True})
         device_id, record = found
         principal = Principal("device", P.device_perms(P.ALL_PERMS), listener, user_id=record.get("user_id"),
                               device_id=device_id, token_given=True)
@@ -268,13 +268,13 @@ class AuthMiddleware:
         service = self.service
         if principal.kind == "anonymous":
             if principal.token_given:
-                return 401, {"detail": "A valid key or linked phone is needed", "pair": True}
+                return 401, {"detail": "A valid key or linked device is needed", "pair": True}
             if not service.ready:
                 return 503, {"detail": "Sonorium is starting", "starting": True}
             if service.closed:
                 return 503, {"detail": "Sign-in didn't start. See Logs.", "closed": True}
             if principal.listener != "ingress" and config.web_ui_only_through_ha():
-                return 401, {"detail": "A key or a linked phone is needed"}
+                return 401, {"detail": "A key or a linked device is needed"}
             body = {"detail": "Sign in first", "login": True}
             body.update(principal.extra.get("refusal") or {})
             return 401, body

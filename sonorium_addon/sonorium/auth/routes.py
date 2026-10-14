@@ -297,13 +297,13 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
         data = await json_body(request)
         valid, user_id, link = service.use_pair_code(str(data.get("code") or ""))
         if not valid:
-            logger.warning(f"Link App: a phone at {client} tried a wrong or expired code")
+            logger.warning(f"Link App: a device at {client} tried a wrong or expired code")
             raise HTTPException(401, "This code doesn't work. Show a new code in Sonorium.")
         device_id, token = service.add_device(user_id, str(data.get("device_name") or ""),
                                               str(data.get("platform") or ""), str(data.get("model") or ""))
         service.pair_linked(link, device_id)
         user = service.describe_user(user_id)
-        logger.info(f"Link App: {data.get('device_name') or 'a phone'} at {client} is linked"
+        logger.info(f"Link App: {data.get('device_name') or 'a device'} at {client} is linked"
                     f"{' to ' + user['username'] if user else ''}")
         return {"device_id": device_id, "token": token, "user": user, "server_id": service.identity.server_id}
 
@@ -361,7 +361,7 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
         if record.get("user_id") != p.user_id and not p.can("admin.users"):
             raise HTTPException(403, "Not allowed")
         service.remove_device(device_id)
-        logger.info(f"Devices: {record.get('name') or 'a phone'} unlinked")
+        logger.info(f"Devices: {record.get('name') or 'a device'} unlinked")
         return {"removed": True}
 
     return router
@@ -370,4 +370,4 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
 def _https_only(service: AuthService, request: Request, https_port: Callable[[], int]) -> None:
     """Handing out a token: only over HTTPS (unless the HTTPS port can't be reached)."""
     if request.url.scheme != "https" and https_port():
-        raise HTTPException(403, "Use the HTTPS port to link a phone.")
+        raise HTTPException(403, "Use the HTTPS port to link a device.")

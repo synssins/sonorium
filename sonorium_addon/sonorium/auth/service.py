@@ -263,13 +263,13 @@ class AuthService:
 
     def add_device(self, user_id: Optional[str], name: str, platform: str = "", model: str = "") -> tuple[str, str]:
         """A linked phone. Returns (device id, token); the token is never shown again."""
-        name = (name or "Phone").strip()[:60] or "Phone"
+        name = (name or "Device").strip()[:60] or "Device"
         return self.tokens.issue("device", prefix=DEVICE_PREFIX, user_id=user_id, name=name,
                                  data={"platform": (platform or "").strip()[:30], "model": (model or "").strip()[:60]})
 
     @staticmethod
     def _device_row(device_id: str, r: dict) -> dict:
-        return {"id": device_id, "name": r.get("name") or "Phone", "user_id": r.get("user_id"),
+        return {"id": device_id, "name": r.get("name") or "Device", "user_id": r.get("user_id"),
                 "platform": (r.get("data") or {}).get("platform", ""),
                 "model": (r.get("data") or {}).get("model", ""),
                 "created": r.get("created"), "last_seen": r.get("last_used") or r.get("created")}
@@ -291,7 +291,7 @@ class AuthService:
         """A phone's new name (trimmed to 60 characters). None: no such phone."""
         if self.device(device_id) is None:
             return None
-        self.tokens.update(device_id, name=(name or "").strip()[:60] or "Phone")
+        self.tokens.update(device_id, name=(name or "").strip()[:60] or "Device")
         return self.device(device_id)
 
     def remove_device(self, device_id: str) -> Optional[dict]:

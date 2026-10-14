@@ -9,6 +9,18 @@
 - **demo**: Virtual speaker streams count against the stream limits
   ([`6e7ef8e`](https://github.com/synssins/sonorium/commit/6e7ef8eb345c9c4d56798967738451ffcd8957c7))
 
+## v1.7.3-dev.59 (2026-10-14)
+
+### Features
+
+- **api**: POST /api/sessions/{id}/previous; device wording in server strings
+  ([`8101544`](https://github.com/synssins/sonorium/commit/8101544b18e5da30e73851483ab360d62a8fcee1))
+
+
+## v1.7.3-dev.56 (2026-10-14)
+
+### Bug Fixes
+
 - **security**: Exposure fixes for servers reachable from outside the LAN
   ([`40d2773`](https://github.com/synssins/sonorium/commit/40d277304df6cd3286dc6f4e69e257e524c68e06))
 

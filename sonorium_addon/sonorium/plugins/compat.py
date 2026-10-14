@@ -51,7 +51,7 @@ CAPABILITIES: dict[str, tuple[str, str]] = {
     "audio.decode": ("1.2", "A theme's files decoded by Sonorium, for analysis"),
     "automation": ("1.2", "\"Do\" actions and \"only if\" conditions for command maps"),
     "permissions": ("1.2", "A plugin lists what it uses; the user approves it; the rest is refused"),
-    "http": ("1.2", "Its own HTTP routes under /api/plugins/<id>/http/, an ability each"),
+    "http": ("1.2", "HTTP routes under /api/plugins/<id>/http/, an ability each"),
     "ha.entities": ("1.2", "Home Assistant entities declared as data, published by Sonorium"),
     "devices": ("1.2", "Devices of any kind (lights, displays, ...): listed, named, placed and assigned by Sonorium"),
 }

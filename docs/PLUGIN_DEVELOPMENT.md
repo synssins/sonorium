@@ -110,7 +110,7 @@ A refused plugin is listed in Settings › Plugins with that sentence (`compatib
 | `audio.decode` | 1.2 | A theme's files decoded by Sonorium, for analysis (section 27) |
 | `automation` | 1.2 | "Do" actions and "only if" conditions for command maps (section 31) |
 | `permissions` | 1.2 | What a plugin uses, approved by the user (section 28) |
-| `http` | 1.2 | Its own HTTP routes, an ability each (section 29) |
+| `http` | 1.2 | HTTP routes, an ability each (section 29) |
 | `ha.entities` | 1.2 | Home Assistant entities declared as data (section 30) |
 | `devices` | 1.2 | Devices of any kind (lights, displays, buttons): listed, named, placed and assigned by Sonorium (section 26) |
 
@@ -298,7 +298,7 @@ with `code` `not_found`, `invalid`, `conflict` or `unavailable`, and a `message`
 | `mute_speakers(id, muted=True)` | Silence what the speakers get (a browser listening keeps hearing it) |
 | `start_sequence(id, sequence_id)` / `stop_sequence(id)` | Run or stop a sequence of the channel's theme |
 | `set_playlist(id, playlist_id)` / `clear_playlist(id)` | Play or stop a playlist on the channel |
-| `next_step(id)` | Next playlist entry, or the sequence's next preset; returns `playlist`, `sequence` or `end` |
+| `next_step(id)` | Next playlist entry, else the sequence's next preset, else the theme's next preset (Default settings first, wrapping round); returns `playlist`, `sequence`, `preset` or `end` |
 | `list_themes()`, `list_presets(theme_id)`, `list_sequences(theme_id)`, `list_playlists()` | What there is to play |
 | `list_speakers()`, `list_speaker_groups()` | Speakers (`id`, `name`, `type`, `online`, `area_id`, `area_name`, `enabled`; a device of an output type also has `"type": "output"`, `output_type` and `device`, section 17) and speaker groups |
 | `play_sound(channels, source, volume=100, duck=True, policy="queue", priority=0, start_stopped=False)` / `cancel_sound(sound_id)` | A sound over channels (`self.audio` has every option, section 15) |
@@ -2005,9 +2005,9 @@ microphone?".
 | `audio.tap` | Taps and decoding (section 27) | Listen to what plays |
 | `timeline` | Cues (section 25) | Know when sounds play |
 | `devices`, `devices.<kind>` | Device kinds, and driving other plugins' devices of that kind (section 26) | Add devices (: light) |
-| `attributes`, `attributes.<class>` | Its own values on objects (section 23) | Keep its own values on ... |
+| `attributes`, `attributes.<class>` | Its own values on objects (section 23) | Keep values on ... |
 | `ui` | Adding to the screens (section 24) | Add to the screens |
-| `http` | Its own routes (section 29) | Answer requests at its own address |
+| `http` | Its own routes (section 29) | Answer web requests |
 | `ha.entities` | Home Assistant entities (section 30) | Add entities to Home Assistant |
 | `homeassistant` | Home Assistant's API (section 20) | Use your Home Assistant connection |
 | `mqtt` | Publishing and subscribing (section 19) | Use the MQTT broker |

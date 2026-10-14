@@ -1,5 +1,5 @@
 """
-"Load my phone presets into themes" (core/backups.py): an account's backed-up
+"Load my device presets into themes" (core/backups.py): an account's backed-up
 mixes put into the matching server themes as ordinary, editable presets and
 sequences, named after the phone they came from: "Night mix (Galaxy S25 Ultra)".
 

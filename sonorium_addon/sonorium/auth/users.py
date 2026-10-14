@@ -141,12 +141,12 @@ class UsersAuth:
         user_id = record.get("user_id")
         if user_id is None:
             if self.accounts.require_login:
-                return Reject(401, {"detail": "Link this phone again to sign it in.", "pair": True})
+                return Reject(401, {"detail": "Link this device again to sign it in.", "pair": True})
             principal.perms = P.device_perms(accounts_mod.OPEN_PERMS)
             return principal
         user = self.accounts.user(user_id)
         if user is None or user.get("disabled"):
-            return Reject(401, {"detail": "This phone is not linked to Sonorium. Link it again.", "pair": True})
+            return Reject(401, {"detail": "This device is not linked to Sonorium. Link it again.", "pair": True})
         self.accounts.seen(user_id)
         principal.perms = P.device_perms(accounts_mod.role_perms(user["role"]))
         principal.role = user["role"]
@@ -388,7 +388,7 @@ def create_router(service) -> APIRouter:
                                              client, "Link App sign-in")
         device_id, token = service.add_device(user_id, str(data.get("device_name") or ""),
                                               str(data.get("platform") or ""), str(data.get("model") or ""))
-        logger.info(f"Link App: {data.get('device_name') or 'a phone'} at {client} signed in as {user['username']}")
+        logger.info(f"Link App: {data.get('device_name') or 'a device'} at {client} signed in as {user['username']}")
         return {"device_id": device_id, "token": token, "user": accounts().brief(user_id),
                 "server_id": service.identity.server_id, "words": service.identity.words}
 
@@ -397,14 +397,14 @@ def create_router(service) -> APIRouter:
         """A linked phone: a 6-digit code to sign its user in to the web UI (once, for 5 minutes)."""
         p = p_of(request)
         if p.kind != "device" or not p.user_id:
-            raise HTTPException(403, "Only a phone linked to a user can show a sign-in code")
+            raise HTTPException(403, "Only a device linked to a user can show a sign-in code")
         limited(code_limiter, p.device_id, spend=True)
         try:
             code, expires = accounts().new_signin_code(p.user_id)
         except AuthError as e:
             fail(e)
         username = accounts().user(p.user_id)["username"]
-        logger.info(f"Users: a one-time sign-in code for {username} was shown on a linked phone")
+        logger.info(f"Users: a one-time sign-in code for {username} was shown on a linked device")
         return {"code": code, "expires_in": int(expires - service.clock()), "username": username}
 
     # ------------------------------------------------------------ Users & devices
@@ -515,7 +515,7 @@ def create_router(service) -> APIRouter:
     @router.delete("/users/{user_id}")
     async def remove_user(user_id: str, request: Request):
         if user_id == p_of(request).user_id:
-            raise HTTPException(409, "You can't remove your own account.")
+            raise HTTPException(409, "You can't remove your account.")
         user = accounts().user(user_id)
         try:
             accounts().remove(user_id)

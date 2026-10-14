@@ -4737,7 +4737,7 @@ function teGroupRiseRows(group, n, view = TE_VIEW, locked = false) {
     if (teGroupMode(group) !== 'ebb_flow') return '';
     const rise = group.settings?.rise;
     return teMenuItem('Same Rise for every file', `${view.on.groupRise}(${n})`, {
-            disabled: locked, title: "Off: each file's own Rise", after: `<span class="sw${rise != null ? ' on' : ''}"></span>` })
+            disabled: locked, title: "Off: each file's Rise", after: `<span class="sw${rise != null ? ' on' : ''}"></span>` })
         + (rise != null ? teRiseRow('te-grise', rise, 'How fast every file rises', `${view.on.group}(${n}, 'rise', this.value / 100)`,
             false, view.ovr('groups', group.name, ['rise'])) : '') + TE_MENU_SEP;
 }
@@ -6140,7 +6140,7 @@ const PV_SECTIONS = [
         { name: 'Wait randomness', keys: ['sparse_interval_variance'], unit: '%', usual: [0, 60],
           desc: "How far each wait strays from the Interval's point in the range, either way." },
         { name: "Gap after a group's track", keys: ['group_gap'], unit: 's', usual: [10, 1800],
-          desc: 'Every Intermittent group uses this, unless its own Gap is set.' },
+          desc: 'Every Intermittent group uses this, unless the gap is set.' },
     ] },
     { title: 'Background', rows: [
         { name: 'Loop crossfade', keys: ['loop_crossfade'], unit: 's', usual: [0.5, 5], below: 'a loop may click where it starts over',
@@ -6168,7 +6168,7 @@ const PV_SECTIONS = [
         { name: 'Longest sound', keys: ['sound_max_length'], unit: 's', usual: [5, 600],
           desc: 'Announcements and sounds longer than this are cut. 0 is no limit.' },
         { name: 'Duck amount', keys: ['duck_amount'], unit: 'dB', usual: [6, 30],
-          desc: 'How much quieter a channel gets while a sound plays over it, unless the sound sets its own.' },
+          desc: 'How much quieter a channel gets while a sound plays over it, unless the sound sets it.' },
         { name: 'Duck attack', keys: ['duck_attack'], unit: 's', usual: [0.1, 3],
           desc: 'How long the channel takes to get quieter. The sound starts once it has.' },
         { name: 'Duck release', keys: ['duck_release'], unit: 's', usual: [0.2, 5],
@@ -6212,7 +6212,7 @@ const PV_SECTIONS = [
         { name: 'Streams in all', keys: ['streams_limit'], unit: 'streams', usual: [16, 256],
           desc: 'Audio streams open at the same time. 0 is no limit.' },
         { name: 'Event streams per user', keys: ['event_streams_per_caller'], unit: 'streams', usual: [2, 32],
-          desc: 'Event streams one user, linked phone or key may have open. 0 is no limit.' },
+          desc: 'Event streams one user, linked device or key may have open. 0 is no limit.' },
         { name: 'Sign-in tries per username', keys: ['login_attempts_per_user'], unit: 'a minute', usual: [3, 60],
           desc: 'Wrong passwords a minute for one username, from any address. 0 is no limit.' },
         { name: 'Stream link time', keys: ['stream_link_hours'], unit: 'h', usual: [1, 48],
@@ -10973,7 +10973,7 @@ const PAGE_HELP = {
         ${helpTerm('Search', 'looks in theme names and descriptions.')}
         ${helpTerm('Categories', 'a chip shows only the themes in that category. Favorites shows the themes you starred. The number is how many themes match.')}
         ${helpTerm('Sort', 'by name, or with the most tracks first.')}
-        ${helpTerm('Cards, List', 'two layouts of the same themes. A phone always shows cards.')}
+        ${helpTerm('Cards, List', 'two layouts of the same themes. A small screen always shows cards.')}
         <h4>Each theme</h4>
         ${helpTerm('★', 'adds the theme to Favorites or removes it.')}
         ${helpTerm('Preview', 'plays the theme on this device only. The speakers are not changed. Press it again to stop.')}
@@ -10997,7 +10997,7 @@ const PAGE_HELP = {
         ${helpTerm('Speaker Groups', 'saved sets of speakers for channels.')}
         ${helpTerm('Plugins', 'extras that add features.')}
         ${helpTerm('Logs', 'recent messages from Sonorium.')}
-        ${helpTerm('Users &amp; devices', 'who can sign in, and their phones and browsers. Shown to admins.')}
+        ${helpTerm('Users &amp; devices', 'who can sign in, and their devices and browsers. Shown to admins.')}
         ${helpTerm('Keys', 'keys that let devices and programs use Sonorium. Shown to admins while Keys are on in Advanced.')}
         ${helpTerm('Advanced', 'features you can switch on or off, the values playback uses, and the stream address.')}` },
 
@@ -11030,7 +11030,7 @@ const PAGE_HELP = {
         ${helpTerm('Badges', 'Home Assistant or Sonorium shows where a floor or area comes from. A floor or area with the same name in both becomes one.')}
         ${helpTerm('Speakers', 'how many speakers are in the area.')}
         ${helpTerm('From Home Assistant', 'change these in Home Assistant. They are read-only here.')}
-        <h4>Your own floors and areas</h4>
+        <h4>Your floors and areas</h4>
         <p>On installs that allow it, Add floor and Add area show in the top bar.</p>
         ${helpTerm('Add floor, Add area', 'makes a new one. An area can go on a floor.')}
         ${helpTerm('Area name', 'type a new name for an area you added.')}
@@ -11047,7 +11047,7 @@ const PAGE_HELP = {
         ${helpTerm('Rescan network', 'looks for speakers again. Without network speakers the button is Refresh from HA. The text next to it shows the last scan and how many speakers it found.')}
         <h4>Each speaker</h4>
         ${helpTerm('Dot', 'green when the speaker is online.')}
-        ${helpTerm('Name', 'click to rename. An empty name goes back to the speaker\'s own name.')}
+        ${helpTerm('Name', 'click to rename. An empty name goes back to the speaker\'s name.')}
         ${helpTerm('Area', 'the area the speaker belongs to in Sonorium.')}
         ${helpTerm('Offset', 'plays this speaker louder or quieter than the channel volume, from -20% to +20%.')}
         ${helpTerm('Test', 'plays a short test sound on the speaker.')}
@@ -11109,7 +11109,7 @@ const PAGE_HELP = {
         ${helpTerm('Keys', 'devices and programs can use keys with only the access you check. Off: no key works and Settings › Keys is hidden; the keys are kept for when it is back on.')}
         ${helpTerm('Announcements', 'Home Assistant, MQTT and other systems can play announcements on channels. Off: none plays, and the Announce entities leave Home Assistant.')}
         <h4>Playback values</h4>
-        ${helpTerm('Value', 'used by every theme, unless a track or group sets its own. Saved as you change it; playing channels follow.')}
+        ${helpTerm('Value', 'used by every theme, unless a track or group sets it. Saved as you change it; playing channels follow.')}
         ${helpTerm('Default', 'the value out of the box. The arrow puts it back.')}
         ${helpTerm('Green', 'changed from the default.')}
         ${helpTerm('Amber', 'far outside the usual range. Allowed, but it may not sound right.')}

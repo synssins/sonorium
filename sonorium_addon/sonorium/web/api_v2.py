@@ -920,13 +920,25 @@ def create_api_router(
 
     @router.post("/sessions/{session_id}/next")
     async def skip_session(session_id: str) -> dict:
-        """Next playlist entry now (or, with no playlist, the sequence's next preset)."""
+        """Next playlist entry now (else the sequence's next preset, else the theme's next preset)."""
         session = _session_or_404(session_id)
         if not (session.is_playing or session_manager.is_listened(session)):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The channel is not playing")
         result = await session_manager.skip(session_id)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No playlist or sequence is running")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to go to next")
+        await _sync_mqtt(session)
+        return {"skipped": result, **_playback(session)}
+
+    @router.post("/sessions/{session_id}/previous")
+    async def previous_session(session_id: str) -> dict:
+        """Previous playlist entry now (else the sequence's previous step, else the theme's previous preset)."""
+        session = _session_or_404(session_id)
+        if not (session.is_playing or session_manager.is_listened(session)):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The channel is not playing")
+        result = await session_manager.previous(session_id)
+        if result is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to go back to")
         await _sync_mqtt(session)
         return {"skipped": result, **_playback(session)}
 
