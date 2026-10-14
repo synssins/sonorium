@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.56 (2026-10-14)
+
+### Bug Fixes
+
+- **security**: Exposure fixes for servers reachable from outside the LAN
+  ([`40d2773`](https://github.com/synssins/sonorium/commit/40d277304df6cd3286dc6f4e69e257e524c68e06))
+
+
 ## v1.7.3-dev.52 (2026-10-13)
 
 ### Features
