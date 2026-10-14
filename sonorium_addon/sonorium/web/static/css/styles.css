@@ -3183,6 +3183,8 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .sp-audio { padding: .25rem 1.25rem .375rem; }
 .sp-srow { display: grid; grid-template-columns: 150px minmax(60px, 1fr) 44px 40px 8px; column-gap: .625rem; align-items: center; min-height: 56px; border-bottom: 1px solid rgba(51, 65, 85, .55); }
 #audio-rows .sp-srow:last-child { border-bottom: 0; }
+/* A label is inline: as a block in the row's value cell the switch gets its 40 x 22 px track */
+.sp-sl .toggle-switch { display: block; }
 .sp-shead { min-height: 36px; border-bottom-color: var(--border-color); font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
 .sp-shead .sp-shead-val { grid-column: span 2; }
 .sp-slab { display: flex; align-items: center; gap: .375rem; min-width: 0; font-size: .875rem; font-weight: 500; }
