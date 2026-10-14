@@ -15,6 +15,11 @@ In both, group folders keep their place inside the theme. Folders and files
 a computer adds by itself (__MACOSX/, .DS_Store, Thumbs.db, desktop.ini) are
 left out and don't count as a top folder. A path that would leave the theme
 folder (absolute, a drive, "..") makes the whole zip invalid.
+
+Only a theme's kinds of files are extracted (IMPORT_EXTENSIONS; the rest
+are left out and listed), at most a number of files and bytes unpacked
+(Settings > Advanced import_file_limit, import_unpacked_limit_mb), counted
+as they are copied: a zip's own sizes can lie.
 """
 
 from __future__ import annotations
@@ -98,3 +103,72 @@ def plan_import(names, zip_filename, theme_name: Optional[str] = None) -> tuple[
 
     folder = folder_name(theme_name) or folder_name(_zip_stem(zip_filename)) or DEFAULT_FOLDER
     return folder, [(member, "/".join(parts)) for member, parts in files]
+
+
+# What a theme zip may bring: audio, the theme's JSON files, notes and pictures
+IMPORT_EXTENSIONS = frozenset({".mp3", ".wav", ".flac", ".ogg", ".json", ".txt", ".md",
+                               ".png", ".jpg", ".jpeg", ".webp", ".gif"})
+COPY_CHUNK = 1024 * 1024
+
+
+class ImportLimitError(ValueError):
+    """Over a limit (413) or not importable (400): the message says why."""
+
+    def __init__(self, message: str, status: int = 413):
+        super().__init__(message)
+        self.status = status
+
+
+def _mb(limit: int) -> str:
+    return f"{limit / (1024 * 1024):g} MB"
+
+
+def check_members(zip_file, members, file_limit: Optional[int], unpacked_limit: Optional[int]):
+    """
+    (members kept, paths left out): only IMPORT_EXTENSIONS; ImportLimitError
+    past file_limit files or unpacked_limit bytes as the zip states them
+    (None: no limit).
+    """
+    import posixpath
+    kept, left_out = [], []
+    for member, relative in members:
+        if posixpath.splitext(relative)[1].lower() in IMPORT_EXTENSIONS:
+            kept.append((member, relative))
+        else:
+            left_out.append(relative)
+    if not kept:
+        raise ImportLimitError("The zip holds no theme files", 400)
+    if file_limit is not None and len(kept) > file_limit:
+        raise ImportLimitError(f"Too many files: at most {file_limit}")
+    if unpacked_limit is not None:
+        total = sum(zip_file.getinfo(member).file_size for member, _ in kept)
+        if total > unpacked_limit:
+            raise ImportLimitError(f"Too large unpacked: at most {_mb(unpacked_limit)}")
+    return kept, left_out
+
+
+def extract_members(zip_file, members, target, unpacked_limit: Optional[int]) -> int:
+    """
+    Copy members into the folder `target` in chunks, counting the bytes
+    (ImportLimitError past unpacked_limit); every path stays inside target.
+    The number of files written. The caller removes target on failure.
+    """
+    from pathlib import Path
+    target = Path(target)
+    root = target.resolve()
+    total = 0
+    for member, relative in members:
+        output = target / relative
+        if root not in output.resolve().parents:
+            raise ImportLimitError(f"Invalid path in zip: {member}", 400)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with zip_file.open(member) as src, open(output, "wb") as out:
+            while True:
+                chunk = src.read(COPY_CHUNK)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if unpacked_limit is not None and total > unpacked_limit:
+                    raise ImportLimitError(f"Too large unpacked: at most {_mb(unpacked_limit)}")
+                out.write(chunk)
+    return len(members)

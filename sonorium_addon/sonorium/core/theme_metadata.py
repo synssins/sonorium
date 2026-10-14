@@ -31,6 +31,27 @@ from sonorium.core.theme_presets import (
 from sonorium.obs import logger
 
 
+def _link_part_ok(part: str, folder: bool) -> bool:
+    """One part of a link key: a name, never "..", ".", a drive or a path (a group is a folder name)."""
+    from pathlib import PureWindowsPath
+    if not part or part.strip() in ("", ".", "..") or any(c in part for c in ("\\", "\x00")):
+        return False
+    if PureWindowsPath(part).drive:
+        return False
+    if folder:
+        from sonorium.paths import plain_name
+        return plain_name(part)
+    return True
+
+
+def link_key_ok(key) -> bool:
+    """A linked file's key ("Name" or "Group/Name") or source track key: plain names only, so it never reaches outside a theme."""
+    if not isinstance(key, str) or not key or key.count("/") > 1:
+        return False
+    group, sep, name = key.rpartition("/")
+    return _link_part_ok(name, folder=False) and (not sep or _link_part_ok(group, folder=True))
+
+
 def default_short_file_threshold() -> float:
     """A new theme's short file threshold: Settings > Advanced (15 s out of the box)."""
     try:
@@ -172,8 +193,9 @@ class ThemeMetadata:
         self.links = {
             key: {"theme": link["theme"], "track": link["track"]}
             for key, link in (self.links or {}).items()
-            if isinstance(key, str) and key and key.count("/") <= 1 and isinstance(link, dict)
+            if link_key_ok(key) and isinstance(link, dict)
             and isinstance(link.get("theme"), str) and isinstance(link.get("track"), str)
+            and link_key_ok(link["track"])
         } if isinstance(self.links, dict) else {}
 
         # Convert track dicts to TrackSettings objects

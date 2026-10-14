@@ -71,10 +71,13 @@ ENV PYTHONPATH=/app \
 # /config: settings, channels, plugins. /media/sonorium: themes and audio.
 VOLUME ["/config", "/media/sonorium"]
 # 8008: web UI, API and streams (HTTP). 8808: web UI and API over HTTPS
-# (self-signed certificate; the Sonorium app pins it). SONORIUM_HTTPS_PORT changes it.
+# (self-signed certificate; the Sonorium app pins it). Settings > Advanced > Network's
+# HTTP port and HTTPS port, or SONORIUM__HTTP_PORT / SONORIUM__HTTPS_PORT, change them
+# (then map the new ports).
 EXPOSE 8008 8808
 
+# The HTTP port as set (the setting, the environment, else 8008: runtime.http_port)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
-    CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/' % (os.environ.get('SONORIUM_HTTP_PORT') or 8008), timeout=4)"
+    CMD python -c "import urllib.request; from sonorium import runtime; urllib.request.urlopen('http://127.0.0.1:%s/' % runtime.http_port(), timeout=4)"
 
 ENTRYPOINT ["/entrypoint.sh"]

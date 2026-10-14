@@ -345,6 +345,11 @@ def _caller(request: Request):
     return principal_of(request)
 
 
+# Theme exports being made now (export_limit, sonorium/limits.py)
+from sonorium.limits import Slots as _Slots  # noqa: E402
+EXPORT_SLOTS = _Slots()
+
+
 def create_api_router(
     session_manager,
     group_manager,
@@ -2265,19 +2270,31 @@ def create_api_router(
             # used (no folders, no path tricks); a linked file's name there is
             # taken: " (2)" etc. instead (core/theme_edit.py)
             group = form.get("group") or request.query_params.get("group")
-            content = await file.read()
-            manager = getattr(session_manager, "theme_metadata_manager", None) if session_manager else None
+            # Copied to a temporary file in chunks (at most upload_limit_mb), never held in memory whole
+            import os
+            import tempfile
+            from sonorium import limits
+            fd, temp = tempfile.mkstemp(prefix="sonorium-upload-")
             try:
-                saved = theme_edit.upload(theme_path, file.filename, content, group,
-                                          metadata=_cached_metadata(theme_id, theme_path), manager=manager)
-            except theme_groups.GroupError as e:
-                raise HTTPException(status_code=e.status, detail=str(e))
-            except theme_edit.EditError as e:
-                raise HTTPException(status_code=e.status, detail=str(e))
+                with os.fdopen(fd, "wb") as out:
+                    size = await limits.copy_upload(file, out, limits.size(limits.UPLOAD))
+                manager = getattr(session_manager, "theme_metadata_manager", None) if session_manager else None
+                try:
+                    saved = theme_edit.upload(theme_path, file.filename, temp, group,
+                                              metadata=_cached_metadata(theme_id, theme_path), manager=manager)
+                except theme_groups.GroupError as e:
+                    raise HTTPException(status_code=e.status, detail=str(e))
+                except theme_edit.EditError as e:
+                    raise HTTPException(status_code=e.status, detail=str(e))
+            finally:
+                try:
+                    os.unlink(temp)
+                except OSError:
+                    pass
             filename, group_name = saved["filename"], saved["group"]
 
             where = f" in group '{group_name}'" if group_name else ""
-            logger.info(f"Uploaded file to theme '{theme_id}'{where}: {filename} ({len(content)} bytes)")
+            logger.info(f"Uploaded file to theme '{theme_id}'{where}: {filename} ({size} bytes)")
             # A file that isn't a 44.1 kHz stereo MP3 becomes one in the background (core/theme_mp3.py)
             from sonorium.core import theme_mp3
             theme_mp3.request(theme_path)
@@ -2319,12 +2336,12 @@ def create_api_router(
             if not mp.exists():
                 continue
 
-            # Try exact match first (folder name = theme_id); only a folder
-            # directly inside the audio folder ("..", "." and paths never match)
-            if theme_id not in ("", ".", "..") and "/" not in theme_id and "\\" not in theme_id:
-                exact_path = mp / theme_id
-                if exact_path.is_dir():
-                    return exact_path
+            # Try exact match first (folder name = theme_id), directly inside the audio folder
+            # A plain name only: "..", paths and drives ("C:" on Windows) never match
+            from sonorium.paths import child_folder
+            exact_path = child_folder(mp, theme_id)
+            if exact_path is not None:
+                return exact_path
 
             # Scan folders for UUID match in metadata.json or sanitized name match
             for folder in mp.iterdir():
@@ -2450,11 +2467,17 @@ def create_api_router(
             except OSError:
                 pass
 
+        # At most export_limit exports made at the same time (sonorium/limits.py)
+        from sonorium import limits
+        if not EXPORT_SLOTS.take("exports", limits.count(limits.EXPORTS)):
+            raise HTTPException(status_code=429, detail="Other exports are being made. Try again in a moment.")
         try:
             tmp = await run_in_threadpool(build)
         except Exception as e:
             logger.error(f"Failed to export theme: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            EXPORT_SLOTS.give("exports")
 
         safe_name = "".join(c if c.isalnum() or c in "._- " else "_" for c in theme_path.name)
         filename = f"{safe_name}.zip"
@@ -2539,12 +2562,12 @@ def create_api_router(
             if not filename.lower().endswith('.zip'):
                 raise HTTPException(status_code=400, detail="File must be a .zip archive")
 
-            # Read zip content
-            content = await file.read()
-            zip_buffer = io.BytesIO(content)
+            # Read from the uploaded file where it is (on disk past 1 MB), never whole in memory
+            from sonorium import limits
+            from sonorium.core.theme_import import ImportLimitError, check_members
 
             # Validate and extract
-            with zipfile.ZipFile(zip_buffer, 'r') as zip_file:
+            with zipfile.ZipFile(file.file, 'r') as zip_file:
                 # Get the list of files
                 namelist = zip_file.namelist()
                 if not namelist:
@@ -2557,8 +2580,8 @@ def create_api_router(
                 meta_member = root_metadata_member(namelist)
                 if meta_member is not None:
                     try:
-                        with zip_file.open(meta_member) as src:
-                            name = json.loads(src.read().decode("utf-8-sig")).get("name")
+                        with zip_file.open(meta_member) as src:  # at most request_body_limit_kb of it
+                            name = json.loads(src.read(limits.size(limits.REQUEST_BODY) or -1).decode("utf-8-sig")).get("name")
                         theme_name = name if isinstance(name, str) else None
                     except Exception:
                         pass  # a broken metadata.json is dealt with when the theme loads
@@ -2566,6 +2589,14 @@ def create_api_router(
                     theme_folder_name, members = plan_import(namelist, filename, theme_name)
                 except ZipLayoutError as e:
                     raise HTTPException(status_code=400, detail=str(e))
+                # Only a theme's kinds of files; at most import_file_limit files and
+                # import_unpacked_limit_mb unpacked (sonorium/limits.py)
+                unpacked_limit = limits.size(limits.IMPORT_UNPACKED)
+                try:
+                    members, left_out = check_members(zip_file, members, limits.count(limits.IMPORT_FILES),
+                                                      unpacked_limit)
+                except ImportLimitError as e:
+                    raise HTTPException(status_code=e.status, detail=str(e))
 
                 # The name it gets: metadata.json's, else its folder's. No two
                 # themes share a name (core/theme_names.py): refused, nothing written
@@ -2578,20 +2609,19 @@ def create_api_router(
                 target_path = theme_names.free_folder(audio_path, theme_folder_name)
                 theme_folder_name = target_path.name
 
-                # Extract files
+                # Extract files: copied in chunks, the bytes counted against the limit (a
+                # zip's sizes can lie); on any failure the half-made folder goes
+                from sonorium.core.theme_import import ImportLimitError, extract_members
                 target_path.mkdir(parents=True, exist_ok=True)
-                files_extracted = 0
-                root = target_path.resolve()
-
-                for member, relative_path in members:
-                    output_path = target_path / relative_path
-                    if root not in output_path.resolve().parents:
-                        raise HTTPException(status_code=400, detail=f"Invalid path in zip: {member}")
-                    output_path.parent.mkdir(parents=True, exist_ok=True)
-                    with zip_file.open(member) as src:
-                        output_path.write_bytes(src.read())
-                    files_extracted += 1
-                    logger.debug(f"Extracted: {relative_path}")
+                try:
+                    files_extracted = await asyncio.to_thread(extract_members, zip_file, members, target_path,
+                                                              unpacked_limit)
+                except BaseException as e:
+                    import shutil
+                    shutil.rmtree(target_path, ignore_errors=True)
+                    if isinstance(e, ImportLimitError):
+                        raise HTTPException(status_code=e.status, detail=str(e))
+                    raise
 
                 # Convert 1.0 themes and recover broken JSON files, then give
                 # the imported theme a new UUID to avoid conflicts
@@ -2600,12 +2630,15 @@ def create_api_router(
                 )
                 import uuid
                 problems = []
+                if left_out:
+                    problems.append(f"Left out {len(left_out)} file(s) that aren't theme files: "
+                                    + ", ".join(left_out[:5]) + (" ..." if len(left_out) > 5 else ""))
                 new_id = None
                 try:
                     # Plugin attributes of plugins this Sonorium doesn't have go (logged)
                     drop_unknown_plugin_data(target_path)
                     metadata = load_theme_folder(target_path)
-                    problems = list(metadata.problems)
+                    problems += list(metadata.problems)
                     metadata.id = str(uuid.uuid4())
                     metadata.name = import_name  # trimmed; not the folder's "_1" name
                     if save_theme_folder(target_path, metadata):
@@ -3046,10 +3079,11 @@ def create_api_router(
         tmp_path = None
         try:
             # Save uploaded file to temp location
+            # in chunks, at most upload_limit_mb (sonorium/limits.py)
+            from sonorium import limits
             with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
-                content = await file.read()
-                tmp.write(content)
                 tmp_path = Path(tmp.name)
+                await limits.copy_upload(file, tmp, limits.size(limits.UPLOAD))
 
             # Read and check the whole zip in a folder of its own first: a
             # refused upload leaves the installed plugin as it was

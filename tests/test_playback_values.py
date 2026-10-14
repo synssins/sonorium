@@ -56,6 +56,11 @@ def test_defaults_without_a_store():
         "sound_max_length": 60.0, "duck_amount": 15.0, "duck_attack": 0.5, "duck_release": 1.5,
         "wake_wait": 20.0, "wake_lead": 1.0, "wake_tail": 1.0,
         "plugin_data_limit": 4096.0, "timeline_lookahead": 0.5, "backup_limit_mb": 10240.0,
+        "backup_total_limit_mb": 51200.0, "backup_free_space_mb": 1024.0,
+        "auth_body_limit_kb": 16.0, "request_body_limit_kb": 1024.0, "upload_limit_mb": 2048.0,
+        "import_unpacked_limit_mb": 8192.0, "import_file_limit": 5000.0, "export_limit": 2.0,
+        "streams_per_address": 16.0, "streams_limit": 64.0, "event_streams_per_caller": 8.0,
+        "login_attempts_per_user": 10.0, "stream_link_hours": 12.0, "lan_streams_open": 1.0,
     }
     # the old constants are the defaults
     r = m.recording

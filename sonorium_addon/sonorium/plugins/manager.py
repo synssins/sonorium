@@ -180,6 +180,11 @@ class PluginManager:
 
             # Get plugin settings from state
             plugin_id = manifest.get("id", plugin_dir.name)
+            from sonorium.plugins.loader import is_valid_plugin_id
+            if not is_valid_plugin_id(plugin_id):
+                logger.error(f"Plugin in {plugin_dir.name}: the id '{plugin_id}' can't be used (letters, digits, "
+                             f"_ and -; users and keys are reserved): not loaded")
+                return None
             settings = self.state_store.settings.plugin_settings.get(plugin_id, {})
 
             # Can it run here? Decided before any of its code is loaded
@@ -267,7 +272,10 @@ class PluginManager:
             # Call on_load hook
             await plugin.on_load()
 
-            # Store plugin
+            # Store plugin (a class's own id is checked like a manifest's)
+            if not is_valid_plugin_id(plugin.id):
+                logger.error(f"Plugin in {plugin_dir.name}: the id '{plugin.id}' can't be used: not loaded")
+                return None
             self.plugins[plugin.id] = plugin
             logger.debug(f"Loaded plugin: {plugin.name} ({plugin.id})")
 

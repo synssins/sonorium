@@ -66,10 +66,62 @@ def _allowed(request: Request, ability: str) -> bool:
     return principal.kind in ("key", "device", "session", "ingress") and principal.can(ability)
 
 
+# What a caller needs to see an event, by the start of its type (the rest: "Read events" alone)
+EVENT_ABILITIES = {
+    "channel.": "ch.view", "sequence.": "ch.view", "sound.": "ch.view", "ramp.": "ch.view", "zone.": "ch.view",
+    "link.": "ch.view", "playlist.": "pl.view", "theme.": "th.view", "attribute.": "th.view",
+    "speaker.": "sp.view", "device.": "sp.view", "group.": "sp.view", "spaces.": "sp.view", "settings.": "st.view",
+}
+
+
+def event_visible(principal, event) -> bool:
+    """
+    The caller may see this event: the ability its type needs (EVENT_ABILITIES),
+    and a key for some channels sees only those channels' events. None (the
+    old events token, made by an admin): every event.
+    """
+    if principal is None:
+        return True
+    for prefix, ability in EVENT_ABILITIES.items():
+        if event.type.startswith(prefix):
+            if not principal.can(ability):
+                return False
+            break
+    channel = (event.data or {}).get("channel_id") if isinstance(event.data, dict) else None
+    if channel is not None and getattr(principal, "channels", None) is not None:
+        return principal.can_channel(channel)
+    return True
+
+
+def event_caller_key(request: Request) -> str:
+    """Who holds an event stream, for event_streams_per_caller: the account, phone or key, else the address."""
+    from sonorium.auth.middleware import principal_of
+    p = principal_of(request)
+    for kind, value in (("user", p.user_id), ("device", p.device_id), ("key", getattr(p, "key_id", None))):
+        if value:
+            return f"{kind}:{value}"
+    return "address:" + (request.client.host if request.client else "")
+
+
+EVENT_SLOTS = None  # limits.Slots, made with the first router
+
+
 def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["plugin-framework"])
     install_log_redaction()
     streams = {"open": 0}
+    from sonorium import limits
+    global EVENT_SLOTS
+    if EVENT_SLOTS is None:
+        EVENT_SLOTS = limits.Slots()
+    slots = EVENT_SLOTS
+
+    def take_stream_slot(request: Request) -> str:
+        """One more event stream for this caller (event_streams_per_caller), else 429."""
+        key = event_caller_key(request)
+        if not slots.take(key, limits.count(limits.EVENT_STREAMS)):
+            raise HTTPException(status_code=429, detail="Too many event streams are open. Close one and try again.")
+        return key
 
     def _host():
         if host is None or plugin_manager is None:
@@ -93,13 +145,9 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         return value
 
     async def _json(request: Request) -> dict:
-        try:
-            data = await request.json()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid JSON body")
-        if not isinstance(data, dict):
-            raise HTTPException(status_code=400, detail="Expected a JSON object")
-        return data
+        """The request's JSON object, at most request_body_limit_kb (sonorium/limits.py; 413 beyond)."""
+        from sonorium import limits
+        return await limits.read_json_object(request)
 
     async def _call_plugin(plugin, what: str, coro, timeout: float):
         """Run a plugin method; its failure is a 502 (and an error event), never a crash."""
@@ -151,21 +199,27 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         """
         bus = _host().bus
         # A key with "Read events", a linked phone or a signed-in user; or the old events token
-        if not _allowed(request, "ev.read") and not host.tokens.check(EVENTS_SCOPE, token_from_request(request)):
+        signed_in = _allowed(request, "ev.read")
+        if not signed_in and not host.tokens.check(EVENTS_SCOPE, token_from_request(request)):
             raise HTTPException(status_code=401, detail="A valid token is needed",
                                 headers={"WWW-Authenticate": "Bearer"})
+        from sonorium.auth.middleware import principal_of
+        viewer = principal_of(request) if signed_in else None  # events filtered by what it may see
         try:
             patterns = [ev.check_pattern(p) for p in types.split(",") if p.strip()] or ["*"]
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         if streams["open"] >= MAX_STREAMS:
             raise HTTPException(status_code=503, detail="Too many event streams open")
+        slot = take_stream_slot(request)
         last = request.headers.get("last-event-id") or request.query_params.get("last_event_id") or ""
         last_id = ev.replay_after(last)  # "<boot_id>:<n>"; another run's id replays all of this one
 
         queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 
         async def collect(event):
+            if not event_visible(viewer, event):
+                return
             if queue.full():
                 queue.get_nowait()  # a stalled reader loses the oldest
             queue.put_nowait(event)
@@ -185,6 +239,8 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
                 yield "retry: 5000\n\n"
                 if last_id is not None:
                     for event in bus.history(last_id, patterns, audience=audience):
+                        if not event_visible(viewer, event):
+                            continue
                         yield frame(event)
                         newest, sent = event.id, sent + 1
                         if max_events and sent >= max_events:
@@ -204,6 +260,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
             finally:
                 bus.unsubscribe(sub)
                 streams["open"] -= 1
+                slots.give(slot)
 
         return StreamingResponse(generate(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -244,6 +301,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         timeline = _timeline_reader(request)
         if streams["open"] >= MAX_STREAMS:
             raise HTTPException(status_code=503, detail="Too many event streams open")
+        slot = take_stream_slot(request)
         queue: asyncio.Queue = asyncio.Queue(maxsize=2000)
 
         async def collect(event):
@@ -274,6 +332,7 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
             finally:
                 sub.close()
                 streams["open"] -= 1
+                slots.give(slot)
 
         return StreamingResponse(generate(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -687,17 +746,23 @@ def _add_plugin_http_routes(router, _host, _plugin, _call_plugin) -> None:
         if found is None:
             raise HTTPException(status_code=404, detail="Not Found")
         route, params = found
-        body = await request.body()
-        if len(body) > LIMITS["body_max_bytes"]:
-            raise HTTPException(status_code=413, detail="Too large")
+        # The sign-in checked the route's ability; checked again here, so a path the
+        # sign-in's table didn't match can never reach a route it would have refused
+        from sonorium.auth.middleware import principal_of
+        caller = principal_of(request)
+        from sonorium.auth.permissions import RoutePermission
+        if not RoutePermission(route["ability"]).allows(caller.perms):
+            if caller.kind in ("anonymous", "open"):
+                raise HTTPException(status_code=401, detail="Sign in first")
+            raise HTTPException(status_code=403, detail="Not allowed")
+        from sonorium import limits
+        body = await limits.read_body(request, LIMITS["body_max_bytes"])
         data = None
         if body and "json" in (request.headers.get("content-type") or ""):
             try:
                 data = json.loads(body)
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid JSON body")
-        from sonorium.auth.middleware import principal_of
-        caller = principal_of(request)
         info = {"method": request.method, "path": path, "params": params, "query": dict(request.query_params),
                 "json": data, "body": body,
                 "caller": {"kind": caller.kind, "user_id": getattr(caller, "user_id", None),

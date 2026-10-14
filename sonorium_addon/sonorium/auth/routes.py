@@ -49,13 +49,12 @@ def client_of(request: Request) -> str:
 
 
 async def json_body(request: Request) -> dict:
-    try:
-        data = await request.json()
-    except Exception:
-        raise HTTPException(400, "Invalid JSON body")
-    if not isinstance(data, dict):
-        raise HTTPException(400, "Expected a JSON object")
-    return data
+    """
+    The request's JSON object, at most auth_body_limit_kb read (413 beyond):
+    sign-in routes are open to anyone, so a body is never read without a limit.
+    """
+    from sonorium import limits
+    return await limits.read_json_object(request, limits.size(limits.AUTH_BODY))
 
 
 def limited(limiter: RateLimiter, key: str, spend: bool) -> None:
@@ -67,6 +66,40 @@ def limited(limiter: RateLimiter, key: str, spend: bool) -> None:
     if blocked:
         raise HTTPException(429, "Too many attempts. Try again in a minute.",
                             headers={"Retry-After": str(int(wait) + 1)})
+
+
+def public_address(url: str) -> Optional[dict]:
+    """
+    A configured address clients reach Sonorium at from anywhere (a reverse
+    proxy's, e.g. https://demo.example): {"url", "scheme", "host", "port"}.
+    None for "auto", nothing, or a LAN address (a private IP or a .local
+    name over http), which works as before.
+    """
+    import ipaddress
+    text = (url or "").strip()
+    if not text or text.lower() == "auto":
+        return None
+    parts = urlsplit(text)
+    if parts.scheme not in ("http", "https") or not parts.hostname:
+        return None
+    host = parts.hostname
+    if parts.scheme == "http":
+        if host.endswith(".local") or host == "localhost":
+            return None
+        try:
+            ip = ipaddress.ip_address(host)
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                return None
+        except ValueError:
+            pass
+    try:
+        port = parts.port or (443 if parts.scheme == "https" else 80)
+    except ValueError:
+        return None
+    shown = f"[{host}]" if ":" in host else host
+    default = 443 if parts.scheme == "https" else 80
+    origin = f"{parts.scheme}://{shown}" + ("" if port == default else f":{port}")
+    return {"url": origin, "scheme": parts.scheme, "host": host, "port": port}
 
 
 def capabilities(service: AuthService, features: dict, *, plugins: bool) -> list[str]:
@@ -97,16 +130,45 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
                             features: Callable[[], dict], version: str,
                             https_host_port: Callable[[], int],
                             mdns_host: Callable[[], Optional[str]] = lambda: None,
-                            plugins_available: Callable[[], bool] = lambda: False) -> APIRouter:
+                            plugins_available: Callable[[], bool] = lambda: False,
+                            public_url: Callable[[], Optional[str]] = lambda: None,
+                            https_listen_port: Callable[[], int] = lambda: 0) -> APIRouter:
+    """
+    public_url: the Stream URL as configured (SONORIUM__STREAM_URL or the
+    setting; None for "auto"). When it is a public address (public_address),
+    /api/info and Link App codes give that address, not the server's own.
+    """
     router = APIRouter(tags=["auth"])
     pair_limiter = RateLimiter(PAIR_RATE, PAIR_BURST)
 
+    def public() -> Optional[dict]:
+        try:
+            return public_address(public_url() or "")
+        except Exception:
+            return None
+
     def link_address() -> tuple[str, int]:
+        """(host, HTTP port) clients are given: the public address's, else the stream URL's."""
+        pub = public()
+        if pub is not None:
+            return pub["host"], pub["port"] if pub["scheme"] == "http" else runtime.stream_port()
         url = urlsplit(stream_url() or "")
         return url.hostname or "", url.port or (443 if url.scheme == "https" else runtime.stream_port())
 
     def https_port() -> int:
+        """The HTTPS port clients are given: the public address's (https), else the server's as the LAN sees it."""
+        pub = public()
+        if pub is not None and pub["scheme"] == "https":
+            return pub["port"]
         return https_host_port() if service.identity.tls_ready else 0
+
+    def base_url(host: str, http: int) -> str:
+        """The one address to reach the API at: the public one, else the server's HTTPS (or HTTP) address."""
+        pub = public()
+        if pub is not None:
+            return pub["url"]
+        shown = f"[{host}]" if ":" in host else host
+        return f"https://{shown}:{https_port()}" if https_port() else f"http://{shown}:{http}"
 
     def login_required() -> bool:
         return service.login_required()
@@ -134,6 +196,10 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
             "install": runtime.INSTALL, "features": feats,
             "capabilities": capabilities(service, feats, plugins=bool(plugins_available())),
             "ports": {"http": http, "https": https_port() or None}, "host": host, "hostname": mdns_host() or None,
+            # The address to use (a reverse proxy's when one is set up), and the ports Sonorium itself listens on
+            "url": base_url(host, http), "public_url": (public() or {}).get("url"),
+            "internal_ports": {"http": runtime.http_port(), "https": (https_listen_port() or None)
+                               if service.identity.tls_ready else None},
             "login_required": login_required(), "pair": True, "fingerprint": identity.fingerprint,
             "plugins": service.plugin_ids(),  # "users" kept for released apps; use "accounts"
             "accounts": service.accounts_loaded,  # user accounts: sign in with a username and password
@@ -198,14 +264,18 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
         identity = service.identity
         code, expires = service.new_pair_code(p.user_id if user else None)
         host, http = link_address()
-        hosts = await asyncio.to_thread(link_hosts, host)
+        pub = public()
+        # Behind a reverse proxy: only its address (the server's own don't reach the phone)
+        hosts = [host] if pub is not None else await asyncio.to_thread(link_hosts, host)
         uri = pair_uri(server_id=identity.server_id, name="Sonorium", hosts=hosts,
                        http_port=http, https_port=https_port(), fingerprint=identity.fingerprint or "",
-                       code=code, username=user["username"] if user else None)
+                       code=code, username=user["username"] if user else None,
+                       url=pub["url"] if pub is not None else None)
         logger.info(f"Link App: a code{' for ' + user['username'] if user else ''} (works once, for 5 minutes)")
         return {"uri": uri, "qr_svg": qr_svg(uri), "code": code, "username": user["username"] if user else None,
                 "expires_in": int(expires - service.clock()), "words": identity.words,
                 "host": host, "hosts": hosts, "http_port": http, "https_port": https_port() or None,
+                "url": base_url(host, http), "public_url": pub["url"] if pub is not None else None,
                 "link_id": service.pair_link_of(code)}
 
     @router.get("/api/link/{link_id}")

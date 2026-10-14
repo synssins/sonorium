@@ -165,6 +165,21 @@ def create_router(service) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["users"])
     login_limiter = RateLimiter(LOGIN_RATE, LOGIN_BURST)
     code_limiter = RateLimiter(CODE_RATE, CODE_BURST)
+    # Failed sign-ins for one username from any address (Settings > Advanced; 0: no limit),
+    # next to the limit per address: many addresses can't guess one account's password
+    from sonorium import limits as limits_mod
+    user_limiter = RateLimiter(lambda: limits_mod.value(limits_mod.LOGIN_PER_USER) / 60,
+                               lambda: limits_mod.value(limits_mod.LOGIN_PER_USER))
+
+    def user_key(username: str) -> Optional[str]:
+        """The per-username bucket ("" and no limit: none)."""
+        name = (username or "").strip().casefold()[:64]
+        return "user:" + name if name and limits_mod.value(limits_mod.LOGIN_PER_USER) > 0 else None
+
+    def user_limited(username: str) -> None:
+        key = user_key(username)
+        if key is not None:
+            limited(user_limiter, key, spend=False)
 
     def accounts() -> Accounts:
         current = service.plugin_state.get(PLUGIN_ID)
@@ -199,6 +214,9 @@ def create_router(service) -> APIRouter:
 
     def wrong(username: str, client: str, what: str):
         login_limiter.allow(client)
+        key = user_key(username)
+        if key is not None:
+            user_limiter.allow(key)
         logger.warning(f"{what} failed for '{username[:40]}' from {client}")
         raise HTTPException(401, "Wrong username or password.")
 
@@ -224,6 +242,7 @@ def create_router(service) -> APIRouter:
 
     async def check_password(username: str, password: str, client: str, what: str):
         limited(login_limiter, client, spend=False)
+        user_limited(username)
         a = accounts()
         if a.ha is not None:  # add-on: Home Assistant's users first
             await a.ha.refresh()
@@ -247,6 +266,30 @@ def create_router(service) -> APIRouter:
             raise HTTPException(400, problem)
         return await asyncio.to_thread(passwords.hash_password, data["password"])
 
+    def setup_allowed(request: Request, data: dict, client: str) -> None:
+        """
+        The first account is made from this computer or the LAN, or with the
+        setup token (SONORIUM_SETUP_TOKEN, in "setup_token" or the
+        X-Sonorium-Setup-Token header) when one is set: a server reachable from
+        the internet isn't taken over by whoever finds it first.
+        """
+        import hmac
+        import os
+        from sonorium.auth.stream_links import on_lan
+        expected = (os.environ.get("SONORIUM_SETUP_TOKEN") or "").strip()
+        given = str(data.get("setup_token") or request.headers.get("x-sonorium-setup-token") or "").strip()
+        if expected and given:
+            if hmac.compare_digest(given.encode(), expected.encode()):
+                return
+            login_limiter.allow(client)
+            logger.warning(f"Users: a wrong setup token from {client}")
+            raise HTTPException(403, "The setup token is wrong.")
+        if on_lan(client):
+            return
+        logger.warning(f"Users: the first account can't be made from {client} (not on the LAN)")
+        raise HTTPException(403, "Make the first account from this computer or the LAN"
+                                 + (", or with the setup token." if expected else "."))
+
     # ------------------------------------------------------------ sign-in
 
     @router.post("/auth/setup")
@@ -260,6 +303,7 @@ def create_router(service) -> APIRouter:
             raise HTTPException(409, "Sign in with your Home Assistant username and password.")
         if accounts().has_users():
             raise HTTPException(409, "There is already an admin account. Sign in.")
+        setup_allowed(request, data, client)
         hashed = await new_hash(data)
         try:
             user_id = accounts().add(str(data.get("username") or ""), hashed, "admin")
@@ -294,9 +338,13 @@ def create_router(service) -> APIRouter:
         data = await json_body(request)
         client = client_of(request)
         limited(login_limiter, client, spend=False)
+        user_limited(str(data.get("username") or ""))
         user_id = accounts().use_signin_code(str(data.get("username") or ""), str(data.get("code") or ""))
         if user_id is None:
             login_limiter.allow(client)
+            key = user_key(str(data.get("username") or ""))
+            if key is not None:
+                user_limiter.allow(key)
             logger.warning(f"Sign-in with a one-time code failed for '{str(data.get('username'))[:40]}' from {client}")
             raise HTTPException(401, "That code didn't work.")
         logger.info(f"Users: {accounts().user(user_id)['username']} signed in with a one-time code from {client}")

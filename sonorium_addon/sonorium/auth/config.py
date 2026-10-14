@@ -4,8 +4,11 @@ Switches read from the environment each time they're used (so tests can change t
     BYPASS_LOGIN=true                    Docker: no sign-in in the web UI (recovery)
     SONORIUM__BYPASS_LOGIN               the add-on option bypass_login (run.sh / options.json)
     SONORIUM__WEB_UI_ONLY_THROUGH_HA     add-on option web_ui_only_through_ha
-    SONORIUM_HTTP_PORT                   the HTTP port (default 8008; the add-on 8080)
-    SONORIUM_HTTPS_PORT                  the HTTPS port (default 8808; always on)
+    SONORIUM_HTTP_PORT                   the HTTP port (default 8008; the add-on 8080); also SONORIUM__HTTP_PORT
+    SONORIUM_HTTPS_PORT                  the HTTPS port (default 8808; always on); also SONORIUM__HTTPS_PORT
+                                         (Docker, Linux: the ports in Settings > Advanced > Network win)
+    SONORIUM__TRUSTED_PROXIES            reverse proxies whose X-Forwarded-For is believed (auth/proxies.py)
+    SONORIUM_SETUP_TOKEN                 when set, the first admin account needs it (auth/users.py)
     SONORIUM_CONFIG_DIR                  Sonorium's config folder (default /config/sonorium)
 """
 import os
@@ -55,8 +58,12 @@ def _port(name: str, default: int) -> int:
 
 
 def https_port() -> int:
-    """The port the HTTPS listener binds to inside the container (always on)."""
-    return _port("SONORIUM_HTTPS_PORT", DEFAULT_HTTPS_PORT) or DEFAULT_HTTPS_PORT
+    """
+    The port the HTTPS listener binds to inside the container (always on):
+    Settings > Advanced > Network's HTTPS port, else SONORIUM_HTTPS_PORT
+    (or SONORIUM__HTTPS_PORT), else 8808 (runtime.configured_port).
+    """
+    return runtime.configured_port("https_port") or DEFAULT_HTTPS_PORT
 
 
 def ingress_port() -> int:

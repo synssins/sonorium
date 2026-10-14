@@ -309,7 +309,8 @@ def make_helper(folder: Path) -> Path:
 
 
 ENV_SET_BY_RUNTIME = ("SONORIUM__HA_CORE_API", "SUPERVISOR_TOKEN", "SONORIUM__MQTT_HOST", "SONORIUM__MQTT_PORT",
-                      "SONORIUM__MQTT_USERNAME", "SONORIUM__MQTT_PASSWORD", "SONORIUM__STREAM_URL")
+                      "SONORIUM__MQTT_USERNAME", "SONORIUM__MQTT_PASSWORD", "SONORIUM__STREAM_URL",
+                      "SONORIUM__TRUSTED_PROXIES")
 
 
 @pytest.fixture

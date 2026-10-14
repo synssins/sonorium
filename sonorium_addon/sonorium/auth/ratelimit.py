@@ -6,14 +6,34 @@ from typing import Callable
 
 
 class RateLimiter:
-    """Token buckets by key: allow() spends one; refills at `rate` a second up to `burst`."""
+    """
+    Token buckets by key: allow() spends one; refills at `rate` a second up to
+    `burst`. Either may be a function, read each time (a Settings > Advanced value).
+    """
 
-    def __init__(self, rate: float, burst: int, clock: Callable[[], float] = time.monotonic, max_keys: int = 4096):
-        self.rate = rate
-        self.burst = burst
+    def __init__(self, rate, burst, clock: Callable[[], float] = time.monotonic, max_keys: int = 4096):
+        self._rate = rate
+        self._burst = burst
         self.clock = clock
         self.max_keys = max_keys
         self._buckets: dict[str, tuple[float, float]] = {}
+
+    @property
+    def rate(self) -> float:
+        rate = self._rate() if callable(self._rate) else self._rate
+        return max(float(rate), 1e-9)
+
+    @rate.setter
+    def rate(self, value) -> None:
+        self._rate = value
+
+    @property
+    def burst(self) -> float:
+        return float(self._burst() if callable(self._burst) else self._burst)
+
+    @burst.setter
+    def burst(self, value) -> None:
+        self._burst = value
 
     def _level(self, key: str) -> tuple[float, float]:
         now = self.clock()

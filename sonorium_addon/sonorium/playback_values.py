@@ -51,6 +51,21 @@ DEFAULTS: dict[str, float] = {
     "timeline_lookahead": 0.5,
     # Theme backups from the app: space per account, MB (0: no limit; core/backups.py)
     "backup_limit_mb": 10240.0,
+    "backup_total_limit_mb": 51200.0,   # ... every account together
+    "backup_free_space_mb": 1024.0,     # ... and this much disk always left free
+    # Limits (sonorium/limits.py; 0: no limit)
+    "auth_body_limit_kb": 16.0,         # a sign-in, Link App or pairing request
+    "request_body_limit_kb": 1024.0,    # any other request
+    "upload_limit_mb": 2048.0,          # one upload: an audio file, a theme or plugin zip, a backup file
+    "import_unpacked_limit_mb": 8192.0, # a theme zip's files, unpacked
+    "import_file_limit": 5000.0,        # files in one theme zip
+    "export_limit": 2.0,                # theme exports made at the same time
+    "streams_per_address": 16.0,        # audio streams one address may have open
+    "streams_limit": 64.0,              # audio streams open in all
+    "event_streams_per_caller": 8.0,    # event streams one caller may have open
+    "login_attempts_per_user": 10.0,    # failed sign-ins a minute for one username, from anywhere
+    "stream_link_hours": 12.0,          # how long a stream address handed to a speaker works
+    "lan_streams_open": 1.0,            # 1: LAN speakers play streams without a stream link; 0: every stream needs one
 }
 
 # (min key, max key): the min may not be above the max

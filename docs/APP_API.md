@@ -90,6 +90,7 @@ https://sonorium.app/link#v=1&id=00000000-0000-4000-8000-000000000001&n=Sonorium
 | `fp` | yes | SHA-256 of the server certificate's DER bytes, 64 lowercase hex chars | Pin it (section 2.1) |
 | `c` | yes | One-time code, 8 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. Works once, for 5 minutes; **New code** replaces it | Send it to `POST /api/pair` |
 | `u` | no | Username of whoever was signed in when the code was made; the phone will act as that user | Show "Linking as *u*" |
+| `url` | no | The server's public address (e.g. `https://demo.example`), when it is behind a reverse proxy and its Stream URL is set to that address. `h` then holds only that host, `s` its port (https) | Connect to `url` and only `url`. The proxy shows its own certificate, so check it the normal way (the system's CAs and the host name) instead of pinning `fp` |
 
 Parsing rules:
 
@@ -308,6 +309,9 @@ not built (AUTH.md).
   },
   "ports": {"http": 8008, "https": 8808},
   "host": "192.0.2.25",
+  "url": "https://192.0.2.25:8808",
+  "public_url": null,
+  "internal_ports": {"http": 8008, "https": 8808},
   "hostname": "sonorium-2.local",
   "login_required": true,
   "pair": true,
@@ -330,7 +334,10 @@ not built (AUTH.md).
 | `features.<name>` | `{available, enabled, overridable, switchable, default, live}` | `available`: offered on this install; `enabled`: running now; `overridable`: shown in Settings › Advanced; `switchable`: `PUT /api/install/features` may change it; `default`: on out of the box; `live`: a change applies at once (otherwise after a restart). `network_speakers.enabled` false: hide manual speakers and network scans. `space_editing.enabled` false: floors and areas are read-only (HA owns them). `connection_settings`: hidden on the add-on. `keys.enabled` false: keys are refused (401) and `/api/keys` answers 404; hide key controls. `announcements.enabled` false: `POST /api/announce` answers 409; hide announce controls. A feature missing from the list (an older server): treat it as on. |
 | `ports.http` | int | The HTTP port speakers use (from the stream URL). Stream URLs use it. |
 | `ports.https` | int or null | The HTTPS port as the LAN sees it. `null`: HTTPS is off (no certificate, or the add-on mapping is off); the app can't link. |
-| `host` | string | The address speakers use (the stream URL's host). Add it to the stored addresses. |
+| `host` | string | The address speakers use (the stream URL's host). Add it to the stored addresses. Behind a reverse proxy: the public host. |
+| `url` | string | The one address to reach the API at: `public_url` when set, else `https://<host>:<ports.https>` (`http://<host>:<ports.http>` when HTTPS is off). Don't assume 8808: use this. |
+| `public_url` | string or null | The server's public address (scheme, host and port; no path) when it is behind a reverse proxy: the Stream URL set by hand (Settings › Advanced › Network, or `SONORIUM__STREAM_URL`) to an `https` address, or to an `http` one that isn't a LAN address or `.local` name. `ports` then follow it: `ports.https` is its port (https), `ports.http` its port (http) or the server's own HTTP port. Null: no proxy; everything as before. With it, connect only to it and check its certificate normally (no pin: section 1.1 `url`). |
+| `internal_ports` | `{http, https}` | The ports Sonorium itself listens on (inside a container: before any mapping). For information; connect to `url`. `https` null when HTTPS is off. |
 | `hostname` | string or null | The mDNS name (`sonorium.local`, `sonorium-2.local`, ...); null on the add-on or when not announced. Store it as a fallback address. |
 | `login_required` | bool | True when **Require login** is on (and the recovery bypass is off). Informational: the app always links and always sends its token. |
 | `pair` | bool | Always `true`: the server supports linking. |
@@ -1376,6 +1383,16 @@ When SSE can't be used (battery saver, widget refresh):
 
 - `base` is the direct HTTP address speakers use (Settings › Connection's
   stream URL, or the detected one). Never an ingress URL, in every install.
+- **Stream links.** While Require login is on, a stream (`/stream/...`) plays
+  for a signed-in caller (cookie, `Authorization: Bearer`, or `?token=`), for
+  a caller on the LAN (a private or loopback address; Settings › Advanced ›
+  Limits › LAN speakers without a link, on by default), or with a stream
+  link: `?t=<expiry>.<signature>`, which the server adds to the addresses it
+  hands out that aren't on the LAN (`channels` here, `stream_url` of 9.5, the
+  personal channel's `listen_path`). A link works for Stream link time
+  (12 h by default) for that path only; play the URL as given, query
+  included. Anyone else gets 401 `{"login": true}`. Open streams are limited
+  per address and in all (429). `/stream/virtual/...` is its own secret.
 - `channels` maps **session id → URL**. Only URLs of the form
   `/stream/channel{N}` are live channel streams. A session without a slot is
   listed with a legacy `/stream/<theme id>` URL: **ignore those**; they play
@@ -1744,10 +1761,19 @@ Exceptions to watch:
 | `POST /api/pair/login` (and browser sign-ins) | 5 failures, then 1 per 12 s; successes don't count | client IP | 429, `Retry-After` |
 | `POST /api/devices/recovery-code` | burst 3, then 1 per minute | phone | 429, `Retry-After` |
 | `POST /api/themes/{id}/render` | burst 3, then 1 per 20 s; one render at a time on the server | user, phone or key, else client IP | 429, `Retry-After` |
-| `GET /api/events/stream` | 20 open streams per server | | 503 |
+| `GET /api/events/stream`, `GET /api/timeline/stream` | 20 open streams per server; Event streams per user (8) per user, phone or key | | 503; 429 |
+| Failed sign-ins (`/api/auth/login`, `/api/pair/login`, `/api/auth/code-login`) | also Sign-in tries per username (10 a minute), from any address | username | 429, `Retry-After` |
+| `GET /stream/...` | Streams per address (16), Streams in all (64) | client IP | 429 |
+| `GET /api/themes/{id}/export` | Exports at once (2) | | 429 |
+| Request bodies | Sign-in request size (16 KB) for `/api/auth/*`, `/api/pair`, `/api/link`; Request size (1 MB) for the rest; Upload size (2048 MB) for uploads, theme and plugin zips and backup files | | 413 |
 | Everything else | none | | |
 
-Limits are in memory and reset when the server restarts.
+The limits in brackets are defaults: Settings › Advanced › Limits (`GET/PUT
+/api/settings/playback-values`; 0 is no limit). Limits are in memory and
+reset when the server restarts. Behind a reverse proxy the client IP is the
+proxy's unless it is listed in Trusted proxies (Settings › Advanced ›
+Network, or `SONORIUM__TRUSTED_PROXIES`): then it is the caller's, from
+`X-Forwarded-For`, and `X-Forwarded-Proto` tells HTTP from HTTPS.
 
 ### 11.3 Versioning and compatibility
 

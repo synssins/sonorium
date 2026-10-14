@@ -159,6 +159,7 @@ def add_personal_routes(router, *, session_manager, to_response) -> None:
         port). Optional {"hold_seconds": 0-300} (or ?hold_seconds=): how long
         this device counts after its stream closed (default 15).
         """
+        from sonorium.auth import stream_links
         from sonorium.web.app_routes import hold_seconds_of
         principal, account = caller(request)
         hold = await hold_seconds_of(request)
@@ -176,7 +177,8 @@ def add_personal_routes(router, *, session_manager, to_response) -> None:
         logger.debug(f"Personal channel {session.id}: {device.split(':', 1)[0]} listens")
         return {"session_id": session.id, "personal": True, "channel_id": channel.id,
                 "stream_path": channel.stream_path,
-                "listen_path": f"{channel.stream_path}?local=1&listener={tag}",
+                # with a stream link while Require login is on (auth/stream_links.py)
+                "listen_path": stream_links.signed(f"{channel.stream_path}?local=1&listener={tag}"),
                 "hold_seconds": listeners[device]["hold"], "devices": len(listeners)}
 
     @router.delete("/me/channel/listen")

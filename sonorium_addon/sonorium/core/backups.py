@@ -29,7 +29,9 @@ Rules:
   until the account deletes them; removing the account deletes them all.
 - Space: Settings > Advanced "backup_limit_mb" per account (0 = no limit).
   Answers carry "storage" with a warning from 90 %; a backup that would go
-  over the limit is refused (507), nothing over it is ever kept.
+  over the limit is refused (507), nothing over it is ever kept. Also
+  "backup_total_limit_mb" for every account together, and
+  "backup_free_space_mb" left free on the disk (0 = none for either).
 
 On disk (<config>/backups), every folder named by a hash, so no name from a
 request ever reaches a path:
@@ -59,6 +61,8 @@ ACCOUNT_FILE = "account.json"
 DEVICE_FILE = "device.json"
 PLAYLISTS_FILE = "playlists.json"
 LIMIT_SETTING = "backup_limit_mb"
+TOTAL_LIMIT_SETTING = "backup_total_limit_mb"
+FREE_SPACE_SETTING = "backup_free_space_mb"
 WARN_SHARE = 0.9
 
 # What one request may carry (whole-theme files come one by one, by byte range)
@@ -292,9 +296,11 @@ def content_hash(files: list[dict]) -> str:
 class BackupStore:
     """Every account's backups under one folder. Thread-safe per account."""
 
-    def __init__(self, root: Path, limit_mb=None):
+    def __init__(self, root: Path, limit_mb=None, total_mb=None, free_mb=None):
         self.root = Path(root)
         self._limit_mb = limit_mb  # a function giving Settings > Advanced's value (MB, 0 = none)
+        self._total_mb = total_mb  # ... every account together
+        self._free_mb = free_mb    # ... left free on the disk
         self._locks: dict[str, threading.RLock] = {}
         self._locks_lock = threading.Lock()
         self._writing: set[str] = set()  # blobs being uploaded right now
@@ -353,16 +359,21 @@ class BackupStore:
 
     # ------------------------------------------------------------ space
 
-    def limit_bytes(self) -> int:
+    @staticmethod
+    def _bytes(source) -> int:
         try:
-            mb = float(self._limit_mb()) if self._limit_mb else 0.0
+            mb = float(source()) if source else 0.0
         except Exception:
             mb = 0.0
         return int(mb * 1024 * 1024) if mb > 0 and math.isfinite(mb) else 0
 
-    def used_bytes(self, owner: str) -> int:
+    def limit_bytes(self) -> int:
+        return self._bytes(self._limit_mb)
+
+    def used_bytes(self, owner: Optional[str] = None) -> int:
+        """Bytes one account's backups take (None: every account's)."""
         total = 0
-        for folder, _, files in os.walk(self.account_dir(owner)):
+        for folder, _, files in os.walk(self.account_dir(owner) if owner is not None else self.root):
             for name in files:
                 try:
                     total += os.path.getsize(os.path.join(folder, name))
@@ -376,15 +387,42 @@ class BackupStore:
                 "warning": bool(limit and used >= WARN_SHARE * limit)}
 
     def _room_for(self, owner: str, adding: int) -> None:
-        limit = self.limit_bytes()
-        if not limit or adding <= 0:
+        if adding <= 0:
             return
-        used = self.used_bytes(owner)
-        if used + adding > limit:
-            raise BackupError(
-                f"Not enough backup space: this needs {adding} bytes, {max(0, limit - used)} are left of "
-                f"{limit}. Delete older backups, or raise Settings › Advanced › Backup space per user.",
-                507, {"storage": self.storage(owner)})
+        limit = self.limit_bytes()
+        if limit:
+            used = self.used_bytes(owner)
+            if used + adding > limit:
+                raise BackupError(
+                    f"Not enough backup space: this needs {adding} bytes, {max(0, limit - used)} are left of "
+                    f"{limit}. Delete older backups, or raise Settings › Advanced › Backup space per user.",
+                    507, {"storage": self.storage(owner)})
+        total = self._bytes(self._total_mb)
+        if total:
+            used = self.used_bytes()
+            if used + adding > total:
+                raise BackupError(
+                    f"Not enough backup space for all users: this needs {adding} bytes, {max(0, total - used)} "
+                    f"are left of {total}. Raise Settings › Advanced › Backup space for all users.",
+                    507, {"storage": self.storage(owner)})
+        keep = self._bytes(self._free_mb)
+        if keep:
+            free = self._free_disk()
+            if free is not None and free - adding < keep:
+                raise BackupError(
+                    f"Not enough free disk space: this needs {adding} bytes, and {keep} must stay free "
+                    f"(Settings › Advanced › Free disk space kept).", 507, {"storage": self.storage(owner)})
+
+    def _free_disk(self) -> Optional[int]:
+        """Free bytes on the backups' disk (its nearest existing folder); None when it can't be told."""
+        import shutil
+        place = self.root
+        while not place.exists() and place.parent != place:
+            place = place.parent
+        try:
+            return shutil.disk_usage(place).free
+        except OSError:
+            return None
 
     # ------------------------------------------------------------ devices
 
@@ -738,13 +776,21 @@ def _limit_mb() -> float:
     return playback_values.get(LIMIT_SETTING)
 
 
+def _setting(key: str):
+    def read() -> float:
+        from sonorium import playback_values
+        return playback_values.get(key)
+    return read
+
+
 def store_for(root: Optional[Path] = None) -> BackupStore:
     """The one store of a folder (default: <config>/backups), limited by Settings > Advanced."""
     root = Path(root or default_root())
     with _stores_lock:
         store = _stores.get(str(root))
         if store is None:
-            store = _stores[str(root)] = BackupStore(root, _limit_mb)
+            store = _stores[str(root)] = BackupStore(root, _limit_mb, _setting(TOTAL_LIMIT_SETTING),
+                                                     _setting(FREE_SPACE_SETTING))
         return store
 
 

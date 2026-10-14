@@ -23,12 +23,13 @@ LEGACY_PREFIX = "sonorium://pair?"
 
 
 def pair_uri(*, server_id: str, name: str, hosts: list[str], http_port: int, https_port: int,
-             fingerprint: str, code: str, username: str | None = None) -> str:
+             fingerprint: str, code: str, username: str | None = None, url: str | None = None) -> str:
     """
-    https://sonorium.app/link#v=1&id=..&n=..&h=host[,host2]&p=..&s=..&fp=..&c=..[&u=..]
-    (u: the signed-in user, if any). Everything is after the #, so none of it
-    reaches the website: a phone without the app lands on a page that says how
-    to get it, and the app opens the link itself.
+    https://sonorium.app/link#v=1&id=..&n=..&h=host[,host2]&p=..&s=..&fp=..&c=..[&u=..][&url=..]
+    (u: the signed-in user, if any; url: the server's public address, behind
+    a reverse proxy). Everything is after the #, so none of it reaches the
+    website: a phone without the app lands on a page that says how to get
+    it, and the app opens the link itself.
     """
     params = [("v", "1"), ("id", server_id), ("n", name), ("h", ",".join(hosts)), ("p", str(http_port))]
     if https_port:
@@ -36,6 +37,8 @@ def pair_uri(*, server_id: str, name: str, hosts: list[str], http_port: int, htt
     params += [("fp", fingerprint), ("c", code)]
     if username:
         params.append(("u", username))
+    if url:
+        params.append(("url", url))
     return f"{LINK_URL}#" + urlencode(params, quote_via=quote, safe=",")
 
 

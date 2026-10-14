@@ -64,9 +64,9 @@ def add_routes(app: FastAPI, routes: list[Route]) -> None:
 
 def listener(app: FastAPI, port: int, **options) -> uvicorn.Config:
     """
-    One port serving the app. The caller's address is always the real peer,
-    never a forwarded header: sign-in trusts HA's ingress by the
-    Supervisor's address.
+    One port serving the app. uvicorn never reads forwarded headers: sign-in
+    trusts HA's ingress by the Supervisor's address. Behind a reverse proxy,
+    only the trusted proxies' X-Forwarded-For is believed (auth/proxies.py).
     """
     options.setdefault("timeout_graceful_shutdown", GRACEFUL_SHUTDOWN_SECONDS)
     return uvicorn.Config(app, host=LISTEN_HOST, port=port, access_log=False, proxy_headers=False, **options)

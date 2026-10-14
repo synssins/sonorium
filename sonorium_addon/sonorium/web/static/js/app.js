@@ -6189,6 +6189,36 @@ const PV_SECTIONS = [
     { title: 'Backups', rows: [
         { name: 'Backup space per user', keys: ['backup_limit_mb'], unit: 'MB', usual: [0, 102400],
           desc: 'The most theme backups from the app may take for one user. 0 is no limit.' },
+        { name: 'Backup space for all users', keys: ['backup_total_limit_mb'], unit: 'MB', usual: [0, 512000],
+          desc: 'The most theme backups from the app may take for every user together. 0 is no limit.' },
+        { name: 'Free disk space kept', keys: ['backup_free_space_mb'], unit: 'MB', usual: [0, 10240],
+          desc: 'A backup is refused when it would leave less free disk space than this. 0 is no limit.' },
+    ] },
+    { title: 'Limits', rows: [
+        { name: 'Sign-in request size', keys: ['auth_body_limit_kb'], unit: 'KB', usual: [4, 64],
+          desc: 'The most a sign-in, Link App or pairing request may send. 0 is no limit.' },
+        { name: 'Request size', keys: ['request_body_limit_kb'], unit: 'KB', usual: [256, 8192],
+          desc: 'The most any other request may send. 0 is no limit.' },
+        { name: 'Upload size', keys: ['upload_limit_mb'], unit: 'MB', usual: [100, 10240],
+          desc: 'The most one upload may be: an audio file, a theme or plugin zip, a backup file. 0 is no limit.' },
+        { name: 'Theme import size', keys: ['import_unpacked_limit_mb'], unit: 'MB', usual: [500, 20480],
+          desc: "The most a theme zip's files may take once unpacked. 0 is no limit." },
+        { name: 'Files in a theme import', keys: ['import_file_limit'], unit: 'files', usual: [100, 20000],
+          desc: 'The most files one theme zip may hold. 0 is no limit.' },
+        { name: 'Exports at once', keys: ['export_limit'], unit: 'exports', usual: [1, 8],
+          desc: 'Theme exports made at the same time. More are refused until one is done. 0 is no limit.' },
+        { name: 'Streams per address', keys: ['streams_per_address'], unit: 'streams', usual: [4, 64],
+          desc: 'Audio streams one address may have open. 0 is no limit.' },
+        { name: 'Streams in all', keys: ['streams_limit'], unit: 'streams', usual: [16, 256],
+          desc: 'Audio streams open at the same time. 0 is no limit.' },
+        { name: 'Event streams per user', keys: ['event_streams_per_caller'], unit: 'streams', usual: [2, 32],
+          desc: 'Event streams one user, linked phone or key may have open. 0 is no limit.' },
+        { name: 'Sign-in tries per username', keys: ['login_attempts_per_user'], unit: 'a minute', usual: [3, 60],
+          desc: 'Wrong passwords a minute for one username, from any address. 0 is no limit.' },
+        { name: 'Stream link time', keys: ['stream_link_hours'], unit: 'h', usual: [1, 48],
+          desc: 'While Require login is on, speakers outside the LAN get stream addresses that work this long. 0 never ends.' },
+        { name: 'LAN speakers without a link', keys: ['lan_streams_open'], unit: '', usual: [0, 1],
+          desc: '1: speakers on the LAN play without a stream link while Require login is on. 0: every stream needs one.' },
     ] },
 ];
 
@@ -6279,7 +6309,67 @@ function pvNetworkSection() {
     return `<h3 class="spv-sec">Network</h3><div class="sp-lbody"><div class="sp-lrow spv-grid${value ? ' changed' : ''}">
         <span class="spv-name">Stream URL</span><span class="spv-desc">The address speakers are given to reach Sonorium.</span><span class="spv-def">Automatic</span>
         <span class="spv-val"><input class="sp-inp spv-url" type="url" id="pv-stream-url" aria-label="Stream URL" placeholder="Automatic" value="${escapeHtml(value)}" onchange="pvStreamUrlChanged(this)"></span>
-        <button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="Stream URL: back to the default"${value ? '' : ' disabled'} onclick="pvStreamUrlChanged(null, this)">${SP_ICON_RESET}</button></div></div>`;
+        <button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="Stream URL: back to the default"${value ? '' : ' disabled'} onclick="pvStreamUrlChanged(null, this)">${SP_ICON_RESET}</button></div>
+        ${pvPortRow('http_port', 'HTTP port', 'The port for the web UI, the API and streams.')}
+        ${pvPortRow('https_port', 'HTTPS port', 'The port for the web UI and the API over HTTPS (the app links here).')}
+        ${pvProxiesRow()}</div>`;
+}
+
+// Trusted proxies: reverse proxies whose X-Forwarded-For gives the caller's address
+function pvProxiesRow() {
+    const proxies = connectionSettings.trusted_proxies;
+    if (proxies === undefined) return '';
+    return `<div class="sp-lrow spv-grid${proxies ? ' changed' : ''}">
+        <span class="spv-name">Trusted proxies</span><span class="spv-desc">Reverse proxies in front of Sonorium, by address or network (e.g. 172.18.0.0/16). Their X-Forwarded-For gives each caller's address.</span><span class="spv-def">None</span>
+        <span class="spv-val"><input class="sp-inp spv-url" type="text" id="pv-trusted-proxies" aria-label="Trusted proxies" placeholder="None" value="${escapeHtml(proxies)}" onchange="pvConnectionChanged('trusted_proxies', this)"></span>
+        <button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="Trusted proxies: back to the default"${proxies ? '' : ' disabled'} onclick="pvConnectionChanged('trusted_proxies', null, this)">${SP_ICON_RESET}</button></div>`;
+}
+
+// HTTP and HTTPS port: editable on Docker and Linux; on Windows the Sonorium app on the computer sets them
+function pvPortRow(key, name, desc) {
+    const value = connectionSettings[key];
+    const def = (connectionSettings.default_ports || {})[key === 'http_port' ? 'http' : 'https'];
+    if (value === undefined || def === undefined) return '';
+    const editable = connectionSettings.ports_editable;
+    const changed = editable && value !== def;
+    const note = !editable ? '<div class="spv-warn">Set in the Sonorium app on this computer</div>'
+        : value < 1024 ? '<div class="spv-warn">Below 1024: the system may not let Sonorium use it</div>' : '';
+    return `<div class="sp-lrow spv-grid${changed ? ' changed' : ''}">
+        <span class="spv-name">${escapeHtml(name)}</span><span class="spv-desc">${escapeHtml(desc)}</span><span class="spv-def">${def}</span>
+        <span class="spv-val"><input class="sp-inp spv-num" type="number" min="1" max="65535" step="1" id="pv-${key.replace('_', '-')}" aria-label="${escapeHtml(name)}" value="${value}"${editable ? '' : ' disabled'} onchange="pvConnectionChanged('${key}', this)"></span>
+        <button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="${escapeHtml(name)}: back to the default"${changed ? '' : ' disabled'} onclick="pvConnectionChanged('${key}', null, this)">${SP_ICON_RESET}</button>
+        ${note}</div>`;
+}
+
+// A Network setting saved in the connection settings (ports, trusted proxies): checked, then saved with a restart
+function pvConnectionChanged(key, input, resetButton) {
+    let value = input ? input.value.trim() : '';
+    if (input) input.classList.remove('bad');
+    if (value && (key === 'http_port' || key === 'https_port')) {
+        const n = Number(value);
+        const other = key === 'http_port' ? connectionSettings.https_port : connectionSettings.http_port;
+        if (!Number.isInteger(n) || n < 1 || n > 65535) {
+            input.classList.add('bad');
+            showToast('A port is a number from 1 to 65535', 'error');
+            return;
+        }
+        if (n === other) {
+            input.classList.add('bad');
+            showToast('The HTTP and HTTPS ports must be different', 'error');
+            return;
+        }
+        value = n;
+    }
+    spConfirm('pv-' + key, input || resetButton, { title: 'Restart Sonorium?', sub: 'Playing channels stop for a few seconds.', ok: 'Restart' }, async () => {
+        try {
+            await api('PUT', '/connection', { [key]: value === '' ? null : value });
+            showToast('Restarting Sonorium...', 'success');
+            await spWaitForRestart();
+        } catch (error) {
+            if (input) input.classList.add('bad');
+            showToast(error.message || 'Not saved', 'error');
+        }
+    });
 }
 
 function pvStreamUrlChanged(input, resetButton) {

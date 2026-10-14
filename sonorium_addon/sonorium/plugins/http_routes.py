@@ -90,8 +90,15 @@ def permission_table(routes: list) -> dict:
 
 
 def match(routes: list, method: str, path: str) -> Optional[tuple[dict, dict]]:
-    """The route a plugin-relative path is, with its path parameters (None: no such route)."""
-    parts = path.strip("/").split("/")
+    """
+    The route a plugin-relative path is, with its path parameters (None: no
+    such route). Only the path exactly as declared: a leading or trailing "/"
+    or an empty segment ("a//b") is no route, since the sign-in's table
+    (which checked the route's ability) wouldn't have matched it either.
+    """
+    if not isinstance(path, str) or not path or path.startswith("/") or path.endswith("/") or "//" in path:
+        return None
+    parts = path.split("/")
     for route in routes:
         if method not in route["methods"]:
             continue

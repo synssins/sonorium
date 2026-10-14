@@ -41,6 +41,9 @@ PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I
 # stays in the "plugins" list of /api/info and /api/auth/me: released Sonorium apps read it to offer
 # signing in with a username and password (new apps read "accounts").
 CORE_AUTHENTICATORS = frozenset({"keys"})
+# Sign-in's providers (Users, Keys): no plugin has these ids (plugins/loader.py RESERVED_PLUGIN_IDS),
+# and unregister() never takes them away (that would open everything to everyone)
+CORE_PROVIDER_IDS = frozenset({"users", "keys"})
 
 
 class AuthService:
@@ -161,6 +164,9 @@ class AuthService:
 
     def unregister(self, plugin_id: str) -> None:
         """The plugin was switched off: its sign-in, routes (404 from now) and UI go."""
+        if plugin_id in CORE_PROVIDER_IDS:
+            logger.warning(f"Sign-in: '{plugin_id}' can't be switched off as a plugin; kept")
+            return
         self.authenticators.pop(plugin_id, None)
         self.expected_providers.discard(plugin_id)
         self.registry.set_active(plugin_id, False)

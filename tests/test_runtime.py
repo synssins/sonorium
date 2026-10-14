@@ -109,3 +109,17 @@ def test_install_type_and_features_docker(monkeypatch, tmp_path):
     assert all(f == {"available": True, "enabled": True, "overridable": False, "switchable": False,
                      "default": True, "live": False}
                for f in features.values())
+
+
+def test_docker_stream_url_and_trusted_proxies_kept_when_not_saved(monkeypatch, tmp_path):
+    """A Docker container's SONORIUM__STREAM_URL isn't replaced by "auto"; saved settings win."""
+    runtime = load_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("SONORIUM__STREAM_URL", "https://demo.example")
+    monkeypatch.setenv("SONORIUM__TRUSTED_PROXIES", "10.0.0.1")
+    runtime.load_connection_into_env()
+    assert os.environ["SONORIUM__STREAM_URL"] == "https://demo.example"
+    assert os.environ["SONORIUM__TRUSTED_PROXIES"] == "10.0.0.1"
+    runtime.save_connection({"stream_url": "http://nas:8008", "trusted_proxies": "172.18.0.0/16"})
+    runtime.load_connection_into_env()
+    assert os.environ["SONORIUM__STREAM_URL"] == "http://nas:8008"
+    assert os.environ["SONORIUM__TRUSTED_PROXIES"] == "172.18.0.0/16"

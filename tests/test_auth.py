@@ -102,6 +102,7 @@ class World:
         self.TestClient = TestClient
 
     def client(self, **kw):
+        kw.setdefault("client", ("127.0.0.1", 50000))  # this computer (the first account is made from the LAN)
         return self.TestClient(self.app, **kw)
 
     def setup_admin(self, c=None, username="chris", password="correct horse"):
