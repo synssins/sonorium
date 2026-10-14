@@ -38,7 +38,10 @@ from starlette.responses import JSONResponse, PlainTextResponse
 from sonorium.auth import config, console, permissions as P
 from sonorium.auth.principal import CALLER, Principal, Reject, RequestContext
 from sonorium.auth.service import DEVICE_PREFIX, AuthService
-from sonorium.obs import logger
+from sonorium.obs import logger as _logger
+
+# "sonorium.auth": names users and addresses, so only admins see it on the Logs page (logbuffer.py)
+logger = _logger.getChild("auth")
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 CHANNEL_ABILITIES = frozenset({"ch.view", "ch.play", "ch.change", "ch.speakers", "ch.add"})

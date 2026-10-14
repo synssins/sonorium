@@ -51,7 +51,7 @@ def trusted() -> tuple:
             nets = parse(text)
         except ValueError as e:
             from sonorium.obs import logger
-            logger.warning(f"Trusted proxies: {e}; none trusted")
+            logger.getChild("auth").warning(f"Trusted proxies: {e}; none trusted")
             nets = ()
         _cache = (text, nets)
     return _cache[1]

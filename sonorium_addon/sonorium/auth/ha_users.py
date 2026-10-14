@@ -25,7 +25,10 @@ import json
 import os
 from typing import Optional
 
-from sonorium.obs import logger
+from sonorium.obs import logger as _logger
+
+# "sonorium.auth": names users and addresses, so only admins see it on the Logs page (logbuffer.py)
+logger = _logger.getChild("auth")
 
 SUPERVISOR = "http://supervisor"
 WEBSOCKET = "ws://supervisor/core/websocket"

@@ -27,7 +27,10 @@ from fastapi import APIRouter, HTTPException, Request
 from sonorium.auth import permissions as P
 from sonorium.auth.principal import Principal, Reject
 from sonorium.auth.routes import json_body
-from sonorium.obs import logger
+from sonorium.obs import logger as _logger
+
+# "sonorium.auth": names users and addresses, so only admins see it on the Logs page (logbuffer.py)
+logger = _logger.getChild("auth")
 
 OWNER = "keys"   # in the permission registry and the authenticators (never a plugin id: those can't clash)
 KEY_PREFIX = "sk_"

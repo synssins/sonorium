@@ -89,3 +89,8 @@ CALLER: ContextVar[Optional[Principal]] = ContextVar("sonorium_caller", default=
 
 def current_caller() -> Optional[Principal]:
     return CALLER.get()
+
+
+def sees_private(caller: Optional[Principal]) -> bool:
+    """An admin (also on a linked device): sees who signed in and from which address (Logs, alerts)."""
+    return caller is not None and (caller.can("admin.users") or caller.role == "admin")

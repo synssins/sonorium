@@ -35,7 +35,10 @@ from sonorium.auth.routes import client_of, json_body, limited
 from sonorium.core.channel_policy import ChannelRefused
 from sonorium.core import zones as zones_mod
 from sonorium.core.zones import Actor, Zones
-from sonorium.obs import logger
+from sonorium.obs import logger as _logger
+
+# "sonorium.auth": names users and addresses, so only admins see it on the Logs page (logbuffer.py)
+logger = _logger.getChild("auth")
 
 PLUGIN_ID = "users"   # its key in the authenticators and AuthService.plugin_state (not a plugin)
 ZONES_STATE = "users.zones"   # service.plugin_state key of the Zones object

@@ -29,7 +29,10 @@ from sonorium.auth import config
 from sonorium.auth.middleware import principal_of
 from sonorium.auth.ratelimit import RateLimiter
 from sonorium.auth.service import AuthService
-from sonorium.obs import logger
+from sonorium.obs import logger as _logger
+
+# "sonorium.auth": names users and addresses, so only admins see it on the Logs page (logbuffer.py)
+logger = _logger.getChild("auth")
 
 API_VERSION = 1
 UI_HOST_API = 1  # the web UI's window.SONORIUM_HOST contract (static/js/api.js SONORIUM_HOST_API)

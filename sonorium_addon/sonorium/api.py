@@ -1347,14 +1347,21 @@ class WebApp:
         return {"version": __version__, "install": runtime.INSTALL_LABEL,
                 "log_level": logging.getLevelName(logger.getEffectiveLevel()).lower()}
 
+    @staticmethod
+    def _logs_for_caller(after: int = 0) -> list[dict]:
+        """Admins: every message. Everyone else: no sign-in, account or linking messages, no addresses."""
+        from sonorium.auth.principal import current_caller, sees_private
+        entries = logbuffer.recent(after)
+        return entries if sees_private(current_caller()) else logbuffer.redacted(entries)
+
     async def get_logs(self, after: int = 0):
         """Recent log messages, oldest first; pass the last seq seen as `after` to get only newer ones."""
-        return {"entries": logbuffer.recent(after), **self._log_info()}
+        return {"entries": self._logs_for_caller(after), **self._log_info()}
 
     async def download_logs(self):
         """Recent log messages as a text file."""
         info = self._log_info()
-        text = f"Sonorium {info['version']}, {info['install']} (log level: {info['log_level']})\n\n" + logbuffer.as_text(logbuffer.recent())
+        text = f"Sonorium {info['version']}, {info['install']} (log level: {info['log_level']})\n\n" + logbuffer.as_text(self._logs_for_caller())
         name = f"sonorium-logs-{info['version']}.txt"
         return PlainTextResponse(text, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
