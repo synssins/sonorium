@@ -22,10 +22,14 @@ from sonorium.obs import logger
 
 # A plugin id: letters, digits, "_" and "-" (never a path). Used by every API route.
 PLUGIN_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+# Ids sign-in uses for Users and Keys (auth/service.py CORE_PROVIDER_IDS): never a plugin's,
+# or switching that plugin off would take sign-in with it
+RESERVED_PLUGIN_IDS = frozenset({"users", "keys"})
 
 
 def is_valid_plugin_id(plugin_id) -> bool:
-    return isinstance(plugin_id, str) and PLUGIN_ID_PATTERN.fullmatch(plugin_id) is not None
+    return (isinstance(plugin_id, str) and PLUGIN_ID_PATTERN.fullmatch(plugin_id) is not None
+            and plugin_id.casefold() not in RESERVED_PLUGIN_IDS)
 
 
 # Plugin storage location (survives addon updates)

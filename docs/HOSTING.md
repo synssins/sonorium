@@ -13,8 +13,11 @@ host decides which sockets are live.
 | `SONORIUM_SUPERVISED=1` | A restart ends Sonorium with exit code 75; the host starts it again | Sonorium restarts itself in place |
 | `SONORIUM_SECRET_HELPER=<program>` | The Home Assistant token and the MQTT password are kept by that program, not in `connection.json` | Kept in `connection.json` (owner-only file) |
 | `SONORIUM_CONSOLE_TOKEN_FILE=<path>` | Sonorium writes an admin credential for the host's console to that file | No console credential |
-| `SONORIUM_HTTP_PORT=<port>` | The HTTP port (web UI, API, streams) | 8008 (Home Assistant app: 8080 inside, mapped to 8008) |
-| `SONORIUM_HTTPS_PORT=<port>` | The HTTPS port | 8808 |
+| `SONORIUM_HTTP_PORT=<port>` (or `SONORIUM__HTTP_PORT`) | The HTTP port (web UI, API, streams). Docker and Linux: Settings › Advanced › Network › HTTP port wins when set | 8008 (Home Assistant app: 8080 inside, mapped to 8008) |
+| `SONORIUM_HTTPS_PORT=<port>` (or `SONORIUM__HTTPS_PORT`) | The HTTPS port. Docker and Linux: Settings › Advanced › Network › HTTPS port wins when set | 8808 |
+| `SONORIUM__STREAM_URL=<url>` | The address speakers are given. A public address (`https://...`, or a host that isn't on the LAN) is also what `/api/info` and Link App codes give the app: set it to a reverse proxy's address | Found automatically |
+| `SONORIUM__TRUSTED_PROXIES=<addresses>` | Reverse proxies (addresses or networks, separated by commas or spaces) whose `X-Forwarded-For` and `X-Forwarded-Proto` are believed: rate limits, logs and "on the LAN" see the caller. Settings › Advanced › Network › Trusted proxies wins when set | None |
+| `SONORIUM_SETUP_TOKEN=<text>` | The first admin account can be made from outside the LAN only with this (`"setup_token"` in `POST /api/auth/setup`, or the `X-Sonorium-Setup-Token` header) | From this computer or the LAN only |
 | `SONORIUM_BUNDLED_THEMES=<folder>` | Where the themes copied into an empty audio folder on first start are | `/app/themes` |
 | `SONORIUM_CONFIG_DIR`, `SONORIUM_CONNECTION_FILE`, `SONORIUM__PATH_AUDIO` | Where settings, the connection settings and the audio are | `/config/sonorium`, `/config/sonorium/connection.json`, `/media/sonorium` |
 

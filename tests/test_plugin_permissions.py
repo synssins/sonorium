@@ -209,6 +209,7 @@ def test_a_plugins_own_routes_carry_an_ability_each(world):
     assert {str(p.raw) for _, _, p in world.registry.match("POST", "/api/plugins/lights/http/flash")} == {"pg.use", "public"}
     app = FastAPI()
     app.include_router(m.plugin_framework_api.create_plugin_framework_router(world.manager, world.host))
+    caller = signed_in_as(app)
     with TestClient(app) as c:
         r = c.get("/api/plugins/lights/http/strips/porch?x=1")
         assert r.status_code == 200 and r.json() == {"strip": "porch", "q": {"x": "1"}}
@@ -221,6 +222,46 @@ def test_a_plugins_own_routes_carry_an_ability_each(world):
         assert c.get("/api/plugins/panel/http/anything").status_code == 404
     asyncio.run(world.manager.disable_plugin("lights"))
     assert all(str(p.raw) == "public" for _, _, p in world.registry.match("GET", "/api/plugins/lights/http/strips/porch"))
+
+
+def signed_in_as(app, perms=None):
+    """The sign-in's part in these tests: every request's caller (all abilities unless `perms`)."""
+    from sonorium.auth import permissions as P
+    from sonorium.auth.principal import Principal
+    caller = {"principal": Principal("local", P.ALL_PERMS if perms is None else frozenset(perms))}
+
+    @app.middleware("http")
+    async def sign_in(request, call_next):
+        request.scope.setdefault("state", {})["auth"] = caller["principal"]
+        return await call_next(request)
+    return caller
+
+
+def test_a_plugin_route_is_only_its_exact_path_and_its_ability_is_checked_again(world):
+    """A path the sign-in's table didn't match ("/x", "x/", "a//b") is no route; the handler checks the ability itself."""
+    pytest.importorskip("fastapi")
+    pytest.importorskip("httpx")
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    world.lights = allow(world, "lights")
+    assert m.http_routes.match([{"path": "strips/{strip}", "methods": ["GET"]}], "GET", "strips/porch") is not None
+    for bad in ("/strips/porch", "strips/porch/", "strips//porch", "//strips/porch", ""):
+        assert m.http_routes.match([{"path": "strips/{strip}", "methods": ["GET"]}], "GET", bad) is None, bad
+    app = FastAPI()
+    app.include_router(m.plugin_framework_api.create_plugin_framework_router(world.manager, world.host))
+    caller = signed_in_as(app, perms=())
+    from sonorium.auth.principal import Principal
+    with TestClient(app) as c:
+        for path in ("strips/porch", "strips/porch/", "/strips/porch", "strips//porch"):
+            assert c.get(f"/api/plugins/lights/http/{path}").status_code in (403, 404), path  # never the plugin's answer
+        caller["principal"] = Principal("anonymous")
+        assert c.get("/api/plugins/lights/http/strips/porch").status_code == 401  # nobody signed in
+        caller["principal"] = Principal("session", frozenset({"pg.use"}), user_id="u1")
+        assert c.get("/api/plugins/lights/http/strips/porch").status_code == 403  # ch.view is needed
+        assert c.get("/api/plugins/lights/http/strips/porch/").status_code == 404
+        caller["principal"] = Principal("session", frozenset({"ch.view"}), user_id="u1")
+        assert c.get("/api/plugins/lights/http/strips/porch").status_code == 200
+        assert c.post("/api/plugins/lights/http/flash", json={"ms": 60}).status_code == 403
 
 
 def test_home_assistant_entities_follow_settings_and_actions(world):

@@ -103,29 +103,69 @@ def features(overrides: dict | None = None) -> dict:
         for name in FEATURES
     }
 
+DEFAULT_HTTP_PORT = 8008
+DEFAULT_HTTPS_PORT = 8808
+# The ports' settings (Settings > Advanced > Network) and their environment variables
+PORT_ENV = {"http_port": ("SONORIUM_HTTP_PORT", "SONORIUM__HTTP_PORT"),
+            "https_port": ("SONORIUM_HTTPS_PORT", "SONORIUM__HTTPS_PORT")}
+
+
+def ports_editable() -> bool:
+    """
+    The ports can be changed in Settings: Docker, Linux and macOS. Not the
+    add-on (Home Assistant maps them, in the app's Network settings) and not
+    Windows (the Sonorium app on the computer sets them).
+    """
+    return STANDALONE and INSTALL != "windows"
+
+
+def valid_port(value) -> int | None:
+    """A port number 1-65535 (int or text), else None."""
+    if isinstance(value, bool):
+        return None
+    try:
+        port = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return port if 0 < port < 65536 else None
+
+
+def configured_port(name: str) -> int | None:
+    """
+    "http_port" or "https_port" as set: the saved setting (where ports are
+    editable), else the environment (SONORIUM_HTTP_PORT or SONORIUM__HTTP_PORT,
+    ..._HTTPS_PORT); None when neither sets it.
+    """
+    if ports_editable():
+        saved = valid_port(_read_connection_file().get(name))
+        if saved:
+            return saved
+    for env in PORT_ENV[name]:
+        port = valid_port(os.environ.get(env) or "")
+        if port:
+            return port
+    return None
+
+
 def http_port() -> int:
     """
-    The plain HTTP port Sonorium listens on (web UI, API and streams):
-    SONORIUM_HTTP_PORT, else 8008 (standalone) or 8080 (the add-on, whose
-    8008 is the host port mapped to it).
+    The plain HTTP port Sonorium listens on (web UI, API and streams): the
+    setting or the environment (configured_port), else 8008 (standalone) or
+    8080 (the add-on, whose 8008 is the host port mapped to it).
     """
-    default = 8008 if STANDALONE else 8080
-    try:
-        port = int((os.environ.get("SONORIUM_HTTP_PORT") or "").strip() or default)
-    except ValueError:
-        return default
-    return port if 0 < port < 65536 else default
+    return configured_port("http_port") or (DEFAULT_HTTP_PORT if STANDALONE else 8080)
 
 
 def stream_port() -> int:
-    """The HTTP port as speakers reach it: SONORIUM_HTTP_PORT, else 8008 (standalone and the add-on's mapping)."""
-    return http_port() if (os.environ.get("SONORIUM_HTTP_PORT") or "").strip() else 8008
+    """The HTTP port as speakers reach it: the one set (configured_port), else 8008 (standalone and the add-on's mapping)."""
+    return configured_port("http_port") or DEFAULT_HTTP_PORT
 
 
 CONNECTION_FILE = Path(os.environ.get("SONORIUM_CONNECTION_FILE", "/config/sonorium/connection.json"))
 
 # Fields stored in connection.json. Secrets are never returned by the API.
-CONNECTION_FIELDS = ("ha_url", "ha_token", "mqtt_host", "mqtt_port", "mqtt_username", "mqtt_password", "stream_url")
+CONNECTION_FIELDS = ("ha_url", "ha_token", "mqtt_host", "mqtt_port", "mqtt_username", "mqtt_password", "stream_url",
+                     "trusted_proxies", "http_port", "https_port")
 SECRET_FIELDS = ("ha_token", "mqtt_password")
 
 
@@ -377,7 +417,10 @@ def load_connection_into_env() -> None:
         "SONORIUM__MQTT_PORT": str(conn.get("mqtt_port") or 1883),
         "SONORIUM__MQTT_USERNAME": conn.get("mqtt_username"),
         "SONORIUM__MQTT_PASSWORD": conn.get("mqtt_password"),
-        "SONORIUM__STREAM_URL": conn.get("stream_url") or "auto",
+        # Saved: it wins. Not saved: the environment's (Docker), else found automatically
+        "SONORIUM__STREAM_URL": conn.get("stream_url") or os.environ.get("SONORIUM__STREAM_URL") or "auto",
+        # Reverse proxies whose X-Forwarded-For is believed (auth/proxies.py); saved, it wins over the environment's
+        "SONORIUM__TRUSTED_PROXIES": conn.get("trusted_proxies"),
     }
     for key, value in env.items():
         if value:

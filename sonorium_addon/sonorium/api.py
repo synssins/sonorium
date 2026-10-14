@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -131,15 +132,24 @@ class WebApp:
             await self._stop_auth()
 
         # Sign-in, users, linked phones and keys: one middleware checks every
-        # route (sonorium/auth); it's outermost, so it runs first
+        # route (sonorium/auth); outside it only the body limits and the proxy's address
         from sonorium.auth.middleware import AuthMiddleware, AuthService
         from sonorium.auth.routes import create_core_auth_router
         self.auth = AuthService()
         self.auth.app = self.app  # Users and Keys add their routes to it
+        # Stream links (auth/stream_links.py) are signed with the sign-in's secret
+        from sonorium.auth import stream_links
+        stream_links.bind(self.auth)
         self._https_host_port = None  # the HTTPS port as the LAN sees it (add-on: its port mapping)
         self._announcer = None
         self._announce_task = None
         self.app.add_middleware(AuthMiddleware, service=self.auth)
+        # Request bodies over their limit: 413 (sonorium/limits.py); before sign-in reads anything
+        from sonorium.limits import BodyLimitMiddleware
+        self.app.add_middleware(BodyLimitMiddleware)
+        # Outermost: a trusted reverse proxy's caller address and scheme (auth/proxies.py)
+        from sonorium.auth.proxies import ForwardedClient
+        self.app.add_middleware(ForwardedClient)
         self.app.include_router(create_core_auth_router(
             self.auth,
             stream_url=self._stream_base_url,
@@ -148,6 +158,9 @@ class WebApp:
             https_host_port=self._https_port_outside,
             mdns_host=lambda: self._announcer.hostname if self._announcer is not None else None,
             plugins_available=lambda: self._plugin_manager is not None,
+            # A Stream URL set by hand: when it's a public address (a reverse proxy), clients are given it
+            public_url=lambda: os.environ.get("SONORIUM__STREAM_URL"),
+            https_listen_port=self._https_listen_port,
         ))
         # Users (accounts, sign-in): sign-in stays closed until they have loaded (auth/users.py)
         self.auth.expected_providers.add("users")  # auth/users.py PLUGIN_ID
@@ -992,6 +1005,12 @@ class WebApp:
             "mqtt_password_set": bool(conn.get("mqtt_password")),
             "mqtt_connected": self.backend.mqtt_client.is_connected,
             "stream_url": conn.get("stream_url", ""),
+            # Reverse proxies whose X-Forwarded-For is believed (auth/proxies.py)
+            "trusted_proxies": conn.get("trusted_proxies", ""),
+            # The ports Sonorium listens on (a change applies after a restart); editable: not on Windows
+            "http_port": runtime.http_port(), "https_port": self._https_listen_port(),
+            "ports_editable": runtime.ports_editable(),
+            "default_ports": {"http": runtime.DEFAULT_HTTP_PORT, "https": runtime.DEFAULT_HTTPS_PORT},
         }
 
     async def test_connection(self, request: Request):
@@ -1042,6 +1061,18 @@ class WebApp:
             value = (updates.get(key) or "").strip()
             if value and not value.startswith(("http://", "https://")):
                 raise HTTPException(status_code=400, detail=f"{key} must start with http:// or https://")
+        self._check_ports(updates)
+        if "trusted_proxies" in updates:
+            from sonorium.auth import proxies
+            text = updates["trusted_proxies"]
+            if text is not None and not isinstance(text, str):
+                raise HTTPException(status_code=400, detail="trusted_proxies must be text")
+            text = " ".join((text or "").replace(",", " ").split())
+            try:
+                proxies.parse(text)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"Trusted proxies: {e}")
+            updates["trusted_proxies"] = text
         try:
             runtime.save_connection(updates)
         except runtime.SecretStoreError as e:
@@ -1049,9 +1080,50 @@ class WebApp:
         if "mqtt_host" in updates and not str(updates["mqtt_host"] or "").strip():
             # MQTT switched off: Home Assistant drops Sonorium's entities before it goes
             await self._remove_mqtt_entities(getattr(getattr(self, "backend", None), "mqtt_client", None))
+        if "trusted_proxies" in updates:  # read as requests come in; a restart keeps this environment
+            from sonorium.auth import proxies
+            if updates["trusted_proxies"]:
+                os.environ[proxies.ENV] = updates["trusted_proxies"]
+            else:
+                os.environ.pop(proxies.ENV, None)
         logger.info("Connection settings saved; restarting Sonorium to apply them")
         self._restart_soon("connection settings changed")
         return {"status": "ok", "restarting": True}
+
+    @staticmethod
+    def _https_listen_port() -> int:
+        from sonorium.auth import config
+        return config.https_port()
+
+    @staticmethod
+    def _check_ports(updates: dict) -> None:
+        """
+        "http_port" / "https_port" in a connection change: 1-65535 (None or ""
+        for the default), not the same as each other, and only where ports are
+        editable (runtime.ports_editable). Changed to ints in `updates`. 400 otherwise.
+        """
+        names = [n for n in ("http_port", "https_port") if n in updates]
+        if not names:
+            return
+        if not runtime.ports_editable():
+            raise HTTPException(status_code=400, detail="The ports can't be changed here")
+        for name in names:
+            if updates[name] in (None, ""):
+                updates[name] = None
+                continue
+            port = runtime.valid_port(updates[name])
+            if port is None:
+                raise HTTPException(status_code=400, detail=f"{name} must be a number from 1 to 65535")
+            updates[name] = port
+        def after(name: str, default: int) -> int:
+            """The port once saved: the new value, else what is set now, else the default."""
+            if name in updates:
+                return updates[name] or default
+            return runtime.configured_port(name) or default
+        http = after("http_port", runtime.DEFAULT_HTTP_PORT)
+        https = after("https_port", runtime.DEFAULT_HTTPS_PORT)
+        if http == https:
+            raise HTTPException(status_code=400, detail="The HTTP and HTTPS ports must be different")
 
     async def delete_connection_ha(self):
         """
@@ -1546,11 +1618,11 @@ class WebApp:
                 logger.debug(f"_find_theme_folder: path {mp} does not exist")
                 continue
             # Try exact match first
-            # Only a folder directly inside the audio folder: "..", "." and paths never match
-            if theme_id not in ("", ".", "..") and "/" not in theme_id and "\\" not in theme_id:
-                exact_path = mp / theme_id
-                if exact_path.is_dir():
-                    return exact_path
+            # A plain name only: "..", paths and drives ("C:" on Windows) never match
+            from sonorium.paths import child_folder
+            exact_path = child_folder(mp, theme_id)
+            if exact_path is not None:
+                return exact_path
             # Try scanning folders and comparing normalized names
             for folder in mp.iterdir():
                 if folder.is_dir():
@@ -2303,6 +2375,7 @@ class WebApp:
 
     @staticmethod
     async def _json_object(request: Request) -> dict:
+        """The request's JSON object (its size: at most request_body_limit_kb, BodyLimitMiddleware in limits.py)."""
         try:
             body = await request.json()
         except Exception:

@@ -439,3 +439,74 @@ def test_import_plan_names_and_layouts():
     assert plan_import(["a.wav"], "...zip", "")[0] == "Imported theme"
     with pytest.raises(ZipLayoutError):
         plan_import(["T/"], "x.zip")
+
+
+# --- import and export limits (sonorium/limits.py) -------------------------------------
+
+def _limits(**values):
+    from sonorium import playback_values
+    playback_values.set_source(lambda: {**FAST_VALUES, **values})
+
+
+def test_import_takes_only_theme_files_and_lists_the_rest(client, library):
+    root = library[0]
+    r = _import(client, _zip({"Storm/Rain.wav": b"rain", "Storm/run.exe": b"MZ", "Storm/x.html": b"<script>",
+                              "Storm/notes.txt": b"hi"}))
+    assert r.status_code == 200, r.text
+    theme = root / "Storm"
+    assert (theme / "Rain.wav").exists() and (theme / "notes.txt").exists()
+    assert not (theme / "run.exe").exists() and not (theme / "x.html").exists()
+    assert any("run.exe" in p and "x.html" in p for p in r.json()["problems"])
+
+
+def test_import_over_the_file_count_or_unpacked_size_writes_nothing(client, library):
+    root = library[0]
+    before = sorted(p.name for p in root.iterdir())
+    _limits(import_file_limit=2)
+    r = _import(client, _zip({"Storm/A.wav": b"a", "Storm/B.wav": b"b", "Storm/C.wav": b"c"}))
+    assert r.status_code == 413 and "at most 2" in r.json()["detail"]
+    _limits(import_unpacked_limit_mb=1)
+    r = _import(client, _zip({"Storm/A.wav": b"a" * (600 * 1024), "Storm/B.wav": b"b" * (600 * 1024)}))
+    assert r.status_code == 413 and "unpacked" in r.json()["detail"]
+    assert sorted(p.name for p in root.iterdir()) == before
+
+
+def test_import_counts_the_bytes_it_copies_and_removes_a_half_made_folder(library, tmp_path):
+    """A zip whose stated sizes lie is stopped by the bytes copied; the folder it began goes."""
+    from sonorium.core import theme_import
+    data = _zip({"A.wav": b"a" * 5000, "B.wav": b"b" * 5000})
+    with zipfile.ZipFile(io.BytesIO(data)) as zf:
+        members = [("A.wav", "A.wav"), ("B.wav", "B.wav")]
+        target = tmp_path / "half"
+        target.mkdir()
+        with pytest.raises(theme_import.ImportLimitError):
+            theme_import.extract_members(zf, members, target, unpacked_limit=6000)
+        assert (target / "A.wav").stat().st_size == 5000  # the caller removes the folder (api_v2 import_theme)
+        assert theme_import.extract_members(zf, members, tmp_path / "whole", unpacked_limit=None) == 2
+
+
+def test_exports_at_once_are_limited(client, library):
+    from sonorium.web import api_v2
+    _limits(export_limit=1)
+    assert api_v2.EXPORT_SLOTS.take("exports", 1)  # one export being made
+    try:
+        r = client.get("/api/themes/engine-test-theme/export")
+        assert r.status_code == 429
+    finally:
+        api_v2.EXPORT_SLOTS.give("exports")
+    assert client.get("/api/themes/engine-test-theme/export").status_code == 200
+    _limits(export_limit=0)  # no limit
+    assert api_v2.EXPORT_SLOTS.take("exports", 1)
+    try:
+        assert client.get("/api/themes/engine-test-theme/export").status_code == 200
+    finally:
+        api_v2.EXPORT_SLOTS.give("exports")
+
+
+def test_theme_upload_goes_through_a_temporary_file_with_the_upload_size(client, library):
+    _limits(upload_limit_mb=0.001)
+    r = client.post("/api/themes/engine-test-theme/upload", files={"file": ("Big.wav", b"x" * 4096, "audio/wav")})
+    assert r.status_code == 413
+    _limits()
+    r = client.post("/api/themes/engine-test-theme/upload", files={"file": ("Small.wav", b"x" * 64, "audio/wav")})
+    assert r.status_code == 200 and r.json()["size"] == 64

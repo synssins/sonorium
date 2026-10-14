@@ -291,7 +291,9 @@ def test_app_setup_unchanged(m):
     assert app.swagger_ui_parameters == {"tryItOutEnabled": True}
     assert api.port == (8008 if m.api.runtime.STANDALONE else 8080)
     assert len(app.router.on_startup) == 1 and len(app.router.on_shutdown) == 1
-    assert len(app.user_middleware) == 3  # cards CORS, legacy error statuses (web/legacy_errors.py), sign-in
+    # cards CORS, legacy error statuses (web/legacy_errors.py), sign-in, body limits (limits.py), proxies (auth/proxies.py)
+    assert len(app.user_middleware) == 5
+    assert [mw.cls.__name__ for mw in app.user_middleware[:2]] == ["ForwardedClient", "BodyLimitMiddleware"]
     config = api.main_listener()
     assert (config.host, config.port, config.access_log, config.proxy_headers) == ("0.0.0.0", api.port, False, False)
     # Handler docstrings are the summaries in the API docs, as before

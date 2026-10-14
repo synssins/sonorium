@@ -639,12 +639,14 @@ class SessionManager:
         Get the stream URL for a session.
         
         Uses channel-based URL if channel is assigned, otherwise falls back to theme URL.
+        While Require login is on, it carries a stream link (auth/stream_links.py).
         """
+        from sonorium.auth.stream_links import signed
         channel_id = self._session_channels.get(session.id)
         if channel_id:
-            return f"{self.stream_base_url}/stream/channel{channel_id}"
+            return signed(f"{self.stream_base_url}/stream/channel{channel_id}")
         # Fallback to theme-based URL (legacy)
-        return f"{self.stream_base_url}/stream/{session.theme_id}"
+        return signed(f"{self.stream_base_url}/stream/{session.theme_id}")
     
     def _assign_channel(self, session: Session) -> Optional[Channel]:
         """

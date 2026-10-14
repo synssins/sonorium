@@ -168,9 +168,12 @@ class AuthMiddleware:
             logger.warning(f"Refused a request to the ingress port from {client}: only Home Assistant's Supervisor may use it")
             return await answer(403, "Forbidden")
 
-        # Speakers and browsers fetch these without signing in
-        if path.startswith("/stream/") or path.startswith("/static/"):
+        # Browsers fetch these without signing in
+        if path.startswith("/static/"):
             return await self.app(scope, receive, send)
+        # Speakers can't sign in: a stream link, the LAN, or a signed-in caller (auth/stream_links.py)
+        if path.startswith("/stream/"):
+            return await self._stream(scope, receive, send, path, client, answer)
 
         headers = _headers(scope)
         for plugin_id, prepare in service.provider("prepare"):
@@ -186,6 +189,28 @@ class AuthMiddleware:
             return await self._checked(scope, receive, send, principal, reject, headers, method, path, listener, answer)
         finally:
             CALLER.reset(caller)
+
+    async def _stream(self, scope, receive, send, path, client, answer):
+        from sonorium import limits
+        from sonorium.auth import stream_links
+        if path.startswith(stream_links.OWN_SECRET_PREFIXES):  # its own secret (a virtual speaker)
+            return await self.app(scope, receive, send)
+        service = self.service
+        if stream_links.required() and not stream_links.allowed_without_sign_in(
+                path, scope.get("query_string") or b"", client):
+            principal, reject = resolve(service, scope, _headers(scope))
+            if reject is not None or principal.kind in ("anonymous", "open") or not principal.perms:
+                logger.debug(f"Refused a stream ({path}) to {client}: no stream link, not signed in")
+                return await answer(401, {"detail": "Sign in first", "login": True})
+            scope.setdefault("state", {})["auth"] = principal
+        slots = stream_links.STREAMS
+        if not slots.take(client, limits.count(limits.STREAMS_PER_ADDRESS), limits.count(limits.STREAMS)):
+            logger.warning(f"Refused a stream ({path}) to {client}: too many streams open")
+            return await answer(429, {"detail": "Too many streams are open. Close one and try again."})
+        try:
+            return await self.app(scope, receive, send)
+        finally:
+            slots.give(client)
 
     async def _checked(self, scope, receive, send, principal, reject, headers, method, path, listener, answer):
         service = self.service

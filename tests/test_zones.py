@@ -165,7 +165,7 @@ class World:
         self.clock = Clock()
         self.zones.now = self.clock
         self.accounts = s.plugin_state["users"]
-        self.client = TestClient(app)
+        self.client = TestClient(app, client=("127.0.0.1", 50000))
 
         # An admin (chris), and two users: alex (a kid) and sam
         r = self.client.post("/api/auth/setup", json={"username": "chris", "password": "correct horse"})
@@ -187,7 +187,7 @@ class World:
 
     def sign_in(self, name):
         from fastapi.testclient import TestClient
-        c = TestClient(self.app)
+        c = TestClient(self.app, client=("127.0.0.1", 50000))
         assert c.post("/api/auth/login", json={"username": name, "password": f"{name} password"}).status_code == 200
         return c, c.get("/api/auth/me").json()["csrf"]
 

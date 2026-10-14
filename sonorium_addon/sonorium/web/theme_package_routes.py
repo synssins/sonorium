@@ -172,17 +172,9 @@ def _render_into(out, folder, preset_id, seconds, seed, values, master_gain, the
 
 
 async def _json_object(request: Request) -> dict:
-    raw = await request.body()
-    if not raw.strip():
-        return {}
-    import json
-    try:
-        data = json.loads(raw)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=400, detail="Expected a JSON object")
-    return data
+    """The JSON object sent ({} for no body), at most request_body_limit_kb (413 beyond)."""
+    from sonorium import limits
+    return await limits.read_json_object(request, empty={})
 
 
 def _caller_key(request: Request) -> str:
