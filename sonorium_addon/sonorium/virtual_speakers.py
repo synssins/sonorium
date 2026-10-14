@@ -54,6 +54,9 @@ from fastapi.responses import StreamingResponse
 
 from sonorium.obs import logger
 
+# Lines naming users go to the sign-in logger: only admins see them on the Logs page (logbuffer.py)
+private_logger = logger.getChild("auth")
+
 OWNER = "virtual_speakers"         # its key in the auth service (routes, /api/auth/me, UI bundle)
 PREFIX = "virtual:"
 SPEAKER_TYPE = "virtual"
@@ -166,13 +169,13 @@ class VirtualSpeakers:
                     if uid not in known:
                         known[uid] = name
                         self._enable(speaker_id_for(uid))
-                        logger.info(f"Virtual speakers: '{name}' added")
+                        private_logger.info(f"Virtual speakers: '{name}' added")
                         changed = True
                     elif known[uid] != name:
                         known[uid] = name
                         changed = True
                 for uid in [u for u in known if u not in accounts]:
-                    logger.info(f"Virtual speakers: '{known[uid]}' removed with its account")
+                    private_logger.info(f"Virtual speakers: '{known[uid]}' removed with its account")
                     known.pop(uid, None)
                     self._forget(uid)
                     changed = True

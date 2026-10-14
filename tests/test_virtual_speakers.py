@@ -452,3 +452,16 @@ def test_a_new_stream_on_the_same_claim_replaces_the_old_one(w):
     assert wait_for(lambda: len(second) > 2) and not done2.is_set()
     w.vs.release("u_ann", "web-aaaaaaaa")
     assert done2.wait(5)
+
+
+def test_log_lines_naming_users_are_private(w, caplog):
+    import logging
+    w.users["u_dee"] = {"username": "dee"}
+    with caplog.at_level(logging.INFO):
+        w.vs.sync()
+        del w.users["u_dee"]
+        w.vs.sync()
+    named = [r for r in caplog.records if "dee" in r.getMessage()]
+    assert len(named) == 2
+    # logbuffer.is_private: the "sonorium.auth" logger or a child of an "auth" logger tree
+    assert all(r.name.endswith(".auth") or r.name == "sonorium.auth" for r in named)
