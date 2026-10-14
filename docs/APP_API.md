@@ -1580,9 +1580,14 @@ again from the same client keeps the same `stream_path`. 400 for a bad client id
 → `{"released": true|false, ...status}`; `false` when another client holds it
 (nothing changes then).
 
-**Playing:** while `playing && this_client`, play
-`http://<host>:<ports.http><stream_path>` (progressive MP3, as in 9.2; no
-`?local=1`). It is the channel's broadcast at the speaker's level (channel
+**Playing:** while `playing && this_client`, play `<url><stream_path>`,
+`url` from `/api/info` (section 3: the public address behind a reverse proxy,
+else this server's own), as progressive MP3 (9.2; no `?local=1`). The path's
+token is its own secret: it never needs a stream link (`?t=`), also while
+Require login is on. It counts against the stream limits like any stream
+(`streams_per_address`, `streams_limit`: 429 "Too many streams are open"),
+by the caller's address (behind a trusted proxy, the forwarded one). A new
+stream on the same claim (a reconnect) replaces the old one, which ends. It is the channel's broadcast at the speaker's level (channel
 volume with the speaker's Offset, the speaker's own volume and mute; the
 channel's speakers-muted switch silences it like any speaker). The stream
 ends when the channel stops, the speaker leaves the channel, or another

@@ -25,7 +25,8 @@ m = SimpleNamespace()
 @pytest.fixture(autouse=True, scope="module")
 def modules():
     with addon_modules(*MODULES, "sonorium.virtual_speakers", "sonorium.core.speaker_live",
-                       "sonorium.auth.principal", "sonorium.web.api_v2") as mods:
+                       "sonorium.auth.principal", "sonorium.web.api_v2", "sonorium.limits",
+                       "sonorium.playback_values", "sonorium.auth.proxies", "sonorium.auth.stream_links") as mods:
         m.__dict__.update(mods.__dict__)
         yield
 
@@ -375,3 +376,79 @@ def test_offered_in_the_pickers_and_plays_in_a_channel_made_through_the_api(w):
     r = http.put(f"/api/sessions/{sid}", json={"adhoc_selection": {"include_speakers": [BOB]}})
     assert r.status_code == 200, r.text
     assert not w.vs.status("u_ann")["playing"] and w.vs.status("u_bob")["playing"]
+
+
+# --- Exposure limits (limits.py, auth/proxies.py, auth/stream_links.py) -------------------
+
+def demo_client(w, monkeypatch, peer=("172.18.0.5", 40000)):
+    """The demo's layout: Caddy (a trusted proxy on the Docker bridge) in front of Sonorium."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv(m.proxies.ENV, "172.18.0.0/16")
+    app = FastAPI()
+    app.include_router(m.virtual_speakers.create_router(w.vs))
+
+    @app.middleware("http")
+    async def sign_in(request, call_next):
+        user = request.headers.get("x-test-user")
+        request.state.auth = m.principal.Principal("session", user_id=user or None)
+        return await call_next(request)
+    app.add_middleware(m.limits.BodyLimitMiddleware)
+    app.add_middleware(m.proxies.ForwardedClient)
+    return TestClient(app, client=peer)
+
+
+@pytest.fixture
+def values():
+    stored = {}
+    m.playback_values.set_source(lambda: stored)
+    yield stored
+    m.playback_values.set_source(None)
+
+
+def test_claim_and_status_have_the_request_body_cap(w, monkeypatch, values):
+    http = demo_client(w, monkeypatch)
+    ann = {"x-test-user": "u_ann", "Content-Type": "application/json"}
+    big = b'{"client": "web-aaaaaaaa", "pad": "' + b"a" * (1100 * 1024) + b'"}'
+    assert http.post("/api/me/speaker/claim", content=big, headers=ann).status_code == 413
+    assert http.request("DELETE", "/api/me/speaker/claim", content=big, headers=ann).status_code == 413
+    assert http.post("/api/me/speaker/claim", json={"client": "web-aaaaaaaa"}, headers=ann).status_code == 200
+
+
+def test_stream_counts_against_the_stream_limits_by_the_forwarded_address(w, monkeypatch, values):
+    http = demo_client(w, monkeypatch)
+    slots = m.stream_links.STREAMS
+    solo = w.channel("Solo", [ANN, "net:a"])
+    path = w.vs.claim("u_ann", "web-aaaaaaaa", "web")["stream_path"]
+    assert "?t=" not in path  # its own secret: no stream link
+    assert w.play(solo)
+    values.update(streams_per_address=1, streams_limit=0)
+    assert slots.take("198.51.100.7", 1)
+    try:
+        # the caller behind Caddy is counted, not Caddy
+        assert http.get(path, headers={"X-Forwarded-For": "198.51.100.7"}).status_code == 429
+        missing = http.get("/stream/virtual/" + "0" * 32, headers={"X-Forwarded-For": "198.51.100.8"})
+        assert missing.status_code == 404 and slots.held("198.51.100.8") == 0  # a refused stream gives its slot back
+        values.update(streams_per_address=0, streams_limit=1)
+        assert http.get(path, headers={"X-Forwarded-For": "198.51.100.9"}).status_code == 429  # in all
+    finally:
+        slots.give("198.51.100.7")
+    assert slots.held() == 0
+
+
+def test_a_new_stream_on_the_same_claim_replaces_the_old_one(w):
+    solo = w.channel("Solo", [ANN, "net:a"])
+    token = w.vs.claim("u_ann", "web-aaaaaaaa", "web")["stream_path"].rsplit("/", 1)[1]
+    assert w.play(solo)
+    released = []
+    first, done1 = [], threading.Event()
+    threading.Thread(target=read_some, args=(w.vs.open_stream(token, release=lambda: released.append(1)), first, done1),
+                     daemon=True).start()
+    assert wait_for(lambda: len(first) > 2)
+    second, done2 = [], threading.Event()
+    threading.Thread(target=read_some, args=(w.vs.open_stream(token), second, done2), daemon=True).start()
+    assert done1.wait(5) and released == [1]  # a reconnect: the old stream ends and gives its slot back
+    assert wait_for(lambda: len(second) > 2) and not done2.is_set()
+    w.vs.release("u_ann", "web-aaaaaaaa")
+    assert done2.wait(5)

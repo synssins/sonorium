@@ -33,6 +33,10 @@ API (docs/APP_API.md, "Virtual speakers"):
     GET    /api/auth/me                         "virtual_speaker": the status (null without an account)
 
 Only the caller's own account is ever reached: no route takes a speaker or user id.
+Limits (limits.py): the claim and status routes have the request body limit;
+a stream needs no stream link (its token is its secret) but counts against
+streams_per_address and streams_limit (429), and a newer stream on the same
+claim (a reconnect) ends the older one.
 """
 from __future__ import annotations
 
@@ -91,6 +95,7 @@ class Claim:
     token: str = field(default_factory=lambda: secrets.token_hex(16))
     seen: float = 0.0
     streams: int = 0
+    opened: int = 0     # streams opened on this claim; only the newest plays (a reconnect replaces the old one)
 
 
 class VirtualSpeakers:
@@ -374,15 +379,18 @@ class VirtualSpeakers:
                 return uid, claim
         return None, None
 
-    def still_on(self, user_id: str, claim: Claim, session_id: str) -> bool:
-        """A stream goes on: its claim is the current one and its channel still plays the speaker."""
-        if self._claims.get(user_id) is not claim:
+    def still_on(self, user_id: str, claim: Claim, session_id: str, number: Optional[int] = None) -> bool:
+        """A stream goes on: its claim is the current one, it is the claim's newest, and its channel still plays the speaker."""
+        if self._claims.get(user_id) is not claim or (number is not None and number != claim.opened):
             return False
         session = self.playing_session(user_id)
         return session is not None and session.id == session_id
 
-    def open_stream(self, token: str):
-        """The MP3 stream for a claim's token. LookupError: no such claim, or nothing plays."""
+    def open_stream(self, token: str, release: Optional[Callable[[], None]] = None):
+        """
+        The MP3 stream for a claim's token (release() is called once when it ends).
+        LookupError: no such claim, or nothing plays.
+        """
         if not isinstance(token, str) or not TOKEN.match(token):
             raise LookupError("Not found")
         user_id, claim = self._claim_by_token(token)
@@ -392,7 +400,8 @@ class VirtualSpeakers:
         channel = self.sm.channel_of(session.id) if session is not None else None
         if channel is None:
             raise LookupError("Not playing")
-        return _stream_class()(channel, self, user_id, claim, session)
+        claim.opened += 1
+        return _stream_class()(channel, self, user_id, claim, session, release)
 
 
 _STREAM_CLASS = None
@@ -407,8 +416,9 @@ def _stream_class():
     from sonorium.core.channel import ChannelStream
 
     class VirtualStream(ChannelStream):
-        def __init__(self, channel, owner: VirtualSpeakers, user_id: str, claim: Claim, session):
+        def __init__(self, channel, owner: VirtualSpeakers, user_id: str, claim: Claim, session, release=None):
             self.owner, self.user_id, self.claim, self.session = owner, user_id, claim, session
+            self.number, self._release = claim.opened, release
             self._level = None
             super().__init__(channel, local=False)  # a speaker: the speakers-muted switch applies
 
@@ -432,13 +442,16 @@ def _stream_class():
                     now = time.monotonic()
                     if now >= next_check:
                         next_check = now + CHECK_SECONDS
-                        if not owner.still_on(self.user_id, claim, self.session.id):
+                        if not owner.still_on(self.user_id, claim, self.session.id, self.number):
                             break
                     yield data
             finally:
                 inner.close()
                 claim.streams = max(0, claim.streams - 1)
                 claim.seen = owner.clock()
+                release, self._release = self._release, None
+                if release is not None:
+                    release()
 
     _STREAM_CLASS = VirtualStream
     return VirtualStream
@@ -502,11 +515,23 @@ def create_router(speakers: VirtualSpeakers):
         return {"released": released, **speakers.status(uid, client)}
 
     @router.get("/stream/virtual/{token}")
-    async def stream_virtual(token: str):
-        """The speaker's MP3 stream for the listening client (404 when its claim is gone or nothing plays)."""
+    async def stream_virtual(token: str, request: Request):
+        """
+        The speaker's MP3 stream for the listening client (404 when its claim is gone or nothing plays).
+        Its token is its own secret (no ?t= stream link); it counts against the stream limits
+        (streams_per_address, streams_limit: 429) like any stream, by the caller's address
+        (behind a trusted proxy: the forwarded one).
+        """
+        from sonorium import limits
+        from sonorium.auth import stream_links
+        client = request.client.host if request.client else "unknown"
+        slots = stream_links.STREAMS
+        if not slots.take(client, limits.count(limits.STREAMS_PER_ADDRESS), limits.count(limits.STREAMS)):
+            raise HTTPException(status_code=429, detail="Too many streams are open. Close one and try again.")
         try:
-            stream = speakers.open_stream(token)
+            stream = speakers.open_stream(token, release=lambda: slots.give(client))
         except LookupError as e:
+            slots.give(client)
             raise HTTPException(status_code=404, detail=str(e).strip("'\""))
         return StreamingResponse(stream, media_type="audio/mpeg")
 
