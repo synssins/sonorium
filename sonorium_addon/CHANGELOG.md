@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.62 (2026-10-14)
+
+### Features
+
+- **playback**: Next steps through the theme's presets; plainer wording
+  ([`d4d8a26`](https://github.com/synssins/sonorium/commit/d4d8a2689f348b975a61b1b7c5de58418dfd4b1c))
+
+
 ## v1.7.3-dev.57 (2026-10-14)
 
 ### Bug Fixes
