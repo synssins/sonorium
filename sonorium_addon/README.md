@@ -4,6 +4,21 @@
 
 ## Announcements
 
+> ## ⭐ Major release: 1.8.0
+>
+> A large update. Plugins can add to any screen, theme audio is stored in one standard format, themes import several at a time, and Sonorium is ready to run behind a reverse proxy and to be reached from outside the home network.
+>
+> - **Plugin Framework 2:** plugins add fields, buttons and pages to the screens, keep values on themes, tracks, channels and speakers, bring devices such as lights or displays, and know which sound is heard where and when. A plugin asks for permission before it runs.
+> - **Theme audio as MP3:** every track is stored as an MP3 (320 kb/s, 44.1 kHz, stereo). The original files are kept in each theme's `_originals` folder.
+> - **Themes:** import several zips at once, or drop them on the Themes page; **Duplicate** copies a theme; no two themes share a name.
+> - **Channels:** a sleep timer, Next and Previous through a theme's presets, and Child Mode (formerly Kid mode).
+> - **Settings › Advanced:** a server name for the app and other devices, the HTTP and HTTPS ports (Docker and Linux), trusted proxies, and limits for sign-ins, requests, uploads, imports and streams.
+> - **Stereo:** an optional switch in **Settings › Audio Settings** keeps left and right apart on every stream.
+>
+> **After the update,** Sonorium converts the existing theme audio to MP3 in the background, one file at a time, while the themes keep playing. A large library needs a while. The originals stay, so the themes folder uses more disk space afterwards.
+>
+> **Unchanged by the update:** the ports stay 8008 and 8808, and Stereo is off. Every new limit has a default and can be changed in **Settings › Advanced**. Details are under [What's new](#whats-new).
+
 > ## ⭐ 1.7.0: Sign-in, announcements and plugins
 >
 > Sonorium gets users and sign-in, plays announcements sent by other systems, and runs plugins that play sounds over channels.
@@ -89,6 +104,11 @@ Search, filter by category, and switch between cards and a list.
 
 ![Themes](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Themes.png)
 
+#### Import themes
+Several theme zips at once, each with its result.
+
+![Import themes](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Import_Themes.png)
+
 #### Edit Theme
 Tracks in sections by how they play: Unassigned, Background, Intermittent and Ebb & Flow, each with its own groups.
 
@@ -166,9 +186,13 @@ Keys for devices and programs, each allowed only the items checked on it.
 ![Settings → Keys](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings_Keys.png)
 
 #### Settings → Advanced
-Optional features, and the playback values every theme is built on.
+Optional features, the server name, and the playback values every theme is built on.
 
 ![Settings → Advanced](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings_Advanced.png)
+
+Limits for requests, uploads, imports, streams and sign-in tries, and the network settings: Stream URL, ports and trusted proxies (Docker).
+
+![Settings → Advanced: Limits and Network](https://raw.githubusercontent.com/synssins/sonorium/main/screenshots/Settings_Network.png)
 
 #### Help on every page
 The **?** in the top bar explains the page you're on.
@@ -199,6 +223,7 @@ The menu opens from the top bar.
 - **Theme Favorites**: Star your most-used themes for quick access
 - **Custom Categories**: Organize themes into categories like "Weather", "Nature", "Urban"
 - **Theme Icons**: Visual icons for easy theme identification
+- **Import and Duplicate**: Import several theme zips at once, or drop them on the Themes page; Duplicate copies a theme
 
 #### Playback Control
 - **Per-Channel Volume**: Independent volume control for each channel
@@ -234,11 +259,12 @@ Fine-tune how each audio file plays within a theme:
 - **Users and Roles**: An Admin changes everything; a User plays and changes channels, playlists and sequences
 - **Keys**: For devices and programs, each allowed only the items checked on it, with an expiry
 - **Link App**: A QR code on the Channels page links the Sonorium app to your account
-- **Zones** (optional): Channels that belong to a user, Kid mode with its hours, a home channel for each speaker, and linked channels
+- **Zones** (optional): Channels that belong to a user, Child Mode and its hours, a home channel for each speaker, and linked channels
 
 #### Plugins
-- **Built-in Plugins**: Users, Integration (keys), Announcements, Theme Merge and Ambient Mixer Importer; each can be uninstalled
-- **Plugin API**: Plugins play sounds and announcements over channels, ramp volume, add audio outputs, and answer remotes, MQTT topics and webhooks
+- **Built-in Plugins**: Theme Merge and Ambient Mixer Importer; each can be uninstalled
+- **Plugin API**: Plugins play sounds and announcements over channels, ramp volume, add audio outputs that work as speakers, and answer remotes, MQTT topics and webhooks
+- **Plugin Framework 2**: Plugins add to any screen, keep values on themes, channels and speakers, bring devices such as lights, follow which sound is heard when, and run only with the permissions an admin allows
 
 #### Modern Web Interface
 - **Responsive Design**: Phones, tablets and short screens each get a layout that fits; on a phone the menu opens from a top bar that's always there
@@ -275,7 +301,7 @@ All theme management is done through the Sonorium web interface:
 2. **Upload Audio**: Drag and drop audio files or click to upload
 3. **Organize**: Set categories, icons, and favorites
 
-**Supported formats:** `.mp3`, `.wav`, `.flac`, `.ogg`
+**Supported formats:** `.mp3`, `.wav`, `.flac`, `.ogg`. Sonorium stores every track as an MP3 (320 kb/s, 44.1 kHz, stereo) and keeps the original in the theme's `_originals` folder.
 
 **Single-File Themes:** Themes with one audio file loop seamlessly using crossfade blending—no jarring restarts!
 
@@ -355,13 +381,15 @@ Access Settings from the sidebar to configure:
 - **Crossfade Duration**: Blend time between loops (0-10 seconds)
 - **Default Volume**: Initial volume for new channels
 - **Master Gain**: Global output level
+- **Stereo**: Left and right apart on every stream (off by default)
 - **Speakers**: Switch speakers on or off, set their name, room and volume offset, and play a test sound
 - **Speaker Groups**: Saved sets of speakers for quick channel setup
 - **Plugins**: Install, update, remove and set up plugins
 - **Logs**: Recent messages, with level filter, search, copy and download
 - **Users & devices**: Users, their roles, browsers and phones, and **Require login** (admins)
+- **Backups**: Theme backups from the Sonorium app, by device
 - **Keys**: Keys for devices and programs (admins)
-- **Advanced**: Optional features such as Zones and Plugin packages, and the playback values every theme is built on
+- **Advanced**: The server name, optional features such as Zones, Keys, Announcements and Plugin packages, the playback values every theme is built on, and limits
 
 ### Announcements: let other systems use Sonorium
 
@@ -524,6 +552,65 @@ automations that use the entity first.
 
 ## What's new
 
+### 1.8.0
+
+**Plugin Framework 2**
+- **Plugins add to any screen.** A plugin adds fields, buttons, columns, badges and pages to the screens, list rows, cards and ⋯ menus. Each spot has fixed rules for what fits there; anything outside them is refused and listed on the plugin's row in **Settings → Plugins**.
+- **Values on themes, channels and more.** A plugin keeps values on themes, tracks, groups, presets, sequences, channels, speakers, playlists and users. They stay through every edit and travel with theme exports; uninstalling the plugin removes them.
+- **Permissions.** A plugin lists what it uses: channels, themes, audio, devices, screens, Home Assistant, MQTT, Python packages, the network. It stays off until an admin allows the list, and an update that asks for more stays off until allowed again. Nothing a plugin brings is installed or run before that.
+- **Devices.** A plugin brings a kind of device, such as a light, a display or a button panel. Sonorium lists, names and places it in an area, and assigns it to channels, without knowing what the device is.
+- **Output devices are speakers.** Audio outputs a plugin provides show in **Settings → Speakers** and the channel editor like any speaker. Outputs of the computer Sonorium runs on play one at a time, unless **Allow output to more than one local device** is on (**Settings → Plugins**, ⋯ menu).
+- **Cues and listening.** A plugin learns ahead of time which sound will be heard on which speaker, and when, and can listen to a channel's mix: lights or a display can follow the sound. Neither can slow or change playback.
+- **Only if.** A command map entry can have conditions (⋯ › **Only if…**): the channel is playing or stopped, the time is between two times, or a condition a plugin adds. Plugins can also add actions.
+- **For plugin authors:** plugin API 1.2. See [docs/PLUGIN_DEVELOPMENT.md](https://github.com/synssins/sonorium/blob/main/docs/PLUGIN_DEVELOPMENT.md), sections 23 to 31.
+
+**Themes**
+- **MP3 for theme audio.** Every track is stored as an MP3 at 320 kb/s, 44.1 kHz, stereo. Imports, uploads and copied files are converted as they arrive; existing themes are converted in the background after the update, one file at a time. Track settings, presets, sequences and links stay as they were. The original files are kept in the theme's `_originals` folder, which is never played and is left out of exports.
+- **Import several themes.** **Import theme…** accepts several zips at once, or drop them on the Themes page. They import one after another, each with its result; one that fails doesn't stop the rest.
+- **Duplicate.** A theme's ⋯ menu, on the Themes page and in the Theme Editor, makes a separate copy under a new name.
+- **One name per theme.** Two themes can't have the same name (capitals don't count). Creating, renaming, importing or duplicating with a name in use is refused with "A theme with this name already exists".
+- **Copy into this theme.** A linked file's download button, or its ⋯ menu, copies the file into the theme in place of the link. Its settings and preset values stay.
+- **Theme backups from the Sonorium app.** The app backs up a device's presets, sequences, track settings and playlists to the server, and whole themes made on the device, per account and device. **Settings → Backups** lists them; **Load my device presets into themes** adds a device's presets to the matching themes as ordinary presets. **Backup space per user** and **Backup space for all users** are in **Settings → Advanced**.
+- **Themes for the app.** The Sonorium app can download a theme, every file checked, to play on the device.
+
+**Channels**
+- **Sleep timer.** A playing channel's ⋯ › **Sleep timer…** fades it out and stops it after 15, 30 or 45 minutes, 1 to 4 hours, or a custom time. The card shows the time left. A restart keeps the timer.
+- **Next and Previous.** With no playlist or sequence running, **Next** (Home Assistant, MQTT, plugins, the Sonorium app) moves to the theme's next preset. **Previous**, new for the app and the API, goes back one playlist entry, sequence step or preset.
+- **Channel cards.** Recent changes is gone from the cards and from the Home Assistant channel popup; each card is as tall as what it shows.
+- **Child Mode.** Kid mode is now called Child Mode. The card shows a lock after the speakers.
+- **Back after a restart.** After a restart from Settings or the web UI, the channels that were playing play again with their theme, preset, sequence or playlist, and volume. After a stop or a crash they stay stopped.
+- **Max channels.** Starting a channel when the most channels are already playing is refused with a message, from the web UI, Home Assistant, MQTT, plugins and links.
+- **My Channel.** For the Sonorium app: each account has a channel that plays only on that account's devices.
+
+**Settings**
+- **Server name** (**Settings → Advanced**, General): the name the app and other devices show, also announced on the network.
+- **Stereo** (**Settings → Audio Settings**, off by default): left and right stay apart on every stream; a mono file plays in the middle.
+- **Keys and Announcements** are switches in **Settings → Advanced**; off turns the feature off everywhere at once. Users, Keys and Announcements are part of Sonorium now, no longer built-in plugins. Existing users and keys keep working.
+- **Restart** from Settings works in Docker and the Home Assistant app. Before, the page could hang.
+
+**Network and hosting**
+- **Ports.** **Settings → Advanced**, Network sets the HTTP port (8008) and the HTTPS port (8808) on Docker and Linux; `SONORIUM_HTTP_PORT` and `SONORIUM_HTTPS_PORT` do the same. A change restarts Sonorium.
+- **Behind a reverse proxy.** **Trusted proxies** names the proxies in front of Sonorium, so sign-in limits and the logs see each caller's address. Set the **Stream URL** to the public address: the app and Link App codes then use it. See [docs/HOSTING.md](https://github.com/synssins/sonorium/blob/main/docs/HOSTING.md).
+- **Home networks on 10.x addresses** work. They were taken for Docker's internal network.
+
+**Security**
+- **Limits** in **Settings → Advanced**, Limits: the size of sign-in requests, other requests, uploads and theme imports, the files in one theme import, exports at once, streams per address and in all, event streams per user, and sign-in tries per username. Each has a default; 0 is no limit.
+- **Stream links.** While **Require login** is on, speakers outside the LAN get stream addresses that work for a set time (12 hours by default).
+- **The first account** can only be made from the LAN, or with `SONORIUM_SETUP_TOKEN`.
+- **Logs.** Sign-ins and addresses on the Logs page are for admins; everyone else sees `[address]`. The add-on log and `docker logs` keep the full lines.
+- **Theme lookups and links** can't reach outside the audio folder, Windows drive letters included. A theme import leaves out files that don't belong in a theme.
+
+**Fixes**
+- A group's file that ends cut off fades out instead of stopping dead.
+- A preset's and a While playing step's **Rise** reach the channel.
+- A theme zip without a top folder keeps its groups.
+- **Esc** in the Theme Editor works like **Cancel**, and closes the channel editor without saving.
+- **New Channel** starts at the **Default volume** from **Settings → Audio Settings**.
+- **Removing MQTT** also removes the Announce notify entities and plugins' entities from Home Assistant.
+- **Keys:** **Last used** changes only when a request with the key is accepted.
+- The **Link App** dialog closes once its code links a device or expires.
+- Themes load on Windows when their files contain accented letters or other special characters.
+
 ### 1.7.0
 
 **Sign-in**
@@ -554,7 +641,7 @@ automations that use the entity first.
 **Home Assistant dashboard cards**
 - **Sonorium's cards** are added to Home Assistant automatically when Home Assistant and MQTT are linked. Search for **Sonorium** in the card picker.
 - **Four layouts:** **Tile**, **Channel**, **Player** and **All channels**, changed in the card's editor along with what each one shows.
-- **Channel popup.** Clicking a channel's name opens the channel as it looks on Sonorium's Channels page, with its recent changes.
+- **Channel popup.** Clicking a channel's name opens the channel as it looks on Sonorium's Channels page.
 - When the cards can't be added automatically, **Settings → Connection** says why and offers the file to download (Docker).
 
 **Zones**

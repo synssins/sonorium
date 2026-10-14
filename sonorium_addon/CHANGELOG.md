@@ -2,6 +2,26 @@
 
 <!-- version list -->
 
+> ## ⭐ 1.8.0: Plugin Framework 2, MP3 themes, hosting and security
+>
+> Plugins can add to any screen, theme audio is stored as MP3, themes import several at a time, and Sonorium is ready to run behind a reverse proxy and outside the home network. After the update, existing theme audio is converted to MP3 in the background; the originals are kept in each theme's `_originals` folder.
+
+### Highlights
+
+- **Plugin Framework 2:** plugins add fields, buttons, columns, badges and pages to the screens, rows, cards and ⋯ menus, each spot with fixed rules; keep values on themes, tracks, groups, presets, sequences, channels, speakers, playlists and users; bring devices of any kind (lights, displays, button panels); learn which sound is heard where and when (cues) and listen to a channel's mix; add actions and "Only if" conditions to command maps. A plugin lists the permissions it uses and stays off, with nothing installed or run, until an admin allows them. Plugin API 1.2.
+- **Output devices are speakers:** a plugin's audio outputs show in Settings › Speakers and the channel editor; local outputs play one at a time unless "Allow output to more than one local device" is on.
+- **MP3 standard for theme audio:** every track is stored as MP3 320 kb/s, 44.1 kHz, stereo; imports, uploads and copied files are converted as they arrive, existing themes in a background pass. Settings, presets, sequences and links follow; originals kept in `_originals`.
+- **Themes:** bulk import (several zips, or dropped on the Themes page), Duplicate theme, no two themes with the same name (409 "A theme with this name already exists"), Copy into this theme for linked files.
+- **Theme backups for the Sonorium app:** per account and device, listed in Settings › Backups, with "Load my device presets into themes" and backup space limits; theme packages the app downloads to play on the device.
+- **Channels:** sleep timer; Next moves through a theme's presets when no playlist or sequence runs, and Previous is new (`POST /api/sessions/{id}/previous`); Child Mode (formerly Kid mode); Recent changes removed from the cards and the Home Assistant popup; channels that were playing play again after a requested restart; Max channels is enforced; My Channel for the app.
+- **Settings:** server name (Settings › Advanced › General, also in mDNS and `/api/info`); Stereo switch in Settings › Audio Settings (off by default); Keys and Announcements switches in Settings › Advanced; Users, Keys and Announcements are part of Sonorium, no longer built-in plugins; Restart works in Docker and the Home Assistant app.
+- **Network and hosting:** HTTP and HTTPS ports in Settings › Advanced › Network (Docker and Linux) or `SONORIUM_HTTP_PORT` / `SONORIUM_HTTPS_PORT`; Trusted proxies (`SONORIUM__TRUSTED_PROXIES`); a public Stream URL is what `/api/info` and Link App codes give the app; 10.x home networks are reachable. See docs/HOSTING.md.
+- **Security:** limits for sign-in and other request sizes, uploads, theme imports, exports, streams, event streams and sign-in tries per username (Settings › Advanced › Limits; 0 is no limit); stream links for speakers outside the LAN while Require login is on; the first account only from the LAN or with `SONORIUM_SETUP_TOKEN`; sign-ins and addresses on the Logs page for admins only; theme lookups, link keys and zip entries can't reach outside the audio folder.
+- **Windows app:** the installer is released with Sonorium; 1.8.0 is the first full (not pre-release) Windows release.
+- **Fixes:** a group's file that ends cut off fades out; a preset's and a While playing step's Rise reach the channel; a zip without a top folder keeps its groups; Esc cancels the Theme Editor and the channel editor; New Channel starts at the Default volume; removing MQTT removes the Announce and plugin entities; a key's Last used counts only accepted requests; the Link App dialog closes when its code is used or expires; text files are read as UTF-8 everywhere.
+
+The full list is in the README under What's new.
+
 ## v1.7.3-dev.64 (2026-10-14)
 
 ### Bug Fixes
