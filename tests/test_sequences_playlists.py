@@ -415,6 +415,72 @@ def test_next_skips_to_the_next_entry_or_sequence_step(tmp_path):
     assert run(t.manager.skip(t.session.id)) is None
 
 
+def test_previous_goes_back_one_playlist_entry(tmp_path):
+    t = build(tmp_path)
+    add_playlist(t, ENTRIES)
+    run(t.manager.play(t.session.id))
+    t.manager.set_playlist(t.session.id, "p1")
+    run(t.manager.skip(t.session.id))
+    assert t.session.theme_id == "forest"
+    assert run(t.manager.previous(t.session.id)) == "playlist"
+    assert t.session.theme_id == "tavern" and t.session.playlist_position == 0
+    assert run(t.manager.previous(t.session.id)) == "playlist"  # repeats: the first wraps to the last
+    assert t.session.theme_id == "storm" and t.session.playlist_position == 2
+
+
+def test_previous_on_the_first_entry_of_a_playlist_that_does_not_repeat(tmp_path):
+    t = build(tmp_path)
+    add_playlist(t, ENTRIES, repeat=False)
+    run(t.manager.play(t.session.id))
+    t.manager.set_playlist(t.session.id, "p1")
+    assert run(t.manager.previous(t.session.id)) == "playlist"  # the first entry starts again
+    assert t.session.theme_id == "tavern" and t.session.playlist_position == 0 and t.session.is_playing
+
+
+def test_previous_steps_a_sequence_back(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.start_sequence(t.session.id, "once")
+    at(t, 13)
+    at(t, 28)
+    assert t.session.preset_id == "c"
+    assert run(t.manager.previous(t.session.id)) == "sequence" and t.session.preset_id == "b"
+    assert t.channel.glides()[-1] == 3.0  # by hand: the quick 3 s
+    assert run(t.manager.previous(t.session.id)) == "sequence" and t.session.preset_id == "a"
+    assert run(t.manager.previous(t.session.id)) == "sequence" and t.session.preset_id == "a"  # first step again
+    assert t.session.sequence_id == "once"
+    assert "Step 1 of 3: Drizzle" in recent_texts(t)
+
+
+def test_previous_wraps_a_restarting_sequence(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.start_sequence(t.session.id, "loop")
+    assert run(t.manager.previous(t.session.id)) == "sequence" and t.session.preset_id == "c"
+
+
+def test_previous_without_a_playlist_or_sequence_picks_the_previous_preset(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.update(t.session.id, preset_id="c")
+    seen = []
+    for _ in range(4):
+        assert run(t.manager.previous(t.session.id)) == "preset"
+        seen.append(t.session.preset_id)
+    assert seen == ["b", "a", None, "c"]  # Default settings first; before it, the last preset
+    assert t.channel.glides()[-1] == 3.0
+    assert recent_texts(t)[-2:] == ["Preset: Default settings", "Preset: Downpour"]
+
+
+def test_previous_with_nothing_to_go_back_to(tmp_path):
+    t = build(tmp_path)
+    t.manager.update(t.session.id, theme_id="beach")  # a theme without presets
+    run(t.manager.play(t.session.id))
+    assert run(t.manager.previous(t.session.id)) is None
+    with pytest.raises(KeyError):
+        run(t.manager.previous("nope"))
+
+
 # --- Recent changes (the channel card's list) ---
 
 def recent_texts(t):

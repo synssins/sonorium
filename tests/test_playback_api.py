@@ -271,6 +271,32 @@ def test_channel_sequence_playlist_and_next(api):
     assert c.post(f"/api/sessions/{sid}/next").status_code == 409  # nothing runs
 
 
+def test_channel_previous(api):
+    c = api.client
+    sid = api.session.id
+    assert c.post(f"/api/sessions/{sid}/previous").status_code == 409  # not playing
+    assert c.post("/api/sessions/nope/previous").status_code == 404
+    pid = c.post("/api/playlists", json=PLAYLIST).json()["id"]
+    c.put(f"/api/sessions/{sid}/playlist", json={"playlist_id": pid})
+    runner_tests.run(api.manager.play(sid))
+    c.post(f"/api/sessions/{sid}/next")
+    r = c.post(f"/api/sessions/{sid}/previous")
+    assert r.status_code == 200 and r.json()["skipped"] == "playlist"
+    assert r.json()["playlist"]["position"] == 0
+
+    c.delete(f"/api/sessions/{sid}/playlist")
+    c.delete(f"/api/sessions/{sid}/sequence")
+    c.put(f"/api/sessions/{sid}", json={"theme_id": "storm", "preset_id": "seq:loop"})
+    r = c.post(f"/api/sessions/{sid}/previous")
+    assert r.status_code == 200 and r.json()["skipped"] == "sequence"
+    assert c.get(f"/api/sessions/{sid}").json()["preset_id"] == "c"  # restart: wraps to the last step
+
+    c.delete(f"/api/sessions/{sid}/sequence")
+    r = c.post(f"/api/sessions/{sid}/previous")
+    assert r.status_code == 200 and r.json()["skipped"] == "preset"
+    assert c.get(f"/api/sessions/{sid}").json()["preset_id"] == "b"
+
+
 def test_picking_a_sequence_as_the_channel_preset(api):
     c = api.client
     sid = api.session.id

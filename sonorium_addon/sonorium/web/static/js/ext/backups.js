@@ -1,5 +1,5 @@
 /* Settings › Backups: your theme backups from the Sonorium app, by phone (web/backup_routes.py),
- * and "Load my phone presets into themes". Only your own: the API has no route to anyone
+ * and "Load my device presets into themes". Only your own: the API has no route to anyone
  * else's. Fills the web UI's settings page slot (static/js/slots.js). Styles: static/css/backups.css. */
 (function () {
     const S = window.Sonorium;
@@ -12,7 +12,7 @@
     const P_CHEV = '<polyline points="9 18 15 12 9 6"/>';
     const arg = v => esc(JSON.stringify(String(v)));
     const term = (t, text) => `<p class="hi"><b>${t}:</b> ${text}</p>`;
-    const LOAD_LABEL = 'Load my phone presets into themes';
+    const LOAD_LABEL = 'Load my device presets into themes';
 
     function size(bytes) {
         const n = Number(bytes) || 0;
@@ -61,7 +61,7 @@
         const open = bk.open.has(d.device_id) && d.themes.length > 0;
         return `<div class="bk-row"><div class="sp-lrow bk-grid">
             <button type="button" class="chev-btn bk-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="Themes"${d.themes.length ? '' : ' disabled'} onclick="BackupsUI.toggle(${arg(d.device_id)})">${svg(P_CHEV, 14)}</button>
-            <span class="bk-name"><span class="ic">${svg(P_PHONE)}</span><span class="bk-nm">${esc(d.name)}</span>${d.this_device ? '<span class="you">this phone</span>' : ''}${d.linked ? '' : '<span class="bk-tag">Unlinked</span>'}</span>
+            <span class="bk-name"><span class="ic">${svg(P_PHONE)}</span><span class="bk-nm">${esc(d.name)}</span>${d.this_device ? '<span class="you">this device</span>' : ''}${d.linked ? '' : '<span class="bk-tag">Unlinked</span>'}</span>
             <span class="bk-dim d">${d.themes.length}</span><span class="bk-dim d">${esc(size(d.size_bytes))}</span><span class="bk-dim d">${esc(when(d.updated))}</span>
             <button type="button" class="btn btn-sm danger-ghost" onclick="BackupsUI.removeDevice(this, ${arg(d.device_id)})">Delete</button></div>
             ${open ? `<div class="bk-themes">${d.themes.map(t => themeHtml(d, t)).join('')}</div>` : ''}</div>`;
@@ -139,13 +139,13 @@
 
     const HELP = {
         title: 'Backups', html: `
-        <p>The themes your phones back up to this server. Only you see them.</p>
-        ${term(LOAD_LABEL, 'the presets and sequences your phones back up appear in the matching themes, named after the phone. You can edit them like any preset. Off: they are only kept here.')}
+        <p>The themes your devices back up to this server. Only you see them.</p>
+        ${term(LOAD_LABEL, 'the presets and sequences your devices back up appear in the matching themes, named after the device. You can edit them like any preset. Off: they are only kept here.')}
         ${term('Space used', 'what your backups take on the server, and the limit an admin set.')}
         <h4>Each device</h4>
-        ${term('Themes', 'how many themes the phone backed up.')}
-        ${term('Arrow', 'shows each theme: a mix of a theme on this server, or a whole theme made on the phone.')}
-        ${term('Unlinked', 'the phone is no longer linked. Its backups stay until you delete them.')}
+        ${term('Themes', 'how many themes the device backed up.')}
+        ${term('Arrow', 'shows each theme: a mix of a theme on this server, or a whole theme made on the device.')}
+        ${term('Unlinked', 'the device is no longer linked. The backups from it stay until you delete them.')}
         ${term('Delete', 'deletes the backups. Presets already loaded into themes stay. You confirm first.')}` };
 
     S.register('backups', {

@@ -253,6 +253,7 @@ DELETE  /api/sessions/{session_id}/sequence             pl.run
 PUT     /api/sessions/{session_id}/playlist             pl.run
 DELETE  /api/sessions/{session_id}/playlist             pl.run
 POST    /api/sessions/{session_id}/next                 pl.run
+POST    /api/sessions/{session_id}/previous             pl.run
 GET     /api/sessions/{session_id}/outputs              ch.view
 POST    /api/sessions/{session_id}/outputs              ch.play
 PUT     /api/sessions/{session_id}/outputs/{output_id}  ch.play

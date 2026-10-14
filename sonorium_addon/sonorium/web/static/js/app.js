@@ -6212,7 +6212,7 @@ const PV_SECTIONS = [
         { name: 'Streams in all', keys: ['streams_limit'], unit: 'streams', usual: [16, 256],
           desc: 'Audio streams open at the same time. 0 is no limit.' },
         { name: 'Event streams per user', keys: ['event_streams_per_caller'], unit: 'streams', usual: [2, 32],
-          desc: 'Event streams one user, linked phone or key may have open. 0 is no limit.' },
+          desc: 'Event streams one user, linked device or key may have open. 0 is no limit.' },
         { name: 'Sign-in tries per username', keys: ['login_attempts_per_user'], unit: 'a minute', usual: [3, 60],
           desc: 'Wrong passwords a minute for one username, from any address. 0 is no limit.' },
         { name: 'Stream link time', keys: ['stream_link_hours'], unit: 'h', usual: [1, 48],
@@ -10973,7 +10973,7 @@ const PAGE_HELP = {
         ${helpTerm('Search', 'looks in theme names and descriptions.')}
         ${helpTerm('Categories', 'a chip shows only the themes in that category. Favorites shows the themes you starred. The number is how many themes match.')}
         ${helpTerm('Sort', 'by name, or with the most tracks first.')}
-        ${helpTerm('Cards, List', 'two layouts of the same themes. A phone always shows cards.')}
+        ${helpTerm('Cards, List', 'two layouts of the same themes. A small screen always shows cards.')}
         <h4>Each theme</h4>
         ${helpTerm('★', 'adds the theme to Favorites or removes it.')}
         ${helpTerm('Preview', 'plays the theme on this device only. The speakers are not changed. Press it again to stop.')}
@@ -10997,7 +10997,7 @@ const PAGE_HELP = {
         ${helpTerm('Speaker Groups', 'saved sets of speakers for channels.')}
         ${helpTerm('Plugins', 'extras that add features.')}
         ${helpTerm('Logs', 'recent messages from Sonorium.')}
-        ${helpTerm('Users &amp; devices', 'who can sign in, and their phones and browsers. Shown to admins.')}
+        ${helpTerm('Users &amp; devices', 'who can sign in, and their devices and browsers. Shown to admins.')}
         ${helpTerm('Keys', 'keys that let devices and programs use Sonorium. Shown to admins while Keys are on in Advanced.')}
         ${helpTerm('Advanced', 'features you can switch on or off, the values playback uses, and the stream address.')}` },
 

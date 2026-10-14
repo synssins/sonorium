@@ -173,9 +173,9 @@ def add_backup_routes(router, *, session_manager=None, root=None) -> None:
         principal = _principal(request)
         owner = owner_of(request)
         if not principal.device_id:
-            raise HTTPException(status_code=403, detail="Only a linked phone backs up")
+            raise HTTPException(status_code=403, detail="Only a linked device backs up")
         if device_id not in (SELF, principal.device_id):
-            raise HTTPException(status_code=403, detail="A phone writes only its own backups")
+            raise HTTPException(status_code=403, detail="A device can write only the backups it made")
         return owner, principal.device_id, _linked(request, principal.device_id) or {}
 
     def reader(request: Request, device_id: str) -> tuple[str, str]:
@@ -236,7 +236,7 @@ def add_backup_routes(router, *, session_manager=None, root=None) -> None:
         rows = _device_rows(request, owner)
 
         def device_name(device_id, device):
-            return ((rows(device_id) or {}).get("name") or device.get("name") or "Phone")[:40]
+            return ((rows(device_id) or {}).get("name") or device.get("name") or "Device")[:40]
         return backup_load.load_account(store, owner, theme_access(), device_name, only)
 
     @router.get("/me/backups")

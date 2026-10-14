@@ -930,6 +930,18 @@ def create_api_router(
         await _sync_mqtt(session)
         return {"skipped": result, **_playback(session)}
 
+    @router.post("/sessions/{session_id}/previous")
+    async def previous_session(session_id: str) -> dict:
+        """Previous playlist entry now (else the sequence's previous step, else the theme's previous preset)."""
+        session = _session_or_404(session_id)
+        if not (session.is_playing or session_manager.is_listened(session)):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The channel is not playing")
+        result = await session_manager.previous(session_id)
+        if result is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to go back to")
+        await _sync_mqtt(session)
+        return {"skipped": result, **_playback(session)}
+
     # --- Sequences of a theme (stored in its presets.json) ---
 
     def _theme_folder_or_404(theme_id: str):

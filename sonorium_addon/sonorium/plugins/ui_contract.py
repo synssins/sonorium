@@ -105,7 +105,7 @@ SPOT_TYPES: dict[str, dict] = {
     "header": {
         "kinds": ("action",), "max_per_plugin": 1, "label_max": 20, "text_max": 0,
         "field_types": (), "bindings": (), "max_fields_per_item": 0, "collapsible": False,
-        "position": "after the screen's buttons; on a phone, in the screen's title-bar ⋯ (or, without one, "
+        "position": "after the screen's buttons; on a small screen, in the screen's title-bar ⋯ (or, without one, "
                     "in one ⋯ for them), so the screen's buttons and help keep their row",
     },
     "top": {

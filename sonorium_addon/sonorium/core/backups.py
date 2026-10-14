@@ -743,7 +743,7 @@ class BackupStore:
                 continue  # everything of this phone was deleted
             out.append({
                 "device_id": device_id,
-                "name": (linked or {}).get("name") or device.get("name") or "Phone",
+                "name": (linked or {}).get("name") or device.get("name") or "Device",
                 "platform": (linked or {}).get("platform") or device.get("platform") or "",
                 "model": (linked or {}).get("model") or device.get("model") or "",
                 "linked": linked is not None,

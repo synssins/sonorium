@@ -284,7 +284,7 @@ class Accounts:
             user["disabled"], changed = True, True
             ended = self.end_sessions(user_id)
             logger.warning(f"Users: {user['username']} is switched off or removed in Home Assistant: "
-                           f"{ended} browser(s) signed out; their phones and keys are refused")
+                           f"{ended} browser(s) signed out; their devices and keys are refused")
         return changed
 
     def sync_ha(self) -> None:

@@ -119,6 +119,7 @@ V2_ROUTES = [
     ('APIRoute', 'PUT', '/api/sessions/{session_id}/playlist', 'set_session_playlist'),
     ('APIRoute', 'DELETE', '/api/sessions/{session_id}/playlist', 'clear_session_playlist'),
     ('APIRoute', 'POST', '/api/sessions/{session_id}/next', 'skip_session'),
+    ('APIRoute', 'POST', '/api/sessions/{session_id}/previous', 'previous_session'),
     ('APIRoute', 'GET', '/api/themes/{theme_id}/sequences', 'list_theme_sequences'),
     ('APIRoute', 'POST', '/api/themes/{theme_id}/sequences', 'create_theme_sequence'),
     ('APIRoute', 'GET', '/api/themes/{theme_id}/sequences/{sequence_id}', 'get_theme_sequence'),

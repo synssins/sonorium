@@ -28,7 +28,7 @@
             <button class="btn btn-primary au-go" type="submit">Sign in</button>${err}
             <a class="au-link" href="#" onclick="return UsersUI.show('code')">Forgot password?</a></form>`,
         code: () => `<form class="au-card" onsubmit="return UsersUI.submit(event, 'code')">${LOGO}<h1>Sign in with a code</h1>
-            <p>Open the Sonorium app on your linked phone and tap <b>Sign-in code</b>. The code works once, for 5 minutes.</p>
+            <p>Open the Sonorium app on your linked device and tap <b>Sign-in code</b>. The code works once, for 5 minutes.</p>
             ${fld('Username', 'au-user', 'text', 'autocomplete="username" required')}
             <div class="sp-fld"><label class="sp-fld-label" for="au-d0">Code</label><div class="au-code">${
                 [0, 1, 2, 3, 4, 5].map(i => `<input class="sp-inp" id="au-d${i}" inputmode="numeric" maxlength="1" autocomplete="${i ? 'off' : 'one-time-code'}" aria-label="Digit ${i + 1}">`).join('')
@@ -36,7 +36,7 @@
             <button class="btn btn-primary au-go" type="submit">Continue</button>${err}
             <a class="au-link" href="#" onclick="return UsersUI.show('login')">Back to sign in</a></form>`,
         newpw: me => `<form class="au-card" onsubmit="return UsersUI.submit(event, 'newpw')">${LOGO}<h1>Choose a new password</h1>
-            <p>For <b>${esc(me && me.user ? me.user.username : '')}</b>. Your linked phones stay linked.</p>
+            <p>For <b>${esc(me && me.user ? me.user.username : '')}</b>. Your linked devices stay linked.</p>
             ${fld('New password', 'au-pass', 'password', 'autocomplete="new-password" required')}
             ${fld('Confirm new password', 'au-pass2', 'password', 'autocomplete="new-password" required')}
             <button class="btn btn-primary au-go" type="submit">Save and sign in</button>${err}</form>`,
@@ -340,7 +340,7 @@
             const u = userOf(id);
             const anchor = spMenuAnchor();
             if (!u || !anchor) return;
-            spConfirm('us-out-' + id, anchor, { title: `Sign ${u.username} out of every device?`, sub: 'Linked phones are unlinked.', ok: 'Sign out', danger: true }, async () => {
+            spConfirm('us-out-' + id, anchor, { title: `Sign ${u.username} out of every device?`, sub: 'Linked devices are unlinked.', ok: 'Sign out', danger: true }, async () => {
                 let r;
                 try {
                     r = await S.api('POST', `/users/${encodeURIComponent(id)}/sign-out`);
@@ -404,19 +404,19 @@
 
     const USERS_HELP = {
         title: 'Users & devices', html: `
-        <p>The people who can sign in to Sonorium, and the phones and browsers each one uses.</p>
+        <p>The people who can sign in to Sonorium, and the devices and browsers each one uses.</p>
         <h4>Each user</h4>
         ${term('Role', 'an Admin can change every setting. A User can play channels, playlists and sequences, and see themes and speakers.')}
-        ${term('Devices', 'how many phones and browsers are signed in.')}
+        ${term('Devices', 'how many devices and browsers are signed in.')}
         ${term('Last seen', 'when the user last used Sonorium.')}
-        ${term('Arrow', 'shows the user\'s phones and browsers.')}
+        ${term('Arrow', 'shows the user\'s devices and browsers.')}
         ${term('⋯ › Make Admin, Make User', 'changes the role. Sonorium always keeps one admin.')}
         ${term('⋯ › Can leave a link', 'with Zones on: the user may take their channel out of a link and back in. An admin always may.')}
-        ${term('⋯ › Reset password', 'sets a new password. The user\'s browsers are signed out. Linked phones stay linked.')}
-        ${term('⋯ › Sign out of every device', 'signs out every browser and unlinks every phone. You confirm first.')}
+        ${term('⋯ › Reset password', 'sets a new password. The user\'s browsers are signed out. Linked devices stay linked.')}
+        ${term('⋯ › Sign out of every device', 'signs out every browser and unlinks every device. You confirm first.')}
         ${term('⋯ › Remove user', 'removes the account and signs out its devices. You confirm first. You can\'t remove your own account.')}
         <h4>Each device</h4>
-        ${term('Remove', 'unlinks a phone or signs out a browser. You confirm first.')}
+        ${term('Remove', 'unlinks a device or signs out a browser. You confirm first.')}
         ${term('Sign out', 'signs out this browser.')}
         <h4>Top bar</h4>
         ${term('Add user', 'makes an account with a username, a password and a role.')}` };

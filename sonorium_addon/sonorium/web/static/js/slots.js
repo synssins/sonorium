@@ -429,7 +429,7 @@
         const qr = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(link.qr_svg);
         body.innerHTML = `<img class="lk-qr" src="${qr}" alt="QR code">
             ${link.username ? `<p class="lk-who">Links the Sonorium app to <b>${S.esc(link.username)}</b></p>` : ''}
-            <p class="lk-how">Open the Sonorium app on your phone and tap <b>Scan QR code</b>.</p>
+            <p class="lk-how">Open the Sonorium app on your device and tap <b>Scan QR code</b>.</p>
             <p class="lk-exp" id="lk-exp"></p>
             ${link.words && link.words.length ? `<p class="lk-words">${link.words.map(S.esc).join(' ')}</p>` : ''}`;
         const ends = Date.now() + link.expires_in * 1000;
