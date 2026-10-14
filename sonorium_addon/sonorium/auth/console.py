@@ -26,7 +26,10 @@ from typing import Optional, Union
 
 from sonorium.auth import permissions as P
 from sonorium.auth.principal import Principal, Reject
-from sonorium.obs import logger
+from sonorium.obs import logger as _logger
+
+# "sonorium.auth": names users and addresses, so only admins see it on the Logs page (logbuffer.py)
+logger = _logger.getChild("auth")
 
 ENV = "SONORIUM_CONSOLE_TOKEN_FILE"
 PREFIX = "sc_"

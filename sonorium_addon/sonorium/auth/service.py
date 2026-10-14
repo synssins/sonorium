@@ -30,7 +30,10 @@ from typing import Optional
 from sonorium.auth import config, permissions as P
 from sonorium.auth.secrets import JsonFile
 from sonorium.auth.tokens import TokenService
-from sonorium.obs import logger
+from sonorium.obs import logger as _logger
+
+# "sonorium.auth": names users and addresses, so only admins see it on the Logs page (logbuffer.py)
+logger = _logger.getChild("auth")
 
 SECURITY_FILE = "security.json"
 DEVICE_PREFIX = "sd_"

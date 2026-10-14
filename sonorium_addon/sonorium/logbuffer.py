@@ -4,14 +4,24 @@ Recent log messages kept in memory for the web UI's Logs page.
 Attached as soon as logging is set up, so messages from a startup that fails
 part-way are still there to read. No imports from the rest of Sonorium, so
 nothing else breaking can stop it working.
+
+Sign-in, account, linking and pairing messages name users and the addresses
+they came from. They're written by the "sonorium.auth" logger (or with
+extra={"private": True}) and kept here marked private: only admins see them
+on the Logs page (redacted()). Everyone else also sees "[address]" in place
+of every IP address. stdout (the add-on log, `docker logs`) keeps them all.
 """
+import ipaddress
 import itertools
 import logging
+import re
 import threading
 import time
 from collections import deque
 
 MAX_ENTRIES = 2000
+PRIVATE_LOGGER = "sonorium.auth"
+ADDRESS = "[address]"
 
 
 class LogBuffer(logging.Handler):
@@ -44,6 +54,8 @@ class LogBuffer(logging.Handler):
                 "source": record.name,
                 "message": message,
             }
+            if is_private(record):
+                entry["private"] = True
             with self._entries_lock:
                 entry["seq"] = next(self._seq)
                 self._entries.append(entry)
@@ -77,6 +89,45 @@ def attach(logger_name: str) -> None:
 
 def recent(after: int = 0) -> list[dict]:
     return _buffer.entries(after) if _buffer else []
+
+
+def is_private(record: logging.LogRecord) -> bool:
+    name = record.name or ""
+    return bool(getattr(record, "private", False)) or name == PRIVATE_LOGGER or name.startswith(PRIVATE_LOGGER + ".")
+
+
+# An IPv6 candidate (checked with ipaddress, so times like 10:15:30 stay) and an IPv4 address
+_IPV6 = re.compile(r"(?<![\w:.])[0-9A-Fa-f]{0,4}:[0-9A-Fa-f:]*:[0-9A-Fa-f:.]*(?:%[\w.-]+)?")
+_IPV4 = re.compile(r"(?<![\w.])\d{1,3}(?:\.\d{1,3}){3}(?![\w]|\.\d)")
+
+
+def _v6(match: re.Match) -> str:
+    text = match.group(0)
+    for core in (text, text.rstrip("."), text.rstrip(".:")):  # not a sentence's full stop or a port's colon
+        try:
+            ipaddress.IPv6Address(core.split("%", 1)[0])
+        except ValueError:
+            continue
+        return ADDRESS + text[len(core):]
+    return text
+
+
+def _v4(match: re.Match) -> str:
+    try:
+        ipaddress.IPv4Address(match.group(0))
+    except ValueError:
+        return match.group(0)
+    return ADDRESS
+
+
+def hide_addresses(text: str) -> str:
+    """Every IPv4 and IPv6 address in the text as "[address]"."""
+    return _IPV4.sub(_v4, _IPV6.sub(_v6, str(text)))
+
+
+def redacted(entries: list[dict]) -> list[dict]:
+    """The entries someone who isn't an admin sees: no private ones, no addresses."""
+    return [{**e, "message": hide_addresses(e["message"])} for e in entries if not e.get("private")]
 
 
 def as_text(entries: list[dict]) -> str:

@@ -952,8 +952,12 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
 
     @router.get("/alerts")
     async def list_alerts():
-        from sonorium import alerts
-        return {"alerts": alerts.active()}
+        from sonorium import alerts, logbuffer
+        from sonorium.auth.principal import current_caller, sees_private
+        active = alerts.active()
+        if not sees_private(current_caller()):  # addresses only for admins, as on the Logs page
+            active = [{**a, "message": logbuffer.hide_addresses(a["message"])} for a in active]
+        return {"alerts": active}
 
     @router.post("/alerts/{alert_id}/dismiss")
     async def dismiss_alert(alert_id: int):
