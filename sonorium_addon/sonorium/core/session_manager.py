@@ -1339,9 +1339,11 @@ class SessionManager:
 
     async def skip(self, session_id: str) -> Optional[str]:
         """
-        Next playlist entry (or the sequence's next preset). Returns what moved
-        ('playlist', 'sequence'), 'end' if a non-repeating playlist ended (the
-        channel stops), or None if nothing runs. KeyError if no such channel.
+        Next playlist entry, else the sequence's next preset, else the theme's
+        next preset (Default settings counts as the first; after the last
+        preset comes Default settings). Returns what moved ('playlist',
+        'sequence', 'preset'), 'end' if a non-repeating playlist ended (the
+        channel stops), or None (nothing to step to). KeyError if no such channel.
         """
         session = self._find(session_id)
         if not session:
@@ -1350,6 +1352,8 @@ class SessionManager:
         result = self.runner.skip(session)
         if result == "end":
             await self.stop(session_id, reason="ended")
+        elif result is None and self._step_preset(session, 1):
+            result = "preset"
         return result
 
     async def previous(self, session_id: str) -> Optional[str]:
@@ -1368,19 +1372,23 @@ class SessionManager:
         result = self.runner.previous(session)
         if result == "end":
             await self.stop(session_id, reason="ended")
-        elif result is None and self._previous_preset(session):
+        elif result is None and self._step_preset(session, -1):
             result = "preset"
         return result
 
-    def _previous_preset(self, session: Session) -> bool:
-        """The channel's theme's preset before the one it is on (a quick glide). False if it has none."""
+    def _step_preset(self, session: Session, step: int) -> bool:
+        """
+        The channel's theme's preset after (step 1) or before (step -1) the one
+        it is on, wrapping round with Default settings first (a quick glide).
+        False if the theme has no presets.
+        """
         if not session.theme_id:
             return False
         order = [None, *self._theme_presets(session.theme_id).keys()]
         if len(order) < 2:
             return False
         current = session.preset_id if session.preset_id in order else None
-        preset_id = order[order.index(current) - 1]
+        preset_id = order[(order.index(current) + step) % len(order)]
         self._apply_preset(session, preset_id, PRESET_GLIDE_SECONDS)
         self.note(session, f"Preset: {self.preset_name(session.theme_id, preset_id)}")
         self.publish("channel.changed", session, changes={"preset_id": session.preset_id})

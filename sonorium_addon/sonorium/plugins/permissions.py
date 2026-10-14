@@ -50,9 +50,9 @@ PERMISSIONS: dict[str, str] = {
     "audio.tap": "Listen to what plays",
     "timeline": "Know when sounds play",
     "devices": "Add devices",
-    "attributes": "Keep its own values on your themes, channels and speakers",
+    "attributes": "Keep values on your themes, channels and speakers",
     "ui": "Add to the screens",
-    "http": "Answer requests at its own address",
+    "http": "Answer web requests",
     "ha.entities": "Add entities to Home Assistant",
     "homeassistant": "Use your Home Assistant connection",
     "mqtt": "Use the MQTT broker",
@@ -62,7 +62,7 @@ PERMISSIONS: dict[str, str] = {
     "network.internet": "Reach the internet",
 }
 # "devices.<kind>" and "attributes.<object class>": one kind or class only
-SCOPED = {"devices": "Add devices: {}", "attributes": "Keep its own values on: {}"}
+SCOPED = {"devices": "Add devices: {}", "attributes": "Keep values on: {}"}
 _SCOPE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 FULL = "*"  # no list: everything
 PACKAGE = "package:"  # "package:<requirement>": a Python package it will install

@@ -362,14 +362,14 @@ class Actions:
         return self._channel(session)
 
     async def next_step(self, channel_id: str) -> str:
-        """Next playlist entry, or the sequence's next preset. Returns 'playlist', 'sequence' or 'end'."""
+        """Next playlist entry, else the sequence's next preset, else the theme's next preset. Returns 'playlist', 'sequence', 'preset' or 'end'."""
         session = self._session(channel_id)
         if not (session.is_playing or self._sessions.is_listened(session)):
             raise ActionError("conflict", "The channel is not playing")
         with self._as_origin():
             result = await self._sessions.skip(channel_id)
         if result is None:
-            raise ActionError("conflict", "No playlist or sequence is running")
+            raise ActionError("conflict", "Nothing to go to next")
         await self._changed(session)
         return result
 

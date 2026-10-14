@@ -412,7 +412,8 @@ def test_next_skips_to_the_next_entry_or_sequence_step(tmp_path):
     assert t.session.preset_id == "dusk"
     assert t.channel.glides()[-1] == 3.0 and t.channel.fades[-1] == 3.0  # Next by hand: the quick 3 s
     t.manager.stop_sequence(t.session.id)
-    assert run(t.manager.skip(t.session.id)) is None
+    assert run(t.manager.skip(t.session.id)) == "preset"  # nothing runs: the theme's next preset
+    assert t.session.preset_id is None  # after the last preset (Dusk), Default settings
 
 
 def test_previous_goes_back_one_playlist_entry(tmp_path):
@@ -470,6 +471,29 @@ def test_previous_without_a_playlist_or_sequence_picks_the_previous_preset(tmp_p
     assert seen == ["b", "a", None, "c"]  # Default settings first; before it, the last preset
     assert t.channel.glides()[-1] == 3.0
     assert recent_texts(t)[-2:] == ["Preset: Default settings", "Preset: Downpour"]
+
+
+def test_next_without_a_playlist_or_sequence_picks_the_next_preset(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.update(t.session.id, preset_id="")
+    seen = []
+    for _ in range(4):
+        assert run(t.manager.skip(t.session.id)) == "preset"
+        seen.append(t.session.preset_id)
+    assert seen == ["a", "b", "c", None]  # after the last preset, Default settings
+    assert run(t.manager.skip(t.session.id)) == "preset" and t.session.preset_id == "a"
+    assert t.channel.glides()[-1] == 3.0
+    assert recent_texts(t)[-2:] == ["Preset: Default settings", "Preset: Drizzle"]
+
+
+def test_next_with_nothing_to_go_to(tmp_path):
+    t = build(tmp_path)
+    t.manager.update(t.session.id, theme_id="beach")  # a theme without presets
+    run(t.manager.play(t.session.id))
+    assert run(t.manager.skip(t.session.id)) is None
+    with pytest.raises(KeyError):
+        run(t.manager.skip("nope"))
 
 
 def test_previous_with_nothing_to_go_back_to(tmp_path):

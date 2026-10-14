@@ -1691,7 +1691,7 @@ class SonoriumMQTTManager:
                     return
                 result = await self.session_manager.skip(session_id)
                 if result is None:
-                    logger.info(f"Next on '{session.name}' ignored: no playlist or sequence is running")
+                    logger.info(f"Next on '{session.name}' ignored: nothing to go to next")
                 await self.update_session_state(session)
                 await self._update_active_sessions_count()
                 if session_id == self._selected_session_id:

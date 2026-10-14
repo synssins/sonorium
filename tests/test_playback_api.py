@@ -268,7 +268,11 @@ def test_channel_sequence_playlist_and_next(api):
 
     assert c.delete(f"/api/sessions/{sid}/playlist").json()["playlist"] is None
     c.delete(f"/api/sessions/{sid}/sequence")
-    assert c.post(f"/api/sessions/{sid}/next").status_code == 409  # nothing runs
+    before = c.get(f"/api/sessions/{sid}").json()["preset_id"]
+    r = c.post(f"/api/sessions/{sid}/next")  # nothing runs: the theme's next preset
+    assert r.status_code == 200 and r.json()["skipped"] == "preset"
+    assert c.get(f"/api/sessions/{sid}").json()["preset_id"] != before
+    assert c.post("/api/sessions/nope/next").status_code == 404
 
 
 def test_channel_previous(api):

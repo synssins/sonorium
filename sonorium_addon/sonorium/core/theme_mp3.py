@@ -652,7 +652,7 @@ class Mp3Service:
             return
         if not available():
             logger.warning("Theme audio can't be converted to MP3 here: PyAV has no MP3 encoder. "
-                           "Themes stay in their own formats")
+                           "Themes stay in their formats")
             return
         self._first_pass = True
         self._thread = threading.Thread(target=self._run, name="theme-mp3", daemon=True)
