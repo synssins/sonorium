@@ -2,6 +2,17 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.65 (2026-10-14)
+
+### Bug Fixes
+
+- **demo**: Virtual speaker log lines naming users are private
+  ([`189aaf9`](https://github.com/synssins/sonorium/commit/189aaf9f74ba99e1a193e95e5f591ec621011cba))
+
+- **logs**: Sign-ins and addresses only for admins on the Logs page
+  ([`aa3534e`](https://github.com/synssins/sonorium/commit/aa3534e2a0b298e46ff002ed282310994c8c40c0))
+
+
 ## v1.7.3-dev.62 (2026-10-14)
 ## v1.7.3-dev.61 (2026-10-14)
 
