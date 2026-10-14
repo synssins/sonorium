@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.53 (2026-10-14)
+
+### Features
+
+- **demo**: A virtual speaker for every account
+  ([`3ee8af1`](https://github.com/synssins/sonorium/commit/3ee8af1579be8d607ba8267073d96d4ec4a3e2fb))
+
+
 ## v1.7.3-dev.52 (2026-10-13)
 
 ### Features
