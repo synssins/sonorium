@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.7.3-dev.64 (2026-10-14)
+
+### Bug Fixes
+
+- **logs**: Sign-ins and addresses only for admins on the Logs page
+  ([`aa3534e`](https://github.com/synssins/sonorium/commit/aa3534e2a0b298e46ff002ed282310994c8c40c0))
+
+
 ## v1.7.3-dev.61 (2026-10-14)
 
 ### Features
