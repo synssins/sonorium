@@ -1,0 +1,121 @@
+/* What plugins add to any screen (js/ext/contrib.js), drawn with the existing components and
+ * palette (docs/UI_STYLE.md). Plugins only add in the open spots; nothing here restyles a
+ * screen's fixed parts. */
+
+.ui-zone:empty, .ui-zone:not(.on):not(.ui-menuzone):not(.ui-columns):not(.ui-pages) { display: none; }
+.ui-columns:empty, .ui-pages:empty { display: none; }
+span.ui-header { display: contents; }
+
+/* the plugin badge: the grey badge with the plugin's icon and short name */
+.ui-pb { gap: .25rem; flex: none; max-width: 100%; overflow: hidden; }
+.ui-pb .nav-icon, .ui-pb .ext-svg { width: 12px; height: 12px; margin: 0; flex: none; }
+.ui-pb span { overflow: hidden; text-overflow: ellipsis; }
+
+/* badges after an item's badges */
+span.ui-badges { display: inline-flex; align-items: center; gap: .25rem; margin-left: .375rem; vertical-align: middle; flex: none; }
+.ui-badge.ui-ok { background: rgba(6, 214, 160, .15); color: var(--accent-primary); }
+.ui-badge.ui-warn { background: rgba(245, 165, 36, .15); color: #f5a524; }
+.ui-badge.ui-bad { background: rgba(239, 68, 68, .15); color: var(--accent-danger); }
+.ui-badge.ui-off { opacity: .6; }
+
+/* a column: at the end of the name column, its heading above it */
+.ui-hname { display: flex; align-items: center; min-width: 0; }
+.ui-columns { display: inline-flex; align-items: center; gap: .5rem; margin-left: auto; padding-left: .5rem; flex: none; }
+:has(> .ui-columns.on) { display: flex; align-items: center; min-width: 0; }
+:has(> .ui-columns.on) > .trk-name { flex: 1 1 auto; min-width: 2em; }
+.ui-col { display: inline-flex; justify-content: flex-end; width: 72px; min-width: 0; font-size: .8125rem; color: var(--text-secondary); white-space: nowrap; }
+.ui-col.ui-colh { font: inherit; color: inherit; }
+.ui-colk { display: none; }
+.ui-colv { overflow: hidden; text-overflow: ellipsis; }
+.ui-colv.none { color: var(--text-muted); }
+.ui-colv.ui-ok { color: var(--accent-primary); }
+.ui-colv.ui-warn { color: #f5a524; }
+.ui-colv.ui-bad { color: var(--accent-danger); }
+
+/* info lines and the top strip */
+div.ui-info { display: flex; flex-direction: column; gap: .25rem; }
+.np-card > .ui-info { padding: 0 1rem .375rem; }
+.ui-line { display: flex; align-items: center; gap: .5rem; min-width: 0; font-size: .75rem; color: var(--text-secondary); }
+.ui-info-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ui-info-t b { font-weight: 600; color: var(--text-primary); }
+.ui-s-muted { color: var(--text-muted); }
+.ui-s-success { color: var(--accent-primary); }
+.ui-s-warning { color: #f5a524; }
+.ui-s-error { color: var(--accent-danger); }
+.ui-top { flex: none; }
+.view.sp > .ui-top { padding: var(--page-top) var(--page-pad) 0; }
+.view.sp > .ui-top .ui-strip { margin: 0; }
+.view.tp > .ui-top { padding: 0 0 .5rem; }
+.ui-strip { display: flex; flex-wrap: wrap; align-items: center; gap: .375rem .875rem; max-width: var(--sp-col, 864px); box-sizing: border-box; margin: 0 0 var(--box-gap, .875rem); padding: .375rem .625rem; border: 1px solid var(--border-color); border-radius: .5rem; background: var(--bg-card); font-size: .8125rem; }
+
+/* fields */
+.ui-fld { display: flex; align-items: center; justify-content: space-between; gap: .625rem; min-height: 36px; min-width: 0; }
+.ui-strip .ui-fld { justify-content: flex-start; min-height: 30px; }
+.ui-flab { display: inline-flex; align-items: center; gap: .25rem; min-width: 0; font-size: .8125rem; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ui-fld .ui-in { width: auto; min-width: 0; max-width: 220px; }
+.ui-fld .ui-in.num, .ui-num .num { width: 72px; text-align: right; }
+.ui-num { display: inline-flex; align-items: center; gap: .25rem; }
+.ui-unit { font-size: .75rem; color: var(--text-muted); }
+.ui-sl { display: inline-flex; align-items: center; gap: .5rem; }
+.ui-sl .track-slider { width: 110px; }
+.ui-sv { min-width: 2.5em; font-size: .75rem; color: var(--text-secondary); text-align: right; }
+.ui-colour { width: 36px; height: 28px; padding: 0; border: 1px solid var(--border-color); border-radius: .375rem; background: none; cursor: pointer; }
+.ui-acts { display: flex; gap: .5rem; padding: .25rem 0; }
+.ui-sub { padding: .25rem 0; border-top: 1px solid var(--border-color); }
+.ui-subhd { padding: .25rem 0; font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.ui-fld .bad, .ui-mrow .bad { border-color: var(--accent-danger); }
+
+/* an editor's settings: one collapsed group per plugin, marked with its badge */
+div.ui-settings { display: flex; flex-direction: column; gap: .375rem; }
+.ui-grp { border: 1px solid var(--border-color); border-radius: .5rem; background: var(--bg-secondary); }
+.ui-grp > summary { display: flex; align-items: center; gap: .5rem; min-height: 34px; padding: 0 .625rem; list-style: none; cursor: pointer; }
+.ui-grp > summary::-webkit-details-marker { display: none; }
+.ui-grp .ui-chev { margin-left: auto; color: var(--text-muted); transition: transform .15s; }
+.ui-grp[open] .ui-chev { transform: rotate(90deg); }
+.ui-grp-b { padding: .125rem .625rem .5rem; }
+.te-top .ui-settings, .sq-top .ui-settings, .ple-top .ui-settings, .sp-ed-top .ui-settings { margin-top: .5rem; }
+/* in a dialog the editor's fields stay in place: an open group scrolls */
+.modal .ui-settings { flex: none; }
+.modal .ui-grp-b { max-height: min(calc(40vh / var(--zoom, 1)), 320px); overflow-y: auto; scrollbar-width: thin; }
+
+/* menus: the plugins' items after the menu's items, before destructive ones */
+.te-pop .ui-mhead { padding-top: .25rem; }
+.te-pop .ui-mhead .ui-pb { text-transform: none; letter-spacing: 0; }
+.te-pop .ui-mrow .sp-inp, .te-pop .ui-mrow .ui-num { flex: none; }
+.te-pop .ui-mrow select.sp-inp { max-width: 140px; }
+.te-pop .ui-mgrps { display: flex; flex-direction: column; gap: .25rem; padding: .25rem; }
+.te-pop .ui-swb { display: inline-flex; align-items: center; flex: none; padding: 0; border: 0; background: none; cursor: pointer; }
+.te-pop .ui-swb .sw { margin-left: 0; }
+.te-pop .ui-mgrps .ui-grp { min-width: 240px; }
+
+/* the ⋯ dot: anything in the menu differs from its default, whoever added it */
+[data-ui-spot~="menu"], button[data-ui-spot~="settings"] { position: relative; }
+.ui-dot { position: absolute; top: 3px; right: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent-primary); pointer-events: none; }
+.adv-dot ~ .ui-dot, .sp-adv-dot ~ .ui-dot { display: none; }
+
+/* a plugin's UI in its row in Settings › Plugins, and what was refused */
+.ui-own { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .25rem 1.5rem; max-width: 864px; margin-top: .75rem; }
+.ui-own .ui-acts, .ui-own .ui-line, .ui-own .ui-sub { grid-column: 1 / -1; }
+.spp-uiwarn { margin: 0 0 .5rem 2.75rem; font-size: .75rem; color: #f5a524; }
+.spp-uiwarn .hd { display: inline-flex; align-items: center; gap: .375rem; font-weight: 600; }
+.spp-uiwarn ul { margin: .125rem 0 0; padding-left: 1.25rem; color: var(--text-secondary); }
+.spp-uiwarn li { overflow-wrap: anywhere; }
+.spp-uiwarn li.more { list-style: none; color: var(--text-muted); }
+
+/* pages */
+.ui-pagef { display: flex; flex-direction: column; gap: .375rem; max-width: 420px; }
+
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
+  .ui-hname .ui-columns { display: none; }
+  .ui-columns { margin-left: .375rem; padding-left: 0; }
+  .ui-col { width: auto; gap: .25rem; }
+  .ui-colk { display: inline; color: var(--text-muted); }
+  .ui-fld.compact { justify-content: flex-start; }
+  .spp-uiwarn { margin-left: .75rem; }
+}
+/* a settings page too narrow for its table (sidebar beside it): the phone layout above */
+@container sp-col (max-width: 739px) {
+  .ui-hname .ui-columns { display: none; }
+  .ui-col { width: auto; gap: .25rem; }
+  .ui-colk { display: inline; color: var(--text-muted); }
+}

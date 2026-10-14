@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Sonorium.Tray.Pages.ConnectionsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:t="using:Sonorium.Tray">
+    <ScrollViewer>
+        <StackPanel>
+            <TextBlock Text="Connections" Style="{StaticResource TitleTextBlockStyle}" Margin="0,4,0,18" />
+            <TextBlock Text="Home Assistant" FontWeight="SemiBold" Margin="0,0,0,8" />
+            <t:SettingCard>
+                <t:SettingRow Glyph="&#xE71B;" Title="Use Home Assistant" Description="Play to Home Assistant's speakers and use its floors and areas.">
+                    <t:LabeledToggle x:Name="UseHa" AccessibleName="Use Home Assistant" />
+                </t:SettingRow>
+                <t:SettingRow x:Name="HaUrlRow" Glyph="&#xE774;" Title="Address">
+                    <TextBox x:Name="HaUrl" MinWidth="240" PlaceholderText="http://homeassistant.local:8123" AutomationProperties.Name="Address" />
+                </t:SettingRow>
+                <t:SettingRow x:Name="HaTokenRow" Glyph="&#xE713;" Title="Access token" Description="A long-lived access token from your Home Assistant profile.">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <PasswordBox x:Name="HaToken" MinWidth="240" AutomationProperties.Name="Access token" />
+                        <Button x:Name="TestHa" Content="Test" Click="TestHa_Click" />
+                    </StackPanel>
+                </t:SettingRow>
+            </t:SettingCard>
+            <TextBlock Text="MQTT" FontWeight="SemiBold" Margin="0,18,0,8" />
+            <t:SettingCard>
+                <t:SettingRow Glyph="&#xE71B;" Title="Use MQTT" Description="Shows Sonorium's channels in Home Assistant, for dashboards and automations.">
+                    <t:LabeledToggle x:Name="UseMqtt" AccessibleName="Use MQTT" />
+                </t:SettingRow>
+                <t:SettingRow x:Name="BrokerRow" Glyph="&#xE774;" Title="Broker">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBox x:Name="MqttHost" MinWidth="240" AutomationProperties.Name="Broker" />
+                        <TextBox x:Name="MqttPort" Width="80" InputScope="Number" PlaceholderText="1883" AutomationProperties.Name="Broker port" />
+                    </StackPanel>
+                </t:SettingRow>
+                <t:SettingRow x:Name="LoginRow" Glyph="&#xE713;" Title="Username and password">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBox x:Name="MqttUser" MinWidth="240" AutomationProperties.Name="Username" />
+                        <PasswordBox x:Name="MqttPassword" Width="140" AutomationProperties.Name="Password" />
+                        <Button x:Name="TestMqtt" Content="Test" Click="TestMqtt_Click" />
+                    </StackPanel>
+                </t:SettingRow>
+            </t:SettingCard>
+            <TextBlock Text="Speakers on this network" FontWeight="SemiBold" Margin="0,18,0,8" />
+            <t:SettingCard>
+                <t:SettingRow Glyph="&#xE774;" Title="Find speakers on this network" Description="Google Cast, Sonos, DLNA, AirPlay, LinkPlay and HEOS.">
+                    <t:LabeledToggle x:Name="FindSpeakers" AccessibleName="Find speakers on this network" />
+                </t:SettingRow>
+            </t:SettingCard>
+            <InfoBar x:Name="Problem" Severity="Error" IsOpen="False" Margin="0,8,0,0" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

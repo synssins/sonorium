@@ -33,6 +33,7 @@ def mods():
         _exec("sonorium.theme_files", "theme_files.py")
         presets = _exec("sonorium.core.theme_presets", "core/theme_presets.py")
         core.theme_presets = presets
+        core.plugin_data = _exec("sonorium.core.plugin_data", "core/plugin_data.py")
         metadata = _exec("sonorium.core.theme_metadata", "core/theme_metadata.py")
         _exec("sonorium.core.state", "core/state.py")
         session = _exec("session_manager_under_test", "core/session_manager.py")
@@ -301,15 +302,29 @@ def test_a_new_empty_theme_is_loaded(mods, tmp_path):
     assert manager.get_folder_for_id("camp") == tmp_path / "Camping"
 
 
-def test_ebb_flow_interval_becomes_duration_once(mods, tmp_path):
+def saved_by_1_6(**fields):
+    """A track entry as Sonorium 1.5.0 - 1.6.0 saved it: every field, no Rise."""
+    return {"presence": 1.0, "muted": False, "volume": 1.0, "playback_mode": "auto",
+            "seamless_loop": False, "exclusive": False, **fields}
+
+
+def old_storm_metadata(layout):
+    """Storm from before the Duration change: saved by 1.5.0 - 1.6.0 (2.0 layout), or a 1.0 theme."""
+    tracks = {"Rain": {"presence": 0.7, "playback_mode": "presence"},
+              "Birds": {"presence": 0.7, "playback_mode": "sparse"},
+              "Wind/Gust": {"presence": 0.25, "playback_mode": "auto"}}
+    if layout == "1.0":
+        return {"id": "theme-2", "name": "Storm", "groups": {"Wind": {"mode": "ebb_flow"}}, "tracks": tracks}
+    return {"spec_version": 2, "id": "theme-2", "name": "Storm", "description": "", "icon": "",
+            "is_favorite": False, "categories": [], "short_file_threshold": 15.0,
+            "tracks": {key: saved_by_1_6(**entry) for key, entry in tracks.items()},
+            "groups": {"Wind": {"mode": "ebb_flow"}}}
+
+
+@pytest.mark.parametrize("layout", ["2.0 saved by 1.6", "1.0"])
+def test_ebb_flow_interval_becomes_duration_once(mods, tmp_path, layout):
     """Higher used to mean quicker; Duration's higher means longer: Ebb & Flow values flip, once."""
-    metadata = {
-        "spec_version": 2, "id": "theme-2", "name": "Storm",
-        "groups": {"Wind": {"mode": "ebb_flow"}},
-        "tracks": {"Rain": {"presence": 0.7, "playback_mode": "presence"},
-                   "Birds": {"presence": 0.7, "playback_mode": "sparse"},
-                   "Wind/Gust": {"presence": 0.25, "playback_mode": "auto"}},
-    }
+    metadata = old_storm_metadata(layout)
     presets = {"spec_version": 2, "presets": {"heavy": {"name": "Heavy", "tracks": {
         "Rain": {"presence": 0.9, "playback_mode": "presence"}, "Birds": {"presence": 0.9, "playback_mode": "sparse"},
         "Wind/Gust": {"presence": 0.6}}}}}
@@ -329,6 +344,27 @@ def test_ebb_flow_interval_becomes_duration_once(mods, tmp_path):
     # Loading again changes nothing
     again = mods.meta.load_theme_folder(folder)
     assert again.tracks["Rain"].presence == pytest.approx(0.3) and again.presets["heavy"]["tracks"]["Rain"]["presence"] == pytest.approx(0.1)
+
+
+@pytest.mark.parametrize("extra", [{}, {"is_favorite": False, "categories": [], "short_file_threshold": 15.0}])
+def test_a_hand_made_2_0_theme_without_the_flag_keeps_its_duration(mods, tmp_path, extra):
+    """Written by hand in the 2.0 layout: already Duration, so nothing is turned around, flag or not."""
+    metadata = {
+        "spec_version": 2, "id": "hand", "name": "Storm", **extra,
+        "groups": {"Wind": {"mode": "ebb_flow"}},
+        "tracks": {"Rain": {"presence": 0.7, "playback_mode": "presence", "volume": 0.8},
+                   "Wind/Gust": {"presence": 0.25, "playback_mode": "presence"}},
+    }
+    presets = {"presets": {"heavy": {"name": "Heavy", "tracks": {"Rain": {"presence": 0.9, "playback_mode": "presence"}}}}}
+    folder = make_theme(tmp_path, name="Storm", metadata=metadata, presets_json=presets)
+    loaded = mods.meta.load_theme_folder(folder)
+    assert loaded.tracks["Rain"].presence == pytest.approx(0.7)
+    assert loaded.tracks["Wind/Gust"].presence == pytest.approx(0.25)
+    assert loaded.presets["heavy"]["tracks"]["Rain"]["presence"] == pytest.approx(0.9)
+    assert read(folder / "metadata.json")["ebb_duration"] is True  # marked, so it's never asked again
+    assert read(folder / "metadata.json")["tracks"]["Rain"]["presence"] == pytest.approx(0.7)
+    assert not list(folder.glob("*.pre-duration.bak"))
+    assert mods.meta.load_theme_folder(folder).tracks["Rain"].presence == pytest.approx(0.7)
 
 
 def test_a_sequence_steps_while_playing_layer_goes_over_the_preset(mods):

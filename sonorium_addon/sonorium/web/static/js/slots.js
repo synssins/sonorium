@@ -22,6 +22,8 @@
  *   render(el), actions()}).
  * The framework's own renderers (static/js/ext/: plugin pages, Connection, the
  * alert bar, casting) load after the bundles and before app.js.
+ * Every screen's open spots, for any plugin (fields, buttons, menu items, badges, columns,
+ * pages, drawn from data and checked against each spot's contract): ext/contrib.js.
  * Helpers: Sonorium.modal({...}), closeModal(id), showScreen(html), hideScreen(),
  *   api(method, path, body), esc(text), toast(message, type), can(perm).
  */
@@ -119,13 +121,16 @@
         },
 
         // The framework's renderers (static/js/ext/), in order
-        CORE: ['core', 'pages', 'commandmaps', 'connections', 'alerts', 'outputs'],
+        CORE: ['users', 'zones', 'core', 'contrib', 'pages', 'commandmaps', 'connections', 'alerts', 'outputs', 'keys', 'backups'],
+        CORE_CSS: ['users', 'zones', 'ext', 'keys', 'ui', 'backups'],
 
         async loadCore() {
-            const link = document.createElement('link');
-            link.rel = 'stylesheet';
-            link.href = BASE + '/static/css/ext.css';
-            document.head.appendChild(link);
+            for (const name of S.CORE_CSS) {
+                const link = document.createElement('link');
+                link.rel = 'stylesheet';
+                link.href = `${BASE}/static/css/${name}.css`;
+                document.head.appendChild(link);
+            }
             for (const name of S.CORE) {
                 await new Promise(resolve => {
                     const script = document.createElement('script');
@@ -163,6 +168,8 @@
             const view = typeof currentView === 'string' ? currentView : 'sessions';
             if (actions && !actions.dataset.slotted && view === 'sessions') {
                 actions.insertAdjacentHTML('afterbegin', S.headerButtons(view));
+                actions.insertAdjacentHTML('beforeend', uiZone('screen.sessions', 'header', null, 'span'));
+                if (typeof uiScreen === 'function') uiScreen('sessions');
             }
         },
 
@@ -422,16 +429,37 @@
         const qr = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(link.qr_svg);
         body.innerHTML = `<img class="lk-qr" src="${qr}" alt="QR code">
             ${link.username ? `<p class="lk-who">Links the Sonorium app to <b>${S.esc(link.username)}</b></p>` : ''}
-            <p class="lk-how">Open the Sonorium app on your phone and tap <b>Scan QR code</b>.</p>
+            <p class="lk-how">Open the Sonorium app on your device and tap <b>Scan QR code</b>.</p>
             <p class="lk-exp" id="lk-exp"></p>
             ${link.words && link.words.length ? `<p class="lk-words">${link.words.map(S.esc).join(' ')}</p>` : ''}`;
         const ends = Date.now() + link.expires_in * 1000;
+        // Scanned: close and say which phone linked (its name as in Users & devices). Expired: close.
+        const check = async (last) => {
+            let state = null;
+            try {
+                state = await api('GET', `/link/${encodeURIComponent(link.link_id)}`);
+            } catch (e) {
+                if (e.status === 404) state = { state: 'expired' };  // forgotten: as expired
+            }
+            if (!document.getElementById('lk-body') || body.dataset.link !== link.link_id) return;
+            if (state && state.state === 'linked' && state.device) {
+                S.closeModal('link-app');
+                S.toast(`${state.device.name} connected`, 'success');
+                document.dispatchEvent(new CustomEvent('sonorium:device-linked', { detail: state.device }));
+            } else if (last || (state && state.state === 'expired')) {
+                S.closeModal('link-app');
+            }
+        };
+        body.dataset.link = link.link_id || '';
+        let n = 0;
         const tick = () => {
             const el = document.getElementById('lk-exp');
             if (!el) { clearInterval(linkTimer); return; }
             const left = Math.max(0, Math.round((ends - Date.now()) / 1000));
             el.textContent = left > 0 ? `This code works once and expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}` : 'This code has expired';
             body.classList.toggle('lk-expired', left <= 0);
+            if (!link.link_id) return;
+            if (left <= 0) { clearInterval(linkTimer); check(true); } else if (++n % 2 === 0) check(false);
         };
         clearInterval(linkTimer);
         tick();

@@ -1,0 +1,31 @@
+/* Settings › Backups (static/js/ext/backups.js): the same rows as Users & devices */
+.bk-opts { max-width: var(--sp-card, 420px); margin-bottom: 1.25rem; }
+.bk-opt { display: flex; align-items: center; justify-content: space-between; gap: .875rem; min-height: 46px; }
+.bk-lbl { font-size: .875rem; color: var(--text-primary); }
+.bk-space { font-size: .8125rem; color: var(--text-secondary); white-space: nowrap; }
+.bk-space.warn { color: #f5a524; font-weight: 600; }
+.bk-grid { display: grid; grid-template-columns: 28px minmax(0, 1.2fr) 70px 90px minmax(0, 1fr) 76px; column-gap: .875rem; align-items: center; }
+.bk-grid > .btn { justify-self: end; }
+.bk-row { border-bottom: 1px solid rgba(51,65,85,.55); }
+.bk-row:last-child { border-bottom: 0; }
+.bk-name { display: flex; align-items: center; gap: .625rem; font-weight: 600; color: var(--text-primary); font-size: .875rem; min-width: 0; }
+.bk-name .ic { color: var(--text-muted); display: flex; flex: none; }
+.bk-name .bk-nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bk-name .you { font-weight: 400; font-size: .75rem; color: var(--text-muted); white-space: nowrap; }
+.bk-tag { font-weight: 400; font-size: .6875rem; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: 4px; padding: 0 .3125rem; white-space: nowrap; }
+.bk-dim { font-size: .8125rem; color: var(--text-secondary); }
+.bk-themes { background: var(--bg-secondary); border-top: 1px solid rgba(51,65,85,.55); padding: .125rem .75rem .25rem; }
+.bk-theme { min-height: 46px; border-bottom: 1px solid rgba(51,65,85,.4); }
+.bk-theme:last-child { border-bottom: 0; }
+.bk-theme .dn { font-size: .875rem; color: var(--text-primary); min-width: 0; overflow-wrap: anywhere; }
+.bk-theme .dn small { display: block; font-size: .75rem; color: var(--text-muted); }
+@media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
+    .bk-opts { max-width: none; }
+    .bk-grid { grid-template-columns: 28px minmax(0, 1fr) auto; row-gap: .125rem; }
+    .bk-grid .bk-dim.d, .sp-lhead.bk-grid { display: none; }
+}
+/* A settings page too narrow for the table (sidebar beside it): the phone layout above */
+@container sp-col (max-width: 739px) {
+    .bk-grid { grid-template-columns: 28px minmax(0, 1fr) auto; row-gap: .125rem; }
+    .bk-grid .bk-dim.d, .sp-lhead.bk-grid { display: none; }
+}

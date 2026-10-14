@@ -119,6 +119,16 @@ class PlaybackRunner:
         live = getattr(self.manager, "_live", None)
         return live(session) if live is not None else session.is_playing
 
+    def _session(self, session_id: str) -> Optional[Session]:
+        """A channel by id, a personal one included."""
+        find = getattr(self.manager, "_find", None)
+        return find(session_id) if callable(find) else self.manager.state.sessions.get(session_id)
+
+    def _sessions(self) -> list:
+        """Every channel, personal ones included."""
+        every = getattr(self.manager, "_all_sessions", None)
+        return every() if callable(every) else list(self.manager.state.sessions.values())
+
     def playlist(self, playlist_id: Optional[str]) -> Optional[dict]:
         if not playlist_id:
             return None
@@ -400,6 +410,7 @@ class PlaybackRunner:
             raise ValueError(f"Playlist '{playlist.get('name', playlist_id)}' has no playable entry")
         self.manager.note(session, f"Started: {playlist.get('name', playlist_id)}")
         self._publish("channel.changed", session, changes={"playlist_id": playlist_id})
+        self._publish("playlist.started", session, playlist_id=playlist_id, playlist_name=playlist.get("name"))
         self._note_entry(session, playlist)
         self.manager.state.save()
         logger.info(f"  Channel '{session.name}': playlist '{playlist.get('name', playlist_id)}' started")
@@ -410,7 +421,7 @@ class PlaybackRunner:
         playlist = self.playlist(playlist_id)
         if playlist is None:
             return
-        for session in self.manager.state.sessions.values():
+        for session in self._sessions():
             if session.playlist_id == playlist_id and not self._order_ok(session, playlist):
                 session.playlist_order = self._new_order(len(playlist.get("entries") or []),
                                                          playlist.get("order") == "shuffle",
@@ -424,6 +435,7 @@ class PlaybackRunner:
         True if it had one.
         """
         had = session.playlist_id is not None
+        had_id = session.playlist_id
         if had:
             self.manager.note(session, f"Stopped: {(self.playlist(session.playlist_id) or {}).get('name', session.playlist_id)}")
         self._playlists.pop(session.id, None)
@@ -440,6 +452,7 @@ class PlaybackRunner:
         if had:
             logger.info(f"  Channel '{session.name}': playlist stopped")
             self._publish("channel.changed", session, changes={"playlist_id": None})
+            self._publish("playlist.stopped", session, playlist_id=had_id)
         return had
 
     def _entry(self, session: Session, playlist: dict) -> dict:
@@ -581,6 +594,81 @@ class PlaybackRunner:
             return "sequence"
         return None
 
+    def previous(self, session: Session) -> Optional[str]:
+        """
+        Back one: the playlist's previous entry if a playlist runs, else the
+        sequence's previous step (a quick glide). On the first entry of a
+        repeating playlist it goes to the round's last entry; on the first
+        entry of one that doesn't repeat, that entry starts again. Returns
+        'playlist', 'sequence', 'end' (no entry could be played) or None.
+        """
+        if session.playlist_id and session.id in self._playlists:
+            playlist = self.playlist(session.playlist_id)
+            if playlist is None or not playlist.get("entries"):
+                self.clear_playlist(session)
+                return None
+            count = len(playlist["entries"])
+            if not self._order_ok(session, playlist):
+                session.playlist_order = self._new_order(count, playlist.get("order") == "shuffle",
+                                                         themes=self._themes_of(playlist))
+                session.playlist_position = 0
+            else:
+                for _ in range(count):  # back over entries whose theme isn't here
+                    if session.playlist_position > 0:
+                        session.playlist_position -= 1
+                    elif playlist.get("repeat", True):
+                        session.playlist_position = len(session.playlist_order) - 1
+                    if self.manager.get_theme(self._entry(session, playlist).get("theme_id")):
+                        break
+            if not self._enter_entry(session, playlist, tries=count):
+                return "end"
+            self._note_entry(session, playlist)
+            self.manager.state.save()
+            return "playlist"
+        run = self._sequences.get(session.id)
+        if run is not None:
+            self._cancel_transitions(session)
+            run.planned = None
+            self._back_sequence(session, run, PRESET_GLIDE_SECONDS)
+            self.manager.state.save()
+            return "sequence"
+        return None
+
+    def _back_sequence(self, session: Session, run, glide: float) -> None:
+        """
+        The previous step. A playlist entry's pass goes back one preset (the
+        first stays). An ordinary run goes back against its direction; past
+        the start it wraps to the end when At the end is restart, else the
+        step it is on starts again.
+        """
+        if run.single_pass and run.theme_id == session.theme_id:
+            prev = max(0, run.index - 1)
+            self._check_planned(session, run, run.presets[prev], glide)
+            run.index = prev
+            run.next_at = self.clock() + glide + run.holds[prev] if len(run.presets) > 1 else NEVER
+            self._step_to(session, run, prev, len(run.presets), run.presets[prev], glide)
+            return
+        sequence = self.sequence(session.theme_id, run.sequence_id)
+        if sequence is None or not sequence["presets"] or run.theme_id != session.theme_id:
+            self.stop_sequence(session)
+            return
+        presets = sequence["presets"]
+        count = len(presets)
+        index = min(run.index, count - 1)
+        prev = index - run.direction
+        if not 0 <= prev < count:
+            prev = (count - 1 if run.direction > 0 else 0) if sequence["at_end"] == "restart" else index
+        self._check_planned(session, run, presets[prev], glide)
+        run.index = prev
+        run.next_at = self.clock() + glide + self._hold(sequence)
+        self._step_to(session, run, prev, count, presets[prev], glide)
+
+    def _step_to(self, session: Session, run, index: int, count: int, preset_id: str, glide: float) -> None:
+        self._note_step(session, index + 1, count, preset_id)
+        if preset_id != session.preset_id:
+            self.manager._apply_preset(session, preset_id, glide, fade=glide)
+        self._plan_transitions(session, run, glide)
+
     # --- Channel lifecycle (called by the session manager) ---
 
     def before_play(self, session: Session) -> None:
@@ -648,7 +736,7 @@ class PlaybackRunner:
         now = self.clock()
         changed, ended = {}, []
         for session_id, run in list(self._playlists.items()):
-            session = self.manager.state.sessions.get(session_id)
+            session = self._session(session_id)
             if session is None or not self._live(session):
                 self.on_stop(session_id)
                 continue
@@ -657,7 +745,7 @@ class PlaybackRunner:
                     ended.append(session)
                 changed[session_id] = session
         for session_id, run in list(self._sequences.items()):
-            session = self.manager.state.sessions.get(session_id)
+            session = self._session(session_id)
             if session is None or not self._live(session):
                 self._sequences.pop(session_id, None)
                 continue

@@ -3,7 +3,6 @@ Required Notice: Copyright 2026 Chris Kliewer (https://github.com/synssins/sonor
 Sonorium is licensed under the PolyForm Noncommercial License 1.0.0, below. You may use, change and share it for any noncommercial purpose. Commercial use needs a separate license from the copyright holder.
 
 Not covered by this license:
-- the `app/` folder (the previous Windows app, being replaced), which stays all rights reserved;
 - third-party components, which keep their own licenses (see THIRD_PARTY_NOTICES.md);
 - the audio files in bundled themes, which keep the licenses in each theme's ATTRIBUTION.md.
 

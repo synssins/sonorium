@@ -92,11 +92,13 @@ RUN ls -la /app/sonorium/web/ && ls -la /app/sonorium/web/static/ 2>/dev/null ||
 
 # Copy the run script
 COPY run.sh /run.sh
-RUN chmod a+x /run.sh
+# Starts Sonorium again when it exits to restart (code 75); same script as the Docker image
+COPY supervise.sh /usr/local/bin/sonorium-supervise
+RUN chmod a+x /run.sh /usr/local/bin/sonorium-supervise
 
 # Read version from the single source of truth (sonorium/version file)
 # Note: LABEL is set at build time, reading from the version file
 ARG ADDON_VERSION
-LABEL io.hass.version="${ADDON_VERSION:-1.7.2}"
+LABEL io.hass.version="${ADDON_VERSION:-1.7.3-dev.64}"
 
 CMD [ "/run.sh" ]

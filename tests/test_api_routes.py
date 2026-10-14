@@ -47,6 +47,7 @@ APP_ROUTES = [
     ('APIRoute', 'GET', '/stream/{id}', 'stream'),
     ('APIRoute', 'GET', '/api/themes', 'list_themes'),
     ('APIRoute', 'POST', '/api/themes/refresh', 'refresh_themes'),
+    ('APIRoute', 'GET', '/api/themes/packages', 'list_theme_packages'),
     ('APIRoute', 'POST', '/api/themes/{theme_id}/favorite', 'toggle_favorite'),
     ('APIRoute', 'GET', '/api/themes/{theme_id}', 'get_theme'),
     ('APIRoute', 'GET', '/api/themes/{theme_id}/tracks', 'get_theme_tracks'),
@@ -106,6 +107,9 @@ V2_ROUTES = [
     ('APIRoute', 'POST', '/api/sessions/{session_id}/volume', 'set_session_volume'),
     ('APIRoute', 'PUT', '/api/sessions/{session_id}/announcements', 'set_session_announcements'),
     ('APIRoute', 'PUT', '/api/sessions/{session_id}/speakers-muted', 'mute_session_speakers'),
+    ('APIRoute', 'GET', '/api/sessions/{session_id}/sleep', 'get_session_sleep'),
+    ('APIRoute', 'PUT', '/api/sessions/{session_id}/sleep', 'set_session_sleep'),
+    ('APIRoute', 'DELETE', '/api/sessions/{session_id}/sleep', 'cancel_session_sleep'),
     ('APIRoute', 'POST', '/api/sessions/{session_id}/listen', 'listen_session'),
     ('APIRoute', 'DELETE', '/api/sessions/{session_id}/listen', 'unlisten_session'),
     ('APIRoute', 'POST', '/api/sessions/stop-all', 'stop_all_sessions'),
@@ -115,6 +119,7 @@ V2_ROUTES = [
     ('APIRoute', 'PUT', '/api/sessions/{session_id}/playlist', 'set_session_playlist'),
     ('APIRoute', 'DELETE', '/api/sessions/{session_id}/playlist', 'clear_session_playlist'),
     ('APIRoute', 'POST', '/api/sessions/{session_id}/next', 'skip_session'),
+    ('APIRoute', 'POST', '/api/sessions/{session_id}/previous', 'previous_session'),
     ('APIRoute', 'GET', '/api/themes/{theme_id}/sequences', 'list_theme_sequences'),
     ('APIRoute', 'POST', '/api/themes/{theme_id}/sequences', 'create_theme_sequence'),
     ('APIRoute', 'GET', '/api/themes/{theme_id}/sequences/{sequence_id}', 'get_theme_sequence'),
@@ -185,6 +190,7 @@ V2_ROUTES = [
     ('APIRoute', 'PUT', '/api/themes/{theme_id}/metadata', 'update_theme_metadata'),
     ('APIRoute', 'DELETE', '/api/themes/{theme_id}', 'delete_theme'),
     ('APIRoute', 'GET', '/api/themes/{theme_id}/export', 'export_theme'),
+    ('APIRoute', 'POST', '/api/themes/{theme_id}/duplicate', 'duplicate_theme'),
     ('APIRoute', 'POST', '/api/themes/import', 'import_theme'),
     ('APIRoute', 'GET', '/api/plugins', 'list_plugins'),
     ('APIRoute', 'GET', '/api/plugins/catalog', 'get_plugin_catalog'),
@@ -205,6 +211,30 @@ V2_ROUTES = [
     ('APIRoute', 'DELETE', '/api/sessions/{session_id}/outputs/{output_id}', 'remove_session_output'),
     ('APIRoute', 'PUT', '/api/speakers/{speaker_id}/volume', 'set_speaker_volume'),
     ('APIRoute', 'PUT', '/api/speakers/{speaker_id}/muted', 'set_speaker_muted'),
+    # Theme packages for offline playback (web/theme_package_routes.py)
+    ('APIRoute', 'GET', '/api/themes/{theme_id}/package', 'get_theme_package'),
+    ('APIRoute', 'GET', '/api/themes/{theme_id}/files/{path:path}', 'get_theme_file'),
+    ('APIRoute', 'POST', '/api/themes/{theme_id}/render', 'render_theme'),
+    # The personal channel (web/personal_routes.py)
+    ('APIRoute', 'GET', '/api/me/channel', 'get_personal_channel'),
+    ('APIRoute', 'PUT', '/api/me/channel', 'update_personal_channel'),
+    ('APIRoute', 'POST', '/api/me/channel/listen', 'listen_personal_channel'),
+    ('APIRoute', 'DELETE', '/api/me/channel/listen', 'unlisten_personal_channel'),
+    # Theme backups from the app (web/backup_routes.py)
+    ('APIRoute', 'GET', '/api/me/backups', 'list_backups'),
+    ('APIRoute', 'GET', '/api/me/backups/settings', 'get_backup_settings'),
+    ('APIRoute', 'PUT', '/api/me/backups/settings', 'put_backup_settings'),
+    ('APIRoute', 'GET', '/api/me/backups/{device_id}/playlists', 'get_backup_playlists'),
+    ('APIRoute', 'PUT', '/api/me/backups/{device_id}/playlists', 'put_backup_playlists'),
+    ('APIRoute', 'GET', '/api/me/backups/{device_id}/themes/{key}', 'get_backup_theme'),
+    ('APIRoute', 'PUT', '/api/me/backups/{device_id}/themes/{key}', 'put_backup_mix'),
+    ('APIRoute', 'DELETE', '/api/me/backups/{device_id}/themes/{key}', 'delete_backup_theme'),
+    ('APIRoute', 'DELETE', '/api/me/backups/{device_id}', 'delete_backup_device'),
+    ('APIRoute', 'GET', '/api/me/backups/{device_id}/themes/{key}/package', 'get_backup_package'),
+    ('APIRoute', 'PUT', '/api/me/backups/{device_id}/themes/{key}/package', 'put_backup_package'),
+    ('APIRoute', 'GET', '/api/me/backups/{device_id}/themes/{key}/upload', 'get_backup_upload'),
+    ('APIRoute', 'PUT', '/api/me/backups/{device_id}/themes/{key}/files/{path:path}', 'put_backup_file'),
+    ('APIRoute', 'GET', '/api/me/backups/{device_id}/themes/{key}/files/{path:path}', 'get_backup_file'),
 ]
 
 
@@ -262,7 +292,9 @@ def test_app_setup_unchanged(m):
     assert app.swagger_ui_parameters == {"tryItOutEnabled": True}
     assert api.port == (8008 if m.api.runtime.STANDALONE else 8080)
     assert len(app.router.on_startup) == 1 and len(app.router.on_shutdown) == 1
-    assert len(app.user_middleware) == 3  # cards CORS, legacy error statuses (web/legacy_errors.py), sign-in
+    # cards CORS, legacy error statuses (web/legacy_errors.py), sign-in, body limits (limits.py), proxies (auth/proxies.py)
+    assert len(app.user_middleware) == 5
+    assert [mw.cls.__name__ for mw in app.user_middleware[:2]] == ["ForwardedClient", "BodyLimitMiddleware"]
     config = api.main_listener()
     assert (config.host, config.port, config.access_log, config.proxy_headers) == ("0.0.0.0", api.port, False, False)
     # Handler docstrings are the summaries in the API docs, as before

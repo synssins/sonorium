@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Runs Sonorium (the private Python) in the background: as the Windows service, or per user.
+       WinExe: no console window when the tray starts it at sign-in. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>SonoriumHost</AssemblyName>
+    <RootNamespace>Sonorium.Host</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Published into the tray console's folder, sharing its .NET runtime -->
+    <SelfContained>true</SelfContained>
+    <PublishTrimmed>false</PublishTrimmed>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Sonorium.Desktop.Core\Sonorium.Desktop.Core.csproj" />
+  </ItemGroup>
+</Project>

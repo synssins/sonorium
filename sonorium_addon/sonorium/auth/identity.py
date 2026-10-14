@@ -27,7 +27,10 @@ from typing import Optional
 
 from sonorium.auth.announce import hostnames, lan_addresses
 from sonorium.auth.wordlist import security_words
-from sonorium.obs import logger
+from sonorium.obs import logger as _logger
+
+# "sonorium.auth": names users and addresses, so only admins see it on the Logs page (logbuffer.py)
+logger = _logger.getChild("auth")
 
 SERVER_FILE = "server.json"
 TLS_DIR = "tls"

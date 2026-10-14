@@ -23,7 +23,7 @@ from sonorium.plugins.events import current_origin
 
 
 class ActionError(Exception):
-    """An action that couldn't be done. code: not_found, invalid, conflict, unavailable."""
+    """An action that couldn't be done. code: not_found, invalid, conflict, unavailable, forbidden."""
 
     def __init__(self, code: str, message: str):
         super().__init__(message)
@@ -53,6 +53,24 @@ class Actions:
         actions = Actions(self._sessions, self._state, self._registry, self._on_change, f"plugin:{plugin_id}")
         actions.overlay = self.overlay
         return actions
+
+    def guard(self, require) -> None:
+        """require(permission) raises when the plugin may not: the changing actions check it first."""
+        import functools
+        import inspect
+        for name, permission in GUARDED.items():
+            method = getattr(self, name, None)
+            if method is None:
+                continue
+            if inspect.iscoroutinefunction(method):
+                async def checked(*args, _m=method, _p=permission, **kwargs):
+                    require(_p)
+                    return await _m(*args, **kwargs)
+            else:
+                def checked(*args, _m=method, _p=permission, **kwargs):
+                    require(_p)
+                    return _m(*args, **kwargs)
+            setattr(self, name, functools.wraps(method)(checked))
 
     @contextlib.contextmanager
     def _as_origin(self):
@@ -102,6 +120,7 @@ class Actions:
             "speakers": list(speakers),
             "speaker_group_id": session.speaker_group_id,
             "entity_slug": session.get_entity_slug() if hasattr(session, "get_entity_slug") else None,
+            "sleep_until": getattr(session, "sleep_until", None),
         }
 
     # --- Reading ---
@@ -139,9 +158,13 @@ class Actions:
         enabled = set(getattr(self._state.settings, "enabled_speakers", []) or [])
         result = []
         for speaker in self._registry.hierarchy.get_all_speakers():
-            result.append({"id": speaker.entity_id, "name": speaker.name, "type": speaker.type,
-                           "online": bool(speaker.online), "area_id": speaker.area_id,
-                           "area_name": speaker.area_name, "enabled": speaker.entity_id in enabled})
+            item = {"id": speaker.entity_id, "name": speaker.name, "type": speaker.type,
+                    "online": bool(speaker.online), "area_id": speaker.area_id,
+                    "area_name": speaker.area_name, "enabled": speaker.entity_id in enabled}
+            output = getattr(speaker, "output", None)
+            if output is not None:  # a device of an audio output type
+                item.update({"type": "output", "output_type": output.get("type"), "device": output.get("device")})
+            result.append(item)
         return result
 
     async def list_speaker_groups(self) -> list[dict]:
@@ -188,6 +211,9 @@ class Actions:
         self._theme(session.theme_id)
         if not self._sessions.get_resolved_speakers(session):
             raise ActionError("invalid", "The channel has no speakers")
+        refusal = self._sessions.channel_limit_refusal(session)
+        if refusal:
+            raise ActionError("conflict", refusal)
         with self._as_origin():
             ok = await self._sessions.play(channel_id)
         if not ok:
@@ -209,6 +235,24 @@ class Actions:
             await self._sessions.pause(channel_id)
         await self._changed(session)
         return self._channel(session)
+
+    async def set_sleep_timer(self, channel_id: str, minutes: float) -> dict:
+        """The playing channel fades out and stops after `minutes` (more than 0, at most 240)."""
+        from sonorium.core.sleep_timer import SleepError
+        self._session(channel_id)
+        try:
+            with self._as_origin():
+                self._sessions.sleep.set(channel_id, minutes)
+        except SleepError as e:
+            raise ActionError("conflict" if e.status == 409 else "invalid", str(e))
+        return self._channel(self._session(channel_id))
+
+    async def cancel_sleep_timer(self, channel_id: str) -> dict:
+        """Cancel the channel's sleep timer (it keeps playing)."""
+        self._session(channel_id)
+        with self._as_origin():
+            self._sessions.sleep.cancel(channel_id)
+        return self._channel(self._session(channel_id))
 
     async def stop_all(self) -> int:
         with self._as_origin():
@@ -318,14 +362,14 @@ class Actions:
         return self._channel(session)
 
     async def next_step(self, channel_id: str) -> str:
-        """Next playlist entry, or the sequence's next preset. Returns 'playlist', 'sequence' or 'end'."""
+        """Next playlist entry, else the sequence's next preset, else the theme's next preset. Returns 'playlist', 'sequence', 'preset' or 'end'."""
         session = self._session(channel_id)
         if not (session.is_playing or self._sessions.is_listened(session)):
             raise ActionError("conflict", "The channel is not playing")
         with self._as_origin():
             result = await self._sessions.skip(channel_id)
         if result is None:
-            raise ActionError("conflict", "No playlist or sequence is running")
+            raise ActionError("conflict", "Nothing to go to next")
         await self._changed(session)
         return result
 
@@ -348,3 +392,14 @@ class Actions:
         if self.overlay is None:
             raise ActionError("unavailable", "Playing sounds isn't available yet")
         return self.overlay.cancel(sound_id)
+
+
+# The actions that change something, and the permission each needs (plugins/permissions.py)
+GUARDED = {
+    **{name: "channels.control" for name in (
+        "create_channel", "start_channel", "stop_channel", "pause_channel", "stop_all", "set_theme",
+        "set_preset", "set_speakers", "set_volume", "mute_speakers", "start_sequence", "stop_sequence",
+        "set_playlist", "clear_playlist", "next_step", "set_sleep_timer", "cancel_sleep_timer")},
+    "play_sound": "audio.sounds",
+    "cancel_sound": "audio.sounds",
+}

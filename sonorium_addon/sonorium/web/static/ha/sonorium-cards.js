@@ -141,18 +141,6 @@ function nextIn(iso) {
     return ` · next in <span class="cd" data-at="${at}">${clock((at - Date.now()) / 1000)}</span>`;
 }
 
-// When a recent change happened: HH:MM today, "Yesterday HH:MM", else a short date
-function when(iso) {
-    const at = new Date(iso);
-    if (Number.isNaN(at.getTime())) return '';
-    const hm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
-    const day = d => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
-    const days = Math.round((day(new Date()) - day(at)) / 86400000);
-    if (days <= 0) return hm;
-    if (days === 1) return `Yesterday ${hm}`;
-    return at.toLocaleDateString([], { day: 'numeric', month: 'short' });
-}
-
 // Everything a card shows about a channel
 function channelView(hass, ch) {
     const e = ch.entities || {};
@@ -196,7 +184,6 @@ function channelView(hass, ch) {
         muted: !!muted && muted.state === 'on',
         hasMute: !!muted,
         step: stepInfo,
-        recent: ((status && status.attributes.recent) || []).filter(r => r && r.text),
         speakers: speakers && !bad(speakers.state) ? speakers.state : '',
     };
 }
@@ -611,7 +598,7 @@ button { font: inherit; }
 .btn-danger { background: rgba(239, 83, 80, .2); color: #ef5350; border: 1px solid rgba(239, 83, 80, .3); }
 .btn-danger:hover { background: rgba(239, 83, 80, .3); border-color: rgba(239, 83, 80, .5); }
 .btn-sm { padding: .375rem .75rem; font-size: .75rem; }
-.ch-card { display: flex; flex-direction: column; gap: .5rem; height: 436px; padding: .875rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .625rem; }
+.ch-card { display: flex; flex-direction: column; gap: .5rem; padding: .875rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .625rem; }
 .ch-card.on { border-color: rgba(6, 214, 160, .45); }
 .ch-head { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; column-gap: .5rem; }
 .ch-icon { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; font-size: 1.375rem; line-height: 1; }
@@ -656,12 +643,6 @@ button { font: inherit; }
 .ch-vol-ic[disabled] { opacity: .5; cursor: default; }
 .ch-vol-val { font-size: .75rem; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
 .track-slider { width: 100%; height: 20px; cursor: pointer; margin: 0; padding: 0; accent-color: var(--accent-primary); }
-.ch-recent { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: .25rem; padding: .5rem .625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; overflow: hidden; }
-.ch-recent-hd { font-size: .6875rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-.ch-recent ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .125rem; overflow-y: auto; scrollbar-width: thin; }
-.ch-recent li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .5rem; font-size: .75rem; color: var(--text-secondary); }
-.ch-recent time { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ch-recent li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ch-foot { display: flex; }
 .ch-play { flex: 1; justify-content: center; min-height: 40px; gap: .375rem; }
 .msg { padding: 1rem; color: var(--text-secondary); }
@@ -774,7 +755,6 @@ class SonoriumChannelPopup extends SonoriumBase {
                 title="${v.playing ? (v.step.kind === 'playlist' ? 'Next entry' : 'Next step') : 'Play the channel first'}" ${v.playing ? '' : 'disabled'}>${S.next}Next</button></div>`
             : '<div class="ch-now"><span class="ch-now-txt"><span class="ch-none">No sequence or playlist</span></span></div>';
         const muteTitle = v.muted ? 'Unmute the speakers' : 'Mute the speakers';
-        const recent = v.recent.map(e => `<li><time datetime="${esc(e.at)}">${when(e.at)}</time><span title="${esc(e.text)}">${esc(e.text)}</span></li>`).join('');
         return `<div class="ch-card${v.playing ? ' on' : ''}">
             <div class="ch-head">
                 <span class="ch-icon" aria-hidden="true">${esc(v.icon)}</span>
@@ -795,7 +775,6 @@ class SonoriumChannelPopup extends SonoriumBase {
                 <input type="range" class="track-slider" min="0" max="100" step="${v.volumeStep}" value="${v.volume}" data-ch="${id}" aria-label="Volume: ${esc(v.name)}">
                 <span class="ch-vol-val pct">${v.volume}%</span>
             </div>
-            <div class="ch-recent"><div class="ch-recent-hd">Recent changes</div><ul>${recent}</ul></div>
             <div class="ch-foot">
                 <button type="button" class="btn ${v.playing ? 'btn-danger' : 'btn-primary'} ch-play" data-act="play" data-ch="${id}">${v.playing ? `${S.stop}Stop` : `${S.play}Play`}</button>
             </div>

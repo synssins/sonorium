@@ -18,6 +18,11 @@ States: on Playing, fade Fading, wait Waiting, rest Paused, off Muted.
 """
 from __future__ import annotations
 
+from sonorium.core.speaker_settings import (
+    DEFAULT_SPEAKER_BUFFER_SECONDS,
+    SPEAKER_BUFFER_SECONDS,
+    sync_ms,
+)
 from sonorium.recording import (
     SAMPLE_RATE,
     CrossfadeRecordingStream,
@@ -30,25 +35,25 @@ from sonorium.recording import (
 SECTIONS = ("Background", "Intermittent", "Ebb & Flow")
 GROUP_MODES = {"Background": "Merry-go-round", "Intermittent": "One at a time", "Ebb & Flow": "Every file at once"}
 
-# How far behind the mixer each kind of speaker plays (seconds): its own
-# buffer of the stream, estimated. "As heard" on the Status page shows the
-# mix this long ago, the longest of a channel's speakers.
-SPEAKER_BUFFER_SECONDS = {
-    "cast": 5.0,
-    "sonos": 3.0,
-    "airplay": 2.0,
-    "dlna": 4.0,
-    "linkplay": 3.0,
-    "heos": 4.0,
-    "denon": 4.0,
-    "esphome": 1.5,
-}
-DEFAULT_SPEAKER_BUFFER_SECONDS = 3.0
+# How far behind the mixer each kind of speaker plays: SPEAKER_BUFFER_SECONDS
+# (core/speaker_settings.py) is the estimate a speaker's Sync starts from.
+# "As heard" on the Status page shows the mix this long ago, the longest Sync
+# of a channel's speakers.
 
 
 def speaker_buffer_seconds(speaker_types) -> float:
     """The longest estimated buffer among these speaker types (0 with none)."""
     return max((SPEAKER_BUFFER_SECONDS.get(t or "", DEFAULT_SPEAKER_BUFFER_SECONDS) for t in speaker_types), default=0.0)
+
+
+def speakers_sync_seconds(session_manager, speaker_ids) -> float:
+    """The longest Sync among these speakers, in seconds (each its own setting, else its type's estimate)."""
+    try:
+        all_settings = session_manager.state.settings.speaker_settings or {}
+    except Exception:
+        all_settings = {}
+    return max((sync_ms(all_settings.get(s), _speaker_type(session_manager, s)) / 1000.0 for s in speaker_ids),
+               default=0.0)
 
 
 def display_name(key: str) -> str:
@@ -294,7 +299,7 @@ def channel_now(session_manager, session) -> dict | None:
     speakers = session_manager.get_resolved_speakers(session) if session.is_playing else []
     buffer = 0.0
     if speakers and not session.speakers_muted:
-        buffer = speaker_buffer_seconds(_speaker_type(session_manager, s) for s in speakers)
+        buffer = speakers_sync_seconds(session_manager, speakers)
     try:
         playback = session_manager.playback_status(session)
     except Exception:

@@ -16,6 +16,7 @@ from typing import Callable, NamedTuple
 import uvicorn
 from fastapi import FastAPI
 
+from sonorium import host
 from sonorium.obs import logger
 
 # Every interface: speakers, phones and browsers on the LAN reach Sonorium directly
@@ -25,6 +26,9 @@ DOCS_PATH = "/docs"
 DOCS_UI_OPTIONS = {"tryItOutEnabled": True}
 # uvicorn's loggers (the Logs page collects them from start-up: logbuffer.attach)
 UVICORN_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access")
+# At shutdown (a restart, docker stop): open streams and the event stream never end on
+# their own, so after this long they are closed and the shutdown goes on
+GRACEFUL_SHUTDOWN_SECONDS = 5
 
 
 def mute_uvicorn_handlers() -> None:
@@ -60,10 +64,11 @@ def add_routes(app: FastAPI, routes: list[Route]) -> None:
 
 def listener(app: FastAPI, port: int, **options) -> uvicorn.Config:
     """
-    One port serving the app. The caller's address is always the real peer,
-    never a forwarded header: sign-in trusts HA's ingress by the
-    Supervisor's address.
+    One port serving the app. uvicorn never reads forwarded headers: sign-in
+    trusts HA's ingress by the Supervisor's address. Behind a reverse proxy,
+    only the trusted proxies' X-Forwarded-For is believed (auth/proxies.py).
     """
+    options.setdefault("timeout_graceful_shutdown", GRACEFUL_SHUTDOWN_SECONDS)
     return uvicorn.Config(app, host=LISTEN_HOST, port=port, access_log=False, proxy_headers=False, **options)
 
 
@@ -89,9 +94,16 @@ async def serve(main: uvicorn.Config, extras: list[uvicorn.Config] = ()) -> None
     logger.debug(f"Web server on http://{main.host}:{main.port}")
     side = [_ExtraServer(config) for config in extras]
     running = [asyncio.create_task(_serve_extra(server)) for server in side]
+    server = uvicorn.Server(main)
+
+    def stop() -> None:  # a restart (sonorium/host.py): the same clean shutdown as a signal
+        server.should_exit = True
+
+    host.set_stopper(stop)
     try:
-        await uvicorn.Server(main).serve()
+        await server.serve()
     finally:
+        host.set_stopper(None)
         for server in side:
             server.should_exit = True
         if running:

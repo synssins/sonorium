@@ -1,13 +1,13 @@
 """
 Plugin API 1.1 end to end: the compatibility check (api_version, requires),
-packages and binaries, command maps (learn, run), the MQTT router, the
-Announcements plugin's notify entities with Home Assistant's text to speech
-(MQTT and HA mocked), and the new routes.
+packages and binaries, command maps (learn, run), the MQTT router,
+Announcements (a core feature: notify entities with Home Assistant's text to
+speech, MQTT topics, the Advanced switch; MQTT and HA mocked), retired
+built-in plugins' leftover copies, and the new routes.
 """
 import asyncio
 import hashlib
 import json
-import shutil
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -21,7 +21,6 @@ from playback_helpers import PACKAGE, addon_modules  # noqa: E402
 import test_sequences_playlists as runner_tests  # noqa: E402
 
 m = SimpleNamespace()
-ANNOUNCEMENTS = PACKAGE / "plugins" / "builtin" / "announcements"
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -30,7 +29,8 @@ def modules():
                        "sonorium.core.sequences", "sonorium.core.playlists", "sonorium.plugins.events",
                        "sonorium.plugins.host", "sonorium.plugins.manager", "sonorium.plugins.loader",
                        "sonorium.plugins.compat", "sonorium.plugins.packages", "sonorium.plugins.commands",
-                       "sonorium.plugins.mqtt", "sonorium.plugins.homeassistant",
+                       "sonorium.plugins.mqtt", "sonorium.plugins.homeassistant", "sonorium.plugins.actions",
+                       "sonorium.core.announce", "sonorium.ha.announcements",
                        "sonorium.web.plugin_framework_api", "sonorium.alerts") as mods:
         m.__dict__.update(mods.__dict__)
         runner_tests.m.__dict__.update(mods.__dict__)
@@ -130,8 +130,7 @@ def w(tmp_path):
     host.homeassistant = m.homeassistant.HomeAssistant(lambda: ("http://supervisor/core/api", "tok"),
                                                        client_factory=FakeHA)
     plugins_dir = tmp_path / "plugins"
-    shutil.copytree(ANNOUNCEMENTS, plugins_dir / "announcements")
-    (plugins_dir / "remote").mkdir()
+    (plugins_dir / "remote").mkdir(parents=True)
     (plugins_dir / "remote" / "plugin.py").write_text(REMOTE)
     m.loader.BUILTIN_PLUGINS_DIR = None
     manager = m.manager.PluginManager(t.store, plugins_dir=plugins_dir, audio_path=tmp_path / "audio", host=host)
@@ -141,11 +140,16 @@ def w(tmp_path):
         call = client.portal.call
         call(manager.initialize)
         call(host.start)
-        for plugin_id in ("announcements", "remote"):
-            assert call(manager.enable_plugin, plugin_id), plugin_id
+        manager.approve_plugin("remote")  # as the user does when switching it on
+        assert call(manager.enable_plugin, "remote")
+        switch = {"on": True}  # Settings > Advanced > Announcements
+        m.announce.set_enabled_source(lambda: switch["on"])
+        announcements = m.announcements.Announcements(host)
+        call(announcements.start, True)
         yield SimpleNamespace(t=t, bus=bus, host=host, manager=manager, client=client, call=call, overlay=overlay,
-                              plugins_dir=plugins_dir)
+                              plugins_dir=plugins_dir, announcements=announcements, switch=switch)
         call(host.stop)
+    m.announce.set_enabled_source(None)
     m.events.set_bus(old_bus)
 
 
@@ -164,7 +168,9 @@ def test_compat_check_messages():
     check = m.compat.check
     assert check({"name": "Old"}) is None                                  # no api_version: 1.0
     assert check({"name": "X", "api_version": "1.1"}) is None
-    assert "needs plugin API 1.9; this Sonorium has 1.1" in check({"name": "X", "api_version": "1.9"})
+    assert check({"name": "X", "api_version": "1.2"}) is None
+    assert "needs plugin API 1.3; this Sonorium has 1.2" in check({"name": "X", "api_version": "1.3"})
+    assert "needs plugin API 1.9; this Sonorium has 1.2" in check({"name": "X", "api_version": "1.9"})
     assert "needs plugin API 2.0" in check({"name": "X", "api_version": "2.0"})
     assert "plugin API 0.x" in check({"name": "X", "api_version": "0.3"})
     assert "can't read" in check({"name": "X", "api_version": "one"})
@@ -187,7 +193,7 @@ def test_refused_plugin_is_listed_with_its_reason_and_its_code_never_runs(w, tmp
     listed = {p["id"]: p for p in w.manager.list_plugins()}
     assert listed["future"]["compatible"] is False and "1.7" in listed["future"]["problem"]
     assert "volume ramps" in listed["ramper"]["problem"]          # host has no ramp service here
-    assert listed["announcements"]["compatible"] is True and listed["announcements"]["api_version"] == "1.1"
+    assert listed["remote"]["compatible"] is True
     assert any("Future" in a["message"] for a in m.alerts.active())  # and the alert bar says so
 
 
@@ -326,8 +332,8 @@ def test_notify_entity_per_channel_and_spoken_message(w):
     assert [p["source"] for p in w.overlay.played] == ["http://x/chime.mp3", b"ID3-fake-mp3"]
     assert all(p["volume"] == 70 for p in w.overlay.played)
 
-    # Disabled: the entities are removed
-    w.call(w.manager.disable_plugin, "announcements")
+    # Switched off in Settings > Advanced: the entities are removed
+    w.call(w.announcements.set_enabled, False)
     assert (topic, "", True) in client.published
 
 
@@ -340,8 +346,9 @@ def test_announce_route(w):
     assert c.post("/api/announce", json={"channels": 5, "text": "x"}).status_code == 400
     assert c.post("/api/announce", json={"channels": "all", "url": "ftp://x"}).status_code == 400
     info = c.get("/api/plugin-framework").json()
-    assert info["api_version"] == "1.1" and "audio.sounds" in info["offered"]
-    assert info["tts_providers"] == [{"id": "homeassistant", "title": "Home Assistant", "plugin_id": "announcements"}]
+    assert info["api_version"] == "1.2" and "audio.sounds" in info["offered"]
+    assert "attributes" in info["offered"]
+    assert info["tts_providers"] == [{"id": "homeassistant", "title": "Home Assistant", "plugin_id": None}]
 
 
 def test_alerts_route():
@@ -472,3 +479,87 @@ def test_permission_table_has_announce_and_no_notification_rules():
     assert any(line.split()[:3] == ["POST", "/api/announce", "an.send"] for line in table.splitlines())
     assert any(line.split()[:3] == ["PUT", "/api/sessions/{session_id}/announcements", "ch.change"]
                for line in table.splitlines())
+
+
+# --- Announcements switched off in Settings > Advanced (a core feature) ---
+
+def test_announcements_are_on_out_of_the_box(w):
+    assert m.announce.announcements_on() and w.announcements.enabled
+    assert {f for o, f, _ in w.host.mqtt._subs if o == m.announcements.OWNER} == {"sonorium/announce/+/set",
+                                                                                  "sonorium/announce/set"}
+
+
+def test_announcements_off_refuses_every_route_and_keeps_the_channel_setting(w):
+    client = FakeMqtt()
+    w.host.mqtt.bind(client, None)
+    session = w.t.session
+    w.t.manager.set_announcements(session.id, False)  # a channel's own setting: kept as it is
+    w.switch["on"] = False
+    w.call(w.announcements.set_enabled, False)
+    topic = f"homeassistant/notify/sonorium_{session.id}_announce/config"
+    assert (topic, "", True) in client.published                                   # entities removed
+    assert not any(o == m.announcements.OWNER for o, _, _ in w.host.mqtt._subs)    # topics not listened to
+
+    r = w.client.post("/api/announce", json={"channels": "all", "text": "Dinner"})
+    assert r.status_code == 409 and r.json()["detail"].startswith("Announcements are off")
+    r = w.client.post("/api/announce", json={"channels": "Garage", "text": "x"})
+    assert r.status_code == 409  # before anything else
+    # (a sound marked "announcement" is refused by the overlay itself: test_overlay_service.py)
+    remote = w.manager.get_plugin("remote")
+    with pytest.raises(m.actions.ActionError) as refused:
+        w.call(lambda: remote.audio.announce("all", "From a plugin"))
+    assert refused.value.code == "conflict" and "Announcements are off" in refused.value.message
+    w.call(client.handler, "sonorium/announce/set", json.dumps({"channels": "all", "text": "Hello"}))
+    w.call(w.announcements.on_command, "sonorium/announce/set", json.dumps({"channels": "all", "text": "Hi"}))
+    time.sleep(0.1)
+    assert w.overlay.played == []
+    assert not any(c[1].endswith("tts_get_url") for c in FakeHA.calls)
+    # A sound that isn't an announcement still plays
+    r = w.client.post("/api/sounds", json={"channels": "all", "url": "http://x/a.mp3"})
+    assert r.status_code == 200
+    assert w.t.manager.get(session.id).announcements is False
+
+    # Back on: the entities and topics come back, announcements play again
+    w.t.manager.set_announcements(session.id, True)
+    w.switch["on"] = True
+    client.published.clear()
+    w.call(w.announcements.set_enabled, True)
+    assert any(p[0] == topic and p[1] for p in client.published)
+    w.overlay.played.clear()
+    r = w.client.post("/api/announce", json={"channels": "all", "text": "Dinner"})
+    assert r.status_code == 200 and r.json()["played"] == [session.id]
+
+
+# --- Retired built-in plugins (Integration, Announcements: core features now) ---
+
+def test_leftover_copies_of_retired_builtins_are_removed_and_never_loaded(w):
+    for plugin_id, name in (("integration", "Integration"), ("announcements", "Announcements"), ("users", "Users")):
+        folder = w.plugins_dir / plugin_id
+        folder.mkdir()
+        (folder / "manifest.json").write_text(json.dumps({"id": plugin_id, "name": name, "version": "1.0.1",
+                                                          "builtin": True, "enabled_by_default": True}))
+        (folder / "plugin.py").write_text("raise SystemExit('a retired plugin must never run')\n")
+    settings = w.t.store.settings
+    settings.enabled_plugins += ["integration", "announcements", "users"]
+    settings.known_builtin_plugins += ["integration", "announcements", "users"]
+    settings.deleted_builtin_plugins.append("integration")
+    settings.plugin_settings["announcements"] = {"tts_engine": "tts.piper"}
+    alerts_before = len(m.alerts.active())
+    w.call(w.manager.reload_plugins)
+    for retired in ("integration", "announcements", "users"):
+        assert not (w.plugins_dir / retired).exists()
+    ids = {p["id"] for p in w.manager.list_plugins()}
+    assert not {"integration", "announcements", "users"} & ids and "remote" in ids
+    for listed in (settings.enabled_plugins, settings.known_builtin_plugins, settings.deleted_builtin_plugins):
+        assert not {"integration", "announcements", "users"} & set(listed)
+    assert "announcements" not in settings.plugin_settings
+    assert len(m.alerts.active()) == alerts_before and not w.manager.refused  # no errors for them
+
+
+def test_someones_own_plugin_with_a_retired_name_is_kept(tmp_path):
+    folder = tmp_path / "integration"
+    folder.mkdir()
+    (folder / "plugin.py").write_text("# someone's own\n")
+    (folder / "manifest.json").write_text(json.dumps({"id": "integration", "name": "Mine", "version": "1.0.0"}))
+    assert m.loader.remove_retired_plugins(tmp_path) == []
+    assert folder.exists()

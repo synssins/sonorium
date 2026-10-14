@@ -1,6 +1,5 @@
 """
-Network speaker discovery, ported from the Windows app (app/core/sonorium/
-network_speakers.py): Chromecast (pychromecast), Sonos (SoCo), DLNA/UPnP
+Network speaker discovery: Chromecast (pychromecast), Sonos (SoCo), DLNA/UPnP
 renderers (SSDP), mDNS (zeroconf), a LinkPlay/Arylic subnet probe, AirPlay
 (pyatv) and HEOS (CLI on port 1255).
 

@@ -18,7 +18,7 @@ Playing sounds over channels: announcements, alerts and sound effects
 - Speakers muted is respected: a muted channel's speakers don't hear the
   sound (a browser listening does), and a stopped muted channel isn't woken.
 - Gates (add_gate) may refuse a sound on a channel, e.g. a zone's quiet hours
-  (the Users plugin). A sound with override=True (an admin, Home Assistant,
+  (core/zones.py). A sound with override=True (an admin, Home Assistant,
   MQTT) skips them.
 
 Events: sound.started and sound.ended for each channel (core events
@@ -105,6 +105,14 @@ class OverlayService:
                 "origin": sound.meta.get("origin", "sonorium")}
         if kind == "ended":
             data.update(reason=reason, capped=sound.capped, played=round(sound.pos / self.rate, 3))
+        owner = sound.meta.get("owner")
+        if isinstance(owner, str) and owner:  # a personal channel's: only its account's event streams
+            data["personal"] = True
+            try:
+                self.publish(f"sound.{kind}", data, audience=owner)
+            except TypeError:  # a publish without audiences: keep it private
+                pass
+            return
         self.publish(f"sound.{kind}", data)
 
     # --- Playing ---
@@ -139,6 +147,9 @@ class OverlayService:
         (with the reason). An announcement skips channels with announcements
         off (ANNOUNCEMENTS_OFF). OverlayError / decode.DecodeError for a bad request.
         """
+        if announcement:
+            from sonorium.core.announce import check_on
+            check_on()  # Settings > Advanced > Announcements off: AnnouncementsOff
         if isinstance(channels, str):
             channels = [channels]
         if not isinstance(channels, (list, tuple)) or not channels or len(channels) > MAX_CHANNELS_PER_SOUND:
@@ -166,7 +177,9 @@ class OverlayService:
 
     def _play_on(self, channel_id, pcm, capped, gain, duck, policy, priority, start_stopped, override, request) -> dict:
         sessions = self.sessions
-        session = sessions.get(channel_id) if sessions is not None else None
+        find = getattr(sessions, "get_any", None) if request.get("announcement") else None
+        find = find if callable(find) else getattr(sessions, "get", None)  # a personal channel: announcements only
+        session = find(channel_id) if find is not None else None
         if session is None:
             return {"state": "skipped", "message": "No such channel"}
         if request.get("announcement") and not getattr(session, "announcements", True):
@@ -179,7 +192,7 @@ class OverlayService:
         sound = Sound(sound_id=request["sound_id"], pcm=pcm, volume=gain, duck=duck, policy=policy,
                       priority=priority, capped=capped,
                       meta={"channel_id": session.id, "name": session.name, "label": request["label"],
-                            "origin": request["origin"]})
+                            "origin": request["origin"], "owner": getattr(session, "owner", None)})
         muted = bool(getattr(session, "speakers_muted", False))
         waking = self._waking.get(session.id)
         if waking is not None and not waking["ready"]:
@@ -224,6 +237,8 @@ class OverlayService:
             channel.run_silent()
             overlay = self.overlay_of(channel, session)
             speakers = list(sessions.get_resolved_speakers(session))
+            if hasattr(sessions, "media_speakers"):  # an audio output device isn't woken for a sound
+                speakers = sessions.media_speakers(speakers)
             controller = sessions.media_controller
             logger.info(f"  '{session.name}': starting {len(speakers)} speaker(s) for a sound")
             await controller.play_media_multi(speakers, sessions.get_stream_url(session))

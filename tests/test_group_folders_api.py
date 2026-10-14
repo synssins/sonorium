@@ -32,6 +32,7 @@ def mods():
         files = _exec("sonorium.theme_files", "theme_files.py")
         presets = _exec("sonorium.core.theme_presets", "core/theme_presets.py")
         core.theme_presets = presets
+        core.plugin_data = _exec("sonorium.core.plugin_data", "core/plugin_data.py")
         meta = _exec("sonorium.core.theme_metadata", "core/theme_metadata.py")
         groups = _exec("sonorium.core.theme_groups", "core/theme_groups.py")
         yield SimpleNamespace(files=files, presets=presets, meta=meta, groups=groups)

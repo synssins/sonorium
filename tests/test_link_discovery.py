@@ -252,6 +252,85 @@ def test_txt_pair_follows_require_login(zc):
     assert ok and zc.instances[-1].registered[0].properties["pair"] == "1"
 
 
+def _start_named(name, required=lambda: False):
+    a = m.announce.Announcer(addresses=lambda first: ["192.0.2.5"], pair_check_seconds=3600)
+    assert a.start(server_id="0f8fad5b-d9cb-469f-a165-70867728950e", version="1.6.2", api=1,
+                   base_url="http://192.0.2.5:8008", https_port=8808, login_required=required, name=name)
+    return a
+
+
+def test_txt_name_is_the_servers_name(zc):
+    a = _start_named("Living Room")
+    info = zc.instances[0].registered[0]
+    assert info.properties["name"] == "Living Room"
+    assert info.name == f"Sonorium 0f8fad5b.{m.announce.SERVICE_TYPE}"  # instance name unchanged
+    assert info.server == "sonorium.local." and info.properties["host"] == "sonorium.local"
+    a.stop()
+
+
+def test_txt_name_follows_a_rename(zc):
+    current = {"name": "Living Room"}
+    required = {"on": False}
+    a = _start_named(lambda: current["name"], lambda: required["on"])
+    zc_ = zc.instances[0]
+    assert a._watcher is not None and a._watcher.name == "mdns-refresh"
+    assert a.refresh() is False  # unchanged: nothing re-announced
+    current["name"] = "Kitchen"
+    assert a.refresh() is True
+    info = zc_.registered[0]
+    assert info.properties["name"] == "Kitchen" and info.properties["pair"] == "0"
+    assert info.name == f"Sonorium 0f8fad5b.{m.announce.SERVICE_TYPE}" and info.server == "sonorium.local."
+    # pair and name together, in one re-announce
+    current["name"], required["on"] = "Den", True
+    assert a.refresh() is True
+    props = zc_.registered[0].properties
+    assert props["name"] == "Den" and props["pair"] == "1"
+    assert a.refresh_pair() is False  # older name: same refresh
+    a.stop()
+
+
+@pytest.mark.parametrize("name", ["", "   ", None, "boom"])
+def test_txt_name_falls_back_to_sonorium(zc, name):
+    def broken():
+        raise RuntimeError("settings unreadable")
+    a = _start_named(broken if name == "boom" else name)
+    assert zc.instances[0].registered[0].properties["name"] == "Sonorium"
+    a.stop()
+
+
+def test_txt_name_fallback_after_a_rename_to_empty(zc):
+    current = {"name": "Kitchen"}
+    a = _start_named(lambda: current["name"])
+    current["name"] = ""
+    assert a.refresh() is True and zc.instances[0].registered[0].properties["name"] == "Sonorium"
+    a.stop()
+
+
+def test_default_txt_name_matches_api_info():
+    from sonorium.auth import routes
+    a = m.announce.Announcer()
+    a._server_name = routes.server_name
+    assert a._name() == routes.server_name() == "Sonorium"
+
+
+def test_txt_name_follows_the_server_name_setting(zc, tmp_path):
+    """Settings > Advanced > Server name: saved in the store, the next refresh re-announces it."""
+    with addon_modules("sonorium.servername", "sonorium.core.state") as mods:
+        store = mods.state.StateStore(tmp_path / "state.json")
+        store.load()
+        mods.servername.set_source(lambda: store.settings.server_name)
+        a = _start_named(mods.servername.get)  # api.py passes routes.server_name, which reads servername.get
+        zc_ = zc.instances[0]
+        assert zc_.registered[0].properties["name"] == "Sonorium"
+        assert a.refresh() is False
+        store.settings.server_name = "Living Room"
+        assert a.refresh() is True and zc_.registered[0].properties["name"] == "Living Room"
+        store.settings.server_name = ""
+        assert a.refresh() is True and zc_.registered[0].properties["name"] == "Sonorium"
+        a.stop()
+        mods.servername.set_source(None)
+
+
 def test_no_lan_address_no_announcement(zc):
     a, ok = announce(addresses=())
     assert not ok and a.hostname is None and not zc.instances

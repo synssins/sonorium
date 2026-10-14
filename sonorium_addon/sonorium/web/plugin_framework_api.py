@@ -16,6 +16,11 @@ Extensions      GET  /api/extensions
                 POST /api/plugins/{id}/pages/{page_id}/actions/{action}
                 GET|PUT /api/plugins/{id}/connections/{connection_id}
                 POST /api/plugins/{id}/connections/{connection_id}/test
+UI              GET  /api/ui/targets, GET /api/ui/contributions, POST /api/ui/objects,
+                POST /api/ui/actions/{plugin_id}/{element_id}   (web/ui_api.py)
+Attributes      GET  /api/attributes                 (every plugin's schema)
+                GET  /api/attributes/{kind}?id=..&theme=..
+                PUT  /api/attributes/{kind}/{plugin_id}?id=..&theme=..
 
 Paths for every plugin sit under /api/extensions, /api/schedules, ... and not
 under /api/plugins/..., where GET /api/plugins/{plugin_id} would catch them.
@@ -44,6 +49,8 @@ from sonorium.plugins.triggers import MAX_PAYLOAD_BYTES, TRIGGER_ID
 
 EVENTS_SCOPE = "events"
 MAX_STREAMS = 20
+# ActionError.code as an HTTP status
+ACTION_ERROR_STATUS = {"not_found": 404, "invalid": 400, "conflict": 409, "unavailable": 503, "forbidden": 403}
 KEEPALIVE_SECONDS = 15
 PAGE_TIMEOUT, ACTION_TIMEOUT, TEST_TIMEOUT = 10, 30, 20
 
@@ -59,10 +66,62 @@ def _allowed(request: Request, ability: str) -> bool:
     return principal.kind in ("key", "device", "session", "ingress") and principal.can(ability)
 
 
+# What a caller needs to see an event, by the start of its type (the rest: "Read events" alone)
+EVENT_ABILITIES = {
+    "channel.": "ch.view", "sequence.": "ch.view", "sound.": "ch.view", "ramp.": "ch.view", "zone.": "ch.view",
+    "link.": "ch.view", "playlist.": "pl.view", "theme.": "th.view", "attribute.": "th.view",
+    "speaker.": "sp.view", "device.": "sp.view", "group.": "sp.view", "spaces.": "sp.view", "settings.": "st.view",
+}
+
+
+def event_visible(principal, event) -> bool:
+    """
+    The caller may see this event: the ability its type needs (EVENT_ABILITIES),
+    and a key for some channels sees only those channels' events. None (the
+    old events token, made by an admin): every event.
+    """
+    if principal is None:
+        return True
+    for prefix, ability in EVENT_ABILITIES.items():
+        if event.type.startswith(prefix):
+            if not principal.can(ability):
+                return False
+            break
+    channel = (event.data or {}).get("channel_id") if isinstance(event.data, dict) else None
+    if channel is not None and getattr(principal, "channels", None) is not None:
+        return principal.can_channel(channel)
+    return True
+
+
+def event_caller_key(request: Request) -> str:
+    """Who holds an event stream, for event_streams_per_caller: the account, phone or key, else the address."""
+    from sonorium.auth.middleware import principal_of
+    p = principal_of(request)
+    for kind, value in (("user", p.user_id), ("device", p.device_id), ("key", getattr(p, "key_id", None))):
+        if value:
+            return f"{kind}:{value}"
+    return "address:" + (request.client.host if request.client else "")
+
+
+EVENT_SLOTS = None  # limits.Slots, made with the first router
+
+
 def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["plugin-framework"])
     install_log_redaction()
     streams = {"open": 0}
+    from sonorium import limits
+    global EVENT_SLOTS
+    if EVENT_SLOTS is None:
+        EVENT_SLOTS = limits.Slots()
+    slots = EVENT_SLOTS
+
+    def take_stream_slot(request: Request) -> str:
+        """One more event stream for this caller (event_streams_per_caller), else 429."""
+        key = event_caller_key(request)
+        if not slots.take(key, limits.count(limits.EVENT_STREAMS)):
+            raise HTTPException(status_code=429, detail="Too many event streams are open. Close one and try again.")
+        return key
 
     def _host():
         if host is None or plugin_manager is None:
@@ -86,13 +145,9 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         return value
 
     async def _json(request: Request) -> dict:
-        try:
-            data = await request.json()
-        except Exception:
-            raise HTTPException(status_code=400, detail="Invalid JSON body")
-        if not isinstance(data, dict):
-            raise HTTPException(status_code=400, detail="Expected a JSON object")
-        return data
+        """The request's JSON object, at most request_body_limit_kb (sonorium/limits.py; 413 beyond)."""
+        from sonorium import limits
+        return await limits.read_json_object(request)
 
     async def _call_plugin(plugin, what: str, coro, timeout: float):
         """Run a plugin method; its failure is a 502 (and an error event), never a crash."""
@@ -144,26 +199,35 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         """
         bus = _host().bus
         # A key with "Read events", a linked phone or a signed-in user; or the old events token
-        if not _allowed(request, "ev.read") and not host.tokens.check(EVENTS_SCOPE, token_from_request(request)):
+        signed_in = _allowed(request, "ev.read")
+        if not signed_in and not host.tokens.check(EVENTS_SCOPE, token_from_request(request)):
             raise HTTPException(status_code=401, detail="A valid token is needed",
                                 headers={"WWW-Authenticate": "Bearer"})
+        from sonorium.auth.middleware import principal_of
+        viewer = principal_of(request) if signed_in else None  # events filtered by what it may see
         try:
             patterns = [ev.check_pattern(p) for p in types.split(",") if p.strip()] or ["*"]
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         if streams["open"] >= MAX_STREAMS:
             raise HTTPException(status_code=503, detail="Too many event streams open")
+        slot = take_stream_slot(request)
         last = request.headers.get("last-event-id") or request.query_params.get("last_event_id") or ""
         last_id = ev.replay_after(last)  # "<boot_id>:<n>"; another run's id replays all of this one
 
         queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 
         async def collect(event):
+            if not event_visible(viewer, event):
+                return
             if queue.full():
                 queue.get_nowait()  # a stalled reader loses the oldest
             queue.put_nowait(event)
 
-        sub = bus.subscribe(patterns, collect, owner=None, queue_size=500)
+        # A personal channel's events go only to its account's streams
+        from sonorium.web.personal_routes import audience_of
+        audience = audience_of(request)
+        sub = bus.subscribe(patterns, collect, owner=None, queue_size=500, audience=audience)
         streams["open"] += 1
 
         def frame(event) -> str:
@@ -174,7 +238,9 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
             try:
                 yield "retry: 5000\n\n"
                 if last_id is not None:
-                    for event in bus.history(last_id, patterns):
+                    for event in bus.history(last_id, patterns, audience=audience):
+                        if not event_visible(viewer, event):
+                            continue
                         yield frame(event)
                         newest, sent = event.id, sent + 1
                         if max_events and sent >= max_events:
@@ -194,6 +260,79 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
             finally:
                 bus.unsubscribe(sub)
                 streams["open"] -= 1
+                slots.give(slot)
+
+        return StreamingResponse(generate(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+    # --- The cue timeline (core/timeline.py) ---
+
+    def _timeline_reader(request: Request):
+        if not _allowed(request, "ev.read") and not _host().tokens.check(EVENTS_SCOPE, token_from_request(request)):
+            raise HTTPException(status_code=401, detail="A valid token is needed",
+                                headers={"WWW-Authenticate": "Bearer"})
+        timeline = getattr(_host(), "timeline", None)
+        if timeline is None:
+            raise HTTPException(status_code=503, detail="The cue timeline isn't available")
+        return timeline
+
+    def _channel_list(value: str):
+        names = [c.strip() for c in (value or "").split(",") if c.strip()]
+        return names or None
+
+    @router.get("/timeline")
+    async def timeline_info(request: Request, channels: str = ""):
+        """The cue events, the Look-ahead, and the cues scheduled and not yet ended."""
+        timeline = _timeline_reader(request)
+        from sonorium.web.personal_routes import audience_of
+        audience = audience_of(request)
+        wanted = _channel_list(channels)
+        pending = [{k: v for k, v in c.items() if not k.startswith("_")} for c in timeline.pending(audience=audience)
+                   if wanted is None or c["channel_id"] in wanted]
+        return {**timeline.describe(), "pending": pending}
+
+    @router.get("/timeline/stream")
+    async def timeline_stream(request: Request, channels: str = "", max_events: int = 0):
+        """
+        Server-Sent Events of cue.scheduled, cue.cancelled and cue.ended, as
+        /api/events/stream ("id: <boot_id>:<n>", "event: <type>", "data:
+        <JSON>"). channels: comma-separated channel ids (none: every channel).
+        """
+        timeline = _timeline_reader(request)
+        if streams["open"] >= MAX_STREAMS:
+            raise HTTPException(status_code=503, detail="Too many event streams open")
+        slot = take_stream_slot(request)
+        queue: asyncio.Queue = asyncio.Queue(maxsize=2000)
+
+        async def collect(event):
+            if queue.full():
+                queue.get_nowait()
+            queue.put_nowait(event)
+
+        from sonorium.web.personal_routes import audience_of
+        sub = timeline.subscribe(collect, _channel_list(channels), owner=None, audience=audience_of(request),
+                                 queue_size=2000)
+        streams["open"] += 1
+
+        async def generate():
+            sent = 0
+            try:
+                yield "retry: 5000\n\n"
+                while True:
+                    try:
+                        event = await asyncio.wait_for(queue.get(), KEEPALIVE_SECONDS)
+                    except asyncio.TimeoutError:
+                        yield ": keep-alive\n\n"
+                        continue
+                    yield (f"id: {ev.stream_id(event)}\nevent: {event.type}\n"
+                           f"data: {json.dumps(event.to_dict(), default=str)}\n\n")
+                    sent += 1
+                    if max_events and sent >= max_events:
+                        return
+            finally:
+                sub.close()
+                streams["open"] -= 1
+                slots.give(slot)
 
         return StreamingResponse(generate(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
@@ -468,13 +607,249 @@ def create_plugin_framework_router(plugin_manager, host) -> APIRouter:
         return clean
 
     _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json)
+    _add_attribute_routes(router, _host, _json)
+    _add_device_routes(router, _host, _json)
+    _add_permission_routes(router, plugin_manager, _host)
+    _add_plugin_http_routes(router, _host, _plugin, _call_plugin)
+    from sonorium.web.ui_api import add_ui_routes
+    add_ui_routes(router, plugin_manager, host)
     return router
+
+
+# Who may read and change plugin attributes, by object kind (users: below)
+ATTRIBUTE_READ = {"theme": "th.view", "track": "th.view", "file": "th.view", "preset": "th.view", "group": "th.view",
+                  "channel": "ch.view", "speaker": "sp.view", "speaker_group": "sp.view", "area": "sp.view",
+                  "sequence": "pl.view", "step": "pl.view", "playlist": "pl.view", "playlist_entry": "pl.view",
+                  "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins",
+                  "device": "sp.view"}
+ATTRIBUTE_WRITE = {"theme": "th.edit", "track": "th.edit", "file": "th.edit", "preset": "th.edit", "group": "th.edit",
+                   "channel": "ch.change", "speaker": "sp.set", "speaker_group": "sp.set", "area": "st.change",
+                   "sequence": "pl.edit", "step": "pl.edit", "playlist": "pl.edit", "playlist_entry": "pl.edit",
+                   "key": "admin.keys", "connection": "admin.connection", "plugin": "admin.plugins",
+                   "device": "sp.set"}
+
+
+def _add_attribute_routes(router, _host, _json) -> None:
+    """Plugin attributes on core objects (plugins/attributes.py, core/plugin_data.py)."""
+    from sonorium.auth.middleware import principal_of
+    from sonorium.core.plugin_data import OBJECT_CLASSES, registry
+    from sonorium.plugins.actions import ActionError
+
+    def _ref(kind: str, request: Request) -> dict:
+        if kind not in OBJECT_CLASSES:
+            raise HTTPException(status_code=404, detail=f"Unknown object kind '{kind}' (one of {', '.join(OBJECT_CLASSES)})")
+        params = request.query_params
+        return {"kind": kind, "id": params.get("id") or "", "theme": params.get("theme")}
+
+    def _check(request: Request, ref: dict, write: bool) -> None:
+        """The caller's abilities for this kind of object (the route's own entry lets any of them in)."""
+        principal = principal_of(request)
+        kind = ref["kind"]
+        if kind == "user":
+            allowed = principal.can("admin.users") or (principal.can("self") and principal.user_id == ref["id"])
+        else:
+            allowed = principal.can((ATTRIBUTE_WRITE if write else ATTRIBUTE_READ)[kind])
+            if allowed and kind == "channel":
+                allowed = principal.can_channel(ref["id"])
+        if not allowed:
+            raise HTTPException(status_code=403, detail="Not allowed")
+
+    def _guard(work):
+        try:
+            return work()
+        except ActionError as e:
+            raise HTTPException(status_code=ACTION_ERROR_STATUS.get(e.code, 400), detail=e.message)
+
+    @router.get("/attributes")
+    async def attribute_schemas():
+        """Every installed plugin's declared attributes: {plugin_id: {class: {name: field}}}, and the size limit."""
+        return {"classes": list(OBJECT_CLASSES), "limit": registry.limit(), "plugins": registry.declarations()}
+
+    @router.get("/attributes/{kind}")
+    async def get_attributes(kind: str, request: Request):
+        """An object's plugin attributes ({plugin_id: {name: value}}); ?id=...&theme=... name the object."""
+        ref = _ref(kind, request)
+        _check(request, ref, write=False)
+        service = _host().attributes
+        return {"kind": kind, "id": ref["id"], "theme": ref["theme"], "plugins": _guard(lambda: service.get(ref))}
+
+    @router.put("/attributes/{kind}/{plugin_id}")
+    async def set_attributes(kind: str, plugin_id: str, request: Request):
+        """
+        Change one plugin's attributes on an object: body {name: value, or null
+        to remove it}. Checked against the plugin's schema and the size limit
+        (400 with every problem). Returns that plugin's values afterwards.
+        """
+        ref = _ref(kind, request)
+        _check(request, ref, write=True)
+        if not is_valid_plugin_id(plugin_id):
+            raise HTTPException(status_code=400, detail="Invalid plugin id")
+        body = await _json(request)
+        service = _host().attributes
+        values = _guard(lambda: service.set(ref, plugin_id, body))
+        return {"kind": kind, "id": ref["id"], "theme": ref["theme"], "plugin_id": plugin_id, "values": values}
+
+
+def _add_permission_routes(router, plugin_manager, _host) -> None:
+    """What each plugin may do, and the user's approval (plugins/permissions.py)."""
+    from sonorium.plugins.permissions import catalogue
+
+    @router.get("/plugin-permissions")
+    async def permission_catalogue():
+        """Every permission a plugin can ask for, as the user is shown it."""
+        return catalogue()
+
+    def _plugin_or_waiting(plugin_id: str):
+        """A loaded plugin or one waiting for approval (not loaded: none of its code has run)."""
+        _host()
+        if not is_valid_plugin_id(plugin_id):
+            raise HTTPException(status_code=400, detail="Invalid plugin id")
+        plugin = plugin_manager.find_plugin(plugin_id)
+        if plugin is None:
+            raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
+        return plugin
+
+    @router.get("/plugins/{plugin_id}/permissions")
+    async def plugin_permissions(plugin_id: str):
+        plugin = _plugin_or_waiting(plugin_id)
+        host = _host()
+        return {**host.permissions.describe(plugin), "granted": host.permissions.granted(plugin.id)}
+
+    @router.put("/plugins/{plugin_id}/permissions")
+    async def approve_plugin_permissions(plugin_id: str, request: Request):
+        """
+        {"approve": true}: the user allows what the plugin asks for now, its
+        Python packages too. Switching it on then installs them and loads it.
+        """
+        plugin = _plugin_or_waiting(plugin_id)
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        if not isinstance(body, dict) or body.get("approve") is not True:
+            raise HTTPException(status_code=400, detail='Send {"approve": true}')
+        host = _host()
+        plugin_manager.approve_plugin(plugin.id)
+        return {**host.permissions.describe(plugin), "granted": host.permissions.granted(plugin.id)}
+
+
+def _add_plugin_http_routes(router, _host, _plugin, _call_plugin) -> None:
+    """Each plugin's own routes (plugins/http_routes.py): the sign-in checked each route's ability first."""
+    from fastapi.responses import Response
+    from sonorium.plugins.http_routes import HEADERS, LIMITS, match, response_parts
+
+    @router.api_route("/plugins/{plugin_id}/http/{path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+    async def plugin_http(plugin_id: str, path: str, request: Request):
+        plugin = _plugin(plugin_id)
+        routes = _host().http_routes.get(plugin.id) if plugin.enabled else None
+        found = match(routes or [], request.method, path)
+        if found is None:
+            raise HTTPException(status_code=404, detail="Not Found")
+        route, params = found
+        # The sign-in checked the route's ability; checked again here, so a path the
+        # sign-in's table didn't match can never reach a route it would have refused
+        from sonorium.auth.middleware import principal_of
+        caller = principal_of(request)
+        from sonorium.auth.permissions import RoutePermission
+        if not RoutePermission(route["ability"]).allows(caller.perms):
+            if caller.kind in ("anonymous", "open"):
+                raise HTTPException(status_code=401, detail="Sign in first")
+            raise HTTPException(status_code=403, detail="Not allowed")
+        from sonorium import limits
+        body = await limits.read_body(request, LIMITS["body_max_bytes"])
+        data = None
+        if body and "json" in (request.headers.get("content-type") or ""):
+            try:
+                data = json.loads(body)
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid JSON body")
+        info = {"method": request.method, "path": path, "params": params, "query": dict(request.query_params),
+                "json": data, "body": body,
+                "caller": {"kind": caller.kind, "user_id": getattr(caller, "user_id", None),
+                           "role": getattr(caller, "role", None)}}
+        result = await _call_plugin(plugin, f"http {route['id']}", plugin.http_request(route["id"], info),
+                                    LIMITS["timeout"])
+        try:
+            status, content, ctype = response_parts(result)
+        except ValueError as e:
+            logger.warning(f"Plugin {plugin.id}: route {route['id']} answered badly: {e}")
+            raise HTTPException(status_code=502, detail=f"The plugin's answer was refused: {e}")
+        return Response(content=content, status_code=status, media_type=ctype, headers=dict(HEADERS))
+
+
+def _add_device_routes(router, _host, _json) -> None:
+    """Devices of any kind plugins bring (core/devices.py)."""
+    from sonorium.core.devices import DeviceError
+
+    def _svc():
+        devices = getattr(_host(), "devices", None)
+        if devices is None:
+            raise HTTPException(status_code=503, detail="Devices are not available")
+        return devices
+
+    async def _guard(work):
+        try:
+            result = work()
+            return (await result) if asyncio.iscoroutine(result) else result
+        except LookupError as e:
+            raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+        except DeviceError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @router.get("/plugin-devices/kinds")
+    async def device_kinds():
+        """The kinds of device registered now (plugins switched on)."""
+        return {"kinds": _svc().kinds()}
+
+    @router.get("/plugin-devices")
+    async def list_devices(kind: Optional[str] = None, plugin: Optional[str] = None):
+        """The remembered devices of kinds registered now (?kind=, ?plugin=)."""
+        return {"devices": _svc().list(kind, plugin)}
+
+    @router.post("/plugin-devices/discover")
+    async def discover_devices(kind: Optional[str] = None):
+        """Ask the plugins for their devices again (one kind, or every kind)."""
+        return {"devices": await _guard(lambda: _svc().discover(kind))}
+
+    @router.put("/plugin-devices/{device_id}")
+    async def update_device(device_id: str, request: Request):
+        """{name (null: the plugin's), area ("" none), use, channels, areas}: the user's choices for a device."""
+        body = await _json(request)
+        svc = _svc()
+        settings = {k: body[k] for k in ("name", "area", "use") if k in body}
+        unknown = set(body) - {"name", "area", "use", "channels", "areas"}
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"Unknown device setting: {', '.join(sorted(unknown))}")
+        device = await _guard(lambda: svc.update(device_id, settings) if settings else svc.get(device_id))
+        if "channels" in body or "areas" in body:
+            device = await _guard(lambda: svc.assign(device_id, body.get("channels"), body.get("areas")))
+        return device
+
+    @router.delete("/plugin-devices/{device_id}")
+    async def remove_device(device_id: str):
+        await _guard(lambda: _svc().remove(device_id))
+        return {"removed": device_id}
+
+    @router.post("/plugin-devices/{device_id}/actions/{action}")
+    async def device_action(device_id: str, action: str, request: Request):
+        """One of the device's kind's actions (Test, Identify, ...): {"success", "message"}."""
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        params = body.get("params") if isinstance(body, dict) else None
+        return await _guard(lambda: _svc().action(device_id, action, params))
+
+    @router.get("/sessions/{session_id}/plugin-devices")
+    async def channel_devices(session_id: str, kind: Optional[str] = None):
+        """The devices following a channel: assigned to it, or in an area of its speakers."""
+        return {"devices": _svc().assigned(session_id, kind)}
 
 
 def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> None:
     """Sounds, announcements, ramps, audio outputs, command maps, alerts (framework phase 2)."""
-    from sonorium.core.announce import TtsUnavailable
-    from sonorium.core.audio_outputs import OutputError
+    from sonorium.core.announce import AnnouncementsOff, TtsUnavailable
+    from sonorium.core.audio_outputs import OutputBusy, OutputError, OutputFailed
     from sonorium.core.decode import DecodeError
     from sonorium.core.overlay import OverlayError
     from sonorium.core.ramps import RampError
@@ -488,13 +863,18 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             raise HTTPException(status_code=503, detail=f"{what} isn't available yet")
         return service
 
-    def _channels(value) -> list:
-        """Channel ids from ids or names (one, a list, or "all"); 404 names an unknown one."""
+    def _channels(value, personal: bool = False) -> list:
+        """
+        Channel ids from ids or names (one, a list, or "all"); 404 names an
+        unknown one. personal: "all" also takes the personal channels being
+        listened to (announcements).
+        """
         from sonorium.core.announce import resolve_channels
         if value is None:
             raise HTTPException(status_code=400, detail="'channels' is needed: a channel name or id, a list, or \"all\"")
         try:
-            return resolve_channels(getattr(_svc("overlay", "Playing sounds"), "sessions", None), value)
+            return resolve_channels(getattr(_svc("overlay", "Playing sounds"), "sessions", None), value,
+                                    personal=personal)
         except LookupError as e:
             raise HTTPException(status_code=404, detail=str(e.args[0] if e.args else e))
         except ValueError as e:
@@ -514,12 +894,36 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             return (await result) if inspect.isawaitable(result) else result
         except LookupError as e:
             raise HTTPException(status_code=404, detail=str(e).strip("'\""))
+        except AnnouncementsOff as e:
+            raise HTTPException(status_code=409, detail=str(e))
         except TtsUnavailable as e:
             raise HTTPException(status_code=503, detail=str(e))
         except (OverlayError, DecodeError, RampError, OutputError, cmd.CommandError) as e:
             raise HTTPException(status_code=400, detail=str(e))
         except TtsError as e:
             raise HTTPException(status_code=502, detail=str(e))
+
+    async def _output_guard(work):
+        """
+        _guard for the audio-output routes, which run a plugin's code: its
+        ActionError as the matching status with its message, anything else
+        as 502 "<type title>: <message>", never a bare 500.
+        """
+        from sonorium.plugins.actions import ActionError
+        try:
+            return await _guard(work)
+        except HTTPException:
+            raise
+        except ActionError as e:
+            raise HTTPException(status_code=ACTION_ERROR_STATUS.get(e.code, 400), detail=e.message)
+        except OutputFailed as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        except OutputBusy as e:
+            raise HTTPException(status_code=409, detail=e.message,
+                                headers={"X-Sonorium-Take-Over": "ask"} if e.take_over else None)
+        except Exception as e:
+            logger.error(f"Audio output failed: {e}", exc_info=e)
+            raise HTTPException(status_code=502, detail=f"{type(e).__name__}: {str(e) or type(e).__name__}")
 
     # --- Framework ---
 
@@ -534,10 +938,10 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
     @router.get("/plugins/{plugin_id}/packages")
     async def plugin_packages(plugin_id: str):
         """A plugin's Python packages: what it asks for, whether they're allowed and installed."""
-        plugin_id_ok = plugin_manager.get_plugin(plugin_id) or plugin_manager.refused.get(plugin_id)
+        plugin_id_ok = plugin_manager.find_plugin(plugin_id) or plugin_manager.refused.get(plugin_id)
         if plugin_id_ok is None:
             raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
-        plugin = plugin_manager.get_plugin(plugin_id)
+        plugin = plugin_manager.find_plugin(plugin_id)
         manifest = plugin._manifest if plugin is not None else {}
         if plugin is None:
             from sonorium.plugins.loader import load_manifest
@@ -548,8 +952,12 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
 
     @router.get("/alerts")
     async def list_alerts():
-        from sonorium import alerts
-        return {"alerts": alerts.active()}
+        from sonorium import alerts, logbuffer
+        from sonorium.auth.principal import current_caller, sees_private
+        active = alerts.active()
+        if not sees_private(current_caller()):  # addresses only for admins, as on the Logs page
+            active = [{**a, "message": logbuffer.hide_addresses(a["message"])} for a in active]
+        return {"alerts": active}
 
     @router.post("/alerts/{alert_id}/dismiss")
     async def dismiss_alert(alert_id: int):
@@ -569,9 +977,11 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
          "provider", "language", "start_stopped"}. Only channels and text (or url) are needed.
         A chime and/or spoken text, ducking the channels' mix (a stopped channel is started for it).
         Answers which channels play it and which skipped it (Announcements off).
+        409 while Announcements are switched off in Settings > Advanced.
         """
-        from sonorium.core.announce import announce as do_announce, parse_duck
+        from sonorium.core.announce import announce as do_announce, check_on, parse_duck
         from sonorium.auth.middleware import principal_of
+        await _guard(check_on)
         body = await _json(request)
         text = body.get("text", body.get("message"))
         url = body.get("url", body.get("chime"))
@@ -584,7 +994,7 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
         overlay = _svc("overlay", "Playing sounds")
         caller = principal_of(request)
         wanted = body.get("channels")
-        channels = _channels(wanted)
+        channels = _channels(wanted, personal=caller.channels is None)
         if caller.channels is not None:  # a key limited to some channels
             if wanted in (None, "all", "*", ["all"], ["*"]):
                 channels = [c for c in channels if caller.can_channel(c)]
@@ -656,9 +1066,31 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
     async def output_types():
         return {"types": _svc("outputs", "Audio outputs").types()}
 
+    @router.post("/audio-outputs/discover")
+    async def discover_outputs():
+        """
+        Every type lists its devices again (Settings > Speakers opened, Rescan,
+        the channel editor's speaker picker): {"types": [type + "error",
+        "speakers": [the type's device speakers as GET /api/speakers lists them]]}.
+        """
+        outputs = _svc("outputs", "Audio outputs")
+        types = await outputs.discover_all()
+        registry = getattr(getattr(outputs, "sessions", None), "registry", None)
+        for info in types:
+            speakers = [registry.get_speaker(sid) if registry is not None else None for sid in info["speakers"]]
+            info["speakers"] = [s.to_dict() for s in speakers if s is not None]
+        return {"types": types}
+
+    @router.delete("/audio-outputs/speakers/{speaker_id}")
+    async def remove_output_device(speaker_id: str):
+        """Remove on an offline device's row: forgotten, and taken out of the channels that have it."""
+        outputs = _svc("outputs", "Audio outputs")
+        await _output_guard(lambda: outputs.remove_device(speaker_id))
+        return {"removed": True}
+
     @router.get("/audio-outputs/{type_id}/devices")
     async def output_devices(type_id: str):
-        return {"devices": await _guard(_svc("outputs", "Audio outputs").discover(type_id))}
+        return {"devices": await _output_guard(lambda: _svc("outputs", "Audio outputs").discover(type_id))}
 
     @router.get("/sessions/{session_id}/audio-outputs")
     async def channel_outputs(session_id: str):
@@ -666,14 +1098,20 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
 
     @router.post("/sessions/{session_id}/audio-outputs", status_code=201)
     async def attach_output(session_id: str, request: Request):
-        """{"type", "device", "options"}: send the channel there (its mix starts if needed)."""
+        """
+        {"type", "device", "options"?, "take_over"?}: add the device to the
+        channel's speakers; it plays at once if the channel is playing.
+        """
         body = await _json(request)
-        return await _guard(lambda: (_svc("outputs", "Audio outputs").attach(
-            session_id, body.get("type"), body.get("device"), body.get("options"))))
+        take_over = body.get("take_over", False)
+        if not isinstance(take_over, bool):
+            raise HTTPException(status_code=400, detail="'take_over' must be true or false")
+        return await _output_guard(lambda: (_svc("outputs", "Audio outputs").attach(
+            session_id, body.get("type"), body.get("device"), body.get("options"), take_over=take_over)))
 
     @router.delete("/sessions/{session_id}/audio-outputs/{attachment_id}")
     async def detach_output(session_id: str, attachment_id: str):
-        if not await _svc("outputs", "Audio outputs").detach(session_id, attachment_id):
+        if not await _output_guard(lambda: _svc("outputs", "Audio outputs").detach(session_id, attachment_id)):
             raise HTTPException(status_code=404, detail="No such output on this channel")
         return {"removed": True}
 
@@ -681,8 +1119,13 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
 
     @router.get("/command-actions")
     async def command_actions():
-        """What a command map entry can do."""
-        return {"actions": cmd.catalogue()}
+        """What a command map entry can do (Sonorium's actions, then the plugins')."""
+        return {"actions": cmd.catalogue(getattr(_host(), "automation", None))}
+
+    @router.get("/command-conditions")
+    async def command_conditions():
+        """What an entry's "only if" can check (Sonorium's conditions, then the plugins')."""
+        return {"conditions": cmd.conditions(getattr(_host(), "automation", None))}
 
     def _map_decl(plugin, map_id: str) -> dict:
         for decl in plugin.get_command_maps() or []:
@@ -724,5 +1167,5 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
         body = await _json(request)
         if not isinstance(body.get("code"), str):
             raise HTTPException(status_code=400, detail="'code' must be text")
-        return await host.commands.received(plugin.id, map_id, body["code"], host.actions_for(plugin.id),
+        return await host.commands.received(plugin.id, map_id, body["code"], host.actions.for_plugin(plugin.id),
                                             body.get("value"))

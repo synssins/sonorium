@@ -21,7 +21,8 @@ def test_host_hooks_do_nothing_in_a_browser_and_serve_the_app():
 
 @pytest.mark.skipif(NODE is None, reason="node isn't installed")
 @pytest.mark.parametrize("name", ["api.js", "slots.js", "app.js", "ext/core.js", "ext/pages.js", "ext/commandmaps.js",
-                                  "ext/connections.js", "ext/alerts.js", "ext/outputs.js"])
+                                  "ext/connections.js", "ext/alerts.js", "ext/outputs.js",
+                                  "ext/contrib.js"])
 def test_web_ui_scripts_parse(name):
     result = subprocess.run([NODE, "--check", str(JS / name)], capture_output=True, text=True, timeout=60)
     assert result.returncode == 0, result.stderr

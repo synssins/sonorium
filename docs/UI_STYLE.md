@@ -94,14 +94,13 @@ Editor design "C — Aligned table".
   Plugins and Status below 880 px, the other tables below 740 px. A new table
   with a phone layout gets a copy too.
 - **Width ≤ 400:** on a channel card the Theme and Preset labels go above their
-  fields, so preset names fit. **Width ≤ 400 and height ≤ 600:** the card is
-  445 px tall so Play stays on screen; Recent changes shows one line.
+  fields, so preset names fit.
 - **Height ≤ 480:** one 48 px header row: the menu button, logo, page title and
   the page's actions.
 - **Phone layout at width ≥ 600:** the channel card splits in two halves (3 : 2):
   left Theme, Preset and the sequence / playlist line; right both volume
-  sliders, Recent changes and Play. One card per row, never wider than 864 px;
-  251 px tall on short screens, 287 px otherwise. The halves are `.ch-a` /
+  sliders and Play, with Play level with the bottom of the left half. One card
+  per row, never wider than 864 px. The halves are `.ch-a` /
   `.ch-b`, which have no box of their own (`display: contents`) in every other
   layout.
 - **Touch screen, width ≥ 1000 (tablets):** the desktop layout, everything
@@ -109,6 +108,35 @@ Editor design "C — Aligned table".
   by `var(--zoom, 1)` so it still fits the screen; a new one must be too.
 - The channel card grid is the same everywhere: auto-fill, cards at least
   340 px wide.
+- Channel cards are all one height, the height of their content (`min-height`):
+  326 px on desktop, 350 px in the phone layout, 388 px at width ≤ 400, 218 px
+  in two halves. Play is the last row, with no space under it; a row a card
+  adds (a linked channel's link row, a plugin's row) makes that card taller.
+
+## Extensible screens
+Every screen takes what plugins add the same way (docs/PLUGIN_DEVELOPMENT.md, section 24;
+`static/js/ext/contrib.js`). A new screen, list, menu or editor stays extensible when it is
+built with the shared helpers:
+- **A page** gets its header and top spots from `showView()`, and its title-bar ⋯ the menu
+  spot, without doing anything.
+- **Rows and cards**: `uiZone(target, 'badges', ref, 'span')` after the row's badges,
+  `uiZone(target, 'columns', ref, 'span')` at the end of the name cell, with
+  `<span class="ui-zone ui-columns" data-ui-target="…" data-ui-spot="columns" data-ui-head>` in
+  the name heading; `uiZone(target, 'info', ref)` after a card's lines.
+- **Header buttons**: on a phone the plugins' buttons go in the screen's title-bar ⋯, or in one
+  ⋯ for them when it has none: the screen's buttons and help keep their row.
+- **⋯ buttons**: `uiAnchor(target, 'menu', ref)` (`'menu settings'` for a thing without an
+  editor dialog). Open menus with `spMenu` / `xMenu` / `teMenu` / `tpMenu`; destructive items
+  carry `danger` so additions go above them. A dot on ⋯ (`adv-dot`, `sp-adv-dot`) shows any
+  change from default; the helpers add plugin values to it.
+- **Editors**: `<div class="ui-zone ui-settings" data-ui-target="…" data-ui-spot="settings"
+  data-ui-commit>` after the editor's settings; `Sonorium.ui.bind(el, ref)` when it opens and
+  `await Sonorium.ui.commit(dialog, ref)` in its Save.
+- `ref` is `uiRef(kind, id, facts, theme)`: the object shown, and the facts conditions test.
+- Add the target to `TARGETS` in `plugins/ui_contract.py` (its fixed parts and open spots);
+  tests/test_ui_contributions.py fails while the web UI and that list disagree.
+- Plugins only add, in the open spots. Never draw plugin HTML in a screen, and never give
+  additions a look of their own: they use the components above.
 
 ## Process
 - Structural UI changes are drafted as Claude Design boards first and

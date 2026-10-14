@@ -2,15 +2,15 @@
 The permission every route needs, and the abilities callers have.
 
 Abilities are the boxes on a key (Settings > Keys), grouped by area exactly
-as the Keys dialog shows them; roles (the Users plugin) are sets of them.
+as the Keys dialog shows them; roles (auth/users.py) are sets of them.
 Permissions no key can have:
 
-    admin.users       users and everyone's devices (the Users plugin)
+    admin.users       users and everyone's devices (auth/users.py)
     admin.keys        keys, and the plugin framework's older token endpoints
     admin.plugins     install, configure and remove plugins, schedules
     admin.connection  Settings > Connection (Home Assistant and MQTT credentials)
     self              link a phone, see and remove your own phones
-    device            only a linked phone (e.g. the Users plugin's one-time sign-in code)
+    device            only a linked phone (e.g. the one-time sign-in code, auth/users.py)
 
 Every route is listed with one of:
 
@@ -125,6 +125,7 @@ GET     /api/auth/me                                    public
 GET     /api/ui/plugins                                 public
 GET     /plugin-ui/{plugin_id}/{path:path}              public
 POST    /api/link                                       self
+GET     /api/link/{link_id}                             self
 POST    /api/pair                                       public
 GET     /api/devices                                    self
 GET     /api/devices/self                               device
@@ -188,10 +189,17 @@ POST    /api/categories                                 th.edit
 DELETE  /api/categories/{category_name}                 th.edit
 POST    /api/themes/{theme_id}/categories               th.edit
 POST    /api/themes/create                              th.upload
+POST    /api/themes/{theme_id}/duplicate                th.upload
 POST    /api/themes/{theme_id}/upload                   th.upload
 PUT     /api/themes/{theme_id}/metadata                 th.edit
 DELETE  /api/themes/{theme_id}                          th.upload
 GET     /api/themes/{theme_id}/export                   th.view
+# Theme packages for offline playback (web/theme_package_routes.py; the listing is in api.py)
+GET     /api/themes/packages                            th.view
+GET     /api/themes/{theme_id}/package                  th.view
+GET     /api/themes/{theme_id}/files/{path:path}        th.view
+# a reference render runs the engine on the server's CPU: admins only (their phones, the console credential)
+POST    /api/themes/{theme_id}/render                   admin.plugins
 POST    /api/themes/import                              th.upload
 
 GET     /api/channels                                   ch.view
@@ -214,13 +222,38 @@ PUT     /api/sessions/{session_id}/speakers-muted       ch.change|sp.mute
 PUT     /api/sessions/{session_id}/announcements        ch.change
 POST    /api/sessions/{session_id}/listen               ch.play
 DELETE  /api/sessions/{session_id}/listen               ch.play
+GET     /api/sessions/{session_id}/sleep                ch.view
+PUT     /api/sessions/{session_id}/sleep                ch.play
+DELETE  /api/sessions/{session_id}/sleep                ch.play
 POST    /api/sessions/stop-all                          ch.play
+# the caller's own personal channel (web/personal_routes.py): hidden, local only, one per account
+GET     /api/me/channel                                 ch.view
+PUT     /api/me/channel                                 ch.change
+POST    /api/me/channel/listen                          ch.play
+DELETE  /api/me/channel/listen                          ch.play
+# the caller's own theme backups (web/backup_routes.py): own account only; only a linked phone
+# writes, only its own; a key reads and deletes for the user who made it
+GET     /api/me/backups                                 self|device|th.view
+GET     /api/me/backups/settings                        self|device|th.view
+PUT     /api/me/backups/settings                        self|device
+GET     /api/me/backups/{device_id}/playlists           self|device|th.view
+PUT     /api/me/backups/{device_id}/playlists           device
+GET     /api/me/backups/{device_id}/themes/{key}        self|device|th.view
+PUT     /api/me/backups/{device_id}/themes/{key}        device
+DELETE  /api/me/backups/{device_id}/themes/{key}        self|device|th.upload
+GET     /api/me/backups/{device_id}/themes/{key}/package        self|device|th.view
+PUT     /api/me/backups/{device_id}/themes/{key}/package        device
+GET     /api/me/backups/{device_id}/themes/{key}/upload         device
+GET     /api/me/backups/{device_id}/themes/{key}/files/{path:path}  self|device|th.view
+PUT     /api/me/backups/{device_id}/themes/{key}/files/{path:path}  device
+DELETE  /api/me/backups/{device_id}                     self|device|th.upload
 GET     /api/sessions/{session_id}/playback             ch.view
 POST    /api/sessions/{session_id}/sequence             pl.run
 DELETE  /api/sessions/{session_id}/sequence             pl.run
 PUT     /api/sessions/{session_id}/playlist             pl.run
 DELETE  /api/sessions/{session_id}/playlist             pl.run
 POST    /api/sessions/{session_id}/next                 pl.run
+POST    /api/sessions/{session_id}/previous             pl.run
 GET     /api/sessions/{session_id}/outputs              ch.view
 POST    /api/sessions/{session_id}/outputs              ch.play
 PUT     /api/sessions/{session_id}/outputs/{output_id}  ch.play
@@ -309,6 +342,23 @@ GET     /api/events/token                               admin.keys
 POST    /api/events/token                               admin.keys
 DELETE  /api/events/token                               admin.keys
 GET     /api/events/stream                              ev.read+legacy
+GET     /api/timeline                                   ev.read+legacy
+GET     /api/plugin-permissions                         admin.plugins
+GET     /api/command-conditions                         admin.plugins
+GET     /api/plugins/{plugin_id}/permissions            admin.plugins
+PUT     /api/plugins/{plugin_id}/permissions            admin.plugins
+GET     /api/plugins/{plugin_id}/http/{path:path}       public
+POST    /api/plugins/{plugin_id}/http/{path:path}       public
+PUT     /api/plugins/{plugin_id}/http/{path:path}       public
+DELETE  /api/plugins/{plugin_id}/http/{path:path}       public
+GET     /api/plugin-devices/kinds                       sp.view
+GET     /api/plugin-devices                             sp.view
+POST    /api/plugin-devices/discover                    sp.view
+PUT     /api/plugin-devices/{device_id}                 sp.set
+DELETE  /api/plugin-devices/{device_id}                 sp.set
+POST    /api/plugin-devices/{device_id}/actions/{action} sp.set
+GET     /api/sessions/{session_id}/plugin-devices       ch.view
+GET     /api/timeline/stream                            ev.read+legacy
 GET     /api/plugins/{plugin_id}/triggers               admin.plugins
 POST    /api/plugins/{plugin_id}/triggers/token         admin.keys
 DELETE  /api/plugins/{plugin_id}/triggers/token         admin.keys
@@ -328,6 +378,15 @@ PUT     /api/plugins/{plugin_id}/connections/{connection_id}        admin.plugin
 POST    /api/plugins/{plugin_id}/connections/{connection_id}/test   admin.plugins
 
 GET     /api/plugin-framework                           pg.use|admin.plugins
+# what plugins add to the screens (web/ui_api.py): anyone who sees a screen; objects are checked per kind
+GET     /api/ui/targets                                 ch.view|th.view|pl.view|sp.view|st.view|pg.use|admin.plugins|self
+GET     /api/ui/contributions                           ch.view|th.view|pl.view|sp.view|st.view|pg.use|admin.plugins|self
+POST    /api/ui/objects                                 ch.view|th.view|pl.view|sp.view|st.view|pg.use|admin.plugins|self
+POST    /api/ui/actions/{plugin_id}/{element_id}        pg.use
+# plugin attributes: the route checks the ability for the object's kind (web/plugin_framework_api.py)
+GET     /api/attributes                                 th.view|ch.view|sp.view|pl.view|admin.plugins
+GET     /api/attributes/{kind}                          th.view|ch.view|sp.view|pl.view|self|admin.users|admin.keys|admin.connection|admin.plugins
+PUT     /api/attributes/{kind}/{plugin_id}              th.edit|ch.change|sp.set|st.change|pl.edit|self|admin.users|admin.keys|admin.connection|admin.plugins
 GET     /api/plugins/{plugin_id}/packages               admin.plugins
 GET     /api/alerts                                     st.view
 POST    /api/alerts/{alert_id}/dismiss                  st.view
@@ -340,6 +399,8 @@ POST    /api/sessions/{session_id}/ramp                 ch.change
 DELETE  /api/sessions/{session_id}/ramp                 ch.change
 GET     /api/audio-outputs                              ch.view
 GET     /api/audio-outputs/{type_id}/devices            sp.view
+POST    /api/audio-outputs/discover                     sp.view
+DELETE  /api/audio-outputs/speakers/{speaker_id}        sp.set
 GET     /api/sessions/{session_id}/audio-outputs        ch.view
 POST    /api/sessions/{session_id}/audio-outputs        ch.speakers
 DELETE  /api/sessions/{session_id}/audio-outputs/{attachment_id}    ch.speakers

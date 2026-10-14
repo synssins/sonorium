@@ -5,9 +5,18 @@ path plays a speaker that both Home Assistant and network discovery found.
 
 Stored in SonoriumSettings.speaker_settings, keyed by speaker ID:
     {"media_player.office": {"name": "Office", "room": "office",
-                             "volume_offset": -10, "play_via": "net:dlna:abc"}}
+                             "volume_offset": -10, "play_via": "net:dlna:abc",
+                             "sync": 4200, "plugins": {"wled": {"light_sync": 300}}}}
 Only keys that differ from the default are stored. "room" is an area ID, or
 "" for "no room"; a missing "room" means the speaker's own Home Assistant area.
+
+"sync" is Sync: how far behind the mixer the speaker plays, in milliseconds
+(its own buffer of the stream). Without it the estimate for the speaker's
+type is used (SPEAKER_BUFFER_SECONDS). Status's "as heard" and anything timed
+to the sound (plugins, later light cues) use this one number (sync_ms).
+
+"plugins" holds plugin attributes on the speaker (object class "speaker",
+core/plugin_data.py): only declared attributes, checked against the schema.
 
 SpeakerOutputs wraps the media controller the session manager uses, so every
 play/stop/volume call honours play_via and the volume offsets. No network
@@ -22,25 +31,78 @@ OFFSET_MIN = -20
 OFFSET_MAX = 20
 NAME_MAX_LENGTH = 100
 PLAY_VIA_HA = "ha"
+SETTING_KEYS = ("name", "room", "volume_offset", "play_via", "sync", "plugins")
+
+# How far behind the mixer each kind of speaker plays (seconds): its own
+# buffer of the stream, estimated. A speaker's Sync starts from this.
+SPEAKER_BUFFER_SECONDS = {
+    "cast": 5.0,
+    "sonos": 3.0,
+    "airplay": 2.0,
+    "dlna": 4.0,
+    "linkplay": 3.0,
+    "heos": 4.0,
+    "denon": 4.0,
+    "esphome": 1.5,
+}
+DEFAULT_SPEAKER_BUFFER_SECONDS = 3.0
 
 
 class SpeakerSettingsError(ValueError):
     """An invalid speaker setting (message is shown to the user)."""
 
 
+def estimated_sync_ms(speaker_type: Optional[str]) -> int:
+    """The Sync estimate for a kind of speaker, in milliseconds."""
+    return int(round(SPEAKER_BUFFER_SECONDS.get(speaker_type or "", DEFAULT_SPEAKER_BUFFER_SECONDS) * 1000))
+
+
+def sync_ms(settings: Optional[dict], speaker_type: Optional[str]) -> int:
+    """A speaker's Sync in milliseconds: its own setting, else the estimate for its type."""
+    value = (settings or {}).get("sync")
+    if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+        return value
+    return estimated_sync_ms(speaker_type)
+
+
 def clean_speaker_settings(current: dict, updates: dict) -> dict:
     """
     `current` with `updates` applied and validated. An update value of None
     removes that setting (back to the default). Returns only non-default keys.
+
+    "plugins" is {plugin_id: {attribute: value or None} or None}: each plugin's
+    values are checked against its declared speaker attributes
+    (core/plugin_data.py); other plugins' values stay.
     """
     result = dict(current or {})
     for key, value in updates.items():
-        if key not in ("name", "room", "volume_offset", "play_via"):
+        if key not in SETTING_KEYS:
             raise SpeakerSettingsError(f"Unknown speaker setting '{key}'")
         if value is None:
             result.pop(key, None)
             continue
-        if key == "name":
+        if key == "plugins":
+            if not isinstance(value, dict):
+                raise SpeakerSettingsError("plugins must be an object of plugin ids")
+            from sonorium.core import plugin_data
+            block = result.get("plugins") or {}
+            try:
+                for plugin_id, values in value.items():
+                    block = plugin_data.registry.update_block(block, plugin_id, "speaker", values)
+            except plugin_data.PluginDataError as e:
+                raise SpeakerSettingsError(str(e))
+            if block:
+                result["plugins"] = block
+            else:
+                result.pop("plugins", None)
+        elif key == "sync":
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or (
+                    isinstance(value, float) and not value.is_integer()):
+                raise SpeakerSettingsError("Sync must be a whole number of milliseconds")
+            if value < 0:
+                raise SpeakerSettingsError("Sync can't be negative")
+            result["sync"] = int(value)
+        elif key == "name":
             name = str(value).strip()
             if len(name) > NAME_MAX_LENGTH:
                 raise SpeakerSettingsError(f"Name is too long (at most {NAME_MAX_LENGTH} characters)")

@@ -1,29 +1,27 @@
 """
 The core of sign-in: one AuthService per Sonorium, shared by the middleware,
-the core routes and the sign-in plugins (PluginHost.auth).
+the core routes, Users (users.py), Keys (keys.py) and the plugin host
+(PluginHost.auth).
 
     security.json   owner-only: the signing secret (CSRF), and every token
-                    (linked phones, the Users plugin's sessions, the
-                    Integration plugin's keys) as hashes
+                    (linked phones, browser sessions, keys) as hashes
     server.json     the server ID;  tls/  the HTTPS certificate (identity.py)
 
-Plugins plug in with:
+Users and Keys plug in with:
 
-    register_authenticator(plugin_id, authenticator)   who is calling (principal.py)
-    add_routes(plugin_id, router, permissions)         their API, with a permission per route
-    register_ui(plugin_id, folder, js=..., css=...)    their web UI bundle (built-in plugins)
-    unregister(plugin_id)                              all of it, when the plugin is switched off
+    register_authenticator(owner, authenticator)       who is calling (principal.py)
+    add_routes(owner, router, permissions)             their API, with a permission per route
+    unregister(owner)                                  all of it (a switch turned off)
 
-A plugin marked "auth_provider" in its manifest (the Users plugin) is a
-gatekeeper: while it is switched on but hasn't registered (still starting, or
-it failed to load), nothing but public routes answers, so a broken plugin
+A gatekeeper (Users: expected from the moment the app is made) keeps sign-in
+closed until it has registered: while Sonorium starts, or for good when the
+accounts couldn't be loaded, nothing but public routes answers, so a failure
 never leaves Sonorium open.
 """
 from __future__ import annotations
 
 import hashlib
 import hmac
-import json
 import secrets
 import time
 from pathlib import Path
@@ -32,12 +30,23 @@ from typing import Optional
 from sonorium.auth import config, permissions as P
 from sonorium.auth.secrets import JsonFile
 from sonorium.auth.tokens import TokenService
-from sonorium.obs import logger
+from sonorium.obs import logger as _logger
+
+# "sonorium.auth": names users and addresses, so only admins see it on the Logs page (logbuffer.py)
+logger = _logger.getChild("auth")
 
 SECURITY_FILE = "security.json"
 DEVICE_PREFIX = "sd_"
 PAIR_CODE_SECONDS = 300
+PAIR_LINK_KEEP = 60  # a dialog can still learn its code's outcome this long after it expires
 PAIR_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I
+# keys.py: part of Sonorium, so not listed as a plugin. users.py is part of Sonorium too, but "users"
+# stays in the "plugins" list of /api/info and /api/auth/me: released Sonorium apps read it to offer
+# signing in with a username and password (new apps read "accounts").
+CORE_AUTHENTICATORS = frozenset({"keys"})
+# Sign-in's providers (Users, Keys): no plugin has these ids (plugins/loader.py RESERVED_PLUGIN_IDS),
+# and unregister() never takes them away (that would open everything to everyone)
+CORE_PROVIDER_IDS = frozenset({"users", "keys"})
 
 
 class AuthService:
@@ -58,6 +67,7 @@ class AuthService:
         self.expected_providers: set[str] = set()
         self.fresh_install: Optional[bool] = None
         self.pair_codes: dict[str, dict] = {}
+        self.pair_links: dict[str, dict] = {}  # a Link App dialog's code, by an id that isn't the code
         self.plugin_state: dict[str, object] = {}  # a plugin's live objects, kept across reloads (e.g. Accounts)
         self.https_only = lambda request: None     # set by the core routes
         self.supervisor_transport = None           # tests: an httpx transport standing in for HA's Supervisor
@@ -103,39 +113,20 @@ class AuthService:
     # ------------------------------------------------------------ startup
 
     def note_install(self) -> None:
-        """Before state.json is written: is this a new install? (Users plugin: Require login starts on.)"""
+        """Before state.json is written: is this a new install? (Users: Require login starts on.)"""
         if self.fresh_install is None:
             self.fresh_install = not (self.folder / "state.json").exists()
-
-    def find_expected_providers(self, plugins_dir: Path) -> None:
-        """The switched-on plugins that guard sign-in, from state.json and their manifests."""
-        try:
-            state = json.loads((self.folder / "state.json").read_text(encoding="utf-8"))
-            enabled = (state.get("settings") or {}).get("enabled_plugins") or []
-        except Exception:
-            enabled = []
-        found = set()
-        for plugin_id in enabled:
-            for folder in (Path(plugins_dir) / plugin_id,):
-                try:
-                    manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
-                except Exception:
-                    continue
-                if manifest.get("auth_provider"):
-                    found.add(manifest.get("id", plugin_id))
-        self.expected_providers = found
 
     def mark_ready(self) -> None:
         self.ready = True
         missing = self.expected_providers - set(self.authenticators)
         if missing:
-            logger.error(f"Sign-in plugin {', '.join(sorted(missing))} is switched on but didn't start: only streams "
-                         "answer until it does. See the messages above. To get in anyway, set BYPASS_LOGIN (Docker) "
-                         "or bypass_login (add-on) to true.")
+            logger.error(f"Sign-in ({', '.join(sorted(missing))}) didn't start: only streams answer. See the "
+                         "messages above. To get in anyway, set BYPASS_LOGIN (Docker) or bypass_login (add-on) to true.")
 
     @property
     def closed(self) -> bool:
-        """Starting, or a gatekeeper plugin is on but missing: only public routes answer."""
+        """Starting, or a gatekeeper (Users) didn't start: only public routes answer."""
         return not self.ready or bool(self.expected_providers - set(self.authenticators))
 
     # ------------------------------------------------------------ plugins
@@ -147,6 +138,15 @@ class AuthService:
         self.registry.set_active(plugin_id, True)
         if plugin_id in self.ui_bundles:
             self.ui_bundles[plugin_id]["active"] = True
+
+    def plugin_ids(self) -> list[str]:
+        """The "plugins" list of /api/info and /api/auth/me: "users" while accounts are loaded (see CORE_AUTHENTICATORS)."""
+        return sorted(a for a in self.authenticators if a not in CORE_AUTHENTICATORS)
+
+    @property
+    def accounts_loaded(self) -> bool:
+        """Users (users.py) are up: accounts, sign-in with a username and password."""
+        return "users" in self.authenticators
 
     def add_routes(self, plugin_id: str, router, permissions) -> None:
         """A plugin's API: every route of the router must be in `permissions` ("METHOD path perm" lines)."""
@@ -167,6 +167,9 @@ class AuthService:
 
     def unregister(self, plugin_id: str) -> None:
         """The plugin was switched off: its sign-in, routes (404 from now) and UI go."""
+        if plugin_id in CORE_PROVIDER_IDS:
+            logger.warning(f"Sign-in: '{plugin_id}' can't be switched off as a plugin; kept")
+            return
         self.authenticators.pop(plugin_id, None)
         self.expected_providers.discard(plugin_id)
         self.registry.set_active(plugin_id, False)
@@ -174,7 +177,7 @@ class AuthService:
             self.ui_bundles[plugin_id]["active"] = False
 
     def login_required(self) -> bool:
-        """A sign-in plugin requires login (the Users plugin's Require login), and the bypass is off."""
+        """Require login is on (users.py), and the bypass is off."""
         if config.bypass_login():
             return False
         return any(bool(getattr(a, "login_required", lambda: False)()) for a in list(self.authenticators.values()))
@@ -196,7 +199,7 @@ class AuthService:
         return None
 
     def user_blocked(self, user_id: Optional[str]) -> bool:
-        """Whether a sign-in plugin has switched the user off (e.g. deactivated in Home Assistant)."""
+        """Whether the user is switched off (e.g. deactivated in Home Assistant; users.py)."""
         if not user_id:
             return False
         for _, blocked in self.provider("blocked"):
@@ -213,19 +216,23 @@ class AuthService:
         """A Link App code: works once, for 5 minutes. The previous code of the same user stops working."""
         self._expire_codes()
         for code in [c for c, v in self.pair_codes.items() if v["user_id"] == user_id]:
-            self.pair_codes.pop(code, None)
+            self.pair_links.pop(self.pair_codes.pop(code)["link"], None)
         code = "".join(secrets.choice(PAIR_ALPHABET) for _ in range(8))
         expires = self.clock() + PAIR_CODE_SECONDS
-        self.pair_codes[code] = {"user_id": user_id, "expires": expires}
+        link = secrets.token_urlsafe(12)
+        self.pair_codes[code] = {"user_id": user_id, "expires": expires, "link": link}
+        self.pair_links[link] = {"user_id": user_id, "expires": expires, "device_id": None}
         return code, expires
 
     def _expire_codes(self) -> None:
         now = self.clock()
         for code in [c for c, v in self.pair_codes.items() if v["expires"] <= now]:
             self.pair_codes.pop(code, None)
+        for link in [k for k, v in self.pair_links.items() if v["expires"] + PAIR_LINK_KEEP <= now]:
+            self.pair_links.pop(link, None)
 
-    def use_pair_code(self, code: str) -> tuple[bool, Optional[str]]:
-        """(valid, user id) for a code, which is then used up."""
+    def use_pair_code(self, code: str) -> tuple[bool, Optional[str], Optional[str]]:
+        """(valid, user id, link id) for a code, which is then used up."""
         self._expire_codes()
         code = (code or "").strip().upper().replace("-", "").replace(" ", "")
         match = None
@@ -233,18 +240,39 @@ class AuthService:
             if hmac.compare_digest(known, code):
                 match = known
         if match is None:
-            return False, None
-        return True, self.pair_codes.pop(match)["user_id"]
+            return False, None, None
+        entry = self.pair_codes.pop(match)
+        return True, entry["user_id"], entry["link"]
+
+    def pair_link_of(self, code: str) -> Optional[str]:
+        """The id the Link App dialog asks about its code with (GET /api/link/{link_id})."""
+        entry = self.pair_codes.get(code)
+        return entry["link"] if entry else None
+
+    def pair_linked(self, link: Optional[str], device_id: str) -> None:
+        """A code was used: the phone it linked, for the dialog that showed it."""
+        if link in self.pair_links:
+            self.pair_links[link]["device_id"] = device_id
+
+    def pair_link_state(self, link: str) -> Optional[dict]:
+        """A dialog's code: {"state": "waiting"|"linked"|"expired", "user_id", "device"}; None: unknown."""
+        self._expire_codes()
+        entry = self.pair_links.get(link)
+        if entry is None:
+            return None
+        device = self.device(entry["device_id"]) if entry["device_id"] else None
+        state = "linked" if device else "expired" if entry["expires"] <= self.clock() else "waiting"
+        return {"state": state, "user_id": entry["user_id"], "device": device}
 
     def add_device(self, user_id: Optional[str], name: str, platform: str = "", model: str = "") -> tuple[str, str]:
         """A linked phone. Returns (device id, token); the token is never shown again."""
-        name = (name or "Phone").strip()[:60] or "Phone"
+        name = (name or "Device").strip()[:60] or "Device"
         return self.tokens.issue("device", prefix=DEVICE_PREFIX, user_id=user_id, name=name,
                                  data={"platform": (platform or "").strip()[:30], "model": (model or "").strip()[:60]})
 
     @staticmethod
     def _device_row(device_id: str, r: dict) -> dict:
-        return {"id": device_id, "name": r.get("name") or "Phone", "user_id": r.get("user_id"),
+        return {"id": device_id, "name": r.get("name") or "Device", "user_id": r.get("user_id"),
                 "platform": (r.get("data") or {}).get("platform", ""),
                 "model": (r.get("data") or {}).get("model", ""),
                 "created": r.get("created"), "last_seen": r.get("last_used") or r.get("created")}
@@ -266,7 +294,7 @@ class AuthService:
         """A phone's new name (trimmed to 60 characters). None: no such phone."""
         if self.device(device_id) is None:
             return None
-        self.tokens.update(device_id, name=(name or "").strip()[:60] or "Phone")
+        self.tokens.update(device_id, name=(name or "").strip()[:60] or "Device")
         return self.device(device_id)
 
     def remove_device(self, device_id: str) -> Optional[dict]:

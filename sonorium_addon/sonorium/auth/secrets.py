@@ -4,7 +4,7 @@ atomically (temp file, then replace). A private file is created owner-only
 (0600) before anything is written into it.
 
 Used by the core (security.json), the plugin framework (plugin_framework.json,
-plugin_secrets.json) and the built-in sign-in plugins (users.json).
+plugin_secrets.json) and Users (users.json).
 """
 from __future__ import annotations
 
@@ -14,7 +14,10 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from sonorium.obs import logger
+from sonorium.obs import logger as _logger
+
+# "sonorium.auth": names users and addresses, so only admins see it on the Logs page (logbuffer.py)
+logger = _logger.getChild("auth")
 
 
 class JsonFile:

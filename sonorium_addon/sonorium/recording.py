@@ -1,32 +1,53 @@
 import itertools
 from collections import deque
 from enum import Enum
-import random
 import threading
 import time
 import numpy as np
 
 from sonorium.obs import logger
-import av
+
+
+def _load_sibling(name: str):
+    """
+    sonorium.<name>, a module with no imports from the rest of Sonorium
+    (playback_values, decoders, rng), also when this file is loaded on its own.
+    """
+    import importlib
+    import sys
+    try:
+        return importlib.import_module(f"sonorium.{name}")
+    except ImportError:
+        import importlib.util
+        from pathlib import Path
+        module = sys.modules.get(f"sonorium.{name}")
+        if module is None:
+            spec = importlib.util.spec_from_file_location(
+                f"sonorium.{name}", Path(__file__).with_name(f"{name}.py"))
+            module = importlib.util.module_from_spec(spec)
+            sys.modules[f"sonorium.{name}"] = module
+            spec.loader.exec_module(module)
+        return module
 
 
 def _load_playback_values():
     """Settings > Advanced's playback values (sonorium/playback_values.py), also when this file is loaded on its own."""
-    try:
-        from sonorium import playback_values as module
-        return module
-    except ImportError:
-        import importlib.util
-        import sys
-        from pathlib import Path
-        module = sys.modules.get("sonorium.playback_values")
-        if module is None:
-            spec = importlib.util.spec_from_file_location(
-                "sonorium.playback_values", Path(__file__).with_name("playback_values.py"))
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            sys.modules["sonorium.playback_values"] = module
-        return module
+    return _load_sibling("playback_values")
+
+
+# How files are decoded (sonorium/decoders.py: PyAV unless a decoder is set)
+decoders = _load_sibling("decoders")
+# The random numbers playback draws: the random module's, or a seeded
+# generator in an engine's render (sonorium/rng.py)
+random = _load_sibling("rng").ScopedRandom()
+
+
+def __getattr__(name):
+    # recording.av: PyAV, imported only when asked for (PyAvDecoder decodes with it)
+    if name == "av":
+        import av
+        return av
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 # The global playback values (Settings > Advanced); the constants below are their defaults
@@ -298,6 +319,26 @@ LOOP_CROSSFADE_DURATION = 1.5
 # Fade duration for tracks fading in/out of the mix
 TRACK_FADE_DURATION = 6.0
 GROUP_EDGE_FADE_SECONDS = 0.02  # grouped tracks: no audible fade, just no click
+# A file "ends loud" (cut off mid-sound, not decayed to quiet) when its last
+# ENDS_LOUD_TAIL_SECONDS are no more than ENDS_LOUD_DB below the file as a whole
+ENDS_LOUD_TAIL_SECONDS = 0.05
+ENDS_LOUD_DB = -20.0
+
+
+def ends_loud(samples) -> bool:
+    """The audio stops while still sounding: its tail is within ENDS_LOUD_DB of its overall level."""
+    audio = np.asarray(samples, dtype=np.float32)
+    if audio.ndim > 1 and audio.shape[0] > 1:
+        audio = audio.mean(axis=0)  # stereo: judged on the mono fold, as a mono mix would judge it
+    audio = audio.reshape(-1)
+    tail = int(ENDS_LOUD_TAIL_SECONDS * SAMPLE_RATE)
+    if len(audio) < 2 * tail:
+        return False
+    whole = float(np.sqrt(np.mean(np.square(audio, dtype=np.float64))))
+    if whole <= 0.0:
+        return False
+    end = float(np.sqrt(np.mean(np.square(audio[-tail:], dtype=np.float64))))
+    return end >= whole * 10.0 ** (ENDS_LOUD_DB / 20.0)
 # Sample rate
 SAMPLE_RATE = 44100
 # Calculated sample counts
@@ -315,55 +356,91 @@ def track_fade_samples() -> int:
     return max(1, int(playback_values.get("track_fade") * SAMPLE_RATE))
 
 
+# --- mono or stereo ---
+# A mix plays at the channel count in use when its block is made
+# (decoders.current_channels(): the server's Stereo switch, or an engine's
+# own). Inside the players, mono samples are 1-D arrays (n,), exactly as
+# Sonorium has always mixed, and stereo ones (2, n), left then right; every
+# gain (volume, fades, crossfades, Ebb & Flow, transitions) is one value per
+# sample, applied to both channels alike. Blocks handed to the mix are
+# (channels, BLOCK_SAMPLES) int16.
+
+
+def mix_channels() -> int:
+    """The channel count the mix being made plays at: 1 (mono) or 2 (stereo)."""
+    return decoders.current_channels()
+
+
+def _zeros(n: int):
+    """`n` silent samples for the mix being made (1-D in mono, (2, n) in stereo)."""
+    channels = mix_channels()
+    return np.zeros(n, dtype=np.float32) if channels == 1 else np.zeros((channels, n), dtype=np.float32)
+
+
+def _silent_block():
+    """A silent int16 block for the mix being made."""
+    return np.zeros((mix_channels(), BLOCK_SAMPLES), dtype=np.int16)
+
+
+def _as_block(samples):
+    """Samples as a block: 1-D mono as (1, n); (channels, n) as it is."""
+    return samples.reshape(1, -1) if samples.ndim == 1 else samples
+
+
+def _samples(block):
+    """A decoder's block as float32 samples: 1-D for mono ((1, n) flattened), (channels, n) for stereo."""
+    data = np.asarray(block, dtype=np.float32)
+    if data.ndim > 1 and data.shape[0] == 1:
+        return data.reshape(-1)
+    return data
+
+
+def _join(parts):
+    """Sample arrays end to end (along the samples' axis)."""
+    return np.concatenate(parts, axis=-1)
+
+
 class AudioReader:
     """
-    One read of an audio file through PyAV (no ffmpeg program needed): the
-    file's first audio stream, converted to what the mixer works in, 16-bit
-    mono at SAMPLE_RATE, whatever the file was recorded as (any rate, any
-    number of channels, MP3, WAV, FLAC, Ogg...).
+    One read of an audio file through the decoder in use (sonorium/decoders.py;
+    PyAV unless an engine sets another): the file's audio converted to what
+    the mixer works in, 16-bit at SAMPLE_RATE, whatever the file was recorded
+    as (any rate, any number of channels, MP3, WAV, FLAC, Ogg...): mono 1-D
+    blocks, or (2, n) for a stereo mix (a mono file centred).
 
     Every place that reads audio goes through here: the players (decode_mono),
     an Intermittent play (whole file at once) and the length check.
     """
 
-    def __init__(self, source):
+    def __init__(self, source, channels: int | None = None):
         self.path = source
-        self._file = av.open(source)
-        audio = self._file.streams.audio
-        self._audio = audio[0] if len(audio) else None
-        self._to_mixer_format = av.AudioResampler(format="s16", layout="mono", rate=SAMPLE_RATE)
-        self._closed = False
+        self.channels = mix_channels() if channels is None else decoders.check_channels(channels)
+        self._audio = decoders.open_audio(source, self.channels)
 
     @property
     def has_audio(self) -> bool:
-        return self._audio is not None
+        return bool(self._audio.has_audio)
 
     def header_length(self) -> int | None:
         """The length the file's header gives, in samples at SAMPLE_RATE; None if it gives none."""
-        audio = self._audio
-        if audio is None or not (audio.duration and audio.time_base):
-            return None
-        return int(float(audio.duration * audio.time_base) * SAMPLE_RATE)
+        return self._audio.header_length()
 
     def blocks(self, flush: bool = True):
         """
-        The audio as float32 arrays, one per decoded frame. `flush` also takes
+        The audio as float32 arrays, one per decoded block. `flush` also takes
         the few samples the rate converter still holds at the end of the file.
         The file is closed after the last block, or when the reading is
         abandoned.
         """
-        end_of_file = [None] if flush else []  # None asks the converter for what it holds
-        try:
-            for frame in itertools.chain(self._file.decode(self._audio), end_of_file):
-                for converted in self._to_mixer_format.resample(frame):
-                    yield converted.to_ndarray().reshape(-1).astype(np.float32)
-        finally:
-            self.close()
+        if self.channels != 1:
+            for block in self._audio.blocks(flush):
+                yield decoders.to_channels(np.asarray(block, dtype=np.float32), self.channels)
+            return
+        for block in self._audio.blocks(flush):
+            yield block if block.dtype == np.float32 else np.asarray(block).reshape(-1).astype(np.float32)
 
     def close(self) -> None:
-        if not self._closed:
-            self._closed = True
-            self._file.close()
+        self._audio.close()
 
 
 def decode_mono(path):
@@ -387,7 +464,7 @@ def file_length_samples(path) -> int:
         declared = reader.header_length()
         if declared is not None:
             return declared
-        return sum(len(block) for block in reader.blocks(flush=False))
+        return sum(np.shape(block)[-1] for block in reader.blocks(flush=False))
     finally:
         reader.close()
 
@@ -459,16 +536,16 @@ def _fade_out_gain(count: int, length: int):
 
 def apply_file_fades(samples, fade_in: int, fade_out: int):
     """The whole file's samples with its fades applied (a copy when any is set)."""
-    n = len(samples)
+    n = np.shape(samples)[-1]
     if not n or not (fade_in or fade_out):
         return samples
     out = np.asarray(samples, dtype=np.float32).copy()
     if fade_in:
         k = min(n, fade_in)
-        out[:k] *= _fade_in_gain(0, k, fade_in)
+        out[..., :k] *= _fade_in_gain(0, k, fade_in)
     if fade_out:
         k = min(n, fade_out)
-        out[n - k:] *= _fade_out_gain(k, fade_out)
+        out[..., n - k:] *= _fade_out_gain(k, fade_out)
     return out
 
 
@@ -486,25 +563,26 @@ def decode_faded(path, fade_in: int = 0, fade_out: int = 0):
         pos = 0
         pending, held = deque(), 0
         for block in blocks:
-            block = np.asarray(block, dtype=np.float32).reshape(-1)
+            block = _samples(block)
+            width = block.shape[-1]
             if fade_in and pos < fade_in:
-                k = min(len(block), fade_in - pos)
+                k = min(width, fade_in - pos)
                 block = block.copy()
-                block[:k] *= _fade_in_gain(pos, k, fade_in)
-            pos += len(block)
+                block[..., :k] *= _fade_in_gain(pos, k, fade_in)
+            pos += width
             if not fade_out:
                 yield block
                 continue
             pending.append(block)
-            held += len(block)
-            while pending and held - len(pending[0]) >= fade_out:
+            held += width
+            while pending and held - pending[0].shape[-1] >= fade_out:
                 first = pending.popleft()
-                held -= len(first)
+                held -= first.shape[-1]
                 yield first
         if fade_out and pending:
-            tail = np.concatenate(list(pending))
-            k = min(len(tail), fade_out)
-            tail[len(tail) - k:] *= _fade_out_gain(k, fade_out)
+            tail = _join(list(pending))
+            k = min(tail.shape[-1], fade_out)
+            tail[..., tail.shape[-1] - k:] *= _fade_out_gain(k, fade_out)
             yield tail
 
     return faded()
@@ -713,7 +791,7 @@ def group_crossfade(group_settings: dict | None) -> float:
 
 # Track settings a preset can set, as ThemeTrack attribute names
 PRESET_TRACK_FIELDS = ("volume", "presence", "is_enabled", "crossfade_enabled", "playback_mode", "exclusive",
-                       "volume_low", "pause_between", "pause_min", "pause_max")
+                       "volume_low", "pause_between", "pause_min", "pause_max", "rise")
 # Ebb & Flow settings, saved in metadata.json and presets under the same names
 # (theme_metadata.EBB_TRACK_SETTINGS; repeated here so this module stands alone)
 EBB_TRACK_SETTINGS = ("volume_low", "pause_between", "pause_min", "pause_max", "rise")
@@ -922,12 +1000,13 @@ def fixed_blocks(pieces, size: int = BLOCK_SAMPLES):
     float32 arrays of exactly `size` samples. What is left at the end, short
     of a whole block, is dropped.
     """
-    held = np.empty(0, dtype=np.float32)
+    held = None
     for piece in pieces:
-        held = np.concatenate([held, np.asarray(piece, dtype=np.float32).reshape(-1)])
-        while len(held) >= size:
-            yield held[:size]
-            held = held[size:]
+        piece = _samples(piece)
+        held = piece if held is None else _join([held, piece])
+        while held.shape[-1] >= size:
+            yield held[..., :size]
+            held = held[..., size:]
 
 
 class BlockSource:
@@ -938,11 +1017,35 @@ class BlockSource:
     A player writes _blocks() as a generator. It starts at the first pull,
     so settings are read as playback begins, not when the player is made.
     close() ends it, letting go of any file it has open.
+
+    A player announces each sound it starts through its mix's CueRelay
+    (cue_relay, set by the mix): _cue() when a file starts (lead: samples
+    from the start of the block being made now to the sound's first sample).
     """
     _source = None
+    cue_relay = None  # the mix's CueRelay (None: nobody follows this mix)
+    cue_start = None  # how its starts are named, when not by the player's own kind
 
     def _blocks(self):
         raise NotImplementedError
+
+    def _cue(self, start: str, duration_samples, lead: int = 0, track=None):
+        """Announce a sound starting `lead` samples from now (a token for _confirm/_uncue, or None)."""
+        relay = self.cue_relay
+        if relay is None:
+            return None
+        return relay.announce(self, self.cue_start or start, track or getattr(self.instance, "name", None),
+                              duration_samples, lead)
+
+    def _confirm(self, token) -> None:
+        """An announced sound starts now."""
+        if token is not None and self.cue_relay is not None:
+            self.cue_relay.confirm(token)
+
+    def _uncue(self, token, reason: str = "skipped") -> None:
+        """An announced sound won't play."""
+        if token is not None and self.cue_relay is not None:
+            self.cue_relay.cancel(token, reason)
 
     def __iter__(self):
         return self
@@ -959,6 +1062,54 @@ class BlockSource:
             self._source.close()
 
 
+class CueRelay:
+    """
+    Where a mix's players announce the sounds they start (core/timeline.py
+    turns them into cues). One per mix; its target is set by whoever plays
+    the mix and cares (a channel), else None and announcing costs nothing.
+    A target's announce/confirm/cancel must be quick: they run in the mixing
+    thread.
+    """
+    __slots__ = ("target",)
+
+    def __init__(self):
+        self.target = None
+
+    def announce(self, stream, start: str, track, duration_samples, lead: int):
+        target = self.target
+        if target is None:
+            return None
+        try:
+            return target.announce(stream, start, track, duration_samples, lead)
+        except Exception as e:  # a cue never costs the sound
+            logger.debug(f"Cue not announced: {e}")
+            return None
+
+    def confirm(self, token) -> None:
+        target = self.target
+        if target is not None:
+            try:
+                target.confirm(token)
+            except Exception as e:
+                logger.debug(f"Cue not confirmed: {e}")
+
+    def cancel(self, token, reason: str) -> None:
+        target = self.target
+        if target is not None:
+            try:
+                target.cancel(token, reason)
+            except Exception as e:
+                logger.debug(f"Cue not cancelled: {e}")
+
+
+def look_ahead_samples() -> int:
+    """Settings > Advanced's Look-ahead: how early an Intermittent play is decided and announced."""
+    try:
+        return max(0, int(float(playback_values.get("timeline_lookahead")) * SAMPLE_RATE))
+    except Exception:
+        return 0
+
+
 def close_stream(stream) -> None:
     """Stop a player that is no longer used (anything without close() is left alone)."""
     close = getattr(stream, "close", None)
@@ -973,7 +1124,7 @@ class SilentTrackStream(BlockSource):
         self.instance = instance
 
     def _blocks(self):
-        silence = np.zeros((1, BLOCK_SAMPLES), dtype=np.int16)
+        silence = _silent_block()
         while True:
             yield silence
 
@@ -993,8 +1144,10 @@ class HardLoopStream(BlockSource):
         while True:
             passes = decode_faded(self.instance.meta.path, *file_fade_samples(self.instance))
             for count, block in enumerate(fixed_blocks(passes)):
+                if count == 0:
+                    self._cue("loop", self.instance.meta.duration_samples)
                 # Volume is read for each block as it goes out, so it follows a glide or transition at once
-                block, self._volume = apply_volume(block.reshape(1, -1), eases_from(self.instance, self._volume),
+                block, self._volume = apply_volume(_as_block(block), eases_from(self.instance, self._volume),
                                                    self.instance.volume)
                 if count % DEBUG_EVERY_BLOCKS == 0:
                     logger.debug(f'Gapless loop "{self.instance.name}": block {count} of this pass, volume {self._volume:.2f}')
@@ -1058,7 +1211,7 @@ class CrossfadeRecordingStream(BlockSource):
         current_decoder = self._create_decoder()
         next_decoder = None
         
-        buffer = np.empty(0, dtype=np.float32)
+        buffer = _zeros(0)
         samples_played = 0
         chunk_count = 0
         in_crossfade = False
@@ -1067,59 +1220,62 @@ class CrossfadeRecordingStream(BlockSource):
         # Pre-generate crossfade curves (equal-power)
         fade_out, fade_in = curves(CROSSFADE_SAMPLES)
         
-        next_buffer = np.empty(0, dtype=np.float32)
+        next_buffer = _zeros(0)
         current_done = False
         next_done = False
 
         while True:
             # Fill buffer from current decoder
-            while not current_done and len(buffer) < BLOCK_SAMPLES * 2:
+            while not current_done and buffer.shape[-1] < BLOCK_SAMPLES * 2:
                 try:
                     chunk = next(current_decoder)
-                    buffer = np.concatenate([buffer, chunk.flatten()])
+                    buffer = _join([buffer, _samples(chunk)])
                 except StopIteration:
                     # The track ends here. The crossfade runs a little past the
                     # end of the file (and metadata durations can be slightly
                     # off), so finish the fade over silence instead of
                     # restarting the track, which caused audible gaps (#38).
                     current_done = True
-                    actual_duration = samples_played + len(buffer)
+                    actual_duration = samples_played + buffer.shape[-1]
                     if actual_duration != track_duration:
                         logger.debug(f'CrossfadeStream: {self.instance.name} decoded {actual_duration} samples, expected {track_duration}')
                         track_duration = actual_duration
                         crossfade_start = max(0, track_duration - CROSSFADE_SAMPLES)
 
-            if len(buffer) < BLOCK_SAMPLES:
-                buffer = np.concatenate([buffer, np.zeros(BLOCK_SAMPLES - len(buffer), dtype=np.float32)])
+            if buffer.shape[-1] < BLOCK_SAMPLES:
+                buffer = _join([buffer, _zeros(BLOCK_SAMPLES - buffer.shape[-1])])
 
             # Check if we should start crossfade
+            if chunk_count == 0:
+                self._cue("loop", track_duration)  # the first pass
             if not in_crossfade and (samples_played >= crossfade_start or current_done):
                 logger.debug(f'CrossfadeStream: Starting crossfade at sample {samples_played}')
                 in_crossfade = True
                 crossfade_position = 0
                 next_decoder = self._create_decoder()
-                next_buffer = np.empty(0, dtype=np.float32)
+                next_buffer = _zeros(0)
                 next_done = False
+                self._cue("loop", track_duration)  # the next pass starts under the crossfade
 
             # If in crossfade, also fill next_buffer
             if in_crossfade:
-                while not next_done and len(next_buffer) < BLOCK_SAMPLES * 2:
+                while not next_done and next_buffer.shape[-1] < BLOCK_SAMPLES * 2:
                     try:
                         chunk = next(next_decoder)
-                        next_buffer = np.concatenate([next_buffer, chunk.flatten()])
+                        next_buffer = _join([next_buffer, _samples(chunk)])
                     except StopIteration:
                         next_done = True
-                if len(next_buffer) < BLOCK_SAMPLES:
-                    next_buffer = np.concatenate([next_buffer, np.zeros(BLOCK_SAMPLES - len(next_buffer), dtype=np.float32)])
+                if next_buffer.shape[-1] < BLOCK_SAMPLES:
+                    next_buffer = _join([next_buffer, _zeros(BLOCK_SAMPLES - next_buffer.shape[-1])])
             
             # Extract chunk
-            output_chunk = buffer[:BLOCK_SAMPLES].copy()
-            buffer = buffer[BLOCK_SAMPLES:]
+            output_chunk = buffer[..., :BLOCK_SAMPLES].copy()
+            buffer = buffer[..., BLOCK_SAMPLES:]
             
             # Apply crossfade if active
-            if in_crossfade and len(next_buffer) >= BLOCK_SAMPLES:
-                next_chunk = next_buffer[:BLOCK_SAMPLES].copy()
-                next_buffer = next_buffer[BLOCK_SAMPLES:]
+            if in_crossfade and next_buffer.shape[-1] >= BLOCK_SAMPLES:
+                next_chunk = next_buffer[..., :BLOCK_SAMPLES].copy()
+                next_buffer = next_buffer[..., BLOCK_SAMPLES:]
                 
                 # Calculate fade positions for this chunk
                 fade_start = crossfade_position
@@ -1137,7 +1293,7 @@ class CrossfadeRecordingStream(BlockSource):
                         fade_in_chunk = np.concatenate([fade_in_chunk, np.ones(BLOCK_SAMPLES - len(fade_in_chunk), dtype=np.float32)])
                     
                     # Mix with crossfade
-                    output_chunk = output_chunk[:len(fade_out_chunk)] * fade_out_chunk + next_chunk[:len(fade_in_chunk)] * fade_in_chunk
+                    output_chunk = output_chunk[..., :len(fade_out_chunk)] * fade_out_chunk + next_chunk[..., :len(fade_in_chunk)] * fade_in_chunk
                 
                 crossfade_position += BLOCK_SAMPLES
                 
@@ -1148,7 +1304,7 @@ class CrossfadeRecordingStream(BlockSource):
                     buffer = next_buffer
                     current_done = next_done
                     next_decoder = None
-                    next_buffer = np.empty(0, dtype=np.float32)
+                    next_buffer = _zeros(0)
                     samples_played = crossfade_position  # We're this far into the new track
                     in_crossfade = False
                     crossfade_position = 0
@@ -1162,7 +1318,7 @@ class CrossfadeRecordingStream(BlockSource):
             # The track's volume, read as each chunk goes out and eased; int16 for output
             output_chunk, self._volume = apply_volume(output_chunk, eases_from(self.instance, self._volume), self.instance.volume)
             output_chunk = np.clip(output_chunk, -32768, 32767).astype(np.int16)
-            output_data = output_chunk.reshape(1, -1)
+            output_data = _as_block(output_chunk)
             
             samples_played += BLOCK_SAMPLES
             self.position, self.length = samples_played, track_duration
@@ -1217,8 +1373,6 @@ class SparsePlaybackStream(BlockSource):
 
 
     def _blocks(self):
-        import random
-
         presence = self.instance.presence
         file_duration_samples = self.instance.meta.duration_samples
         file_duration_seconds = self.instance.meta.duration_seconds
@@ -1228,16 +1382,20 @@ class SparsePlaybackStream(BlockSource):
 
         grouped = bool(getattr(self.instance, "exclusion_group", None)) and self.exclusion_coordinator is not None
 
-        def fade_curves():
+        def fade_curves(audio):
             """Fade in and out curves for a play (the Track fade now; shorter for very short files)."""
-            fade_duration = min(playback_values.get("track_fade"), file_duration_seconds / 3)
+            length_seconds = audio.shape[-1] / SAMPLE_RATE
+            fade_in = fade_out = min(playback_values.get("track_fade"), length_seconds / 3)
             if grouped:
                 # A group's tracks just play, start to finish (a thunder crack keeps
-                # its attack, a song its first notes): only a click-free edge
-                fade_duration = min(GROUP_EDGE_FADE_SECONDS, file_duration_seconds / 3)
-            fade_samples = int(fade_duration * SAMPLE_RATE)
-            return (np.sin(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32),
-                    np.cos(np.linspace(0, np.pi/2, fade_samples)).astype(np.float32))
+                # its attack, a song its first notes): only a click-free edge. A
+                # file cut off mid-sound (it ends loud) still fades out over the
+                # Track fade: a click-free edge alone is a hard cut.
+                fade_in = min(GROUP_EDGE_FADE_SECONDS, length_seconds / 3)
+                if not ends_loud(audio):
+                    fade_out = fade_in
+            return (np.sin(np.linspace(0, np.pi/2, int(fade_in * SAMPLE_RATE))).astype(np.float32),
+                    np.cos(np.linspace(0, np.pi/2, int(fade_out * SAMPLE_RATE))).astype(np.float32))
 
         def get_silent_interval():
             """
@@ -1264,11 +1422,11 @@ class SparsePlaybackStream(BlockSource):
             reader = AudioReader(self.instance.meta.path)
             if not reader.has_audio:
                 reader.close()
-                return np.zeros(0, dtype=np.float32)
+                return _zeros(0)
             pieces = list(reader.blocks(flush=False))
             if not pieces:
-                return np.zeros(0, dtype=np.float32)
-            return apply_file_fades(np.concatenate(pieces), *file_fade_samples(self.instance))
+                return _zeros(0)
+            return apply_file_fades(_join(pieces), *file_fade_samples(self.instance))
 
         def is_blocked_exclusive():
             """Check if this exclusive track is blocked (without claiming playback)."""
@@ -1303,9 +1461,18 @@ class SparsePlaybackStream(BlockSource):
             return int(random.uniform(1.0, 3.0) * SAMPLE_RATE / BLOCK_SAMPLES)
 
         chunk_count = 0
-        silence_chunk = np.zeros((1, BLOCK_SAMPLES), dtype=np.int16)
+        silence_chunk = _silent_block()
         first_play = True
         volume = None  # the volume reached, easing toward the track's (see apply_volume)
+        # The next play, once announced ahead (Look-ahead): its cue token. A
+        # group's turn is decided when it comes, so grouped plays are announced as they start.
+        announced = None
+
+        def look_ahead(chunks_left: int, ahead: int):
+            """The play starts after chunks_left more blocks: announce it once it is within the Look-ahead."""
+            nonlocal announced
+            if announced is None and not grouped and self.cue_relay is not None                     and 0 < chunks_left * BLOCK_SAMPLES <= ahead:
+                announced = self._cue("intermittent", file_duration_samples, chunks_left * BLOCK_SAMPLES)
 
         while True:
             # Check for updated presence
@@ -1315,6 +1482,8 @@ class SparsePlaybackStream(BlockSource):
             # starts no new play: stay silent, checking again every second
             if presence <= 0.0 or not getattr(self.instance, "is_enabled", True):
                 self.phase, self.phase_end = "off", None
+                self._uncue(announced)
+                announced = None
                 for _ in range(max(1, SAMPLE_RATE // BLOCK_SAMPLES)):
                     yield silence_chunk
                 continue
@@ -1331,14 +1500,19 @@ class SparsePlaybackStream(BlockSource):
                 self.phase, self.phase_end = "wait", self.clock + initial_delay_chunks * BLOCK_SAMPLES
                 if initial_delay_chunks > 0:
                     logger.debug(f'SparsePlaybackStream: {self.instance.name} initial delay: {initial_delay_samples/SAMPLE_RATE:.1f}s')
-                    for _ in range(initial_delay_chunks):
+                    ahead = look_ahead_samples()
+                    for waited in range(initial_delay_chunks):
+                        look_ahead(initial_delay_chunks - waited, ahead)
                         chunk_count += 1
                         yield silence_chunk
+                    continue  # its Interval or mute may have changed while it waited: checked again first
 
             # For exclusive tracks, first check if we're blocked
             if is_blocked_exclusive():
                 # Output silence for a while before checking again
                 self.phase, self.phase_end = "turn", None
+                self._uncue(announced)
+                announced = None
                 wait_chunks = get_block_wait_chunks()
                 for _ in range(wait_chunks):
                     chunk_count += 1
@@ -1349,6 +1523,8 @@ class SparsePlaybackStream(BlockSource):
             if not try_start_exclusive():
                 # Another track claimed it first - wait and retry
                 self.phase, self.phase_end = "turn", None
+                self._uncue(announced)
+                announced = None
                 wait_chunks = get_block_wait_chunks()
                 for _ in range(wait_chunks):
                     chunk_count += 1
@@ -1358,36 +1534,45 @@ class SparsePlaybackStream(BlockSource):
             # Decode and play the file once with fade in/out
             audio_data = decode_file_once()
 
-            if len(audio_data) > 0:
+            audio_length = audio_data.shape[-1]
+            if audio_length == 0:
+                self._uncue(announced, "no_audio")
+            elif announced is not None:
+                self._confirm(announced)  # announced ahead: it starts now
+            else:
+                self._cue("intermittent", audio_length)
+            announced = None
+
+            if audio_length > 0:
                 group = getattr(self.instance, "exclusion_group", None) if grouped else None
                 logger.info(f'Playback: {getattr(self.instance, "log_label", "")}: {self.instance.name} plays '
-                            f'(Intermittent{", group " + group if group else ""}, {len(audio_data) / SAMPLE_RATE:.1f}s)')
+                            f'(Intermittent{", group " + group if group else ""}, {audio_length / SAMPLE_RATE:.1f}s)')
                 self.playing = True
                 self.phase = "play"
-                self.phase_end = self.clock + -(-len(audio_data) // BLOCK_SAMPLES) * BLOCK_SAMPLES
-                fade_in_curve, fade_out_curve = fade_curves()
+                self.phase_end = self.clock + -(-audio_length // BLOCK_SAMPLES) * BLOCK_SAMPLES
+                fade_in_curve, fade_out_curve = fade_curves(audio_data)
 
                 # Apply fade in at start
-                if len(fade_in_curve) <= len(audio_data):
-                    audio_data[:len(fade_in_curve)] *= fade_in_curve
+                if len(fade_in_curve) <= audio_length:
+                    audio_data[..., :len(fade_in_curve)] *= fade_in_curve
 
                 # Apply fade out at end (none with a Track fade of 0)
-                if 0 < len(fade_out_curve) <= len(audio_data):
-                    audio_data[-len(fade_out_curve):] *= fade_out_curve
+                if 0 < len(fade_out_curve) <= audio_length:
+                    audio_data[..., -len(fade_out_curve):] *= fade_out_curve
 
                 # Yield the audio in chunks
                 pos = 0
-                while pos < len(audio_data):
-                    chunk_end = min(pos + BLOCK_SAMPLES, len(audio_data))
-                    chunk = audio_data[pos:chunk_end]
+                while pos < audio_length:
+                    chunk_end = min(pos + BLOCK_SAMPLES, audio_length)
+                    chunk = audio_data[..., pos:chunk_end]
 
                     # Pad if needed
-                    if len(chunk) < BLOCK_SAMPLES:
-                        chunk = np.concatenate([chunk, np.zeros(BLOCK_SAMPLES - len(chunk), dtype=np.float32)])
+                    if chunk.shape[-1] < BLOCK_SAMPLES:
+                        chunk = _join([chunk, _zeros(BLOCK_SAMPLES - chunk.shape[-1])])
 
                     # The volume, read for each chunk and eased; int16 for output
                     chunk, volume = apply_volume(chunk, eases_from(self.instance, volume), self.instance.volume)
-                    output = np.clip(chunk, -32768, 32767).astype(np.int16).reshape(1, -1)
+                    output = _as_block(np.clip(chunk, -32768, 32767).astype(np.int16))
 
                     chunk_count += 1
                     if chunk_count % DEBUG_EVERY_BLOCKS == 0:
@@ -1415,10 +1600,14 @@ class SparsePlaybackStream(BlockSource):
             remaining = float(silent_chunks)
             if remaining >= 1.0:
                 self.phase, self.phase_end = "wait", self.clock + int(remaining) * BLOCK_SAMPLES
+            ahead = look_ahead_samples()
             while remaining >= 1.0:
+                look_ahead(int(remaining), ahead)
                 chunk_count += 1
                 remaining -= 1.0
                 yield silence_chunk
+                if announced is not None:
+                    continue  # decided and announced: the wait left no longer moves
                 now = self.instance.presence if getattr(self.instance, "interval_live", False) else waited_at
                 now_range = playback_values.wait_range()
                 if abs(now - waited_at) > 0.005 or now_range != waited_range:
@@ -1594,6 +1783,8 @@ class PresenceMixingStream(BlockSource):
         old = self.base_stream
         close_stream(old)
         self.base_stream = type(old)(old.instance)
+        self.base_stream.cue_relay = getattr(old, "cue_relay", None)
+        self.base_stream.cue_start = getattr(old, "cue_start", None)
 
     def _blocks(self):
         if self.exclusion_coordinator is None:
@@ -1631,7 +1822,7 @@ class PresenceMixingStream(BlockSource):
         rate = SAMPLE_RATE
         name = self.instance.name
         group = self.ebb_group
-        silence = np.zeros((1, BLOCK_SAMPLES), dtype=np.int16)
+        silence = _silent_block()
         state = "playing"  # playing, ending (fading out for a pause) or paused
         level = start = target = 0.0
         glide = done = hold = wait = 0  # samples
@@ -1788,8 +1979,6 @@ class PresenceMixingStream(BlockSource):
 
     def _turn_blocks(self):
         """In a group (the old Exclusive switch): fades in on its turn, plays a while, fades out, hands the turn back."""
-        import random
-
         # State for presence fading
         is_active = True  # Start active
         current_gain = 1.0 if self.instance.presence >= 1.0 else 0.0
@@ -1970,24 +2159,25 @@ class _SampleQueue:
         self.size = 0
 
     def push(self, block):
-        if len(block):
+        if block.shape[-1]:
             self._blocks.append(block)
-            self.size += len(block)
+            self.size += block.shape[-1]
 
     def take(self, count: int):
-        out = np.empty(count, np.float32)
+        rows = self._blocks[0].shape[:-1] if self._blocks else ()
+        out = np.empty(rows + (count,), np.float32)
         filled = 0
         while filled < count and self._blocks:
             block = self._blocks[0]
-            n = min(len(block) - self._head, count - filled)
-            out[filled:filled + n] = block[self._head:self._head + n]
+            n = min(block.shape[-1] - self._head, count - filled)
+            out[..., filled:filled + n] = block[..., self._head:self._head + n]
             filled += n
             self._head += n
-            if self._head >= len(block):
+            if self._head >= block.shape[-1]:
                 self._blocks.popleft()
                 self._head = 0
         self.size -= filled
-        return out[:filled]
+        return out[..., :filled]
 
 
 class _BedFile:
@@ -2028,9 +2218,9 @@ class _BedFile:
                 logger.warning(f'MerryGoRound: "{self.name}" stopped decoding: {e}')
                 self.done = True
             else:
-                block = np.asarray(block, np.float32).reshape(-1)
+                block = _samples(block)
                 self._queue.push(block)
-                decoded += len(block)
+                decoded += block.shape[-1]
             if self.done:
                 self.end = self.pos + self._queue.size
                 break
@@ -2052,12 +2242,12 @@ class _BedFile:
     def render(self, count: int, offset: int, level: float):
         """`count` samples of the mix: silence for `offset`, then this file with its fades and level."""
         level = eased_volume(self.level, level, count)  # a level change eases (see VOLUME_EASE_SECONDS)
-        out = np.zeros(count, np.float32)
+        out = _zeros(count)
         n = count - offset
         if self.end is not None:
             n = min(n, self.end - self.pos)
         samples = self._queue.take(max(0, n))
-        n = len(samples)
+        n = samples.shape[-1]
         if n:
             positions = self.pos + np.arange(n, dtype=np.float64)
             env = np.ones(n, np.float64)
@@ -2070,7 +2260,7 @@ class _BedFile:
                 env *= np.linspace(start, level, n)  # a level change ramps over the chunk: no click
             else:
                 env *= level
-            out[offset:offset + n] = samples * env
+            out[..., offset:offset + n] = samples * env
             self.pos += n
         self.level = level
         return out
@@ -2161,6 +2351,7 @@ class MerryGoRoundStream(BlockSource):
         self._voices.append(voice)
         self._current = voice
         self.events.append((self._samples + offset, "start", voice.name))
+        self._cue("group", voice.end if voice.end is not None else voice.estimate, offset, track=voice.name)
         logger.debug(f'MerryGoRound "{self.group}": "{voice.name}" starts at {(self._samples + offset) / SAMPLE_RATE:.1f}s, '
                      f'fade in {voice.fade_in / SAMPLE_RATE:.1f}s')
 
@@ -2225,7 +2416,7 @@ class MerryGoRoundStream(BlockSource):
                         self._begin(nxt, offset, xf)
                         starts[id(nxt)] = offset
 
-        out = np.zeros(n, np.float32)
+        out = _zeros(n)
         for voice in list(self._voices):
             view = voice.view
             level = float(view.volume) if view.is_enabled else 0.0
@@ -2240,7 +2431,7 @@ class MerryGoRoundStream(BlockSource):
                 if voice is self._current:
                     self._current = None
         self._samples += n
-        return np.clip(out, -32768, 32767).astype(np.int16).reshape(1, -1)
+        return _as_block(np.clip(out, -32768, 32767).astype(np.int16))
 
     def _blocks(self):
         while True:

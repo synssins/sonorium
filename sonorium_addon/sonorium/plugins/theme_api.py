@@ -215,7 +215,8 @@ def _check_field(name: str, value):
 def track_fields(fields: Optional[dict]) -> dict:
     """A track's settings (TrackSettings fields), checked. ThemeEditError for unknown names or bad values."""
     fields = dict(fields or {})
-    unknown = [k for k in fields if k not in TrackSettings.__dataclass_fields__]
+    # (plugin attributes go through self.attributes, checked against the schema)
+    unknown = [k for k in fields if k not in TrackSettings.__dataclass_fields__ or k == "plugins"]
     if unknown:
         raise ThemeEditError(f"Unknown track setting(s): {', '.join(unknown)}")
     return {k: _check_field(k, v) for k, v in fields.items()}
@@ -263,9 +264,9 @@ def resolve_auto(key: str, settings: TrackSettings, path: Optional[Path], thresh
         return settings
     seconds = None
     if path is not None:
-        from sonorium.core.theme_metadata import track_seconds
+        from sonorium.core.theme_metadata import played_seconds
         try:
-            seconds = track_seconds(path)
+            seconds = played_seconds(path)
         except Exception:
             seconds = None
     if seconds is not None and seconds >= threshold:
@@ -568,6 +569,9 @@ class ThemeEdit:
         else:
             self._commit_existing()
         self._done = True
+        # Its audio becomes MP3 in the background on the server (core/theme_mp3.py)
+        from sonorium.core import theme_mp3
+        theme_mp3.request(self.folder)
         logger.info(f"Theme '{self.metadata.name}' {'created' if self.is_new else 'updated'} "
                     f"in {self.folder.name}: {len(self._added)} track(s) added")
         return {"theme_id": self.metadata.id, "folder": self.folder, "name": self.metadata.name,

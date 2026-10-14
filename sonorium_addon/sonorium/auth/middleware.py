@@ -5,16 +5,18 @@ The caller (auth/principal.py), first match wins:
 
     ingress    add-on only: the ingress port (8099), from the Supervisor's
                address. HA's sidebar: HA has signed the user in; full access.
-               A sign-in plugin may attach the HA user's account.
+               Users (users.py) attach the HA user's account.
+    console    "Authorization: Bearer sc_..." from this computer only, when
+               SONORIUM_CONSOLE_TOKEN_FILE is set (auth/console.py): full access.
     device     "Authorization: Bearer sd_..." a phone linked with Link App:
-               full access less managing users, devices and keys; with the
-               Users plugin, what its user may do.
-    plugins    their authenticate() hook: the Users plugin's browser
-               sessions, the Integration plugin's keys.
+               full access less managing users, devices and keys; with
+               accounts (users.py), what its user may do.
+    sessions   the authenticate() hooks: browser sessions (users.py) and
+               keys (keys.py).
     bypass     BYPASS_LOGIN / bypass_login is on: the web UI needs no sign-in.
-    fallback   a plugin's fallback() (the Users plugin: open access while
-               Require login is off, else nobody), or with no sign-in plugin
-               "local": full access, Sonorium's behaviour without accounts.
+    fallback   the fallback() hook (users.py: open access while Require
+               login is off, else nobody), or with no accounts loaded "local":
+               full access, Sonorium's behaviour without accounts.
 
 Then the route's permission (auth/permissions.py) decides. Routes that by
 design need a token (plugin triggers, the event stream) check it themselves.
@@ -33,10 +35,13 @@ from urllib.parse import parse_qs, urlsplit
 
 from starlette.responses import JSONResponse, PlainTextResponse
 
-from sonorium.auth import config, permissions as P
+from sonorium.auth import config, console, permissions as P
 from sonorium.auth.principal import CALLER, Principal, Reject, RequestContext
 from sonorium.auth.service import DEVICE_PREFIX, AuthService
-from sonorium.obs import logger
+from sonorium.obs import logger as _logger
+
+# "sonorium.auth": names users and addresses, so only admins see it on the Logs page (logbuffer.py)
+logger = _logger.getChild("auth")
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 CHANNEL_ABILITIES = frozenset({"ch.view", "ch.play", "ch.change", "ch.speakers", "ch.add"})
@@ -96,11 +101,17 @@ def resolve(service: AuthService, scope, headers: dict) -> tuple[Principal, Opti
             principal = hook(ctx, principal) or principal
         return principal, None
 
+    if token and token.startswith(console.PREFIX):  # the host's console (auth/console.py)
+        result = console.resolve(service, client, listener, token)
+        if isinstance(result, Reject):
+            return Principal("anonymous", listener=listener, token_given=True), result
+        return result, None
+
     if token and token.startswith(DEVICE_PREFIX):
         found = service.tokens.verify(token, "device")
         if not found:
             return Principal("anonymous", listener=listener, token_given=True), Reject(
-                401, {"detail": "This phone is not linked to Sonorium. Link it again.", "pair": True})
+                401, {"detail": "This device is not linked to Sonorium. Link it again.", "pair": True})
         device_id, record = found
         principal = Principal("device", P.device_perms(P.ALL_PERMS), listener, user_id=record.get("user_id"),
                               device_id=device_id, token_given=True)
@@ -160,9 +171,12 @@ class AuthMiddleware:
             logger.warning(f"Refused a request to the ingress port from {client}: only Home Assistant's Supervisor may use it")
             return await answer(403, "Forbidden")
 
-        # Speakers and browsers fetch these without signing in
-        if path.startswith("/stream/") or path.startswith("/static/"):
+        # Browsers fetch these without signing in
+        if path.startswith("/static/"):
             return await self.app(scope, receive, send)
+        # Speakers can't sign in: a stream link, the LAN, or a signed-in caller (auth/stream_links.py)
+        if path.startswith("/stream/"):
+            return await self._stream(scope, receive, send, path, client, answer)
 
         headers = _headers(scope)
         for plugin_id, prepare in service.provider("prepare"):
@@ -172,11 +186,34 @@ class AuthMiddleware:
                 logger.warning(f"Sign-in: plugin {plugin_id} could not get ready for a request: {e}")
         principal, reject = resolve(service, scope, headers)
         scope.setdefault("state", {})["auth"] = principal
+        scope["state"]["auth_service"] = service  # e.g. whether accounts exist (web/personal_routes.py)
         caller = CALLER.set(principal)  # current_caller() for the route and the tasks it starts
         try:
             return await self._checked(scope, receive, send, principal, reject, headers, method, path, listener, answer)
         finally:
             CALLER.reset(caller)
+
+    async def _stream(self, scope, receive, send, path, client, answer):
+        from sonorium import limits
+        from sonorium.auth import stream_links
+        if path.startswith(stream_links.OWN_SECRET_PREFIXES):  # its own secret (a virtual speaker)
+            return await self.app(scope, receive, send)
+        service = self.service
+        if stream_links.required() and not stream_links.allowed_without_sign_in(
+                path, scope.get("query_string") or b"", client):
+            principal, reject = resolve(service, scope, _headers(scope))
+            if reject is not None or principal.kind in ("anonymous", "open") or not principal.perms:
+                logger.debug(f"Refused a stream ({path}) to {client}: no stream link, not signed in")
+                return await answer(401, {"detail": "Sign in first", "login": True})
+            scope.setdefault("state", {})["auth"] = principal
+        slots = stream_links.STREAMS
+        if not slots.take(client, limits.count(limits.STREAMS_PER_ADDRESS), limits.count(limits.STREAMS)):
+            logger.warning(f"Refused a stream ({path}) to {client}: too many streams open")
+            return await answer(429, {"detail": "Too many streams are open. Close one and try again."})
+        try:
+            return await self.app(scope, receive, send)
+        finally:
+            slots.give(client)
 
     async def _checked(self, scope, receive, send, principal, reject, headers, method, path, listener, answer):
         service = self.service
@@ -226,19 +263,21 @@ class AuthMiddleware:
             if principal.kind == "ingress":
                 logger.debug(f"{method} {path} by Home Assistant user "
                              f"{principal.ha_user.get('name') or principal.ha_user.get('id') or '?'}")
+        if principal.kind == "key" and principal.key_id:  # a key's "Last used": accepted requests only
+            service.tokens.touch(principal.key_id)
         return await self.app(scope, receive, send)
 
     def _refusal(self, principal: Principal) -> tuple[int, dict]:
         service = self.service
         if principal.kind == "anonymous":
             if principal.token_given:
-                return 401, {"detail": "A valid key or linked phone is needed", "pair": True}
+                return 401, {"detail": "A valid key or linked device is needed", "pair": True}
             if not service.ready:
                 return 503, {"detail": "Sonorium is starting", "starting": True}
             if service.closed:
-                return 503, {"detail": "The sign-in plugin didn't start. See Logs.", "closed": True}
+                return 503, {"detail": "Sign-in didn't start. See Logs.", "closed": True}
             if principal.listener != "ingress" and config.web_ui_only_through_ha():
-                return 401, {"detail": "A key or a linked phone is needed"}
+                return 401, {"detail": "A key or a linked device is needed"}
             body = {"detail": "Sign in first", "login": True}
             body.update(principal.extra.get("refusal") or {})
             return 401, body

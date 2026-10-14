@@ -73,7 +73,7 @@
             <span class="cn-sum${r.summary ? '' : ' none'}" title="${X.esc(r.summary)}">${X.esc(r.summary || 'Not set up')}</span>
             ${r.test ? `<button type="button" class="btn btn-sm btn-secondary cn-test-btn" ${r.configured ? '' : 'disabled'} onclick="SonoriumExt.connections.test('${key}', this)">Test</button>` : '<span class="cn-test-btn"></span>'}
             <button type="button" class="btn btn-sm btn-secondary" aria-haspopup="dialog" onclick="SonoriumExt.connections.edit('${key}')">Edit</button>
-            <button type="button" class="icon-btn sm" aria-label="More for ${X.esc(r.title)}" aria-haspopup="menu" onclick="SonoriumExt.connections.menu(this, '${key}')">${X.more}</button>
+            <button type="button" class="icon-btn sm" aria-label="More for ${X.esc(r.title)}" aria-haspopup="menu"${uiAnchor('connection.row', 'menu', uiRef('connection', r.key, { configured: !!r.configured }))} onclick="SonoriumExt.connections.menu(this, '${key}')">${X.more}</button>
         </div>`;
     }
 

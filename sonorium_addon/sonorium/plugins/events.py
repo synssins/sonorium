@@ -13,6 +13,9 @@ outside programs, through GET /api/events/stream) can follow.
   reaches the code that published the event, so playback never waits.
 - publish() works from any thread: from outside the event loop the event is
   handed to the loop the bus is bound to.
+- An event with an audience (a personal channel's: its account) reaches only
+  the subscribers with that audience (the account's event streams); plugins
+  and other accounts never get it, and its replay is filtered the same way.
 
 Patterns: "channel.started" (exact), "channel.*" (one prefix, any depth),
 "*" (everything).
@@ -64,9 +67,19 @@ CATALOGUE: dict[str, dict] = {
     "channel.stopped": {
         "description": "A channel stopped playing on its speakers.",
         "fields": {"channel_id": "Channel id", "name": "Channel name",
-                   "reason": "stopped, paused, idle (no listener pulled audio), ended (playlist finished) or "
-                             "schedule (Kid mode's hours ended)"},
+                   "reason": "stopped, paused, idle (no listener pulled audio), ended (playlist finished), "
+                             "schedule (Child Mode's hours ended) or sleep (its sleep timer ran out)"},
         "summary": "{name} stopped",
+    },
+    "channel.sleep_timer": {
+        "description": "A channel's sleep timer was set, changed, cancelled or ran out (then the channel fades "
+                       "out and stops: channel.stopped with reason sleep).",
+        "fields": {"channel_id": "Channel id", "name": "Channel name",
+                   "reason": "set (also a change), cancelled, ended (it ran out) or stopped (the channel "
+                             "stopped another way first)",
+                   "sleep_until": "When it stops (UTC ISO time), or null when no timer is left",
+                   "seconds_left": "Seconds until then, or null"},
+        "summary": "{name}: sleep timer {reason}",
     },
     "channel.changed": {
         "description": "A channel's settings changed. Only the fields that changed are in 'changes'.",
@@ -77,9 +90,14 @@ CATALOGUE: dict[str, dict] = {
     },
     "channel.listening": {
         "description": "Someone started or stopped listening to a channel on their device (Listen here, the "
-                       "app). While someone listens the channel's mix runs, with or without its speakers.",
+                       "app). While someone listens the channel's mix runs, with or without its speakers. A "
+                       "personal channel's (only to its account's event streams) comes each time its number of "
+                       "listening devices changes.",
         "fields": {"channel_id": "Channel id", "name": "Channel name",
-                   "listening": "True when the first listener came, false when the last one left"},
+                   "listening": "True when the first listener came, false when the last one left",
+                   "devices": "How many listen now (a personal channel: devices; another channel: listen calls)",
+                   "playing": "True while the channel's mix runs (speakers, listeners or reported outputs)",
+                   "personal": "Only on a personal channel's events: true"},
         "summary": "{name}: listening {listening}",
     },
     "channel.output_added": {
@@ -104,6 +122,56 @@ CATALOGUE: dict[str, dict] = {
                    "preset_id": "The step's preset id"},
         "summary": "{name}: step {step} of {steps}",
     },
+    "playlist.started": {
+        "description": "A playlist started on a channel (from its first entry).",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "playlist_id": "Playlist id",
+                   "playlist_name": "Playlist name"},
+        "summary": "{name}: playlist {playlist_name} started",
+    },
+    "playlist.stopped": {
+        "description": "A channel stopped playing its playlist (by hand, another theme was picked, the playlist "
+                       "was deleted). The channel keeps playing what it plays now.",
+        "fields": {"channel_id": "Channel id", "name": "Channel name", "playlist_id": "Playlist id"},
+        "summary": "{name}: playlist stopped",
+    },
+    "playlist.created": {
+        "description": "A playlist was made.",
+        "fields": {"playlist_id": "Playlist id", "playlist_name": "Playlist name"},
+        "summary": "Playlist added: {playlist_name}",
+    },
+    "playlist.changed": {
+        "description": "A playlist was edited.",
+        "fields": {"playlist_id": "Playlist id", "playlist_name": "Playlist name",
+                   "changes": "The fields sent: any of name, entries, order, repeat, play_min, play_max, "
+                              "fit_sequences"},
+        "summary": "Playlist changed: {playlist_name}",
+    },
+    "playlist.deleted": {
+        "description": "A playlist was deleted. Channels playing it stopped playing it.",
+        "fields": {"playlist_id": "Playlist id", "playlist_name": "Playlist name",
+                   "stopped_on": "Ids of the channels that were playing it"},
+        "summary": "Playlist deleted: {playlist_name}",
+    },
+    "group.changed": {
+        "description": "A speaker group was made, changed or deleted.",
+        "fields": {"group_id": "Group id", "group_name": "Group name", "change": "created, changed or deleted"},
+        "summary": "Speaker group {change}: {group_name}",
+    },
+    "spaces.changed": {
+        "description": "Floors or areas changed: added, renamed, moved, deleted (here or in Home Assistant), or "
+                       "the custom speaker areas of Settings › Speakers.",
+        "fields": {"source": "registry (the floors and areas Sonorium lists changed: Settings › Floors & Areas "
+                             "or Home Assistant) or custom_areas (Settings › Speakers' custom areas)"},
+        "summary": "Floors and areas changed",
+    },
+    "settings.changed": {
+        "description": "Settings were changed. Values are not included: fetch the section.",
+        "fields": {"section": "general (GET /api/settings), playback_values (GET /api/settings/playback-values), "
+                              "speakers (enabled speakers, GET /api/settings/speakers), speaker (one speaker's "
+                              "settings), features (GET /api/install)",
+                   "keys": "The settings that were sent", "speaker_id": "Only for section speaker"},
+        "summary": "Settings changed: {section}",
+    },
     "playlist.entry": {
         "description": "A channel's playlist moved to an entry.",
         "fields": {"channel_id": "Channel id", "name": "Channel name", "playlist_id": "Playlist id",
@@ -111,14 +179,14 @@ CATALOGUE: dict[str, dict] = {
                    "theme_id": "The entry's theme id"},
         "summary": "{name}: entry {position} of {entries}",
     },
-    # --- Zones and links (the Users plugin; Settings > Advanced > Zones) ---
+    # --- Zones and links (core/zones.py; Settings > Advanced > Zones) ---
     "zone.switched": {
         "description": "Zones were switched on or off (Settings > Advanced).",
         "fields": {"on": "True when zones are on"},
         "summary": "Zones: {on}",
     },
     "zone.changed": {
-        "description": "A channel's owner, Kid mode or Kid mode hours changed. Only the fields that changed are "
+        "description": "A channel's owner, Child Mode or Child Mode hours changed. Only the fields that changed are "
                        "in 'changes'.",
         "fields": {"channel_id": "Channel id", "name": "Channel name",
                    "changes": "Changed fields, any of: owner (user id or null), kid_mode, schedule ({start, end} "
@@ -141,7 +209,7 @@ CATALOGUE: dict[str, dict] = {
         "summary": "{speaker_id}: home is {name}",
     },
     "zone.schedule_ended": {
-        "description": "A channel in Kid mode reached the end of its hours: what its user started fades out.",
+        "description": "A channel in Child Mode reached the end of its hours: what its user started fades out.",
         "fields": {"channel_id": "Channel id", "name": "Channel name"},
         "summary": "{name}: hours ended",
     },
@@ -236,6 +304,38 @@ CATALOGUE: dict[str, dict] = {
         "fields": {"speaker_id": "Speaker id", "name": "Speaker name"},
         "summary": "Speaker online: {name}",
     },
+    # --- Devices a plugin brings (core/devices.py) ---
+    "device.added": {
+        "description": "A plugin listed a device Sonorium didn't know (a light, a display, ...).",
+        "fields": {"device_id": "Device id", "kind": "Its kind (light, display, ...)", "plugin_id": "Its plugin",
+                   "name": "Its name"},
+        "summary": "Device added: {name}",
+    },
+    "device.removed": {
+        "description": "A device was forgotten (removed, or its plugin uninstalled).",
+        "fields": {"device_id": "Device id", "kind": "Its kind", "plugin_id": "Its plugin"},
+        "summary": "Device removed: {device_id}",
+    },
+    "device.changed": {
+        "description": "A device's name, area or Use switch changed.",
+        "fields": {"device_id": "Device id", "changes": "The settings sent: any of name, area, use"},
+        "summary": "Device changed: {device_id}",
+    },
+    "device.assigned": {
+        "description": "What a device follows changed.",
+        "fields": {"device_id": "Device id", "channels": "Channel ids", "areas": "Area ids"},
+        "summary": "Device assigned: {device_id}",
+    },
+    "device.available": {
+        "description": "An offline device is back online.",
+        "fields": {"device_id": "Device id"},
+        "summary": "Device online: {device_id}",
+    },
+    "device.unavailable": {
+        "description": "A device went offline (its plugin no longer lists it, or said so).",
+        "fields": {"device_id": "Device id"},
+        "summary": "Device offline: {device_id}",
+    },
     # --- Themes ---
     "theme.created": {
         "description": "A theme was created, uploaded or imported.",
@@ -263,6 +363,24 @@ CATALOGUE: dict[str, dict] = {
         "description": "A plugin was disabled.",
         "fields": {"plugin_id": "Plugin id", "name": "Plugin name"},
         "summary": "Plugin disabled: {name}",
+    },
+    "attribute.changed": {
+        "description": "A plugin's attributes on an object changed (plugins/attributes.py).",
+        "fields": {"kind": "theme, track, file, preset, channel, speaker or user", "id": "The object's id",
+                   "theme_id": "Its theme (track, file and preset only)", "plugin_id": "Whose attributes",
+                   "keys": "The attribute names sent, or null when all of the plugin's were removed"},
+        "summary": "{plugin_id} attributes changed on {kind} {id}",
+    },
+    "ui.value": {
+        "description": "A plugin sent a live value for one of its UI elements (plugins/ui.py).",
+        "fields": {"plugin_id": "Plugin id", "element": "The element's id",
+                   "ref": "'*' for every object, else 'kind|theme|id'", "value": "The value (null: removed)"},
+        "summary": "{plugin_id}: {element} = {value}",
+    },
+    "ui.changed": {
+        "description": "A plugin registered new UI contributions (self.ui.register).",
+        "fields": {"plugin_id": "Plugin id"},
+        "summary": "{plugin_id}: UI contributions changed",
     },
     "schedule.fired": {
         "description": "A scheduled job ran.",
@@ -377,6 +495,7 @@ class Event:
     id: int
     time: str
     origin: str = "sonorium"
+    audience: Optional[str] = None  # only for subscribers with this audience (a personal channel's account)
 
     def to_dict(self) -> dict:
         return {"id": self.id, "boot_id": BOOT_ID, "type": self.type, "time": self.time, "origin": self.origin,
@@ -390,11 +509,12 @@ class Subscription:
     """One subscriber: its own queue and worker, so it can't hold up anyone else."""
 
     def __init__(self, bus: "EventBus", patterns: list[str], handler: Handler, owner: Optional[str],
-                 queue_size: int, timeout: float):
+                 queue_size: int, timeout: float, audience: Optional[str] = None):
         self.bus = bus
         self.patterns = patterns
         self.handler = handler
         self.owner = owner
+        self.audience = audience
         self.timeout = timeout
         self.dropped = 0
         self.failures = 0
@@ -409,6 +529,10 @@ class Subscription:
 
     def matches(self, event_type: str) -> bool:
         return any(matches(p, event_type) for p in self.patterns)
+
+    def receives(self, event: "Event") -> bool:
+        """It matches the event, and may see it (an event with an audience: only that audience)."""
+        return (event.audience is None or event.audience == self.audience) and self.matches(event.type)
 
     def close(self) -> None:
         """Stop receiving events (queued ones are dropped)."""
@@ -500,18 +624,19 @@ class EventBus:
     # --- Subscribing ---
 
     def subscribe(self, patterns: Union[str, Iterable[str]], handler: Handler, *, owner: Optional[str] = None,
-                  queue_size: int = 256, timeout: float = 30.0) -> Subscription:
+                  queue_size: int = 256, timeout: float = 30.0, audience: Optional[str] = None) -> Subscription:
         """
         Call handler(event) for each event matching one of the patterns. An
         async handler runs on the event loop, a plain one in a worker thread.
-        ValueError for a bad pattern.
+        audience: also get the events meant only for it (a personal channel's
+        account). ValueError for a bad pattern.
         """
         if isinstance(patterns, str):
             patterns = [patterns]
         checked = [check_pattern(p) for p in patterns]
         if not checked:
             raise ValueError("No event pattern given")
-        sub = Subscription(self, checked, handler, owner, queue_size, timeout)
+        sub = Subscription(self, checked, handler, owner, queue_size, timeout, audience)
         with self._lock:
             self._subs.append(sub)
         self._target_loop()
@@ -555,20 +680,22 @@ class EventBus:
         except RuntimeError:
             return False
 
-    def publish(self, event_type: str, data: Optional[dict] = None, *, origin: Optional[str] = None) -> Optional[Event]:
+    def publish(self, event_type: str, data: Optional[dict] = None, *, origin: Optional[str] = None,
+                audience: Optional[str] = None) -> Optional[Event]:
         """
         Publish an event. Never raises and never waits: returns the event, or
-        None if it couldn't be published (logged).
+        None if it couldn't be published (logged). audience: only subscribers
+        with that audience get it (a personal channel's account).
         """
         try:
             if not is_known_type(event_type):
                 raise ValueError(f"unknown event type {event_type!r}")
             event = Event(type=event_type, data=dict(data or {}), id=next(self._ids),
                           time=datetime.now(timezone.utc).isoformat(),
-                          origin=origin or current_origin.get())
+                          origin=origin or current_origin.get(), audience=audience or None)
             with self._lock:
                 self._history.append(event)
-                subs = [s for s in self._subs if s.matches(event_type)]
+                subs = [s for s in self._subs if s.receives(event)]
             if subs:
                 self._dispatch(subs, event)
             return event
@@ -628,10 +755,11 @@ class EventBus:
         except Exception as e:
             logger.warning(f"Event {event_type} not published: {e}")
 
-    def history(self, after_id: int = 0, patterns: Optional[list[str]] = None) -> list[Event]:
-        """Recent events (the last 200) newer than after_id, oldest first."""
+    def history(self, after_id: int = 0, patterns: Optional[list[str]] = None,
+                audience: Optional[str] = None) -> list[Event]:
+        """Recent events (the last 200) newer than after_id, oldest first (with an audience: only theirs)."""
         with self._lock:
-            events = [e for e in self._history if e.id > after_id]
+            events = [e for e in self._history if e.id > after_id and (e.audience is None or e.audience == audience)]
         if patterns:
             events = [e for e in events if any(matches(p, e.type) for p in patterns)]
         return events

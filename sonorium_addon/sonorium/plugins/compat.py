@@ -24,7 +24,7 @@ from __future__ import annotations
 import re
 from typing import Iterable, Optional
 
-API_VERSION = "1.1"
+API_VERSION = "1.2"
 API_MAJOR, API_MINOR = (int(p) for p in API_VERSION.split("."))
 
 # capability -> (the API version it came with, what it is)
@@ -37,13 +37,23 @@ CAPABILITIES: dict[str, tuple[str, str]] = {
     "connections": ("1.0", "Sections in Settings > Connection"),
     "audio.sounds": ("1.1", "Play sounds over channels, with ducking"),
     "audio.ramps": ("1.1", "Gradual volume ramps on channels"),
-    "audio.outputs": ("1.1", "Register audio output types"),
+    "audio.outputs": ("1.1", "Audio output types; in 1.2 their devices are speakers, local types"),
     "audio.tts": ("1.1", "Text to speech providers"),
     "commands": ("1.1", "Command maps for remotes and other inputs"),
     "mqtt": ("1.1", "Publish and subscribe on Sonorium's MQTT broker"),
     "homeassistant": ("1.1", "Call Home Assistant's API"),
     "packages.pip": ("1.1", "Install Python packages (Settings > Advanced > Plugin packages)"),
     "packages.binaries": ("1.1", "Ship programs per platform (e.g. ffmpeg)"),
+    "attributes": ("1.2", "Declared attributes on themes, tracks, files, presets, channels, speakers and users"),
+    "ui": ("1.2", "Add fields, buttons, menu items, badges, columns and pages to any screen (GET /api/ui/targets)"),
+    "timeline": ("1.2", "Cues: which sound is heard on which speaker and when, ahead of time"),
+    "audio.tap": ("1.2", "Read-only copies of what a channel plays, or of one track, as it plays"),
+    "audio.decode": ("1.2", "A theme's files decoded by Sonorium, for analysis"),
+    "automation": ("1.2", "\"Do\" actions and \"only if\" conditions for command maps"),
+    "permissions": ("1.2", "A plugin lists what it uses; the user approves it; the rest is refused"),
+    "http": ("1.2", "HTTP routes under /api/plugins/<id>/http/, an ability each"),
+    "ha.entities": ("1.2", "Home Assistant entities declared as data, published by Sonorium"),
+    "devices": ("1.2", "Devices of any kind (lights, displays, ...): listed, named, placed and assigned by Sonorium"),
 }
 
 _VERSION = re.compile(r"^\s*(\d+)\.(\d+)\s*$")

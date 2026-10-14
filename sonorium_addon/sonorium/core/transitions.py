@@ -349,7 +349,25 @@ class OnePoleLowpass:
         return out, state
 
     def process(self, data, cutoff: float):
-        """Filter a chunk (any shape, int16 or float) at `cutoff` Hz; returns float64 of the same shape."""
+        """
+        Filter a chunk (int16 or float) at `cutoff` Hz; returns float64 of the
+        same shape. A (2, n) stereo chunk is filtered per channel, each side
+        with its own state (the first side's is self.state, as in mono); any
+        other shape runs as one signal.
+        """
+        import numpy as np
+        if np.ndim(data) == 2 and np.shape(data)[0] > 1:
+            rows = np.asarray(data, dtype=np.float64)
+            if not hasattr(self, "_sides"):
+                self._sides = [type(self)(self.rate) for _ in range(rows.shape[0] - 1)]
+            out = np.empty_like(rows)
+            out[0] = self._process_one(rows[0], cutoff)
+            for side, row in enumerate(rows[1:]):
+                out[side + 1] = self._sides[side]._process_one(row, cutoff)
+            return out
+        return self._process_one(data, cutoff)
+
+    def _process_one(self, data, cutoff: float):
         import numpy as np
         x = np.asarray(data, dtype=np.float64).reshape(-1)
         if not self.primed:
@@ -420,3 +438,60 @@ def step_plans(instances, before: dict, after: dict, step_in: dict, step_out: di
             "target_volume": lb, "target_presence": pb, "from_presence": pa,
         })
     return plans
+
+
+# ---------------------------------------------------------------- the Advanced dialog's track lists
+
+def step_tracks(tracks, groups: Optional[dict], layer, preset: str, prev: Optional[str] = None,
+                next: Optional[str] = None) -> dict:
+    """
+    The tracks a sequence step changes, for the Advanced dialog (the route
+    GET /api/themes/{id}/transition_tracks and theme_edit.transition_tracks):
+    {"in": the tracks `preset` turns on or makes louder after `prev`, "out":
+    the tracks `next` turns off or makes quieter after `preset`}. Each row:
+    key, name, group, mode ("Intermittent", "Ebb & Flow" or "Background"),
+    from/to (volume 0..1, 0 = off), presence_from/presence_to and
+    duration_seconds. Merry-go-round tracks are left out (their group's bed
+    plays them). `tracks`: the theme's recording.ThemeTrack list; `groups`:
+    its group settings; layer(preset_id): that preset's overrides (as a
+    channel playing it has them).
+    """
+    from sonorium.recording import GROUP_MODE_MERRY_GO_ROUND, PlaybackMode, TrackView, group_mode
+    groups = groups or {}
+    labels = {PlaybackMode.SPARSE: "Intermittent", PlaybackMode.PRESENCE: "Ebb & Flow",
+              PlaybackMode.CONTINUOUS: "Background"}
+
+    def rows(before_id, after_id, side):
+        if not before_id or not after_id:
+            return []
+        before = layer(before_id)
+        after = layer(after_id)
+        result = []
+        for instance in list(tracks):
+            group = getattr(instance.meta, "group", None)
+            if group and group_mode(groups.get(group)) == GROUP_MODE_MERRY_GO_ROUND:
+                continue
+            va, vb = TrackView(instance, before), TrackView(instance, after)
+            la, lb = track_level(va), track_level(vb)
+            if (side == "in" and lb > la + EPS) or (side == "out" and lb < la - EPS):
+                view = vb if side == "in" else va
+                try:
+                    mode = labels.get(view._resolve_playback_mode(), "Background")
+                except Exception:
+                    mode = "Background"
+                try:
+                    duration = round(float(instance.meta.duration_seconds), 1)
+                except Exception:
+                    duration = 0.0
+                result.append({
+                    "key": instance.name,
+                    "name": instance.name.split("/", 1)[-1],
+                    "group": group,
+                    "mode": mode,
+                    "from": round(la, 4), "to": round(lb, 4),
+                    "presence_from": round(float(va.presence), 4), "presence_to": round(float(vb.presence), 4),
+                    "duration_seconds": duration,
+                })
+        return result
+
+    return {"in": rows(prev, preset, "in"), "out": rows(preset, next, "out")}

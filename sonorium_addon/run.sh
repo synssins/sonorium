@@ -190,13 +190,8 @@ else
     bashio::log.error "One or more Python imports failed (see above). Sonorium will probably not start."
 fi
 
-# Check if sonorium command exists
-if ! command -v sonorium &> /dev/null; then
-    bashio::log.debug "Running via Python module..."
-    exec python3 -m sonorium.entrypoint
-fi
-
 bashio::log.info "Launching Sonorium..."
 
-# Run sonorium
-exec sonorium
+# Run Sonorium under supervise.sh, which starts it again when it asks to be
+# restarted (Restart in the web UI: exit code 75, docs/HOSTING.md)
+exec /usr/local/bin/sonorium-supervise python3 -m sonorium.entrypoint

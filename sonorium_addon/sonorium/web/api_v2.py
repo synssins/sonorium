@@ -9,14 +9,25 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from dataclasses import asdict
 
-from fastapi import APIRouter, HTTPException, status, BackgroundTasks, Request, UploadFile, File, Response
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request, UploadFile, File, Response
 from pydantic import BaseModel, Field
 
 from sonorium.core.state import SpeakerSelection, NameSource
 from sonorium.obs import logger
+
+
+def apply_stereo(on: bool) -> None:
+    """
+    Settings > Audio Settings > Stereo: mixes made from now on are stereo (or
+    mono). Turned off, a stereo mix still playing folds to mono at once
+    (core/channel.py); turned on, each channel is stereo from its next theme.
+    """
+    from sonorium.decoders import set_default_channels
+    set_default_channels(2 if on else 1)
+    logger.info(f"Audio: {'stereo' if on else 'mono'} from the next theme played")
 
 
 # --- Request/Response Models ---
@@ -54,6 +65,7 @@ class CreateSessionRequest(BaseModel):
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
     announcements: Optional[bool] = None  # announcements play on it (default on)
+    take_over: Optional[bool] = None  # true: its local device is taken from the channel playing one (Move)
 
 
 class UpdateSessionRequest(BaseModel):
@@ -65,6 +77,7 @@ class UpdateSessionRequest(BaseModel):
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
     announcements: Optional[bool] = None  # announcements play on this channel
+    take_over: Optional[bool] = None  # true: its local device is taken from the channel playing one (Move)
 
 
 class SessionResponse(BaseModel):
@@ -91,6 +104,8 @@ class SessionResponse(BaseModel):
     listening: bool = False  # a browser listens (its mix runs even with the speakers stopped)
     outputs: list[dict] = Field(default_factory=list)  # devices the app reports playing it (core/outputs.py)
     recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
+    sleep_until: Optional[str] = None  # the sleep timer: when it fades out and stops (UTC ISO time), or null
+    sleep_seconds_left: Optional[int] = None  # seconds until then (by the server's clock), or null
     created_at: str
     last_played_at: Optional[str]
 
@@ -144,10 +159,12 @@ class SettingsResponse(BaseModel):
     default_volume: int
     crossfade_duration: float
     max_groups: int
-    entity_prefix: str
     show_in_sidebar: bool
     auto_create_quick_play: bool
     master_gain: int
+    allow_multiple_local_outputs: bool = False  # more than one local audio output device plays at a time
+    stereo: bool = False  # Settings > Audio Settings > Stereo: channels mix in stereo
+    server_name: str = ""  # Settings > Advanced > Server name ("" = "Sonorium"; GET /api/info "name")
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -155,10 +172,12 @@ class UpdateSettingsRequest(BaseModel):
     default_volume: Optional[int] = Field(default=None, ge=0, le=100)
     crossfade_duration: Optional[float] = Field(default=None, ge=0, le=10.0)
     max_groups: Optional[int] = Field(default=None, ge=1, le=50)
-    entity_prefix: Optional[str] = None
     show_in_sidebar: Optional[bool] = None
     auto_create_quick_play: Optional[bool] = None
     master_gain: Optional[int] = Field(default=None, ge=0, le=100)
+    allow_multiple_local_outputs: Optional[bool] = None
+    stereo: Optional[bool] = None
+    server_name: Optional[str] = None  # trimmed; "" = "Sonorium"; at most servername.MAX_LENGTH characters
 
 
 class SpeakerSettingsResponse(BaseModel):
@@ -183,6 +202,10 @@ class SpeakerSettingsUpdateRequest(BaseModel):
     room: Optional[str] = None  # area ID, "" = no room, null = the speaker's own HA area
     volume_offset: Optional[int] = None  # percent, -20..+20
     play_via: Optional[str] = None  # "ha" or a merged network speaker ID
+    # Sync: ms the speaker plays behind the mixer (whole, >= 0); null = the estimate for its type
+    sync: Optional[Any] = None  # checked by clean_speaker_settings
+    # Plugin attributes: {plugin_id: {name: value or null} or null} (core/plugin_data.py)
+    plugins: Optional[dict] = None
 
 
 class ManualSpeakerRequest(BaseModel):
@@ -222,10 +245,17 @@ class PluginResponse(BaseModel):
     author: str
     enabled: bool
     builtin: bool = False
-    auth_provider: bool = False  # the Users plugin: switching it off opens Sonorium
+    auth_provider: bool = False  # guards sign-in (no plugin does now)
     settings: dict
     ui_schema: dict
     settings_schema: dict
+    short_name: str = ""
+    icon: Optional[dict] = None
+    ui_warnings: list[str] = []
+    # What it uses (None: it lists nothing) and what waits for the user's approval (plugins/permissions.py)
+    permissions: Optional[list[dict]] = None
+    permissions_pending: list[dict] = []
+    permission_problems: list[str] = []
 
 
 class PluginActionRequest(BaseModel):
@@ -275,6 +305,8 @@ def _session_to_response(session, session_manager) -> SessionResponse:
     except Exception as e:
         logger.warning(f"Could not read the playback status of '{session.name}': {e}")
         playback = {}
+    timers = getattr(session_manager, "sleep", None)
+    sleep = timers.status(session) if timers is not None else {"sleep_until": None, "seconds_left": None}
     return SessionResponse(
         id=session.id,
         name=session.name,
@@ -298,6 +330,8 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         listening=session_manager.is_listened(session),
         outputs=_outputs_of(session, session_manager),
         recent=list(reversed(session.recent)),
+        sleep_until=sleep["sleep_until"],
+        sleep_seconds_left=sleep["seconds_left"],
         created_at=session.created_at,
         last_played_at=session.last_played_at,
     )
@@ -309,6 +343,11 @@ def _caller(request: Request):
     """Who made the request (sonorium/auth)."""
     from sonorium.auth.middleware import principal_of
     return principal_of(request)
+
+
+# Theme exports being made now (export_limit, sonorium/limits.py)
+from sonorium.limits import Slots as _Slots  # noqa: E402
+EXPORT_SLOTS = _Slots()
 
 
 def create_api_router(
@@ -347,7 +386,14 @@ def create_api_router(
     Returns:
         Configured APIRouter
     """
-    router = APIRouter(prefix="/api", tags=["api"])
+    def _hide_personal(request: Request) -> None:
+        """A personal channel is never addressed as a channel: /api/sessions/{its id}/... is 404."""
+        session_id = (request.path_params or {}).get("session_id")
+        is_personal = getattr(session_manager, "is_personal", None)
+        if isinstance(session_id, str) and callable(is_personal) and is_personal(session_id) is True:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    router = APIRouter(prefix="/api", tags=["api"], dependencies=[Depends(_hide_personal)])
 
     # A speaker's own volume and mute, set from the app (web/app_routes.py)
     from sonorium.core.speaker_live import SpeakerLive
@@ -356,7 +402,10 @@ def create_api_router(
     # Settings > Advanced's playback values: the mixer reads them from this store
     from sonorium import playback_values
     playback_values.set_source(lambda: state_store.settings.playback_values)
-    
+    # Settings > Advanced > Server name: GET /api/info and mDNS read it from this store
+    from sonorium import servername
+    servername.set_source(lambda: state_store.settings.server_name)
+
     # --- Debug Endpoint ---
     
     @router.get("/debug/speakers")
@@ -491,6 +540,8 @@ def create_api_router(
         if request.announcements is False:
             session.announcements = False
             session_manager.state.save()
+        if request.take_over is True:
+            await session_manager.take_over_speakers(session)
 
         if mqtt_manager:
             try:
@@ -542,13 +593,16 @@ def create_api_router(
         if request.announcements is not None and request.announcements != session.announcements:
             session_manager.set_announcements(session_id, request.announcements)
 
+        if request.take_over is True:  # Move: its local device is taken from the channel playing one
+            await session_manager.take_over_speakers(session)
+
         # Apply live speaker changes if session is playing
         if added_speakers or removed_speakers:
             await session_manager.apply_speaker_changes(session, added_speakers, removed_speakers)
 
         # Apply volume to speakers if changed and session is playing
         if request.volume is not None and session.is_playing:
-            speakers = session_manager.get_resolved_speakers(session)
+            speakers = session_manager.media_speakers(session_manager.get_resolved_speakers(session))
             if speakers and session_manager.media_controller:
                 volume_level = session.volume / 100.0
                 await session_manager.media_controller.set_volume_multi(speakers, volume_level)
@@ -577,8 +631,24 @@ def create_api_router(
                 logger.warning(f"Failed to remove MQTT entities for deleted session: {e}")
     
     @router.post("/sessions/{session_id}/play")
-    async def play_session(session_id: str) -> dict:
-        """Start playback for a session (fire-and-forget, returns immediately)."""
+    async def play_session(session_id: str, request: Request) -> dict:
+        """
+        Start playback for a session (fire-and-forget, returns immediately).
+        Optional body {"take_over": true|false}: its local audio output device,
+        while another channel plays a local device (one at a time), is taken
+        over (true) or left out (false); without it such a start answers 409
+        with the X-Sonorium-Take-Over header, for the UI to ask.
+        """
+        take_over = None
+        if await request.body():
+            try:
+                body = await request.json()
+            except ValueError:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="The body must be JSON")
+            value = body.get("take_over") if isinstance(body, dict) else None
+            if value is not None and not isinstance(value, bool):
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="'take_over' must be true or false")
+            take_over = value
         session = session_manager.get(session_id)
         if not session:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
@@ -588,10 +658,17 @@ def create_api_router(
         if not session_manager.get_theme(session.theme_id):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Theme not found")
         session_manager.guard("play", session)  # Zones: may refuse (ChannelRefused)
+        refusal = session_manager.channel_limit_refusal(session)
+        if refusal:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=refusal)
 
         speakers = session_manager.get_resolved_speakers(session)
         if not speakers:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No speakers selected")
+        conflicts = session_manager.speaker_conflicts(session) if take_over is None else []
+        if conflicts:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="; ".join(conflicts),
+                                headers={"X-Sonorium-Take-Over": "ask"})
         
         # Mark as playing immediately (optimistic update)
         session.is_playing = True
@@ -599,7 +676,7 @@ def create_api_router(
         state_store.save()
         
         # Fire the play command in the background - don't wait for it
-        asyncio.create_task(session_manager.play(session_id))
+        asyncio.create_task(session_manager.play(session_id, take_over=take_over))
         
         return {
             "status": "playing",
@@ -667,6 +744,49 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         await _sync_mqtt(session_manager.get(session_id))  # the Speakers muted switch and Recent changes
         return {"speakers_muted": muted}
+
+    # --- Sleep timer (core/sleep_timer.py) ---
+
+    def _sleep_answer(session) -> dict:
+        return {"channel_id": session.id, **session_manager.sleep.status(session)}
+
+    @router.get("/sessions/{session_id}/sleep")
+    async def get_session_sleep(session_id: str) -> dict:
+        """The channel's sleep timer: {"channel_id", "sleep_until" (UTC ISO time or null), "seconds_left"}."""
+        session = session_manager.get(session_id)
+        if not session:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        return _sleep_answer(session)
+
+    @router.put("/sessions/{session_id}/sleep")
+    async def set_session_sleep(session_id: str, request: Request) -> dict:
+        """
+        {"minutes": more than 0, at most 240}: the playing channel fades out and
+        stops after that long (replaces a running timer). 409 when it isn't playing.
+        """
+        from sonorium.core.sleep_timer import SleepError
+        try:
+            body = await request.json()
+        except Exception:
+            body = None
+        if not isinstance(body, dict):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A JSON object is required")
+        try:
+            session_manager.sleep.set(session_id, body.get("minutes"))
+        except LookupError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        except SleepError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+        return _sleep_answer(session_manager.get(session_id))
+
+    @router.delete("/sessions/{session_id}/sleep")
+    async def cancel_session_sleep(session_id: str) -> dict:
+        """Cancel the channel's sleep timer (it keeps playing). {"cancelled": false} when it had none."""
+        try:
+            cancelled = session_manager.sleep.cancel(session_id)
+        except LookupError:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+        return {"cancelled": cancelled, **_sleep_answer(session_manager.get(session_id))}
 
     @router.post("/sessions/{session_id}/listen")
     async def listen_session(session_id: str, request: Request) -> dict:
@@ -800,13 +920,25 @@ def create_api_router(
 
     @router.post("/sessions/{session_id}/next")
     async def skip_session(session_id: str) -> dict:
-        """Next playlist entry now (or, with no playlist, the sequence's next preset)."""
+        """Next playlist entry now (else the sequence's next preset, else the theme's next preset)."""
         session = _session_or_404(session_id)
         if not (session.is_playing or session_manager.is_listened(session)):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The channel is not playing")
         result = await session_manager.skip(session_id)
         if result is None:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="No playlist or sequence is running")
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to go to next")
+        await _sync_mqtt(session)
+        return {"skipped": result, **_playback(session)}
+
+    @router.post("/sessions/{session_id}/previous")
+    async def previous_session(session_id: str) -> dict:
+        """Previous playlist entry now (else the sequence's previous step, else the theme's previous preset)."""
+        session = _session_or_404(session_id)
+        if not (session.is_playing or session_manager.is_listened(session)):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The channel is not playing")
+        result = await session_manager.previous(session_id)
+        if result is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to go back to")
         await _sync_mqtt(session)
         return {"skipped": result, **_playback(session)}
 
@@ -818,10 +950,9 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Theme not found")
         return folder
 
-    def _same_name(items: dict, name: str, except_id: Optional[str] = None) -> bool:
-        wanted = name.strip().lower()
-        return any(item_id != except_id and str((item or {}).get("name", "")).strip().lower() == wanted
-                   for item_id, item in items.items())
+    def _theme_edit_error(error):
+        """A core/theme_edit.py error as the HTTP error it stands for."""
+        return HTTPException(status_code=error.status, detail=str(error))
 
     @router.get("/themes/{theme_id}/sequences")
     async def list_theme_sequences(theme_id: str) -> dict:
@@ -839,23 +970,16 @@ def create_api_router(
     async def create_theme_sequence(theme_id: str, request: Request) -> dict:
         """New sequence: {"name", "presets": [ids], "at_end", "hold_min", "hold_max", "ramp"} (timing null = theme default)."""
         from sonorium.core import sequences as seq
+        from sonorium.core import theme_edit
         folder = _theme_folder_or_404(theme_id)
         data = await _json_body(request)
-        defaults = seq.load_defaults(folder)
-        existing = seq.load_sequences(folder)
         try:
-            cleaned = seq.clean_sequence(data, session_manager._theme_presets(theme_id).keys())
-            seq.check_timing(cleaned, defaults)
+            sequence_id, cleaned, defaults = theme_edit.create_sequence(
+                folder, data, session_manager._theme_presets(theme_id).keys())
         except seq.SequenceError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        if _same_name(existing, cleaned["name"]):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This theme already has a sequence with that name")
-        sequence_id = seq.new_sequence_id(cleaned["name"], existing)
-        existing[sequence_id] = cleaned
-        try:
-            seq.save_sequences(folder, existing)
-        except OSError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        except theme_edit.EditError as e:
+            raise _theme_edit_error(e)
         await _sync_mqtt(theme_id=theme_id)
         return seq.to_response(sequence_id, cleaned, defaults)
 
@@ -872,40 +996,28 @@ def create_api_router(
     async def update_theme_sequence(theme_id: str, sequence_id: str, request: Request) -> dict:
         """Change a sequence: only the fields sent change. A channel running it uses the new version from its next step."""
         from sonorium.core import sequences as seq
+        from sonorium.core import theme_edit
         folder = _theme_folder_or_404(theme_id)
         data = await _json_body(request)
-        existing = seq.load_sequences(folder)
-        if sequence_id not in existing:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found")
-        defaults = seq.load_defaults(folder)
         try:
-            cleaned = seq.clean_sequence(data, session_manager._theme_presets(theme_id).keys(), existing[sequence_id])
-            seq.check_timing(cleaned, defaults)
+            cleaned, defaults = theme_edit.update_sequence(
+                folder, sequence_id, data, session_manager._theme_presets(theme_id).keys())
         except seq.SequenceError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        if _same_name(existing, cleaned["name"], except_id=sequence_id):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This theme already has a sequence with that name")
-        existing[sequence_id] = cleaned
-        try:
-            seq.save_sequences(folder, existing)
-        except OSError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+        except theme_edit.EditError as e:
+            raise _theme_edit_error(e)
         await _sync_mqtt(theme_id=theme_id)
         return seq.to_response(sequence_id, cleaned, defaults)
 
     @router.delete("/themes/{theme_id}/sequences/{sequence_id}")
     async def delete_theme_sequence(theme_id: str, sequence_id: str) -> dict:
         """Delete a sequence; channels running it stop it (they stay on their current preset)."""
-        from sonorium.core import sequences as seq
+        from sonorium.core import theme_edit
         folder = _theme_folder_or_404(theme_id)
-        existing = seq.load_sequences(folder)
-        if sequence_id not in existing:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sequence not found")
-        del existing[sequence_id]
         try:
-            seq.save_sequences(folder, existing)
-        except OSError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to save: {e}")
+            theme_edit.delete_sequence(folder, sequence_id)
+        except theme_edit.EditError as e:
+            raise _theme_edit_error(e)
         stopped = session_manager.forget_sequence(theme_id, sequence_id)
         await _sync_mqtt(theme_id=theme_id)
         return {"status": "ok", "sequence_id": sequence_id, "stopped_on": [s.id for s in stopped]}
@@ -1019,8 +1131,7 @@ def create_api_router(
         are 0..1 (volume 0 = off). Merry-go-round tracks are left out (their
         group's bed plays them).
         """
-        from sonorium.core.transitions import EPS, track_level
-        from sonorium.recording import GROUP_MODE_MERRY_GO_ROUND, PlaybackMode, TrackView, group_mode
+        from sonorium.core.transitions import step_tracks
         theme = session_manager.get_theme(theme_id)
         if theme is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Theme not found")
@@ -1028,45 +1139,9 @@ def create_api_router(
         for value in (preset, prev, next):
             if value and value not in presets:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Preset '{value}' not found")
-        groups = getattr(theme, "groups", None) or {}
-        labels = {PlaybackMode.SPARSE: "Intermittent", PlaybackMode.PRESENCE: "Ebb & Flow",
-                  PlaybackMode.CONTINUOUS: "Background"}
-
-        def rows(before_id, after_id, side):
-            if not before_id or not after_id:
-                return []
-            before = session_manager.preset_overrides(theme_id, before_id)
-            after = session_manager.preset_overrides(theme_id, after_id)
-            result = []
-            for instance in list(theme.tracks):
-                group = getattr(instance.meta, "group", None)
-                if group and group_mode(groups.get(group)) == GROUP_MODE_MERRY_GO_ROUND:
-                    continue
-                va, vb = TrackView(instance, before), TrackView(instance, after)
-                la, lb = track_level(va), track_level(vb)
-                if (side == "in" and lb > la + EPS) or (side == "out" and lb < la - EPS):
-                    view = vb if side == "in" else va
-                    try:
-                        mode = labels.get(view._resolve_playback_mode(), "Background")
-                    except Exception:
-                        mode = "Background"
-                    try:
-                        duration = round(float(instance.meta.duration_seconds), 1)
-                    except Exception:
-                        duration = 0.0
-                    result.append({
-                        "key": instance.name,
-                        "name": instance.name.split("/", 1)[-1],
-                        "group": group,
-                        "mode": mode,
-                        "from": round(la, 4), "to": round(lb, 4),
-                        "presence_from": round(float(va.presence), 4), "presence_to": round(float(vb.presence), 4),
-                        "duration_seconds": duration,
-                    })
-            return result
-
-        return {"theme_id": theme_id, "preset": preset, "prev": prev, "next": next,
-                "in": rows(prev, preset, "in"), "out": rows(preset, next, "out")}
+        rows = step_tracks(theme.tracks, getattr(theme, "groups", None),
+                           lambda preset_id: session_manager.preset_overrides(theme_id, preset_id), preset, prev, next)
+        return {"theme_id": theme_id, "preset": preset, "prev": prev, "next": next, **rows}
 
     # --- Playlists (global, stored in state.json) ---
 
@@ -1095,18 +1170,17 @@ def create_api_router(
     @router.post("/playlists", status_code=status.HTTP_201_CREATED)
     async def create_playlist(request: Request) -> dict:
         """New playlist: {"name", "entries": [{"theme_id", "preset_id", "sequence_id"}], "order", "repeat", "play_min", "play_max"}."""
-        from sonorium.core.playlists import PlaylistError, clean_playlist, new_playlist_id, to_response
+        from sonorium.core.playlists import PlaylistConflict, PlaylistError, create_playlist, to_response
         data = await _json_body(request)
         try:
-            cleaned = clean_playlist(data, *_playlist_lookups())
+            playlist_id, cleaned = create_playlist(state_store.playlists, data, *_playlist_lookups())
+        except PlaylistConflict as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
         except PlaylistError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        if _same_name(state_store.playlists, cleaned["name"]):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A playlist with that name already exists")
-        playlist_id = new_playlist_id(state_store.playlists)
-        state_store.playlists[playlist_id] = cleaned
         state_store.save()
         await _sync_mqtt(playlists=True)
+        _publish("playlist.created", {"playlist_id": playlist_id, "playlist_name": cleaned.get("name")})
         return to_response(playlist_id, cleaned)
 
     @router.get("/playlists/{playlist_id}")
@@ -1117,29 +1191,33 @@ def create_api_router(
     @router.put("/playlists/{playlist_id}")
     async def update_playlist(playlist_id: str, request: Request) -> dict:
         """Change a playlist: only the fields sent change. Channels playing it carry on with the new version."""
-        from sonorium.core.playlists import PlaylistError, clean_playlist, to_response
-        current = _playlist_or_404(playlist_id)
+        from sonorium.core.playlists import PlaylistConflict, PlaylistError, to_response, update_playlist
+        _playlist_or_404(playlist_id)
         data = await _json_body(request)
         try:
-            cleaned = clean_playlist(data, *_playlist_lookups(), current=current)
+            cleaned = update_playlist(state_store.playlists, playlist_id, data, *_playlist_lookups())
+        except PlaylistConflict as e:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
         except PlaylistError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        if _same_name(state_store.playlists, cleaned["name"], except_id=playlist_id):
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A playlist with that name already exists")
-        state_store.playlists[playlist_id] = cleaned
         session_manager.runner.playlist_changed(playlist_id)
         state_store.save()
         await _sync_mqtt(playlists=True)
+        _publish("playlist.changed", {"playlist_id": playlist_id, "playlist_name": cleaned.get("name"),
+                                      "changes": sorted(data)})
         return to_response(playlist_id, cleaned)
 
     @router.delete("/playlists/{playlist_id}")
     async def delete_playlist(playlist_id: str) -> dict:
         """Delete a playlist; channels playing it stop playing it (they keep their current theme)."""
-        _playlist_or_404(playlist_id)
-        del state_store.playlists[playlist_id]
+        from sonorium.core.playlists import delete_playlist
+        name = _playlist_or_404(playlist_id).get("name")
+        delete_playlist(state_store.playlists, playlist_id)
         cleared = session_manager.forget_playlist(playlist_id)
         state_store.save()
         await _sync_mqtt(playlists=True)
+        _publish("playlist.deleted", {"playlist_id": playlist_id, "playlist_name": name,
+                                      "stopped_on": [s.id for s in cleared if not getattr(s, "owner", None)]})
         return {"status": "ok", "playlist_id": playlist_id, "stopped_on": [s.id for s in cleared]}
 
     # --- Channel Endpoints ---
@@ -1272,6 +1350,7 @@ def create_api_router(
                 exclude_areas=request.exclude_areas,
                 exclude_speakers=request.exclude_speakers,
             )
+            _publish("group.changed", {"group_id": group.id, "group_name": group.name, "change": "created"})
             return GroupResponse(
                 id=group.id,
                 name=group.name,
@@ -1328,6 +1407,7 @@ def create_api_router(
             )
             if not group:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+            _publish("group.changed", {"group_id": group.id, "group_name": group.name, "change": "changed"})
             return GroupResponse(
                 id=group.id,
                 name=group.name,
@@ -1356,8 +1436,11 @@ def create_api_router(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"Group is used by {len(session_ids)} channel(s). Delete or update those channels first."
             )
+        group = group_manager.get(group_id)
         if not group_manager.delete(group_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Group not found")
+        _publish("group.changed", {"group_id": group_id, "group_name": getattr(group, "name", None),
+                                   "change": "deleted"})
     
     @router.get("/groups/{group_id}/resolve")
     async def resolve_group(group_id: str) -> dict:
@@ -1395,6 +1478,8 @@ def create_api_router(
         if network_service is not None:
             await network_service.discover(full=True)
             hierarchy = ha_registry.hierarchy
+        await _rescan_speaker_kinds()
+        hierarchy = ha_registry.hierarchy
         return {
             "floors": len(hierarchy.floors),
             "unassigned_areas": len(hierarchy.unassigned_areas),
@@ -1402,6 +1487,17 @@ def create_api_router(
             "total_speakers": len(hierarchy.get_all_speakers()),
         }
     
+    async def _rescan_speaker_kinds():
+        """Speakers of other kinds (audio output devices) listed again; a failing type only logs."""
+        for kind in getattr(session_manager, "_speaker_kinds", None) or []:
+            rescan = getattr(kind, "discover_all", None)
+            if rescan is None:
+                continue
+            try:
+                await rescan()
+            except Exception as e:
+                logger.warning(f"Speakers not listed again: {e}")
+
     # --- Network Speakers (standalone mode; 404 in the HA add-on) ---
 
     def _require_network_service():
@@ -1452,7 +1548,11 @@ def create_api_router(
 
     @router.get("/speakers/{speaker_id}/settings")
     async def get_one_speaker_settings(speaker_id: str) -> dict:
-        """A speaker's saved settings (name, room, volume_offset, play_via) and how it looks with them."""
+        """
+        A speaker's saved settings (name, room, volume_offset, play_via, sync,
+        plugins) and how it looks with them (speaker.sync_ms: its Sync now;
+        speaker.sync_estimate_ms: the estimate for its type).
+        """
         return _speaker_settings_response(speaker_id)
 
     @router.put("/speakers/{speaker_id}/settings")
@@ -1480,6 +1580,7 @@ def create_api_router(
             all_settings.pop(speaker_id, None)
         state_store.save()
         ha_registry.apply_speaker_settings()
+        _settings_changed("speaker", sorted(updates), speaker_id=speaker_id)
         return _speaker_settings_response(speaker_id)
 
     # --- Test sound (user-triggered, one speaker) ---
@@ -1500,6 +1601,20 @@ def create_api_router(
     async def test_speaker(speaker_id: str) -> dict:
         """Play a short, quiet chime on one speaker, then stop it."""
         _speaker_or_404(speaker_id)
+        kind = session_manager.speaker_kind(speaker_id)
+        if kind is not None:  # an audio output device: through its type's open() and sink
+            from sonorium.core.audio_outputs import OutputBusy, OutputError, OutputFailed
+            from sonorium.plugins.actions import ActionError
+            try:
+                return await kind.test(speaker_id)
+            except LookupError:
+                raise HTTPException(status_code=404, detail="Speaker not found")
+            except OutputBusy as e:
+                raise HTTPException(status_code=409, detail=e.message)
+            except (OutputError, OutputFailed) as e:
+                raise HTTPException(status_code=502, detail=str(e))
+            except ActionError as e:
+                raise HTTPException(status_code=502, detail=e.message)
         if speaker_id in tests_running:
             raise HTTPException(status_code=409, detail="A test sound is already playing on this speaker")
         for session in session_manager.list():
@@ -1684,7 +1799,9 @@ def create_api_router(
 
         settings = state_store.settings
         if request.room:
-            settings.speaker_settings[speaker.id] = {"room": request.room}
+            # (merged into what it has: its Sync and plugin attributes stay)
+            settings.speaker_settings[speaker.id] = {**(settings.speaker_settings.get(speaker.id) or {}),
+                                                     "room": request.room}
         # Added on purpose, so switch it on
         _set_speaker_enabled(speaker.id, True)
         state_store.save()
@@ -1765,16 +1882,24 @@ def create_api_router(
             default_volume=settings.default_volume,
             crossfade_duration=settings.crossfade_duration,
             max_groups=settings.max_groups,
-            entity_prefix=settings.entity_prefix,
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
+            allow_multiple_local_outputs=settings.allow_multiple_local_outputs,
+            stereo=settings.stereo,
+            server_name=settings.server_name,
         )
 
     @router.put("/settings")
     async def update_settings(request: UpdateSettingsRequest) -> SettingsResponse:
         """Update settings."""
         settings = state_store.settings
+        if request.server_name is not None:  # checked first: a refused name changes nothing
+            from sonorium import servername
+            try:
+                new_name = servername.clean(request.server_name)
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error))
 
         if request.default_volume is not None:
             settings.default_volume = request.default_volume
@@ -1782,8 +1907,6 @@ def create_api_router(
             settings.crossfade_duration = request.crossfade_duration
         if request.max_groups is not None:
             settings.max_groups = request.max_groups
-        if request.entity_prefix is not None:
-            settings.entity_prefix = request.entity_prefix
         if request.show_in_sidebar is not None:
             settings.show_in_sidebar = request.show_in_sidebar
         if request.auto_create_quick_play is not None:
@@ -1792,17 +1915,28 @@ def create_api_router(
             settings.master_gain = request.master_gain
             if on_master_gain:
                 on_master_gain()
+        if request.allow_multiple_local_outputs is not None:
+            settings.allow_multiple_local_outputs = request.allow_multiple_local_outputs
+        if request.stereo is not None:
+            settings.stereo = request.stereo
+            apply_stereo(settings.stereo)
+        if request.server_name is not None and new_name != settings.server_name:
+            settings.server_name = new_name  # GET /api/info at once; mDNS within a few seconds
+            logger.info(f"Settings: server name is now {servername.get()!r}")
 
         state_store.save()
+        _settings_changed("general", [k for k in request.model_fields_set if getattr(request, k) is not None])
 
         return SettingsResponse(
             default_volume=settings.default_volume,
             crossfade_duration=settings.crossfade_duration,
             max_groups=settings.max_groups,
-            entity_prefix=settings.entity_prefix,
             show_in_sidebar=settings.show_in_sidebar,
             auto_create_quick_play=settings.auto_create_quick_play,
             master_gain=settings.master_gain,
+            allow_multiple_local_outputs=settings.allow_multiple_local_outputs,
+            stereo=settings.stereo,
+            server_name=settings.server_name,
         )
 
     # --- Settings > Advanced: playback values ---
@@ -1837,6 +1971,7 @@ def create_api_router(
             raise HTTPException(status_code=400, detail=str(error))
         settings.playback_values = stored
         state_store.save()
+        _settings_changed("playback_values", sorted(body) if isinstance(body, dict) else [])
         logger.info(f"Settings: playback values changed: {body}")
         return _playback_values_response()
 
@@ -1854,6 +1989,7 @@ def create_api_router(
         settings.enabled_speakers = [s for s in request.enabled_speakers if s != "__none__"]
         settings.enabled_speakers_exact = True
         state_store.save()
+        _settings_changed("speakers", ["enabled_speakers"])
         return _enabled_speakers_response()
 
     @router.post("/settings/speakers/enable")
@@ -1861,6 +1997,7 @@ def create_api_router(
         """Switch a speaker on."""
         _set_speaker_enabled(request.entity_id, True)
         state_store.save()
+        _settings_changed("speakers", ["enabled_speakers"])
         return _enabled_speakers_response()
 
     @router.post("/settings/speakers/disable")
@@ -1868,6 +2005,7 @@ def create_api_router(
         """Switch a speaker off."""
         _set_speaker_enabled(request.entity_id, False)
         state_store.save()
+        _settings_changed("speakers", ["enabled_speakers"])
         return _enabled_speakers_response()
 
     @router.post("/settings/speakers/enable-all")
@@ -1877,6 +2015,7 @@ def create_api_router(
         settings.enabled_speakers = ha_registry.get_all_speaker_ids() if ha_registry else []
         settings.enabled_speakers_exact = True
         state_store.save()
+        _settings_changed("speakers", ["enabled_speakers"])
         return _enabled_speakers_response()
 
     @router.post("/settings/speakers/disable-all")
@@ -1886,6 +2025,7 @@ def create_api_router(
         settings.enabled_speakers = []
         settings.enabled_speakers_exact = True
         state_store.save()
+        _settings_changed("speakers", ["enabled_speakers"])
         return _enabled_speakers_response()
 
     @router.get("/settings/speaker-areas")
@@ -1902,6 +2042,7 @@ def create_api_router(
         settings = state_store.settings
         settings.custom_speaker_areas = request.custom_areas
         state_store.save()
+        _publish("spaces.changed", {"source": "custom_areas"})
         return {
             "custom_areas": settings.custom_speaker_areas,
         }
@@ -1918,6 +2059,7 @@ def create_api_router(
 
         settings.custom_speaker_areas[area_name] = request.speakers
         state_store.save()
+        _publish("spaces.changed", {"source": "custom_areas"})
         return {
             "name": area_name,
             "speakers": settings.custom_speaker_areas[area_name],
@@ -1942,6 +2084,7 @@ def create_api_router(
             settings.custom_speaker_areas[area_name] = speakers
 
         state_store.save()
+        _publish("spaces.changed", {"source": "custom_areas"})
         return {
             "name": new_name,
             "speakers": speakers,
@@ -1956,6 +2099,7 @@ def create_api_router(
 
         del settings.custom_speaker_areas[area_name]
         state_store.save()
+        _publish("spaces.changed", {"source": "custom_areas"})
         return {"deleted": area_name}
 
     @router.post("/settings/speaker-areas/{area_name}/add-speaker")
@@ -1968,6 +2112,7 @@ def create_api_router(
         if request.entity_id not in settings.custom_speaker_areas[area_name]:
             settings.custom_speaker_areas[area_name].append(request.entity_id)
             state_store.save()
+            _publish("spaces.changed", {"source": "custom_areas"})
 
         return {
             "name": area_name,
@@ -1984,6 +2129,7 @@ def create_api_router(
         if request.entity_id in settings.custom_speaker_areas[area_name]:
             settings.custom_speaker_areas[area_name].remove(request.entity_id)
             state_store.save()
+            _publish("spaces.changed", {"source": "custom_areas"})
 
         return {
             "name": area_name,
@@ -2001,6 +2147,10 @@ def create_api_router(
             events.publish(event_type, data)
         except Exception as e:
             logger.debug(f"Event {event_type} not published: {e}")
+
+    def _settings_changed(section: str, keys, **extra) -> None:
+        """settings.changed: which section, and the keys that were sent (never their values)."""
+        _publish("settings.changed", {"section": section, "keys": list(keys), **extra})
 
     async def _rescan_themes(reason: str) -> None:
         """Rescan the themes now and wait for it (a failure is only logged)."""
@@ -2055,41 +2205,31 @@ def create_api_router(
         if not name:
             raise HTTPException(status_code=400, detail="Theme name is required")
 
-        # Generate a safe folder name from the theme name
-        folder_name = re.sub(r'[^\w\s-]', '', name.lower())
-        folder_name = re.sub(r'[-\s]+', '_', folder_name).strip('_')
+        # A safe folder name from the theme name (core/theme_names.py)
+        from sonorium.core import theme_names
+        folder_name = theme_names.folder_name_for(name)
 
         if not folder_name:
             raise HTTPException(status_code=400, detail="Invalid theme name - could not generate folder name")
 
-        # Find the media path
-        media_paths = [
-            Path("/media/sonorium"),
-            Path("/share/sonorium"),
-        ]
-
-        media_path = None
-        for mp in media_paths:
-            if mp.exists():
-                media_path = mp
-                break
-
-        if not media_path:
-            # Try to create the default media path
-            media_path = Path("/media/sonorium")
+        # The folder of theme folders Sonorium was started with
+        from sonorium.paths import audio_dir
+        media_path = audio_dir()
+        if not media_path.exists():
             try:
                 media_path.mkdir(parents=True, exist_ok=True)
             except Exception as e:
                 logger.error(f"Failed to create media path: {e}")
                 raise HTTPException(status_code=500, detail="Media path not available")
 
-        # Create the theme folder
-        theme_path = media_path / folder_name
-        if theme_path.exists():
-            raise HTTPException(status_code=409, detail=f"Theme folder '{folder_name}' already exists")
+        # No two themes share a name (trimmed, case ignored). The folder is the
+        # name's, or "_1", "_2", ... after it when another theme has that folder
+        if theme_names.is_taken(media_path, name):
+            raise HTTPException(status_code=409, detail=theme_names.TAKEN_MESSAGE)
+        theme_path = theme_names.free_folder(media_path, folder_name)
 
         try:
-            theme_path.mkdir(parents=True, exist_ok=True)
+            theme_path.mkdir(parents=True, exist_ok=False)
             logger.info(f"Created theme folder: {theme_path}")
 
             # metadata.json from the start: it gives the theme its id and the
@@ -2125,7 +2265,7 @@ def create_api_router(
         A new track starts Unassigned (playback_mode "unassigned": not played
         until it is placed); a file uploaded over one keeps its settings.
         """
-        from sonorium.core import theme_groups
+        from sonorium.core import theme_edit, theme_groups
 
         theme_path = _find_theme_folder(theme_id)
         if not theme_path:
@@ -2138,63 +2278,48 @@ def create_api_router(
             if not file:
                 raise HTTPException(status_code=400, detail="No file provided")
 
-            # Only the file's own name: no folders, no path tricks
-            try:
-                filename = theme_groups.safe_upload_name(file.filename)
-            except theme_groups.GroupError as e:
-                raise HTTPException(status_code=400, detail=str(e))
-
-            # Validate file extension
-            valid_extensions = ['.mp3', '.wav', '.flac', '.ogg']
-            ext = '.' + filename.split('.')[-1].lower() if '.' in filename else ''
-
-            if ext not in valid_extensions:
-                raise HTTPException(status_code=400, detail=f"Invalid file type. Supported: {', '.join(valid_extensions)}")
-
-            # Optional group (created if missing)
+            # Optional group (created if missing). Only the file's own name is
+            # used (no folders, no path tricks); a linked file's name there is
+            # taken: " (2)" etc. instead (core/theme_edit.py)
             group = form.get("group") or request.query_params.get("group")
+            # Copied to a temporary file in chunks (at most upload_limit_mb), never held in memory whole
+            import os
+            import tempfile
+            from sonorium import limits
+            fd, temp = tempfile.mkstemp(prefix="sonorium-upload-")
             try:
-                file_path = theme_groups.upload_path(theme_path, filename, group)
-            except theme_groups.GroupError as e:
-                raise HTTPException(status_code=e.status, detail=str(e))
-            target_folder = file_path.parent
-            group_name = target_folder.name if target_folder != theme_path else None
-
-            # A linked file's name there is taken: " (2)" etc. instead
-            metadata = _cached_metadata(theme_id, theme_path)
-            if metadata is not None and metadata.links:
-                from sonorium.core.intrusions import link_names
-                reserved = link_names(metadata, group_name)
-                if file_path.stem.casefold() in {n.casefold() for n in reserved}:
-                    file_path = target_folder / theme_groups.free_file_name(target_folder, file_path.name, reserved=reserved)
-                    filename = file_path.name
-            key = f"{group_name}/{file_path.stem}" if group_name else file_path.stem
-            is_new = not file_path.exists()
-
-            # Read and write the file content
-            content = await file.read()
-            file_path.write_bytes(content)
-            if is_new:
-                from sonorium.core.theme_metadata import add_unassigned_track
+                with os.fdopen(fd, "wb") as out:
+                    size = await limits.copy_upload(file, out, limits.size(limits.UPLOAD))
                 manager = getattr(session_manager, "theme_metadata_manager", None) if session_manager else None
                 try:
-                    add_unassigned_track(theme_path, key, metadata, manager)
-                except OSError as e:
-                    # The file is there and plays as a track without settings would
-                    logger.warning(f"Theme '{theme_id}': '{key}' uploaded, but it couldn't be made Unassigned ({e})")
+                    saved = theme_edit.upload(theme_path, file.filename, temp, group,
+                                              metadata=_cached_metadata(theme_id, theme_path), manager=manager)
+                except theme_groups.GroupError as e:
+                    raise HTTPException(status_code=e.status, detail=str(e))
+                except theme_edit.EditError as e:
+                    raise HTTPException(status_code=e.status, detail=str(e))
+            finally:
+                try:
+                    os.unlink(temp)
+                except OSError:
+                    pass
+            filename, group_name = saved["filename"], saved["group"]
 
             where = f" in group '{group_name}'" if group_name else ""
-            logger.info(f"Uploaded file to theme '{theme_id}'{where}: {filename} ({len(content)} bytes)")
+            logger.info(f"Uploaded file to theme '{theme_id}'{where}: {filename} ({size} bytes)")
+            # A file that isn't a 44.1 kHz stereo MP3 becomes one in the background (core/theme_mp3.py)
+            from sonorium.core import theme_mp3
+            theme_mp3.request(theme_path)
             if on_themes_changed:
                 on_themes_changed()
 
             return {
                 "status": "ok",
                 "filename": filename,
-                "size": len(content),
+                "size": saved["size"],
                 "theme_id": theme_id,
                 "group": group_name,
-                "track": key,
+                "track": saved["track"],
             }
 
         except HTTPException:
@@ -2216,21 +2341,19 @@ def create_api_router(
         from pathlib import Path
         from sonorium.utils import sanitize_id as sanitize
 
-        media_paths = [
-            Path("/media/sonorium"),
-            Path("/share/sonorium"),
-        ]
+        from sonorium.paths import audio_dir
+        media_paths = [audio_dir()]
 
         for mp in media_paths:
             if not mp.exists():
                 continue
 
-            # Try exact match first (folder name = theme_id)
-            # Only a folder directly inside the audio folder: "..", "." and paths never match
-            if theme_id not in ("", ".", "..") and "/" not in theme_id and "\\" not in theme_id:
-                exact_path = mp / theme_id
-                if exact_path.is_dir():
-                    return exact_path
+            # Try exact match first (folder name = theme_id), directly inside the audio folder
+            # A plain name only: "..", paths and drives ("C:" on Windows) never match
+            from sonorium.paths import child_folder
+            exact_path = child_folder(mp, theme_id)
+            if exact_path is not None:
+                return exact_path
 
             # Scan folders for UUID match in metadata.json or sanitized name match
             for folder in mp.iterdir():
@@ -2239,7 +2362,7 @@ def create_api_router(
                     metadata_path = folder / "metadata.json"
                     if metadata_path.exists():
                         try:
-                            metadata = json.loads(metadata_path.read_text())
+                            metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
                             if metadata.get("id") == theme_id:
                                 return folder
                         except Exception:
@@ -2267,49 +2390,20 @@ def create_api_router(
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON body")
 
-        # Read existing metadata and merge. If it can't be read, refuse: writing
-        # only the edited fields would lose the theme's id and track settings.
-        from sonorium.core.theme_presets import BrokenJsonError, read_json, write_json_atomic
-        metadata_path = theme_path / "metadata.json"
+        # Merged into metadata.json as it is (core/theme_edit.py). If it can't
+        # be read, refused: writing only the edited fields would lose the
+        # theme's id and track settings.
+        from sonorium.core import theme_edit
         try:
-            metadata = read_json(metadata_path) or {}
-        except BrokenJsonError as e:
-            raise HTTPException(status_code=409, detail=f"metadata.json can't be read ({e}); refresh themes to repair it first")
+            metadata = theme_edit.set_metadata_fields(theme_path, body)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
-        if "description" in body:
-            metadata["description"] = body["description"]
-
-        if "icon" in body:
-            # Allow setting icon to empty string to clear it (use auto-detection)
-            icon_value = body["icon"]
-            if icon_value:
-                metadata["icon"] = icon_value
-            elif "icon" in metadata:
-                del metadata["icon"]  # Remove icon to use auto-detection
-
-        if "short_file_threshold" in body:
-            threshold = float(body["short_file_threshold"])
-            if threshold < 0:
-                raise HTTPException(status_code=400, detail="short_file_threshold must be >= 0")
-            metadata["short_file_threshold"] = threshold
-
-            # Also update the live theme object if it exists
-            if themes:
-                theme = themes.id.get(theme_id)
-                if theme:
-                    theme.short_file_threshold = threshold
-                    logger.info(f"Updated short_file_threshold for '{theme_id}' to {threshold}s")
-
-        # Write back (temporary file, then rename), and reload so the theme
-        # manager's copy can't overwrite the change later
-        try:
-            write_json_atomic(metadata_path, metadata)
-            if on_themes_changed:
-                on_themes_changed()
-            return {"status": "ok", "metadata": metadata}
-        except Exception as e:
-            logger.error(f"Failed to write metadata: {e}")
-            raise HTTPException(status_code=500, detail="Could not write metadata")
+        # Reload so the theme manager's copy can't overwrite the change later
+        # (the live theme takes a new short_file_threshold from it too)
+        if on_themes_changed:
+            on_themes_changed()
+        return {"status": "ok", "metadata": metadata}
 
     @router.delete("/themes/{theme_id}")
     async def delete_theme(theme_id: str):
@@ -2350,75 +2444,110 @@ def create_api_router(
     @router.get("/themes/{theme_id}/export")
     async def export_theme(theme_id: str):
         """Export a theme as a zip file containing all audio files and metadata."""
-        import zipfile
-        import io
-        from fastapi.responses import StreamingResponse
+        import os
+        import tempfile
+        from fastapi.concurrency import run_in_threadpool
+        from fastapi.responses import FileResponse
+        from starlette.background import BackgroundTask
+        from sonorium.core import theme_package
 
         theme_path = _find_theme_folder(theme_id)
         if not theme_path:
             raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
 
+        # The package's files (core/theme_package.py): the theme folder, its
+        # linked files copied in where they sit, and metadata.json (2.0 layout,
+        # links dropped, their settings kept) plus presets.json. Written to a
+        # temporary file, sent with its Content-Length, then deleted.
+        def build() -> str:
+            package = theme_package.build_package(theme_path)
+            fd, tmp = tempfile.mkstemp(prefix="sonorium-export-", suffix=".zip")
+            try:
+                with os.fdopen(fd, "wb") as out:
+                    theme_package.write_zip(package, out)
+            except BaseException:
+                try:
+                    os.unlink(tmp)
+                except OSError:
+                    pass
+                raise
+            return tmp
+
+        def remove(path: str) -> None:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+        # At most export_limit exports made at the same time (sonorium/limits.py)
+        from sonorium import limits
+        if not EXPORT_SLOTS.take("exports", limits.count(limits.EXPORTS)):
+            raise HTTPException(status_code=429, detail="Other exports are being made. Try again in a moment.")
         try:
-            # Create zip in memory
-            zip_buffer = io.BytesIO()
-            theme_name = theme_path.name
-
-            import json
-            from sonorium.core.theme_metadata import theme_documents_for_export
-            from sonorium.core.theme_presets import METADATA_FILE, PRESETS_FILE
-
-            def is_theme_json(path):
-                # The theme's own JSON files, their backups and broken copies
-                if path.parent != theme_path:
-                    return False
-                return any(path.name == base or path.name.startswith(base + ".")
-                           for base in (METADATA_FILE, PRESETS_FILE))
-
-            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                # Walk through all files in the theme folder
-                for file_path in theme_path.rglob('*'):
-                    if file_path.is_file() and not is_theme_json(file_path):
-                        # Use relative path within the theme folder
-                        arcname = f"{theme_name}/{file_path.relative_to(theme_path)}"
-                        zip_file.write(file_path, arcname)
-                        logger.debug(f"Added to zip: {arcname}")
-
-                # Always the 2.0 layout: metadata.json without presets, plus presets.json
-                metadata_doc, presets_doc = theme_documents_for_export(theme_path)
-
-                # Self-contained: the linked files (they live in other themes'
-                # folders) go in as normal files where they sit (the theme folder
-                # or their group's), the links are dropped and their settings kept
-                # under the same keys
-                from sonorium.core.intrusions import export_entries
-                for relative, source in export_entries(theme_path, metadata_doc):
-                    zip_file.write(source, f"{theme_name}/{relative}")
-                    logger.debug(f"Added linked file to zip: {relative} (from {source})")
-
-                zip_file.writestr(f"{theme_name}/{METADATA_FILE}",
-                                  json.dumps(metadata_doc, indent=2, ensure_ascii=False))
-                zip_file.writestr(f"{theme_name}/{PRESETS_FILE}",
-                                  json.dumps(presets_doc, indent=2, ensure_ascii=False))
-
-            zip_buffer.seek(0)
-
-            # Generate filename
-            safe_name = "".join(c if c.isalnum() or c in "._- " else "_" for c in theme_name)
-            filename = f"{safe_name}.zip"
-
-            logger.info(f"Exported theme '{theme_name}' as {filename}")
-
-            return StreamingResponse(
-                zip_buffer,
-                media_type="application/zip",
-                headers={
-                    "Content-Disposition": f'attachment; filename="{filename}"'
-                }
-            )
-
+            tmp = await run_in_threadpool(build)
         except Exception as e:
             logger.error(f"Failed to export theme: {e}")
             raise HTTPException(status_code=500, detail=str(e))
+        finally:
+            EXPORT_SLOTS.give("exports")
+
+        safe_name = "".join(c if c.isalnum() or c in "._- " else "_" for c in theme_path.name)
+        filename = f"{safe_name}.zip"
+        logger.info(f"Exported theme '{theme_path.name}' as {filename}")
+        return FileResponse(tmp, media_type="application/zip", filename=filename,
+                            content_disposition_type="attachment", background=BackgroundTask(remove, tmp))
+
+    @router.post("/themes/{theme_id}/duplicate")
+    async def duplicate_theme(theme_id: str, request: Request):
+        """
+        A full, independent copy of a theme, named {"name": ...} (core/theme_duplicate.py).
+        409 when another theme has the name (trimmed, case ignored).
+        """
+        from fastapi.concurrency import run_in_threadpool
+        from sonorium.core import theme_duplicate, theme_names, theme_presets
+
+        source = _find_theme_folder(theme_id)
+        if not source:
+            raise HTTPException(status_code=404, detail=f"Theme '{theme_id}' not found")
+        try:
+            body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        name = body.get("name") if isinstance(body, dict) else None
+        if not isinstance(name, str) or not name.strip():
+            raise HTTPException(status_code=400, detail="Name is required")
+
+        try:
+            made = await run_in_threadpool(theme_duplicate.duplicate, source, name)
+        except theme_names.NameTaken as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+        except theme_duplicate.DuplicateError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+
+        folder = made["folder"]
+        # Its audio becomes MP3 in the background if the source's isn't yet (core/theme_mp3.py)
+        from sonorium.core import theme_mp3
+        theme_mp3.request(folder)
+        await _rescan_themes(f"duplicating '{name.strip()}'")
+        await _notify_theme_created(made["theme_id"], folder)
+
+        try:
+            meta = theme_presets.read_json(folder / theme_presets.METADATA_FILE) or {}
+        except theme_presets.BrokenJsonError:
+            meta = {}
+        return {
+            "status": "ok",
+            "theme_id": made["theme_id"],
+            "theme": {
+                "id": made["theme_id"],
+                "name": made["name"],
+                "folder": folder.name,
+                "description": meta.get("description", ""),
+                "icon": meta.get("icon", ""),
+                "categories": meta.get("categories", []),
+                "is_favorite": False,
+            },
+        }
 
     @router.post("/themes/import")
     async def import_theme(request: Request):
@@ -2429,9 +2558,8 @@ def create_api_router(
         from pathlib import Path
 
         # Get the audio path
-        audio_path = Path("/media/sonorium")
-        if not audio_path.exists():
-            audio_path = Path("/share/sonorium")
+        from sonorium.paths import audio_dir
+        audio_path = audio_dir()
         if not audio_path.exists():
             raise HTTPException(status_code=500, detail="No valid audio path found")
 
@@ -2446,90 +2574,85 @@ def create_api_router(
             if not filename.lower().endswith('.zip'):
                 raise HTTPException(status_code=400, detail="File must be a .zip archive")
 
-            # Read zip content
-            content = await file.read()
-            zip_buffer = io.BytesIO(content)
+            # Read from the uploaded file where it is (on disk past 1 MB), never whole in memory
+            from sonorium import limits
+            from sonorium.core.theme_import import ImportLimitError, check_members
 
             # Validate and extract
-            with zipfile.ZipFile(zip_buffer, 'r') as zip_file:
+            with zipfile.ZipFile(file.file, 'r') as zip_file:
                 # Get the list of files
                 namelist = zip_file.namelist()
                 if not namelist:
                     raise HTTPException(status_code=400, detail="Zip file is empty")
 
-                # Refuse entries that would land outside the theme folder ("..",
-                # absolute paths, drive letters), before anything is written
-                for entry in namelist:
-                    entry_parts = entry.replace(chr(92), '/').split('/')
-                    if entry.startswith(('/', chr(92))) or ':' in entry_parts[0] or '..' in entry_parts:
-                        raise HTTPException(status_code=400, detail=f"Zip entry not allowed: {entry}")
+                # One top folder, or the theme's files at the root of the zip
+                # (then the folder is named after the theme); groups keep their place
+                from sonorium.core.theme_import import ZipLayoutError, plan_import, root_metadata_member
+                theme_name = None
+                meta_member = root_metadata_member(namelist)
+                if meta_member is not None:
+                    try:
+                        with zip_file.open(meta_member) as src:  # at most request_body_limit_kb of it
+                            name = json.loads(src.read(limits.size(limits.REQUEST_BODY) or -1).decode("utf-8-sig")).get("name")
+                        theme_name = name if isinstance(name, str) else None
+                    except Exception:
+                        pass  # a broken metadata.json is dealt with when the theme loads
+                try:
+                    theme_folder_name, members = plan_import(namelist, filename, theme_name)
+                except ZipLayoutError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
+                # Only a theme's kinds of files; at most import_file_limit files and
+                # import_unpacked_limit_mb unpacked (sonorium/limits.py)
+                unpacked_limit = limits.size(limits.IMPORT_UNPACKED)
+                try:
+                    members, left_out = check_members(zip_file, members, limits.count(limits.IMPORT_FILES),
+                                                      unpacked_limit)
+                except ImportLimitError as e:
+                    raise HTTPException(status_code=e.status, detail=str(e))
 
-                # Determine theme folder name from zip structure
-                # Expected: theme_name/file1.mp3, theme_name/metadata.json, etc.
-                first_entry = namelist[0]
-                if '/' in first_entry:
-                    theme_folder_name = first_entry.split('/')[0]
-                else:
-                    # No folder structure, use zip filename without extension
-                    theme_folder_name = filename.rsplit('.', 1)[0]
-                theme_folder_name = theme_folder_name.replace(chr(92), '_').replace('/', '_')
-                if theme_folder_name in ('', '.', '..'):
-                    raise HTTPException(status_code=400, detail="Zip has no usable theme folder name")
+                # The name it gets: metadata.json's, else its folder's. No two
+                # themes share a name (core/theme_names.py): refused, nothing written
+                from sonorium.core import theme_names
+                import_name = theme_name.strip() if theme_name and theme_name.strip() else theme_folder_name
+                if theme_names.is_taken(audio_path, import_name):
+                    raise HTTPException(status_code=409, detail=theme_names.TAKEN_MESSAGE)
 
-                # Check if theme already exists
-                target_path = audio_path / theme_folder_name
-                if target_path.exists():
-                    # Generate unique name
-                    counter = 1
-                    while target_path.exists():
-                        target_path = audio_path / f"{theme_folder_name}_{counter}"
-                        counter += 1
-                    theme_folder_name = target_path.name
+                # Another theme's folder has the name: "_1", "_2", ... after it
+                target_path = theme_names.free_folder(audio_path, theme_folder_name)
+                theme_folder_name = target_path.name
 
-                # Extract files
+                # Extract files: copied in chunks, the bytes counted against the limit (a
+                # zip's sizes can lie); on any failure the half-made folder goes
+                from sonorium.core.theme_import import ImportLimitError, extract_members
                 target_path.mkdir(parents=True, exist_ok=True)
-                files_extracted = 0
-                audio_extensions = {'.mp3', '.wav', '.flac', '.ogg'}
-
-                for zip_info in zip_file.infolist():
-                    if zip_info.is_dir():
-                        continue
-
-                    # Get the path relative to the theme folder in the zip
-                    parts = zip_info.filename.split('/')
-                    if len(parts) > 1:
-                        # Remove the original theme folder prefix
-                        relative_path = '/'.join(parts[1:])
-                    else:
-                        relative_path = zip_info.filename
-
-                    if not relative_path:
-                        continue
-
-                    # Determine output path (never outside the theme folder)
-                    output_path = target_path / relative_path
-                    if not output_path.resolve().is_relative_to(target_path.resolve()):
-                        raise HTTPException(status_code=400, detail=f"Zip entry not allowed: {zip_info.filename}")
-
-                    # Create parent directories if needed
-                    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-                    # Extract file
-                    with zip_file.open(zip_info) as src:
-                        output_path.write_bytes(src.read())
-                    files_extracted += 1
-                    logger.debug(f"Extracted: {relative_path}")
+                try:
+                    files_extracted = await asyncio.to_thread(extract_members, zip_file, members, target_path,
+                                                              unpacked_limit)
+                except BaseException as e:
+                    import shutil
+                    shutil.rmtree(target_path, ignore_errors=True)
+                    if isinstance(e, ImportLimitError):
+                        raise HTTPException(status_code=e.status, detail=str(e))
+                    raise
 
                 # Convert 1.0 themes and recover broken JSON files, then give
                 # the imported theme a new UUID to avoid conflicts
-                from sonorium.core.theme_metadata import load_theme_folder, save_theme_folder
+                from sonorium.core.theme_metadata import (
+                    drop_unknown_plugin_data, load_theme_folder, save_theme_folder,
+                )
                 import uuid
                 problems = []
+                if left_out:
+                    problems.append(f"Left out {len(left_out)} file(s) that aren't theme files: "
+                                    + ", ".join(left_out[:5]) + (" ..." if len(left_out) > 5 else ""))
                 new_id = None
                 try:
+                    # Plugin attributes of plugins this Sonorium doesn't have go (logged)
+                    drop_unknown_plugin_data(target_path)
                     metadata = load_theme_folder(target_path)
-                    problems = list(metadata.problems)
+                    problems += list(metadata.problems)
                     metadata.id = str(uuid.uuid4())
+                    metadata.name = import_name  # trimmed; not the folder's "_1" name
                     if save_theme_folder(target_path, metadata):
                         new_id = metadata.id
                     else:
@@ -2539,12 +2662,17 @@ def create_api_router(
                     problems.append(f"Couldn't prepare the theme files: {e}")
 
                 logger.info(f"Imported theme '{theme_folder_name}' with {files_extracted} files")
+                # Its audio becomes MP3 in the background, ahead of other themes (core/theme_mp3.py)
+                from sonorium.core import theme_mp3
+                theme_mp3.request(target_path)
                 if new_id:
                     await _notify_theme_created(new_id, target_path)
 
                 return {
                     "status": "ok",
                     "theme_folder": theme_folder_name,
+                    "theme_id": new_id,
+                    "name": import_name,
                     "files_extracted": files_extracted,
                     "path": str(target_path),
                     "problems": problems,
@@ -2827,7 +2955,7 @@ def create_api_router(
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
 
-        plugin = plugin_manager.get_plugin(plugin_id)
+        plugin = plugin_manager.find_plugin(plugin_id)  # one waiting for approval too
         if not plugin:
             raise HTTPException(status_code=404, detail=f"Plugin not found: {plugin_id}")
 
@@ -2839,9 +2967,19 @@ def create_api_router(
         if not plugin_manager:
             raise HTTPException(status_code=503, detail="Plugin system not available")
 
+        refused = plugin_manager.refused.get(plugin_id)
+        if refused and plugin_id not in plugin_manager.plugins:
+            raise HTTPException(status_code=409, detail=f"{refused['name']} can't be switched on: {refused['problem']}")
+        waiting = plugin_manager.find_plugin(plugin_id)
+        if waiting is not None and plugin_manager.permissions_pending(waiting):
+            from sonorium.plugins.permissions import label
+            pending = plugin_manager.permissions_pending(waiting)
+            what = ", ".join(label(p) for p in pending)
+            raise HTTPException(status_code=409, detail=f"Approve what {waiting.name} asks for first: {what}")
         success = await plugin_manager.enable_plugin(plugin_id)
         if not success:
-            raise HTTPException(status_code=400, detail=f"Failed to enable plugin: {plugin_id}")
+            reason = plugin_manager.last_enable_error.get(plugin_id)
+            raise HTTPException(status_code=400, detail=f"Failed to enable plugin: {plugin_id}" + (f" ({reason})" if reason else ""))
 
         return {"status": "ok", "plugin_id": plugin_id, "enabled": True}
 
@@ -2931,16 +3069,14 @@ def create_api_router(
         """
         Upload and install a plugin from a ZIP file.
 
-        The ZIP file should contain either:
-        - A single plugin.py file (minimal plugin)
-        - A plugin.py file with optional manifest.json
-        - A directory containing plugin.py (and optionally manifest.json)
+        The plugin's files (plugin.py, optional manifest.json, any
+        subfolders) at the zip's root or inside one top folder. The zip is
+        checked in full before the installed plugin (if any) is replaced.
 
         Returns the installed plugin info.
         """
         import zipfile
         import tempfile
-        import shutil
         from pathlib import Path
 
         if not plugin_manager:
@@ -2950,99 +3086,32 @@ def create_api_router(
         if not file.filename or not file.filename.lower().endswith('.zip'):
             raise HTTPException(status_code=400, detail="File must be a .zip archive")
 
+        from sonorium.plugins import upload as plugin_upload
+
+        tmp_path = None
         try:
             # Save uploaded file to temp location
+            # in chunks, at most upload_limit_mb (sonorium/limits.py)
+            from sonorium import limits
             with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp:
-                content = await file.read()
-                tmp.write(content)
                 tmp_path = Path(tmp.name)
+                await limits.copy_upload(file, tmp, limits.size(limits.UPLOAD))
 
-            # Extract and validate
+            # Read and check the whole zip in a folder of its own first: a
+            # refused upload leaves the installed plugin as it was
             with tempfile.TemporaryDirectory() as extract_dir:
-                extract_path = Path(extract_dir)
+                staging = Path(extract_dir) / 'plugin'
+                staging.mkdir()
+                try:
+                    plugin_id = plugin_upload.prepare(tmp_path, staging, file.filename)
+                except plugin_upload.UploadError as e:
+                    raise HTTPException(status_code=400, detail=str(e))
 
-                with zipfile.ZipFile(tmp_path, 'r') as zf:
-                    # Security: Check for path traversal
-                    for member in zf.namelist():
-                        if '..' in member or member.startswith('/'):
-                            raise HTTPException(status_code=400, detail=f"Invalid path in zip: {member}")
-                    zf.extractall(extract_path)
-
-                # Find plugin.py - could be at root or in a subdirectory
-                plugin_files = list(extract_path.rglob('plugin.py'))
-
-                if not plugin_files:
-                    raise HTTPException(status_code=400, detail="No plugin.py found in archive")
-
-                # Use the first plugin.py found
-                plugin_file = plugin_files[0]
-                plugin_source_dir = plugin_file.parent
-
-                # Get plugin ID from manifest or directory name
-                manifest_file = plugin_source_dir / 'manifest.json'
-                manifest = {}
-                if manifest_file.exists():
-                    import json
-                    manifest = json.loads(manifest_file.read_text())
-                    plugin_id = manifest.get('id', plugin_source_dir.name)
-                else:
-                    # Generate ID from directory name or zip filename
-                    plugin_id = plugin_source_dir.name
-                    if plugin_id in ('.', extract_path.name):
-                        # Plugin files at root of zip - use zip filename
-                        plugin_id = Path(file.filename).stem.lower().replace(' ', '_').replace('-', '_')
-
-                # Sanitize plugin ID
-                plugin_id = ''.join(c for c in plugin_id if c.isalnum() or c == '_').lower()
-                if not plugin_id:
-                    plugin_id = 'imported_plugin'
-
-                # Check if plugin already exists
                 target_dir = _plugin_dir(plugin_id)
                 if target_dir.exists():
-                    # Remove old version
-                    shutil.rmtree(target_dir)
                     logger.info(f"Replacing existing plugin: {plugin_id}")
-
-                # Validate required plugin attributes by parsing the plugin.py file
-                plugin_py_content = plugin_file.read_text()
-
-                # Check for version attribute (required)
-                import re
-                version_match = re.search(r'^\s*version\s*[=:]\s*["\']([^"\']+)["\']', plugin_py_content, re.MULTILINE)
-                manifest_version = manifest.get('version')
-
-                if not version_match and not manifest_version:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="Plugin must define a 'version' attribute (e.g., version = \"1.0.0\"). "
-                               "Use semantic versioning: MAJOR.MINOR.PATCH"
-                    )
-
-                # Validate semantic versioning format
-                version_str = version_match.group(1) if version_match else manifest_version
-                if version_str and not re.match(r'^\d+\.\d+\.\d+(-[a-zA-Z0-9.]+)?$', version_str):
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Invalid version format '{version_str}'. "
-                               f"Use semantic versioning: MAJOR.MINOR.PATCH (e.g., 1.0.0, 2.1.3-beta)"
-                    )
-
-                # Copy plugin files to plugins directory
-                if plugin_source_dir == extract_path:
-                    # Files at root - create directory
-                    target_dir.mkdir(parents=True, exist_ok=True)
-                    for item in extract_path.iterdir():
-                        if item.is_file():
-                            shutil.copy2(item, target_dir / item.name)
-                else:
-                    # Copy the directory
-                    shutil.copytree(plugin_source_dir, target_dir)
-
+                plugin_upload.install(staging, target_dir)
                 logger.info(f"Installed plugin to: {target_dir}")
-
-            # Clean up temp file
-            tmp_path.unlink()
 
             # Reload plugins to pick up the new one
             await plugin_manager.reload_plugins()
@@ -3055,12 +3124,20 @@ def create_api_router(
                     "message": f"Plugin '{plugin.name}' installed successfully",
                     "plugin": plugin.to_dict()
                 }
-            else:
+            refused = plugin_manager.refused.get(plugin_id)
+            if refused:
+                # Installed, but it can't run here yet (packages switched off, an API it needs, ...)
                 return {
                     "status": "warning",
-                    "message": f"Plugin files installed but failed to load. Check logs for errors.",
+                    "message": f"Plugin '{refused['name']}' installed, but not loaded: {refused['problem']}",
+                    "plugin": refused,
                     "plugin_id": plugin_id
                 }
+            return {
+                "status": "warning",
+                "message": "Plugin files installed but failed to load. Check logs for errors.",
+                "plugin_id": plugin_id
+            }
 
         except HTTPException:
             raise
@@ -3069,6 +3146,9 @@ def create_api_router(
         except Exception as e:
             logger.error(f"Failed to install plugin: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to install plugin: {str(e)}")
+        finally:
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
 
     @router.delete("/plugins/{plugin_id}")
     async def uninstall_plugin(plugin_id: str):
@@ -3100,6 +3180,8 @@ def create_api_router(
         is_builtin = plugin_id in builtin_ids
 
         try:
+            # One waiting for approval was never loaded: it is just forgotten
+            getattr(plugin_manager, "waiting", {}).pop(plugin_id, None)
             # Disable and unload if loaded
             if plugin:
                 if plugin.enabled:
@@ -3144,5 +3226,17 @@ def create_api_router(
     # The Sonorium app's routes (docs/APP_API.md section 13)
     from sonorium.web.app_routes import add_app_routes
     add_app_routes(router, session_manager=session_manager, ha_registry=ha_registry, speaker_live=speaker_live)
+
+    # Theme packages for offline playback (web/theme_package_routes.py)
+    from sonorium.web.theme_package_routes import add_theme_package_routes
+    add_theme_package_routes(router, find_theme_folder=_find_theme_folder)
+
+    # The personal channel: one hidden, local-only channel per account (web/personal_routes.py)
+    from sonorium.web.personal_routes import add_personal_routes
+    add_personal_routes(router, session_manager=session_manager, to_response=_session_to_response)
+
+    # Theme backups from the app: each account's own, by phone (web/backup_routes.py)
+    from sonorium.web.backup_routes import add_backup_routes
+    add_backup_routes(router, session_manager=session_manager)
 
     return router

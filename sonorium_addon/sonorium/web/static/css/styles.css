@@ -281,6 +281,7 @@ body {
 .btn-primary {
     background: var(--accent-primary);
     color: var(--bg-primary);
+    border: 1px solid transparent;  /* the same height as the bordered Secondary / Danger buttons beside it */
 }
 
 .btn-primary:hover {
@@ -1010,6 +1011,13 @@ label.p-row, .p-label { cursor: pointer; }
 .tri:checked { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f172a' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E"); }
 .tri:indeterminate { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%230f172a' stroke-width='3.5' stroke-linecap='round'%3E%3Cline x1='5' y1='12' x2='19' y2='12'/%3E%3C/svg%3E"); }
 .tri:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+/* Choose-one (local audio output devices, one at a time): a round box */
+.tri[type=radio] { border-radius: 50%; }
+.tri[type=radio]:indeterminate { background: transparent; border-color: var(--text-muted); }  /* none of the group picked */
+.tri[type=radio]:checked { background-image: radial-gradient(circle, #0f172a 0 4px, transparent 4.5px); }
+/* An output type's header without a box (choose-one, or unavailable), and why it can't be used */
+.p-spacer.p-box-spacer { width: 20px; flex-basis: 20px; }
+.picker-empty.p-reason { padding-left: 2.75rem; }
 .badge { display: inline-flex; align-items: center; height: 20px; padding: 0 .4rem; border-radius: 4px; font-size: .6875rem; font-weight: 600; letter-spacing: .02em; white-space: nowrap; }
 .badge-ha { background: rgba(59, 130, 246, .18); color: #93c5fd; }
 .badge-disc { background: rgba(139, 92, 246, .2); color: #c4b5fd; }
@@ -1045,6 +1053,8 @@ label.p-row, .p-label { cursor: pointer; }
     .channel-editor .collapse { width: 32px; height: 32px; flex-basis: 32px; }
     .channel-editor .p-spacer { width: 32px; flex-basis: 32px; }
     .channel-editor .tri { width: 22px; height: 22px; flex: 0 0 22px; }
+    .channel-editor .p-spacer.p-box-spacer { width: 22px; flex-basis: 22px; }
+    .channel-editor .picker-empty.p-reason { padding-left: 2.25rem; }
     .channel-editor .p-speaker .badges { width: 100%; padding-left: calc(22px + .5rem + 8px + .5rem); margin-top: -.5rem; padding-bottom: .375rem; }
     .channel-editor .p-speaker .badges:empty { display: none; }
 }
@@ -2452,6 +2462,8 @@ body.sidebar-open .sidebar-overlay {
 .te .modal-header .sub { overflow: hidden; text-overflow: ellipsis; font-size: .875rem; font-weight: 400; color: var(--text-muted); }
 .te .hd-acts { display: flex; align-items: center; gap: .25rem; flex: none; }
 .te .hd-acts .modal-close { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; }
+/* Dialog title bars (Theme Editor, sequence, playlist, transitions): ? and ⋯ the size of × */
+.hd-acts .icon-btn.hd-more { width: 36px; height: 36px; }
 
 /* Fields: sized to their content */
 .te .fld { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
@@ -2532,6 +2544,9 @@ body.sidebar-open .sidebar-overlay {
 .te-pop .inp { box-sizing: border-box; width: 100%; min-height: 32px; padding: 0 .625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; color: var(--text-primary); font: inherit; font-size: .875rem; }
 .te-pop .inp:focus { outline: none; border-color: var(--accent-primary); }
 .te-pop .pop-acts { display: flex; justify-content: flex-end; gap: .5rem; }
+/* Duplicate theme: a taken name, said under the field */
+.te-pop .inp.err { border-color: var(--accent-danger); }
+.te-pop .pop-err { margin-top: -.25rem; font-size: .75rem; color: var(--accent-danger); }
 .te-pop .btn[disabled] { opacity: .4; cursor: default; transform: none; }
 
 /* Tracks toolbar (fixed) */
@@ -2633,6 +2648,7 @@ body.sidebar-open .sidebar-overlay {
 .te .foot .btn { white-space: nowrap; }
 .te .foot .btn[disabled] { opacity: .4; cursor: default; transform: none; }
 .te .pgroup { display: flex; align-items: center; gap: .5rem; min-width: 0; }
+.te .pgroup .icon-btn.sm { width: 38px; height: 38px; flex: none; }  /* the height of the preset field and buttons */
 .te .pb-label { font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
 .te .pdd { display: inline-flex; align-items: center; gap: .5rem; box-sizing: border-box; width: 260px; min-width: 0; min-height: 38px; padding: 0 .625rem 0 .75rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; color: var(--text-primary); font: inherit; font-size: .875rem; font-weight: 500; text-align: left; cursor: pointer; }
 .te .pdd:hover { border-color: var(--accent-primary); }
@@ -2661,7 +2677,7 @@ body.sidebar-open .sidebar-overlay {
     .te .modal-header { height: 52px; box-sizing: border-box; padding: 0 .5rem 0 1rem; }
     .te .modal-header h2 { font-size: 1.0625rem; }
     .te .modal-header .sub { display: none; }
-    .te .hd-acts .hd-more { width: 44px; height: 44px; border: 0; background: none; }
+    .te .hd-acts .icon-btn.hd-more { width: 44px; height: 44px; border: 0; background: none; }
     .te .hd-acts .modal-close { width: 44px; height: 44px; }
     .te-top { padding: .625rem 1rem; }
     .te .top-row { flex-wrap: wrap; gap: .5rem; }
@@ -2943,6 +2959,15 @@ body.preview-active .tp-scroll { padding-bottom: calc(1.5rem + 56px); }
 .tp-cm .cm-add { display: flex; align-items: center; gap: .5rem; padding: .75rem 1.25rem; border-top: 1px solid var(--border-color); }
 .tp-cm .cm-add .inp { flex: 1; min-width: 0; }
 .tp-cm .modal-footer { padding: .75rem 1.25rem; }
+/* Import themes (several zips): each file's result; theme zips dropped on the list */
+.tp-cm .imp-file { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.tp-cm .imp-file .cm-name { flex: none; }
+.tp-cm .imp-why { font-size: .75rem; color: var(--text-muted); overflow-wrap: anywhere; }
+.tp-cm .imp-st { flex: none; font-size: .8125rem; font-weight: 600; }
+.tp-cm .imp-st.ok { color: var(--accent-primary); }
+.tp-cm .imp-st.err { color: var(--accent-danger); }
+.tp-cm .imp-prog { margin-right: auto; align-self: center; font-size: .8125rem; color: var(--text-secondary); }
+.tp-scroll.over { outline: 2px dashed var(--accent-primary); outline-offset: -6px; background: rgba(6, 214, 160, .06); }
 
 /* Title bar on small screens: title stays readable, buttons keep their size */
 @media (max-width: 768px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
@@ -3158,6 +3183,8 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .sp-audio { padding: .25rem 1.25rem .375rem; }
 .sp-srow { display: grid; grid-template-columns: 150px minmax(60px, 1fr) 44px 40px 8px; column-gap: .625rem; align-items: center; min-height: 56px; border-bottom: 1px solid rgba(51, 65, 85, .55); }
 #audio-rows .sp-srow:last-child { border-bottom: 0; }
+/* A label is inline: as a block in the row's value cell the switch gets its 40 x 22 px track */
+.sp-sl .toggle-switch { display: block; }
 .sp-shead { min-height: 36px; border-bottom-color: var(--border-color); font-size: .6875rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
 .sp-shead .sp-shead-val { grid-column: span 2; }
 .sp-slab { display: flex; align-items: center; gap: .375rem; min-width: 0; font-size: .875rem; font-weight: 500; }
@@ -3191,6 +3218,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .sps-addr { min-width: 0; font-size: .75rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sps-addr.eid { color: var(--text-muted); }
 .sps-test, .sps-use { justify-self: center; }
+.sps-reason { padding: .75rem 0 .75rem 2.75rem; font-size: .875rem; }
 .sps-more { position: relative; }
 .modal.sp-as { width: var(--sp-card); max-width: 100%; min-width: 0; box-sizing: border-box; }
 .sp-as .modal-header { padding: .625rem .75rem .625rem 1.25rem; }
@@ -3287,6 +3315,31 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .spp-set-b > label:last-child { cursor: pointer; }
 .spp-set-err { flex: 1 1 100%; font-size: .75rem; color: #ef5350; }
 .spp-set .sp-inp.bad { border-color: rgba(239, 83, 80, .6); }
+/* A plugin's devices (lights, displays, ...) on its row: rows like Settings › Speakers' */
+.spd-hd { display: flex; align-items: center; gap: .625rem; }
+#sp-menu.cm-if { width: 360px; }
+.cm-if-row { display: flex; flex-wrap: wrap; align-items: center; gap: .375rem; padding-bottom: .5rem; border-bottom: 1px solid rgba(51, 65, 85, .55); }
+.cm-if-t { flex: 1 1 100%; font-size: .8125rem; color: var(--text-primary); }
+.cm-if-row.bare .cm-if-t { flex: 1 1 auto; }
+.cm-if-row .sp-inp { flex: 1 1 0; min-width: 0; }
+.cm-if-row .icon-btn { margin-left: auto; }
+.cm-more { position: relative; }
+.sp-confirm .pop-list { margin: .125rem 0 0; padding-left: 1.125rem; font-size: .8125rem; color: var(--text-primary); line-height: 1.5; }
+.spp-form > .spd-sec:first-child { padding-top: 0; border-top: 0; }
+.spd-hd .sp-cnt { font-size: .75rem; color: var(--text-muted); }
+.spd-scan { margin-left: auto; gap: .375rem; }
+.spd-list { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .5rem; }
+.spd-empty { padding: .75rem; font-size: .8125rem; color: var(--text-muted); }
+.spd-grid { display: grid; grid-template-columns: 28px minmax(110px, 190px) minmax(60px, 1fr) minmax(110px, 150px) auto 44px 32px; column-gap: .625rem; align-items: center; }
+.spd-row { box-sizing: border-box; min-height: 48px; padding: .375rem .75rem; border-bottom: 1px solid rgba(51, 65, 85, .55); }
+.spd-row:last-child { border-bottom: 0; }
+.spd-row:hover { background: var(--bg-card-hover); }
+.spd-row.off .sps-name, .spd-row.off .badges, .spd-row.off select { opacity: .55; }
+.spd-row.offline .sps-name { color: var(--text-secondary); }
+.spd-row .badges { flex-wrap: wrap; row-gap: .25rem; min-width: 0; }
+.spd-acts { display: flex; flex-wrap: wrap; gap: .375rem; }
+.spd-use { justify-self: center; }
+.spd-more { position: relative; }
 .spp-cat-state { display: flex; flex-direction: column; align-items: center; gap: .75rem; padding: 4rem 1rem; font-size: .875rem; color: var(--text-muted); }
 .spp-spin { width: 22px; height: 22px; border: 2px solid var(--border-color); border-top-color: var(--accent-primary); border-radius: 50%; animation: sp-spin 1s linear infinite; }
 .modal.sp-rq { width: 520px; max-width: 100%; min-width: 0; }
@@ -3430,6 +3483,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
     .header-actions { width: auto; flex-wrap: nowrap; gap: .375rem; }
     .header-actions .btn { flex: none; min-width: 0; }
     .header-actions .icon-btn { width: 44px; height: 44px; }
+    .main-header .btn { min-height: 44px; }  /* the height of the bar's icon buttons */
     :root { --page-pad: .75rem; --page-top: .75rem; --box-gap: 12px; }
 }
 
@@ -3442,6 +3496,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
     .sp-inp { min-height: 44px; font-size: 1rem; }
     .sp-inp.sm { min-height: 40px; }
     .sp-ui .icon-btn.sm { width: 40px; height: 40px; }
+    .sp-lrow .btn.btn-sm { min-height: 40px; }  /* the height of the row's ⋯ */
     .sp-ui .chev-btn { width: 36px; height: 36px; }
     #sp-menu .mi { min-height: 44px; font-size: .875rem; }
     #sp-menu .btn-sm { min-height: 40px; }
@@ -3608,6 +3663,17 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
     .spg-none { padding-left: 0; }
 }
 @container sp-col (max-width: 879px) {
+    /* Plugins: a plugin's devices, as speaker rows on a phone */
+    .spd-grid { grid-template-columns: 16px minmax(0, 1fr) auto 44px 40px; grid-template-areas: "dot name name use more" ". src src src src" ". area acts acts acts"; row-gap: .375rem; padding: .5rem .625rem .625rem; }
+    .spd-acts { flex-wrap: nowrap; }
+    .spd-grid .sps-dot { grid-area: dot; }
+    .spd-name { grid-area: name; }
+    .spd-src { grid-area: src; }
+    .spd-src:empty { display: none; }
+    .spd-area { grid-area: area; }
+    .spd-acts { grid-area: acts; justify-content: flex-end; }
+    .spd-use { grid-area: use; }
+    .spd-more { grid-area: more; justify-self: end; }
     /* Plugins: one card per plugin */
     .spp-tabs { display: flex; }
     .spp-tabs button { flex: 1; justify-content: center; }
@@ -3718,6 +3784,15 @@ html { scrollbar-gutter: stable; }
 .te .lk-from { display: flex; align-items: center; gap: .3rem; min-width: 0; font-size: .6875rem; line-height: 1.2; color: var(--text-muted); white-space: nowrap; }
 .te .lk-src { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .te .lk-ic { display: inline-flex; flex: none; color: #c4b5fd; }
+/* Copy a linked file into the theme: a small download button after "from <theme>" */
+.te .lk-copy { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 22px; margin: -4px 0; padding: 0;
+    border: 1px solid transparent; border-radius: .25rem; background: none; color: var(--text-secondary); cursor: pointer; }
+.te .lk-copy svg { width: 13px; height: 13px; }
+.te .lk-copy:hover, .te .lk-copy:focus-visible { color: var(--text-primary); border-color: var(--accent-secondary); }
+@media (max-width: 768px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
+    .te .lk-copy { width: 32px; height: 32px; margin: -8px 0; }
+    .te .lk-copy svg { width: 15px; height: 15px; }
+}
 .te .badge-missing { height: 16px; padding: 0 .3rem; background: rgba(239, 68, 68, .15); color: var(--accent-danger); font-size: .625rem; }
 /* Missing source: greyed; only ⋯ (Remove link) stays live */
 .te .trow.missing .trk-name, .te .trow.missing .mx, .te .trow.missing .c-mode, .te .trow.missing .track-preview-btn, .te .trow.missing .track-mute-btn { opacity: .4; }
@@ -3869,15 +3944,24 @@ button.pk-row { cursor: pointer; }
 
 /* Channels page (docs/design/Channels_Blocks.dc.html): equal-size channel blocks */
 .session-grid.ch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: var(--box-gap, .875rem); align-items: start; }
-.ch-card { display: flex; flex-direction: column; gap: .5rem; height: 404px; box-sizing: border-box; padding: .875rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .625rem; }
+.ch-card { display: flex; flex-direction: column; gap: .5rem; min-height: 326px; box-sizing: border-box; padding: .875rem; background: var(--bg-card); border: 1px solid var(--border-color); border-radius: .625rem; }
 .ch-card.on { border-color: rgba(6, 214, 160, .45); }
-.ch-head { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto auto auto; align-items: center; column-gap: .5rem; }
+.ch-head { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto auto; align-items: center; column-gap: .5rem; }
+/* Edit and ⋯: the same size as the card's mode buttons, so the header ends on their right edge */
+.ch-head .icon-btn.sm { width: 36px; height: 36px; }
+.ch-head .icon-btn svg { width: 16px; height: 16px; }
 .ch-icon { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; font-size: 1.375rem; }
 .ch-title { display: flex; flex-direction: column; min-width: 0; }
 .ch-name { font-size: .9375rem; font-weight: 600; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.ch-sub { font-size: .75rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ch-sub { display: flex; align-items: center; min-width: 0; font-size: .75rem; color: var(--text-muted); white-space: pre; overflow: hidden; }
+/* The speakers are cut short; the marks after them (Kid mode, owner) always show */
+.ch-sub > * { flex: none; }
+.ch-sub > .ch-sub-txt { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .ch-state { padding: .125rem .5rem; border-radius: 999px; font-size: .6875rem; color: var(--text-muted); background: var(--bg-secondary); }
 .ch-state.on { color: var(--accent-primary); background: rgba(6, 214, 160, .12); }
+/* A sleep timer runs: a moon and the time left instead of Playing */
+.ch-state.ch-sleep { display: inline-flex; align-items: center; gap: .25rem; font-variant-numeric: tabular-nums; }
+.ch-state.ch-sleep svg { width: 11px; height: 11px; flex: none; }
 /* Theme and Preset (or Playlist and Playing), with the buttons that choose between them */
 .ch-src { display: grid; grid-template-columns: 56px minmax(0, 1fr) 36px; grid-template-rows: 36px 36px; align-items: center; gap: .5rem; }
 .ch-modes { grid-column: 3; grid-row: 1 / 3; display: flex; flex-direction: column; gap: .5rem; }
@@ -3897,7 +3981,9 @@ button.pk-row { cursor: pointer; }
 .ch-pick .wl { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
 .ch-pick .wl.dflt { font-style: italic; color: var(--text-muted); }
 .ch-now { display: flex; align-items: center; gap: .5rem; min-height: 32px; padding: 0 .125rem 0 64px; font-size: .8125rem; color: var(--text-secondary); }
-.ch-now-txt { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ch-now-txt { flex: 1 1 auto; display: flex; min-width: 0; overflow: hidden; white-space: pre; }
+.ch-now-main { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ch-now-cd { flex: none; }
 .ch-now b { color: var(--text-primary); font-weight: 600; }
 .ch-cd { font-variant-numeric: tabular-nums; }
 .ch-none { color: var(--text-muted); }
@@ -3912,22 +3998,16 @@ button.pk-row { cursor: pointer; }
 .ch-vol-ic.ch-listen, .ch-vol-ic.ch-mute { cursor: pointer; }
 .ch-vol-ic.ch-listen:not(.on):hover, .ch-vol-ic.ch-mute:not(.on):not(.muted):hover { color: var(--text-primary); border-color: var(--accent-secondary); }
 .ch-vol-val { font-size: .75rem; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
-.ch-recent { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: .25rem; padding: .5rem .625rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: .5rem; overflow: hidden; }
-.ch-recent-hd { font-size: .6875rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-.ch-recent ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .125rem; overflow-y: auto; scrollbar-width: thin; }
-.ch-recent li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: .5rem; font-size: .75rem; color: var(--text-secondary); }
-.ch-recent time { color: var(--text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.ch-recent li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ch-foot { display: flex; }
+.ch-foot { display: flex; margin-top: auto; }
 .ch-play { flex: 1; justify-content: center; min-height: 40px; gap: .375rem; }
 @media (max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px) {
     .session-grid.ch-grid { grid-template-columns: minmax(0, 1fr); }
-    .ch-card { height: 472px; }  /* the larger touch targets need room for three Recent changes lines */
+    .ch-card { min-height: 350px; }
     .ch-src { grid-template-columns: 56px minmax(0, 1fr) 44px; grid-template-rows: 44px 44px; }
     .ch-pick { min-height: 44px; height: 44px; }
     .ch-mode { width: 44px; height: 44px; }
     .ch-play { min-height: 44px; }
-    .ch-head .icon-btn.sm { width: 40px; height: 40px; }
+    .ch-head .icon-btn.sm { width: 44px; height: 44px; }
 }
 
 /* Channel Edit dialog: Theme or Playlist */
@@ -4362,11 +4442,7 @@ body.screen-on .sidebar, body.screen-on .main-wrapper, body.screen-on .mobile-to
     .ch-src .ch-mode:first-child { grid-area: 2 / 2; }
     .ch-src .ch-mode:last-child { grid-area: 4 / 2; }
     .ch-now { padding-left: 0; }
-    .ch-card { height: 481px; }
-}
-/* Narrow, short phones: Play stays on screen; Recent changes shows one line */
-@media (max-width: 400px) and (max-height: 600px) {
-    .ch-card { height: 445px; }
+    .ch-card { min-height: 388px; }
 }
 
 /* Short screens (landscape phones): one header row - menu, logo, page title, actions */
@@ -4399,16 +4475,10 @@ body.screen-on .sidebar, body.screen-on .main-wrapper, body.screen-on .mobile-to
 
 /* Wide phone screens (foldable, landscape, portrait tablet): the card in two halves, one card per row */
 @media (min-width: 600px) and (max-width: 768px), (min-width: 600px) and (max-height: 480px), (pointer: coarse) and (min-width: 600px) and (max-width: 999px) {
-    .ch-card { --ch-h: 251px; display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 1rem; row-gap: .5rem; height: var(--ch-h); max-width: var(--sp-col); }
-    /* A linked channel's link row (zones) adds its own height, so Recent changes keeps its room */
-    .ch-card:has(> .ch-link) { grid-template-rows: auto auto minmax(0, 1fr); height: calc(var(--ch-h) + 42px); }
+    .ch-card { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-content: start; column-gap: 1rem; row-gap: .5rem; min-height: 218px; max-width: var(--sp-col); }
     .ch-card > :not(.ch-a):not(.ch-b) { grid-column: 1 / -1; }
     .ch-a, .ch-b { display: flex; flex-direction: column; gap: .5rem; min-height: 0; }
     .ch-b { gap: .25rem; }
-    .ch-b .ch-recent { flex: 1 1 auto; }
-}
-@media (min-width: 600px) and (max-width: 768px) and (min-height: 481px), (pointer: coarse) and (min-width: 600px) and (max-width: 999px) and (min-height: 481px) {
-    .ch-card { --ch-h: 287px; }
 }
 
 /* Tablets (touch screen, desktop layout): everything one size larger.

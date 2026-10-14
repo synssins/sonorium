@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- What the tray console, the host and the updater share: where things are, the
+       desktop settings file, the service, and the exit codes between host and Sonorium. -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <RootNamespace>Sonorium.Desktop</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+  </ItemGroup>
+</Project>

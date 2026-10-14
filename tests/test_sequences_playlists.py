@@ -198,6 +198,62 @@ def test_unknown_or_empty_sequence_is_refused(tmp_path):
         t.manager.start_sequence(t.session.id, "empty")  # its only preset no longer exists
 
 
+def test_hand_written_sequence_values_are_checked_when_read(tmp_path, caplog):
+    """presets.json written by hand: out-of-range values clamped to the API's limits, unknown ones left out, logged."""
+    themes = json.loads(json.dumps(THEMES))
+    themes["storm"]["sequence_defaults"] = {"hold_min": -5, "hold_max": "long", "ramp": 10 ** 9}
+    themes["storm"]["sequences"]["hand"] = {
+        "name": 42, "presets": ["a", 7, "b"], "at_end": "bounce", "owner": "me",
+        "hold_min": -1, "hold_max": 1e12, "ramp": "slow",
+        "transitions": {"b": {"in": {"Rain": {"styles": ["dist", "wobble"], "values": {"dist": 250, "zap": 1},
+                                              "pre_fade": 500, "max_volume": 2, "colour": "red"},
+                                     "Wind": "loud"},
+                              "sideways": {}},
+                        "zz": {"in": {}}},
+        "while": {"b": {"tracks": {"Rain": {"volume": 3, "presence": -1, "rise": 0.5, "muted": "yes",
+                                            "pause_max": 1e12, "pitch": 2}},
+                        "groups": {"Thunder": {"gap_min": -30, "mode": "ebb_flow"}}, "extra": {}},
+                  "zz": {"tracks": {}}},
+    }
+    themes["storm"]["sequences"]["broken"] = ["not", "a", "sequence"]
+    t = build(tmp_path, themes)
+    folder = t.folders["storm"]
+    with caplog.at_level("WARNING"):
+        defaults = m.sequences.load_defaults(folder)
+        sequences = m.sequences.load_sequences(folder)
+        m.sequences.load_sequences(folder)  # read again: said once
+    week = m.sequences.MAX_SECONDS
+    assert defaults == {"hold_min": 0.0, "hold_max": 900.0, "ramp": float(week)}
+    assert "broken" not in sequences and sequences["up_down"]["presets"] == ["a", "b", "c"]
+    hand = sequences["hand"]
+    assert hand["name"] == "hand" and hand["presets"] == ["a", "b"] and hand["at_end"] == "reverse"
+    assert hand["owner"] is None
+    assert (hand["hold_min"], hand["hold_max"], hand["ramp"]) == (0.0, float(week), None)
+    assert hand["transitions"] == {"b": {"in": {"Rain": {"styles": ["dist"], "values": {"dist": 100.0},
+                                                         "pre_fade": 90.0, "max_volume": 1.0}}}}
+    rain = hand["while"]["b"]["tracks"]["Rain"]
+    assert (rain["volume"], rain["presence"], rain["rise"], rain["muted"], rain["pause_max"]) == (1.0, 0.0, 0.5, None, float(week))
+    assert "pitch" not in rain
+    assert hand["while"]["b"]["groups"]["Thunder"]["gap_min"] == 0.0 and "mode" not in hand["while"]["b"]["groups"]["Thunder"]
+    assert set(hand["while"]) == {"b"}
+    # What the API shows and what a step plays are within limits
+    assert m.sequences.step_while(hand, "b")["tracks"]["Rain"]["volume"] == 1.0
+    m.sequences.to_response("hand", hand, defaults)
+    # Each problem is in the log, once
+    lines = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any("sequence 'hand': at_end 'bounce'" in line for line in lines)
+    assert any("'Rain': volume: 3 is outside 0-1, 1 used" in line for line in lines)
+    assert any("unknown style 'wobble'" in line for line in lines)
+    assert any("sequence 'broken' is not an object" in line for line in lines)
+    assert any("sequence_defaults.hold_max: 'long' is not a number" in line for line in lines)
+    assert len(lines) == len(set(lines))
+    assert all("storm" in line and "presets.json" in line for line in lines)
+    # The runner plays it as checked
+    playing = t.manager.runner.sequence("storm", "hand")
+    assert playing["presets"] == ["a", "b"] and playing["at_end"] == "reverse"
+    assert (playing["hold_min"], playing["ramp"]) == (0.0, float(week)) and playing["while"] == hand["while"]
+
+
 def test_removing_a_preset_drops_it_from_sequences(tmp_path):
     t = build(tmp_path)
     changed = m.sequences.drop_preset(t.folders["storm"], "b")
@@ -356,7 +412,97 @@ def test_next_skips_to_the_next_entry_or_sequence_step(tmp_path):
     assert t.session.preset_id == "dusk"
     assert t.channel.glides()[-1] == 3.0 and t.channel.fades[-1] == 3.0  # Next by hand: the quick 3 s
     t.manager.stop_sequence(t.session.id)
+    assert run(t.manager.skip(t.session.id)) == "preset"  # nothing runs: the theme's next preset
+    assert t.session.preset_id is None  # after the last preset (Dusk), Default settings
+
+
+def test_previous_goes_back_one_playlist_entry(tmp_path):
+    t = build(tmp_path)
+    add_playlist(t, ENTRIES)
+    run(t.manager.play(t.session.id))
+    t.manager.set_playlist(t.session.id, "p1")
+    run(t.manager.skip(t.session.id))
+    assert t.session.theme_id == "forest"
+    assert run(t.manager.previous(t.session.id)) == "playlist"
+    assert t.session.theme_id == "tavern" and t.session.playlist_position == 0
+    assert run(t.manager.previous(t.session.id)) == "playlist"  # repeats: the first wraps to the last
+    assert t.session.theme_id == "storm" and t.session.playlist_position == 2
+
+
+def test_previous_on_the_first_entry_of_a_playlist_that_does_not_repeat(tmp_path):
+    t = build(tmp_path)
+    add_playlist(t, ENTRIES, repeat=False)
+    run(t.manager.play(t.session.id))
+    t.manager.set_playlist(t.session.id, "p1")
+    assert run(t.manager.previous(t.session.id)) == "playlist"  # the first entry starts again
+    assert t.session.theme_id == "tavern" and t.session.playlist_position == 0 and t.session.is_playing
+
+
+def test_previous_steps_a_sequence_back(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.start_sequence(t.session.id, "once")
+    at(t, 13)
+    at(t, 28)
+    assert t.session.preset_id == "c"
+    assert run(t.manager.previous(t.session.id)) == "sequence" and t.session.preset_id == "b"
+    assert t.channel.glides()[-1] == 3.0  # by hand: the quick 3 s
+    assert run(t.manager.previous(t.session.id)) == "sequence" and t.session.preset_id == "a"
+    assert run(t.manager.previous(t.session.id)) == "sequence" and t.session.preset_id == "a"  # first step again
+    assert t.session.sequence_id == "once"
+    assert "Step 1 of 3: Drizzle" in recent_texts(t)
+
+
+def test_previous_wraps_a_restarting_sequence(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.start_sequence(t.session.id, "loop")
+    assert run(t.manager.previous(t.session.id)) == "sequence" and t.session.preset_id == "c"
+
+
+def test_previous_without_a_playlist_or_sequence_picks_the_previous_preset(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.update(t.session.id, preset_id="c")
+    seen = []
+    for _ in range(4):
+        assert run(t.manager.previous(t.session.id)) == "preset"
+        seen.append(t.session.preset_id)
+    assert seen == ["b", "a", None, "c"]  # Default settings first; before it, the last preset
+    assert t.channel.glides()[-1] == 3.0
+    assert recent_texts(t)[-2:] == ["Preset: Default settings", "Preset: Downpour"]
+
+
+def test_next_without_a_playlist_or_sequence_picks_the_next_preset(tmp_path):
+    t = build(tmp_path)
+    run(t.manager.play(t.session.id))
+    t.manager.update(t.session.id, preset_id="")
+    seen = []
+    for _ in range(4):
+        assert run(t.manager.skip(t.session.id)) == "preset"
+        seen.append(t.session.preset_id)
+    assert seen == ["a", "b", "c", None]  # after the last preset, Default settings
+    assert run(t.manager.skip(t.session.id)) == "preset" and t.session.preset_id == "a"
+    assert t.channel.glides()[-1] == 3.0
+    assert recent_texts(t)[-2:] == ["Preset: Default settings", "Preset: Drizzle"]
+
+
+def test_next_with_nothing_to_go_to(tmp_path):
+    t = build(tmp_path)
+    t.manager.update(t.session.id, theme_id="beach")  # a theme without presets
+    run(t.manager.play(t.session.id))
     assert run(t.manager.skip(t.session.id)) is None
+    with pytest.raises(KeyError):
+        run(t.manager.skip("nope"))
+
+
+def test_previous_with_nothing_to_go_back_to(tmp_path):
+    t = build(tmp_path)
+    t.manager.update(t.session.id, theme_id="beach")  # a theme without presets
+    run(t.manager.play(t.session.id))
+    assert run(t.manager.previous(t.session.id)) is None
+    with pytest.raises(KeyError):
+        run(t.manager.previous("nope"))
 
 
 # --- Recent changes (the channel card's list) ---
@@ -707,7 +853,8 @@ def test_listen_hold_seconds_keeps_the_mix_through_a_dropout(tmp_path):
     assert released(t) and not t.manager.is_listened(t.session)
     assert t.manager.listen_hold(sid) == m.session_manager.LISTEN_RELEASE_SECONDS  # back to the default
     assert [e for e in events if e[0] == "channel.listening"] == [
-        ("channel.listening", {"listening": True}), ("channel.listening", {"listening": False})]
+        ("channel.listening", {"listening": True, "devices": 1, "playing": True}),
+        ("channel.listening", {"listening": False, "devices": 0, "playing": False})]
 
 
 def test_listen_hold_seconds_bounds_and_the_longest_counts(tmp_path):

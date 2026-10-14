@@ -2,8 +2,8 @@
 Tokens: one implementation for every secret Sonorium hands out.
 
     linked phones      "sd_..."   (core pairing)
-    browser sessions   "ss_..."   (the Users plugin)
-    keys               "sk_..."   (the Integration plugin)
+    browser sessions   "ss_..."   (auth/users.py)
+    keys               "sk_..."   (auth/keys.py)
     plugin triggers and the event stream: older tokens without a prefix,
                        one per scope ("plugin:<id>", "trigger:<id>/<trigger>", "events")
 
@@ -140,6 +140,16 @@ class TokenService:
             record["last_used"] = iso(now)
             self._touched()
         return token_id, record
+
+    def touch(self, token_id: str) -> None:
+        """Note that the token was used now (an accepted request; at most every 30 seconds)."""
+        record = self.records.get(token_id)
+        if record is None:
+            return
+        now = self.clock()
+        if now - (ts(record.get("last_used")) or 0) > 30:
+            record["last_used"] = iso(now)
+            self._touched()
 
     def get(self, token_id: str) -> Optional[dict]:
         return self.records.get(token_id)

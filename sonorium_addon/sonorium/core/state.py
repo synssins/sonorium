@@ -76,12 +76,17 @@ class SonoriumSettings:
     default_volume: int = 60
     crossfade_duration: float = 3.0
     max_groups: int = 20
-    entity_prefix: str = "sonorium"
+    # (entity_prefix was never used: every entity id starts with "sonorium_";
+    # from_dict drops it from older state files)
     show_in_sidebar: bool = True
     auto_create_quick_play: bool = True
 
     # Master output gain (0-100, applied to all streams)
     master_gain: int = 60
+
+    # Settings > Audio Settings > Stereo: channels mix in stereo (a mono file
+    # centred). Off: mono, as Sonorium has always played (decoders.set_default_channels)
+    stereo: bool = False
 
     # (default_cycle_interval / default_cycle_randomize were removed with theme
     # cycling; from_dict drops them from older state files)
@@ -156,16 +161,34 @@ class SonoriumSettings:
     # this install (see runtime.FEATURES). Format: {"network_speakers": true}
     feature_overrides: dict[str, bool] = field(default_factory=dict)
 
+    # Settings > Plugins, ⋯: "Allow output to more than one local device". Off:
+    # one device of the machine Sonorium runs on plays at a time (output types
+    # with local = True, core/audio_outputs.py); on: they play like network speakers
+    allow_multiple_local_outputs: bool = False
+
     # Settings > Advanced: playback values changed from their defaults (see
     # sonorium/playback_values.py). Format: {"loop_crossfade": 2.0}
     playback_values: dict[str, float] = field(default_factory=dict)
+
+    # Settings > Advanced > Server name: GET /api/info "name" and the mDNS TXT
+    # name (see sonorium/servername.py). "" = "Sonorium"
+    server_name: str = ""
+
+    # Plugin attribute schemas, kept while each plugin is installed (switched off
+    # too), so they are known before any plugin loads (core/plugin_data.py).
+    # Format: {"wled": {"track": {"cue": {"type": "enum", "options": [...]}}}}
+    plugin_attributes: dict[str, dict] = field(default_factory=dict)
+
+    # Plugin attributes on objects whose records are kept elsewhere (areas, keys,
+    # connections): {kind: {object_id: {plugin_id: {name: value}}}} (core/plugin_data.py)
+    object_plugins: dict[str, dict] = field(default_factory=dict)
 
     # Deleted builtin plugins (prevents auto-reinstall on startup)
     # When a user deletes a builtin plugin, its ID is added here so it won't be restored
     deleted_builtin_plugins: list[str] = field(default_factory=list)
 
-    # Built-in plugins already seen once: one marked "enabled_by_default" (the
-    # sign-in plugins) is switched on the first time only, never again after
+    # Built-in plugins already seen once: one marked "enabled_by_default" is
+    # switched on the first time only, never again after
     # the user switched it off
     known_builtin_plugins: list[str] = field(default_factory=list)
 
@@ -266,6 +289,9 @@ class SpeakerGroup:
     
     created_at: str = ""  # ISO format
     updated_at: str = ""  # ISO format
+
+    # Plugin attributes on this group: {plugin_id: {name: value}} (core/plugin_data.py)
+    plugins: dict = field(default_factory=dict)
     
     def __post_init__(self):
         now = datetime.utcnow().isoformat()
@@ -346,7 +372,17 @@ class Session:
     created_at: str = ""  # ISO format
     last_played_at: Optional[str] = None  # ISO format
     entity_slug: Optional[str] = None
-    
+
+    # A personal channel's account ("user:<id>", "ha:<id>" or "local"; None for
+    # every other channel): hidden, local only (core/session_manager.py)
+    owner: Optional[str] = None
+
+    # Plugin attributes on this channel: {plugin_id: {name: value}} (core/plugin_data.py)
+    plugins: dict = field(default_factory=dict)
+
+    # The sleep timer: when the channel fades out and stops (UTC ISO time), or None (core/sleep_timer.py)
+    sleep_until: Optional[str] = None
+
     def __post_init__(self):
         if not self.created_at:
             self.created_at = datetime.utcnow().isoformat()
@@ -422,6 +458,11 @@ class SonoriumState:
     # Playlists ({playlist_id: data}, see core/playlists.py)
     playlists: dict[str, dict] = field(default_factory=dict)
 
+    # Personal channels, one per account (Session.owner set): kept apart from
+    # `sessions` so nothing that lists channels ever sees them. Saved under
+    # "personal_channels" (an older version ignores the key)
+    personal_sessions: dict[str, Session] = field(default_factory=dict)
+
     # Channels' theme cycling has been converted to playlists (core/playlists.migrate_cycling)
     cycling_migrated: bool = False
 
@@ -436,6 +477,7 @@ class SonoriumState:
             "sessions": {k: v.to_dict() for k, v in self.sessions.items()},
             "playlists": {k: dict(v) for k, v in self.playlists.items()},
             "cycling_migrated": self.cycling_migrated,
+            "personal_channels": {k: v.to_dict() for k, v in self.personal_sessions.items()},
         }
     
     @classmethod
@@ -456,7 +498,18 @@ class SonoriumState:
 
         if isinstance(data.get("playlists"), dict):
             state.playlists = {k: dict(v) for k, v in data["playlists"].items() if isinstance(v, dict)}
+            from sonorium.core.playlists import ensure_entry_ids
+            for playlist in state.playlists.values():
+                ensure_entry_ids(playlist)
         state.cycling_migrated = bool(data.get("cycling_migrated", False))
+
+        if isinstance(data.get("personal_channels"), dict):
+            for k, v in data["personal_channels"].items():
+                if isinstance(v, dict) and v.get("owner"):
+                    session = Session.from_dict(dict(v))
+                    session.is_playing = False  # never on speakers
+                    session.speaker_group_id, session.adhoc_selection = None, None
+                    state.personal_sessions[k] = session
         
         return state
 
@@ -479,7 +532,7 @@ class StateStore:
             return self.state
 
         try:
-            data = json.loads(self.state_file.read_text())
+            data = json.loads(self.state_file.read_text(encoding='utf-8'))
             self.state = SonoriumState.from_dict(data)
 
             # Reset all sessions to stopped state on startup
@@ -503,9 +556,12 @@ class StateStore:
             # Ensure directory exists
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             
-            # Write with pretty formatting
+            # Write with pretty formatting, atomically (a temp file, then replaced):
+            # a hard stop while writing never leaves a cut-off state.json
             data = self.state.to_dict()
-            self.state_file.write_text(json.dumps(data, indent=2))
+            tmp = self.state_file.with_name(self.state_file.name + ".tmp")
+            tmp.write_text(json.dumps(data, indent=2))
+            os.replace(tmp, self.state_file)
             
             logger.debug(f"  Saved {len(self.state.sessions)} sessions, {len(self.state.speaker_groups)} groups")
         except Exception as e:
@@ -524,6 +580,10 @@ class StateStore:
     @property
     def speaker_groups(self) -> dict[str, SpeakerGroup]:
         return self.state.speaker_groups
+
+    @property
+    def personal_sessions(self) -> dict[str, Session]:
+        return self.state.personal_sessions
 
     @property
     def playlists(self) -> dict[str, dict]:

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Sonorium.Tray.Pages.GeneralPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:t="using:Sonorium.Tray">
+    <ScrollViewer>
+        <StackPanel>
+            <TextBlock Text="General" Style="{StaticResource TitleTextBlockStyle}" Margin="0,4,0,18" />
+            <t:SettingCard>
+                <t:SettingRow Glyph="&#xE930;" Title="Run Sonorium as" Description="A service starts with Windows, before anyone signs in.">
+                    <t:Segmented x:Name="RunAs" Items="!A service|When I sign in" />
+                </t:SettingRow>
+                <t:SettingRow x:Name="SignInRow" Glyph="&#xE713;">
+                    <t:LabeledToggle x:Name="StartAtSignIn" />
+                </t:SettingRow>
+                <t:SettingRow Glyph="&#xE8A7;" Title="Open Sonorium in my browser when it starts">
+                    <t:LabeledToggle x:Name="OpenBrowser" AccessibleName="Open Sonorium in my browser when it starts" />
+                </t:SettingRow>
+                <t:SettingRow x:Name="PortRow" Glyph="&#xE774;" Title="Port">
+                    <TextBox x:Name="Port" Width="90" InputScope="Number" AutomationProperties.Name="Port" />
+                </t:SettingRow>
+                <t:SettingRow Glyph="&#xE774;" Title="Stream address for speakers"
+                              Description="Leave on Automatic unless speakers can't reach this computer by its name.">
+                    <TextBox x:Name="StreamUrl" MinWidth="240" PlaceholderText="Automatic" AutomationProperties.Name="Stream address for speakers" />
+                </t:SettingRow>
+                <t:SettingRow Glyph="&#xE930;" Title="Channels" Description="How many channels can play at once (1 to 10).">
+                    <NumberBox x:Name="Channels" Width="70" Minimum="1" Maximum="10" SpinButtonPlacementMode="Hidden"
+                               AutomationProperties.Name="Channels" />
+                </t:SettingRow>
+            </t:SettingCard>
+            <InfoBar x:Name="Problem" Severity="Error" IsOpen="False" Margin="0,8,0,0" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

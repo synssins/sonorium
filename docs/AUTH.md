@@ -1,21 +1,24 @@
 # Sign-in, linked phones and keys
 
 How Sonorium decides who may do what. Think of it as a building: the core
-is the front door with its lock and a guest list, the **Users** plugin hands
-out keycards to the people who live there, and the **Integration** plugin
-cuts spare keys that open only some rooms.
+is the front door with its lock and a guest list, **Users** hand out
+keycards to the people who live there, and **Keys** are spare keys that open
+only some rooms. All three are part of Sonorium.
 
 ## The parts
 
 | Part | Where | What it does |
 |---|---|---|
 | Core | `sonorium/auth/` | Checks every request against the route's permission, keeps tokens (as hashes), the server's identity and HTTPS certificate, Link App and phone linking, `/api/info`, mDNS |
-| Users plugin | `plugins/builtin/users/` | Accounts and roles, browser sign-in, Require login, one-time sign-in codes, Users & devices, Home Assistant's users (add-on) |
-| Integration plugin | `plugins/builtin/integration/` | Keys with only the abilities you check (Settings › Keys) |
+| Users | `sonorium/auth/users.py`, `accounts.py`, `passwords.py`, `ha_users.py`; Zones in `sonorium/core/zones.py`; web UI `static/js/ext/users.js`, `zones.js` | Accounts and roles, browser sign-in, Require login, one-time sign-in codes, Users & devices, Home Assistant's users (add-on), Zones |
+| Keys (core) | `sonorium/auth/keys.py` | Keys with only the abilities you check (Settings › Keys); switched on or off in Settings › Advanced |
 
-Both plugins are built in and start switched on. Without the Users plugin,
-Sonorium is open to anyone on your network, the way it was before sign-in
-existed. Switching it off (or uninstalling it) asks first.
+Users have no on/off switch. Sign-in stays optional: with **Require login**
+off (and on updated installs until you turn it on) Sonorium is open to anyone
+on your network; `BYPASS_LOGIN` opens it for recovery. If the accounts
+(`users.json`) can't be loaded, sign-in stays closed: only streams and the
+public routes answer (503 "Sign-in didn't start. See Logs."), so a failure
+never leaves Sonorium open.
 
 ## Ports
 
@@ -36,22 +39,26 @@ For each request the core works out the caller, first match wins:
 1. **HA's sidebar** (add-on, port 8099, from the Supervisor): Home Assistant
    already signed the person in. The `X-Remote-User-*` headers name the HA
    user; they get their Sonorium user and the role HA gives them (see Home
-   Assistant's users). Without the Users plugin: full access. The same
+   Assistant's users). The same
    headers on any other port mean nothing.
 2. **A linked phone** (`Authorization: Bearer sd_...`): what its user may do,
-   but never managing users, devices or keys. Linked without the Users
-   plugin: full access, less those.
+   but never managing users, devices or keys. Linked with nobody signed
+   in while Require login is off: full access, less those.
 3. **A key** (`Bearer sk_...`, `X-Sonorium-Token`, or `?token=`): only the
    boxes checked on it, and only its channels if it has a list. A key made
    by a user who is now switched off in Home Assistant is refused.
 4. **A signed-in browser** (the `sonorium_session` cookie): its user's role.
 5. **BYPASS_LOGIN on:** the web UI needs no sign-in (see Recovery).
-6. **Nobody recognised:** with the Users plugin, open access while Require
-   login is off, otherwise nothing but the sign-in pages. Without it, full
-   access.
+6. **Nobody recognised:** open access while Require login is off,
+   otherwise nothing but the sign-in pages.
 
 A revoked phone or key, or a signed-out browser, is refused on its next
 request: the core looks the token up every time.
+
+When the program running Sonorium sets `SONORIUM_CONSOLE_TOKEN_FILE`, one
+more caller is checked before linked phones: its console (`Bearer sc_...`),
+from this computer only, with an admin's rights. See
+[HOSTING.md](HOSTING.md#console-credential-sonorium_console_token_file).
 
 ## Roles
 
@@ -86,11 +93,17 @@ Keys never manage users or keys. A key is shown once, when it's made; only
 its hash is kept. Changing a key's boxes, name or expiry works on its next
 request. Expiry: 7, 30 or 90 days, a year, or never.
 
+Keys are part of Sonorium and on by default. **Settings › Advanced › Keys**
+switches them off at once, without a restart: no key is accepted (401 "Keys
+are off"), `/api/keys` answers 404 and **Settings › Keys** leaves the menu.
+The keys stay stored; switched back on, they work again. Keys made before
+Keys were part of the core (by the Integration plugin of 1.7.0) keep working.
+
 The plugin framework's older tokens (one per plugin, per trigger, and for the
 event stream) keep working. Triggers and the event stream always need a token
 or a key, even while sign-in is off.
 
-## Accounts and sign-in (Users plugin)
+## Accounts and sign-in
 
 - **New install:** the first visit shows **Create the admin account**, and
   Require login is on. Streams keep playing meanwhile.
@@ -161,7 +174,7 @@ User. A Sonorium password one of them had set is dropped: like everyone
 else, they sign in on the direct port with their Home Assistant password.
 One password per person, kept by HA.
 
-## Zones (Users plugin)
+## Zones
 
 Off by default: Settings › Advanced › **Zones** (an admin). With it off, every
 channel is open, as above. Think of each channel as a room's radio.
@@ -171,7 +184,7 @@ channel is open, as above. Think of each channel as a room's radio.
   an admin gives them an owner (the channel editor's **Owner**).
 - **A user's zone:** only its owner and admins change it (what it plays, its
   volume, its speakers, play and stop, delete). Other users can see it.
-- **Kid mode** (per zone, by an admin): only an admin changes its speakers.
+- **Child Mode** (per zone, by an admin): only an admin changes its speakers.
   Its **Hours** (also the admin's): outside them the owner can't play it or
   change what it plays; stopping always works. At the end of the hours, what
   the owner started fades out over 30 seconds and stops; what an admin started
@@ -195,8 +208,8 @@ channel is open, as above. Think of each channel as a room's radio.
   link** for them (Users & devices, ⋯); an admin always may, and can pull a
   channel back in.
 
-Who is calling comes from the request (`current_caller()`); the Users
-plugin's `zones.py` is the session manager's policy
+Who is calling comes from the request (`current_caller()`);
+`sonorium/core/zones.py` is the session manager's policy
 (`sonorium/core/channel_policy.py`) while Zones are on. Kept in `zones.json`.
 
 ## Linking a phone (core)
@@ -219,7 +232,7 @@ sonorium://pair?v=1&id=<server id>&n=Sonorium&h=<host>[,<host2>,...]&p=<http por
 ```
 
 - `h` lists the addresses to try, in order: first the one speakers use
-  (Settings › Connection's stream URL, or the detected one), never an ingress
+  (Settings › Advanced's stream URL, or the detected one), never an ingress
   address; then the server's other LAN IPv4 addresses (not loopback or
   Docker's internal networks); last its mDNS name (`sonorium.local`) when it
   is announced. `p` is the HTTP port speakers use.
@@ -234,7 +247,7 @@ platform}` and gets `{device_id, token}` once. Five pairing attempts a
 minute per address; each is logged.
 
 **Without the QR code**, the app signs in with a username and password
-(`POST /api/pair/login`, HTTPS, Users plugin). It can't check the
+(`POST /api/pair/login`, HTTPS). It can't check the
 certificate in advance, so the app and Sonorium both show four words made
 from the certificate's fingerprint (Sonorium: the Link App dialog; the app:
 from the certificate it received, with the list in `sonorium/auth/wordlist.py`,
@@ -303,13 +316,12 @@ without the extra names: the app checks the fingerprint, not the names.
 |---|---|
 | `security.json` (0600) | The signing secret (CSRF) and every token's SHA-256: phones, browser sessions, keys |
 | `users.json` (0600) | Accounts (Argon2id hashes; none for Home Assistant's users), Require login, Can leave a link |
-| `zones.json` | Zones: on or off, owners, Kid mode and hours, speaker homes, links |
+| `zones.json` | Zones: on or off, owners, Child Mode and hours, speaker homes, links |
 | `server.json` | The server ID |
 | `tls/cert.pem`, `tls/key.pem` (0600) | The HTTPS certificate (ECDSA P-256, 20 years) |
 | `plugin_secrets.json` (0600) | The plugin framework's older trigger and event-stream tokens (hashes) |
 
-All in Sonorium's config folder. Uninstalling the Users plugin keeps
-`users.json`, so switching it back on brings the accounts back.
+All in Sonorium's config folder.
 
 ## API
 
@@ -317,35 +329,49 @@ Core:
 
 | Route | Who |
 |---|---|
-| `GET /api/info` | anyone: server id, name, version, `api`, install type, features, ports, `host` (the speakers' address), `hostname` (the mDNS name, or null), `login_required`, fingerprint, `boot_id` (new at every start), `ui` (the web UI's version and hook version) |
-| `GET /api/auth/me` | anyone: who you are, your permissions, CSRF token, bypass |
+| `GET /api/info` | anyone: server id, name, version, `api`, install type, features, ports, `host` (the speakers' address), `hostname` (the mDNS name, or null), `login_required`, fingerprint, `boot_id` (new at every start), `ui` (the web UI's version and hook version), `capabilities` (below) |
+| `GET /api/auth/me` | anyone: who you are, your permissions, CSRF token, bypass, `accounts` |
 | `POST /api/link` | signed in (or open access): a Link App code and QR |
 | `POST /api/pair` | anyone, HTTPS: code → phone token |
 | `GET /api/devices`, `DELETE /api/devices/{id}` | your phones; an Admin: everyone's (a phone: only itself) |
 | `GET`, `PUT`, `DELETE /api/devices/self` | a linked phone: its own record, a new name, unlinking itself |
 | `GET /api/stream/url` | the stream URLs on the direct port |
 
-Users plugin: `POST /api/auth/setup`, `/api/auth/login`, `/api/auth/logout`,
+`capabilities` in `GET /api/info` lists what this server offers, so an app shows only those
+menus. A server without the list is older: it offers everything. The list describes the server,
+the same for every caller; what a caller may do is still checked per route.
+
+| Name | Present |
+|---|---|
+| `channels.create`, `speakers`, `speaker_groups`, `spaces`, `audio_settings`, `advanced`, `logs`, `status`, `listen`, `theme_packages` | always |
+| `connection` | Home Assistant and MQTT settings are shown here (not in the HA app) |
+| `plugins` | the plugin system started |
+| `users` | user accounts are loaded (Users & devices) |
+| `keys` | Settings > Advanced > Keys is on |
+| `zones` | Settings > Advanced > Zones is on (Zones are part of Sonorium; the switch itself is under `advanced`) |
+
+Users (`sonorium/auth/users.py`): `POST /api/auth/setup`, `/api/auth/login`, `/api/auth/logout`,
 `/api/auth/code-login`, `/api/auth/new-password`, `PUT /api/auth/require-login`,
 `POST /api/pair/login`, `POST /api/devices/recovery-code`, `GET|POST /api/users`,
 `PUT|DELETE /api/users/{id}`, `POST /api/users/{id}/password`, `POST /api/users/{id}/sign-out`,
 `DELETE /api/users/{id}/sessions/{session_id}` (signs one browser out).
 `PUT /api/users/{id}` also takes `{"can_leave_link": bool}`.
 
-Zones (Users plugin): `GET /api/zones` (anyone who sees channels: on or off,
-owners, Kid mode, each speaker's home and the channel using it, links; for an
+Zones: `GET /api/zones` (anyone who sees channels: on or off,
+owners, Child Mode, each speaker's home and the channel using it, links; for an
 admin also the users), `PUT /api/zones/switch` `{"on"}`, `PUT /api/zones/{channel_id}`
-`{"owner", "kid_mode", "schedule": {"start": "HH:MM", "end": "HH:MM"}}`,
+`{"owner", "kid_mode", "schedule": {"start": "HH:MM", "end": "HH:MM"}}` (`kid_mode` is Child Mode;
+the field keeps its name),
 `PUT /api/zones/homes/{speaker_id}` `{"channel_id"}`, `POST /api/links`
 `{"name", "channels", "theme_id", "preset_id"}` or `{..., "playlist_id"}`,
 `PUT|DELETE /api/links/{link_id}` (settings changes: Settings › Change),
 `POST /api/links/{link_id}/leave` and `/rejoin` `{"channel_id"}` (Play and stop,
 then the owner's Can leave a link, or an admin). A refused change to a channel
-answers 403 (not yours, Kid mode, outside the hours) or 409 (a speaker in use,
+answers 403 (not yours, Child Mode, outside the hours) or 409 (a speaker in use,
 a linked channel) with the reason in `detail`.
 
-Integration plugin: `GET|POST /api/keys`, `PUT|DELETE /api/keys/{id}`.
+Keys: `GET|POST /api/keys`, `PUT|DELETE /api/keys/{id}` (404 while Keys are off).
 
-Every route's permission is in `sonorium/auth/permissions.py` (or the
-plugin's `PERMISSIONS`); `tests/test_auth_routes_coverage.py` fails when a
+Every route's permission is in `sonorium/auth/permissions.py` (those of Users
+and Keys in `sonorium/auth/users.py` and `keys.py`); `tests/test_auth_routes_coverage.py` fails when a
 route has none, and the server refuses an API route it has no permission for.

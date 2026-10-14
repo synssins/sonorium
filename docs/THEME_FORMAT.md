@@ -104,7 +104,7 @@ writes (`core/theme_metadata.py` `load_theme_folder`):
 
 | Conversion | Marker | Backup | What it does |
 |---|---|---|---|
-| Ebb & Flow Interval -> Duration | `"ebb_duration": true` | `*.pre-duration.bak` | Every Ebb & Flow track's `presence` (its own mode `presence`, or in an Ebb & Flow group), in the theme and in each preset, becomes `1 - presence`: the slider now means Duration, higher is longer (`_flip_ebb_duration`). |
+| Ebb & Flow Interval -> Duration | `"ebb_duration": true` | `*.pre-duration.bak` | Every Ebb & Flow track's `presence` (its own mode `presence`, or in an Ebb & Flow group), in the theme and in each preset, becomes `1 - presence`: the slider now means Duration, higher is longer (`_flip_ebb_duration`). Only for a theme from before that change: a version 1 theme (`spec_version` missing or below 2, or presets inside `metadata.json`), or a version 2 `metadata.json` exactly as Sonorium 1.5.0 - 1.6.0 saved it (`is_favorite`, `categories`, `short_file_threshold` and `groups` present, and every `tracks` entry holding `presence`, `muted`, `volume`, `playback_mode`, `seamless_loop` and `exclusive`, with no field added since, such as `rise`). Any other theme without the marker is already in Duration: it is only marked (`_written_before_duration`, `_convert_ebb_duration`). |
 | Intrusion groups retired | `"intrusions_retired": true` | `*.pre-links.bak` | For each group with `"mode": "intrusion"`: its linked files become ungrouped (key `"<name>"`, `" (2)"` on a clash; they keep their own `playback_mode`), then the group is removed as `DELETE .../groups/{name}` removes one: its own files move up to the theme folder (renamed `"x (2)"` on a clash), its entry leaves `groups` and every preset's `groups`. Every key follows in `tracks`, `links`, each preset's `tracks` and each sequence's `transitions` and `while` (`_retire_intrusions`, `core/intrusions.py` `retire_intrusion_groups`). The backup is made before any file moves; if a file can't be moved, that group is tried again on the next load. |
 | Auto retired | `"auto_retired": true` | `*.pre-auto.bak` | Every track whose `playback_mode` is `"auto"` in `tracks` or in a preset gets the mode it played as (3.2): a file shorter than `short_file_threshold` `sparse` when its presence is below 1, a longer one `presence`, else `continuous`. Becoming `presence` (Ebb & Flow), a track that plays its own mode (not in a group) gets `presence = 1 - presence` (Duration, as above); a grouped track keeps its value, since its group decides how it plays. A preset entry whose own presence makes it play differently from the theme's track gets its own `playback_mode` (and flipped presence). Lengths come from the files (a linked file's from its source); a track whose file is missing keeps `auto`. When lengths can't be read nothing changes and the theme isn't marked (`_retire_auto`). |
 
@@ -137,6 +137,38 @@ with presets inside `metadata.json` (version 1) still works: the server converts
 The plan includes per-user preset files. They are kept on the server, not in the theme
 folder, and a generator never writes them.
 
+### 1.6 One audio format on the server (built)
+
+The server keeps every track as an MP3: 320 kbit/s constant bit rate, 44100 Hz, stereo
+(`core/theme_mp3.py`). A theme that comes in (zip import, an upload in the Theme Editor, a linked
+file copied in, a theme a plugin writes, files put in a theme folder by hand) is converted in the
+background, ahead of anything else waiting; every theme already present is converted once after
+the update. One theme at a time, one file at a time, at low priority; start-up and playback don't
+wait for it, and playing channels follow the new files (a rescan).
+
+- A file that is not an MP3 (WAV, FLAC, Ogg) becomes `<name>.mp3`. A mono file becomes stereo with
+  the same samples on both sides (no level change).
+- An MP3 at 44100 Hz stereo is kept byte for byte, whatever its bit rate. Any other MP3 (another
+  rate, mono) is encoded again under its own name.
+- The key is the file name without the extension (1.2), so `Rain.wav` -> `Rain.mp3` keeps the key
+  `Rain`: settings, presets, sequences and links don't change. Only a taken name changes: with
+  `Rain.wav` and `Rain.mp3` both in a folder (one key for two files), the converted WAV becomes
+  `Rain (2).mp3` (key `Rain (2)`) and gets a copy of what `Rain` has in `tracks`, in each preset's
+  `tracks` and in each sequence's `transitions` and `while`. A linked file's name counts as taken.
+  `MANIFEST.json` `channels[].local_filename` follows the new name.
+- The original is kept in the theme's `_originals/` folder, at the same place inside it
+  (`_originals/Wind/Gust 1.flac`), and `_originals/originals.json` lists each original, what it
+  became (`mp3`), where it is kept (`kept_as`) and when. The folder starts with `_`, so it is never a
+  group, a track or part of an export or package (`core/theme_package.py`). Deleting originals
+  instead is one switch (`KEEP_ORIGINALS`), off for now.
+- Idempotent and resumable: a theme of standard MP3s is left as it is; the server remembers
+  which themes it found standard (`<config>/theme_mp3.json`, by their audio files' paths, sizes
+  and times) and checks a theme again only when those change. `originals.json` is also the journal
+  that finishes or undoes a file's conversion cut off by a restart. A file that can't be read stays
+  as it is; a file in use (Windows) is tried again 10 minutes later.
+- Needs PyAV with FFmpeg's MP3 encoder (the add-on, Docker and Windows builds have it). Without it
+  nothing is converted and themes play as they are; the decoders still read every format.
+
 ---
 
 ## 2. metadata.json schema
@@ -163,6 +195,7 @@ written first, so a failed save never loses presets.
 | `links` | object: track key -> link | absent | Linked files (2.6), ungrouped or in any group. Written only when non-empty. | `core/theme_metadata.py` `links` |
 | `ebb_duration`, `intrusions_retired`, `auto_retired` | bool | absent | Markers of the one-time conversions done on load (1.4). Written only when true. A generator writing a new theme can set all three (it has no Interval values, intrusion groups or `auto` modes). | `core/theme_metadata.py` `load_theme_folder` |
 | `attribution` | object or absent | absent | Source and licence info (6.3). Written only when non-empty. | `:94`, `:139-140` |
+| `plugins` | object: plugin id -> {attribute: value} | absent | Plugin attributes on the theme (2.7). Written only when non-empty. | `core/plugin_data.py` |
 | `presets` | object | absent | **Version 1 only.** Moved to `presets.json` by the conversion (1.4); never written back. | `:91`, `:124-141` |
 
 ### 2.2 TrackSettings (one entry in `tracks`)
@@ -179,6 +212,7 @@ written first, so a failed save never loses presets.
 | `volume_low` | number 0.0-1.0 | `0.2` | Ebb & Flow: the lower knob of the Volume slider (`volume` is the upper one). The level moves between them. Saved in presets. | `recording.py` `ebb_level` |
 | `pause_between` | bool | `false` | Ebb & Flow: play the file once from start to end, fade out, pause, come back. An Ebb & Flow group's own `pause_between` overrides it when on. Saved in presets. | `recording.py` `PresenceMixingStream._gen_wander` |
 | `pause_min`, `pause_max` | number, seconds | `30`, `300` | Ebb & Flow: the pause, uniform in this range each time; also the stagger before the first start when `pause_between` is on. Saved in presets. | same |
+| `plugins` | object: plugin id -> {attribute: value} | absent | Plugin attributes on the track, and on the file when it is in a group (2.7). Not mix settings: not in presets, kept by Reset. Written only when non-empty. | `core/plugin_data.py` |
 
 A track with no entry in `tracks` uses all defaults (`api.py:489-497`, `:1249-1255`).
 Entries whose key matches no track are kept in the file but ignored (the bundled Tavern
@@ -209,6 +243,73 @@ first save through the metadata manager (any track or group setting change, pres
 create/update/delete) and by the conversion. Each group's settings object is stored as-is,
 so unknown keys inside a group entry survive. Inside `presets.json`, each preset dict is kept
 as-is, so unknown preset fields survive, and other top-level keys of `presets.json` survive too.
+
+`plugins` blocks (top level, each track entry, each group entry, each preset, each sequence
+and its `step_plugins`) are the one exception to "unknown
+is removed" and to "kept as-is": they are kept through every save, but only with the
+attributes an installed plugin declares (2.7). Everything else in them is left out when the
+theme loads.
+
+### 2.7 Plugin attributes (built)
+
+A plugin can keep its own values on a theme, a track, a file in a group and a preset: for
+example a light cue on each thunder file. Think of a luggage tag: the suitcase (the track)
+belongs to Sonorium, the tag belongs to the plugin, and Sonorium carries both without
+reading the tag. The plugin declares each attribute first (docs/PLUGIN_DEVELOPMENT.md
+section 23); Sonorium stores only declared attributes and checks every value.
+
+Where they live. On every object the values sit under the plugin's id, so two plugins can
+both have a `cue`:
+
+```json
+// metadata.json
+{
+  "plugins": { "wled": { "scene": "storm" } },
+  "tracks": {
+    "Rain":            { "volume": 0.6, "plugins": { "wled": { "cue": "auto" } } },
+    "Thunder/Close":   { "volume": 1.0, "plugins": { "wled": { "cue": "flash", "intensity": 90 } } }
+  }
+}
+// presets.json
+{ "presets": { "calm": { "name": "Calm", "tracks": { }, "plugins": { "wled": { "palette": ["#203040"] } } } } }
+```
+
+| Object | Where |
+|---|---|
+| Theme | `metadata.json` top-level `plugins` |
+| Track | its entry in `tracks`, `plugins` |
+| File in a group | the same entry (key `"Group/Name"`); track and file attributes share it, so a file moved into or out of a group keeps its values |
+| Preset | the preset in `presets.json`, `plugins` |
+| Group | its entry in `groups`, `plugins` (a renamed group keeps them; presets never copy them) |
+| Sequence | the sequence in `presets.json` `sequences`, `plugins` |
+| Step of a sequence | the sequence's `step_plugins`, `{preset id: block}` |
+
+What is kept, and when:
+
+- **Every save and edit keeps them**: Theme Editor saves, track and group changes, presets
+  (new, save, load, rename), Reset, moving a file between groups, the `theme_edit` module
+  functions and themes made by plugins.
+- **Export carries them.** The zip and the theme package (`GET /api/themes/{id}/export`) hold
+  the files as stored, `plugins` blocks included.
+- **Import keeps only what this Sonorium knows.** Before an imported theme loads, every value
+  of a plugin that isn't installed here, of an attribute the plugin doesn't declare, or that
+  doesn't fit its declaration, is removed from the files. The theme imports without errors;
+  one info line in the log lists what went. Importing the same theme into a Sonorium that has
+  the plugin keeps the values.
+- **Loading drops the same things** (logged at debug), so a theme copied into the folder by
+  hand ends up like an imported one once it is saved.
+- **A plugin switched off** keeps its declaration and its values; nothing is shown for it.
+- **A plugin uninstalled** loses its declaration, and its values are removed from every
+  theme Sonorium has loaded.
+- **Size**: at most 4096 bytes of compact JSON per plugin per object by default
+  (`plugin_data_limit` in the Settings › Advanced values, `PUT /api/settings/playback-values`;
+  0 = no limit). A change over the limit is refused with a message; values already over it
+  (an import, a lowered limit) are kept and a warning is logged. Big data (a cue track with
+  hundreds of points) belongs in a file in the theme folder, with its name stored as an
+  attribute.
+
+A Sonorium from before plugin attributes (plugin API below 1.2) does not know `plugins` and
+removes the blocks the next time it saves the theme (2.4). The theme still plays there.
 
 ### 2.5 groups (built)
 
@@ -330,13 +431,18 @@ API (`api.py`):
 | Item | Value | Code |
 |---|---|---|
 | Sample rate | 44100 Hz | `recording.py:199` |
-| Channels | mono. Every file is decoded and resampled to s16 mono 44100 Hz by ffmpeg's resampler (PyAV `AudioResampler`), so stereo is down-mixed by libswresample defaults | `recording.py:488`, `:545`, `:771` |
+| Channels | mono by default: every file is decoded and resampled to s16 mono 44100 Hz by ffmpeg's resampler (PyAV `AudioResampler`), so stereo is down-mixed by libswresample defaults (0.5 L + 0.5 R). With Settings > Audio Settings > **Stereo** on (`stereo`, off by default), new mixes are stereo: a stereo file keeps left and right (more channels are down-mixed to stereo), a mono file plays centred (its samples on both sides, unchanged). Every gain (volume, fades, crossfades, Ebb & Flow, transitions, ducking, ramps, output gain) is one value per sample on both channels alike | `decoders.py` `PyAvDecoder` (every read goes through `recording.AudioReader`); `decoders.set_default_channels` |
 | Chunk size | 1024 samples (about 23.2 ms) for every stream and the mix | `recording.py:484`, `:537`, `:719`, `:932`; `theme.py:123` |
-| Per-track chunk type | int16, shape (1, 1024). Float results are clipped to [-32768, 32767] and cast with truncation toward zero | `recording.py:682`, `:891`, `:1088` |
-| Stream output | MP3, 128 kbit/s, 44100 Hz, mono | `core/channel.py` `ChannelStream`, `theme.py:156-158` |
+| Per-track chunk type | int16, shape (1, 1024) mono, (2, 1024) stereo (left, right). Float results are clipped to [-32768, 32767] and cast with truncation toward zero | `recording.py:682`, `:891`, `:1088` |
+| Stream output | MP3, 128 kbit/s, 44100 Hz, two channels: the mono mix on both (3 dB down on each, ffmpeg's mono-to-stereo), or the stereo mix's left and right (3 dB down on each too, so a centred sound is as loud either way) | `mp3_out.py` `Mp3Encoder`, `core/channel.py` `ChannelStream` |
 | Pacing | real time: the generator sleeps when ahead of the wall clock (crossfade chunks included) | `core/channel.py` `_generator_loop` |
 
-Generators should deliver 44.1 kHz mono files so no resampling or down-mix happens.
+Generators should deliver 44.1 kHz files, mono or stereo, so no resampling happens. A stereo file
+plays down-mixed to mono unless Stereo is on.
+
+In a stereo mix, step 2 of the mix (3.8) weighs each track by the power of its mono fold (`(L + R) / 2`), so the
+level moves exactly as it would in a mono mix of the same sounds; the soft limiter acts on each channel's
+samples. A mix of mono files only is the mono mix on both channels, sample for sample.
 
 ### 3.2 playback_mode and how "auto" resolves (built)
 
@@ -677,6 +783,7 @@ In `presets.json` (inside `metadata.json` in version 1 themes, converted on load
 - `is_default`: the first preset created becomes default (`api.py:1853`); setting a default clears the flag on the others (`api.py:2046-2081`); deleting the default makes the first remaining preset default (`api.py:2012-2018`). Imported presets are never default (`api.py:2173`, `:2206`). Only one should have it; if several do, the first in file order wins (`core/session_manager.py:133-135`).
 - `tracks`: track key -> any of the six TrackSettings fields (2.2). A preset saved from the UI lists every track with all six fields (`api.py:1721-1737`). Import drops keys that match no track, fills missing fields with defaults and coerces types (`api.py:2128-2147`).
 - `groups` (optional): group name -> any of `volume`, `presence`, `muted` (2.5); other keys (including the gap) are ignored (`recording.py:399-407`). Saving a preset (create or update) captures the groups' current master settings, and loading one in the theme editor applies them.
+- `plugins` (optional): plugin attributes on the preset (2.7). Saving the preset's settings again keeps them.
 
 ### 4.2 How a preset applies to a channel (built)
 
@@ -760,6 +867,15 @@ Deleting a preset removes it (and its transitions) from every sequence of its th
 a sequence left with no preset can't be started. Unknown preset IDs in a sequence are skipped
 when it plays.
 
+The API refuses values outside these limits. A `presets.json` written by hand is checked when
+it is read (`core/sequences.py` `load_sequences`, `load_defaults`, `check_loaded_sequence`): a number
+outside its limit (times, transition values and `pre_fade`, While playing values) becomes the
+nearest limit; a value of the wrong type, an unknown `at_end`, style, field, side or part, and a
+transition or While playing step for a preset not in the sequence are left out (an unknown
+`at_end` becomes `reverse`, a missing name the sequence ID, `owner` null); `hold_min` above
+`hold_max` is swapped. Each fix is logged once as a warning (Settings > Logs). The file itself is
+only rewritten by the next change saved through the API.
+
 ### 5.2 How a sequence plays (`core/playback_runner.py`)
 
 - A channel runs at most one sequence, of the theme it plays. It is picked like a preset: the
@@ -821,7 +937,9 @@ Every preset ID in a sequence (and in its `transitions`) must exist in `presets`
 
 - Track file names are the keys: choose short, readable names ("Fireplace", "Rain on roof"). Avoid two files with the same name and different extensions in one folder (same key).
 - Do not start names with `.` or `_`. No folders deeper than one level.
-- 44.1 kHz mono, `.wav`, `.flac`, `.ogg` or `.mp3`.
+- 44.1 kHz, mono (or stereo for a sound with a left/right image), `.wav`, `.flac`, `.ogg` or `.mp3`.
+  The server converts every track to MP3, 320 kbit/s, 44.1 kHz, stereo (1.6): a 44.1 kHz stereo MP3
+  is the one format it keeps as delivered.
 - Keep levels modest: with the default output gain of 6, one track's peaks above about -18.7 dBFS reach the limiter (3.8).
 
 ### 6.2 Beds and events
@@ -857,7 +975,8 @@ when it is missing (`plugins/builtin/ambient_mixer/plugin.py:315-330`). Bundled 
 (`sonorium_addon/themes/*/MANIFEST.json`) use:
 
 - `source`: `site`, `url`, `template_id`, `creator`, `harvested_at`
-- `license`: `name`, `url`, `requires_attribution` (bool)
+- `license`: `name`, `url`, `requires_attribution` (bool), optional `redistributable` (bool: whether the
+  theme may be copied on; read by `GET /api/themes/packages`, APP_API.md 10.3)
 - `mix_name`, `category`
 - `channels`: list of the original source's per-sound settings (`channel_num`, `name`, `audio_id`, `url`, `volume`, `balance`, `is_random`, `random_counter`, `random_unit`, `crossfade`, `mute`, `local_filename`, `file_hash`)
 
@@ -893,7 +1012,8 @@ written, a theme without `id` gets a new random ID on every scan.
 
 Q2. **Unknown fields are dropped on save** through the metadata manager and by the
 conversion (2.4): any top-level `metadata.json` field other than the known ones, and any
-unknown field in a track entry. `spec_version` and `groups` are now kept.
+unknown field in a track entry. `spec_version` and `groups` are now kept, and so are
+`plugins` blocks with declared attributes (2.7): a plugin's own data goes there.
 
 Q3. **Two paths write `metadata.json` directly**, bypassing the manager's cache
 (`api.py:962-982` `_write_theme_metadata`, used only when the manager is unavailable, and

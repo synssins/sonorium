@@ -77,10 +77,18 @@ def test_install_type_and_features_addon(monkeypatch, tmp_path):
     runtime = load_runtime(monkeypatch, tmp_path, standalone=False)
     assert (runtime.INSTALL, runtime.INSTALL_LABEL) == ("addon", "HA App")
     features = runtime.features()
-    assert features["connection_settings"] == {"available": False, "enabled": False, "overridable": False}
-    assert features["network_speakers"] == {"available": True, "enabled": False, "overridable": True}
+    assert features["connection_settings"] == {"available": False, "enabled": False, "overridable": False,
+                                               "switchable": False, "default": False, "live": False}
+    assert features["network_speakers"] == {"available": True, "enabled": False, "overridable": True,
+                                            "switchable": True, "default": False, "live": False}
     assert runtime.feature_enabled("network_speakers", {"network_speakers": True})
     assert not runtime.feature_enabled("connection_settings", {"connection_settings": True})  # hidden stays off
+    # Keys and Announcements: core features, on out of the box, switched off (and on) at once
+    for name in ("keys", "announcements"):
+        assert features[name] == {"available": True, "enabled": True, "overridable": True, "switchable": True,
+                                  "default": True, "live": True}
+        assert not runtime.feature_enabled(name, {name: False})
+        assert runtime.feature_enabled(name, {})
 
 
 def test_install_type_and_features_docker(monkeypatch, tmp_path):
@@ -89,5 +97,29 @@ def test_install_type_and_features_docker(monkeypatch, tmp_path):
     assert (runtime.INSTALL, runtime.INSTALL_LABEL) == ("docker", "Docker")
     features = runtime.features()
     # Plugin packages: off on every install until switched on in Settings > Advanced
-    assert features.pop("plugin_packages") == {"available": True, "enabled": False, "overridable": True}
-    assert all(f == {"available": True, "enabled": True, "overridable": False} for f in features.values())
+    assert features.pop("plugin_packages") == {"available": True, "enabled": False, "overridable": True,
+                                               "switchable": True, "default": False, "live": False}
+    # Speaker discovery is on, and can be switched off through PUT /api/install/features
+    assert features.pop("network_speakers") == {"available": True, "enabled": True, "overridable": False,
+                                                "switchable": True, "default": True, "live": False}
+    # Keys and Announcements: on, and switchable in Advanced on every install
+    for name in ("keys", "announcements"):
+        assert features.pop(name) == {"available": True, "enabled": True, "overridable": True,
+                                      "switchable": True, "default": True, "live": True}
+    assert all(f == {"available": True, "enabled": True, "overridable": False, "switchable": False,
+                     "default": True, "live": False}
+               for f in features.values())
+
+
+def test_docker_stream_url_and_trusted_proxies_kept_when_not_saved(monkeypatch, tmp_path):
+    """A Docker container's SONORIUM__STREAM_URL isn't replaced by "auto"; saved settings win."""
+    runtime = load_runtime(monkeypatch, tmp_path)
+    monkeypatch.setenv("SONORIUM__STREAM_URL", "https://demo.example")
+    monkeypatch.setenv("SONORIUM__TRUSTED_PROXIES", "10.0.0.1")
+    runtime.load_connection_into_env()
+    assert os.environ["SONORIUM__STREAM_URL"] == "https://demo.example"
+    assert os.environ["SONORIUM__TRUSTED_PROXIES"] == "10.0.0.1"
+    runtime.save_connection({"stream_url": "http://nas:8008", "trusted_proxies": "172.18.0.0/16"})
+    runtime.load_connection_into_env()
+    assert os.environ["SONORIUM__STREAM_URL"] == "http://nas:8008"
+    assert os.environ["SONORIUM__TRUSTED_PROXIES"] == "172.18.0.0/16"

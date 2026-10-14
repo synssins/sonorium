@@ -153,11 +153,12 @@ assert.deepEqual(calls, [
 click(el, 'popup', 'abc');
 const popup = body.children.at(-1);
 html = popup.shadowRoot.innerHTML;
-for (const text of ['ch-card on', 'Office speaker', 'Recent changes', 'Speakers unmuted', 'Mute the speakers', 'Play a playlist',
+for (const text of ['ch-card on', 'Office speaker', 'Mute the speakers', 'Play a playlist',
     'Mild Summer Storm', '>Next<', 'btn-danger ch-play']) {
     assert.ok(html.includes(text), `popup shows ${text}`);
 }
 assert.ok(!html.includes('Listen on this device'), 'no headphones row');
+assert.ok(!html.includes('Recent changes') && !html.includes('Speakers unmuted'), 'no Recent changes');
 calls.length = 0;
 click(popup, 'mode-theme', 'abc');  // already in theme mode: nothing to clear
 assert.deepEqual(calls, []);

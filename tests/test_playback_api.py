@@ -132,7 +132,9 @@ def test_playlist_crud(api):
     assert r.status_code == 201, r.text
     playlist = r.json()
     pid = playlist["id"]
-    assert playlist["entries"][2] == {"theme_id": "storm", "preset_id": None, "sequence_id": None}
+    entry = dict(playlist["entries"][2])
+    assert entry.pop("id")  # an id of its own: plugin attributes address the entry by it
+    assert entry == {"theme_id": "storm", "preset_id": None, "sequence_id": None}
     assert playlist["owner"] is None and playlist["order"] == "shuffle"
     assert [p["id"] for p in c.get("/api/playlists").json()["playlists"]] == [pid]
     assert playlist["fit_sequences"] is False  # default: a sequence entry plays one full pass
@@ -266,7 +268,37 @@ def test_channel_sequence_playlist_and_next(api):
 
     assert c.delete(f"/api/sessions/{sid}/playlist").json()["playlist"] is None
     c.delete(f"/api/sessions/{sid}/sequence")
-    assert c.post(f"/api/sessions/{sid}/next").status_code == 409  # nothing runs
+    before = c.get(f"/api/sessions/{sid}").json()["preset_id"]
+    r = c.post(f"/api/sessions/{sid}/next")  # nothing runs: the theme's next preset
+    assert r.status_code == 200 and r.json()["skipped"] == "preset"
+    assert c.get(f"/api/sessions/{sid}").json()["preset_id"] != before
+    assert c.post("/api/sessions/nope/next").status_code == 404
+
+
+def test_channel_previous(api):
+    c = api.client
+    sid = api.session.id
+    assert c.post(f"/api/sessions/{sid}/previous").status_code == 409  # not playing
+    assert c.post("/api/sessions/nope/previous").status_code == 404
+    pid = c.post("/api/playlists", json=PLAYLIST).json()["id"]
+    c.put(f"/api/sessions/{sid}/playlist", json={"playlist_id": pid})
+    runner_tests.run(api.manager.play(sid))
+    c.post(f"/api/sessions/{sid}/next")
+    r = c.post(f"/api/sessions/{sid}/previous")
+    assert r.status_code == 200 and r.json()["skipped"] == "playlist"
+    assert r.json()["playlist"]["position"] == 0
+
+    c.delete(f"/api/sessions/{sid}/playlist")
+    c.delete(f"/api/sessions/{sid}/sequence")
+    c.put(f"/api/sessions/{sid}", json={"theme_id": "storm", "preset_id": "seq:loop"})
+    r = c.post(f"/api/sessions/{sid}/previous")
+    assert r.status_code == 200 and r.json()["skipped"] == "sequence"
+    assert c.get(f"/api/sessions/{sid}").json()["preset_id"] == "c"  # restart: wraps to the last step
+
+    c.delete(f"/api/sessions/{sid}/sequence")
+    r = c.post(f"/api/sessions/{sid}/previous")
+    assert r.status_code == 200 and r.json()["skipped"] == "preset"
+    assert c.get(f"/api/sessions/{sid}").json()["preset_id"] == "b"
 
 
 def test_picking_a_sequence_as_the_channel_preset(api):

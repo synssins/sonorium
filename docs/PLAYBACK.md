@@ -83,6 +83,14 @@ turn, plays a while, fades out and hands the turn back.
 The channel's volume setting never changes during a fade: the fade is applied to the
 channel's audio. Settings > Audio Settings > Master output gain is the output gain of every mix.
 
+Settings > Audio Settings > Stereo (off by default) makes every new mix stereo: a stereo file keeps
+its left and right, a mono file plays centred, and every fade, glide, crossfade, duck and ramp acts on
+both channels alike. Turned off, a stereo mix still playing folds to mono at once; turned on, a playing
+channel turns stereo at its next theme (a theme crossfade from mono to stereo plays the mono side
+centred). Speakers get stereo MP3 either way; plugin audio outputs get mono unless their type says it
+takes stereo (PLUGIN_DEVELOPMENT.md); audio taps and the cue timeline are unchanged (taps hear the
+mono fold).
+
 ## Sequences
 
 A sequence is a theme's presets in order (see THEME_FORMAT.md section 5). A channel runs
@@ -280,6 +288,30 @@ sequence (one pass); on its last preset `next_change_at` is the playlist's next 
 differ when shuffled).
 
 Stop and pause return at once; the fade and the speaker commands follow in the background.
+
+### Sleep timer
+
+A playing channel can stop by itself after a while (core/sleep_timer.py): when the time runs
+out it fades out and stops exactly like Stop (`channel.stopped` with reason `sleep`).
+
+| Method | Path | Body / result |
+|---|---|---|
+| GET | `/sessions/{id}/sleep` | `{channel_id, sleep_until, seconds_left}` (both null without a timer) |
+| PUT | `/sessions/{id}/sleep` | `{minutes}`: more than 0, at most 240 (4 hours); starts or replaces the timer, counted from now. 400 bad minutes, 409 the channel isn't playing. Answers as GET |
+| DELETE | `/sessions/{id}/sleep` | cancel it (the channel keeps playing): `{cancelled, channel_id, sleep_until: null, seconds_left: null}` |
+
+Same permissions as Play / Stop (`ch.play`; reading: `ch.view`). `GET /sessions` and
+`/sessions/{id}` include `sleep_until` (UTC ISO time or null) and `sleep_seconds_left`
+(by the server's clock: count down from it rather than from your own clock). Every change
+publishes `channel.sleep_timer` (`reason`: `set`, `cancelled`, `ended` or `stopped`).
+
+- The end time is saved with the channel in state.json, so a reload or another device shows it.
+- Stopping or pausing the channel any other way (Stop, idle, a playlist's end) removes the timer.
+- **Restart:** after a restart asked for from Settings or the web UI, the channels that play
+  again keep their timer and stop at the same time; one whose time ran out during the restart
+  is not played again. After a stop or a crash channels start stopped and their timers are gone.
+- Plugins: `set_sleep_timer(id, minutes)` / `cancel_sleep_timer(id)` in the actions API.
+  There is no Home Assistant entity for it.
 
 ## Home Assistant (MQTT) entities
 

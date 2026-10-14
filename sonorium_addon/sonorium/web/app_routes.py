@@ -14,18 +14,9 @@ from pydantic import BaseModel, Field
 
 
 async def _json_or_empty(request: Request) -> dict:
-    """The JSON object sent with the request, {} when there is no body. 400 for anything else."""
-    raw = await request.body()
-    if not raw.strip():
-        return {}
-    try:
-        import json
-        data = json.loads(raw)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid JSON body")
-    if not isinstance(data, dict):
-        raise HTTPException(status_code=400, detail="Expected a JSON object")
-    return data
+    """The JSON object sent with the request, {} when there is no body. 400 for anything else, 413 past the limit."""
+    from sonorium import limits
+    return await limits.read_json_object(request, empty={})
 
 
 class SpeakerVolumeRequest(BaseModel):
@@ -53,7 +44,8 @@ def add_app_routes(router, *, session_manager, ha_registry=None, speaker_live=No
         if channel_id is not None:
             path = f"/stream/channel{channel_id}"
             base = (getattr(session_manager, "stream_base_url", "") or "").rstrip("/")
-            body.update(channel_id=channel_id, stream_path=path, stream_url=f"{base}{path}")
+            from sonorium.auth.stream_links import signed  # a stream link while Require login is on
+            body.update(channel_id=channel_id, stream_path=path, stream_url=signed(f"{base}{path}"))
         body.update(heartbeat_seconds=HEARTBEAT_SECONDS, expire_seconds=EXPIRE_SECONDS)
         return body
 

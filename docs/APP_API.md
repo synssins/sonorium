@@ -23,7 +23,7 @@ Related documents: [AUTH.md](AUTH.md) (sign-in, roles, keys),
 7. [Remote control](#7-remote-control)
 8. [Live updates](#8-live-updates)
 9. [Listening on the phone and casting](#9-listening-on-the-phone-and-casting)
-10. [Theme packages for Pro](#10-theme-packages-for-pro)
+10. [Theme packages for offline playback](#10-theme-packages-for-offline-playback)
 11. [Errors, rate limits, versions](#11-errors-rate-limits-versions)
 12. [The app's interface: the same UI as the server](#12-the-apps-interface-the-same-ui-as-the-server)
 13. [Gaps the app will hit](#13-gaps-the-app-will-hit)
@@ -90,6 +90,7 @@ https://sonorium.app/link#v=1&id=00000000-0000-4000-8000-000000000001&n=Sonorium
 | `fp` | yes | SHA-256 of the server certificate's DER bytes, 64 lowercase hex chars | Pin it (section 2.1) |
 | `c` | yes | One-time code, 8 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`. Works once, for 5 minutes; **New code** replaces it | Send it to `POST /api/pair` |
 | `u` | no | Username of whoever was signed in when the code was made; the phone will act as that user | Show "Linking as *u*" |
+| `url` | no | The server's public address (e.g. `https://demo.example`), when it is behind a reverse proxy and its Stream URL is set to that address. `h` then holds only that host, `s` its port (https) | Connect to `url` and only `url`. The proxy shows its own certificate, so check it the normal way (the system's CAs and the host name) instead of pinning `fp` |
 
 Parsing rules:
 
@@ -299,42 +300,55 @@ not built (AUTH.md).
   "api": 1,
   "install": "windows",
   "features": {
-    "connection_settings": {"available": true, "enabled": true, "overridable": false},
-    "network_speakers":    {"available": true, "enabled": true, "overridable": false},
-    "space_editing":       {"available": true, "enabled": true, "overridable": false}
+    "connection_settings": {"available": true, "enabled": true, "overridable": false, "switchable": false, "default": true, "live": false},
+    "network_speakers":    {"available": true, "enabled": true, "overridable": false, "switchable": true, "default": true, "live": false},
+    "space_editing":       {"available": true, "enabled": true, "overridable": false, "switchable": false, "default": true, "live": false},
+    "plugin_packages":     {"available": true, "enabled": false, "overridable": true, "switchable": true, "default": false, "live": false},
+    "keys":                {"available": true, "enabled": true, "overridable": true, "switchable": true, "default": true, "live": true},
+    "announcements":       {"available": true, "enabled": true, "overridable": true, "switchable": true, "default": true, "live": true}
   },
   "ports": {"http": 8008, "https": 8808},
   "host": "192.0.2.25",
+  "url": "https://192.0.2.25:8808",
+  "public_url": null,
+  "internal_ports": {"http": 8008, "https": 8808},
   "hostname": "sonorium-2.local",
   "login_required": true,
   "pair": true,
   "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
-  "plugins": ["integration", "users"],
+  "plugins": ["users"],
+  "accounts": true,
   "boot_id": "54615c1e5e5d4331a7b9cd713cd45918",
-  "ui": {"version": "1.6.2-dev.24", "host_api": 1}
+  "ui": {"version": "1.6.2-dev.24", "host_api": 1},
+  "personal_channel": true
 }
 ```
 
 | Field | Type | What the app does with it |
 |---|---|---|
 | `id` | string (UUID) | Must equal the QR `id` / stored ID. A mismatch: a different server. |
-| `name` | string | Always `"Sonorium"` today |
+| `name` | string | The server's name: Settings › Advanced › Server name (`server_name` in `GET /settings`, 7.7); `"Sonorium"` when none is set. Show it in the server list. The mDNS TXT `name` is the same. |
 | `version` | string | Show it in server details. Don't parse it for features; use `api` and the presence of fields. |
 | `api` | int | API version, `1`. Section 11.3. |
 | `install` | `"addon"`, `"docker"`, `"windows"`, `"linux"` | Wording ("Home Assistant app", "Docker"); `addon` means: no mDNS re-discovery, floors and areas come from HA. |
-| `features.<name>` | `{available, enabled, overridable}` | `available`: offered on this install; `enabled`: running now; `overridable`: can be switched on in Settings › Advanced. `network_speakers.enabled` false: hide manual speakers and network scans. `space_editing.enabled` false: floors and areas are read-only (HA owns them). `connection_settings`: hidden on the add-on. |
+| `features.<name>` | `{available, enabled, overridable, switchable, default, live}` | `available`: offered on this install; `enabled`: running now; `overridable`: shown in Settings › Advanced; `switchable`: `PUT /api/install/features` may change it; `default`: on out of the box; `live`: a change applies at once (otherwise after a restart). `network_speakers.enabled` false: hide manual speakers and network scans. `space_editing.enabled` false: floors and areas are read-only (HA owns them). `connection_settings`: hidden on the add-on. `keys.enabled` false: keys are refused (401) and `/api/keys` answers 404; hide key controls. `announcements.enabled` false: `POST /api/announce` answers 409; hide announce controls. A feature missing from the list (an older server): treat it as on. |
 | `ports.http` | int | The HTTP port speakers use (from the stream URL). Stream URLs use it. |
 | `ports.https` | int or null | The HTTPS port as the LAN sees it. `null`: HTTPS is off (no certificate, or the add-on mapping is off); the app can't link. |
-| `host` | string | The address speakers use (the stream URL's host). Add it to the stored addresses. |
+| `host` | string | The address speakers use (the stream URL's host). Add it to the stored addresses. Behind a reverse proxy: the public host. |
+| `url` | string | The one address to reach the API at: `public_url` when set, else `https://<host>:<ports.https>` (`http://<host>:<ports.http>` when HTTPS is off). Don't assume 8808: use this. |
+| `public_url` | string or null | The server's public address (scheme, host and port; no path) when it is behind a reverse proxy: the Stream URL set by hand (Settings › Advanced › Network, or `SONORIUM__STREAM_URL`) to an `https` address, or to an `http` one that isn't a LAN address or `.local` name. `ports` then follow it: `ports.https` is its port (https), `ports.http` its port (http) or the server's own HTTP port. Null: no proxy; everything as before. With it, connect only to it and check its certificate normally (no pin: section 1.1 `url`). |
+| `internal_ports` | `{http, https}` | The ports Sonorium itself listens on (inside a container: before any mapping). For information; connect to `url`. `https` null when HTTPS is off. |
 | `hostname` | string or null | The mDNS name (`sonorium.local`, `sonorium-2.local`, ...); null on the add-on or when not announced. Store it as a fallback address. |
-| `login_required` | bool | True when the Users plugin is on with **Require login** on (and the recovery bypass is off). Informational: the app always links and always sends its token. |
+| `login_required` | bool | True when **Require login** is on (and the recovery bypass is off). Informational: the app always links and always sends its token. |
 | `pair` | bool | Always `true`: the server supports linking. |
 | `fingerprint` | string or null | Certificate SHA-256 (hex). Null when HTTPS isn't available. Compare with the pinned value; for a typed address it's the value to show as words. |
-| `plugins` | string[] | The sign-in plugins that are on: `"users"` (accounts and roles) and/or `"integration"` (keys). Sorted. |
+| `plugins` | string[] | `["users"]` while accounts are loaded. Users are part of Sonorium now (not a plugin); `"users"` stays here for released apps. New code reads `accounts`. Keys are never listed (see `features.keys`). |
+| `accounts` | bool | User accounts are loaded: roles apply, signing in with a username and password works. Missing (an older server): use `"users" in plugins`. |
 | `boot_id` | string (32 hex) | New every time the server starts. A different value than last time = the server restarted: refetch everything; the event stream's ids carry it (8.3). Missing on servers before the field (G4). |
 | `ui` | `{version, host_api}` | The web UI the server serves: its version, and `host_api`, the version of its `window.SONORIUM_HOST` hooks (12.2.2). Missing: the server's UI has no hooks; use the bundled copy (12.3). |
+| `personal_channel` | bool | `true`: the server has the personal channel (7.11). Missing: it doesn't; hide the headphone button. |
 
-**Detecting the Users plugin:** `"users" in plugins`.
+**Detecting accounts:** `accounts` (older servers: `"users" in plugins`). Users are part of Sonorium, so a current server always has them; false only when the server runs without accounts loaded.
 - Present: accounts exist (or will on first visit), roles apply, `POST
   /api/pair/login` and `POST /api/devices/recovery-code` exist.
 - Absent: there are no accounts; the app links only by QR code, every linked
@@ -420,8 +434,7 @@ Response 200:
   the server keeps only its SHA-256. It doesn't expire; it stops working when
   the device is removed or its user is deleted.
 - `user`: the user the phone acts as (the QR `u`), or `null` when the code
-  was made with nobody signed in (Users plugin off, or Require login off and
-  nobody signed in).
+  was made with nobody signed in (Require login off and nobody signed in).
 - `server_id`: check it equals the stored `id`.
 
 Errors:
@@ -436,8 +449,7 @@ Errors:
 
 ### 4.4 POST /api/pair/login (username and password)
 
-`POST /api/pair/login` · public · **HTTPS only** · **Users plugin only**
-(404 `{"detail": "Not Found"}` without it).
+`POST /api/pair/login` · public · **HTTPS only**.
 
 Request:
 
@@ -489,14 +501,14 @@ the HA user is the one signed in.
             "pl.edit", "pl.run", "pl.view", "sp.mute", "sp.view", "th.view"],
   "bypass": false, "ingress": false, "web_ui": true,
   "words": ["forest", "candy", "award", "fancy"],
-  "plugins": ["integration", "users"],
+  "plugins": ["users"], "accounts": true,
   "starting": false, "closed": false,
   "require_login": true, "has_users": true, "needs_setup": false, "ha_users": false
 }
 ```
 
-`require_login`, `has_users`, `needs_setup` and `ha_users` are there only
-while the Users plugin is on. `ha_users` is `true` on the add-on, where
+`require_login`, `has_users`, `needs_setup` and `ha_users` are there while
+accounts are loaded (`accounts` true). `ha_users` is `true` on the add-on, where
 Home Assistant's users sign in; `user.ha` is `true` for one of them. Call `/api/auth/me` after linking, on every app start, and
 and after an unexpected 403 (an admin may have changed the user's role).
 
@@ -552,12 +564,8 @@ never answers 401, so the app can always check the server is there.
                             "platform": "android", "model": "Test", "created": "2026-10-11T22:08:11.520320+00:00",
                             "last_seen": "2026-10-11T22:08:11.549219+00:00"}
   ```
-- **Without the Users plugin:** there are no users, so "your phones" means
-  every phone, and anyone who can reach the web UI can remove any of them.
-  Phones linked earlier to a user keep their user id; while the plugin is off
-  `/api/auth/me` shows `user: null` for them and they have full access (less
-  devices and keys). When the plugin comes back they act as their user again.
-  A phone linked while the plugin was off (`user: null`) gets 401 `pair` once
+- **A phone linked with nobody signed in** (`user: null`, Require login
+  off) has full access (less devices and keys) and gets 401 `pair` once
   Require login is on.
 
 ---
@@ -565,7 +573,7 @@ never answers 401, so the app can always check the server is there.
 ## 5. Sign-in code (forgotten password)
 
 `POST /api/devices/recovery-code` · permission `device` (**only a linked
-phone**; a browser gets 403) · Users plugin only (404 without it) · no body.
+phone**; a browser gets 403) · no body.
 
 Response 200:
 
@@ -613,7 +621,7 @@ middleware refuses before the handler runs. The app reads its own list from
 | `ch.change` | Theme, preset, volume, name of a channel; speakers muted (also `sp.mute`) |
 | `ch.speakers` | Change a channel's speakers or speaker group |
 | `ch.add` | Create and delete channels |
-| `th.view` | Themes, tracks, presets, categories, track audio, theme export |
+| `th.view` | Themes, tracks, presets, categories, track audio, theme export, theme packages (10) |
 | `th.edit` | Track mixer, presets, groups, categories, favorites, rename |
 | `th.upload` | Create, upload into, import, delete themes |
 | `pl.view` / `pl.run` / `pl.edit` | Sequences and playlists: see / run on a channel / create and edit |
@@ -625,7 +633,7 @@ middleware refuses before the handler runs. The app reads its own list from
 | `pg.use` | Plugin list, plugin pages and actions |
 | `tr.run` | Plugin webhook triggers |
 | `an.send` | Announcements and sounds over channels (`/api/announce`, `/api/sounds`); Admins only by role |
-| `admin.plugins` | Install, enable, configure plugins; schedules |
+| `admin.plugins` | Install, enable, configure plugins; schedules; the reference render (10.3) |
 | `admin.connection` | Settings › Connection (HA URL and token, MQTT) |
 | `admin.users`, `admin.keys`, `self` | Users, keys, own devices: **never** on a phone |
 | `device` | Only a linked phone (the sign-in code) |
@@ -637,11 +645,10 @@ A phone always gets its user's (or the open) abilities **minus**
 
 | Situation | Phone's abilities (verified) |
 |---|---|
-| Users plugin on, phone of an **Admin** | Everything except `admin.users`, `admin.keys`, `self`: `admin.connection admin.plugins an.send ch.* device ev.read pg.use pl.* sp.* st.* th.* tr.run` |
-| Users plugin on, phone of a **User** | `ch.add ch.change ch.play ch.speakers ch.view device ev.read pl.edit pl.run pl.view sp.mute sp.view th.view` |
-| Users plugin on, phone with no user, Require login **off** | As an Admin's phone (open access) |
-| Users plugin on, phone with no user, Require login **on** | Nothing: 401 `{"pair": true}` |
-| Users plugin **off** | As an Admin's phone, whoever linked it |
+| Phone of an **Admin** | Everything except `admin.users`, `admin.keys`, `self`: `admin.connection admin.plugins an.send ch.* device ev.read pg.use pl.* sp.* st.* th.* tr.run` |
+| Phone of a **User** | `ch.add ch.change ch.play ch.speakers ch.view device ev.read pl.edit pl.run pl.view sp.mute sp.view th.view` |
+| Phone with no user, Require login **off** | As an Admin's phone (open access) |
+| Phone with no user, Require login **on** | Nothing: 401 `{"pair": true}` |
 
 So a User's phone can do everything on channels, playlists and sequences,
 but only see themes, speakers and settings. Routes marked **Admin** below
@@ -650,8 +657,9 @@ answer 403 `{"detail": "Only an admin can do this"}` to a User's phone.
 Not built yet (PLAN-mobile-api.md §10): channel ownership. Today any User
 can change or delete any channel.
 
-The app needs no special handling for keys (`sk_...`, Integration plugin);
-they're for scripts and devices.
+The app needs no special handling for keys (`sk_...`, Settings › Keys, part
+of Sonorium and switched on or off in Settings › Advanced); they're for
+scripts and devices.
 
 ---
 
@@ -740,7 +748,7 @@ Status objects (PLAYBACK.md):
 | `GET /sessions/{id}` | ch.view | | channel | 404 `"Session not found"` |
 | `PUT /sessions/{id}` | ch.change (+ ch.speakers to change speakers) | any of the POST fields; only those sent change | channel | 404, 409 sequence with no presets, 403 `"Not allowed to change speakers"` |
 | `DELETE /sessions/{id}` | ch.add | | 204, no body | 404 |
-| `POST /sessions/{id}/play` | ch.play | none | `{"status": "playing", "channel_id": 1, "sequence_id": null, "playlist_id": null}` | 400 `"No theme selected"`, `"Theme not found"`, `"No speakers selected"`, 404 |
+| `POST /sessions/{id}/play` | ch.play | none | `{"status": "playing", "channel_id": 1, "sequence_id": null, "playlist_id": null}` | 400 `"No theme selected"`, `"Theme not found"`, `"No speakers selected"`, 404, 409 `"6 channels are already playing (the most at once is 6). Stop one first."` (Max channels) |
 | `POST /sessions/{id}/pause` | ch.play | none | `{"status": "paused"}` | 404 |
 | `POST /sessions/{id}/stop` | ch.play | none | `{"status": "stopped"}` | 404 |
 | `POST /sessions/stop-all` | ch.play | none | `{"stopped": 2}` | |
@@ -759,7 +767,8 @@ Status objects (PLAYBACK.md):
 | `DELETE /sessions/{id}/sequence` | pl.run | | playback object | 404 |
 | `PUT /sessions/{id}/playlist` | pl.run | `{"playlist_id": "1a2b3c4d"}` | playback object | 400, 404, 409 |
 | `DELETE /sessions/{id}/playlist` | pl.run | | playback object | 404 |
-| `POST /sessions/{id}/next` | pl.run | none | `{"skipped": ..., ...playback}` | 409 `"The channel is not playing"`, 409 `"No playlist or sequence is running"` |
+| `POST /sessions/{id}/next` | pl.run | none | `{"skipped": "playlist"\|"sequence"\|"preset"\|"end", ...playback}` | 404, 409 `"The channel is not playing"`, 409 `"Nothing to go to next"` |
+| `POST /sessions/{id}/previous` | pl.run | none | `{"skipped": "playlist"\|"sequence"\|"preset"\|"end", ...playback}` | 404, 409 `"The channel is not playing"`, 409 `"Nothing to go back to"` |
 
 Notes:
 
@@ -769,6 +778,20 @@ Notes:
 - **Preset:** `PUT` `{"preset_id": "rain"}` (3 s glide; stops a running
   sequence). `""` = no preset. `"seq:<sequence_id>"` starts that sequence
   (same as `POST .../sequence`).
+- **Next** (`POST .../next`): with a playlist, its next entry (`"end"`
+  when a playlist that doesn't repeat was on its last entry: the channel
+  stops); else with a sequence, its next step (a 3 s glide); else the
+  theme's next preset (a 3 s glide), with Default settings (`preset_id`
+  null) first in the list and Default settings again after the last preset.
+  409 `"Nothing to go to next"` only when the theme has no presets.
+  `skipped` says which.
+- **Previous** (`POST .../previous`, the mirror of Next): with a playlist,
+  its previous entry (from the first entry it wraps to the round's last if
+  the playlist repeats, else the first entry starts again); else with a
+  sequence, its previous step (a 3 s glide; from the first step it wraps to
+  the last when At the end is restart, else that step starts again); else
+  the theme's previous preset, with Default settings (`preset_id` null)
+  first in the list and the last preset before it. `skipped` says which.
 - **Speakers:** `PUT` `{"speaker_group_id": "..."}` or `{"adhoc_selection":
   {...}}`. A playing channel starts and stops speakers live.
 - **Play/stop/pause** answer at once; the fade and speaker commands follow in
@@ -813,10 +836,13 @@ left); don't show it as a listener count.
 | `GET /themes/{id}/groups` | th.view | `{"groups": [...]}` (THEME_FORMAT.md 2.5) |
 | `GET /categories` | th.view | `{"categories": ["Weather", "Christmas", "Fantasy"]}` |
 | `POST /themes/{id}/favorite` | th.edit, **Admin** | toggles favorite |
-| `PUT /themes/{id}/rename` | th.edit, **Admin** | `{"name"}` |
+| `PUT /themes/{id}/rename` | th.edit, **Admin** | `{"name"}`; 409 when another theme has the name (below) |
+| `POST /themes/{id}/duplicate` | th.upload, **Admin** | Body `{"name"}`. A full, independent copy (below): `{"status": "ok", "theme_id", "theme": {"id", "name", "folder", "description", "icon", "categories", "is_favorite": false}}`; 409 when another theme has the name, 404 unknown theme |
 | `PUT /themes/{id}/tracks/{key}/{presence|muted|volume|playback_mode|seamless_loop|fades|ebb|exclusive}` | th.edit, **Admin** | Changes the theme's own track settings (every channel on it). *(code only)* |
 | `POST /themes/create`, `/themes/{id}/upload`, `/themes/import`, `DELETE /themes/{id}`, `PUT /themes/{id}/metadata` | th.upload / th.edit, **Admin** | Theme management; leave it to the web UI |
 | `GET /themes/{id}/export` | th.view | zip (section 10) |
+| `GET /themes/packages`, `GET /themes/{id}/package`, `GET /themes/{id}/files/{path}` | th.view | Theme packages (section 10) |
+| `POST /themes/{id}/render` | admin only | Reference render, WAV (10.3) |
 
 Theme summary (`GET /themes`):
 
@@ -845,6 +871,16 @@ Theme summary (`GET /themes`):
   (THEME_FORMAT.md); show a warning badge when non-empty.
 - Empty theme folders appear with `has_audio: false`, `total_tracks: 0` and
   no `short_file_threshold`.
+- **Theme names are unique:** two names are the same with the spaces around
+  them trimmed and case ignored. Create, rename, import and duplicate answer
+  409 `{"detail": "A theme with this name already exists"}` for a name
+  another theme has; nothing is written.
+- **Duplicate** copies the theme folder: audio files and groups,
+  `metadata.json` (track and group settings, links, categories, description,
+  icon) and `presets.json` (presets and sequences). The copy gets a new id,
+  its own folder (named from the new name, as Create theme does) and
+  `is_favorite: false`. Linked files stay links to the same theme's files.
+  The web UI suggests the name `"<name> 01"`, the lowest free number from 01.
 
 Track object (`GET /themes/{id}/tracks`):
 
@@ -999,8 +1035,8 @@ created_at, updated_at}`.
 
 | Method, path | Perm | Answer |
 |---|---|---|
-| `GET /settings` | ch.view | `{"default_volume": 60, "crossfade_duration": 3.0, "max_groups": 20, "entity_prefix": "sonorium", "show_in_sidebar": true, "auto_create_quick_play": true, "master_gain": 60}` |
-| `PUT /settings` | st.change, **Admin** | any of those fields → the same object |
+| `GET /settings` | ch.view | `{"default_volume": 60, "crossfade_duration": 3.0, "max_groups": 20, "show_in_sidebar": true, "auto_create_quick_play": true, "master_gain": 60, "server_name": ""}` (`server_name`: `""` = "Sonorium") |
+| `PUT /settings` | st.change, **Admin** | any of those fields → the same object. `server_name` is trimmed; longer than 40 characters or with control characters: 400 |
 | `GET /stream/url` | ch.view | section 9 |
 | `GET /install` | ch.view | `{"install", "label", "version", "features"}` |
 | `GET /status` | ch.view | `{"version", "current_theme", "themes": [...], "v2_enabled", "sessions", "speaker_groups", "channels", "active_channels", "playlist_sessions"}` |
@@ -1053,7 +1089,7 @@ speakers for their length (the channel doesn't show as playing).
 
 | Method, path | Perm | Body / answer |
 |---|---|---|
-| `POST /announce` | an.send | `{"channels": [id] or "all", "text": "Dinner is ready", "url": "https://.../chime.mp3", "volume": 0-200, "duck": true \| false \| {"db", "attack", "release"}, "provider", "language", "start_stopped": true}` → `{"chime": result or null, "speech": result or null}`. `text` needs a text to speech provider (the Announcements plugin gives Home Assistant's): 502 when it fails |
+| `POST /announce` | an.send | `{"channels": [id] or "all", "text": "Dinner is ready", "url": "https://.../chime.mp3", "volume": 0-200, "duck": true \| false \| {"db", "attack", "release"}, "provider", "language", "start_stopped": true}` → `{"chime": result or null, "speech": result or null}`. `text` needs a text to speech provider (Sonorium gives Home Assistant's): 502 when it fails. 409 while announcements are off (`features.announcements.enabled` false) |
 | `GET /sounds` | ch.view | `{"sounds": [{sound_id, channel_id, name, state, priority, policy, length, position, volume, duck, capped, label, origin}]}` |
 | `POST /sounds` | an.send | `{"channels", "url", "volume", "duck", "policy": "now" \| "queue" \| "replace", "priority", "max_seconds", "start_stopped": false, "override": false, "label"}` → result |
 | `DELETE /sounds/{sound_id}` | an.send | `{"cancelled": true}`; 404 when it isn't playing or queued |
@@ -1078,6 +1114,145 @@ volume isn't touched. `db` sounds even to the ear (the default).
 Network speakers buffer a few seconds of audio: a sound reaches them that
 much later than the stream.
 
+### 7.11 The personal channel
+
+Each account has one personal channel: its own theme, preset, sequence or
+playlist, volume and Announcements switch, heard only on that account's own
+devices (the app's headphone button). Think of it as a pair of headphones
+plugged into the server: the mix is made on the server, every device of the
+account hears the same mix, and no speaker ever plays it.
+
+- **Made on first use** (the first `GET /api/me/channel`), with no theme and
+  the default volume. It is kept across restarts (state.json,
+  `"personal_channels"`).
+- **Local only:** it never has speakers. `PUT` with `speaker_group_id` or
+  `adhoc_selection` answers 400; `POST /api/sessions/{its id}/play` and every
+  other `/api/sessions/{its id}/...` route answer 404.
+- **Hidden:** not in `GET /api/sessions` (for anyone, its owner included),
+  `GET /api/now-playing`, `GET /api/status`, `/api/stream/url`, Home
+  Assistant or MQTT entities, dashboard cards, zones or links. It doesn't
+  count towards the 20-channel limit and `POST /api/sessions/stop-all`
+  leaves it alone. There is no admin view of other accounts' personal
+  channels.
+- **Its events** (`channel.listening`, `channel.changed`, `sequence.step`,
+  `playlist.*` of a channel, `sound.*`) carry `"personal": true` and go only
+  to the event streams of its own account (8.1); plugins don't get them.
+- **Announcements:** announcements address channels by id or name, and a
+  personal channel has neither from outside: it can't be named. An
+  announcement to `"all"` (Home Assistant, MQTT, `POST /api/announce`, a
+  plugin) also plays on every personal channel **being listened to right
+  now** whose `announcements` is on. One nobody listens to is left out (there
+  is nobody to hear it). `POST /api/sounds` (sounds, not announcements) never
+  reaches a personal channel.
+- **Volume:** stored with the channel for the app to set on its player. The
+  stream itself is at full level, as every channel's stream is (a channel's
+  volume is its speakers').
+
+#### Whose channel: the account
+
+| Caller | Account |
+|---|---|
+| A signed-in user, or a phone linked by (or for) a user | That user: `user:<user id>` |
+| Nobody signed in (Require login off), a phone with no user, a key, BYPASS_LOGIN | None: 401 `{"detail": "Sign in to use your personal channel"}` |
+
+On the add-on, the Home Assistant user is the
+account (a phone linked with an HA username is that user).
+
+#### Which device: one device, counted once
+
+Listening is counted per device, by who calls:
+
+1. a linked phone: its device id (from its `sd_` token);
+2. else a signed-in browser: its sign-in session;
+3. else a key: the key;
+4. else the caller's address.
+
+A device that calls `POST .../listen` again is still one device.
+`DELETE .../listen` removes only the device that calls it.
+
+#### Routes
+
+| Method, path | Perm | Body | Answer | Errors |
+|---|---|---|---|---|
+| `GET /api/me/channel` | ch.view | | the channel object (7.1) plus `personal`, `devices`, `this_device` | 401 no account |
+| `PUT /api/me/channel` | ch.change | any of `theme_id`, `preset_id` (`""` none, `"seq:<id>"` a sequence), `sequence_id` (null: stop it), `playlist_id` (null: stop it), `volume` (0-100), `announcements` (bool), `custom_name`; only those sent change | as GET | 400 speakers, 404 unknown sequence or playlist, 409 it can't run (no presets, no entries), 422 bad value, 401 |
+| `POST /api/me/channel/listen` | ch.play | none, or `{"hold_seconds": 0-300}` (or `?hold_seconds=`) | `{"session_id", "personal": true, "channel_id", "stream_path", "listen_path", "hold_seconds", "devices"}` | 400 `"No theme selected"` / `"Theme not found"` / bad hold, 409 `"No free channel"`, 401 |
+| `DELETE /api/me/channel/listen` | ch.play | none | `{"status": "ok", "removed": bool, "devices": n}` (`removed` false: this device wasn't listening) | 401 |
+
+Extra fields on the channel object:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `personal` | bool | Always `true` |
+| `devices` | int | Devices of the account listening now |
+| `this_device` | bool | The calling device is one of them |
+
+`GET /api/me/channel` (captured on a test server, two devices listening):
+
+```json
+{
+  "id": "88de7e63",
+  "name": "Personal",
+  "name_source": "custom",
+  "theme_id": "df297db5-a98d-4372-8029-2c49d1e280e4",
+  "preset_id": "slow_night_at_the_inn",
+  "speaker_group_id": null,
+  "adhoc_selection": null,
+  "volume": 40,
+  "is_playing": false,
+  "speakers": [],
+  "speaker_summary": "No speakers",
+  "channel_id": 1,
+  "sequence_id": null,
+  "preset_choice": "slow_night_at_the_inn",
+  "playlist_id": null,
+  "sequence": null,
+  "playlist": null,
+  "speakers_muted": false,
+  "announcements": true,
+  "listening": true,
+  "outputs": [],
+  "recent": [{"at": "2026-10-12T03:24:19.609835+00:00", "text": "Theme: Tavern"}],
+  "created_at": "2026-10-12T03:24:19.601693",
+  "last_played_at": null,
+  "personal": true,
+  "devices": 2,
+  "this_device": true
+}
+```
+
+`POST /api/me/channel/listen` with `{"hold_seconds": 30}`:
+
+```json
+{"session_id": "88de7e63", "personal": true, "channel_id": 1, "stream_path": "/stream/channel1",
+ "listen_path": "/stream/channel1?local=1&listener=2607ae52a0aad8de", "hold_seconds": 30.0, "devices": 1}
+```
+
+#### Listening
+
+1. `PUT /api/me/channel` with a `theme_id` first (a new personal channel has
+   none: listen answers 400 `"No theme selected"`).
+2. `POST /api/me/channel/listen`. The mix starts if no device of the account
+   listens yet (it fades in); otherwise this device joins the same mix.
+3. Play `http://<host>:<ports.http><listen_path>` (9.3: progressive MP3).
+   `listen_path` is the shared stream plus this device's own tag
+   (`listener=`), so the server can tell when this device's stream closed.
+   Every device gets the same `stream_path`; the tags differ. The tag means
+   nothing outside this server run; ask again after `POST .../listen`.
+4. Stop: `DELETE /api/me/channel/listen`. When the last device leaves, the
+   mix fades out and its slot is freed.
+
+A device is also let go `hold_seconds` (default **15 s**, at most 300; each
+device its own) after its stream closed, checked every 10 s, as Listen here
+does (9.3). A device whose tagged stream never connected counts from its
+`POST .../listen`; one that plays `stream_path?local=1` without its tag is
+kept while such an untagged stream plays. Settings changed with `PUT` apply
+live to what every device hears (a new theme crossfades, a preset glides).
+
+Events: `channel.listening` comes each time the number of listening devices
+changes (`devices`), with `listening` false and `playing` false when the
+last one left (8.2).
+
 ---
 
 ## 8. Live updates
@@ -1095,7 +1270,12 @@ Query parameters:
 | `last_event_id` | | Same as the `Last-Event-ID` header: replay after this id |
 | `max_events` | 0 | >0: close after that many events (tests) |
 
-Recommended for the app: `types=channel.*,sequence.*,playlist.*,speaker.*,theme.*,sonorium.started,error`.
+Recommended for the app: `types=channel.*,sequence.*,playlist.*,speaker.*,theme.*,group.*,spaces.*,settings.*,sonorium.started,error`.
+
+A personal channel's events (7.11) reach only the streams of its own
+account: the stream's caller (its token) decides, and replay after
+`Last-Event-ID` is filtered the same way. A stream opened with the old
+events token (no account) never gets them.
 
 Wire format (real capture):
 
@@ -1140,15 +1320,23 @@ data: {"id": 11, "boot_id": "54615c1e5e5d4331a7b9cd713cd45918", "type": "channel
 | `channel.started` | `channel_id`, `name`, `theme_id`, `preset_id`, `volume`, `speakers` | Mark playing |
 | `channel.stopped` | `channel_id`, `name`, `reason`: `stopped`, `paused`, `idle`, `ended` | Mark stopped |
 | `channel.changed` | `channel_id`, `name`, `changes`: any of `theme_id`, `preset_id`, `sequence_id`, `playlist_id`, `volume`, `speakers_muted`, `name`, `speakers` | Apply `changes`, or refetch the channel |
-| `channel.listening` | `channel_id`, `name`, `listening` (true when the first listener comes, false when the last one goes) | Set the channel's `listening` (G3) |
+| `channel.listening` | `channel_id`, `name`, `listening` (true when the first listener comes, false when the last one goes), `devices` (how many listen now), `playing` (the channel's mix runs: speakers, listeners or outputs); on a personal channel also `personal: true`, and it comes on every change of `devices` | Set the channel's `listening` (G3); personal channel: its device count |
 | `channel.output_added` | `channel_id`, `name`, `output_id`, `kind`, `output_name`, `address` | Add to the channel's `outputs` (G2) |
 | `channel.output_removed` | `channel_id`, `name`, `output_id`, `kind`, `output_name`, `address`, `reason`: `removed` (by the app), `expired` (no heartbeat), `replaced` (the same device reported again), `stopped`, `paused`, `idle`, `deleted` | Remove it; if it is the device this phone casts to, stop the Cast session (9.5) |
 | `sequence.step` | `channel_id`, `name`, `theme_id`, `sequence_id`, `step`, `steps`, `preset_id` | Refetch `/sessions/{id}/playback` (gives `next_change_at`) |
 | `playlist.entry` | `channel_id`, `name`, `playlist_id`, `position`, `entries`, `theme_id` | Same |
+| `playlist.started` | `channel_id`, `name`, `playlist_id`, `playlist_name` | A playlist started on the channel (comes after `channel.changed {playlist_id}`) |
+| `playlist.stopped` | `channel_id`, `name`, `playlist_id` | The channel stopped its playlist (by hand, another theme, the playlist deleted) |
+| `playlist.created` | `playlist_id`, `playlist_name` | Fetch `GET /playlists/{id}` |
+| `playlist.changed` | `playlist_id`, `playlist_name`, `changes` (the fields sent: `name`, `entries`, `order`, `repeat`, `play_min`, `play_max`, `fit_sequences`) | Refetch it |
+| `playlist.deleted` | `playlist_id`, `playlist_name`, `stopped_on` (channel ids that were playing it) | Remove it |
+| `group.changed` | `group_id`, `group_name`, `change`: `created`, `changed`, `deleted` | Refetch `GET /groups` |
+| `spaces.changed` | `source`: `registry` (the floors and areas listed changed: added, renamed, moved or removed in Settings › Floors & Areas or in Home Assistant) or `custom_areas` (Settings › Speakers' custom areas) | Refetch `GET /spaces` |
+| `settings.changed` | `section`: `general` (`GET /settings`), `playback_values` (`GET /settings/playback-values`), `speakers` (enabled speakers), `speaker` (one speaker's settings, with `speaker_id`), `features` (`GET /install`); `keys`: the settings sent (never their values) | Refetch that section |
 | `speaker.added` / `speaker.removed` | `speaker_id`, `name` (+ `type` on added) | Refetch speakers |
 | `speaker.unavailable` / `speaker.available` | `speaker_id`, `name` | Grey out / restore |
 | `theme.created` | `theme_id`, `folder` | Refetch themes |
-| `theme.changed` | `theme_id` (may be null), `folder` | Refetch that theme's presets and sequences |
+| `theme.changed` | `theme_id` (may be null), `folder` | Refetch that theme's presets and sequences; recheck theme packages' `content_hash` (10.4) |
 | `theme.deleted` | `theme_id` | Remove it |
 | `plugin.enabled` / `plugin.disabled` | `plugin_id`, `name` | If `users`: refetch `/api/info` and `/api/auth/me` |
 | `schedule.fired`, `trigger.received`, `error` | see PLUGIN_DEVELOPMENT.md | `error` can be shown as an in-app message |
@@ -1157,9 +1345,10 @@ data: {"id": 11, "boot_id": "54615c1e5e5d4331a7b9cd713cd45918", "type": "channel
 | `command.received` | `plugin_id`, `map_id`, `code`, `actions`, `learned` | ignore |
 | `plugin.<id>.<name>` | the plugin's | ignore |
 
-Not announced as events (poll or refetch): playlist create/edit/delete, speaker group and floor/area changes, settings
-changes, a sequence's `next_change_at` drift. Volume set through Home
-Assistant or MQTT does produce `channel.changed`.
+Not announced as events (poll or refetch): a sequence's `next_change_at`
+drift; Settings › Connection (saving it restarts the server:
+`sonorium.started`). Volume set through Home Assistant or MQTT does produce
+`channel.changed`.
 
 ### 8.3 Reconnect and replay
 
@@ -1209,6 +1398,16 @@ When SSE can't be used (battery saver, widget refresh):
 
 - `base` is the direct HTTP address speakers use (Settings › Connection's
   stream URL, or the detected one). Never an ingress URL, in every install.
+- **Stream links.** While Require login is on, a stream (`/stream/...`) plays
+  for a signed-in caller (cookie, `Authorization: Bearer`, or `?token=`), for
+  a caller on the LAN (a private or loopback address; Settings › Advanced ›
+  Limits › LAN speakers without a link, on by default), or with a stream
+  link: `?t=<expiry>.<signature>`, which the server adds to the addresses it
+  hands out that aren't on the LAN (`channels` here, `stream_url` of 9.5, the
+  personal channel's `listen_path`). A link works for Stream link time
+  (12 h by default) for that path only; play the URL as given, query
+  included. Anyone else gets 401 `{"login": true}`. Open streams are limited
+  per address and in all (429). `/stream/virtual/...` is its own secret.
 - `channels` maps **session id → URL**. Only URLs of the form
   `/stream/channel{N}` are live channel streams. A session without a slot is
   listed with a legacy `/stream/<theme id>` URL: **ignore those**; they play
@@ -1354,52 +1553,180 @@ new `boot_id`); report again.
 
 ---
 
-## 10. Theme packages for Pro
+## 10. Theme packages for offline playback
 
-### 10.1 What exists
+A client that keeps its own copy of a theme (to play it without the server)
+downloads it as a **package**: a list of files with their sizes and SHA-256,
+then each file on its own. The package is exactly what the zip export holds,
+file for file. Code: `sonorium/core/theme_package.py`,
+`sonorium/web/theme_package_routes.py`.
 
-`GET /api/themes/{id}/export` · th.view (every phone) · answer
-`application/zip`, `Content-Disposition: attachment; filename="<folder>.zip"`.
+### 10.1 What a package holds
 
-- Contents: `<folder>/` with every file of the theme folder (audio, group
-  subfolders, `ATTRIBUTION.md`, `MANIFEST.json`, anything else), linked files
-  from other themes copied in at their place, and freshly written
-  `metadata.json` (2.0 layout) and `presets.json`. Backup files of those two
-  are left out.
-- Built in memory, then streamed: **no `Content-Length`**, no ETag, no
-  checksum, no Range/resume, no version. A large theme costs its whole size
-  in server RAM during the download.
-- **Bug found:** the route looks for themes only in `/media/sonorium` and
-  `/share/sonorium`, ignoring the configured audio folder. It works on the
-  add-on and Docker (whose folder is `/media/sonorium`), but answers 404
-  `"Theme '<id>' not found"` on the Windows and Linux installs. The same
-  lookup is used by theme upload, delete, metadata edit and import.
-- Per-file download exists: `GET /api/themes/{id}/tracks/{key}/audio`
-  (th.view, `FileResponse`, which supports `Range` and sends
-  `Content-Length`/`ETag`/`Last-Modified`). It covers audio only, not the
-  JSON files or linked files.
-- Preset JSON: `GET /api/themes/{id}/presets/{pid}/export`.
-- Theme format: [THEME_FORMAT.md](THEME_FORMAT.md) (spec v2, `spec_version: 2`).
+- Every file in the theme folder: audio, group subfolders, `ATTRIBUTION.md`,
+  `MANIFEST.json`, anything else. Left out: the theme's own `metadata.json`
+  and `presets.json` and their backup or broken copies
+  (`metadata.json.bak`, `presets.json.broken-…`).
+- Each **linked file** (it lives in another theme's folder) at the path it
+  has in this theme: `<key><.ext>`, inside its group's folder when it has
+  one (`Low/Drone.wav`). Its bytes are the source theme's file.
+- `metadata.json` and `presets.json` **as exported**: the 2.0 layout, the
+  links dropped (their settings stay under the same keys), written as JSON
+  with an indent of 2, UTF-8, non-ASCII characters as they are.
 
-### 10.2 Licence and source
+Paths use `/` and are relative to the theme folder.
 
-Not in any API response. They live only in files inside the theme folder,
-which arrive in the zip:
+### 10.2 The content hash
 
-- `MANIFEST.json` (optional): `source` {`site`, `url`, `template_id`,
-  `creator`, `harvested_at`} and `license` {`name`, `url`,
-  `requires_attribution`} (THEME_FORMAT.md 6.4).
-- `ATTRIBUTION.md` (optional, human-readable).
-- `metadata.json` `attribution` / `description` (free text).
+```
+content_hash = "sha256:" + hex(SHA-256(UTF-8(lines)))
+lines        = for each file, sorted by path: path + "\t" + size + "\t" + sha256 + "\n"
+```
 
-The app can only learn a theme's licence by downloading it first. The three
-bundled themes are CC Sampling Plus 1.0 (ambient-mixer.com) until replaced.
+- Sorted by path as Unicode code points (the same order as sorting the UTF-8
+  bytes; not a locale collator).
+- `size`: bytes, decimal, no padding. `sha256`: the file's SHA-256, lowercase
+  hex. The result is `sha256:` and 64 lowercase hex digits.
 
-### 10.3 What's missing
+The same files give the same hash on every server; any change to any byte,
+any name, any file added or removed gives a new one (settings too: they are
+in `metadata.json` and `presets.json`). A copy is current when its hash
+equals the listing's.
 
-Gaps P1-P4 in section 13: a package listing with size, content hash, spec
-version and licence; a manifest with per-file checksums; resumable per-file
-download of every file; and the export path bug.
+The server keeps each file's SHA-256 in memory with its size and
+modification time and works it out again only when one of them changes, so
+the listing reads only what changed since the last time.
+
+### 10.3 Routes
+
+**List every theme.** `GET /api/themes/packages` · th.view
+
+```json
+{"packages": [
+  {"theme_id": "df297db5-a98d-4372-8029-2c49d1e280e4", "name": "Tavern", "spec_version": 2,
+   "content_hash": "sha256:436fcf22b1c30111cc71c47518aaabcaf96703074aa6cb8861ab92005149a160",
+   "size_bytes": 4463664, "file_count": 12, "track_count": 8,
+   "updated_at": "2026-10-12T12:57:38.441712+00:00",
+   "license": {"name": "Creative Commons Sampling Plus 1.0",
+               "url": "https://creativecommons.org/licenses/sampling+/1.0/", "requires_attribution": true},
+   "source": {"site": "ambient-mixer.com", "url": "https://rpg.ambient-mixer.com/d-d-fantasy-inn-pub-tavern",
+              "template_id": "2905", "creator": "", "harvested_at": "2025-12-14T15:09:58.276253"},
+   "redistributable": true}
+]}
+```
+
+- Sorted by name. `track_count`: the theme's audio tracks, linked files
+  included. `updated_at`: the newest modification time of the package's
+  files (UTC).
+- `license` and `source`: the objects in the theme's `MANIFEST.json` as they
+  are (THEME_FORMAT.md 6.4), or `null`.
+- `redistributable`: `license.redistributable` when `MANIFEST.json` sets it;
+  otherwise `true` for Creative Commons and public-domain licences, `false`
+  for "All rights reserved" and proprietary ones, `null` (unknown) for any
+  other licence or none.
+
+**One theme's package.** `GET /api/themes/{id}/package` · th.view
+
+```json
+{"theme_id": "df297db5-a98d-4372-8029-2c49d1e280e4", "name": "Tavern", "spec_version": 2,
+ "content_hash": "sha256:436fcf22b1c30111cc71c47518aaabcaf96703074aa6cb8861ab92005149a160",
+ "size_bytes": 4463664,
+ "files": [
+   {"path": "ATTRIBUTION.md", "size": 1619, "sha256": "441f840fa0cca87759037157b831b01e6ec7542975becd5a2c34858d7cb1ba71"},
+   {"path": "fireplace_663.mp3", "size": 259951, "sha256": "07820aba53a09bb4a541dd4b0ae7b9d73e50ff29a2f907e7b41b9eeed3a783e7"},
+   {"path": "metadata.json", "size": 6596, "sha256": "718483a1d27d9609834f9ec4c88881a798dd2c2fc270d27458bc59eff6b10d6e"},
+   {"path": "presets.json", "size": 1942, "sha256": "fa29b7180811abca1017a5a333e82fbd8b2b4dddb77711920fa392180282fdfd"}
+ ],
+ "metadata": {"spec_version": 2, "id": "df297db5-…", "name": "Tavern", "tracks": {…}, "groups": {…}, …},
+ "presets": {"presets": {…}},
+ "playback_values": {"sparse_min_interval": 180.0, "sparse_max_interval": 1800.0, "group_gap": 120.0, …}}
+```
+
+(`files` shortened: Tavern has 12.) `files` is sorted by path. `metadata`
+and `presets` are the exported documents, the same content as the
+`metadata.json` and `presets.json` files. `playback_values`: the server's
+Settings › Advanced values now (every key, as `GET
+/api/settings/playback-values` `values`; 7.8); store them with the package
+so the copy plays as it does on this server.
+
+**One file.** `GET /api/themes/{id}/files/{path}` · th.view
+
+- `{path}` is a `path` from `files`, URL-encoded per segment
+  (`Lute/Lute%20song%201.mp3`). Anything not in the list is 404; the path is
+  only ever looked up in the list, so it can't reach other files.
+- Answers: `ETag: "<sha256>"`, `Content-Length`, `Accept-Ranges: bytes`,
+  `Cache-Control: no-cache`; `Content-Type` by extension (`audio/mpeg`,
+  `audio/wav`, `audio/flac`, `audio/ogg`, `application/json`, `text/markdown`,
+  else `application/octet-stream`).
+- `Range: bytes=a-b`, `bytes=a-`, `bytes=-n`: 206 with `Content-Range`;
+  a range past the end: 416 with `Content-Range: bytes */<size>`. Several
+  ranges in one header: the whole file (200).
+- `If-Range: "<sha256>"` with a Range: the range only while the file is
+  still that one, else the whole file (200). `If-None-Match: "<sha256>"`:
+  304 while unchanged.
+- To resume after a drop: `Range: bytes=<bytes you have>-` with `If-Range`
+  set to the ETag of the first part. Check every file's SHA-256 against the
+  list when it is complete.
+
+**The zip, for people.** `GET /api/themes/{id}/export` · th.view · answer
+`application/zip`, `Content-Disposition: attachment; filename="<folder>.zip"`,
+`Content-Length`. Holds `<folder>/<path>` for every file of the package.
+Written to a temporary file first (deleted after sending), so its size is
+known and the server doesn't hold the theme in memory. The theme is found
+in the configured audio folder on every install.
+
+**Reference render.** `POST /api/themes/{id}/render` · admin only (perm
+`admin.plugins`: an Admin, an Admin's phone, the console credential; never a
+User or a key)
+
+```
+{"preset_id": "busy", "seconds": 30, "seed": 42}     → 200 audio/wav, Content-Length
+```
+
+- The theme mixed by `sonorium.engine` (docs/ENGINE.md): mono, 44 100 Hz,
+  16-bit PCM WAV, `seconds × 44100` samples. Same theme files, values, preset
+  and seed: the same bytes every time.
+- `preset_id`: omitted or `null` = the theme's default preset; `""` = no
+  preset. `seconds`: 1 to 120 (default 30). `seed`: integer (default 0).
+  `master_gain`: optional, 0-100 (default 60, the out-of-the-box Master
+  output gain). Playback values: the server's current Settings › Advanced
+  values (the package's `playback_values`).
+- A downloaded copy rendered with the engine, the package's
+  `playback_values` and the same preset, seed and master gain gives the same
+  bytes: compare a client's own mixer with it.
+- 400 bad body; 404 unknown theme or preset; 422 a theme with no audio;
+  429 with `Retry-After` past the limit (11.2) or while another render runs.
+
+### 10.4 Knowing when to download again
+
+Compare each theme's `content_hash` in `GET /api/themes/packages` with the
+stored copy's. Check again on these events (8.2):
+
+- `theme.changed` (`theme_id`, `folder`): settings or presets saved, a file
+  uploaded (also over an existing one), a group or track moved, a link added
+  or removed. Recheck that theme.
+- `theme.created`: a new theme. `theme.deleted`: gone.
+- `sonorium.started`, and after reconnecting the event stream (8.3): recheck
+  every theme (files copied into a theme folder by hand while the server
+  runs announce nothing).
+
+A linked file changes with its source theme: a `theme.changed` for the
+source can change the hash of every theme linking to it, so recheck the
+listing as a whole.
+
+### 10.5 Licence and source
+
+From the theme's `MANIFEST.json` (optional): `source` {`site`, `url`,
+`template_id`, `creator`, `harvested_at`} and `license` {`name`, `url`,
+`requires_attribution`, optional `redistributable`} (THEME_FORMAT.md 6.4),
+in the listing as above. `ATTRIBUTION.md` (optional, human-readable) and
+`metadata.json` `attribution` / `description` (free text) come with the
+files. The three bundled themes are CC Sampling Plus 1.0
+(ambient-mixer.com).
+
+Theme format: [THEME_FORMAT.md](THEME_FORMAT.md) (spec v2,
+`spec_version: 2`). Preset JSON on its own: `GET
+/api/themes/{id}/presets/{pid}/export`.
 
 ---
 
@@ -1425,7 +1752,7 @@ Flags the sign-in layer adds to error bodies:
 | 403 | `"reset": true` | (Browsers only) choose a new password first |
 | 503 | `{"detail": "Sonorium is starting", "starting": true}` | Retry in a few seconds |
 | 503 | `{"detail": "Home Assistant didn't answer. Try again in a moment."}` | (Add-on) sign-in with an HA username: HA couldn't check the password |
-| 503 | `{"detail": "The sign-in plugin didn't start. See Logs.", "closed": true}` | Server misconfigured; show the message |
+| 503 | `{"detail": "Sign-in didn't start. See Logs.", "closed": true}` | Server misconfigured; show the message |
 | 404 | `{"detail": "Not Found"}` | Route of a plugin that's off (e.g. `/api/pair/login` without Users) |
 
 Exceptions to watch:
@@ -1448,10 +1775,20 @@ Exceptions to watch:
 | `POST /api/pair` | burst 5, then 1 per 12 s; **every** attempt counts, successful or not | client IP | 429, `Retry-After: <s>` |
 | `POST /api/pair/login` (and browser sign-ins) | 5 failures, then 1 per 12 s; successes don't count | client IP | 429, `Retry-After` |
 | `POST /api/devices/recovery-code` | burst 3, then 1 per minute | phone | 429, `Retry-After` |
-| `GET /api/events/stream` | 20 open streams per server | | 503 |
+| `POST /api/themes/{id}/render` | burst 3, then 1 per 20 s; one render at a time on the server | user, phone or key, else client IP | 429, `Retry-After` |
+| `GET /api/events/stream`, `GET /api/timeline/stream` | 20 open streams per server; Event streams per user (8) per user, phone or key | | 503; 429 |
+| Failed sign-ins (`/api/auth/login`, `/api/pair/login`, `/api/auth/code-login`) | also Sign-in tries per username (10 a minute), from any address | username | 429, `Retry-After` |
+| `GET /stream/...` | Streams per address (16), Streams in all (64) | client IP | 429 |
+| `GET /api/themes/{id}/export` | Exports at once (2) | | 429 |
+| Request bodies | Sign-in request size (16 KB) for `/api/auth/*`, `/api/pair`, `/api/link`; Request size (1 MB) for the rest; Upload size (2048 MB) for uploads, theme and plugin zips and backup files | | 413 |
 | Everything else | none | | |
 
-Limits are in memory and reset when the server restarts.
+The limits in brackets are defaults: Settings › Advanced › Limits (`GET/PUT
+/api/settings/playback-values`; 0 is no limit). Limits are in memory and
+reset when the server restarts. Behind a reverse proxy the client IP is the
+proxy's unless it is listed in Trusted proxies (Settings › Advanced ›
+Network, or `SONORIUM__TRUSTED_PROXIES`): then it is the caller's, from
+`X-Forwarded-For`, and `X-Forwarded-Proto` tells HTTP from HTTPS.
 
 ### 11.3 Versioning and compatibility
 
@@ -1493,8 +1830,8 @@ native (12.5).
 | `sonorium/web/static/js/app.js` | 10355 | Everything else: Channels, Theme Editor, playlists, speakers, settings pages |
 | `sonorium/web/static/js/logs.js` | 142 | The log viewer (Settings › Logs and `/logs`) |
 | `sonorium/web/static/css/styles.css` | 4210 | All styles and the design tokens (12.6) |
-| `plugins/builtin/users/web/users.js`, `users.css` | | Sign-in screens, Users & devices (loaded from the server via `/api/ui/plugins` and `/plugin-ui/users/...`) |
-| `plugins/builtin/integration/web/integration.js`, `.css` | | Settings › Keys |
+| `sonorium/web/static/js/ext/users.js`, `zones.js`, `static/css/users.css`, `zones.css` | | Sign-in screens, Users & devices, Zones (loaded by `slots.js` with the other `ext/` scripts; `/api/ui/plugins` is now empty) |
+| `sonorium/web/static/js/ext/keys.js`, `static/css/keys.css` | | Settings › Keys (hidden while `features.keys.enabled` is false) |
 | `/logo.png`, `/favicon.png` (server routes), `static/img/qr-logo.png` | | Images |
 | `static/ha/sonorium-cards.js` | | Home Assistant dashboard cards; not part of the UI |
 
@@ -1536,7 +1873,7 @@ the `sonorium_session` cookie, with `X-CSRF-Token` added to changes.
 | `app.js:7709` | `POST /api/plugins/upload` (multipart) |
 | `app.js:9211` | `GET /api/themes/{id}/tracks/{key}/audio` (decoded with WebAudio for the transition preview) |
 | `logs.js:49` | `GET /api/logs?after=` (polled) |
-| `users.js:67`, `:103` | the Users plugin's own `fetch` for sign-in calls and `/api/auth/me` |
+| `users.js:67`, `:103` | `ext/users.js`'s own `fetch` for sign-in calls and `/api/auth/me` |
 
 Not `fetch` (the wrapper doesn't see them):
 
@@ -1817,8 +2154,8 @@ section; the others have a proposed shape.
 ### Free MVP
 
 Built on branch `app-gaps` (each gap's final shape is in the section named):
-G1, G2, G3, G4, G6, G7, G10, G13, G14. Not built: G5 (other than
-`channel.listening`), G8, G9, G11, G12.
+G1, G2, G3, G4, G6, G7, G10, G13, G14; G5 on branch `personal-channel`.
+Not built: G8, G9, G11, G12.
 
 **G1. A phone sees, renames and unlinks itself. Built** (4.7).
 
@@ -1864,10 +2201,10 @@ SSE frames:   id: <boot_id>:<n>   (data JSON: "id": n, "boot_id")
 Last-Event-ID <boot_id>:<n>: replay after n; another run's id: replay all of this run's held events; bare n: as before
 ```
 
-**G5. Missing events.** (Medium) `playlist.created|changed|deleted
-{playlist_id}`, `group.changed {group_id}`, `spaces.changed`,
-`settings.changed {keys}`. Each would carry ids only; the app refetches.
-`channel.listening` is built (G3). Not built.
+**G5. Missing events. Built** (8.2): `playlist.created|changed|deleted`,
+`playlist.started|stopped`, `group.changed`, `spaces.changed`,
+`settings.changed`, and `channel.listening` gained `devices` and
+`playing`. They carry ids and names; the app refetches.
 
 **G6. Live per-speaker volume and mute. Built** (7.4).
 
@@ -1921,57 +2258,49 @@ offline engine needn't answer them.
 hooks in the web UI, and `/api/info` → `"ui": {"version": "1.6.2-dev.24",
 "host_api": 1}`.
 
-### Pro
+### Offline playback
 
-**P1. Theme package listing.**
+Built on branch `theme-packages`: P1-P6 (section 10).
+
+**P1. Theme package listing. Built** (10.3).
 
 ```
 GET /api/themes/packages   perm: th.view
-→ {"packages": [{"theme_id", "name", "spec_version": 2, "content_hash": "sha256:…", "size_bytes", "file_count",
-                 "track_count", "updated_at",
-                 "license": {"name", "url", "requires_attribution"} | null,
-                 "source": {"site", "url", "creator"} | null,
+→ {"packages": [{"theme_id", "name", "spec_version", "content_hash": "sha256:…", "size_bytes", "file_count",
+                 "track_count", "updated_at", "license": {…} | null, "source": {…} | null,
                  "redistributable": true | false | null}]}
 ```
 
-`content_hash` is the SHA-256 over the sorted manifest lines (P2), so the
-app can tell whether its offline copy is current. `license`/`source` come
-from `MANIFEST.json`; `redistributable` lets the app refuse to offer themes
-whose licence forbids it.
-
-**P2. Manifest with checksums.**
+**P2. Package with checksums. Built** (10.1-10.3).
 
 ```
 GET /api/themes/{id}/package   perm: th.view
-→ {"theme_id", "spec_version", "content_hash", "files": [{"path": "Lute/Lute song 1.mp3", "size", "sha256"}],
-   "metadata": {...metadata.json as exported...}, "presets": {...presets.json...}}
+→ {"theme_id", "name", "spec_version", "content_hash", "size_bytes", "files": [{"path", "size", "sha256"}],
+   "metadata": {…as exported…}, "presets": {…}, "playback_values": {…}}
 ```
 
-Linked files appear at their exported path, as in the zip.
+Linked files appear at their exported path, as in the zip. The hash is
+defined in 10.2.
 
-**P3. Resumable per-file download.**
+**P3. Resumable per-file download. Built** (10.3).
 
 ```
 GET /api/themes/{id}/files/{path}   perm: th.view
-    Range supported, ETag = the file's sha256, Content-Length set; 404 for paths not in the manifest
+    Range, If-Range, If-None-Match; ETag = "<sha256>"; Content-Length; 404 for paths not in the package
 ```
 
-The app downloads files in parallel, verifies each sha256, and resumes
-after a drop. The zip export stays for people.
+**P4. Export lookup and streaming. Built** (10.3). The theme is found in the
+configured audio folder; the zip is written to a temporary file and sent
+with `Content-Length`.
 
-**P4. Fix the export lookup.** Use the configured audio folder
-(`SONORIUM__PATH_AUDIO` / the theme registry) in `_find_theme_folder`,
-theme create, upload, delete and import, and stream the zip from a temp file
-with `Content-Length` instead of building it in memory.
+**P5. Reference render. Built** (10.3).
 
-**P5. Golden render hook** (PLAN-mobile-api.md §6 / THEME_FORMAT.md):
-`POST /api/themes/{id}/render {"preset_id", "seconds": 30, "seed": 42}` →
-`audio/wav` of the mix with a fixed RNG, Admin or a debug switch only, so the
-Kotlin mixer can be compared with the server's.
+```
+POST /api/themes/{id}/render   admin only   {"preset_id", "seconds": 1..120, "seed", "master_gain"?}
+→ audio/wav, mono 44.1 kHz 16-bit; rate-limited (11.2)
+```
 
-**P6. Advanced values per server.** Already readable (7.8); Pro should store
-them with each downloaded theme package (`P2` could include them as
-`"playback_values"`).
+**P6. Advanced values per server. Built** (10.3): `playback_values` in P2.
 
 ---
 
@@ -2042,8 +2371,12 @@ Not run:
 - **The add-on** (ingress port, Supervisor addresses, port mappings) and
   **Docker**: from code. The live NAS server's `/api/info` and mDNS
   announcement were read.
-- **Theme export zip**: 404 on the Windows test server (the path bug, 10.1);
-  the zip layout is from the code.
+- **Theme packages** (10): a bundled theme (Tavern) downloaded file by file
+  through the package routes from a local server, every SHA-256 and the
+  content hash checked, one file resumed with `Range`/`If-Range`, the folder
+  rebuilt and rendered with `sonorium.engine`: the same WAV bytes as the
+  server's `POST /render` with the same seed. The zip export answered with
+  `Content-Length`.
 - **Sequences, playlists, `sequence.step` / `playlist.entry` events**: the
   bundled themes have no sequences; shapes from code and PLAYBACK.md.
 - Theme, preset and track editing routes (Admin, web UI territory): from

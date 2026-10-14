@@ -1,4 +1,5 @@
 import logging
+import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -50,8 +51,8 @@ class RevalidatingStaticFiles(StaticFiles):
 
 # The web app's main port. Standalone listens on 8008 directly (one port for
 # UI and streams); the add-on keeps 8080, which HA ingress and its 8008 port
-# mapping point at.
-WEB_PORT = 8008 if runtime.STANDALONE else 8080
+# mapping point at. SONORIUM_HTTP_PORT changes it (runtime.http_port).
+WEB_PORT = runtime.http_port()
 
 
 class WebApp:
@@ -61,6 +62,7 @@ class WebApp:
     API, sign-in and plugins add theirs as they start. serve() runs it.
     """
     port = WEB_PORT
+    MP3_START_DELAY = 30.0  # seconds after start-up before themes are checked for audio to convert
 
     def __init__(self, backend: "Backend"):
         self.app = web_server.new_app(f'Sonorium {__version__} Streaming API')
@@ -76,13 +78,16 @@ class WebApp:
         self._group_manager = None
         self._channel_manager = None
         self._background = None
+        self._resume_task = None  # channels playing again after a requested restart
         self._mqtt_manager = None
         self._theme_refresh_task = None
         self._plugin_manager = None
         self._plugin_host = None  # plugins/host.py: events, actions, scheduler, triggers
+        self._announcements = None  # ha/announcements.py: HA notify entities and MQTT topics
         self._theme_metadata_manager = None
         self._network_service = None  # standalone only
         self._cards = None  # Home Assistant dashboard cards (ha/cards.py)
+        self._mp3_service = None  # core/theme_mp3.py: theme audio converted to MP3 in the background
 
         # Home Assistant loads the dashboard cards from Sonorium (Docker /
         # Windows): a module script from another origin needs CORS
@@ -127,15 +132,24 @@ class WebApp:
             await self._stop_auth()
 
         # Sign-in, users, linked phones and keys: one middleware checks every
-        # route (sonorium/auth); it's outermost, so it runs first
+        # route (sonorium/auth); outside it only the body limits and the proxy's address
         from sonorium.auth.middleware import AuthMiddleware, AuthService
         from sonorium.auth.routes import create_core_auth_router
         self.auth = AuthService()
-        self.auth.app = self.app  # sign-in plugins add their routes to it
+        self.auth.app = self.app  # Users and Keys add their routes to it
+        # Stream links (auth/stream_links.py) are signed with the sign-in's secret
+        from sonorium.auth import stream_links
+        stream_links.bind(self.auth)
         self._https_host_port = None  # the HTTPS port as the LAN sees it (add-on: its port mapping)
         self._announcer = None
         self._announce_task = None
         self.app.add_middleware(AuthMiddleware, service=self.auth)
+        # Request bodies over their limit: 413 (sonorium/limits.py); before sign-in reads anything
+        from sonorium.limits import BodyLimitMiddleware
+        self.app.add_middleware(BodyLimitMiddleware)
+        # Outermost: a trusted reverse proxy's caller address and scheme (auth/proxies.py)
+        from sonorium.auth.proxies import ForwardedClient
+        self.app.add_middleware(ForwardedClient)
         self.app.include_router(create_core_auth_router(
             self.auth,
             stream_url=self._stream_base_url,
@@ -143,7 +157,16 @@ class WebApp:
             version=__version__,
             https_host_port=self._https_port_outside,
             mdns_host=lambda: self._announcer.hostname if self._announcer is not None else None,
+            plugins_available=lambda: self._plugin_manager is not None,
+            # A Stream URL set by hand: when it's a public address (a reverse proxy), clients are given it
+            public_url=lambda: os.environ.get("SONORIUM__STREAM_URL"),
+            https_listen_port=self._https_listen_port,
         ))
+        # Users (accounts, sign-in): sign-in stays closed until they have loaded (auth/users.py)
+        self.auth.expected_providers.add("users")  # auth/users.py PLUGIN_ID
+        # Keys (Settings > Keys): a core feature, switched on or off in Settings > Advanced
+        from sonorium.auth import keys as core_keys
+        core_keys.install(self.auth)
 
         # Mount static files (CSS, JS) for the web UI
         if STATIC_DIR.exists():
@@ -190,6 +213,8 @@ class WebApp:
             # Theme API
             Route("GET", "/api/themes", self.list_themes),
             Route("POST", "/api/themes/refresh", self.refresh_themes),
+            # Before /api/themes/{theme_id}, which would take "packages" as an id
+            Route("GET", "/api/themes/packages", self.list_theme_packages),
             Route("POST", "/api/themes/{theme_id}/favorite", self.toggle_favorite),
             Route("GET", "/api/themes/{theme_id}", self.get_theme),
 
@@ -274,6 +299,19 @@ class WebApp:
             # Settings > Advanced's playback values: the mixer reads them from the store
             from sonorium import playback_values
             playback_values.set_source(lambda: self._state_store.settings.playback_values)
+            # Settings > Advanced > Server name: GET /api/info and mDNS read it from the store
+            from sonorium import servername
+            servername.set_source(lambda: self._state_store.settings.server_name)
+            # Plugin attribute schemas live in state.json: known before themes and plugins load
+            from sonorium.core import plugin_data
+            plugin_data.registry.bind(lambda: self._state_store.settings.plugin_attributes,
+                                      save=self._state_store.save,
+                                      limit=lambda: playback_values.get(plugin_data.LIMIT_SETTING))
+            # Settings > Advanced > Keys and Announcements (core features, on out of the box)
+            from sonorium.auth import keys as core_keys
+            from sonorium.core import announce as core_announce
+            core_keys.set_enabled(self.auth, self._feature_on("keys"))
+            core_announce.set_enabled_source(lambda: self._feature_on("announcements"))
             logger.debug(f"  State loaded: {len(self._state_store.sessions)} sessions, {len(self._state_store.speaker_groups)} groups")
 
             # Initialize theme metadata manager
@@ -298,6 +336,8 @@ class WebApp:
 
             # Settings > Audio Settings > Master output gain (0-100) is the mix's output gain
             self._apply_master_gain()
+            # Settings > Audio Settings > Stereo: the channel count mixes are made at
+            self._apply_stereo()
 
             # Initialize channel manager
             max_channels = getattr(settings, 'max_channels', 6)
@@ -393,6 +433,14 @@ class WebApp:
             if self._plugin_host:
                 self._init_framework_services()
 
+            # Zones (Users: Settings > Advanced > Zones) on the channels, and Child Mode's hours
+            try:
+                from sonorium.auth import users as core_users
+                core_users.attach_zones(self.auth, self._session_manager,
+                                        on_change=self._plugin_host._changed if self._plugin_host else None)
+            except Exception as e:
+                logger.warning(f"  Zones unavailable: {e}")
+
             # Initialize plugin manager
             try:
                 from sonorium.plugins.manager import PluginManager
@@ -473,12 +521,27 @@ class WebApp:
                 if self._plugin_host:  # plugins' changes reach Home Assistant like the UI's
                     self._plugin_host.on_change = self._mqtt_manager.update_session_state
 
+            # Announcements from Home Assistant (notify entities) and MQTT, once MQTT is set up
+            if self._plugin_host:
+                try:
+                    from sonorium.ha.announcements import Announcements
+                    self._announcements = Announcements(self._plugin_host)
+                    await self._announcements.start(self._feature_on("announcements"))
+                except Exception as e:
+                    logger.warning(f"  Announcements from Home Assistant and MQTT unavailable: {e}")
+
             # Home Assistant dashboard cards: installed once both HA and MQTT are linked
             self._init_dashboard_cards(stream_base_url)
 
             # Start the background loop
             await self._background.start()
             logger.debug("  Background loop started")
+
+            # Channels that were playing before a requested restart play again
+            self._resume_after_restart()
+
+            # Theme audio becomes MP3 in the background (core/theme_mp3.py)
+            self._start_mp3_conversion()
 
             # Plugin scheduler and the alert bar for failures
             if self._plugin_host:
@@ -527,9 +590,7 @@ class WebApp:
                            RampService(self._session_manager, publish, rate=SAMPLE_RATE,
                                        on_change=lambda s: host._changed(s)),
                            outputs)
-            # A channel sent to an audio output is sent there again when it starts
-            host.bus.subscribe("channel.started", lambda e: outputs.channel_started(e.data.get("channel_id")),
-                               owner=None)
+            # Its devices are speakers: the session manager plays them through it (add_speaker_kind)
         except Exception as e:
             logger.warning(f"  Sounds, ramps and audio outputs unavailable: {e}")
         try:
@@ -566,6 +627,14 @@ class WebApp:
             self.backend.device.master_volume = max(0, min(100, gain)) / 100 * 10.0
         except Exception as e:
             logger.warning(f"  Could not apply the master output gain: {e}")
+
+    def _apply_stereo(self):
+        """Settings > Audio Settings > Stereo (off by default): channels mix in stereo or mono."""
+        try:
+            from sonorium.decoders import set_default_channels
+            set_default_channels(2 if self._state_store.settings.stereo else 1)
+        except Exception as e:
+            logger.warning(f"  Could not apply the Stereo setting: {e}")
 
     def _migrate_theme_data_to_metadata(self):
         """
@@ -644,11 +713,10 @@ class WebApp:
 
     def _apply_saved_track_settings(self):
         """Apply saved track settings from metadata.json to theme instances on startup."""
-        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, reset_ebb_settings
         if not self._theme_metadata_manager:
             return
 
-        from sonorium.recording import PlaybackMode
+        from sonorium.core import theme_edit
 
         device = self.backend.device
         if not device.themes:
@@ -668,45 +736,21 @@ class WebApp:
             if not metadata:
                 continue
 
-            # Apply short_file_threshold from metadata
-            theme.short_file_threshold = metadata.short_file_threshold
-            # Group settings (Themes 2.0), read by the theme's grouped tracks
-            theme.groups = dict(getattr(metadata, "groups", None) or {})
-
-            for inst in theme.tracks:
-                track_settings = metadata.tracks.get(inst.name)
-                if not track_settings:
-                    # Use defaults
-                    inst.presence = 1.0
-                    inst.is_enabled = True
-                    inst.volume = 1.0
-                    inst.playback_mode = PlaybackMode.AUTO
-                    inst.crossfade_enabled = True
-                    inst.exclusive = False
-                    inst.fade_in = inst.fade_out = 0.0
-                    reset_ebb_settings(inst)
-                    if getattr(inst.meta, "link", None):
-                        inst.is_enabled = False  # a linked file without settings stays off
-                    continue
-
-                # Apply settings from metadata
-                inst.presence = track_settings.presence
-                inst.is_enabled = not track_settings.muted
-                inst.volume = track_settings.volume
-                try:
-                    inst.playback_mode = PlaybackMode(track_settings.playback_mode)
-                except ValueError:
-                    inst.playback_mode = PlaybackMode.AUTO
-                inst.crossfade_enabled = not track_settings.seamless_loop
-                inst.exclusive = track_settings.exclusive
-                inst.fade_in, inst.fade_out = track_settings.fade_in, track_settings.fade_out
-                for key in EBB_TRACK_SETTINGS:
-                    setattr(inst, key, getattr(track_settings, key))
+            # short_file_threshold, group settings (Themes 2.0, read by the
+            # theme's grouped tracks) and each track's settings (defaults
+            # where metadata.json has none)
+            theme_edit.apply_saved_settings(theme, metadata)
 
             logger.debug(f"    Applied settings to theme '{theme.name}'")
 
     async def shutdown_v2(self):
         """Shutdown v2 components gracefully."""
+        self._remember_for_restart()
+        if getattr(self, "_mp3_service", None):
+            import asyncio
+            from sonorium.core import theme_mp3
+            theme_mp3.set_service(None)
+            await asyncio.to_thread(self._mp3_service.stop)
         if self._background:
             await self._background.stop()
         if self._plugin_host:
@@ -716,6 +760,71 @@ class WebApp:
                 logger.warning(f"Plugin framework stop failed: {e}")
         if self._network_service:
             await self._network_service.stop()
+
+    def _start_mp3_conversion(self):
+        """
+        Every theme's audio becomes MP3 (core/theme_mp3.py), in a background
+        thread that starts a little after start-up: themes that came in first,
+        then each theme already here, once. A converted theme is rescanned, so
+        playing channels follow its new files.
+        """
+        import asyncio
+        from sonorium.core import theme_mp3
+        if not self._state_store or not self.backend or not self.backend.device:
+            return
+        loop = asyncio.get_running_loop()
+
+        def converted(folder, result):
+            loop.call_soon_threadsafe(self.schedule_theme_refresh)
+
+        try:
+            self._mp3_service = theme_mp3.Mp3Service(self.backend.device.audio_dir,
+                                                     self._state_store.state_file.parent, on_converted=converted,
+                                                     start_delay=self.MP3_START_DELAY)
+            theme_mp3.set_service(self._mp3_service)
+            self._mp3_service.start()
+        except Exception as e:
+            logger.warning(f"  Theme audio conversion to MP3 unavailable: {e}")
+            self._mp3_service = None
+
+    def _remember_for_restart(self):
+        """A requested restart (not a stop or a crash): the playing channels play again afterwards."""
+        from sonorium import host
+        if host.pending() != "restart" or not self._state_store:
+            return
+        try:
+            from sonorium.core import restart_resume
+            count = restart_resume.remember(self._state_store.sessions.values(), self._state_store.state_file.parent)
+            if count:
+                logger.info(f"{count} playing channel(s) will play again after the restart")
+        except Exception as e:
+            logger.warning(f"Could not remember the playing channels for the restart: {e}")
+
+    def _resume_after_restart(self):
+        """After a requested restart: play the channels that were playing (core/restart_resume.py)."""
+        try:
+            from sonorium.core import restart_resume
+            entries = restart_resume.take(self._state_store.state_file.parent)
+        except Exception as e:
+            logger.warning(f"Could not read the channels to play again after the restart: {e}")
+            entries = []
+        # Sleep timers (core/sleep_timer.py): kept on the channels that play again, dropped on the
+        # others; a channel whose timer ran out during the restart is not played again
+        sleep = getattr(self._session_manager, "sleep", None)
+        if sleep is not None:
+            try:
+                expired = sleep.after_start(entry["id"] for entry in entries)
+                entries = [entry for entry in entries if entry["id"] not in expired]
+            except Exception as e:
+                logger.warning(f"Could not check the sleep timers after the restart: {e}")
+        if not entries:
+            return
+        import asyncio
+        on_started = self._mqtt_manager.update_session_state if self._mqtt_manager else None
+        self._resume_task = asyncio.get_running_loop().create_task(
+            restart_resume.resume(self._session_manager, entries, on_started=on_started))
+        if sleep is not None:
+            self._resume_task.add_done_callback(lambda _task: sleep.resume_done())
 
     # --- Sign-in (sonorium/auth) ---
 
@@ -766,9 +875,11 @@ class WebApp:
         from sonorium.auth import config
         try:
             self.auth.note_install()
-            from sonorium.plugins.manager import DEFAULT_PLUGINS_DIR
-            self.auth.find_expected_providers(DEFAULT_PLUGINS_DIR)
+            from sonorium.auth import users as core_users
+            core_users.install(self.auth)  # a failure keeps sign-in closed (logged)
             identity = await asyncio.to_thread(lambda: self.auth.identity)
+            from sonorium.auth import console
+            console.ensure(self.auth)  # SONORIUM_CONSOLE_TOKEN_FILE: the host's credential
             if config.bypass_login():
                 logger.warning("BYPASS_LOGIN is on: anyone on your network can use and change Sonorium without signing in. "
                                "Reset your account under Settings > Users & devices, then set it back to false.")
@@ -778,14 +889,15 @@ class WebApp:
                 self._https_host_port = await asyncio.to_thread(config.addon_host_port, config.https_port())
             if runtime.STANDALONE:  # the add-on isn't on the host network: the QR code carries its address
                 from sonorium.auth.announce import Announcer
-                from sonorium.auth.routes import API_VERSION
+                from sonorium.auth.routes import API_VERSION, server_name
                 self._announcer = Announcer()
                 # in the background: checking that sonorium.local is free takes a moment
                 self._announce_task = asyncio.create_task(asyncio.to_thread(
                     self._announcer.start, server_id=identity.server_id, version=__version__, api=API_VERSION,
                     base_url=self._stream_base_url(),
                     https_port=self._https_port_outside() if identity.tls_ready else 0,
-                    login_required=self.auth.login_required))  # TXT pair follows Require login
+                    login_required=self.auth.login_required,  # TXT pair follows Require login
+                    name=server_name))  # TXT name follows the server's name
             else:
                 logger.info("mDNS: the Home Assistant add-on isn't on the host network, so sonorium.local isn't "
                             "announced; the app links with the QR code, which carries the address")
@@ -886,6 +998,12 @@ class WebApp:
             "mqtt_password_set": bool(conn.get("mqtt_password")),
             "mqtt_connected": self.backend.mqtt_client.is_connected,
             "stream_url": conn.get("stream_url", ""),
+            # Reverse proxies whose X-Forwarded-For is believed (auth/proxies.py)
+            "trusted_proxies": conn.get("trusted_proxies", ""),
+            # The ports Sonorium listens on (a change applies after a restart); editable: not on Windows
+            "http_port": runtime.http_port(), "https_port": self._https_listen_port(),
+            "ports_editable": runtime.ports_editable(),
+            "default_ports": {"http": runtime.DEFAULT_HTTP_PORT, "https": runtime.DEFAULT_HTTPS_PORT},
         }
 
     async def test_connection(self, request: Request):
@@ -936,10 +1054,69 @@ class WebApp:
             value = (updates.get(key) or "").strip()
             if value and not value.startswith(("http://", "https://")):
                 raise HTTPException(status_code=400, detail=f"{key} must start with http:// or https://")
-        runtime.save_connection(updates)
+        self._check_ports(updates)
+        if "trusted_proxies" in updates:
+            from sonorium.auth import proxies
+            text = updates["trusted_proxies"]
+            if text is not None and not isinstance(text, str):
+                raise HTTPException(status_code=400, detail="trusted_proxies must be text")
+            text = " ".join((text or "").replace(",", " ").split())
+            try:
+                proxies.parse(text)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"Trusted proxies: {e}")
+            updates["trusted_proxies"] = text
+        try:
+            runtime.save_connection(updates)
+        except runtime.SecretStoreError as e:
+            raise HTTPException(status_code=500, detail=f"Not saved: {e}")
+        if "mqtt_host" in updates and not str(updates["mqtt_host"] or "").strip():
+            # MQTT switched off: Home Assistant drops Sonorium's entities before it goes
+            await self._remove_mqtt_entities(getattr(getattr(self, "backend", None), "mqtt_client", None))
+        if "trusted_proxies" in updates:  # read as requests come in; a restart keeps this environment
+            from sonorium.auth import proxies
+            if updates["trusted_proxies"]:
+                os.environ[proxies.ENV] = updates["trusted_proxies"]
+            else:
+                os.environ.pop(proxies.ENV, None)
         logger.info("Connection settings saved; restarting Sonorium to apply them")
-        self._restart_soon()
+        self._restart_soon("connection settings changed")
         return {"status": "ok", "restarting": True}
+
+    @staticmethod
+    def _https_listen_port() -> int:
+        from sonorium.auth import config
+        return config.https_port()
+
+    @staticmethod
+    def _check_ports(updates: dict) -> None:
+        """
+        "http_port" / "https_port" in a connection change: 1-65535 (None or ""
+        for the default), not the same as each other, and only where ports are
+        editable (runtime.ports_editable). Changed to ints in `updates`. 400 otherwise.
+        """
+        names = [n for n in ("http_port", "https_port") if n in updates]
+        if not names:
+            return
+        if not runtime.ports_editable():
+            raise HTTPException(status_code=400, detail="The ports can't be changed here")
+        for name in names:
+            if updates[name] in (None, ""):
+                updates[name] = None
+                continue
+            port = runtime.valid_port(updates[name])
+            if port is None:
+                raise HTTPException(status_code=400, detail=f"{name} must be a number from 1 to 65535")
+            updates[name] = port
+        def after(name: str, default: int) -> int:
+            """The port once saved: the new value, else what is set now, else the default."""
+            if name in updates:
+                return updates[name] or default
+            return runtime.configured_port(name) or default
+        http = after("http_port", runtime.DEFAULT_HTTP_PORT)
+        https = after("https_port", runtime.DEFAULT_HTTPS_PORT)
+        if http == https:
+            raise HTTPException(status_code=400, detail="The HTTP and HTTPS ports must be different")
 
     async def delete_connection_ha(self):
         """
@@ -951,7 +1128,10 @@ class WebApp:
         """
         if not runtime.features()["connection_settings"]["available"]:
             raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
-        runtime.clear_connection(runtime.HA_FIELDS)
+        try:
+            runtime.clear_connection(runtime.HA_FIELDS)
+        except runtime.SecretStoreError as e:
+            raise HTTPException(status_code=500, detail=f"Not removed: {e}")
         runtime.clear_ha_env()
 
         targets = {}
@@ -995,17 +1175,14 @@ class WebApp:
         """
         if not runtime.features()["connection_settings"]["available"]:
             raise HTTPException(status_code=404, detail="Not available in the Home Assistant app")
-        runtime.clear_connection(runtime.MQTT_FIELDS)
+        try:
+            runtime.clear_connection(runtime.MQTT_FIELDS)
+        except runtime.SecretStoreError as e:
+            raise HTTPException(status_code=500, detail=f"Not removed: {e}")
         runtime.clear_mqtt_env()
 
         mqtt_client = self.backend.mqtt_client
-        if self._mqtt_manager is not None:
-            try:
-                if mqtt_client.is_connected:
-                    await self._mqtt_manager.remove_all_entities()
-            except Exception as e:
-                logger.warning(f"Could not remove Sonorium's MQTT entities: {e}")
-            self._mqtt_manager.stop_publishing()
+        await self._remove_mqtt_entities(mqtt_client)
 
         restart_required = False
         try:
@@ -1021,19 +1198,64 @@ class WebApp:
             "restart_required": restart_required,
         }
 
-    def _restart_soon(self):
-        """Restart Sonorium in place a moment after the current response is sent."""
+    async def _remove_mqtt_entities(self, mqtt_client) -> None:
+        """
+        Remove every Home Assistant entity Sonorium published over MQTT (the
+        channels' and global controls, the Announce notify entities, plugins'
+        discovery configs) while the broker is still connected, then publish
+        nothing more.
+        """
+        connected = bool(getattr(mqtt_client, "is_connected", False))
+        manager = getattr(self, "_mqtt_manager", None)
+        if manager is not None:
+            try:
+                if connected:
+                    await manager.remove_all_entities()
+            except Exception as e:
+                logger.warning(f"Could not remove Sonorium's MQTT entities: {e}")
+            manager.stop_publishing()
+        if not connected:
+            return
+        announcements = getattr(self, "_announcements", None)
+        if announcements is not None:
+            try:
+                await announcements.remove_entities()
+            except Exception as e:
+                logger.warning(f"Could not remove the Announce entities: {e}")
+        plugin_host = getattr(self, "_plugin_host", None)
+        router = getattr(plugin_host, "mqtt", None) if plugin_host is not None else None
+        if router is not None and hasattr(router, "remove_discovery"):
+            try:
+                await router.remove_discovery()
+            except Exception as e:
+                logger.warning(f"Could not remove plugins' MQTT entities: {e}")
+
+    def _restart_soon(self, reason: str = ""):
+        """
+        Restart Sonorium a moment after the current response is sent: a clean
+        shutdown, then exit code 75 for the host (SONORIUM_SUPERVISED) or a
+        restart in place (sonorium/host.py).
+        """
         import asyncio
-        import os
-        import sys
+        from sonorium import host
 
-        def restart():
-            os.execv(sys.executable, [sys.executable, "-m", "sonorium.entrypoint"])
-
-        asyncio.get_running_loop().call_later(1.0, restart)
+        asyncio.get_running_loop().call_later(1.0, host.request_restart, reason)
 
     def _feature_overrides(self) -> dict:
         return dict(self._state_store.settings.feature_overrides) if self._state_store else {}
+
+    def _feature_on(self, name: str) -> bool:
+        return runtime.feature_enabled(name, self._feature_overrides())
+
+    async def _apply_live_feature(self, name: str) -> None:
+        """A feature that applies at once (runtime.FEATURES "live"): Keys, Announcements."""
+        on = self._feature_on(name)
+        if name == "keys":
+            from sonorium.auth import keys as core_keys
+            core_keys.set_enabled(self.auth, on)
+        elif name == "announcements" and self._announcements is not None:
+            await self._announcements.set_enabled(on)
+        logger.info(f"{name.capitalize()} switched {'on' if on else 'off'}")
 
     async def get_install(self):
         """How Sonorium is installed, and which features that install shows and runs."""
@@ -1046,9 +1268,11 @@ class WebApp:
 
     async def put_install_features(self, request: Request):
         """
-        Settings > Advanced: switch on (or back off) features that are off by
-        default for this install. Takes effect after a restart.
-        Body: {"network_speakers": true, "restart": true}
+        Settings > Advanced: switch features on or off (the ones this install
+        lets you change, "switchable"; Advanced lists the "overridable" ones).
+        A "live" one (Keys, Announcements) applies at once; the others after a
+        restart ("restart": true restarts straight away).
+        Body: {"network_speakers": true, "keys": false, "restart": true}
         """
         try:
             body = await request.json()
@@ -1060,18 +1284,29 @@ class WebApp:
         for name, value in body.items():
             if name == "restart":
                 continue
-            if name not in runtime.FEATURES or runtime.feature_state(name) != "off":
+            if name not in runtime.FEATURES or not runtime.feature_switchable(name):
                 raise HTTPException(status_code=400, detail=f"'{name}' can't be changed here")
-            if value:
-                overrides[name] = True
+            if bool(value) == (runtime.feature_state(name) == "on"):
+                overrides.pop(name, None)  # back to this install's default
             else:
-                overrides.pop(name, None)
+                overrides[name] = bool(value)
         self._state_store.settings.feature_overrides = overrides
         self._state_store.save()
         logger.info(f"Advanced settings changed: {overrides or 'all defaults'}")
+        for name in body:
+            if name in runtime.FEATURES and runtime.FEATURES[name].get("live"):
+                try:
+                    await self._apply_live_feature(name)
+                except Exception as e:
+                    logger.warning(f"Could not switch {name}: {e}")
+        try:
+            from sonorium.plugins import events
+            events.publish("settings.changed", {"section": "features", "keys": sorted(k for k in body if k != "restart")})
+        except Exception:
+            pass
         restarting = bool(body.get("restart"))
         if restarting:
-            self._restart_soon()
+            self._restart_soon("Settings > Advanced")
         return {**(await self.get_install()), "restarting": restarting}
 
     def _log_startup_summary(self):
@@ -1089,14 +1324,14 @@ class WebApp:
         """Serve the main web UI (v2 if available, else v1)."""
         template_path = TEMPLATES_DIR / "index.html"
         if template_path.exists() and self._v2_initialized:
-            return HTMLResponse(content=template_path.read_text(), headers={"Cache-Control": "no-cache"})
+            return HTMLResponse(content=template_path.read_text(encoding='utf-8'), headers={"Cache-Control": "no-cache"})
         if (TEMPLATES_DIR / "logs.html").exists():
             return await self.logs_page()  # startup failed: show why
         return await self.legacy_ui()
 
     async def logs_page(self):
         """Standalone log viewer, independent of the main web UI."""
-        html = (TEMPLATES_DIR / "logs.html").read_text()
+        html = (TEMPLATES_DIR / "logs.html").read_text(encoding='utf-8')
         if not self._v2_initialized:
             html = html.replace("<!--STARTUP_NOTICE-->", '<p class="notice">Sonorium didn&#39;t finish starting. The logs below show why.</p>')
         return HTMLResponse(content=html, headers={"Cache-Control": "no-cache"})
@@ -1105,14 +1340,21 @@ class WebApp:
         return {"version": __version__, "install": runtime.INSTALL_LABEL,
                 "log_level": logging.getLevelName(logger.getEffectiveLevel()).lower()}
 
+    @staticmethod
+    def _logs_for_caller(after: int = 0) -> list[dict]:
+        """Admins: every message. Everyone else: no sign-in, account or linking messages, no addresses."""
+        from sonorium.auth.principal import current_caller, sees_private
+        entries = logbuffer.recent(after)
+        return entries if sees_private(current_caller()) else logbuffer.redacted(entries)
+
     async def get_logs(self, after: int = 0):
         """Recent log messages, oldest first; pass the last seq seen as `after` to get only newer ones."""
-        return {"entries": logbuffer.recent(after), **self._log_info()}
+        return {"entries": self._logs_for_caller(after), **self._log_info()}
 
     async def download_logs(self):
         """Recent log messages as a text file."""
         info = self._log_info()
-        text = f"Sonorium {info['version']}, {info['install']} (log level: {info['log_level']})\n\n" + logbuffer.as_text(logbuffer.recent())
+        text = f"Sonorium {info['version']}, {info['install']} (log level: {info['log_level']})\n\n" + logbuffer.as_text(self._logs_for_caller())
         name = f"sonorium-logs-{info['version']}.txt"
         return PlainTextResponse(text, headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
@@ -1320,8 +1562,11 @@ class WebApp:
             raise HTTPException(status_code=404, detail=f"Theme '{id}' not found")
         return StreamingResponse(theme.new_mix(), media_type="audio/mpeg")
 
-    async def stream_channel(self, channel_id: int, local: bool = False):
-        """Stream audio from a channel (new endpoint). ?local=1: a browser listening here (Listen here)."""
+    async def stream_channel(self, channel_id: int, local: bool = False, listener: str = ""):
+        """
+        Stream audio from a channel (new endpoint). ?local=1: a browser listening here (Listen here);
+        &listener=<tag>: a personal channel's device (its listen_path), so each device is counted on its own.
+        """
         if not self._channel_manager:
             return HTMLResponse(content="Channel system not initialized", status_code=503)
 
@@ -1330,7 +1575,9 @@ class WebApp:
             return HTMLResponse(content=f"Channel {channel_id} not found", status_code=404)
 
         # Every listener gets the channel's one broadcast, encoded for it alone
-        return StreamingResponse(channel.get_stream(local), media_type="audio/mpeg")
+        import re
+        tag = listener if local and re.fullmatch(r"[0-9a-f]{8,32}", listener or "") else None
+        return StreamingResponse(channel.get_stream(local, tag), media_type="audio/mpeg")
 
     def _find_theme_folder(self, theme_id: str) -> Path | None:
         """
@@ -1371,11 +1618,11 @@ class WebApp:
                 logger.debug(f"_find_theme_folder: path {mp} does not exist")
                 continue
             # Try exact match first
-            # Only a folder directly inside the audio folder: "..", "." and paths never match
-            if theme_id not in ("", ".", "..") and "/" not in theme_id and "\\" not in theme_id:
-                exact_path = mp / theme_id
-                if exact_path.is_dir():
-                    return exact_path
+            # A plain name only: "..", paths and drives ("C:" on Windows) never match
+            from sonorium.paths import child_folder
+            exact_path = child_folder(mp, theme_id)
+            if exact_path is not None:
+                return exact_path
             # Try scanning folders and comparing normalized names
             for folder in mp.iterdir():
                 if folder.is_dir():
@@ -1441,10 +1688,8 @@ class WebApp:
             return False
 
         # Update track settings
-        track_settings = metadata.get_track_settings(track_name)
-        for key, value in settings.items():
-            if hasattr(track_settings, key):
-                setattr(track_settings, key, value)
+        from sonorium.core import theme_edit
+        theme_edit.store_track(metadata, track_name, **settings)
 
         # Save back to metadata.json
         return self._theme_metadata_manager.save_metadata(metadata.id, metadata)
@@ -1645,6 +1890,13 @@ class WebApp:
         self._theme_refresh_task = asyncio.get_running_loop().create_task(refresh_later())
         return self._theme_refresh_task
 
+    async def list_theme_packages(self):
+        """Every theme as a package for offline playback: content hash, size, file and track counts, licence."""
+        from starlette.concurrency import run_in_threadpool
+        from sonorium.core.theme_package import list_packages
+        from sonorium.paths import audio_dir
+        return {"packages": await run_in_threadpool(list_packages, audio_dir())}
+
     async def refresh_themes(self):
         """Rescan theme folders and reload themes."""
         from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS, reset_ebb_settings
@@ -1707,7 +1959,7 @@ class WebApp:
             if metadata_path.exists():
                 try:
                     import json
-                    metadata = json.loads(metadata_path.read_text())
+                    metadata = json.loads(metadata_path.read_text(encoding='utf-8'))
                     theme_id = metadata.get("id")
                 except Exception:
                     pass  # Fall back to sanitized folder name
@@ -1804,6 +2056,12 @@ class WebApp:
                 await self._mqtt_manager.refresh_themes([{"id": t.id, "name": t.name} for t in device.themes])
             except Exception as e:
                 logger.warning(f"Failed to refresh MQTT theme options: {e}")
+
+        # Audio that came in by any way (a file copied into a theme folder by
+        # hand too) becomes MP3; themes already converted are only stat()ed
+        service = getattr(self, "_mp3_service", None)
+        if service:
+            service.request_all()
 
         return {
             "status": "ok",
@@ -1957,14 +2215,13 @@ class WebApp:
             filename=audio_path.name,
         )
 
-    async def set_track_presence(self, theme_id: str, track_name: str, request: Request):
-        """Set presence (frequency) for a specific track in a theme.
-
-        Presence controls how often a track plays in the mix:
-        - 1.0 = always playing (100% of the time)
-        - 0.5 = plays about half the time
-        - 0.0 = never plays (disabled)
+    async def _set_track_value(self, theme_id: str, track_name: str, request: Request, name: str):
         """
+        One of a track's settings from the Theme Editor (core/theme_edit.py):
+        the playing track follows and metadata.json keeps it. Answers
+        {"error": ...} (status 200) as these routes always have.
+        """
+        from sonorium.core import theme_edit
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
         theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
@@ -1975,104 +2232,41 @@ class WebApp:
         except Exception:
             return {"error": "Invalid JSON body"}
 
-        presence = body.get("presence")
-        if presence is None:
-            return {"error": "Presence is required"}
+        try:
+            value = theme_edit.clean_track_value(name, body.get(name))
+        except theme_edit.EditError as e:
+            return {"error": str(e)}
 
-        # Clamp presence to 0.0 - 1.0 range
-        presence = max(0.0, min(1.0, float(presence)))
-
-        # Find the track instance
-        track_inst = None
-        for inst in theme.tracks:
-            if inst.name == track_name:
-                track_inst = inst
-                break
-
+        track_inst = theme_edit.find_track(theme, track_name)
         if not track_inst:
             return {"error": "Track not found"}
 
-        # Update the live instance presence
-        track_inst.presence = presence
+        # Update the live instance, then persist to metadata.json
+        theme_edit.apply_track(track_inst, **{name: value})
+        self._save_track_setting_to_metadata(theme_id, track_name, **{name: value})
 
-        # Persist to metadata.json
-        self._save_track_setting_to_metadata(theme_id, track_name, presence=presence)
+        return {"status": "ok", "track": track_name, name: value}
 
-        return {"status": "ok", "track": track_name, "presence": presence}
+    async def set_track_presence(self, theme_id: str, track_name: str, request: Request):
+        """Set presence (frequency) for a specific track in a theme.
+
+        Presence controls how often a track plays in the mix:
+        - 1.0 = always playing (100% of the time)
+        - 0.5 = plays about half the time
+        - 0.0 = never plays (disabled)
+        """
+        return await self._set_track_value(theme_id, track_name, request, "presence")
 
     async def set_track_muted(self, theme_id: str, track_name: str, request: Request):
         """Set muted state for a specific track in a theme."""
-        theme, _ = self._get_theme_by_id(theme_id)
-        if not theme:
-            return {"error": "Theme not found"}
-
-        try:
-            body = await request.json()
-        except Exception:
-            return {"error": "Invalid JSON body"}
-
-        muted = body.get("muted")
-        if muted is None:
-            return {"error": "Muted state is required"}
-
-        muted = bool(muted)
-
-        # Find the track instance
-        track_inst = None
-        for inst in theme.tracks:
-            if inst.name == track_name:
-                track_inst = inst
-                break
-
-        if not track_inst:
-            return {"error": "Track not found"}
-
-        # Update the live instance
-        track_inst.is_enabled = not muted
-
-        # Persist to metadata.json
-        self._save_track_setting_to_metadata(theme_id, track_name, muted=muted)
-
-        return {"status": "ok", "track": track_name, "muted": muted}
+        return await self._set_track_value(theme_id, track_name, request, "muted")
 
     async def set_track_volume(self, theme_id: str, track_name: str, request: Request):
         """Set volume (amplitude) for a specific track in a theme.
 
         Volume controls how loud a track plays (0.0-1.0), independent of presence.
         """
-        theme, _ = self._get_theme_by_id(theme_id)
-        if not theme:
-            return {"error": "Theme not found"}
-
-        try:
-            body = await request.json()
-        except Exception:
-            return {"error": "Invalid JSON body"}
-
-        volume = body.get("volume")
-        if volume is None:
-            return {"error": "Volume is required"}
-
-        # Clamp volume to 0.0 - 1.0 range
-        volume = max(0.0, min(1.0, float(volume)))
-
-        # Find the track instance
-        track_inst = None
-        for inst in theme.tracks:
-            if inst.name == track_name:
-                track_inst = inst
-                break
-
-        if not track_inst:
-            return {"error": "Track not found"}
-
-        # Update the live instance volume
-        track_inst.volume = volume
-
-        # Persist to metadata.json
-        self._save_track_setting_to_metadata(theme_id, track_name, volume=volume)
-
-        return {"status": "ok", "track": track_name, "volume": volume}
+        return await self._set_track_value(theme_id, track_name, request, "volume")
 
     async def set_track_playback_mode(self, theme_id: str, track_name: str, request: Request):
         """Set playback mode for a specific track in a theme.
@@ -2086,80 +2280,11 @@ class WebApp:
           accepted; only a track without saved settings has it now)
         A track in a group plays its group's way whatever its own mode.
         """
-        from sonorium.recording import PlaybackMode
-
-        theme, _ = self._get_theme_by_id(theme_id)
-        if not theme:
-            return {"error": "Theme not found"}
-
-        try:
-            body = await request.json()
-        except Exception:
-            return {"error": "Invalid JSON body"}
-
-        mode_str = body.get("playback_mode")
-        if mode_str is None:
-            return {"error": "Playback mode is required"}
-
-        # Validate mode
-        valid_modes = [m.value for m in PlaybackMode]
-        if mode_str not in valid_modes:
-            return {"error": f"Invalid playback mode. Must be one of: {valid_modes}"}
-
-        mode = PlaybackMode(mode_str)
-
-        # Find the track instance
-        track_inst = None
-        for inst in theme.tracks:
-            if inst.name == track_name:
-                track_inst = inst
-                break
-
-        if not track_inst:
-            return {"error": "Track not found"}
-
-        # Update the live instance
-        track_inst.playback_mode = mode
-
-        # Persist to metadata.json
-        self._save_track_setting_to_metadata(theme_id, track_name, playback_mode=mode_str)
-
-        return {"status": "ok", "track": track_name, "playback_mode": mode_str}
+        return await self._set_track_value(theme_id, track_name, request, "playback_mode")
 
     async def set_track_seamless_loop(self, theme_id: str, track_name: str, request: Request):
         """Set seamless loop (disable crossfade) for a specific track in a theme."""
-        theme, _ = self._get_theme_by_id(theme_id)
-        if not theme:
-            return {"error": "Theme not found"}
-
-        try:
-            body = await request.json()
-        except Exception:
-            return {"error": "Invalid JSON body"}
-
-        seamless = body.get("seamless_loop")
-        if seamless is None:
-            return {"error": "seamless_loop is required"}
-
-        seamless = bool(seamless)
-
-        # Find the track instance
-        track_inst = None
-        for inst in theme.tracks:
-            if inst.name == track_name:
-                track_inst = inst
-                break
-
-        if not track_inst:
-            return {"error": "Track not found"}
-
-        # Update the live instance
-        track_inst.crossfade_enabled = not seamless
-
-        # Persist to metadata.json
-        self._save_track_setting_to_metadata(theme_id, track_name, seamless_loop=seamless)
-
-        return {"status": "ok", "track": track_name, "seamless_loop": seamless}
+        return await self._set_track_value(theme_id, track_name, request, "seamless_loop")
 
     async def set_track_ebb(self, theme_id: str, track_name: str, request: Request):
         """
@@ -2167,6 +2292,7 @@ class WebApp:
         Volume slider's lower knob), "pause_between": bool, "pause_min": s,
         "pause_max": s}. Playing channels follow at once.
         """
+        from sonorium.core import theme_edit
         from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS
         from fastapi.responses import JSONResponse
         theme, _ = self._get_theme_by_id(theme_id)
@@ -2178,27 +2304,14 @@ class WebApp:
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
         if not isinstance(body, dict) or not body:
             return JSONResponse({"error": "Expected volume_low, pause_between, pause_min or pause_max"}, status_code=400)
-        track_inst = next((inst for inst in theme.tracks if inst.name == track_name), None)
+        track_inst = theme_edit.find_track(theme, track_name)
         if track_inst is None:
             return JSONResponse({"error": "Track not found"}, status_code=404)
-        values = {}
-        for key, raw in body.items():
-            if key not in EBB_TRACK_SETTINGS:
-                return JSONResponse({"error": f"Unknown setting '{key}'"}, status_code=400)
-            if key == "pause_between":
-                if not isinstance(raw, bool):
-                    return JSONResponse({"error": "pause_between must be true or false"}, status_code=400)
-                values[key] = raw
-                continue
-            try:
-                number = float(raw)
-            except (TypeError, ValueError):
-                return JSONResponse({"error": f"{key} must be a number"}, status_code=400)
-            if number != number or isinstance(raw, bool):
-                return JSONResponse({"error": f"{key} must be a number"}, status_code=400)
-            values[key] = max(0.0, min(1.0, number)) if key in ("volume_low", "rise") else round(max(0.0, min(86400.0, number)), 1)
-        for key, value in values.items():
-            setattr(track_inst, key, value)
+        try:
+            values = theme_edit.clean_ebb(body)
+        except theme_edit.EditError as e:
+            return JSONResponse({"error": str(e)}, status_code=e.status)
+        theme_edit.apply_track(track_inst, **values)
         self._save_track_setting_to_metadata(theme_id, track_name, **values)
         return {"status": "ok", "track": track_name, **{key: getattr(track_inst, key) for key in EBB_TRACK_SETTINGS}}
 
@@ -2209,7 +2322,7 @@ class WebApp:
         from the file's next start or loop.
         """
         from fastapi.responses import JSONResponse
-        from sonorium.recording import FILE_FADE_MAX_SECONDS
+        from sonorium.core import theme_edit
         theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             return JSONResponse({"error": "Theme not found"}, status_code=404)
@@ -2219,25 +2332,14 @@ class WebApp:
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
         if not isinstance(body, dict):
             return JSONResponse({"error": "Invalid JSON body"}, status_code=400)
-        track_inst = next((inst for inst in theme.tracks if inst.name == track_name), None)
+        track_inst = theme_edit.find_track(theme, track_name)
         if track_inst is None:
             return JSONResponse({"error": "Track not found"}, status_code=404)
-        values = {}
-        for key in ("fade_in", "fade_out"):
-            if key not in body:
-                continue
-            raw = body[key]
-            try:
-                seconds = float(raw) if raw not in (None, "") else 0.0
-            except (TypeError, ValueError):
-                return JSONResponse({"error": f"{key} must be a number of seconds"}, status_code=400)
-            if seconds != seconds or seconds < 0:
-                return JSONResponse({"error": f"{key} must be 0 or more"}, status_code=400)
-            values[key] = round(min(FILE_FADE_MAX_SECONDS, seconds), 2)
-        if not values:
-            return JSONResponse({"error": "fade_in or fade_out is required"}, status_code=400)
-        for key, seconds in values.items():
-            setattr(track_inst, key, seconds)
+        try:
+            values = theme_edit.clean_fades(body)
+        except theme_edit.EditError as e:
+            return JSONResponse({"error": str(e)}, status_code=e.status)
+        theme_edit.apply_track(track_inst, **values)
         self._save_track_setting_to_metadata(theme_id, track_name, **values)
         return {"status": "ok", "track": track_name, "fade_in": track_inst.fade_in, "fade_out": track_inst.fade_out}
 
@@ -2249,6 +2351,7 @@ class WebApp:
     # overlap in seconds. Mode and crossfade are theme settings, not in presets.
     # Mode "intrusion" is retired (read from old files, converted on load,
     # refused here); a linked file can be in any group.
+    # (core/theme_edit.py checks them; GROUP_SETTING_KEYS there is the same list)
     GROUP_SETTING_KEYS = ("presence", "volume", "muted", "gap_min", "gap_max", "mode", "crossfade", "pause_between", "rise")
 
     def _theme_group_folder(self, theme_id: str):
@@ -2265,19 +2368,14 @@ class WebApp:
         Read from the folder, so empty groups and just-moved tracks show
         before the theme refresh has run.
         """
-        from sonorium.core import theme_groups
+        from sonorium.core import theme_edit
         theme, folder, metadata = self._theme_group_folder(theme_id)
-        members = {name: theme_groups.group_track_keys(folder, name)
-                   for name in theme_groups.group_folder_names(folder)}
         # A group's linked files are its tracks too
-        from sonorium.core.intrusions import link_group
-        for key in (getattr(metadata, "links", None) or {}):
-            if link_group(key) is not None:
-                members.setdefault(link_group(key), []).append(key)
-        return theme, metadata, members
+        return theme, metadata, theme_edit.group_members(folder, metadata)
 
     @staticmethod
     async def _json_object(request: Request) -> dict:
+        """The request's JSON object (its size: at most request_body_limit_kb, BodyLimitMiddleware in limits.py)."""
         try:
             body = await request.json()
         except Exception:
@@ -2292,24 +2390,16 @@ class WebApp:
         keys along in metadata.json and presets.json (presets and sequences),
         save both, and rebuild the live themes.
         """
-        from sonorium.core import sequences, theme_groups, theme_presets
-        presets = theme_presets.load_presets(folder)
-        migrated = theme_groups.migrate_keys(metadata, presets, change)
+        from sonorium.core import theme_edit
         # TODO: per-user preset files (planned, docs/THEME_FORMAT.md 1.5) store
-        # track keys too; migrate them here with theme_groups.migrate_presets
-        # once they exist.
+        # track keys too; migrate them in theme_edit.save_group_change with
+        # theme_groups.migrate_presets once they exist.
         try:
-            if migrated != presets:
-                theme_presets.save_presets(folder, migrated)
-            sequences.migrate_track_keys(folder, change.track_keys, change.group_renames)
-        except OSError as e:
-            logger.error(f"Theme '{metadata.name}': files moved but presets.json couldn't be saved ({e})")
+            theme_edit.save_group_change(folder, metadata, change,
+                                         lambda m: self._theme_metadata_manager.save_metadata(m.id, m))
+        except theme_edit.SaveFailed as e:
             self.schedule_theme_refresh()
-            raise HTTPException(status_code=500, detail="Files were moved, but presets.json couldn't be saved")
-        metadata.presets = migrated
-        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
-            self.schedule_theme_refresh()
-            raise HTTPException(status_code=500, detail="Files were moved, but metadata.json couldn't be saved")
+            raise HTTPException(status_code=500, detail=str(e))
 
     async def _refresh_now(self):
         """Rebuild the themes before answering, so the editor shows the change at once."""
@@ -2339,19 +2429,38 @@ class WebApp:
 
     async def rename_group_folder(self, theme_id: str, group: str, request: Request):
         """Rename a group. Body: {"name": "New"}. Track keys follow in metadata and presets."""
-        from sonorium.core import theme_groups
+        from sonorium.core import theme_edit
         theme, folder, metadata = self._theme_group_folder(theme_id)
         body = await self._json_object(request)
-        try:
-            change = theme_groups.rename_group(folder, group, body.get("name"))
-        except theme_groups.GroupError as e:
-            raise self._group_http_error(e)
-        new = change.group_renames.get(group, group)
-        if change.group_renames:
-            self._save_group_change(folder, metadata, change)
+        result = self._folder_change(lambda: theme_edit.rename_group(folder, group, body.get("name"),
+                                                                     metadata, self._manager_save))
+        new = result["name"]
+        if new != group:
             await self._refresh_now()
             logger.info(f"Theme '{metadata.name}': group '{group}' renamed to '{new}'")
-        return {"name": new, "tracks": change.track_keys}
+        return {"name": new, "tracks": result["tracks"]}
+
+    def _manager_save(self, metadata) -> bool:
+        """Save a theme's metadata.json and presets.json through the metadata manager (its copy follows)."""
+        return self._theme_metadata_manager.save_metadata(metadata.id, metadata)
+
+    def _folder_change(self, call, files_moved: bool = True) -> dict:
+        """
+        Run a theme_edit folder function for a route: its errors become the
+        HTTP answer. A failed save after files moved also rebuilds the themes
+        (as _save_group_change).
+        """
+        from sonorium.core import theme_edit, theme_groups
+        try:
+            return call()
+        except theme_groups.GroupError as e:
+            raise self._group_http_error(e)
+        except theme_edit.SaveFailed as e:
+            if files_moved:
+                self.schedule_theme_refresh()
+            raise HTTPException(status_code=500, detail=str(e))
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
     async def delete_group_folder(self, theme_id: str, group: str):
         """
@@ -2359,30 +2468,16 @@ class WebApp:
         "x (2)" on a clash) and keep their settings; its linked files become
         ungrouped the same way (re-keyed, nothing moves). Audio files are never deleted.
         """
-        from sonorium.core import intrusions, theme_groups
+        from sonorium.core import theme_edit
         theme, folder, metadata = self._theme_group_folder(theme_id)
-        links = intrusions.group_link_keys(metadata, group)
-        try:
-            change = theme_groups.delete_group(folder, group, reserved=intrusions.link_names(metadata, None))
-        except theme_groups.NotFound as e:
-            if not links:
-                raise self._group_http_error(e)
-            change = theme_groups.Change(group_renames={group: None})  # only links, no folder
-        except theme_groups.GroupError as e:
-            raise self._group_http_error(e)
-        change.track_keys.update(intrusions.regroup_link_keys(metadata, folder, links, None,
-                                                              taken=change.track_keys.values()))
-        self._save_group_change(folder, metadata, change)
+        result = self._folder_change(lambda: theme_edit.delete_group(folder, group, metadata, self._manager_save))
+        result.pop("ops", None)
         await self._refresh_now()
-        result = {"name": group, "tracks": change.track_keys, "folder_removed": change.folder_removed}
-        if change.folder_removed:
-            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(change.track_keys)} tracks moved to the top level")
+        if result["folder_removed"]:
+            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(result['tracks'])} tracks moved to the top level")
         else:
-            result["left_behind"] = change.left_behind
-            result["message"] = (f"The tracks moved to the top level; the folder '{group}' was kept "
-                                 f"because it still holds other files")
-            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(change.track_keys)} tracks moved "
-                        f"to the top level; folder kept for {len(change.left_behind)} other files")
+            logger.info(f"Theme '{metadata.name}': group '{group}' deleted, {len(result['tracks'])} tracks moved "
+                        f"to the top level; folder kept for {len(result['left_behind'])} other files")
         return result
 
     async def move_track_to_group(self, theme_id: str, track_name: str, request: Request):
@@ -2391,7 +2486,7 @@ class WebApp:
         A linked file moves the same way, but only its key changes (no file moves). Its
         settings, preset values and sequence entries follow the new key. 200 {"track": new key}.
         """
-        from sonorium.core import intrusions, theme_groups
+        from sonorium.core import theme_edit, theme_groups
         from sonorium.theme_files import track_display_name
         theme, folder, metadata = self._theme_group_folder(theme_id)
         body = await self._json_object(request)
@@ -2401,12 +2496,10 @@ class WebApp:
         if track_name in (getattr(metadata, "links", None) or {}):
             return await self._move_link(theme_id, metadata, folder, track_name, group)
         try:
-            change = theme_groups.move_track(folder, track_name, group,
-                                             reserved=intrusions.link_names(metadata, group))
+            new_key, change, _ = theme_edit.track_move(folder, metadata, track_name, group)
         except theme_groups.GroupError as e:
             raise self._group_http_error(e)
-        new_key = change.track_keys.get(track_name, track_name)
-        if change.track_keys:
+        if change is not None:
             self._save_group_change(folder, metadata, change)
             await self._refresh_now()
             where = f"into group '{new_key.rsplit('/', 1)[0]}'" if "/" in new_key else "to the top level"
@@ -2420,18 +2513,15 @@ class WebApp:
         file) or ungrouped: re-keyed "<group>/<name>" or "<name>" (" (2)" on a
         clash), like a moved file (see move_track_to_group). No file moves.
         """
-        from sonorium.core import intrusions, theme_groups
-        if group is not None:
-            if not isinstance(group, str):
-                raise HTTPException(status_code=400, detail="'group' must be a group name or null")
-            try:
-                group = theme_groups.group_target(folder, group).name
-            except theme_groups.GroupError as e:
-                raise self._group_http_error(e)
-        moves = intrusions.regroup_link_keys(metadata, folder, [key], group)
-        new_key = moves.get(key, key)
-        if moves:
-            self._save_group_change(folder, metadata, theme_groups.Change(track_keys=moves))
+        from sonorium.core import theme_edit, theme_groups
+        try:
+            new_key, change, _ = theme_edit.track_move(folder, metadata, key, group)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
+        except theme_groups.GroupError as e:
+            raise self._group_http_error(e)
+        if change is not None:
+            self._save_group_change(folder, metadata, change)
             await self._refresh_now()
             logger.info(f"Theme '{metadata.name}': linked track '{key}' moved to '{new_key}'")
         return {"track": new_key}
@@ -2465,7 +2555,7 @@ class WebApp:
         crossfade). A group's linked files stay in it whatever its mode.
         "remove_links" (from when intrusion groups held them) is accepted and ignored.
         """
-        from sonorium.recording import GROUP_MODE_INTRUSION, GROUP_MODES, group_crossfade_range
+        from sonorium.core import theme_edit
         theme, metadata, members = self._theme_groups(theme_id)
         if group not in members:
             raise HTTPException(status_code=404, detail="Group not found")
@@ -2473,48 +2563,12 @@ class WebApp:
             body = await request.json()
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid JSON body")
-        if not isinstance(body, dict):
-            raise HTTPException(status_code=400, detail="Expected a JSON object")
-        body = dict(body)
-        remove_links = body.pop("remove_links", False)
-        if not isinstance(remove_links, bool):
-            raise HTTPException(status_code=400, detail="Invalid value for 'remove_links'")
+        try:
+            settings = theme_edit.clean_group_update((metadata.groups or {}).get(group), body)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
-        settings = dict((metadata.groups or {}).get(group) or {})
-        for key, value in body.items():
-            if key not in self.GROUP_SETTING_KEYS:
-                raise HTTPException(status_code=400, detail=f"Unknown group setting '{key}'")
-            if value is None:
-                settings.pop(key, None)
-                continue
-            try:
-                if key in ("presence", "volume", "rise"):
-                    if isinstance(value, bool):
-                        raise ValueError(value)
-                    value = max(0.0, min(1.0, float(value)))
-                elif key in ("gap_min", "gap_max"):
-                    value = max(0.0, float(value))
-                elif key in ("muted", "pause_between"):
-                    if not isinstance(value, bool):
-                        raise ValueError(value)
-                elif key == "mode":
-                    if value not in GROUP_MODES or value == GROUP_MODE_INTRUSION:
-                        raise ValueError(value)
-                elif key == "crossfade":
-                    if isinstance(value, bool):
-                        raise ValueError(value)
-                    value = float(value)
-                    if value != value:  # NaN
-                        raise ValueError(value)
-                    low, high = group_crossfade_range()  # Settings > Advanced, by default 1-60
-                    value = max(low, min(high, value))
-            except (TypeError, ValueError):
-                raise HTTPException(status_code=400, detail=f"Invalid value for '{key}'")
-            settings[key] = value
-        if "gap_min" in settings and "gap_max" in settings and settings["gap_min"] > settings["gap_max"]:
-            settings["gap_min"], settings["gap_max"] = settings["gap_max"], settings["gap_min"]
-
-        metadata.groups = {**(metadata.groups or {}), group: settings}
+        theme_edit.store_group(metadata, group, settings)
         self._theme_metadata_manager.save_metadata(metadata.id, metadata)
         theme.groups = dict(metadata.groups)  # live: playing channels follow (a mode change rebuilds the group's streams)
         logger.info(f"Theme '{theme.name}': group '{group}' settings changed")
@@ -2574,18 +2628,16 @@ class WebApp:
         201 {"links": [{"key", "theme", "track", "added"}]}.
         """
         from fastapi.responses import JSONResponse
-        from sonorium.core import intrusions, theme_groups
+        from sonorium.core import theme_edit
         theme, folder, metadata = self._theme_group_folder(theme_id)
         body = await self._json_object(request)
         source_id, keys, group = body.get("theme"), body.get("tracks"), body.get("group")
         if not isinstance(source_id, str) or not source_id:
             raise HTTPException(status_code=400, detail="'theme' (the source theme id) is required")
-        if group is not None and (not isinstance(group, str) or not group):
-            raise HTTPException(status_code=400, detail="'group' must be a group name or null")
-        if (not isinstance(keys, list) or not keys or len(keys) > 500
-                or not all(isinstance(k, str) and k for k in keys)):
-            raise HTTPException(status_code=400, detail="'tracks' must be a list of track keys")
-        keys = list(dict.fromkeys(keys))
+        try:
+            theme_edit.clean_link_request(group, keys)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
         _, _, members = self._theme_groups(theme_id)
         if group is not None and group not in members:
@@ -2596,25 +2648,8 @@ class WebApp:
                            if (source_folder and self._theme_metadata_manager) else None)
         if not source or not source_metadata:
             raise HTTPException(status_code=404, detail="Source theme not found")
-        if source_metadata.id == metadata.id:
-            raise HTTPException(status_code=400, detail="A theme's own files can't be linked; move them into the group instead")
-        unknown = []
-        for key in keys:
-            try:
-                theme_groups.find_track_file(source_folder, key)
-            except theme_groups.GroupError:
-                unknown.append(key)
-        if unknown:
-            raise HTTPException(status_code=404, detail=f"Not a track of the source theme: {', '.join(unknown)}")
-
-        if group is not None:
-            try:
-                theme_groups.group_target(folder, group)  # the group's folder exists, even with only links in it
-            except theme_groups.GroupError as e:
-                raise self._group_http_error(e)
-        results = intrusions.add_links(metadata, folder, group, source_metadata.id, source_metadata, keys)
-        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
-            raise HTTPException(status_code=500, detail="metadata.json couldn't be saved")
+        results = self._folder_change(lambda: theme_edit.add_links(
+            folder, source_folder, keys, group, metadata, source_metadata, self._manager_save), files_moved=False)["links"]
         added = [r for r in results if r["added"]]
         where = f"into group '{group}'" if group is not None else "as Unassigned"
         logger.info(f"Theme '{metadata.name}': {len(added)} file(s) of '{source_metadata.name}' linked {where}")
@@ -2630,52 +2665,32 @@ class WebApp:
         settings and preset values move to its new key. 404 if it is not a
         link or the group is unknown; 409 when the source file is missing.
         """
-        import shutil
-        from sonorium.core import intrusions, theme_groups
-        from sonorium.theme_files import track_display_name, track_key
+        from sonorium.core import theme_edit
         theme, folder, metadata = self._theme_group_folder(theme_id)
         body = await self._json_object(request)
         if "group" not in body:
             raise HTTPException(status_code=400, detail="'group' is required (a group name, or null for the top level)")
-        group = body["group"]
         link = (getattr(metadata, "links", None) or {}).get(key)
-        if link is None:
-            raise HTTPException(status_code=404, detail="Linked track not found")
-        _, _, members = self._theme_groups(theme_id)
-        if group is not None and (not isinstance(group, str) or group not in members):
-            raise HTTPException(status_code=404, detail="Group not found")
-        source = intrusions.resolve_link(link, self._folder_for_theme_id)
-        if source is None:
-            raise HTTPException(status_code=409, detail="The linked file is missing; it can't be copied")
         try:
-            target_folder = folder if group is None else theme_groups.group_target(folder, group)
-        except theme_groups.GroupError as e:
-            raise self._group_http_error(e)
-        # Another linked file there keeps its name; this one's key is free once it is copied in
-        reserved = intrusions.link_names(metadata, group) - (
-            {track_display_name(key)} if intrusions.link_group(key) == group else set())
-        target = target_folder / theme_groups.free_file_name(target_folder, source.name, reserved=reserved)
-        try:
-            shutil.copy2(source, target)
-        except OSError as e:
-            raise HTTPException(status_code=500, detail=f"Couldn't copy the file: {e}")
-        new_key = track_key(folder, target)
-        intrusions.remove_link_keep_settings(metadata, key)
-        # Its settings, preset values and sequence entries move to the new key
-        self._save_group_change(folder, metadata, theme_groups.Change(
-            track_keys={key: new_key} if new_key != key else {}))
+            source_folder = self._folder_for_theme_id(link.get("theme")) if link is not None else None
+        except Exception:
+            source_folder = None
+        result = self._folder_change(lambda: theme_edit.copy_link_in(
+            folder, key, source_folder, body["group"], metadata, self._manager_save))
+        new_key = result["track"]
+        from sonorium.core import theme_mp3
+        theme_mp3.request(folder)  # the copy becomes MP3 if it isn't one
         await self._refresh_now()
+        source = next((Path(source_folder) / op["src"] for op in result["ops"] if op["op"] == "copy"), None)
         logger.info(f"Theme '{metadata.name}': linked track '{key}' copied in as '{new_key}' (from {source})")
         return {"track": new_key}
 
     async def delete_link(self, theme_id: str, key: str):
         """Remove a linked file from a theme: its link, settings and preset entries. Never a file."""
-        from sonorium.core import intrusions
+        from sonorium.core import theme_edit
         theme, folder, metadata = self._theme_group_folder(theme_id)
-        if not intrusions.remove_link(metadata, key):
-            raise HTTPException(status_code=404, detail="Linked track not found")
-        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
-            raise HTTPException(status_code=500, detail="metadata.json couldn't be saved")
+        self._folder_change(lambda: theme_edit.remove_link(folder, key, metadata, self._manager_save),
+                            files_moved=False)
         logger.info(f"Theme '{metadata.name}': linked track '{key}' removed")
         await self._refresh_now()
         return {"removed": key}
@@ -2687,58 +2702,18 @@ class WebApp:
         Other exclusive tracks will wait until the playing track finishes
         before starting their own sparse timer.
         """
-        theme, _ = self._get_theme_by_id(theme_id)
-        if not theme:
-            return {"error": "Theme not found"}
-
-        try:
-            body = await request.json()
-        except Exception:
-            return {"error": "Invalid JSON body"}
-
-        exclusive = body.get("exclusive")
-        if exclusive is None:
-            return {"error": "exclusive is required"}
-
-        exclusive = bool(exclusive)
-
-        # Find the track instance
-        track_inst = None
-        for inst in theme.tracks:
-            if inst.name == track_name:
-                track_inst = inst
-                break
-
-        if not track_inst:
-            return {"error": "Track not found"}
-
-        # Update the live instance
-        track_inst.exclusive = exclusive
-
-        # Persist to metadata.json
-        self._save_track_setting_to_metadata(theme_id, track_name, exclusive=exclusive)
-
-        return {"status": "ok", "track": track_name, "exclusive": exclusive}
+        return await self._set_track_value(theme_id, track_name, request, "exclusive")
 
     async def reset_theme_tracks(self, theme_id: str):
         """Reset all track settings to defaults for a theme (linked files stay muted)."""
-        from sonorium.recording import PlaybackMode
-        from sonorium.core.theme_metadata import TrackSettings, reset_ebb_settings
+        from sonorium.core import theme_edit
 
         theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             return {"error": "Theme not found"}
 
         # Reset live instances (linked files stay off, as when they were added)
-        for inst in theme.tracks:
-            inst.presence = 1.0
-            inst.is_enabled = not getattr(inst.meta, "link", None)
-            inst.volume = 1.0
-            inst.playback_mode = PlaybackMode.AUTO
-            inst.crossfade_enabled = True
-            inst.exclusive = False
-            inst.fade_in = inst.fade_out = 0.0
-            reset_ebb_settings(inst)
+        theme_edit.reset_tracks(theme)
 
         # Clear persisted settings in metadata.json
         if self._theme_metadata_manager:
@@ -2747,7 +2722,7 @@ class WebApp:
                 metadata = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
                 if metadata:
                     # Reset all tracks to defaults
-                    metadata.tracks = {key: TrackSettings(muted=True) for key in (metadata.links or {})}
+                    theme_edit.reset_tracks(metadata=metadata)
                     self._theme_metadata_manager.save_metadata(metadata.id, metadata)
 
         return {"status": "ok", "theme_id": theme_id}
@@ -2756,40 +2731,23 @@ class WebApp:
 
     def _get_current_group_settings(self, theme_id: str) -> dict:
         """The theme's group settings as a preset saves them ({group: {volume, presence, muted, gap_min, gap_max}})."""
-        from sonorium.recording import GROUP_PRESET_SETTINGS
+        from sonorium.core import theme_edit
         theme, _ = self._get_theme_by_id(theme_id)
         groups = getattr(theme, "groups", None) or {} if theme else {}
-        return {
-            name: {k: v for k, v in (settings or {}).items() if k in GROUP_PRESET_SETTINGS}
-            for name, settings in groups.items()
-            if not (settings or {}).get("legacy_exclusive")
-        }
+        return theme_edit.capture_groups(groups)
 
     def _get_current_track_settings(self, theme_id: str) -> dict:
         """Get current track settings for a theme as a preset-compatible dict."""
-        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS
+        from sonorium.core import theme_edit
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
         theme, _ = self._get_theme_by_id(theme_id)
         if not theme:
             return {}
-
-        tracks = {}
-        for inst in theme.tracks:
-            tracks[inst.name] = {
-                "volume": inst.volume,
-                "presence": inst.presence,
-                "playback_mode": inst.playback_mode.value if hasattr(inst.playback_mode, 'value') else str(inst.playback_mode),
-                "seamless_loop": not inst.crossfade_enabled,
-                "exclusive": inst.exclusive,
-                "muted": not inst.is_enabled,
-                **{key: getattr(inst, key) for key in EBB_TRACK_SETTINGS},
-            }
-        return tracks
+        return theme_edit.capture_tracks(theme)
 
     def _apply_preset_to_theme(self, theme_id: str, preset_tracks: dict, preset_groups: dict | None = None) -> bool:
         """Apply preset track settings (and group master settings) to a theme. Returns True on success."""
-        from sonorium.core.theme_metadata import EBB_TRACK_SETTINGS
-        from sonorium.recording import PlaybackMode
+        from sonorium.core import theme_edit
 
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
         theme, theme_folder = self._get_theme_by_id(theme_id)
@@ -2797,31 +2755,11 @@ class WebApp:
             return False
 
         # Apply to live instances
-        for inst in theme.tracks:
-            if inst.name in preset_tracks:
-                settings = preset_tracks[inst.name]
-                inst.volume = settings.get("volume", 1.0)
-                inst.presence = settings.get("presence", 1.0)
-                mode_str = settings.get("playback_mode", "auto")
-                try:
-                    inst.playback_mode = PlaybackMode(mode_str)
-                except ValueError:
-                    inst.playback_mode = PlaybackMode.AUTO
-                inst.crossfade_enabled = not settings.get("seamless_loop", False)
-                inst.exclusive = settings.get("exclusive", False)
-                inst.is_enabled = not settings.get("muted", False)
-                for key in EBB_TRACK_SETTINGS:
-                    if key in settings:
-                        setattr(inst, key, settings[key])
+        theme_edit.apply_preset_to_tracks(theme, preset_tracks)
 
         # Group master settings from the preset
         if preset_groups:
-            from sonorium.recording import GROUP_PRESET_SETTINGS
-            merged = dict(getattr(theme, "groups", None) or {})
-            for name, values in preset_groups.items():
-                merged[name] = {**(merged.get(name) or {}),
-                                **{k: v for k, v in (values or {}).items() if k in GROUP_PRESET_SETTINGS}}
-            theme.groups = merged
+            theme.groups = theme_edit.merge_preset_groups(getattr(theme, "groups", None), preset_groups)
 
         # Persist to metadata.json
         if self._theme_metadata_manager and theme_folder:
@@ -2830,17 +2768,7 @@ class WebApp:
                 if preset_groups:
                     metadata.groups = dict(theme.groups)
                 # Update track settings in metadata
-                for track_name, settings in preset_tracks.items():
-                    track_settings = metadata.get_track_settings(track_name)
-                    track_settings.presence = settings.get("presence", 1.0)
-                    track_settings.muted = settings.get("muted", False)
-                    track_settings.volume = settings.get("volume", 1.0)
-                    track_settings.playback_mode = settings.get("playback_mode", "auto")
-                    track_settings.seamless_loop = settings.get("seamless_loop", False)
-                    track_settings.exclusive = settings.get("exclusive", False)
-                    for key in EBB_TRACK_SETTINGS:
-                        if key in settings:
-                            setattr(track_settings, key, settings[key])
+                theme_edit.store_preset_tracks(metadata, preset_tracks)
 
                 self._theme_metadata_manager.save_metadata(metadata.id, metadata)
 
@@ -2921,19 +2849,15 @@ class WebApp:
                 presets = metadata_obj.presets
         if presets is None:  # fallback: direct file I/O
             presets = self._read_theme_metadata(theme_id).get("presets", {})
-        if preset_id not in presets:
-            raise HTTPException(status_code=404, detail="Preset not found")
-        preset = presets[preset_id]
-        return {
-            "id": preset_id,
-            "name": preset.get("name", preset_id),
-            "tracks": preset.get("tracks") or {},
-            "groups": preset.get("groups") or {},
-        }
+        from sonorium.core import theme_edit
+        try:
+            return theme_edit.preset_values(presets, preset_id)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
     async def create_preset(self, theme_id: str, request: Request):
         """Create a new preset from current track settings."""
-        import re
+        from sonorium.core import theme_edit
 
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
         theme, theme_folder = self._get_theme_by_id(theme_id)
@@ -2947,13 +2871,6 @@ class WebApp:
         except Exception:
             name = None
 
-        # Generate preset ID from name
-        if not name:
-            name = "New Preset"
-        preset_id = re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
-        if not preset_id:
-            preset_id = "preset"
-
         # Capture current settings from live theme instances
         tracks = self._get_current_track_settings(theme_id)
 
@@ -2961,22 +2878,9 @@ class WebApp:
         if self._theme_metadata_manager and theme_folder:
             metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
             if metadata_obj:
-                # Ensure unique ID
-                base_id = preset_id
-                counter = 1
-                while preset_id in metadata_obj.presets:
-                    preset_id = f"{base_id}_{counter}"
-                    counter += 1
-
-                # Check if this should be default (first preset)
-                is_default = len(metadata_obj.presets) == 0
-
-                metadata_obj.presets[preset_id] = {
-                    "name": name,
-                    "is_default": is_default,
-                    "tracks": tracks,
-                    "groups": self._get_current_group_settings(theme_id),
-                }
+                # A unique ID from the name; the first preset is the default
+                preset_id, name, is_default = theme_edit.add_preset(
+                    metadata_obj.presets, name, tracks, self._get_current_group_settings(theme_id))
 
                 # Save via metadata manager (updates cache and file)
                 if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
@@ -2994,21 +2898,7 @@ class WebApp:
         if "presets" not in metadata:
             metadata["presets"] = {}
 
-        # Ensure unique ID
-        base_id = preset_id
-        counter = 1
-        while preset_id in metadata["presets"]:
-            preset_id = f"{base_id}_{counter}"
-            counter += 1
-
-        # Check if this should be default (first preset)
-        is_default = len(metadata["presets"]) == 0
-
-        metadata["presets"][preset_id] = {
-            "name": name,
-            "is_default": is_default,
-            "tracks": tracks,
-        }
+        preset_id, name, is_default = theme_edit.add_preset(metadata["presets"], name, tracks)
 
         if not self._write_theme_metadata(theme_id, metadata):
             raise HTTPException(status_code=500, detail="Failed to save preset")
@@ -3068,6 +2958,7 @@ class WebApp:
 
     async def update_preset(self, theme_id: str, preset_id: str):
         """Update an existing preset with current track settings."""
+        from sonorium.core import theme_edit
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
         theme, theme_folder = self._get_theme_by_id(theme_id)
         if not theme:
@@ -3084,8 +2975,8 @@ class WebApp:
                 tracks = self._get_current_track_settings(theme_id)
 
                 # Update the preset's tracks and groups while preserving name and is_default
-                metadata_obj.presets[preset_id]["tracks"] = tracks
-                metadata_obj.presets[preset_id]["groups"] = self._get_current_group_settings(theme_id)
+                theme_edit.update_preset(metadata_obj.presets, preset_id, tracks,
+                                         self._get_current_group_settings(theme_id))
 
                 # Save via metadata manager (updates cache and file)
                 if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
@@ -3107,8 +2998,7 @@ class WebApp:
             raise HTTPException(status_code=404, detail="Preset not found")
 
         tracks = self._get_current_track_settings(theme_id)
-        presets[preset_id]["tracks"] = tracks
-        presets[preset_id]["groups"] = self._get_current_group_settings(theme_id)
+        theme_edit.update_preset(presets, preset_id, tracks, self._get_current_group_settings(theme_id))
         metadata["presets"] = presets
 
         if not self._write_theme_metadata(theme_id, metadata):
@@ -3133,6 +3023,7 @@ class WebApp:
 
     async def delete_preset(self, theme_id: str, preset_id: str):
         """Delete a preset."""
+        from sonorium.core import theme_edit
         theme, theme_folder = self._get_theme_by_id(theme_id)
 
         # Use metadata manager if available (preferred path)
@@ -3142,13 +3033,8 @@ class WebApp:
                 if preset_id not in metadata_obj.presets:
                     raise HTTPException(status_code=404, detail="Preset not found")
 
-                was_default = metadata_obj.presets[preset_id].get("is_default", False)
-                del metadata_obj.presets[preset_id]
-
-                # If we deleted the default, make the first remaining preset default
-                if was_default and metadata_obj.presets:
-                    first_key = next(iter(metadata_obj.presets))
-                    metadata_obj.presets[first_key]["is_default"] = True
+                # If we delete the default, the first remaining preset becomes the default
+                theme_edit.remove_preset(metadata_obj.presets, preset_id)
 
                 if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
                     raise HTTPException(status_code=500, detail="Failed to save changes")
@@ -3163,13 +3049,8 @@ class WebApp:
         if preset_id not in presets:
             raise HTTPException(status_code=404, detail="Preset not found")
 
-        was_default = presets[preset_id].get("is_default", False)
-        del presets[preset_id]
-
-        # If we deleted the default, make the first remaining preset default
-        if was_default and presets:
-            first_key = next(iter(presets))
-            presets[first_key]["is_default"] = True
+        # If we delete the default, the first remaining preset becomes the default
+        theme_edit.remove_preset(presets, preset_id)
 
         metadata["presets"] = presets
         if not self._write_theme_metadata(theme_id, metadata):
@@ -3181,13 +3062,8 @@ class WebApp:
     async def _preset_removed(self, theme_id: str, folder, preset_id: str) -> None:
         """A preset was deleted: take it out of the theme's sequences, and update the MQTT selects."""
         if folder:
-            try:
-                from sonorium.core.sequences import drop_preset
-                changed = drop_preset(folder, preset_id)
-                if changed:
-                    logger.info(f"  Preset '{preset_id}' removed from sequence(s): {', '.join(changed)}")
-            except Exception as e:
-                logger.warning(f"  Could not remove preset '{preset_id}' from the theme's sequences: {e}")
+            from sonorium.core import theme_edit
+            theme_edit.drop_from_sequences(folder, preset_id)
         if self._mqtt_manager:
             try:
                 await self._mqtt_manager.refresh_sequences(theme_id)
@@ -3196,6 +3072,7 @@ class WebApp:
 
     async def set_default_preset(self, theme_id: str, preset_id: str):
         """Set a preset as the default for this theme."""
+        from sonorium.core import theme_edit
         theme, theme_folder = self._get_theme_by_id(theme_id)
 
         # Use metadata manager if available (preferred path)
@@ -3206,8 +3083,7 @@ class WebApp:
                     raise HTTPException(status_code=404, detail="Preset not found")
 
                 # Clear existing default and set new one
-                for pid, pdata in metadata_obj.presets.items():
-                    pdata["is_default"] = (pid == preset_id)
+                theme_edit.mark_default(metadata_obj.presets, preset_id)
 
                 if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
                     raise HTTPException(status_code=500, detail="Failed to save changes")
@@ -3222,8 +3098,7 @@ class WebApp:
             raise HTTPException(status_code=404, detail="Preset not found")
 
         # Clear existing default
-        for pid, pdata in presets.items():
-            pdata["is_default"] = (pid == preset_id)
+        theme_edit.mark_default(presets, preset_id)
 
         metadata["presets"] = presets
         if not self._write_theme_metadata(theme_id, metadata):
@@ -3233,8 +3108,7 @@ class WebApp:
 
     async def import_preset(self, theme_id: str, request: Request):
         """Import a preset from JSON."""
-        import json
-        import re
+        from sonorium.core import theme_edit
 
         # Use _get_theme_by_id to handle both UUID-based and folder-based IDs
         theme, _ = self._get_theme_by_id(theme_id)
@@ -3249,60 +3123,13 @@ class WebApp:
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid request body")
 
-        if not preset_json:
-            raise HTTPException(status_code=400, detail="No preset JSON provided")
-
-        # Parse the JSON
-        try:
-            preset_data = json.loads(preset_json)
-        except json.JSONDecodeError as e:
-            raise HTTPException(status_code=400, detail=f"Invalid JSON: {e}")
-
-        # Validate structure - must have tracks dict
-        if not isinstance(preset_data, dict):
-            raise HTTPException(status_code=400, detail="Preset must be a JSON object")
-
-        # Support both full preset format and tracks-only format
-        if "tracks" in preset_data:
-            tracks = preset_data["tracks"]
-            imported_name = preset_data.get("name", name or "Imported Preset")
-        else:
-            # Assume it's a tracks-only format
-            tracks = preset_data
-            imported_name = name or "Imported Preset"
-
-        if not isinstance(tracks, dict):
-            raise HTTPException(status_code=400, detail="Tracks must be a JSON object")
-
-        # Validate track settings and filter to only known tracks
+        # Checked and kept to the theme's tracks (core/theme_edit.py)
         valid_track_names = {inst.name for inst in theme.tracks}
-        validated_tracks = {}
-        unknown_tracks = []
-
-        for track_name, settings in tracks.items():
-            if track_name not in valid_track_names:
-                unknown_tracks.append(track_name)
-                continue
-
-            if not isinstance(settings, dict):
-                continue
-
-            validated_tracks[track_name] = {
-                "volume": float(settings.get("volume", 1.0)),
-                "presence": float(settings.get("presence", 1.0)),
-                "playback_mode": str(settings.get("playback_mode", "auto")),
-                "seamless_loop": bool(settings.get("seamless_loop", False)),
-                "exclusive": bool(settings.get("exclusive", False)),
-                "muted": bool(settings.get("muted", False)),
-            }
-
-        if not validated_tracks:
-            raise HTTPException(status_code=400, detail="No valid track settings found in preset")
-
-        # Generate preset ID
-        preset_id = re.sub(r'[^a-z0-9]+', '_', imported_name.lower()).strip('_')
-        if not preset_id:
-            preset_id = "imported"
+        try:
+            imported_name, validated_tracks, unknown_tracks, preset_id = theme_edit.clean_imported_preset(
+                preset_json, name, valid_track_names)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
         # Get theme folder for metadata manager
         _, theme_folder = self._get_theme_by_id(theme_id)
@@ -3311,45 +3138,18 @@ class WebApp:
         if self._theme_metadata_manager and theme_folder:
             metadata_obj = self._theme_metadata_manager.get_metadata_by_folder(theme_folder)
             if metadata_obj:
-                # Ensure unique ID
-                base_id = preset_id
-                counter = 1
-                while preset_id in metadata_obj.presets:
-                    preset_id = f"{base_id}_{counter}"
-                    counter += 1
-
-                # Save preset
-                metadata_obj.presets[preset_id] = {
-                    "name": imported_name,
-                    "is_default": False,
-                    "tracks": validated_tracks,
-                }
-
-                if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
-                    raise HTTPException(status_code=500, detail="Failed to save preset")
-
-                result = {
-                    "status": "ok",
-                    "preset_id": preset_id,
-                    "name": imported_name,
-                    "tracks_imported": len(validated_tracks),
-                }
-                if unknown_tracks:
-                    result["unknown_tracks"] = unknown_tracks
-                    result["warning"] = f"{len(unknown_tracks)} track(s) not found in theme"
-
-                return result
+                try:
+                    return theme_edit.import_preset(theme_folder, preset_json, name, valid_track_names,
+                                                    metadata_obj, self._manager_save)
+                except theme_edit.EditError as e:
+                    raise HTTPException(status_code=e.status, detail=str(e))
 
         # Fallback to direct file I/O
         metadata = self._read_theme_metadata(theme_id)
         if "presets" not in metadata:
             metadata["presets"] = {}
 
-        base_id = preset_id
-        counter = 1
-        while preset_id in metadata["presets"]:
-            preset_id = f"{base_id}_{counter}"
-            counter += 1
+        preset_id = theme_edit.unique_preset_id(preset_id, metadata["presets"])
 
         # Save preset
         metadata["presets"][preset_id] = {
@@ -3429,12 +3229,12 @@ class WebApp:
         if not metadata:
             raise HTTPException(status_code=404, detail="Theme metadata not found")
 
-        old_name = metadata.name
-
         # Update the name in metadata.json (folder stays the same)
-        metadata.name = new_name
-        if not self._theme_metadata_manager.save_metadata(metadata.id, metadata):
-            raise HTTPException(status_code=500, detail="Failed to save metadata")
+        from sonorium.core import theme_edit
+        try:
+            old_name, new_name = theme_edit.rename_theme(folder, new_name, metadata, self._manager_save)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
         logger.info(f"Renamed theme '{old_name}' to '{new_name}' (folder: {folder.name})")
 
@@ -3447,6 +3247,7 @@ class WebApp:
 
     async def rename_preset(self, theme_id: str, preset_id: str, request: Request):
         """Rename a preset."""
+        from sonorium.core import theme_edit
         # Get new name from request body
         try:
             body = await request.json()
@@ -3454,8 +3255,10 @@ class WebApp:
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid request body")
 
-        if not new_name:
-            raise HTTPException(status_code=400, detail="Name is required")
+        try:
+            new_name = theme_edit.clean_preset_name(new_name)
+        except theme_edit.EditError as e:
+            raise HTTPException(status_code=e.status, detail=str(e))
 
         _, theme_folder = self._get_theme_by_id(theme_id)
 
@@ -3467,7 +3270,7 @@ class WebApp:
                     raise HTTPException(status_code=404, detail="Preset not found")
 
                 # Update the name
-                metadata_obj.presets[preset_id]["name"] = new_name
+                theme_edit.rename(metadata_obj.presets, preset_id, new_name)
 
                 if not self._theme_metadata_manager.save_metadata(metadata_obj.id, metadata_obj):
                     raise HTTPException(status_code=500, detail="Failed to save changes")
@@ -3486,7 +3289,7 @@ class WebApp:
             raise HTTPException(status_code=404, detail="Preset not found")
 
         # Update the name
-        presets[preset_id]["name"] = new_name
+        theme_edit.rename(presets, preset_id, new_name)
         metadata["presets"] = presets
 
         if not self._write_theme_metadata(theme_id, metadata):
@@ -3613,11 +3416,11 @@ class WebApp:
         if not theme_folder:
             return {"error": "Theme not found"}
 
-        # Save categories to metadata.json
-        metadata = self._read_theme_metadata(theme_id)
-        metadata["categories"] = new_categories
-
-        if not self._write_theme_metadata(theme_id, metadata):
+        # Save categories to metadata.json (core/theme_edit.py)
+        from sonorium.core import theme_edit
+        try:
+            theme_edit.set_categories(theme_folder, new_categories)
+        except theme_edit.SaveFailed:
             return {"error": "Failed to save categories"}
 
         # Also update the metadata manager cache if available

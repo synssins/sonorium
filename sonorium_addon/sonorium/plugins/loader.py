@@ -13,6 +13,7 @@ import re
 import shutil
 import sys
 from pathlib import Path
+from sonorium.paths import audio_dir
 from typing import Optional, Type
 
 from sonorium.plugins.base import BasePlugin
@@ -21,10 +22,14 @@ from sonorium.obs import logger
 
 # A plugin id: letters, digits, "_" and "-" (never a path). Used by every API route.
 PLUGIN_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
+# Ids sign-in uses for Users and Keys (auth/service.py CORE_PROVIDER_IDS): never a plugin's,
+# or switching that plugin off would take sign-in with it
+RESERVED_PLUGIN_IDS = frozenset({"users", "keys"})
 
 
 def is_valid_plugin_id(plugin_id) -> bool:
-    return isinstance(plugin_id, str) and PLUGIN_ID_PATTERN.fullmatch(plugin_id) is not None
+    return (isinstance(plugin_id, str) and PLUGIN_ID_PATTERN.fullmatch(plugin_id) is not None
+            and plugin_id.casefold() not in RESERVED_PLUGIN_IDS)
 
 
 # Plugin storage location (survives addon updates)
@@ -75,18 +80,30 @@ def plugin_version(plugin_dir: Path) -> Optional[str]:
 
 
 def _replace_plugin_dir(source: Path, target_dir: Path) -> None:
-    """Replace target_dir with a copy of source: copied beside it first, so a failed copy changes nothing."""
+    """
+    Replace (or create) target_dir with a copy of source: copied beside it
+    first, so a failed copy changes nothing; the installed folder is put
+    back if the swap fails.
+    """
     staging = target_dir.with_name(f".{target_dir.name}.updating")
     old = target_dir.with_name(f".{target_dir.name}.old")
     for leftover in (staging, old):
         if leftover.exists():
             shutil.rmtree(leftover)
-    shutil.copytree(source, staging, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    os.replace(target_dir, old)
+    try:
+        shutil.copytree(source, staging, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    except Exception:
+        shutil.rmtree(staging, ignore_errors=True)
+        raise
+    had_old = target_dir.exists()
+    if had_old:
+        os.replace(target_dir, old)
     try:
         os.replace(staging, target_dir)
     except OSError:
-        os.replace(old, target_dir)  # put the installed one back
+        if had_old:
+            os.replace(old, target_dir)  # put the installed one back
+        shutil.rmtree(staging, ignore_errors=True)
         raise
     shutil.rmtree(old, ignore_errors=True)
 
@@ -160,6 +177,44 @@ def copy_builtin_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR, skip_plugins: 
             logger.error(f"Failed to copy built-in plugin {item.name}: {e}")
 
 
+# Built-in plugins that became part of Sonorium: Integration is Keys
+# (auth/keys.py), Announcements is core/announce.py and ha/announcements.py,
+# Users is auth/users.py with core/zones.py
+RETIRED_BUILTIN_PLUGINS = ("integration", "announcements", "users")
+
+
+def remove_retired_plugins(plugins_dir: Path, settings=None) -> list[str]:
+    """
+    Delete the copies of retired built-in plugins from the plugins folder (only
+    Sonorium's own: manifest "builtin"), and forget them in the plugin state
+    lists, so they're never loaded or listed. Returns the ids removed.
+    """
+    removed = []
+    for plugin_id in RETIRED_BUILTIN_PLUGINS:
+        folder = Path(plugins_dir) / plugin_id
+        if not (folder / "plugin.py").exists():
+            continue
+        manifest = load_manifest(folder)
+        if not manifest.get("builtin") or manifest.get("id", plugin_id) != plugin_id:
+            continue  # someone's own plugin with that name: theirs to keep
+        try:
+            shutil.rmtree(folder)
+            removed.append(plugin_id)
+            logger.info(f"Removed the old {manifest.get('name') or plugin_id} plugin: it is part of Sonorium now")
+        except OSError as e:
+            logger.debug(f"Could not remove the old plugin folder {folder}: {e}")
+    if settings is not None:
+        for name in ("enabled_plugins", "known_builtin_plugins", "deleted_builtin_plugins"):
+            values = getattr(settings, name, None)
+            if isinstance(values, list):
+                values[:] = [v for v in values if v not in RETIRED_BUILTIN_PLUGINS]
+        plugin_settings = getattr(settings, "plugin_settings", None)
+        if isinstance(plugin_settings, dict):
+            for plugin_id in RETIRED_BUILTIN_PLUGINS:
+                plugin_settings.pop(plugin_id, None)
+    return removed
+
+
 def get_builtin_plugin_ids() -> list[str]:
     """
     Get a list of all built-in plugin IDs.
@@ -179,6 +234,32 @@ def get_builtin_plugin_ids() -> list[str]:
             plugin_ids.append(item.name)
 
     return plugin_ids
+
+
+def is_bundled_copy(plugin_dir: Path) -> bool:
+    """
+    The folder holds the built-in plugin bundled with this Sonorium: one of
+    the bundled plugins (same folder name), and every bundled file is in it,
+    byte for byte. Built-in plugins need no permission approval
+    (permissions.py); a manifest saying "builtin" doesn't make a plugin
+    built in, and a newer copy from elsewhere (catalog, upload) isn't one.
+    Reads files only: nothing of the plugin runs.
+    """
+    if BUILTIN_PLUGINS_DIR is None:
+        return False
+    bundled = Path(BUILTIN_PLUGINS_DIR) / Path(plugin_dir).name
+    if not (bundled / "plugin.py").is_file():
+        return False
+    try:
+        for source in bundled.rglob("*"):
+            if not source.is_file() or "__pycache__" in source.parts or source.suffix == ".pyc":
+                continue
+            copy = Path(plugin_dir) / source.relative_to(bundled)
+            if copy.is_symlink() or not copy.is_file() or copy.read_bytes() != source.read_bytes():
+                return False
+    except OSError:
+        return False
+    return True
 
 
 def discover_plugins(plugins_dir: Path = DEFAULT_PLUGINS_DIR) -> list[Path]:
@@ -227,7 +308,7 @@ def load_manifest(plugin_dir: Path) -> dict:
 
     if manifest_path.exists():
         try:
-            return json.loads(manifest_path.read_text())
+            return json.loads(manifest_path.read_text(encoding='utf-8'))
         except Exception as e:
             logger.warning(f"Failed to read manifest from {manifest_path}: {e}")
 
@@ -348,7 +429,7 @@ def instantiate_plugin(
         instance = plugin_class(
             plugin_dir=plugin_dir,
             settings=settings,
-            audio_path=audio_path or Path("/media/sonorium"),
+            audio_path=audio_path or audio_dir(),
         )
         logger.debug(f"Instantiated plugin: {instance.name} v{instance.version}")
         return instance

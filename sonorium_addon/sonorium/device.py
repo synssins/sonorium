@@ -7,6 +7,7 @@ Assistant reported at start-up. Rescans (api.refresh_themes) replace its
 themes and file lists in place. MQTT entities live in ha/mqtt_entities.py.
 """
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import NamedTuple
@@ -17,7 +18,8 @@ from sonorium.recording import AudioFile
 from sonorium.utils import HomeAssistantClient, IndexList
 
 # Themes shipped in the image, copied into an empty audio folder on first start
-BUNDLED_THEMES = Path('/app/themes')
+# (SONORIUM_BUNDLED_THEMES: where a host keeps them instead)
+BUNDLED_THEMES = Path(os.environ.get('SONORIUM_BUNDLED_THEMES') or '/app/themes')
 # The output gain every mix starts at: 6.0 is 60 % (Settings' Master volume)
 DEFAULT_MASTER_VOLUME = 6.0
 # Placeholder themes when the audio folder has none, so the UI has something to show
@@ -52,7 +54,7 @@ def _saved_theme_id(folder: Path) -> str | None:
     if not metadata.exists():
         return None
     try:
-        return json.loads(metadata.read_text()).get("id")
+        return json.loads(metadata.read_text(encoding='utf-8')).get("id")
     except Exception:
         return None
 

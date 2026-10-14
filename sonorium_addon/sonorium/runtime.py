@@ -12,6 +12,7 @@ it feeds the same SONORIUM__* variables the add-on's run.sh provides.
 """
 import json
 import os
+import time
 import uuid
 from pathlib import Path
 
@@ -19,6 +20,7 @@ STANDALONE = os.environ.get("SONORIUM_STANDALONE") == "1"
 
 # This run of Sonorium (new at every start): GET /api/info and the event stream's ids carry it
 BOOT_ID = uuid.uuid4().hex
+STARTED_AT = time.time()  # when this process started (GET /api/info started_at)
 
 
 def _detect_install() -> str:
@@ -46,7 +48,16 @@ FEATURES = {
     "space_editing": {"addon": "hidden", "default": "on"},
     # Plugins may install Python packages from the internet (plugins/packages.py)
     "plugin_packages": {"default": "off"},
+    # Keys for devices and programs (auth/keys.py): on, switched off in Advanced; applies at once
+    "keys": {"default": "on", "advanced": True, "live": True},
+    # Announcements from Home Assistant, MQTT, the API and plugins (core/announce.py,
+    # ha/announcements.py): on, switched off in Advanced; applies at once
+    "announcements": {"default": "on", "advanced": True, "live": True},
 }
+
+# "On" features that can still be switched off through PUT /api/install/features
+# (e.g. by a host's console); Settings > Advanced lists the "off" ones and "advanced" ones
+SWITCH_OFF_ALLOWED = {"network_speakers"}
 
 
 def feature_state(name: str) -> str:
@@ -54,48 +65,136 @@ def feature_state(name: str) -> str:
     return states.get(INSTALL, states["default"])
 
 
-def feature_enabled(name: str, overrides: dict | None = None) -> bool:
-    """Whether a feature runs: its default here, or the Advanced override for an "off" one."""
+def feature_overridable(name: str) -> bool:
+    """Shown in Settings > Advanced: an "off" feature, or an "on" one marked "advanced" (Keys, Announcements)."""
     state = feature_state(name)
-    if state == "off":
-        return bool((overrides or {}).get(name, False))
+    return state == "off" or (state == "on" and bool(FEATURES[name].get("advanced")))
+
+
+def feature_switchable(name: str) -> bool:
+    """Whether PUT /api/install/features may change the feature here."""
+    state = feature_state(name)
+    return feature_overridable(name) or (state == "on" and name in SWITCH_OFF_ALLOWED)
+
+
+def feature_enabled(name: str, overrides: dict | None = None) -> bool:
+    """Whether a feature runs: its default here, or its override (Advanced, or the install features API)."""
+    state = feature_state(name)
+    if feature_switchable(name):
+        return bool((overrides or {}).get(name, state == "on"))
     return state == "on"
 
 
 def features(overrides: dict | None = None) -> dict:
-    """Every feature for the web UI: shown at all, running, and switchable in Advanced."""
+    """
+    Every feature for the web UI and the app: shown at all, running, shown in
+    Advanced ("overridable"), switchable through the API, on out of the box
+    ("default") and whether a change applies at once ("live") or after a restart.
+    """
     return {
         name: {
             "available": feature_state(name) != "hidden",
             "enabled": feature_enabled(name, overrides),
-            "overridable": feature_state(name) == "off",
+            "overridable": feature_overridable(name),
+            "switchable": feature_switchable(name),
+            "default": feature_state(name) == "on",
+            "live": bool(FEATURES[name].get("live")),
         }
         for name in FEATURES
     }
 
+DEFAULT_HTTP_PORT = 8008
+DEFAULT_HTTPS_PORT = 8808
+# The ports' settings (Settings > Advanced > Network) and their environment variables
+PORT_ENV = {"http_port": ("SONORIUM_HTTP_PORT", "SONORIUM__HTTP_PORT"),
+            "https_port": ("SONORIUM_HTTPS_PORT", "SONORIUM__HTTPS_PORT")}
+
+
+def ports_editable() -> bool:
+    """
+    The ports can be changed in Settings: Docker, Linux and macOS. Not the
+    add-on (Home Assistant maps them, in the app's Network settings) and not
+    Windows (the Sonorium app on the computer sets them).
+    """
+    return STANDALONE and INSTALL != "windows"
+
+
+def valid_port(value) -> int | None:
+    """A port number 1-65535 (int or text), else None."""
+    if isinstance(value, bool):
+        return None
+    try:
+        port = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    return port if 0 < port < 65536 else None
+
+
+def configured_port(name: str) -> int | None:
+    """
+    "http_port" or "https_port" as set: the saved setting (where ports are
+    editable), else the environment (SONORIUM_HTTP_PORT or SONORIUM__HTTP_PORT,
+    ..._HTTPS_PORT); None when neither sets it.
+    """
+    if ports_editable():
+        saved = valid_port(_read_connection_file().get(name))
+        if saved:
+            return saved
+    for env in PORT_ENV[name]:
+        port = valid_port(os.environ.get(env) or "")
+        if port:
+            return port
+    return None
+
+
+def http_port() -> int:
+    """
+    The plain HTTP port Sonorium listens on (web UI, API and streams): the
+    setting or the environment (configured_port), else 8008 (standalone) or
+    8080 (the add-on, whose 8008 is the host port mapped to it).
+    """
+    return configured_port("http_port") or (DEFAULT_HTTP_PORT if STANDALONE else 8080)
+
+
+def stream_port() -> int:
+    """The HTTP port as speakers reach it: the one set (configured_port), else 8008 (standalone and the add-on's mapping)."""
+    return configured_port("http_port") or DEFAULT_HTTP_PORT
+
+
 CONNECTION_FILE = Path(os.environ.get("SONORIUM_CONNECTION_FILE", "/config/sonorium/connection.json"))
 
 # Fields stored in connection.json. Secrets are never returned by the API.
-CONNECTION_FIELDS = ("ha_url", "ha_token", "mqtt_host", "mqtt_port", "mqtt_username", "mqtt_password", "stream_url")
+CONNECTION_FIELDS = ("ha_url", "ha_token", "mqtt_host", "mqtt_port", "mqtt_username", "mqtt_password", "stream_url",
+                     "trusted_proxies", "http_port", "https_port")
 SECRET_FIELDS = ("ha_token", "mqtt_password")
 
 
 def load_connection() -> dict:
-    """Saved standalone connection settings (empty dict if none yet)."""
-    try:
-        data = json.loads(CONNECTION_FILE.read_text())
-    except (FileNotFoundError, ValueError):
-        return {}
-    return {k: data[k] for k in CONNECTION_FIELDS if data.get(k) not in (None, "")}
+    """
+    Saved standalone connection settings (empty dict if none yet). With a
+    secret helper (SONORIUM_SECRET_HELPER) the secrets come from it.
+    """
+    data = _read_connection_file()
+    current = {k: data[k] for k in CONNECTION_FIELDS if data.get(k) not in (None, "")}
+    if secret_helper():
+        for name in SECRET_FIELDS:
+            if name not in current:  # a plain one still in the file is used until it's moved
+                value = _helper_secret(name)
+                if value:
+                    current[name] = value
+    return current
 
 
 def save_connection(updates: dict) -> dict:
     """
     Merge updates into the saved settings and write them (owner-only file).
     A missing or empty secret in `updates` keeps the saved value, so the UI
-    never has to send secrets back.
+    never has to send secrets back. With a secret helper, new secrets go to
+    it, never into the file; SecretStoreError if it can't take one (nothing
+    is saved then).
     """
     current = load_connection()
+    new_secrets = {}
     for key in CONNECTION_FIELDS:
         if key not in updates:
             continue
@@ -106,26 +205,173 @@ def save_connection(updates: dict) -> dict:
             current.pop(key, None)
         else:
             current[key] = value
+            if key in SECRET_FIELDS:
+                new_secrets[key] = value
 
+    if secret_helper():
+        for name, value in new_secrets.items():
+            store_secret(name, str(value))
     _write_connection(current)
     return current
 
 
 def clear_connection(keys) -> dict:
-    """Remove saved settings (secrets included) and write back the rest."""
+    """
+    Remove saved settings (secrets included) and write back the rest. With a
+    secret helper its copies are erased; SecretStoreError if that fails
+    (nothing is removed then).
+    """
     current = load_connection()
+    if secret_helper():
+        for name in keys:
+            if name in SECRET_FIELDS:
+                erase_secret(name)
     for key in keys:
         current.pop(key, None)
     _write_connection(current)
     return current
 
 
+def _read_connection_file() -> dict:
+    try:
+        data = json.loads(CONNECTION_FILE.read_text(encoding='utf-8'))
+    except (FileNotFoundError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _write_connection(current: dict) -> None:
+    if secret_helper():  # secrets live in the helper, never in the file
+        current = {k: v for k, v in current.items() if k not in SECRET_FIELDS}
     CONNECTION_FILE.parent.mkdir(parents=True, exist_ok=True)
     tmp = CONNECTION_FILE.with_suffix(".tmp")
     tmp.write_text(json.dumps(current, indent=2))
     os.chmod(tmp, 0o600)
     tmp.replace(CONNECTION_FILE)
+
+
+# --- Secret helper: SONORIUM_SECRET_HELPER (docs/HOSTING.md) ---
+#
+# The variable holds one program path and no arguments (a path with spaces
+# needs no quoting). It is run without a shell, as:
+#     <helper> store <name>   the value on stdin (UTF-8, no trailing newline); exit 0
+#     <helper> get <name>     prints the value on stdout, exit 0; exit 1: it has none
+#     <helper> erase <name>   exit 0 (also when it had none)
+# Names: the SECRET_FIELDS. Each call may take SECRET_HELPER_TIMEOUT seconds.
+
+SECRET_HELPER_TIMEOUT = 10
+_secret_cache: dict = {}  # what the helper answered this run (None: it has none)
+
+
+class SecretStoreError(RuntimeError):
+    """The secret helper couldn't store or erase a secret."""
+
+
+def secret_helper() -> str:
+    """The secret helper program, or "" when secrets are kept in connection.json."""
+    return (os.environ.get("SONORIUM_SECRET_HELPER") or "").strip()
+
+
+def _logger():
+    try:
+        from sonorium.obs import logger
+    except ImportError:  # loaded on its own (tests)
+        import logging
+        logger = logging.getLogger("sonorium")
+    return logger
+
+
+def _run_helper(action: str, name: str, value: str = ""):
+    import subprocess
+    return subprocess.run([secret_helper(), action, name], input=value.encode("utf-8"),
+                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          timeout=SECRET_HELPER_TIMEOUT, shell=False, check=False)
+
+
+def _helper_error(result) -> str:
+    return result.stderr.decode("utf-8", "replace").strip() or f"exit code {result.returncode}"
+
+
+def _helper_secret(name: str):
+    """A secret from the helper (asked once per run), or None. Never raises: a failure is logged."""
+    if name in _secret_cache:
+        return _secret_cache[name]
+    value = None
+    try:
+        result = _run_helper("get", name)
+        if result.returncode == 0:
+            value = result.stdout.decode("utf-8")
+            for ending in ("\r\n", "\n"):  # one line ending after the value is allowed
+                if value.endswith(ending):
+                    value = value[:-len(ending)]
+                    break
+            value = value or None
+        elif result.returncode == 1:
+            # Exit 1 = nothing stored (normal on a new install). A helper that has the secret but
+            # can't read it (e.g. moved to another PC) says why on stderr: that is worth a warning.
+            reason = result.stderr.decode("utf-8", "replace").strip()
+            if reason:
+                _logger().warning(f"Secret helper couldn't read {name} ({reason}): it is treated as not set")
+            else:
+                _logger().debug(f"Secret helper has no {name}")
+        else:
+            _logger().error(f"Secret helper: 'get {name}' failed ({_helper_error(result)}): treated as not set")
+    except Exception as e:  # no such program, timeout
+        _logger().error(f"Secret helper: 'get {name}' failed ({e}): treated as not set")
+    _secret_cache[name] = value
+    return value
+
+
+def _helper_change(action: str, name: str, value: str = "") -> None:
+    done = "saved" if action == "store" else "removed"
+    try:
+        result = _run_helper(action, name, value)
+    except Exception as e:
+        detail = str(e) or type(e).__name__
+    else:
+        if result.returncode == 0:
+            _secret_cache[name] = value or None
+            return
+        detail = _helper_error(result)
+    _logger().error(f"Secret helper: '{action} {name}' failed ({detail})")
+    raise SecretStoreError(f"The {name} couldn't be {done}: the secret helper failed ({detail})")
+
+
+def store_secret(name: str, value: str) -> None:
+    """Give a secret to the helper. SecretStoreError if it can't take it."""
+    _helper_change("store", name, value)
+
+
+def erase_secret(name: str) -> None:
+    """Remove a secret from the helper. SecretStoreError if it can't."""
+    _helper_change("erase", name)
+
+
+def move_secrets_to_helper() -> None:
+    """
+    A secret helper was newly set: plain secrets still in connection.json move
+    into it and leave the file. One the helper can't take stays in the file
+    (and is used) and is tried again at the next start.
+    """
+    if not secret_helper():
+        return
+    data = _read_connection_file()
+    moved = False
+    for name in SECRET_FIELDS:
+        if data.get(name) in (None, ""):
+            continue
+        try:
+            store_secret(name, str(data[name]))
+        except SecretStoreError:
+            continue
+        data.pop(name)
+        moved = True
+        _logger().info(f"Moved {name} from {CONNECTION_FILE.name} to the secret helper")
+    if moved:
+        tmp = CONNECTION_FILE.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2))
+        os.chmod(tmp, 0o600)
+        tmp.replace(CONNECTION_FILE)
 
 
 def ha_api_url(ha_url: str) -> str:
@@ -161,6 +407,7 @@ def load_connection_into_env() -> None:
     """In standalone mode, expose saved settings as the SONORIUM__* variables."""
     if not STANDALONE:
         return
+    move_secrets_to_helper()
     conn = load_connection()
     env = {
         "SONORIUM__HA_CORE_API": ha_api_url(conn["ha_url"]) if conn.get("ha_url") else None,
@@ -170,7 +417,10 @@ def load_connection_into_env() -> None:
         "SONORIUM__MQTT_PORT": str(conn.get("mqtt_port") or 1883),
         "SONORIUM__MQTT_USERNAME": conn.get("mqtt_username"),
         "SONORIUM__MQTT_PASSWORD": conn.get("mqtt_password"),
-        "SONORIUM__STREAM_URL": conn.get("stream_url") or "auto",
+        # Saved: it wins. Not saved: the environment's (Docker), else found automatically
+        "SONORIUM__STREAM_URL": conn.get("stream_url") or os.environ.get("SONORIUM__STREAM_URL") or "auto",
+        # Reverse proxies whose X-Forwarded-For is believed (auth/proxies.py); saved, it wins over the environment's
+        "SONORIUM__TRUSTED_PROXIES": conn.get("trusted_proxies"),
     }
     for key, value in env.items():
         if value:

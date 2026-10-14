@@ -59,7 +59,7 @@ async function init() {
         // A page this caller can't open (another user's last page, an uninstalled plugin's page)
         if (!/^[a-z0-9-]+$/.test(savedView)) savedView = 'sessions';
         const savedNav = document.querySelector(`[onclick="showView('${savedView}')"]`);
-        if (!document.getElementById('view-' + savedView) || (savedNav && savedNav.classList.contains('perm-hidden'))) {
+        if (!document.getElementById('view-' + savedView) || (savedNav && (savedNav.classList.contains('perm-hidden') || savedNav.style.display === 'none'))) {
             savedView = 'sessions';
         }
 
@@ -350,9 +350,10 @@ function showView(viewName) {
         `,
         status: npModeHtml()
     };
-    // Plugins' buttons first, then the page's own (slots.js)
+    // Built-in plugins' buttons first (slots.js), then the page's buttons, then the header spot (ext/contrib.js)
     document.getElementById('view-actions').innerHTML = Sonorium.headerButtons(viewName)
-        + (actionsHtml[viewName] || (Sonorium.page(viewName)?.actions?.(Sonorium.me) ?? ''));
+        + (actionsHtml[viewName] || (Sonorium.page(viewName)?.actions?.(Sonorium.me) ?? ''))
+        + (uiOwnPage(viewName) ? '' : uiZone(`screen.${viewName}`, 'header', null, 'span'));
     if (viewName === 'settings-plugins') renderPluginUploadState();
     // Page actions (Save / Cancel, Restart now) sit in the top bar of their own page
     document.querySelectorAll('.main-header .hdr-pacts').forEach(el => {
@@ -374,6 +375,8 @@ function showView(viewName) {
     if (viewName === 'settings-audio') renderAudioSettings();
     if (viewName === 'settings-speakers') {
         renderSettingsSpeakerTree();
+        // Plugins' output types list their devices again
+        loadOutputTypes().then(() => { if (currentView === 'settings-speakers') renderSettingsSpeakerTree(); });
     }
     if (viewName === 'settings-groups') renderSettingsGroupsList();
     if (viewName === 'settings-plugins') renderPluginsView();
@@ -387,9 +390,25 @@ function showView(viewName) {
     }
     if (viewName === 'status') renderStatus(); else npStop();
     if (Sonorium.isPage(viewName)) Sonorium.renderPage(viewName);
+    uiScreen(viewName);
 
     // Close mobile sidebar when navigating to a new view
     closeSidebar();
+}
+
+// A page a plugin draws (left menu or Settings, from its schema): no open spots for other plugins
+function uiOwnPage(viewName) {
+    return /^(ext|uip)-/.test(viewName);
+}
+
+// Every screen's open spots (ext/contrib.js): the top strip above its content, and its ⋯ menu
+// in the title bar. A new screen gets them here without doing anything.
+function uiScreen(viewName) {
+    if (uiOwnPage(viewName)) return;
+    const target = `screen.${viewName}`;
+    const view = document.getElementById(`view-${viewName}`);
+    if (view && !view.querySelector(':scope > .ui-top')) view.insertAdjacentHTML('afterbegin', uiZone(target, 'top', null, 'div', 'ui-top'));
+    document.querySelectorAll('#view-actions .icon-btn[aria-haspopup="menu"]').forEach(btn => Sonorium.ui.setAnchor(btn, target, 'menu', null));
 }
 
 function toggleNavSection(sectionId) {
@@ -483,16 +502,17 @@ function renderSessionCard(session) {
     const playlistMode = !!session.playlist_id || chPlaylistMode.has(id);
     const name = escapeHtml(session.name);
     const speakers = session.speaker_summary || (session.speakers?.length === 0 ? 'No speakers selected' : `${session.speakers?.length || 0} speaker${(session.speakers?.length || 0) !== 1 ? 's' : ''}`);
+    const ref = channelRef(session);
 
     return `
         <div class="ch-card${isPlaying ? ' on' : ''}${Sonorium.cardCls(session)}" data-session-id="${escapeHtml(id)}">
             ${Sonorium.cardTop(session)}
             <div class="ch-head">
                 <span class="ch-icon" aria-hidden="true">${themeIconOf(session.theme_id)}</span>
-                <div class="ch-title"><span class="ch-name">${name}</span>${Sonorium.cardBadges(session)}<span class="ch-sub" title="Speakers">${escapeHtml(speakers)}${Sonorium.cardSub(session)}</span></div>
-                <span class="ch-state${isPlaying ? ' on' : ''}">${isPlaying ? 'Playing' : 'Stopped'}</span>
+                <div class="ch-title"><span class="ch-name">${name}</span>${Sonorium.cardBadges(session)}${uiZone('channel.card', 'badges', ref, 'span')}<span class="ch-sub" title="Speakers"><span class="ch-sub-txt">${escapeHtml(speakers)}</span>${Sonorium.cardSub(session)}</span></div>
+                ${chStateHtml(session)}
                 <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
-                <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu" onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
+                <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('channel.card', 'menu', ref)} onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
             </div>
             <div class="ch-a">
             ${Sonorium.cardPickers(session)}
@@ -505,6 +525,7 @@ function renderSessionCard(session) {
             </div>
             ${chNowHtml(session)}
             ${Sonorium.cardStrips(session)}
+            ${uiZone('channel.card', 'info', ref)}
             </div>
             <div class="ch-b">
             <div class="ch-vol" title="Volume on the speakers">
@@ -522,13 +543,30 @@ function renderSessionCard(session) {
                        oninput="chSetLocalVolume(this)">
                 <span class="ch-vol-val">${chLocalVolume()}%</span>
             </div>
-            ${chRecentHtml(session)}
             <div class="ch-foot">
-                <button type="button" class="btn ${isPlaying ? 'btn-danger' : 'btn-primary'} ch-play" onclick="togglePlayback(${spArg(id)})">${isPlaying ? `${CH_ICON_STOP}Stop` : `${CH_ICON_PLAY}Play`}</button>
+                <button type="button" class="btn ${isPlaying ? 'btn-danger' : 'btn-primary'} ch-play" onclick="togglePlayback(${spArg(id)}, this)">${isPlaying ? `${CH_ICON_STOP}Stop` : `${CH_ICON_PLAY}Play`}</button>
             </div>
             </div>
         </div>
     `;
+}
+
+// Playing / Stopped; while a sleep timer runs, its time left instead of Playing (counted down by chTick)
+function chStateHtml(session) {
+    const sleepAt = session.is_playing ? chSleepAt(session) : null;
+    if (sleepAt) {
+        return `<span class="ch-state on ch-sleep" role="timer" aria-label="Sleep timer">${CH_ICON_SLEEP}<span class="ch-cd" data-at="${sleepAt}">${chClock((sleepAt - Date.now()) / 1000)}</span></span>`;
+    }
+    return `<span class="ch-state${session.is_playing ? ' on' : ''}">${session.is_playing ? 'Playing' : 'Stopped'}</span>`;
+}
+
+// A channel as the open spots see it (ext/contrib.js)
+function channelRef(session) {
+    if (!session) return uiRef('channel', null, { playing: false, mode: 'theme' });
+    return uiRef('channel', session.id, {
+        playing: !!session.is_playing, mode: session.playlist_id ? 'playlist' : 'theme', theme: session.theme_id || '',
+        preset: session.preset_id || '', muted: !!session.speakers_muted, speakers: (session.speakers || []).length,
+    });
 }
 
 // Theme mode: the Theme and Preset fields
@@ -580,14 +618,17 @@ function chNowHtml(session) {
     const playlist = session.playlist_id ? session.playlist : null;
     const sequence = session.playlist_id ? null : session.sequence;
     let text = '';
+    let countdown = '';  // always shown in full: the step's name is cut short instead
     if (playlist) {
-        text = `Entry ${(playlist.position ?? 0) + 1} of ${playlist.entries ?? 0}${playlist.running ? chNextIn(playlist) : ''}`;
+        text = `Entry ${(playlist.position ?? 0) + 1} of ${playlist.entries ?? 0}`;
+        countdown = playlist.running ? chNextIn(playlist) : '';
     } else if (sequence) {
-        text = `Step ${sequence.step ?? 1} of ${sequence.steps}: <b>${escapeHtml(sequence.current_preset_name || 'Default settings')}</b>${sequence.running ? chNextIn(sequence) : ''}`;
+        text = `Step ${sequence.step ?? 1} of ${sequence.steps}: <b>${escapeHtml(sequence.current_preset_name || 'Default settings')}</b>`;
+        countdown = sequence.running ? chNextIn(sequence) : '';
     }
     if (!text) return '<div class="ch-now"><span class="ch-now-txt"><span class="ch-none">No sequence or playlist</span></span></div>';
     const title = session.is_playing ? (playlist ? 'Next entry' : 'Next step') : 'Play the channel first';
-    return `<div class="ch-now"><span class="ch-now-txt">${text}</span><button type="button" class="btn btn-sm btn-secondary ch-next" title="${title}"
+    return `<div class="ch-now"><span class="ch-now-txt"><span class="ch-now-main">${text}</span>${countdown ? `<span class="ch-now-cd">${countdown}</span>` : ''}</span><button type="button" class="btn btn-sm btn-secondary ch-next" title="${title}"
                     ${session.is_playing || session.listening ? '' : 'disabled'} onclick="chNext(${spArg(session.id)})">${ICON_NEXT}Next</button></div>`;
 }
 
@@ -607,28 +648,86 @@ function chClock(seconds) {
     return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }
 
-function chRecentHtml(session) {
-    const items = (session.recent || []).map(e =>
-        `<li><time datetime="${escapeHtml(e.at)}">${chWhen(e.at)}</time><span title="${escapeHtml(e.text)}">${escapeHtml(e.text)}</span></li>`).join('');
-    return `<div class="ch-recent"><div class="ch-recent-hd">Recent changes</div><ul>${items}</ul></div>`;
-}
-
-// An event's time: HH:MM today, "Yesterday HH:MM", else a short date
-function chWhen(iso) {
-    const at = new Date(iso);
-    if (Number.isNaN(at.getTime())) return '';
-    const hm = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
-    const day = date => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
-    const days = Math.round((day(new Date()) - day(at)) / 86400000);
-    if (days <= 0) return hm;
-    if (days === 1) return `Yesterday ${hm}`;
-    return at.toLocaleDateString([], { day: 'numeric', month: 'short' });
-}
-
 function chMenu(button, sessionId) {
+    const session = sessions.find(s => s.id === sessionId);
     xMenu(`ch:${sessionId}`, button,
-        xMenuItem('Delete…', `spClosePop(); deleteSession(${spArg(sessionId)})`, { icon: SP_ICON_TRASH, cls: 'danger' }),
+        xMenuItem('Sleep timer…', `chSleepMenu(${spArg(sessionId)})`, { icon: CH_ICON_SLEEP, disabled: !session?.is_playing })
+        + X_SEP + xMenuItem('Delete…', `spClosePop(); deleteSession(${spArg(sessionId)})`, { icon: SP_ICON_TRASH, cls: 'danger' }),
         { cls: 'menu sp-menu x-menu' });
+}
+
+// ---------- Sleep timer: the playing channel fades out and stops after a while (up to 4 hours) ----------
+const CH_ICON_SLEEP = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+const CH_SLEEP_PRESETS = [[15, '15 min'], [30, '30 min'], [45, '45 min'], [60, '1 h'], [120, '2 h'], [180, '3 h'], [240, '4 h']];
+const CH_SLEEP_MAX = 240;
+
+// When the channel's timer runs out (this device's clock, from the server's seconds left), or null
+function chSleepAt(session) {
+    if (!session?.sleep_until || session.sleep_seconds_left == null) return null;
+    if (session._sleepFor !== session.sleep_until) {
+        session._sleepFor = session.sleep_until;
+        session._sleepAt = Date.now() + session.sleep_seconds_left * 1000;
+    }
+    return session._sleepAt;
+}
+
+function chSleepMenu(sessionId) {
+    const button = spMenuAnchor();
+    const session = sessions.find(s => s.id === sessionId);
+    if (!button || !session) return;
+    const id = spArg(sessionId);
+    const items = CH_SLEEP_PRESETS.map(([minutes, label]) => xMenuItem(label, `chSetSleep(${id}, ${minutes})`)).join('')
+        + xMenuItem('Custom…', `chSleepCustom(${id})`)
+        + (session.sleep_until ? X_SEP + xMenuItem('Cancel timer', `chCancelSleep(${id})`) : '');
+    xMenu(`chsleep:${sessionId}`, button, items, { cls: 'menu sp-menu x-menu' });
+}
+
+function chSleepCustom(sessionId) {
+    const button = spMenuAnchor();
+    if (!button) return;
+    const pop = spOpenPop(`chsleepc:${sessionId}`, button, 'sp-confirm', `
+        <span class="pop-title">Sleep timer</span>
+        <input id="ch-sleep-min" class="inp sm" type="number" inputmode="numeric" min="1" max="${CH_SLEEP_MAX}" step="1" enterkeyhint="done"
+               placeholder="Minutes" aria-label="Minutes"
+               oninput="document.getElementById('ch-sleep-ok').disabled = !chSleepMinutes()"
+               onkeydown="if (event.key === 'Enter') { event.preventDefault(); document.getElementById('ch-sleep-ok').click(); }">
+        <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="spClosePop()">Cancel</button>
+            <button type="button" class="btn btn-sm btn-primary" id="ch-sleep-ok" disabled
+                    onclick="chSetSleep(${spArg(sessionId)}, chSleepMinutes())">OK</button></div>`, 'dialog');
+    pop?.querySelector('input')?.focus();
+}
+
+// The custom field's minutes (1 to 240), or 0
+function chSleepMinutes() {
+    const value = Number(document.getElementById('ch-sleep-min')?.value);
+    return Number.isFinite(value) && value >= 1 && value <= CH_SLEEP_MAX ? Math.round(value) : 0;
+}
+
+async function chSetSleep(sessionId, minutes) {
+    spClosePop();
+    if (!minutes) return;
+    try {
+        chSleepUpdate(sessionId, await api('PUT', `/sessions/${sessionId}/sleep`, { minutes }));
+    } catch (error) {
+        showToast(error.message || 'Failed to set the sleep timer', 'error');
+    }
+}
+
+async function chCancelSleep(sessionId) {
+    spClosePop();
+    try {
+        chSleepUpdate(sessionId, await api('DELETE', `/sessions/${sessionId}/sleep`));
+    } catch (error) {
+        showToast(error.message || 'Failed to cancel the sleep timer', 'error');
+    }
+}
+
+function chSleepUpdate(sessionId, result) {
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session || !result) return;
+    session.sleep_until = result.sleep_until;
+    session.sleep_seconds_left = result.seconds_left;
+    renderSessions();
 }
 
 // Listen here: this browser plays the channel's own stream (one channel at a time). The server
@@ -907,7 +1006,7 @@ const availableIcons = [
     '✨', '🌈', '💎', '🕯️', '🔔'
 ];
 
-async function togglePlayback(sessionId) {
+async function togglePlayback(sessionId, button = null) {
     const session = sessions.find(s => s.id === sessionId);
     if (!session) return;
 
@@ -920,8 +1019,31 @@ async function togglePlayback(sessionId) {
         await loadSessions();
         renderSessions();
     } catch (error) {
+        if (error.takeOver && button && await askPlayTakeOver(session, button)) return;
         showToast(error.message, 'error');
     }
+}
+
+// Play on a local device while another channel plays one: Move asks first, then plays with take_over
+async function askPlayTakeOver(session, button) {
+    await loadSpeakerHierarchy();
+    const inUse = localInUse(session.id);
+    const device = (session.speakers || []).map(findHierarchySpeaker).find(s => s && localChooseOne(s) && isSpeakerEnabled(s.entity_id));
+    if (!inUse || !device || !button.isConnected) return false;
+    spConfirm(`play-move:${session.id}`, button, {
+        title: `Move “${device.name}” to ${session.name}?`,
+        sub: `${inUse.channel.name} stops playing on it and keeps its other speakers.`,
+        ok: 'Move'
+    }, async () => {
+        try {
+            await api('POST', `/sessions/${session.id}/play`, { take_over: true });
+        } catch (error) {
+            showToast(error.message, 'error');
+        }
+        await loadSessions();
+        renderSessions();
+    });
+    return true;
 }
 
 async function updateSessionTheme(sessionId, themeId) {
@@ -1186,8 +1308,9 @@ function openNewSessionModal() {
     document.getElementById('modal-title').textContent = 'New Channel';
     document.getElementById('save-btn-text').textContent = 'Create Channel';
     document.getElementById('session-name').value = '';
-    document.getElementById('session-volume').value = 60;
-    document.getElementById('volume-display').textContent = '60%';
+    const startVolume = audioSettings.default_volume ?? AUDIO_DEFAULTS.default_volume;
+    document.getElementById('session-volume').value = startVolume;
+    document.getElementById('volume-display').textContent = `${startVolume}%`;
     document.getElementById('session-announcements').checked = true;
 
     selectedTheme = null;
@@ -1203,9 +1326,12 @@ function openNewSessionModal() {
 
     resetChannelEditorSearch();
     renderThemeSelector();
+    chTakeOver = false;
     renderSpeakerTree();
+    refreshPickerOutputs();
     renderSpeakerGroupSelect();
     Sonorium.channelEditorOpen(null);  // plugins' fields (slots.js)
+    Sonorium.ui.bind('ch-ui-settings', channelRef(null));
 
     document.getElementById('session-modal').classList.add('active');
     scrollSelectedThemeIntoView();
@@ -1225,6 +1351,7 @@ function editSession(sessionId) {
 
     selectedTheme = session.theme_id;
     selectedSpeakerGroupId = session.speaker_group_id || null;
+    Sonorium.ui.bind('ch-ui-settings', channelRef(session));
 
     // Store the session's preset (or running sequence) to restore after loading presets
     selectedChannelPreset = sessionChoice(session);
@@ -1244,7 +1371,9 @@ function editSession(sessionId) {
 
     resetChannelEditorSearch();
     renderThemeSelector();
+    chTakeOver = false;
     renderSpeakerTree();
+    refreshPickerOutputs();
     renderSpeakerGroupSelect();
 
     // Load presets for the selected theme
@@ -1259,6 +1388,12 @@ function editSession(sessionId) {
     scrollSelectedThemeIntoView();
 }
 
+// The picker's output device sections: listed again, then shown again while the editor is open
+async function refreshPickerOutputs() {
+    await loadOutputTypes();
+    if (document.getElementById('session-modal')?.classList.contains('active') && spm.id === null) renderSpeakerTree();
+}
+
 function resetChannelEditorSearch() {
     ['theme-search', 'speaker-search'].forEach(id => {
         const input = document.getElementById(id);
@@ -1269,6 +1404,19 @@ function resetChannelEditorSearch() {
 function closeSessionModal() {
     document.getElementById('session-modal').classList.remove('active');
 }
+
+// Esc in the New Channel / Edit Channel editor: like Cancel (nothing saved). An open
+// list inside it (the preset picker, a menu) closes first; a search box with text clears first.
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || event.defaultPrevented) return;
+    if (!document.getElementById('session-modal')?.classList.contains('active')) return;
+    if (spm.id) return;  // its own Esc handler closes the menu
+    if (document.getElementById('channel-preset-picker')?.dataset.open === '1') { event.preventDefault(); dpselClose(true); return; }
+    const target = event.target;
+    if (target && target.type === 'search' && target.value) return;
+    event.preventDefault();
+    closeSessionModal();
+});
 
 function closeModalOnBackdrop(event) {
     if (event.target.classList.contains('modal-backdrop')) {
@@ -1311,6 +1459,8 @@ async function saveSession() {
 
     // Only set custom_name if user provided one (otherwise auto-generate)
     if (customName) data.custom_name = customName;
+    // Move: its local device is taken from the channel playing one
+    if (chTakeOver && !selectedSpeakerGroupId) data.take_over = true;
 
     try {
         let sessionId = editId;
@@ -1326,6 +1476,7 @@ async function saveSession() {
             await api('PUT', `/sessions/${sessionId}/playlist`, { playlist_id: chPlaylistId });
         }
         if (sessionId) await Sonorium.channelEditorSave(sessionId, session);  // plugins' fields
+        if (sessionId) await Sonorium.ui.commit(document.getElementById('session-modal'), channelRef({ ...(session || {}), id: sessionId }));
         showToast(editId ? 'Channel updated' : 'Channel created', 'success');
         closeSessionModal();
         await loadSessions();
@@ -1579,9 +1730,28 @@ function isSpeakerEnabled(entityId) {
     return (enabledSpeakers || []).includes(entityId);
 }
 
-// Channel picker: switched-on speakers that are online
+// Channel picker: switched-on speakers that are online (a plugin's output devices have their own sections)
 function getEnabledSpeakersInArea(area) {
-    return (area.speakers || []).filter(s => isSpeakerEnabled(s.entity_id) && s.online !== false);
+    return (area.speakers || []).filter(s => isSpeakerEnabled(s.entity_id) && s.online !== false && !isOutputDevice(s));
+}
+
+// Output devices put in an area: a channel playing the area plays them too
+function areaDeviceIds(area) {
+    return (area.speakers || []).filter(s => isOutputDevice(s) && isSpeakerEnabled(s.entity_id)).map(s => s.entity_id);
+}
+
+// The areas a stored selection plays: its areas and its floors' areas, less the excluded areas
+function selectionAreas(sel) {
+    const areas = [];
+    for (const floor of speakerHierarchy?.floors || []) {
+        for (const area of floor.areas || []) {
+            if (sel.floors.includes(floor.floor_id) || sel.areas.includes(area.area_id)) areas.push(area);
+        }
+    }
+    for (const area of speakerHierarchy?.unassigned_areas || []) {
+        if (sel.areas.includes(area.area_id)) areas.push(area);
+    }
+    return areas.filter(area => !sel.excludeAreas.includes(area.area_id));
 }
 
 function getEnabledAreasInFloor(floor) {
@@ -1616,6 +1786,7 @@ function getEffectiveSpeakerSelection() {
     for (const area of allPickerAreas()) {
         if (selectedSpeakers.areas.includes(area.area_id)) areaSpeakerIds(area).forEach(id => selected.add(id));
     }
+    selectionAreas(selectedSpeakers).forEach(area => areaDeviceIds(area).forEach(id => selected.add(id)));
     selectedSpeakers.speakers.forEach(id => selected.add(id));
     for (const area of allPickerAreas()) {
         if (selectedSpeakers.excludeAreas.includes(area.area_id)) areaSpeakerIds(area).forEach(id => selected.delete(id));
@@ -1649,6 +1820,13 @@ function setEffectiveSpeakerSelection(selected) {
         }
     }
     (speakerHierarchy?.unassigned_areas || []).forEach(takeArea);
+    // Output devices in a stored area: excluded unless picked (they're picked in their own sections)
+    for (const area of selectionAreas(result)) {
+        for (const id of areaDeviceIds(area)) {
+            if (remaining.has(id)) remaining.delete(id);
+            else result.excludeSpeakers.push(id);
+        }
+    }
     result.speakers = [...remaining];
     selectedSpeakers = result;
 }
@@ -1671,6 +1849,8 @@ const SPEAKER_TYPE_LABELS = {
 };
 
 function speakerBadges(speaker, long = false) {
+    // A plugin's output device: its audio system, as the plugin names it
+    if (isOutputDevice(speaker)) return speaker.output.api ? `<span class="badge badge-type">${escapeHtml(speaker.output.api)}</span>` : '';
     const sources = (speaker.source || []).map(source => {
         const badge = SOURCE_BADGES[source];
         return badge ? `<span class="${badge.cls}">${long ? badge.long : badge.short}</span>` : '';
@@ -1696,6 +1876,72 @@ function allHierarchySpeakers() {
 
 function findHierarchySpeaker(entityId) {
     return allHierarchySpeakers().find(s => s.entity_id === entityId) || null;
+}
+
+// ---------- Plugins' audio output devices (core/audio_outputs.py) ----------
+// Each output type a plugin registers is a section in Settings › Speakers and in the channel
+// editor's picker; its devices are speakers with an "output" dict. Devices of a local type are
+// hardware of the machine Sonorium runs on: one of them plays at a time (choose-one), unless
+// Settings › Plugins ⋯ › Allow output to more than one local device is on.
+let outputTypes = [];             // POST /api/audio-outputs/discover
+let allowMultipleLocal = false;   // GET /api/settings: allow_multiple_local_outputs
+let serverName = null;            // GET /api/settings: server_name ("" = Sonorium; null: an older server)
+let outputsLoading = null;
+
+function isOutputDevice(speaker) {
+    return !!(speaker && speaker.output);
+}
+
+function localChooseOne(speaker) {
+    return !!(speaker && speaker.output && speaker.output.local) && !allowMultipleLocal;
+}
+
+// Every type lists its devices again, then the speakers are read again (online, playing)
+async function loadOutputTypes() {
+    if (!outputsLoading) {
+        outputsLoading = (async () => {
+            try {
+                outputTypes = (await api('POST', '/audio-outputs/discover')).types || [];
+                await loadSpeakerHierarchy();
+            } catch (error) {
+                outputTypes = [];  // no audio outputs here, or not allowed to list them
+            }
+        })().finally(() => { outputsLoading = null; });
+    }
+    return outputsLoading;
+}
+
+// The sections: each registered type, then devices remembered from a type that isn't registered now
+function outputSections() {
+    // The system's default device first, then by name
+    const devices = allHierarchySpeakers().filter(isOutputDevice)
+        .sort((a, b) => (b.output.is_default - a.output.is_default) || (a.name || '').localeCompare(b.name || ''));
+    const sections = outputTypes.map(t => ({
+        id: t.id, title: t.title || t.id, local: !!t.local, available: t.available !== false,
+        reason: t.available === false ? (t.message || '') : (t.error || ''),
+        devices: devices.filter(d => d.output.type === t.id)
+    }));
+    for (const d of devices) {
+        if (sections.some(s => s.id === d.output.type)) continue;
+        sections.push({ id: d.output.type, title: d.output.type_title || d.output.type, local: !!d.output.local,
+            available: true, reason: '', devices: devices.filter(x => x.output.type === d.output.type) });
+    }
+    return sections;
+}
+
+// The other channel playing on a device now (null: none, or only this channel)
+function deviceInUseBy(speaker, sessionId) {
+    const other = (speaker.output?.playing || []).find(id => id !== sessionId);
+    return other ? (sessions.find(s => s.id === other) || { id: other, name: other }) : null;
+}
+
+// One local device at a time: the local device another channel plays now, and that channel
+function localInUse(sessionId) {
+    for (const speaker of allHierarchySpeakers().filter(s => localChooseOne(s))) {
+        const other = deviceInUseBy(speaker, sessionId);
+        if (other) return { speaker, channel: other };
+    }
+    return null;
 }
 
 // Floors collapsed in the channel speaker picker, remembered in this browser
@@ -1815,7 +2061,7 @@ function renderSpeakerTree() {
     html += renderPickerFloor(OTHER_AREAS_ID, 'Other areas', otherAreas, pickerFloorIds(OTHER_AREAS_ID), selected, query);
 
     const unassigned = (speakerHierarchy.unassigned_speakers || [])
-        .filter(s => isSpeakerEnabled(s.entity_id) && pickerMatches(s, query));
+        .filter(s => isSpeakerEnabled(s.entity_id) && pickerMatches(s, query) && !isOutputDevice(s));
     if (unassigned.length > 0) {
         html += `
             <div class="p-unassigned">
@@ -1823,6 +2069,9 @@ function renderSpeakerTree() {
                 ${unassigned.map(s => renderPickerSpeaker(s, selected)).join('')}
             </div>`;
     }
+
+    // A section per plugin output type, below the floors
+    html += outputSections().map(section => renderPickerOutputs(section, selected, query)).join('');
 
     if (!html) {
         html = query
@@ -1842,10 +2091,99 @@ function renderSpeakerTree() {
     updateSpeakerSummary(selected);
 }
 
+// The editor's channel: the one being edited, or the name typed for a new one
+function editorChannel() {
+    const id = document.getElementById('edit-session-id')?.value || '';
+    const name = (document.getElementById('session-name')?.value || '').trim()
+        || (sessions.find(s => s.id === id)?.name) || 'this channel';
+    return { id, name };
+}
+
+// A plugin output type's section: its switched-on, online devices; local ones choose-one (round boxes)
+function renderPickerOutputs(section, selected, query) {
+    const key = `out:${section.id}`;
+    const open = !collapsedPickerFloors[key] || !!query;
+    const chooseOne = section.local && !allowMultipleLocal;
+    const collapse = `<button type="button" class="collapse${open ? '' : ' closed'}" data-floor="${escapeHtml(key)}"
+                aria-label="${open ? 'Collapse' : 'Expand'} ${escapeHtml(section.title)}" aria-expanded="${open}"
+                onclick="togglePickerFloor(this.dataset.floor)">${COLLAPSE_ICON}</button>`;
+    const spacer = '<span class="p-spacer p-box-spacer"></span>';
+    if (!section.available || !section.devices.length) {
+        if (!section.reason || query) return '';
+        return `
+            <div class="p-unassigned p-out">
+                <div class="p-row p-floor">${collapse}${spacer}<span class="p-name">${escapeHtml(section.title)}</span></div>
+                ${open ? `<div class="picker-empty p-reason">${escapeHtml(section.reason)}</div>` : ''}
+            </div>`;
+    }
+    const shown = section.devices.filter(s => isSpeakerEnabled(s.entity_id) && pickerMatches(s, query));
+    if (!shown.length) return '';
+    const ids = section.devices.filter(s => isSpeakerEnabled(s.entity_id) && s.online !== false).map(s => s.entity_id);
+    const channel = editorChannel();
+    const head = chooseOne
+        ? `${spacer}<span class="p-name">${escapeHtml(section.title)}</span>`
+        : `<label class="p-label">${pickerCheckbox(selectionState(ids, selected), 'otype', section.id, section.title)}
+                <span class="p-name">${escapeHtml(section.title)}</span></label>`;
+    const rows = shown.map(speaker => {
+        const id = speaker.entity_id;
+        const picked = selected.has(id);
+        const busy = chooseOne && !picked ? deviceInUseBy(speaker, channel.id) : null;
+        const box = chooseOne
+            ? `<input type="radio" class="tri" name="p-local" data-kind="device" data-id="${escapeHtml(id)}" aria-label="${escapeHtml(speaker.name)}"
+                      ${picked ? 'checked' : ''} onchange="onPickerLocal(this)">`
+            : pickerCheckbox(picked ? 'all' : 'none', 'speaker', id, speaker.name);
+        return `
+            <label class="p-row p-speaker" data-id="${escapeHtml(id)}">
+                ${box}
+                ${onlineDot(speaker)}
+                <span class="p-name">${escapeHtml(speaker.name)}</span>
+                ${busy ? `<span class="p-busy">${escapeHtml(`In use by ${busy.name}`)}</span>` : `<span class="badges">${speakerBadges(speaker)}</span>`}
+            </label>`;
+    }).join('');
+    return `
+        <div class="p-unassigned p-out">
+            <div class="p-row p-floor">${collapse}${head}${pickerCount(ids, selected)}</div>
+            ${open ? rows : ''}
+        </div>`;
+}
+
+// The channel editor's Move: saving takes the local device from the channel playing one
+let chTakeOver = false;
+
+// A local device picked (choose-one): it replaces the channel's other local device. While another
+// channel plays a local device, Move asks first.
+function onPickerLocal(radio) {
+    const id = radio.dataset.id;
+    const pick = () => {
+        const selected = getEffectiveSpeakerSelection();
+        allHierarchySpeakers().filter(s => localChooseOne(s)).forEach(s => selected.delete(s.entity_id));
+        selected.add(id);
+        setEffectiveSpeakerSelection(selected);
+        renderSpeakerTree();
+    };
+    const channel = editorChannel();
+    const inUse = chTakeOver ? null : localInUse(channel.id);
+    if (!inUse) {
+        pick();
+        return;
+    }
+    const speaker = findHierarchySpeaker(id);
+    spConfirm(`out-move:${id}`, radio.closest('.p-row'), {
+        title: `Move “${speaker ? speaker.name : id}” to ${channel.name}?`,
+        sub: `${inUse.channel.name} stops playing on it and keeps its other speakers.`,
+        ok: 'Move',
+        onCancel: () => renderSpeakerTree()
+    }, () => {
+        chTakeOver = true;
+        pick();
+    });
+}
+
 function renderSpeakerChips(selected) {
     const container = document.getElementById('speaker-chips');
     if (!container) return;
-    const known = allHierarchySpeakers();
+    // Output devices after the speakers
+    const known = allHierarchySpeakers().sort((a, b) => isOutputDevice(a) - isOutputDevice(b));
     const knownIds = new Set(known.map(s => s.entity_id));
     const chips = known.filter(s => selected.has(s.entity_id) && s.online !== false).map(s => [s.entity_id, s.name])
         .concat([...selected].filter(id => !knownIds.has(id)).map(id => [id, id]));
@@ -1858,7 +2196,14 @@ function onPickerToggle(checkbox) {
     const { kind, id } = checkbox.dataset;
     if (kind === 'floor') toggleSpeakerIds(pickerFloorIds(id), checkbox.checked);
     else if (kind === 'area') toggleArea(id, checkbox.checked);
+    else if (kind === 'otype') toggleSpeakerIds(outputTypeIds(id), checkbox.checked);
     else toggleSpeaker(id, checkbox.checked);
+}
+
+// A non-local output type's header box: its switched-on, online devices
+function outputTypeIds(typeId) {
+    const section = outputSections().find(s => s.id === typeId);
+    return section ? section.devices.filter(s => isSpeakerEnabled(s.entity_id) && s.online !== false).map(s => s.entity_id) : [];
 }
 
 function toggleSpeakerIds(ids, checked) {
@@ -1888,8 +2233,14 @@ function clearSpeakerSelection() {
 
 function updateSpeakerSummary(selected = getEffectiveSpeakerSelection()) {
     const count = selected.size;
+    const devices = [...selected].filter(id => isOutputDevice(findHierarchySpeaker(id))).length;
+    const speakers = count - devices;
     const summary = document.getElementById('speaker-summary');
-    if (summary) summary.textContent = `${count} speaker${count === 1 ? '' : 's'} selected`;
+    if (summary) {
+        summary.textContent = devices
+            ? `${speakers} speaker${speakers === 1 ? '' : 's'} and ${devices} device${devices === 1 ? '' : 's'} selected`
+            : `${count} speaker${count === 1 ? '' : 's'} selected`;
+    }
     const label = document.getElementById('speaker-label-summary');
     if (label) {
         const group = selectedSpeakerGroupId && speakerGroups.find(g => g.id === selectedSpeakerGroupId);
@@ -2254,17 +2605,23 @@ function tpParts(theme) {
             ${playable ? '' : 'disabled'} onclick="tpPreview(${id})">${pv ? TP_ICON_STOP : TP_ICON_PLAY}</button>`,
         pvLabeled: `<button type="button" class="btn btn-sm btn-secondary pv-btn${pv ? ' on' : ''}" title="${pvTitle}"
             ${playable ? '' : 'disabled'} onclick="tpPreview(${id})">${pv ? TP_ICON_STOP : TP_ICON_PLAY}${pv ? 'Stop' : 'Preview'}</button>`,
-        more: `<button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu"
+        more: `<button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('theme.card', 'menu', themeRef(theme))}
             onclick="tpMenu('theme', this, ${id})">${TE_ICON_MORE}</button>`,
+        ui: uiZone('theme.card', 'badges', themeRef(theme), 'span'),
         nameEl: (cls) => `<span class="trk-name${cls ? ' ' + cls : ''}" title="${name}"><span class="mq-in">${name}</span></span>`,
     };
+}
+
+// A theme as the open spots see it (ext/contrib.js)
+function themeRef(theme) {
+    return uiRef('theme', theme.id, { favorite: !!theme.is_favorite, tracks: theme.total_tracks || 0, playing: tpPlayingOn(theme.id).length > 0 });
 }
 
 function tpCardHtml(theme) {
     const p = tpParts(theme);
     const phone = TP_PHONE.matches;
     const edit = `<button type="button" class="btn btn-sm btn-secondary" onclick="tpEdit(${p.id})">${phone ? '' : TP_ICON_EDIT}Edit</button>`;
-    const tags = `<div class="tc-tags">${p.air}${p.cats}</div>`;
+    const tags = `<div class="tc-tags">${p.air}${p.cats}${p.ui}</div>`;
     return `
     <div class="tcard${p.onAir ? ' on-air' : ''}${p.pv ? ' pv' : ''}">
         <div class="tc-top">
@@ -2284,7 +2641,7 @@ function tpRowHtml(theme) {
     return `
     <div class="lrow lgrid${p.pv ? ' pv' : ''}">
         ${p.pvRound}
-        <div class="lname"><span class="ic" aria-hidden="true">${p.icon}</span>${p.nameEl('')}${p.air}</div>
+        <div class="lname"><span class="ic" aria-hidden="true">${p.icon}</span>${p.nameEl('')}${p.air}${p.ui}</div>
         <div class="tc-tags">${p.cats || '<span class="notag">—</span>'}</div>
         <span class="lnum c" title="${p.meta}">${p.tracks}</span>
         ${p.star}
@@ -2406,6 +2763,80 @@ async function tpCreateTheme() {
     }
 }
 
+// ---------- Duplicate theme (Themes page ⋯ and the Theme Editor's ⋯) ----------
+
+const THEME_NAME_TAKEN = 'A theme with this name already exists';
+
+function themeNameKey(name) {
+    return String(name || '').trim().toLowerCase();
+}
+
+// "<name> 01": the lowest free number from 01 (two digits; 100 and up keep counting)
+function themeCopyName(name) {
+    const base = String(name || '').trim();
+    const taken = new Set(themes.map(t => themeNameKey(t.name)));
+    let n = 1;
+    while (taken.has(themeNameKey(`${base} ${String(n).padStart(2, '0')}`))) n++;
+    return `${base} ${String(n).padStart(2, '0')}`;
+}
+
+// The name prompt; prefix: 'tp' (Themes page) or 'te' (Theme Editor), close: its menu's close function
+function themeDupHtml(prefix, themeId, close) {
+    const theme = themes.find(t => t.id === themeId);
+    const id = jsArg(themeId);
+    return `
+        <span class="pop-title">Duplicate theme</span>
+        <input id="${prefix}-dup-name" class="inp sm" type="text" maxlength="80" enterkeyhint="done" autocomplete="off"
+               placeholder="Name" aria-label="Name" value="${escapeHtml(themeCopyName(theme ? theme.name : ''))}"
+               oninput="themeDupInput('${prefix}')"
+               onkeydown="if (event.key === 'Enter') { event.preventDefault(); themeDupOk('${prefix}', ${id}, '${close}'); }">
+        <span class="pop-err" id="${prefix}-dup-err" role="alert" hidden>${THEME_NAME_TAKEN}</span>
+        <div class="pop-acts"><button type="button" class="btn btn-sm btn-secondary" onclick="${close}()">Cancel</button>
+            <button type="button" class="btn btn-sm btn-primary" id="${prefix}-dup-ok" onclick="themeDupOk('${prefix}', ${id}, '${close}')">OK</button></div>`;
+}
+
+function themeDupTaken(prefix, taken) {
+    const input = document.getElementById(`${prefix}-dup-name`);
+    const err = document.getElementById(`${prefix}-dup-err`);
+    if (input) input.classList.toggle('err', taken);
+    if (err) err.hidden = !taken;
+}
+
+function themeDupInput(prefix) {
+    const input = document.getElementById(`${prefix}-dup-name`);
+    document.getElementById(`${prefix}-dup-ok`).disabled = !input.value.trim();
+    themeDupTaken(prefix, false);
+}
+
+async function themeDupOk(prefix, themeId, close) {
+    const input = document.getElementById(`${prefix}-dup-name`);
+    const okBtn = document.getElementById(`${prefix}-dup-ok`);
+    const name = input ? input.value.trim() : '';
+    if (!name || (okBtn && okBtn.disabled)) return;
+    if (themes.some(t => themeNameKey(t.name) === themeNameKey(name))) {
+        themeDupTaken(prefix, true);
+        input.focus();
+        return;
+    }
+    if (okBtn) okBtn.disabled = true;
+    try {
+        await api('POST', `/themes/${encodeURIComponent(themeId)}/duplicate`, { name });
+        window[close]();
+        await loadThemes();
+        renderThemesBrowser();
+        renderThemeSelector();
+        showToast('Duplicated', 'success');
+    } catch (error) {
+        if (okBtn) okBtn.disabled = false;
+        if (error.status === 409) {
+            themeDupTaken(prefix, true);
+            input.focus();
+        } else {
+            showToast(error.message || 'Failed to duplicate theme', 'error');
+        }
+    }
+}
+
 // ---------- Menus and popovers (one floating element) ----------
 
 function tpMenuSpec(kind, arg) {
@@ -2427,9 +2858,13 @@ function tpMenuSpec(kind, arg) {
             if (!theme) return null;
             const id = jsArg(arg);
             return { cls: 'menu', align: 'right', html: `
+                ${mi('Duplicate', `tpMenu('dup', tp.menuBtn, ${id})`, { icon: ICON_COPY })}
                 ${mi('Export', `tpExport(${id})`, { icon: TE_ICON_DOWNLOAD })}
                 ${sep}${mi('Delete…', `tpMenu('del', tp.menuBtn, ${id})`, { cls: 'danger', icon: TP_ICON_TRASH })}` };
         }
+        case 'dup':
+            if (!tpTheme(arg)) return null;
+            return { cls: 'pop', align: 'right', role: 'dialog', html: themeDupHtml('tp', arg, 'tpCloseMenu') };
         case 'del': {
             const theme = tpTheme(arg);
             if (!theme) return null;
@@ -2465,6 +2900,7 @@ function tpMenu(kind, button, arg = null) {
     tp.menu = id;
     tp.menuBtn = button;
     button.setAttribute('aria-expanded', 'true');
+    Sonorium.ui.menu(pop, button);
     tePlaceMenu(pop, button, spec.align || 'right', 'down');
     const focus = pop.querySelector('input') || pop.querySelector('button:not([disabled])');
     if (focus) focus.focus();
@@ -2494,6 +2930,8 @@ document.addEventListener('keydown', event => {
         const button = tp.menuBtn;
         tpCloseMenu();
         button?.focus();
+    } else if (tpImportOpen()) {
+        tpCloseImport();
     } else if (tpCatsOpen()) {
         if (tp.catConfirm) {
             tp.catConfirm = null;
@@ -2515,7 +2953,7 @@ window.addEventListener('resize', () => {
 
 // The collection scrolled away from the card a menu hangs from
 function tpOnScroll() {
-    if (tp.menu && (tp.menu.startsWith('theme:') || tp.menu.startsWith('del:'))) tpCloseMenu();
+    if (tp.menu && (tp.menu.startsWith('theme:') || tp.menu.startsWith('del:') || tp.menu.startsWith('dup:'))) tpCloseMenu();
 }
 
 // ---------- Manage categories dialog ----------
@@ -2853,6 +3291,9 @@ function openThemeEditModal(themeId) {
     te.saved = teDetailsSnap();
     teDetailsChanged();
     teRenderPresetField();
+    const ref = themeRef(theme);
+    Sonorium.ui.bind('te-ui-settings', ref);
+    Sonorium.ui.setAnchor(document.getElementById('te-more-btn'), 'theme.editor', 'menu', ref);
 
     document.getElementById('te-tracks').innerHTML = '<div class="empty-row">Loading tracks…</div>';
     document.getElementById('theme-edit-modal').style.display = 'flex';
@@ -3105,6 +3546,7 @@ async function teSaveTheme(quiet = false) {
         }
         const body = { description, icon: te.icon || '' };
         await api('PUT', `/themes/${themeId}/metadata`, body);
+        await Sonorium.ui.commit(document.getElementById('theme-edit-modal'));
         await api('POST', `/themes/${themeId}/categories`, { categories: [...te.cats] });
         if (theme) {
             theme.name = name;
@@ -3327,13 +3769,19 @@ function teRenderRow(track, group, view = TE_VIEW) {
     const muted = track.muted || (group && group.settings?.muted);
     const cls = ['trow', 'tgrid2', group ? 'in-grp' : '', muted ? 'muted' : '', link ? 'linked' : '', missing ? 'missing' : '',
         playing ? 'previewing' : ''].filter(Boolean).join(' ');
+    // The open spots (ext/contrib.js) in the Theme Editor itself, not in a sequence step's view
+    const fileKind = !!group || key.includes('/');
+    const ui = view.edit ? { target: fileKind ? 'theme.file' : 'theme.track', ref: uiRef(fileKind ? 'file' : 'track', key,
+        { section: section.mode, muted: !!muted, linked: !!link, in_group: !!group }, te.themeId) } : null;
     const label = escapeHtml(name);
     let from = '';
     if (link) {
         const source = escapeHtml(link.theme_name || 'another theme');
         from = `<span class="lk-from" title="Linked from ${source}">${missing
             ? '<span class="badge badge-missing">Missing</span>'
-            : `<span class="lk-ic">${TE_ICON_LINK_SM}</span>`}<span class="lk-src">from ${source}</span></span>`;
+            : `<span class="lk-ic">${TE_ICON_LINK_SM}</span>`}<span class="lk-src">from ${source}</span>${view.edit && !missing
+            ? `<button type="button" class="lk-copy" aria-label="Copy into this theme: ${label}" onclick="teCopyLinkIn(${k})">${TE_ICON_DOWNLOAD}</button>`
+            : ''}</span>`;
     }
     let controls;
     if (section.mode === 'unassigned') {
@@ -3366,13 +3814,13 @@ function teRenderRow(track, group, view = TE_VIEW) {
             ${TE_ICON_PLAY.replace('<svg', `<svg style="display:${playing ? 'none' : 'block'}"`)}
             ${TE_ICON_STOP.replace('<svg', `<svg style="display:${playing ? 'block' : 'none'}"`)}
         </button>
-        <div class="nm-cell"><span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>${from}</div>
+        <div class="nm-cell"><span class="trk-name" title="${label}"><span class="mq-in">${label}</span></span>${from}${ui ? uiZone(ui.target, 'badges', ui.ref, 'span') : ''}</div>
         <div class="c-mode">
             <span class="c-lbl">Mode</span>
             ${mode}
         </div>
         ${controls}
-        <button class="icon-btn sm more-btn" aria-label="More for ${label}" aria-haspopup="menu"
+        <button class="icon-btn sm more-btn" aria-label="More for ${label}" aria-haspopup="menu"${ui ? uiAnchor(ui.target, 'menu settings', ui.ref) : ''}
                 onclick="${on.menu}('${link ? 'link' : 'track'}', this, ${k})">${TE_ICON_MORE}${advOn ? '<span class="adv-dot"></span>' : ''}</button>
     </div>`;
 }
@@ -3395,6 +3843,7 @@ function teRenderGroup(group, view = TE_VIEW) {
     const renaming = view.edit && te.renaming === name;
     const confirming = view.edit && te.confirmDel === name;
     const count = `${tracks.length} track${tracks.length === 1 ? '' : 's'}`;
+    const gui = view.edit ? uiRef('group', name, { section: teGroupSection(group)?.mode || '', muted, tracks: tracks.length }, te.themeId) : null;
     // Under the group's name: Gap (Intermittent), Crossfade (Merry-go-round, not in a sequence step) or the
     // Pause between plays switch (Ebb & Flow). On a phone, Gap and Crossfade get their own line in the header (.gap-row).
     const gap = (cls) => `
@@ -3432,7 +3881,7 @@ function teRenderGroup(group, view = TE_VIEW) {
     } else {
         nameCell = `${view.edit ? `<button class="gname" title="Double-click to rename" ondblclick="teStartRename(${n})">${label}</button>`
                                 : `<span class="gname">${label}</span>`}
-                    <span class="badge badge-type">${count}</span>`;
+                    <span class="badge badge-type">${count}</span>${gui ? uiZone('theme.group', 'badges', gui, 'span') : ''}`;
     }
     const section = teGroupSection(group);
     const masterSlider = (kind, text, value, ends = false) => teSliderCell(kind, text, value,
@@ -3456,7 +3905,7 @@ function teRenderGroup(group, view = TE_VIEW) {
             <button class="track-mute-btn${muted ? ' muted' : ''}${ovr(['muted'])}" title="${muted ? 'Unmute group' : 'Mute group'}"
                     aria-label="${muted ? 'Unmute group' : 'Mute group'}: ${label}" aria-pressed="${muted}"
                     onclick="${on.group}(${n}, 'muted', ${!muted})">${muted ? '🔇' : '🔊'}</button>
-            <button class="icon-btn sm" aria-label="More for group ${label}" aria-haspopup="menu" onclick="${on.menu}('group', this, ${n})">${TE_ICON_MORE}</button>
+            <button class="icon-btn sm" aria-label="More for group ${label}" aria-haspopup="menu"${gui ? uiAnchor('theme.group', 'menu settings', gui) : ''} onclick="${on.menu}('group', this, ${n})">${TE_ICON_MORE}</button>
         </div>
         ${open ? `
         ${tracks.map(t => teRenderRow(t, group, view)).join('')}
@@ -3913,6 +4362,33 @@ async function teRemoveLink(key) {
     teLoadPresets(false);
 }
 
+// Copy a linked file into this theme, where it is (its group, or the top level). The row stays
+// in place and becomes the theme's own file (a new key on a name clash, e.g. "Rain (2)"), with
+// its settings; a playing preview or mix goes on.
+async function teCopyLinkIn(key) {
+    teCloseMenu();
+    const track = teTrack(key);
+    if (!track?.linked || track.linked.missing) return;
+    let newKey;
+    try {
+        newKey = (await api('POST', `/themes/${te.themeId}/links/${encodeURIComponent(key)}/copy-in`,
+            { group: trackGroupOf(key) || null }))?.track || key;
+    } catch (error) {
+        showToast(error.message || 'Failed to copy the file', 'error');
+        return;
+    }
+    track.name = newKey;
+    delete track.linked;
+    if (te.mixSnap?.tracks[key] && newKey !== key) {
+        te.mixSnap.tracks[newKey] = te.mixSnap.tracks[key];
+        delete te.mixSnap.tracks[key];
+    }
+    if (currentPreviewTrack === key) currentPreviewTrack = newKey;
+    teRenderTracks();
+    await teLoadTracks(false, false);  // the server rebuilt the theme before answering
+    teLoadPresets(false);
+}
+
 // Drag & drop (desktop): drag a track by its handle onto a group or a section
 function teDragStart(event, key) {
     te.drag = key;
@@ -4080,6 +4556,9 @@ function teRenderPresetField() {
     load.textContent = seq ? 'Edit' : 'Reload';
     document.getElementById('te-savepreset-btn').disabled = !preset;
     document.getElementById('te-dirty').hidden = !(preset && te.mixDirty);
+    // The preset ⋯ shows the loaded preset's open spots (ext/contrib.js)
+    Sonorium.ui.setAnchor(document.getElementById('te-pmore-btn'), 'theme.preset', 'menu settings',
+        preset ? uiRef('preset', preset.id, { default: !!preset.is_default }, te.themeId) : null);
 }
 
 function teChoosePreset(id) {
@@ -4258,7 +4737,7 @@ function teGroupRiseRows(group, n, view = TE_VIEW, locked = false) {
     if (teGroupMode(group) !== 'ebb_flow') return '';
     const rise = group.settings?.rise;
     return teMenuItem('Same Rise for every file', `${view.on.groupRise}(${n})`, {
-            disabled: locked, title: "Off: each file's own Rise", after: `<span class="sw${rise != null ? ' on' : ''}"></span>` })
+            disabled: locked, title: "Off: each file's Rise", after: `<span class="sw${rise != null ? ' on' : ''}"></span>` })
         + (rise != null ? teRiseRow('te-grise', rise, 'How fast every file rises', `${view.on.group}(${n}, 'rise', this.value / 100)`,
             false, view.ovr('groups', group.name, ['rise'])) : '') + TE_MENU_SEP;
 }
@@ -4291,7 +4770,11 @@ function teMenuHtml(kind, arg) {
     switch (kind) {
         case 'theme':
             return { cls: 'menu', align: 'right', html: `
+                ${mi('Duplicate', "teMenu('tdup', te.menuBtn)", { icon: ICON_COPY })}
                 ${mi('Export theme', 'teExportTheme()', { icon: TE_ICON_DOWNLOAD })}` };
+        case 'tdup':
+            if (!te.themeId) return null;
+            return { cls: 'pop', align: 'right', role: 'dialog', html: themeDupHtml('te', te.themeId, 'teCloseMenu') };
         case 'icon': {
             const current = te.icon;
             return { cls: 'menu', align: 'left', html: `
@@ -4353,7 +4836,8 @@ function teMenuHtml(kind, arg) {
             }
             if (te.groupsOk) html += sep + moveRows(track, k, missing);
             html += sep + mi('Reset track', `teResetTrack(${k})`, { icon: TE_ICON_RESET, disabled: missing });
-            html += sep + mi('Remove link…', `teMenu('lnkdel', te.menuBtn, ${k})`, { icon: TE_ICON_UNLINK, cls: 'danger' });
+            html += sep + mi('Copy into this theme', `teCopyLinkIn(${k})`, { icon: TE_ICON_DOWNLOAD, disabled: missing });
+            html += mi('Remove link…', `teMenu('lnkdel', te.menuBtn, ${k})`, { icon: TE_ICON_UNLINK, cls: 'danger' });
             return { cls: 'menu', align: 'right', html };
         }
         case 'lnkdel':
@@ -4436,6 +4920,7 @@ function teMenu(kind, button, arg = null, keepOpen = false) {
     te.menu = id;
     te.menuBtn = button;
     button.setAttribute('aria-expanded', 'true');
+    Sonorium.ui.menu(pop, button);
     tePlaceMenu(pop, button, spec.align || 'right', spec.dir || 'down');
     const focus = (spec.focusButton ? null : pop.querySelector('input')) || (keepOpen ? null : pop.querySelector('button:not([disabled])'));
     if (focus) { focus.focus(); if (focus.select && focus.value) focus.select(); }
@@ -4500,7 +4985,7 @@ document.addEventListener('keydown', event => {
         te.confirmDel = null;
         teRenderTracks();
     } else {
-        closeThemeEditModal();
+        teCancel();  // like Cancel: the mix goes back to how it was
     }
 });
 
@@ -5105,62 +5590,147 @@ async function exportThemeZip(themeId = document.getElementById('theme-edit-id')
     }
 }
 
+// Import theme…: one zip or several. Several are imported one after another
+// (each import converts its audio, core/theme_mp3.py), with the progress and
+// then each file's result in a small dialog; one failing doesn't stop the rest.
 function importThemeZip() {
-    // Create a hidden file input
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.zip';
+    input.multiple = true;
     input.style.display = 'none';
 
-    input.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        try {
-            showToast('Importing theme...', 'info');
-
-            const formData = new FormData();
-            formData.append('file', file);
-
-            const response = await fetch(`${BASE_PATH}/api/themes/import`, {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Import failed');
-            }
-
-            const result = await response.json();
-
-            // Trigger backend theme refresh then reload UI
-            await api('POST', '/themes/refresh');
-            await loadThemes();
-            renderThemesBrowser();
-
-            showToast(`Imported "${result.theme_folder}" (${result.files_extracted} files)`, 'success');
-        } catch (error) {
-            console.error('Import failed:', error);
-            showToast(error.message || 'Failed to import theme', 'error');
-        }
-    };
+    input.onchange = (e) => tpImportFiles([...(e.target.files || [])]);
 
     document.body.appendChild(input);
     input.click();
     document.body.removeChild(input);
 }
 
+const TP_NOT_A_ZIP = 'Not a theme zip';
+const tpImp = { busy: false, files: [], done: 0, results: [] };
+
+// One zip through POST /api/themes/import; throws with the reason it failed
+async function tpImportOne(file) {
+    if (!/\.zip$/i.test(file.name)) throw new Error(TP_NOT_A_ZIP);
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await fetch(`${BASE_PATH}/api/themes/import`, { method: 'POST', body: formData });
+    if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.detail || 'Import failed');
+    }
+    return response.json();
+}
+
+async function tpImportFiles(files) {
+    if (!files.length || tpImp.busy) return;
+    if (files.length === 1) {
+        const file = files[0];
+        try {
+            showToast('Importing theme...', 'info');
+            const result = await tpImportOne(file);
+            // Trigger backend theme refresh then reload UI
+            await api('POST', '/themes/refresh');
+            await loadThemes();
+            renderThemesBrowser();
+            showToast(`Imported "${result.theme_folder}" (${result.files_extracted} files)`, 'success');
+        } catch (error) {
+            console.error('Import failed:', error);
+            showToast(error.message || 'Failed to import theme', 'error');
+        }
+        return;
+    }
+    tpImp.busy = true;
+    tpImp.files = files;
+    tpImp.done = 0;
+    tpImp.results = [];
+    tpRenderImport();
+    document.getElementById('tp-imp-modal').classList.add('active');
+    for (const file of files) {
+        try {
+            const result = await tpImportOne(file);
+            tpImp.results.push({ file: file.name, ok: true, name: result.name || result.theme_folder });
+        } catch (error) {
+            tpImp.results.push({ file: file.name, ok: false, why: error.message || 'Import failed' });
+        }
+        tpImp.done++;
+        tpRenderImport();
+    }
+    try {
+        if (tpImp.results.some(r => r.ok)) {
+            await api('POST', '/themes/refresh');
+            await loadThemes();
+            renderThemesBrowser();
+            renderThemeSelector();
+        }
+    } catch (error) {
+        console.error('Theme refresh after import failed:', error);
+    }
+    tpImp.busy = false;
+    tpRenderImport();
+}
+
+function tpRenderImport() {
+    const n = tpImp.files.length;
+    const ok = tpImp.results.filter(r => r.ok).length;
+    document.getElementById('tp-imp-prog').textContent = tpImp.busy
+        ? `Importing ${Math.min(tpImp.done + 1, n)} of ${n}…`
+        : `${ok} of ${n} imported`;
+    document.getElementById('tp-imp-done').disabled = tpImp.busy;
+    document.getElementById('tp-imp-list').innerHTML = tpImp.results.map(r => `
+        <div class="cm-row">
+            <span class="imp-file"><span class="cm-name" title="${escapeHtml(r.file)}">${escapeHtml(r.file)}</span>${r.ok ? ''
+                : `<span class="imp-why">${escapeHtml(r.why)}</span>`}</span>
+            <span class="imp-st ${r.ok ? 'ok' : 'err'}">${r.ok ? 'Imported' : 'Failed'}</span>
+        </div>`).join('');
+}
+
+function tpImportOpen() {
+    return document.getElementById('tp-imp-modal')?.classList.contains('active');
+}
+
+function tpCloseImport() {
+    if (tpImp.busy) return;  // closes once every file is done
+    document.getElementById('tp-imp-modal').classList.remove('active');
+}
+
+// Theme zips dropped on the Themes page's list
+function tpDragHasFiles(event) {
+    return [...(event.dataTransfer?.types || [])].includes('Files');
+}
+
+function tpDragOver(event) {
+    if (!tpDragHasFiles(event)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    event.currentTarget.classList.add('over');
+}
+
+function tpDragLeave(event) {
+    if (event.currentTarget.contains(event.relatedTarget)) return;
+    event.currentTarget.classList.remove('over');
+}
+
+function tpDrop(event) {
+    if (!tpDragHasFiles(event)) return;
+    event.preventDefault();
+    event.currentTarget.classList.remove('over');
+    tpImportFiles([...(event.dataTransfer.files || [])]);
+}
+
 // Audio Settings
 // --- Settings > Audio: sliders change a draft; Save settings / Cancel ---
-const AUDIO_DEFAULTS = { crossfade_duration: 3.0, default_volume: 60, master_gain: 60 };
+const AUDIO_DEFAULTS = { crossfade_duration: 3.0, default_volume: 60, master_gain: 60, stereo: false };
 const AUDIO_FIELDS = [
     { key: 'crossfade_duration', id: 'settings-crossfade', label: 'Crossfade', short: 'Crossfade', tip: 'Fade when changing themes', tipShort: 'Fade between themes',
       min: 0, max: 10, step: 0.5, fmt: v => `${Number(v).toFixed(1)} s`, num: v => parseFloat(v) },
     { key: 'default_volume', id: 'settings-default-volume', label: 'Default volume', short: 'Volume', tip: 'Starting volume for new channels', tipShort: 'New channels',
       min: 0, max: 100, step: 5, fmt: v => `${v}%`, num: v => parseInt(v, 10) },
     { key: 'master_gain', id: 'settings-master-gain', label: 'Master output gain', short: 'Gain', tip: 'Multiplier for every stream', tipShort: 'All streams',
-      min: 0, max: 100, step: 5, fmt: v => `${v}%`, num: v => parseInt(v, 10) }
+      min: 0, max: 100, step: 5, fmt: v => `${v}%`, num: v => parseInt(v, 10) },
+    { key: 'stereo', id: 'settings-stereo', label: 'Stereo', short: 'Stereo', tip: 'Separate left and right for every stream', tipShort: 'Left and right',
+      type: 'switch', fmt: v => (v ? 'On' : 'Off'), num: v => !!v }
 ];
 let audioSettings = { ...AUDIO_DEFAULTS };   // saved
 let audioDraft = { ...AUDIO_DEFAULTS };      // on screen
@@ -5172,9 +5742,12 @@ async function loadAudioSettings() {
             audioSettings = {
                 crossfade_duration: result.crossfade_duration ?? AUDIO_DEFAULTS.crossfade_duration,
                 default_volume: result.default_volume ?? AUDIO_DEFAULTS.default_volume,
-                master_gain: result.master_gain ?? AUDIO_DEFAULTS.master_gain
+                master_gain: result.master_gain ?? AUDIO_DEFAULTS.master_gain,
+                stereo: !!(result.stereo ?? AUDIO_DEFAULTS.stereo)
             };
             audioDraft = { ...audioSettings };
+            allowMultipleLocal = !!result.allow_multiple_local_outputs;
+            serverName = typeof result.server_name === 'string' ? result.server_name : null;
         }
     } catch (error) {
         console.log('Could not load audio settings, using defaults');
@@ -5191,7 +5764,9 @@ function renderAudioSettings() {
     rows.innerHTML = AUDIO_FIELDS.map(f => `
         <div class="sp-srow" data-key="${f.key}">
             <span class="sp-slab"><label for="${f.id}">${f.label}</label><span class="sp-tip" title="${f.tip}" aria-label="${f.tip}">${SP_ICON_INFO}</span><span class="sp-mod-dot sp-ph" title="Changed" hidden></span></span>
-            <div class="track-slider-wrapper sp-sl"><input type="range" class="track-slider" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${audioDraft[f.key]}" oninput="onAudioInput('${f.key}', this.value)"></div>
+            ${f.type === 'switch'
+                ? `<div class="sp-sl"><label class="toggle-switch"><input type="checkbox" id="${f.id}" ${audioDraft[f.key] ? 'checked' : ''} onchange="onAudioInput('${f.key}', this.checked)"><span class="toggle-slider"></span></label></div>`
+                : `<div class="track-slider-wrapper sp-sl"><input type="range" class="track-slider" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${audioDraft[f.key]}" oninput="onAudioInput('${f.key}', this.value)"></div>`}
             <span class="sp-sval"></span>
             <span class="sp-sdef"><span class="sp-ph">${f.tipShort} · default </span>${f.fmt(AUDIO_DEFAULTS[f.key])}</span>
             <span class="sp-schg"><span class="sp-mod-dot" title="Changed, not saved" hidden></span></span>
@@ -5311,7 +5886,7 @@ function renderSpaceArea(area, floorId, editable) {
     const remove = editable && area.local_id
         ? `<button class="icon-btn" title="Delete area" onclick="deleteSpace('area', '${escapeHtml(area.local_id)}', '${escapeHtml(area.name)}')">${TRASH_ICON}</button>`
         : '';
-    return `<div class="space-row">${name}<span class="space-badges">${spaceBadges(area)}</span>${floor}
+    return `<div class="space-row">${name}<span class="space-badges">${spaceBadges(area)}${uiZone('area.row', 'badges', uiRef('area', area.id || area.local_id, { speakers: Number(area.speakers) || 0 }), 'span')}</span>${floor}
         <span class="space-count">${spaceCount(area.speakers)}</span><div class="spk-actions">${remove}</div></div>`;
 }
 
@@ -5430,8 +6005,28 @@ const ADVANCED_FEATURES = {
     plugin_packages: {
         label: 'Plugin packages',
         hint: "Plugins may install Python packages from the internet. Packages run with Sonorium's rights: allow only for plugins you trust."
+    },
+    keys: {
+        label: 'Keys',
+        hint: 'Devices and programs can use keys with only the access you check.'
+    },
+    announcements: {
+        label: 'Announcements',
+        hint: 'Home Assistant, MQTT and other systems can play announcements on channels.'
     }
 };
+
+// Menu items of features switched off in Settings › Advanced (Keys)
+const FEATURE_NAV = { keys: 'nav-plugin-keys' };
+
+function applyFeatureNav() {
+    if (!installInfo) return;
+    Object.entries(FEATURE_NAV).forEach(([name, id]) => {
+        const item = document.getElementById(id);
+        if (item) item.style.display = installInfo.features[name]?.enabled === false ? 'none' : '';
+    });
+    if (window.Sonorium) Sonorium.applyPerms();
+}
 
 async function loadInstallInfo() {
     try {
@@ -5444,6 +6039,7 @@ async function loadInstallInfo() {
         label.textContent = installInfo.label;
         label.hidden = false;
     }
+    applyFeatureNav();
 }
 
 function hasAdvancedSettings() {
@@ -5470,13 +6066,14 @@ function renderAdvancedSettings() {
     body.innerHTML = names.map(name => {
         const f = ADVANCED_FEATURES[name];
         const on = !!installInfo.features[name].enabled;
-        const changed = on !== advancedRunning[name];
+        // A live feature (Keys, Announcements) applies at once: never "Restart to apply"
+        const changed = !installInfo.features[name].live && on !== advancedRunning[name];
         pending = pending || changed;
         return `
             <div class="sp-lrow spa-grid">
                 <label class="spa-name" for="adv-${name}">${escapeHtml(f.label)}</label>
                 <span class="spa-desc" title="${escapeHtml(f.hint)}">${escapeHtml(f.hint)}</span>
-                <span class="c spa-def"><span class="badge badge-type">Off</span></span>
+                <span class="c spa-def"><span class="badge badge-type">${installInfo.features[name].default ? 'On' : 'Off'}</span></span>
                 <span class="spa-pend">${changed ? '<span class="badge sp-badge-warn" title="Takes effect after a restart"><i></i>Restart to apply</span>' : ''}</span>
                 <label class="toggle-switch c spa-tog" title="${on ? 'On' : 'Off'}">
                     <input type="checkbox" id="adv-${name}" aria-label="${escapeHtml(f.label)}" ${on ? 'checked' : ''} ${advancedBusy ? 'disabled' : ''}
@@ -5499,6 +6096,7 @@ async function setAdvancedFeature(name, on) {
     } catch (error) {
         showToast(error.message, 'error');
     }
+    applyFeatureNav();
     renderAdvancedSettings();
 }
 
@@ -5542,7 +6140,7 @@ const PV_SECTIONS = [
         { name: 'Wait randomness', keys: ['sparse_interval_variance'], unit: '%', usual: [0, 60],
           desc: "How far each wait strays from the Interval's point in the range, either way." },
         { name: "Gap after a group's track", keys: ['group_gap'], unit: 's', usual: [10, 1800],
-          desc: 'Every Intermittent group uses this, unless its own Gap is set.' },
+          desc: 'Every Intermittent group uses this, unless the gap is set.' },
     ] },
     { title: 'Background', rows: [
         { name: 'Loop crossfade', keys: ['loop_crossfade'], unit: 's', usual: [0.5, 5], below: 'a loop may click where it starts over',
@@ -5570,7 +6168,7 @@ const PV_SECTIONS = [
         { name: 'Longest sound', keys: ['sound_max_length'], unit: 's', usual: [5, 600],
           desc: 'Announcements and sounds longer than this are cut. 0 is no limit.' },
         { name: 'Duck amount', keys: ['duck_amount'], unit: 'dB', usual: [6, 30],
-          desc: 'How much quieter a channel gets while a sound plays over it, unless the sound sets its own.' },
+          desc: 'How much quieter a channel gets while a sound plays over it, unless the sound sets it.' },
         { name: 'Duck attack', keys: ['duck_attack'], unit: 's', usual: [0.1, 3],
           desc: 'How long the channel takes to get quieter. The sound starts once it has.' },
         { name: 'Duck release', keys: ['duck_release'], unit: 's', usual: [0.2, 5],
@@ -5581,6 +6179,46 @@ const PV_SECTIONS = [
           desc: 'Then this long before the announcement plays.' },
         { name: 'Tail', keys: ['wake_tail'], unit: 's', usual: [0, 5],
           desc: 'After it, this long before the speakers stop.' },
+    ] },
+    { title: 'Plugins', rows: [
+        { name: 'Look-ahead', keys: ['timeline_lookahead'], unit: 's', usual: [0.1, 5],
+          desc: 'How early an Intermittent sound is decided, so plugins hear of it before it plays.' },
+        { name: 'Data per object', keys: ['plugin_data_limit'], unit: 'bytes', usual: [1024, 65536],
+          desc: 'The most each plugin may keep on one theme, track, channel or other object. 0 is no limit.' },
+    ] },
+    { title: 'Backups', rows: [
+        { name: 'Backup space per user', keys: ['backup_limit_mb'], unit: 'MB', usual: [0, 102400],
+          desc: 'The most theme backups from the app may take for one user. 0 is no limit.' },
+        { name: 'Backup space for all users', keys: ['backup_total_limit_mb'], unit: 'MB', usual: [0, 512000],
+          desc: 'The most theme backups from the app may take for every user together. 0 is no limit.' },
+        { name: 'Free disk space kept', keys: ['backup_free_space_mb'], unit: 'MB', usual: [0, 10240],
+          desc: 'A backup is refused when it would leave less free disk space than this. 0 is no limit.' },
+    ] },
+    { title: 'Limits', rows: [
+        { name: 'Sign-in request size', keys: ['auth_body_limit_kb'], unit: 'KB', usual: [4, 64],
+          desc: 'The most a sign-in, Link App or pairing request may send. 0 is no limit.' },
+        { name: 'Request size', keys: ['request_body_limit_kb'], unit: 'KB', usual: [256, 8192],
+          desc: 'The most any other request may send. 0 is no limit.' },
+        { name: 'Upload size', keys: ['upload_limit_mb'], unit: 'MB', usual: [100, 10240],
+          desc: 'The most one upload may be: an audio file, a theme or plugin zip, a backup file. 0 is no limit.' },
+        { name: 'Theme import size', keys: ['import_unpacked_limit_mb'], unit: 'MB', usual: [500, 20480],
+          desc: "The most a theme zip's files may take once unpacked. 0 is no limit." },
+        { name: 'Files in a theme import', keys: ['import_file_limit'], unit: 'files', usual: [100, 20000],
+          desc: 'The most files one theme zip may hold. 0 is no limit.' },
+        { name: 'Exports at once', keys: ['export_limit'], unit: 'exports', usual: [1, 8],
+          desc: 'Theme exports made at the same time. More are refused until one is done. 0 is no limit.' },
+        { name: 'Streams per address', keys: ['streams_per_address'], unit: 'streams', usual: [4, 64],
+          desc: 'Audio streams one address may have open. 0 is no limit.' },
+        { name: 'Streams in all', keys: ['streams_limit'], unit: 'streams', usual: [16, 256],
+          desc: 'Audio streams open at the same time. 0 is no limit.' },
+        { name: 'Event streams per user', keys: ['event_streams_per_caller'], unit: 'streams', usual: [2, 32],
+          desc: 'Event streams one user, linked device or key may have open. 0 is no limit.' },
+        { name: 'Sign-in tries per username', keys: ['login_attempts_per_user'], unit: 'a minute', usual: [3, 60],
+          desc: 'Wrong passwords a minute for one username, from any address. 0 is no limit.' },
+        { name: 'Stream link time', keys: ['stream_link_hours'], unit: 'h', usual: [1, 48],
+          desc: 'While Require login is on, speakers outside the LAN get stream addresses that work this long. 0 never ends.' },
+        { name: 'LAN speakers without a link', keys: ['lan_streams_open'], unit: '', usual: [0, 1],
+          desc: '1: speakers on the LAN play without a stream link while Require login is on. 0: every stream needs one.' },
     ] },
 ];
 
@@ -5631,9 +6269,36 @@ function pvRender() {
     if (!form || !head) return;
     head.style.display = playbackValues ? '' : 'none';
     // Plugins' sections first (slots.js: advanced), then the playback values
-    form.innerHTML = (playbackValues ? Sonorium.advancedHtml() : '') + (playbackValues ? PV_SECTIONS.map(section =>
+    form.innerHTML = pvGeneralSection() + (playbackValues ? Sonorium.advancedHtml() : '') + (playbackValues ? PV_SECTIONS.map(section =>
         `<h3 class="spv-sec">${escapeHtml(section.title)}</h3><div class="sp-lbody">${section.rows.map(pvRow).join('')}</div>`).join('') : '')
         + pvNetworkSection();
+}
+
+// General: the server's name (GET /api/info "name", the mDNS name). Kept in the settings; saved as it's changed.
+const SERVER_NAME_MAX = 40;   // the server's servername.MAX_LENGTH
+function pvGeneralSection() {
+    if (serverName === null || !playbackValues) return '';
+    return `<h3 class="spv-sec">General</h3><div class="sp-lbody"><div class="sp-lrow spv-grid${serverName ? ' changed' : ''}">
+        <span class="spv-name">Server name</span><span class="spv-desc">The name the app and other devices show for this server.</span><span class="spv-def">Sonorium</span>
+        <span class="spv-val"><input class="sp-inp spv-url" type="text" id="pv-server-name" aria-label="Server name" placeholder="Sonorium" maxlength="${SERVER_NAME_MAX}" value="${escapeHtml(serverName)}" onchange="pvServerNameChanged(this)"></span>
+        <button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="Server name: back to the default"${serverName ? '' : ' disabled'} onclick="pvServerNameChanged(null)">${SP_ICON_RESET}</button></div></div>`;
+}
+
+// Trimmed; at most SERVER_NAME_MAX characters, no control characters (the server checks the same)
+async function pvServerNameChanged(input) {
+    const value = input ? input.value.trim() : '';
+    if (input) {
+        const bad = value.length > SERVER_NAME_MAX || [...value].some(ch => ch.charCodeAt(0) < 32 || (ch.charCodeAt(0) >= 127 && ch.charCodeAt(0) < 160));
+        input.classList.toggle('bad', bad);
+        if (bad) return;
+    }
+    try {
+        const result = await api('PUT', '/settings', { server_name: value });
+        serverName = typeof result.server_name === 'string' ? result.server_name : value;
+    } catch (error) {
+        showToast(error.message || 'Not saved', 'error');
+    }
+    pvRender();
 }
 
 // Network: the stream URL speakers are given (Docker/Windows; the Home Assistant app sets it in
@@ -5644,7 +6309,67 @@ function pvNetworkSection() {
     return `<h3 class="spv-sec">Network</h3><div class="sp-lbody"><div class="sp-lrow spv-grid${value ? ' changed' : ''}">
         <span class="spv-name">Stream URL</span><span class="spv-desc">The address speakers are given to reach Sonorium.</span><span class="spv-def">Automatic</span>
         <span class="spv-val"><input class="sp-inp spv-url" type="url" id="pv-stream-url" aria-label="Stream URL" placeholder="Automatic" value="${escapeHtml(value)}" onchange="pvStreamUrlChanged(this)"></span>
-        <button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="Stream URL: back to the default"${value ? '' : ' disabled'} onclick="pvStreamUrlChanged(null, this)">${SP_ICON_RESET}</button></div></div>`;
+        <button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="Stream URL: back to the default"${value ? '' : ' disabled'} onclick="pvStreamUrlChanged(null, this)">${SP_ICON_RESET}</button></div>
+        ${pvPortRow('http_port', 'HTTP port', 'The port for the web UI, the API and streams.')}
+        ${pvPortRow('https_port', 'HTTPS port', 'The port for the web UI and the API over HTTPS (the app links here).')}
+        ${pvProxiesRow()}</div>`;
+}
+
+// Trusted proxies: reverse proxies whose X-Forwarded-For gives the caller's address
+function pvProxiesRow() {
+    const proxies = connectionSettings.trusted_proxies;
+    if (proxies === undefined) return '';
+    return `<div class="sp-lrow spv-grid${proxies ? ' changed' : ''}">
+        <span class="spv-name">Trusted proxies</span><span class="spv-desc">Reverse proxies in front of Sonorium, by address or network (e.g. 172.18.0.0/16). Their X-Forwarded-For gives each caller's address.</span><span class="spv-def">None</span>
+        <span class="spv-val"><input class="sp-inp spv-url" type="text" id="pv-trusted-proxies" aria-label="Trusted proxies" placeholder="None" value="${escapeHtml(proxies)}" onchange="pvConnectionChanged('trusted_proxies', this)"></span>
+        <button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="Trusted proxies: back to the default"${proxies ? '' : ' disabled'} onclick="pvConnectionChanged('trusted_proxies', null, this)">${SP_ICON_RESET}</button></div>`;
+}
+
+// HTTP and HTTPS port: editable on Docker and Linux; on Windows the Sonorium app on the computer sets them
+function pvPortRow(key, name, desc) {
+    const value = connectionSettings[key];
+    const def = (connectionSettings.default_ports || {})[key === 'http_port' ? 'http' : 'https'];
+    if (value === undefined || def === undefined) return '';
+    const editable = connectionSettings.ports_editable;
+    const changed = editable && value !== def;
+    const note = !editable ? '<div class="spv-warn">Set in the Sonorium app on this computer</div>'
+        : value < 1024 ? '<div class="spv-warn">Below 1024: the system may not let Sonorium use it</div>' : '';
+    return `<div class="sp-lrow spv-grid${changed ? ' changed' : ''}">
+        <span class="spv-name">${escapeHtml(name)}</span><span class="spv-desc">${escapeHtml(desc)}</span><span class="spv-def">${def}</span>
+        <span class="spv-val"><input class="sp-inp spv-num" type="number" min="1" max="65535" step="1" id="pv-${key.replace('_', '-')}" aria-label="${escapeHtml(name)}" value="${value}"${editable ? '' : ' disabled'} onchange="pvConnectionChanged('${key}', this)"></span>
+        <button type="button" class="icon-btn sm spv-reset" title="Back to the default" aria-label="${escapeHtml(name)}: back to the default"${changed ? '' : ' disabled'} onclick="pvConnectionChanged('${key}', null, this)">${SP_ICON_RESET}</button>
+        ${note}</div>`;
+}
+
+// A Network setting saved in the connection settings (ports, trusted proxies): checked, then saved with a restart
+function pvConnectionChanged(key, input, resetButton) {
+    let value = input ? input.value.trim() : '';
+    if (input) input.classList.remove('bad');
+    if (value && (key === 'http_port' || key === 'https_port')) {
+        const n = Number(value);
+        const other = key === 'http_port' ? connectionSettings.https_port : connectionSettings.http_port;
+        if (!Number.isInteger(n) || n < 1 || n > 65535) {
+            input.classList.add('bad');
+            showToast('A port is a number from 1 to 65535', 'error');
+            return;
+        }
+        if (n === other) {
+            input.classList.add('bad');
+            showToast('The HTTP and HTTPS ports must be different', 'error');
+            return;
+        }
+        value = n;
+    }
+    spConfirm('pv-' + key, input || resetButton, { title: 'Restart Sonorium?', sub: 'Playing channels stop for a few seconds.', ok: 'Restart' }, async () => {
+        try {
+            await api('PUT', '/connection', { [key]: value === '' ? null : value });
+            showToast('Restarting Sonorium...', 'success');
+            await spWaitForRestart();
+        } catch (error) {
+            if (input) input.classList.add('bad');
+            showToast(error.message || 'Not saved', 'error');
+        }
+    });
 }
 
 function pvStreamUrlChanged(input, resetButton) {
@@ -5869,19 +6594,55 @@ function allSpeakerRooms() {
 }
 
 function settingsSpeakerGroups() {
+    // A plugin's output devices are in their type's section (after the areas), whatever their area
     const groups = [];
+    const add = (key, title, speakers) => {
+        const list = (speakers || []).filter(s => !isOutputDevice(s));
+        if (list.length) groups.push({ key, title, speakers: list });
+    };
     for (const floor of speakerHierarchy?.floors || []) {
-        for (const area of floor.areas || []) {
-            if ((area.speakers || []).length) groups.push({ key: area.area_id, title: `${floor.name} · ${area.name}`, speakers: area.speakers });
-        }
+        for (const area of floor.areas || []) add(area.area_id, `${floor.name} · ${area.name}`, area.speakers);
     }
-    for (const area of speakerHierarchy?.unassigned_areas || []) {
-        if ((area.speakers || []).length) groups.push({ key: area.area_id, title: area.name, speakers: area.speakers });
-    }
-    if ((speakerHierarchy?.unassigned_speakers || []).length) {
-        groups.push({ key: '__none__', title: 'No area', speakers: speakerHierarchy.unassigned_speakers });
-    }
+    for (const area of speakerHierarchy?.unassigned_areas || []) add(area.area_id, area.name, area.speakers);
+    add('__none__', 'No area', speakerHierarchy?.unassigned_speakers);
     return groups;
+}
+
+// Settings › Speakers: a plugin output type's section (its devices as speaker rows, or why it can't be used)
+function renderSettingsOutputSection(section, query, rooms) {
+    const key = `out:${section.id}`;
+    const open = !spkClosed[key];
+    const title = escapeHtml(section.title);
+    const chev = `<button type="button" class="chev-btn${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Collapse' : 'Expand'} ${title}" onclick="toggleSpeakerSection(${spArg(key)})">${SP_ICON_CHEV}</button>
+                    <span class="trk-name sps-gtitle" title="${title}"><span class="mq-in">${title}</span></span>`;
+    if (!section.available || !section.devices.length) {
+        if (!section.reason || query || speakerSourceFilter !== 'all') return '';
+        return `
+            <div class="sps-sec${open ? ' open' : ''}">
+                <div class="sps-fhead sps-grid">
+                    ${chev}
+                    <span class="sp-muted sps-fh-count"></span>
+                    <span class="sps-fh-gap"></span><span class="sps-fh-gap"></span>
+                    <span class="sp-muted c sps-fh-on"></span>
+                    <span class="sps-fh-gap"></span>
+                </div>
+                ${open ? `<div class="sp-muted sps-reason">${escapeHtml(section.reason)}</div>` : ''}
+            </div>`;
+    }
+    const rows = section.devices.filter(s => speakerMatchesSettingsFilter(s, query));
+    if (!rows.length) return '';
+    const on = rows.filter(s => isSpeakerEnabled(s.entity_id)).length;
+    return `
+        <div class="sps-sec${open ? ' open' : ''}">
+            <div class="sps-fhead sps-grid">
+                ${chev}
+                <span class="sp-muted sps-fh-count">${spPlural(rows.length, 'speaker')}</span>
+                <span class="sps-fh-gap"></span><span class="sps-fh-gap"></span>
+                <span class="sp-muted c sps-fh-on">${on} of ${rows.length} on</span>
+                <span class="sps-fh-gap"></span>
+            </div>
+            ${open ? rows.map(s => renderSettingsSpeakerRow(s, rooms)).join('') : ''}
+        </div>`;
 }
 
 // Settings > Speakers view option: hide offline devices (view only; doesn't
@@ -5964,7 +6725,7 @@ function renderSettingsSpeakerTree() {
                 </div>
                 ${open ? rows.map(s => renderSettingsSpeakerRow(s, rooms)).join('') : ''}
             </div>`;
-    }).join('');
+    }).join('') + outputSections().map(section => renderSettingsOutputSection(section, query, rooms)).join('');
 
     lhead.hidden = !html;
     if (html) {
@@ -6029,7 +6790,9 @@ function renderSettingsSpeakerRow(speaker, rooms) {
     }
     const offsetOptions = offsets.map(v => `<option value="${v}" ${v === offset ? 'selected' : ''}>${formatOffset(v)}</option>`).join('');
     const testing = !!spkTesting[id];
-    const address = escapeHtml(speaker.address || id);
+    const device = isOutputDevice(speaker);
+    const ref = uiRef('speaker', id, { online, enabled, type: speaker.type || '', device });
+    const address = device ? (speaker.output.is_default ? 'Default' : '') : escapeHtml(speaker.address || id);
     const nameCell = spkEditId === id
         ? `<input class="sp-inp sm sps-nm-inp" type="text" maxlength="100" enterkeyhint="done" aria-label="Name"
                   placeholder="${escapeHtml(speaker.original_name || speaker.name)}" value="${name}"
@@ -6040,9 +6803,9 @@ function renderSettingsSpeakerRow(speaker, rooms) {
     return `
         <div class="sps-row sps-grid${enabled ? '' : ' off'}${online ? '' : ' offline'}" data-id="${escapeHtml(id)}">
             <span class="channel-status${online ? ' active' : ''} sps-dot" title="${online ? 'Online' : 'Offline'}" role="img" aria-label="${online ? 'Online' : 'Offline'}"></span>
-            <div class="sps-namecell">${nameCell}</div>
-            <div class="badges sps-src">${speakerBadges(speaker)}</div>
-            <span class="sps-addr${speaker.address ? '' : ' eid'}" title="${address}">${address}</span>
+            <div class="sps-namecell">${nameCell}${uiZone('speaker.row', 'columns', ref, 'span')}</div>
+            <div class="badges sps-src">${speakerBadges(speaker)}${uiZone('speaker.row', 'badges', ref, 'span')}</div>
+            <span class="sps-addr${speaker.address || device ? '' : ' eid'}" title="${address}">${address}</span>
             <select class="sp-inp sm sps-area" aria-label="Area for ${name}" onchange="saveSpeakerRoom(this)">${roomOptions}</select>
             <select class="sp-inp sm sps-off" aria-label="Volume offset for ${name}" title="Volume offset" onchange="saveSpeakerOffset(this)">${offsetOptions}</select>
             <button type="button" class="icon-btn sm sps-test${testing ? ' busy' : ''}" title="${testing ? 'Playing…' : 'Play a short test sound'}"
@@ -6051,7 +6814,7 @@ function renderSettingsSpeakerRow(speaker, rooms) {
                 <input type="checkbox" aria-label="Use ${name}" ${enabled ? 'checked' : ''} onchange="toggleSpeakerEnabled(speakerRowId(this), this.checked)">
                 <span class="toggle-slider"></span>
             </label>
-            <button type="button" class="icon-btn sm sps-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openSpeakerMenu(this)">${SP_ICON_MORE}${advanced ? '<i class="sp-adv-dot"></i>' : ''}</button>
+            <button type="button" class="icon-btn sm sps-more" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('speaker.row', 'menu settings', ref)} onclick="openSpeakerMenu(this)">${SP_ICON_MORE}${advanced ? '<i class="sp-adv-dot"></i>' : ''}</button>
         </div>`;
 }
 
@@ -6168,6 +6931,9 @@ function openSpeakerMenu(button) {
             `<button type="button" class="mi${value === via ? ' cur' : ''}" role="menuitemradio" aria-checked="${value === via}" onclick="setSpeakerPlayVia(${spArg(id)}, ${spArg(value)})"><span class="rad">${value === via ? '●' : ''}</span>${escapeHtml(label)}</button>`
         ).join('');
     }
+    if (isOutputDevice(speaker) && speaker.online === false) {
+        html += `<div class="msep"></div><button type="button" class="mi danger" role="menuitem" onclick="askRemoveOutputDevice(${spArg(id)})">${SP_ICON_TRASH}Remove…</button>`;
+    }
     if (manualIds.length) {
         html += '<div class="msep"></div>' + manualIds.map(manualId =>
             `<button type="button" class="mi danger" role="menuitem" onclick="askRemoveManualSpeaker(${spArg(id)}, ${spArg(manualId)})">${SP_ICON_TRASH}${isManual ? 'Remove…' : 'Remove the address added manually…'}</button>`
@@ -6193,6 +6959,23 @@ function askRemoveManualSpeaker(id, manualId) {
     }, () => removeManualSpeaker(manualId));
 }
 
+// An offline output device: forgotten, and taken out of the channels that have it
+function askRemoveOutputDevice(id) {
+    const speaker = findHierarchySpeaker(id);
+    spConfirm(`spk-rm:${id}`, spMenuAnchor(), { title: `Remove “${speaker ? speaker.name : id}”?`, ok: 'Remove', danger: true },
+        () => removeOutputDevice(id));
+}
+
+async function removeOutputDevice(id) {
+    try {
+        await api('DELETE', `/audio-outputs/speakers/${encodeURIComponent(id)}`);
+        await Promise.all([loadSpeakerHierarchy(), loadEnabledSpeakers()]);
+    } catch (error) {
+        showToast(error.message || 'Failed to remove speaker', 'error');
+    }
+    renderSettingsSpeakerTree();
+}
+
 async function removeManualSpeaker(manualId) {
     try {
         await api('DELETE', `/speakers/manual/${encodeURIComponent(manualId)}`);
@@ -6210,7 +6993,8 @@ async function rescanSpeakers() {
     renderSpeakerToolbar();
     try {
         const result = await api('POST', '/speakers/refresh');
-        await Promise.all([loadSpeakerHierarchy(), loadEnabledSpeakers(), loadNetworkInfo()]);
+        await Promise.all([loadOutputTypes(), loadEnabledSpeakers(), loadNetworkInfo()]);
+        await loadSpeakerHierarchy();
         const total = result.total_speakers || 0;
         showToast(`Found ${total} speaker${total === 1 ? '' : 's'}`, 'success');
     } catch (error) {
@@ -6499,12 +7283,17 @@ function npWhereHtml(ch) {
     return out.join('');
 }
 
+function npRef(ch) {
+    return channelRef(sessions.find(s => s.id === ch.id) || { id: ch.id, is_playing: true });
+}
+
 function npCardHtml(ch, past) {
     const plays = npPlaysHtml(ch), where = npWhereHtml(ch);
     return `<div class="np-card" data-ch="${escapeHtml(ch.id)}">
         <div class="np-hd"><span class="ch-icon" aria-hidden="true">${themeIconOf(ch.theme_id)}</span>
-            <div class="np-title"><span class="np-cname">${escapeHtml(ch.name)}</span><span class="np-plays" data-v="${escapeHtml(plays)}">${plays}</span></div>
+            <div class="np-title"><span class="np-cname">${escapeHtml(ch.name)}${uiZone('status.channel', 'badges', npRef(ch), 'span')}</span><span class="np-plays" data-v="${escapeHtml(plays)}">${plays}</span></div>
             <span class="np-where" data-v="${escapeHtml(where)}">${where}</span></div>
+        ${uiZone('status.channel', 'info', npRef(ch))}
         <div class="np-cols"><span></span><span>Name</span><span>Mode</span><span>Now</span><span>Level</span></div>
         ${ch.sections.map(sec => `<div class="np-sec"><div class="np-sec-hd">${escapeHtml(sec.title)}</div>${sec.rows.map(r => npRowHtml(ch.id, r, false, past)).join('')}</div>`).join('')}
     </div>`;
@@ -6666,6 +7455,7 @@ function renderSettingsGroupsList() {
         const members = resolveGroupMembers(g, idx);
         const count = members.filter(m => !m.excluded).length;
         const name = escapeHtml(g.name);
+        const gref = uiRef('speaker_group', g.id, { speakers: count });
         const chips = []
             .concat((g.include_floors || []).filter(id => idx.floorById[id]).map(id => groupChip('fl', SP_ICON_FLOOR, idx.floorById[id].name, 'Floor')))
             .concat((g.include_areas || []).filter(id => idx.areaById[id]).map(id => groupChip('ar', SP_ICON_AREA, idx.areaById[id].name, 'Area')))
@@ -6695,11 +7485,11 @@ function renderSettingsGroupsList() {
             <div class="spg-grp" data-id="${escapeHtml(g.id)}">
                 <div class="sp-lrow spg-grid spg-row">
                     <button type="button" class="chev-btn spg-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Hide' : 'Show'} speakers in ${name}" onclick="toggleGroupOpen(${spArg(g.id)})">${SP_ICON_CHEV}</button>
-                    <div class="spg-name"><span class="spg-ic" aria-hidden="true">🔊</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span></div>
+                    <div class="spg-name"><span class="spg-ic" aria-hidden="true">🔊</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${uiZone('speaker_group.row', 'badges', gref, 'span')}${uiZone('speaker_group.row', 'columns', gref, 'span')}</div>
                     <div class="spg-chips" title="${escapeHtml(parts.join(', '))}">${chips.slice(0, chipMax).join('')}${rest > 0 ? `<span class="spg-more-n">+${rest}</span>` : ''}</div>
                     <span class="spg-num c" title="${spPlural(count, 'speaker')}">${count}</span>
                     <button type="button" class="btn btn-sm btn-secondary spg-edit" onclick="openGroupModal(${spArg(g.id)})">Edit</button>
-                    <button type="button" class="icon-btn sm spg-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openGroupMenu(this, ${spArg(g.id)})">${SP_ICON_MORE}</button>
+                    <button type="button" class="icon-btn sm spg-more" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('speaker_group.row', 'menu', gref)} onclick="openGroupMenu(this, ${spArg(g.id)})">${SP_ICON_MORE}</button>
                 </div>
                 ${open ? `<div class="spg-subs">${memberRows || '<div class="sp-muted spg-none">No speakers</div>'}</div>` : ''}
             </div>`;
@@ -6750,6 +7540,7 @@ function openGroupModal(groupId = null) {
     const nameInput = document.getElementById('group-name');
     nameInput.value = group ? group.name : '';
     nameInput.classList.remove('bad');
+    Sonorium.ui.bind('grp-ui-settings', uiRef('speaker_group', group ? group.id : null, { speakers: group ? (group.include_speakers || []).length : 0 }));
     document.getElementById('group-speaker-tree').scrollTop = 0;
     renderGroupSpeakerTree();
     document.getElementById('group-modal').classList.add('active');
@@ -6894,8 +7685,10 @@ async function saveGroup() {
         } else {
             const created = await api('POST', '/groups', payload);
             if (created?.id) grpOpen[created.id] = true;
+            if (created?.id) await Sonorium.ui.commit(document.getElementById('group-modal'), uiRef('speaker_group', created.id));
             showToast('Group created', 'success');
         }
+        if (grpEd.id) await Sonorium.ui.commit(document.getElementById('group-modal'));
         closeGroupModal();
         await loadSpeakerGroups();
         renderSettingsGroupsList();
@@ -6921,6 +7714,7 @@ async function loadPlugins() {
         console.error('Failed to load plugins:', error);
         plugins = [];
     }
+    await loadPluginDevices();
 }
 
 // Track active plugins tab
@@ -7027,8 +7821,33 @@ async function installFromCatalog(pluginId) {
 }
 
 function pluginHasForm(plugin) {
-    return !!(plugin.ui_schema && plugin.ui_schema.fields && plugin.ui_schema.fields.length);
+    return !!(plugin.ui_schema && plugin.ui_schema.fields && plugin.ui_schema.fields.length) || pluginHasOwnUi(plugin);
 }
+
+// What the plugin adds to its row in Settings › Plugins (ext/contrib.js, spot "plugin")
+function pluginRef(plugin) {
+    return uiRef('plugin', plugin.id, { enabled: !!plugin.enabled, builtin: !!plugin.builtin });
+}
+function pluginHasOwnUi(plugin) {
+    return Sonorium.ui.has('plugin.row', 'plugin', pluginRef(plugin));
+}
+
+// Contributions refused by their spot's contract: named on the plugin's row
+function pluginWarningsHtml(plugin) {
+    const asks = plugin.permissions_pending || [];
+    const waiting = !plugin.enabled && asks.length && plugin.permissions !== undefined
+        ? `<div class="spp-uiwarn" role="note"><span class="hd">${SP_ICON_WARN_SM}Asks to</span><ul>${asks.map(p => `<li>${escapeHtml(p.label)}</li>`).join('')}</ul></div>` : '';
+    return waiting + pluginRefusedHtml(plugin);
+}
+
+function pluginRefusedHtml(plugin) {
+    const list = plugin.ui_warnings || [];
+    if (!list.length) return '';
+    const shown = list.slice(0, 3).map(w => `<li>${escapeHtml(w)}</li>`).join('');
+    const more = list.length > 3 ? `<li class="more" title="${escapeHtml(list.slice(3).join('\n'))}">+${list.length - 3} more</li>` : '';
+    return `<div class="spp-uiwarn" role="note"><span class="hd">${SP_ICON_WARN_SM}${list.length === 1 ? '1 addition refused' : `${list.length} additions refused`}</span><ul>${shown}${more}</ul></div>`;
+}
+const SP_ICON_WARN_SM = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
 
 function pluginHasSettings(plugin) {
     return !!(plugin.settings_schema && Object.keys(plugin.settings_schema).length);
@@ -7039,7 +7858,7 @@ function renderInstalledPlugins() {
         return `<div class="sp-empty">${SP_ICON_PLUGINS}<strong>No plugins installed</strong></div>`;
     }
     return `<div class="sp-lbody">${plugins.map(plugin => {
-        const hasForm = pluginHasForm(plugin) || pluginHasSettings(plugin);
+        const hasForm = pluginHasForm(plugin) || pluginHasSettings(plugin) || pluginDeviceKinds(plugin).length > 0;
         const canOpen = hasForm && plugin.enabled;
         const open = canOpen && pluginOpen[plugin.id] !== false;
         const name = escapeHtml(plugin.name);
@@ -7051,7 +7870,7 @@ function renderInstalledPlugins() {
                 <div class="sp-lrow spp-igrid">
                     <button type="button" class="chev-btn spp-chev${open ? ' open' : ''}" ${canOpen ? '' : 'disabled'} aria-expanded="${open}"
                             aria-label="${open ? 'Hide' : 'Show'} ${name}"${chevTitle ? ` title="${chevTitle}"` : ''} onclick="togglePluginForm(${spArg(plugin.id)})">${SP_ICON_CHEV}</button>
-                    <div class="spp-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span></div>
+                    <div class="spp-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${uiZone('plugin.row', 'badges', pluginRef(plugin), 'span')}</div>
                     <span class="spp-ver">v${escapeHtml(plugin.version)}${plugin.builtin ? '<span class="badge sp-badge-bi">Built-in</span>' : ''}</span>
                     <span class="spp-desc" title="${description}">${description}</span>
                     <span class="spp-auth" title="${author}">${author}</span>
@@ -7059,8 +7878,9 @@ function renderInstalledPlugins() {
                         <input type="checkbox" aria-label="Enabled: ${name}" ${plugin.enabled ? 'checked' : ''} onchange="togglePlugin(${spArg(plugin.id)}, this.checked)">
                         <span class="toggle-slider"></span>
                     </label>
-                    <button type="button" class="icon-btn sm spp-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="openPluginMenu(this, ${spArg(plugin.id)})">${SP_ICON_MORE}</button>
+                    <button type="button" class="icon-btn sm spp-more" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('plugin.row', 'menu', pluginRef(plugin))} onclick="openPluginMenu(this, ${spArg(plugin.id)})">${SP_ICON_MORE}</button>
                 </div>
+                ${pluginWarningsHtml(plugin)}
                 ${open ? renderPluginUI(plugin) : ''}
             </div>`;
     }).join('')}</div>`;
@@ -7092,9 +7912,11 @@ function pluginFieldShown(plugin, field) {
 }
 
 function renderPluginUI(plugin) {
-    const hasForm = pluginHasForm(plugin);
-    if (!hasForm && !pluginHasSettings(plugin)) return '';
-    if (!hasForm) return `<div class="spp-form">${renderPluginSettings(plugin)}</div>`;
+    const own = uiZone('plugin.row', 'plugin', pluginRef(plugin));
+    const hasForm = !!(plugin.ui_schema && plugin.ui_schema.fields && plugin.ui_schema.fields.length);
+    const devices = renderPluginDevices(plugin);
+    if (!hasForm && !pluginHasSettings(plugin) && !pluginHasOwnUi(plugin) && !devices) return '';
+    if (!hasForm) return `<div class="spp-form">${renderPluginSettings(plugin)}${devices}${own}</div>`;
     const fields = plugin.ui_schema.fields.map(field => renderPluginField(plugin, field)).join('');
     const actions = (plugin.ui_schema.actions || []).slice()
         .sort((a, b) => (b.primary ? 1 : 0) - (a.primary ? 1 : 0))
@@ -7105,6 +7927,8 @@ function renderPluginUI(plugin) {
             <div class="spp-fields">${fields}</div>
             ${actions ? `<div class="spp-acts">${actions}</div>` : ''}
             ${renderPluginSettings(plugin)}
+            ${devices}
+            ${own}
         </div>`;
 }
 
@@ -7233,6 +8057,24 @@ function onPluginField(el) {
 async function togglePlugin(pluginId, enable, confirmed = false) {
     // Switching off the plugin that guards sign-in (Users) asks first
     const plugin = plugins.find(p => p.id === pluginId);
+    // Switching on a plugin whose permissions aren't approved yet: the user sees what it asks for first
+    const pending = plugin?.permissions_pending || [];
+    if (enable && !confirmed && pending.length) {
+        const toggle = document.activeElement;
+        if (toggle && toggle.type === 'checkbox') toggle.checked = false;
+        spConfirm(`plg-perm:${pluginId}`, toggle && toggle.isConnected ? toggle : null,
+            { title: `Allow “${plugin.name}” to:`, items: pending.map(p => p.label), sub: 'It runs inside Sonorium.', ok: 'Allow' },
+            async () => {
+                try {
+                    await api('PUT', `/plugins/${encodeURIComponent(pluginId)}/permissions`, { approve: true });
+                } catch (error) {
+                    showToast(error.message || 'Not allowed', 'error');
+                    return;
+                }
+                togglePlugin(pluginId, true, true);
+            });
+        return;
+    }
     if (!enable && !confirmed && plugin && plugin.auth_provider) {
         const toggle = document.activeElement;
         if (toggle && toggle.type === 'checkbox') toggle.checked = true;
@@ -7247,6 +8089,13 @@ async function togglePlugin(pluginId, enable, confirmed = false) {
         if (enable) pluginOpen[pluginId] = true;
         showToast(`Plugin ${enable ? 'enabled' : 'disabled'}`, 'success');
         await loadPlugins();
+        if (enable) {  // its devices, listed as it comes on
+            for (const kind of pluginDevices.kinds.filter(k => k.plugin_id === pluginId)) {
+                try { await api('POST', `/plugin-devices/discover?kind=${encodeURIComponent(kind.id)}`); } catch (e) { /* shown on Rescan */ }
+            }
+            await loadPluginDevices();
+        }
+        await Sonorium.ui.reload();  // what it adds to the screens comes or goes
     } catch (error) {
         showToast(error.message || 'Failed to toggle plugin', 'error');
     }
@@ -7297,6 +8146,216 @@ async function executePluginAction(pluginId, actionId) {
     }
 }
 
+// --- Devices a plugin brings (core/devices.py): lights, displays, ... Set up on the plugin's row,
+// as speakers are in Settings › Speakers: name, area, Use, the kind's actions, what each follows ---
+let pluginDevices = { kinds: [], devices: [] };
+let devEditId = null;
+
+async function loadPluginDevices() {
+    try {
+        const [k, d] = await Promise.all([api('GET', '/plugin-devices/kinds'), api('GET', '/plugin-devices')]);
+        pluginDevices = { kinds: k.kinds || [], devices: d.devices || [] };
+    } catch (error) {
+        pluginDevices = { kinds: [], devices: [] };
+    }
+}
+
+function pluginDeviceKinds(plugin) {
+    return plugin.enabled ? pluginDevices.kinds.filter(k => k.plugin_id === plugin.id) : [];
+}
+
+function findPluginDevice(id) {
+    return pluginDevices.devices.find(d => d.id === id);
+}
+
+function deviceRef(d) {
+    return uiRef('device', d.id, { online: !!d.online, enabled: !!d.use, kind: d.kind || '',
+        follows: !!((d.channels || []).length || (d.areas || []).length) });
+}
+
+function deviceAdvanced(d) {
+    return !!(d.renamed || (d.channels || []).length || (d.areas || []).length);
+}
+
+function renderPluginDevices(plugin) {
+    const kinds = pluginDeviceKinds(plugin);
+    if (!kinds.length) return '';
+    const rooms = allSpeakerRooms();
+    return kinds.map(kind => {
+        const list = pluginDevices.devices.filter(d => d.kind === kind.id && d.plugin_id === plugin.id);
+        const rows = list.length ? list.map(d => renderDeviceRow(d, rooms)).join('') : '<div class="spd-empty">None found</div>';
+        return `<div class="spp-set spd-sec">
+            <div class="spd-hd"><span class="spp-set-hd">${escapeHtml(kind.title)}</span><span class="sp-cnt">${list.length}</span>
+                <button type="button" class="btn btn-sm btn-secondary spd-scan" onclick="rescanPluginDevices(${spArg(kind.id)}, this)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>Rescan</button></div>
+            <div class="spd-list">${rows}</div></div>`;
+    }).join('');
+}
+
+function renderDeviceRow(d, rooms) {
+    const name = escapeHtml(d.name);
+    const ref = deviceRef(d);
+    const known = rooms.some(r => r.id === d.area);
+    const roomOptions = `<option value="" ${d.area ? '' : 'selected'}>No area</option>`
+        + rooms.map(r => `<option value="${escapeHtml(r.id)}" ${r.id === d.area ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')
+        + (d.area && !known ? `<option value="${escapeHtml(d.area)}" selected>${escapeHtml(d.area)}</option>` : '');
+    const nameCell = devEditId === d.id
+        ? `<input class="sp-inp sm sps-nm-inp" type="text" maxlength="100" enterkeyhint="done" aria-label="Name"
+                  placeholder="${escapeHtml(d.found_name || d.name)}" value="${name}" onkeydown="onDeviceNameKey(event)" onblur="saveDeviceName(this)">`
+        : `<button type="button" class="trk-name sps-name" title="${d.renamed ? `${name} (${escapeHtml(d.found_name)})` : name}"
+                   aria-label="Rename ${name}" onclick="startDeviceRename(${spArg(d.id)})"><span class="mq-in">${name}</span></button>`;
+    const actions = (d.actions || []).map(a => `<button type="button" class="btn btn-sm btn-secondary" ${d.online ? '' : 'disabled'}
+            onclick="runDeviceAction(${spArg(d.id)}, ${spArg(a.id)}, this)">${escapeHtml(a.label)}</button>`).join('');
+    const error = d.error ? `<span class="badge sp-badge-warn" title="${escapeHtml(d.error)}"><i></i>Error</span>` : '';
+    return `
+        <div class="spd-row spd-grid${d.use ? '' : ' off'}${d.online ? '' : ' offline'}" data-dev="${escapeHtml(d.id)}">
+            <span class="channel-status${d.online ? ' active' : ''} sps-dot" title="${d.online ? 'Online' : 'Offline'}" role="img" aria-label="${d.online ? 'Online' : 'Offline'}"></span>
+            <div class="sps-namecell spd-name">${nameCell}${uiZone('device.row', 'columns', ref, 'span')}</div>
+            <div class="badges spd-src">${d.model ? `<span class="badge badge-type">${escapeHtml(d.model)}</span>` : ''}${error}${uiZone('device.row', 'badges', ref, 'span')}</div>
+            <select class="sp-inp sm spd-area" aria-label="Area for ${name}" onchange="saveDeviceArea(this)">${roomOptions}</select>
+            <div class="spd-acts">${actions}</div>
+            <label class="toggle-switch spd-use" title="Use ${name}">
+                <input type="checkbox" aria-label="Use ${name}" ${d.use ? 'checked' : ''} onchange="saveDevice(deviceRowId(this), { use: this.checked })">
+                <span class="toggle-slider"></span>
+            </label>
+            <button type="button" class="icon-btn sm spd-more" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('device.row', 'menu settings', ref)} onclick="openDeviceMenu(this)">${SP_ICON_MORE}${deviceAdvanced(d) ? '<i class="sp-adv-dot"></i>' : ''}</button>
+        </div>`;
+}
+
+function deviceRowId(element) {
+    return element.closest('.spd-row')?.dataset.dev;
+}
+
+async function saveDevice(id, changes, doneMessage = '') {
+    try {
+        const device = await api('PUT', `/plugin-devices/${encodeURIComponent(id)}`, changes);
+        const i = pluginDevices.devices.findIndex(d => d.id === id);
+        if (i >= 0) pluginDevices.devices[i] = device;
+        if (doneMessage) showToast(doneMessage, 'success');
+    } catch (error) {
+        showToast(error.message || 'Not saved', 'error');
+        await loadPluginDevices();
+    }
+    renderPluginsView();
+}
+
+function startDeviceRename(id) {
+    spClosePop();
+    devEditId = id;
+    renderPluginsView();
+    document.querySelector(`.spd-row[data-dev="${CSS.escape(id)}"] .sps-nm-inp`)?.focus();
+}
+
+function onDeviceNameKey(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        event.target.blur();
+    } else if (event.key === 'Escape') {
+        event.stopPropagation();
+        devEditId = null;
+        renderPluginsView();
+    }
+}
+
+function saveDeviceName(input) {
+    const id = deviceRowId(input);
+    if (!id || devEditId !== id) return;
+    devEditId = null;
+    const device = findPluginDevice(id);
+    const name = input.value.trim();
+    if (!device || name === device.name) {
+        renderPluginsView();
+        return;
+    }
+    const reset = !name || name === device.found_name;
+    saveDevice(id, { name: reset ? null : name }, reset ? `Name reset to “${device.found_name}”` : `Renamed to “${name}”`);
+}
+
+function saveDeviceArea(select) {
+    const label = select.options[select.selectedIndex]?.text || 'No area';
+    const device = findPluginDevice(deviceRowId(select));
+    saveDevice(deviceRowId(select), { area: select.value }, device ? `“${device.name}” moved to ${label}` : '');
+}
+
+async function runDeviceAction(id, action, button) {
+    button.disabled = true;
+    try {
+        const result = await api('POST', `/plugin-devices/${encodeURIComponent(id)}/actions/${encodeURIComponent(action)}`, {});
+        if (result.message || !result.success) showToast(result.message || 'Failed', result.success ? 'success' : 'error');
+    } catch (error) {
+        showToast(error.message || 'Failed', 'error');
+    }
+    button.disabled = false;
+}
+
+async function rescanPluginDevices(kind, button) {
+    button.disabled = true;
+    try {
+        await api('POST', `/plugin-devices/discover?kind=${encodeURIComponent(kind)}`);
+    } catch (error) {
+        showToast(error.message || 'Not listed', 'error');
+    }
+    await loadPluginDevices();
+    renderPluginsView();
+}
+
+function openDeviceMenu(button) {
+    const id = deviceRowId(button);
+    const d = findPluginDevice(id);
+    if (!d) return;
+    const tog = (list, value, label) => {
+        const on = (d[list] || []).includes(value);
+        return `<button type="button" class="mi" role="menuitemcheckbox" aria-checked="${on}" onclick="toggleDeviceFollow(this, ${spArg(id)}, '${list}', ${spArg(value)})">${escapeHtml(label)}<span class="sw${on ? ' on' : ''}"></span></button>`;
+    };
+    let html = `<button type="button" class="mi" role="menuitem" onclick="startDeviceRename(${spArg(id)})">${SP_ICON_PENCIL}Rename</button>
+        <button type="button" class="mi" role="menuitem" ${d.renamed ? '' : 'disabled'} onclick="resetDeviceName(${spArg(id)})">${SP_ICON_RESET}Reset name${d.renamed ? `<span class="mi-note">${escapeHtml(d.found_name)}</span>` : ''}</button>`;
+    const channelList = (sessions || []).filter(s => !s.owner);
+    if (channelList.length) html += '<div class="msep"></div><div class="mhead">Channels</div>' + channelList.map(s => tog('channels', s.id, s.name)).join('');
+    const rooms = allSpeakerRooms();
+    if (rooms.length) html += '<div class="msep"></div><div class="mhead">Areas</div>' + rooms.map(r => tog('areas', r.id, r.name)).join('');
+    if (!d.online) html += `<div class="msep"></div><button type="button" class="mi danger" role="menuitem" onclick="askRemoveDevice(${spArg(id)})">${SP_ICON_TRASH}Remove…</button>`;
+    spMenu(`dev:${id}`, button, html);
+}
+
+async function toggleDeviceFollow(item, id, list, value) {
+    const d = findPluginDevice(id);
+    if (!d) return;
+    const on = !(d[list] || []).includes(value);
+    const next = on ? [...(d[list] || []), value] : (d[list] || []).filter(v => v !== value);
+    try {
+        const device = await api('PUT', `/plugin-devices/${encodeURIComponent(id)}`, { [list]: next });
+        Object.assign(d, device);
+        item.setAttribute('aria-checked', String(on));
+        item.querySelector('.sw')?.classList.toggle('on', on);
+        const more = document.querySelector(`.spd-row[data-dev="${CSS.escape(id)}"] .spd-more`);
+        if (more) {
+            more.querySelector('.sp-adv-dot')?.remove();
+            if (deviceAdvanced(d)) more.insertAdjacentHTML('beforeend', '<i class="sp-adv-dot"></i>');
+        }
+    } catch (error) {
+        showToast(error.message || 'Not saved', 'error');
+    }
+}
+
+function resetDeviceName(id) {
+    spClosePop();
+    const d = findPluginDevice(id);
+    saveDevice(id, { name: null }, d ? `Name reset to “${d.found_name}”` : '');
+}
+
+function askRemoveDevice(id) {
+    const d = findPluginDevice(id);
+    spConfirm(`dev-rm:${id}`, spMenuAnchor(), { title: `Remove “${d ? d.name : id}”?`, ok: 'Remove', danger: true }, async () => {
+        try {
+            await api('DELETE', `/plugin-devices/${encodeURIComponent(id)}`);
+        } catch (error) {
+            showToast(error.message || 'Not removed', 'error');
+        }
+        await loadPluginDevices();
+        renderPluginsView();
+    });
+}
+
 function openPluginMenu(button, pluginId) {
     const plugin = plugins.find(p => p.id === pluginId);
     if (!plugin) return;
@@ -7312,7 +8371,23 @@ function askUninstallPlugin(pluginId) {
 }
 
 function openPluginsPageMenu(button) {
-    spMenu('plg-page', button, `<button type="button" class="mi" role="menuitem" onclick="openPluginRequirements()">${SP_ICON_DOC}Plugin requirements…</button>`);
+    spMenu('plg-page', button, `<button type="button" class="mi" role="menuitem" onclick="openPluginRequirements()">${SP_ICON_DOC}Plugin requirements…</button>
+        <div class="msep"></div>
+        <button type="button" class="mi" role="menuitemcheckbox" aria-checked="${allowMultipleLocal}" onclick="toggleMultipleLocal(this)">Allow output to more than one local device<span class="sw${allowMultipleLocal ? ' on' : ''}"></span></button>`);
+}
+
+async function toggleMultipleLocal(item) {
+    const on = !allowMultipleLocal;
+    try {
+        const result = await api('PUT', '/settings', { allow_multiple_local_outputs: on });
+        allowMultipleLocal = !!result.allow_multiple_local_outputs;
+    } catch (error) {
+        showToast(error.message, 'error');
+    }
+    if (item && item.isConnected) {
+        item.setAttribute('aria-checked', String(allowMultipleLocal));
+        item.querySelector('.sw')?.classList.toggle('on', allowMultipleLocal);
+    }
 }
 
 function openPluginRequirements() {
@@ -7367,8 +8442,12 @@ async function uploadPlugin(file) {
             throw new Error(result.detail || 'Upload failed');
         }
 
-        const pluginName = result.plugin?.name || 'Unknown';
-        showToast(`Plugin "${pluginName}" installed successfully!`, 'success');
+        if (result.status === 'warning') {
+            showToast(result.message, 'warning');
+        } else {
+            const pluginName = result.plugin?.name || result.plugin_id || 'Plugin';
+            showToast(`Plugin "${pluginName}" installed successfully!`, 'success');
+        }
 
         await loadPlugins();
         pluginCatalog = null;
@@ -7393,6 +8472,7 @@ async function uninstallPlugin(pluginId, pluginName) {
 
         // Reload plugins list and clear catalog cache so it refreshes
         await loadPlugins();
+        await Sonorium.ui.reload();
         pluginCatalog = null;
         pluginCatalogState = 'idle';
         renderPluginsView();
@@ -7464,7 +8544,7 @@ function spUpdateMarquees(root) {
 }
 
 // ---------- Floating menu / confirm ----------
-const spm = { id: null, btn: null, onOk: null };
+const spm = { id: null, btn: null, onOk: null, onCancel: null };
 
 function spPlacePop(pop, button) {
     const r = button.getBoundingClientRect();
@@ -7497,11 +8577,14 @@ function spOpenPop(id, button, cls, html, role) {
     spm.id = id;
     spm.btn = button;
     button.setAttribute('aria-expanded', 'true');
+    Sonorium.ui.menu(pop, button);
     spPlacePop(pop, button);
     return pop;
 }
 
 function spClosePop() {
+    const onCancel = spm.onCancel;
+    spm.onCancel = null;
     const pop = document.getElementById('sp-menu');
     if (pop && !pop.hidden) {
         pop.hidden = true;
@@ -7512,6 +8595,7 @@ function spClosePop() {
     spm.id = null;
     spm.btn = null;
     spm.onOk = null;
+    if (onCancel) onCancel();
 }
 
 function spMenu(id, button, html) {
@@ -7520,9 +8604,10 @@ function spMenu(id, button, html) {
 }
 
 // Small "Are you sure?" popover next to the button that asked
-function spConfirm(id, button, { title, sub = '', ok, danger = false }, onOk) {
+function spConfirm(id, button, { title, sub = '', items = null, ok, danger = false, onCancel = null }, onOk) {
     const pop = spOpenPop(id, button, 'sp-confirm', `
         <span class="pop-title">${escapeHtml(title)}</span>
+        ${items && items.length ? `<ul class="pop-list">${items.map(i => `<li>${escapeHtml(i)}</li>`).join('')}</ul>` : ''}
         ${sub ? `<span class="pop-sub">${escapeHtml(sub)}</span>` : ''}
         <div class="pop-acts">
             <button type="button" class="btn btn-sm btn-secondary" onclick="spClosePop()">Cancel</button>
@@ -7530,11 +8615,13 @@ function spConfirm(id, button, { title, sub = '', ok, danger = false }, onOk) {
         </div>`, 'alertdialog');
     if (!pop) return;
     spm.onOk = onOk;
+    spm.onCancel = onCancel;
     pop.querySelector('.pop-acts .btn:last-child').focus();
 }
 
 function spConfirmOk() {
     const onOk = spm.onOk;
+    spm.onCancel = null;
     spClosePop();
     if (onOk) onOk();
 }
@@ -7569,17 +8656,22 @@ document.addEventListener('scroll', event => {
     if (spm.id && !document.getElementById('sp-menu').contains(event.target)) spClosePop();
 }, true);
 
-// After a restart: wait until Sonorium answers again, then reload the page
+// After a restart: wait until a new Sonorium answers (GET /api/info's boot_id changes)
+// and has started (GET /api/install answers), then reload the page
 async function spWaitForRestart() {
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    for (let i = 0; i < 30; i++) {
+    let before = null;
+    try { before = (await api('GET', '/info')).boot_id || null; } catch (error) { /* already stopping */ }
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    for (let i = 0; i < 45; i++) {
         try {
-            await api('GET', '/install');
-            window.location.reload();
-            return;
-        } catch (error) {
-            await new Promise(resolve => setTimeout(resolve, 2000));
-        }
+            const info = await api('GET', '/info');
+            if (!before || info.boot_id !== before) {
+                await api('GET', '/install');
+                window.location.reload();
+                return;
+            }
+        } catch (error) { /* not back yet */ }
+        await new Promise(resolve => setTimeout(resolve, 2000));
     }
     showToast('Sonorium is taking a while to restart. Refresh the page in a moment.', 'error');
 }
@@ -8109,11 +9201,22 @@ function sqOpen(id) {
     const name = document.getElementById('sq-name');
     name.value = seq ? seq.name : '';
     name.classList.remove('err');
+    const ref = sequenceRef();
+    Sonorium.ui.bind('sq-ui-settings', ref);
+    Sonorium.ui.setAnchor(document.getElementById('sq-more-btn'), 'sequence.editor', 'menu', ref);
     sqRenderHead();
     sqRender();
     document.getElementById('sq-modal').classList.add('active');
     document.querySelector('#sq-modal .sq-list').scrollTop = 0;
     if (!seq) setTimeout(() => name.focus(), 50);
+}
+
+// A sequence and its steps as the open spots see them (ext/contrib.js)
+function sequenceRef(id = sq.id) {
+    return uiRef('sequence', id || null, { steps: sq.presets.length, end: sq.end }, te.themeId);
+}
+function stepRef(presetId) {
+    return uiRef('step', sq.id ? `${sq.id}/${presetId}` : null, { advanced: sqStepChanged(presetId) }, te.themeId);
 }
 
 function sqRenderHead() {
@@ -8183,7 +9286,7 @@ function sqRender() {
                 <span class="drag-handle" draggable="true" title="Drag to reorder" aria-label="Drag ${name}" ondragstart="rowDragStart(event, 'sq', ${i})" ondragend="rowDragEnd()">${TE_ICON_GRIP}</span>
                 <span class="sq-n">${i + 1}</span>
                 <span class="sq-name"><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${presetMarks(!!p?.is_default, !!p?.has_intrusion)}</span>
-                <button type="button" class="icon-btn sm more-btn" aria-label="More for ${name}" aria-haspopup="menu" onclick="sqMenu('row', this, ${i})">${TE_ICON_MORE}${sqStepChanged(id) ? '<span class="adv-dot" title="Advanced set"></span>' : ''}</button>
+                <button type="button" class="icon-btn sm more-btn" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('sequence.step', 'menu', stepRef(id))} onclick="sqMenu('row', this, ${i})">${TE_ICON_MORE}${sqStepChanged(id) ? '<span class="adv-dot" title="Advanced set"></span>' : ''}</button>
             </div>`;
     }).join('') : `<div class="sq-empty"><button type="button" class="link-btn" onclick="sqMenu('add', this)">${TE_ICON_PLUS}Add preset</button></div>`;
     spUpdateMarquees(rows);
@@ -8302,6 +9405,7 @@ async function sqSave({ keepOpen = false, quiet = false } = {}) {
                             : await api('POST', `/themes/${te.themeId}/sequences`, body);
         // Steps' While playing layers from the Advanced dialog, for the presets still in it
         const id = saved?.id || sq.id;
+        await Sonorium.ui.commit(document.getElementById('sq-modal'), sequenceRef(id));
         for (const [preset, layer] of Object.entries(sq.layers)) {
             if (sq.presets.includes(preset)) {
                 await api('PUT', `/themes/${te.themeId}/sequences/${encodeURIComponent(id)}/while/${encodeURIComponent(preset)}`, layer);
@@ -8552,6 +9656,7 @@ async function txOpen(index) {
     txHelp.close();
     txStopPreview();
     document.getElementById('tx-modal').classList.add('active');
+    Sonorium.ui.setAnchor(document.getElementById('tx-more-btn'), 'step.editor', 'menu', stepRef(step));
     txRender();
     try {
         const q = new URLSearchParams({ preset: step });
@@ -9248,6 +10353,7 @@ function plRenderList() {
         const playing = plPlayingOn(p.id);
         const n = p.entries.length;
         const shuffle = p.order === 'shuffle';
+        const ref = playlistRef(p);
         const subs = p.entries.map((e, i) => {
             const theme = themeById(e.theme_id);
             return `
@@ -9261,19 +10367,36 @@ function plRenderList() {
             <div class="pll-grp" data-id="${escapeHtml(p.id)}">
                 <div class="sp-lrow pll-grid pll-row">
                     <button type="button" class="chev-btn pll-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="${open ? 'Hide' : 'Show'} entries of ${name}" onclick="plToggleRow(${spArg(p.id)})">${SP_ICON_CHEV}</button>
-                    <div class="pll-name"><span class="pl-ic">${ICON_PLAYLIST}</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${playing.length ? `<span class="channel-status active" title="Playing on ${escapeHtml(playing.join(', '))}"></span>` : ''}</div>
+                    <div class="pll-name"><span class="pl-ic">${ICON_PLAYLIST}</span><span class="trk-name" title="${name}"><span class="mq-in">${name}</span></span>${playing.length ? `<span class="channel-status active" title="Playing on ${escapeHtml(playing.join(', '))}"></span>` : ''}${uiZone('playlist.row', 'badges', ref, 'span')}${uiZone('playlist.row', 'columns', ref, 'span')}</div>
                     <span class="pll-num c" title="${n} ${n === 1 ? 'entry' : 'entries'}">${n}<span class="ph-only"> ${n === 1 ? 'entry' : 'entries'}</span></span>
                     <span class="pll-meta"><span class="pll-ord">${shuffle ? ICON_SHUFFLE : ICON_IN_ORDER}${shuffle ? 'Shuffle' : 'In order'}</span>
                     <span class="pll-time">${seqMinutes(p.play_min)}–${seqMinutes(p.play_max)} min</span>
                     <span class="pll-rep c">${p.repeat ? `<span class="rep-ic" title="Repeats">${ICON_REPEAT}<span class="ph-only">Repeat</span></span>` : '<span class="dash" title="Stops after the last entry">–</span>'}</span></span>
                     <button type="button" class="btn btn-sm btn-secondary pll-edit" onclick="plOpen(${spArg(p.id)})">Edit</button>
-                    <button type="button" class="icon-btn sm pll-more" aria-label="More for ${name}" aria-haspopup="menu" onclick="plRowMenu(this, ${spArg(p.id)})">${SP_ICON_MORE}</button>
+                    <button type="button" class="icon-btn sm pll-more" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('playlist.row', 'menu', ref)} onclick="plRowMenu(this, ${spArg(p.id)})">${SP_ICON_MORE}</button>
                 </div>
                 ${open ? `<div class="pll-subs">${subs || '<div class="sp-muted pll-none">No entries</div>'}</div>` : ''}
             </div>`;
     }).join('')}</div>`;
     spUpdateMarquees(container);
 }
+
+// A playlist and its entries as the open spots see them (ext/contrib.js)
+function playlistRef(p) {
+    if (!p) return uiRef('playlist', null, { playing: false, order: ple.order, entries: ple.entries.length });
+    return uiRef('playlist', p.id, { playing: plPlayingOn(p.id).length > 0, order: p.order === 'shuffle' ? 'shuffle' : 'in_order', entries: p.entries.length });
+}
+
+// A playlist entry's plugin attributes changed (its ⋯ menu): the editor's copy follows, so Save keeps them
+document.addEventListener('sonorium:attributes', ev => {
+    const { ref, plugin, values } = ev.detail || {};
+    if (!ref || ref.kind !== 'playlist_entry' || !ple.id) return;
+    const [playlistId, entryId] = String(ref.id).split('/');
+    const entry = playlistId === ple.id ? ple.entries.find(e => e.id === entryId) : null;
+    if (!entry) return;
+    entry.plugins = { ...(entry.plugins || {}), [plugin]: values };
+    if (!Object.keys(values).length) delete entry.plugins[plugin];
+});
 
 function plToggleRow(playlistId) {
     plOpenRows[playlistId] = !plOpenRows[playlistId];
@@ -9349,7 +10472,8 @@ async function plOpen(playlistId = null) {
     const p = playlistId ? playlistById(playlistId) : null;
     if (playlistId && !p) { showToast('Playlist not found', 'error'); return; }
     ple.id = p ? p.id : null;
-    ple.entries = p ? p.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null })) : [];
+    ple.entries = p ? p.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null,
+                                           id: e.id, ...(e.plugins ? { plugins: e.plugins } : {}) })) : [];
     ple.order = p?.order === 'shuffle' ? 'shuffle' : 'in_order';
     ple.rowErr = false;
     const name = document.getElementById('pl-name');
@@ -9360,6 +10484,9 @@ async function plOpen(playlistId = null) {
     ['pl-min', 'pl-max'].forEach(id => document.getElementById(id).classList.remove('err'));
     document.getElementById('pl-repeat').checked = p ? !!p.repeat : true;
     document.getElementById('pl-fit').checked = !!p?.fit_sequences;
+    const ref = playlistRef(p);
+    Sonorium.ui.bind('pl-ui-settings', ref);
+    Sonorium.ui.setAnchor(document.getElementById('pl-more-btn'), 'playlist.editor', 'menu', ref);
     plRenderHead();
     plRenderOrder();
     plRenderEntries();
@@ -9430,7 +10557,7 @@ function plRenderEntries() {
                 <button type="button" class="wsel eww" aria-haspopup="listbox" aria-label="Preset or sequence for entry ${i + 1}" ${theme ? '' : 'disabled'} onclick="plMenu('what', this, ${i})">
                     <span class="wsel-in">${theme ? plWhatHtml(e.theme_id, e.preset_id, e.sequence_id) : '<span class="wl dflt">Default settings</span>'}</span><span class="chev">${ICON_CHEV_DOWN}</span>
                 </button>
-                <button type="button" class="icon-btn sm" aria-label="More for entry ${i + 1}" aria-haspopup="menu" onclick="plMenu('row', this, ${i})">${TE_ICON_MORE}</button>
+                <button type="button" class="icon-btn sm" aria-label="More for entry ${i + 1}" aria-haspopup="menu"${uiAnchor('playlist.entry', 'menu', uiRef('playlist_entry', ple.id && e.id ? `${ple.id}/${e.id}` : null, { sequence: !!e.sequence_id }))} onclick="plMenu('row', this, ${i})">${TE_ICON_MORE}</button>
                 ${note ? `<span class="enote">${escapeHtml(note)}</span>` : ''}
             </div>`;
     }).join('')}</div>` : `<div class="eempty"><span>No entries</span><button type="button" class="link-btn" onclick="plAddEntry()">${TE_ICON_PLUS}Add entry</button></div>`;
@@ -9571,7 +10698,9 @@ async function plSave() {
     }
     const body = {
         name,
-        entries: ple.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null })),
+        // an entry's plugin attributes travel with it when the order changes
+        entries: ple.entries.map(e => ({ theme_id: e.theme_id, preset_id: e.preset_id || null, sequence_id: e.sequence_id || null,
+                                         ...(e.id ? { id: e.id } : {}), ...(e.plugins ? { plugins: e.plugins } : {}) })),
         order: ple.order,
         repeat: document.getElementById('pl-repeat').checked,
         play_min: Math.round(r.min * 60),
@@ -9582,6 +10711,7 @@ async function plSave() {
         const isNew = !ple.id;
         const saved = isNew ? await api('POST', '/playlists', body) : await api('PUT', `/playlists/${encodeURIComponent(ple.id)}`, body);
         if (isNew && saved?.id) plOpenRows[saved.id] = true;
+        await Sonorium.ui.commit(document.getElementById('pl-modal'), playlistRef(saved?.id ? { ...saved, entries: saved.entries || [] } : null));
         plClose();
         await Promise.all([loadPlaylists(), loadSessions()]);
         if (currentView === 'playlists') plRenderList();
@@ -9814,7 +10944,6 @@ const PAGE_HELP = {
         ${helpTerm('Play / Stop', 'starts or stops the speakers. The browser keeps playing if it listens.')}
         ${helpTerm('Edit', 'changes the channel\'s name, theme or playlist, preset, volume and speakers.')}
         ${helpTerm('Delete', 'removes the channel. You confirm first.')}
-        ${helpTerm('Recent changes', 'the channel\'s latest changes with their times: started, stopped, muted, theme, preset, sequence step, playlist entry.')}
         <h4>New channel</h4>
         ${helpTerm('New Channel', 'makes a channel. Leave the name empty and Sonorium names it Channel and a number, for example Channel 1.')}
         ${helpTerm('Speakers', 'pick floors, areas or single speakers. Only speakers turned on under Settings › Speakers are listed.')}
@@ -9844,7 +10973,7 @@ const PAGE_HELP = {
         ${helpTerm('Search', 'looks in theme names and descriptions.')}
         ${helpTerm('Categories', 'a chip shows only the themes in that category. Favorites shows the themes you starred. The number is how many themes match.')}
         ${helpTerm('Sort', 'by name, or with the most tracks first.')}
-        ${helpTerm('Cards, List', 'two layouts of the same themes. A phone always shows cards.')}
+        ${helpTerm('Cards, List', 'two layouts of the same themes. A small screen always shows cards.')}
         <h4>Each theme</h4>
         ${helpTerm('★', 'adds the theme to Favorites or removes it.')}
         ${helpTerm('Preview', 'plays the theme on this device only. The speakers are not changed. Press it again to stop.')}
@@ -9861,16 +10990,16 @@ const PAGE_HELP = {
     settings: { title: 'Settings', html: `
         <p>Settings are split into pages. Pick one from the Settings menu.</p>
         <h4>Pages</h4>
-        ${helpTerm('Connection', 'Home Assistant, MQTT and the stream address. Shown when Sonorium runs outside Home Assistant.')}
+        ${helpTerm('Connection', 'Home Assistant and MQTT. Shown when Sonorium runs outside Home Assistant.')}
         ${helpTerm('Audio Settings', 'crossfade, default volume and output gain.')}
         ${helpTerm('Floors &amp; Areas', 'where your speakers are.')}
         ${helpTerm('Speakers', 'every speaker, with its area, volume offset and on/off switch.')}
         ${helpTerm('Speaker Groups', 'saved sets of speakers for channels.')}
         ${helpTerm('Plugins', 'extras that add features.')}
         ${helpTerm('Logs', 'recent messages from Sonorium.')}
-        ${helpTerm('Users &amp; devices', 'who can sign in, and their phones and browsers. Shown to admins while the Users plugin is on.')}
-        ${helpTerm('Keys', 'keys that let devices and programs use Sonorium. Shown to admins while the Integration plugin is on.')}
-        ${helpTerm('Advanced', 'features that are off by default. Shown on installs that have them.')}` },
+        ${helpTerm('Users &amp; devices', 'who can sign in, and their devices and browsers. Shown to admins.')}
+        ${helpTerm('Keys', 'keys that let devices and programs use Sonorium. Shown to admins while Keys are on in Advanced.')}
+        ${helpTerm('Advanced', 'features you can switch on or off, the values playback uses, and the stream address.')}` },
 
     'settings-connection': { title: 'Connection', html: `
         <p>Every system Sonorium connects to: Home Assistant and your MQTT broker, and the ones plugins add (marked Plugin).</p>
@@ -9887,6 +11016,7 @@ const PAGE_HELP = {
         ${helpTerm('Crossfade', 'how long the fade lasts, in seconds, when a channel changes theme.')}
         ${helpTerm('Default volume', 'the starting volume of a new channel.')}
         ${helpTerm('Master output gain', 'scales the volume of every stream.')}
+        ${helpTerm('Stereo', 'keeps left and right apart on every stream (a mono file plays in the middle). Off: every stream is mono. Turned on, a channel plays stereo from the next theme it starts.')}
         ${helpTerm('Default', 'the value out of the box. A dot marks a change that is not saved yet.')}
         <h4>Top bar</h4>
         ${helpTerm('Save settings', 'saves the changes.')}
@@ -9900,7 +11030,7 @@ const PAGE_HELP = {
         ${helpTerm('Badges', 'Home Assistant or Sonorium shows where a floor or area comes from. A floor or area with the same name in both becomes one.')}
         ${helpTerm('Speakers', 'how many speakers are in the area.')}
         ${helpTerm('From Home Assistant', 'change these in Home Assistant. They are read-only here.')}
-        <h4>Your own floors and areas</h4>
+        <h4>Your floors and areas</h4>
         <p>On installs that allow it, Add floor and Add area show in the top bar.</p>
         ${helpTerm('Add floor, Add area', 'makes a new one. An area can go on a floor.')}
         ${helpTerm('Area name', 'type a new name for an area you added.')}
@@ -9917,7 +11047,7 @@ const PAGE_HELP = {
         ${helpTerm('Rescan network', 'looks for speakers again. Without network speakers the button is Refresh from HA. The text next to it shows the last scan and how many speakers it found.')}
         <h4>Each speaker</h4>
         ${helpTerm('Dot', 'green when the speaker is online.')}
-        ${helpTerm('Name', 'click to rename. An empty name goes back to the speaker\'s own name.')}
+        ${helpTerm('Name', 'click to rename. An empty name goes back to the speaker\'s name.')}
         ${helpTerm('Area', 'the area the speaker belongs to in Sonorium.')}
         ${helpTerm('Offset', 'plays this speaker louder or quieter than the channel volume, from -20% to +20%.')}
         ${helpTerm('Test', 'plays a short test sound on the speaker.')}
@@ -9969,19 +11099,23 @@ const PAGE_HELP = {
         ${helpTerm('Download', 'saves recent log messages as a text file.')}` },
 
     'settings-advanced': { title: 'Advanced', html: `
-        <p>Features this install has off by default, and the values playback uses.</p>
+        <p>Features you can switch on or off, and the values playback uses.</p>
         <h4>Features</h4>
-        ${helpTerm('On', 'turns the feature on or off. A change needs a restart.')}
+        ${helpTerm('On', 'turns the feature on or off. Keys and Announcements change at once; the others need a restart.')}
         ${helpTerm('Default', 'the setting out of the box.')}
         ${helpTerm('Restart to apply', 'marks a feature changed since the last restart.')}
         ${helpTerm('Network speakers', 'adds speakers by IP address, outside Home Assistant.')}
         ${helpTerm('Plugin packages', 'lets plugins install the Python packages they ask for. Packages come from the internet and run with the same rights as Sonorium.')}
+        ${helpTerm('Keys', 'devices and programs can use keys with only the access you check. Off: no key works and Settings › Keys is hidden; the keys are kept for when it is back on.')}
+        ${helpTerm('Announcements', 'Home Assistant, MQTT and other systems can play announcements on channels. Off: none plays, and the Announce entities leave Home Assistant.')}
         <h4>Playback values</h4>
-        ${helpTerm('Value', 'used by every theme, unless a track or group sets its own. Saved as you change it; playing channels follow.')}
+        ${helpTerm('Value', 'used by every theme, unless a track or group sets it. Saved as you change it; playing channels follow.')}
         ${helpTerm('Default', 'the value out of the box. The arrow puts it back.')}
         ${helpTerm('Green', 'changed from the default.')}
         ${helpTerm('Amber', 'far outside the usual range. Allowed, but it may not sound right.')}
         ${helpTerm('Announcements and sounds', 'how announcements, alerts and sound effects play over a channel: the channel gets quieter (ducks), the sound plays, the channel comes back. A stopped channel is started for an announcement and stopped after it.')}
+        <h4>General</h4>
+        ${helpTerm('Server name', 'the name the Sonorium app and other devices on your network show for this server. Empty: Sonorium.')}
         <h4>Network</h4>
         ${helpTerm('Stream URL', 'the address speakers are given to reach Sonorium (port 8008). Automatic works out the address itself. A change restarts Sonorium; you confirm first.')}
         <h4>Top bar</h4>

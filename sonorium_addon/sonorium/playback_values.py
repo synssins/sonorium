@@ -9,7 +9,8 @@ it can, otherwise on the next play or loop.
 The values the user changed live in the settings store
 (SonoriumSettings.playback_values, only the changed ones); set_source() points
 this module at them. Without a source (tests, code without a store) every
-value is its default.
+value is its default. use_values() gives one thread its own values for a
+while (an engine's render, sonorium/engine), leaving every other thread's alone.
 
 No dependencies on the rest of the package, so recording.py can load it even
 when it's loaded on its own.
@@ -17,7 +18,9 @@ when it's loaded on its own.
 
 from __future__ import annotations
 
+import contextlib
 import math
+import threading
 from typing import Callable, Optional
 
 # key -> default. Chances and randomness are fractions (0.30 = 30%); times are seconds.
@@ -42,6 +45,27 @@ DEFAULTS: dict[str, float] = {
     "wake_wait": 20.0,                  # A stopped channel: longest wait for its speakers to connect
     "wake_lead": 1.0,                   # ... then this long before the sound
     "wake_tail": 1.0,                   # ... and this long after it before they stop
+    # Plugin attributes: bytes per plugin per object (0: no limit; core/plugin_data.py)
+    "plugin_data_limit": 4096.0,
+    # The cue timeline (core/timeline.py): how early an Intermittent play is decided and announced
+    "timeline_lookahead": 0.5,
+    # Theme backups from the app: space per account, MB (0: no limit; core/backups.py)
+    "backup_limit_mb": 10240.0,
+    "backup_total_limit_mb": 51200.0,   # ... every account together
+    "backup_free_space_mb": 1024.0,     # ... and this much disk always left free
+    # Limits (sonorium/limits.py; 0: no limit)
+    "auth_body_limit_kb": 16.0,         # a sign-in, Link App or pairing request
+    "request_body_limit_kb": 1024.0,    # any other request
+    "upload_limit_mb": 2048.0,          # one upload: an audio file, a theme or plugin zip, a backup file
+    "import_unpacked_limit_mb": 8192.0, # a theme zip's files, unpacked
+    "import_file_limit": 5000.0,        # files in one theme zip
+    "export_limit": 2.0,                # theme exports made at the same time
+    "streams_per_address": 16.0,        # audio streams one address may have open
+    "streams_limit": 64.0,              # audio streams open in all
+    "event_streams_per_caller": 8.0,    # event streams one caller may have open
+    "login_attempts_per_user": 10.0,    # failed sign-ins a minute for one username, from anywhere
+    "stream_link_hours": 12.0,          # how long a stream address handed to a speaker works
+    "lan_streams_open": 1.0,            # 1: LAN speakers play streams without a stream link; 0: every stream needs one
 }
 
 # (min key, max key): the min may not be above the max
@@ -52,6 +76,7 @@ RANGES = (("sparse_min_interval", "sparse_max_interval"), ("group_crossfade_min"
 FRACTIONS = ("sparse_interval_variance", "ebb_long_rest", "ebb_turn")
 
 _source: Optional[Callable[[], dict]] = None
+_local = threading.local()
 
 
 def set_source(source: Optional[Callable[[], dict]]) -> None:
@@ -60,7 +85,24 @@ def set_source(source: Optional[Callable[[], dict]]) -> None:
     _source = source
 
 
+@contextlib.contextmanager
+def use_values(values: Optional[dict]):
+    """In this thread, inside the with block, the changed values are `values` (None: no change)."""
+    if values is None:
+        yield
+        return
+    previous = getattr(_local, "values", None)
+    _local.values = dict(values)
+    try:
+        yield
+    finally:
+        _local.values = previous
+
+
 def _stored() -> dict:
+    scoped = getattr(_local, "values", None)
+    if scoped is not None:
+        return scoped
     if _source is None:
         return {}
     try:

@@ -113,6 +113,7 @@ def w(tmp_path):
         call(manager.initialize)
         call(host.start)  # as at Sonorium's start-up: the loop, the alert bar, the scheduler
         for plugin_id in ("trigger_play_channel", "helper"):
+            manager.approve_plugin(plugin_id)  # as the user does when switching it on
             assert call(manager.enable_plugin, plugin_id)
         helper = manager.get_plugin("helper")
         for name in ("page_calls", "tested", "changed", "scheduled"):
@@ -261,22 +262,15 @@ def test_tokens_are_masked_in_access_logs():
 
 # --- Actions API -----------------------------------------------------------------------
 
-def test_reloading_plugins_keeps_sign_in_closed(w):
-    """Installing or removing a plugin reloads them all: the Users plugin is off meanwhile, so sign-in stays closed."""
+def test_reloading_plugins_leaves_sign_in_alone(w):
+    """Installing or removing a plugin reloads them all; sign-in (Users) is part of Sonorium and stays as it is."""
     seen = []
 
     class Auth:
         ready = True
-        expected_scanned = None
 
         def unregister(self, plugin_id):
             pass
-
-        def find_expected_providers(self, plugins_dir):
-            self.expected_scanned = plugins_dir
-
-        def mark_ready(self):
-            self.ready = True
 
     old, w.host.auth = w.host.auth, Auth()
     try:
@@ -284,8 +278,7 @@ def test_reloading_plugins_keeps_sign_in_closed(w):
             seen.append(w.host.auth.ready)
         w.helper.on_disable = on_disable
         w.call(w.manager.reload_plugins)
-        assert seen == [False]
-        assert w.host.auth.ready and w.host.auth.expected_scanned == w.manager.plugins_dir
+        assert seen == [True] and w.host.auth.ready
     finally:
         w.host.auth = old
 
@@ -488,3 +481,16 @@ def test_event_stream_needs_a_token_and_replays(w):
     assert replay(f"0123abcd:{first.id + 50}")[0]["id"] == first.id  # another run: from the start of this one
     c.delete("/api/events/token")
     assert c.get("/api/events/stream", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+
+
+def test_event_stream_leaves_out_other_accounts_personal_channel_events(w):
+    c = w.client
+    token = c.post("/api/events/token").json()["token"]
+    first = w.bus.publish("channel.listening", {"channel_id": "p1", "name": "Personal", "listening": True,
+                                                "personal": True}, audience="user:someone")
+    w.bus.publish("channel.listening", {"channel_id": "x", "name": "X", "listening": True})
+    with c.stream("GET", f"/api/events/stream?types=channel.*&max_events=1&last_event_id={first.id - 1}",
+                  headers={"Authorization": f"Bearer {token}"}) as r:
+        text = "".join(r.iter_text())
+    frames = [json.loads(line[6:]) for line in text.splitlines() if line.startswith("data: ")]
+    assert [f["data"]["channel_id"] for f in frames] == ["x"]

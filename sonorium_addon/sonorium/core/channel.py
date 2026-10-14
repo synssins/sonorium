@@ -20,8 +20,8 @@ from typing import Optional, TYPE_CHECKING, Generator
 
 import numpy as np
 
+from sonorium.decoders import current_channels, to_channels
 from sonorium.obs import logger
-from sonorium.mp3_out import Mp3Encoder, RealtimePacer
 from sonorium.recording import SAMPLE_RATE, CROSSFADE_SAMPLES
 
 if TYPE_CHECKING:
@@ -86,6 +86,9 @@ class Channel:
     id: int
     name: str = ""
 
+    # Its sounds go on the cue timeline (core/timeline.py); not for a mix rendered offline (sonorium/engine)
+    announces_cues = True
+
     # Current theme reference
     _current_theme: Optional[LoadedTheme] = field(default=None, repr=False)
 
@@ -107,6 +110,13 @@ class Channel:
     # and when that last changed or was asked for
     _local_count: int = 0
     _local_time: float = field(default_factory=time.monotonic)
+
+    # Personal channels: each device's own stream (?local=1&listener=<tag>):
+    # tag -> [open streams, when that last changed]; and the local listeners
+    # without a tag, and when that last changed
+    _tags: dict = field(default_factory=dict, repr=False)
+    _untagged_count: int = 0
+    _untagged_time: float = field(default_factory=time.monotonic)
 
     # The speakers' stream is silenced (every client but the browsers listening here)
     speakers_muted: bool = False
@@ -235,6 +245,17 @@ class Channel:
         """A browser is about to connect: count its wait from now."""
         self._local_time = time.monotonic()
 
+    def tag_idle_seconds(self, tag: str) -> Optional[float]:
+        """Seconds since a device's own stream (by its tag) closed: 0 while open, None if it never opened here."""
+        entry = self._tags.get(tag)
+        if entry is None:
+            return None
+        return 0.0 if entry[0] > 0 else time.monotonic() - entry[1]
+
+    def untagged_local_idle_seconds(self) -> float:
+        """Seconds without a local listener that has no tag (0 while one listens)."""
+        return 0.0 if self._untagged_count > 0 else time.monotonic() - self._untagged_time
+
     @property
     def stream_path(self) -> str:
         """Get the stream URL path for this channel."""
@@ -346,15 +367,29 @@ class Channel:
     # --- Advanced transitions (core/transitions.py) ---
 
     def _label_stream(self, stream, theme) -> None:
-        """Name the mix for its "Playback:" log lines: this channel and the theme."""
+        """Name the mix for its "Playback:" log lines (this channel and the theme); its sounds go on the cue timeline."""
         if stream is not None and hasattr(stream, "label"):
             stream.label = f"{self.name}: {theme.name}"
+        relay = getattr(stream, "cue_relay", None)
+        if relay is not None and self.announces_cues:
+            from sonorium.core.timeline import get_timeline
+            relay.target = get_timeline().for_channel(self.id, getattr(theme, "id", None))
+        if stream is not None and hasattr(stream, "track_taps") and self.announces_cues:
+            from sonorium.core.taps import get_taps
+            taps = get_taps()
+            taps.rewire()  # track taps follow their channel to this channel number
+            stream.track_taps = taps.track_taps_for(self.id)
+            stream.sample_clock = lambda: self._chunk_sequence * CHUNK_SIZE  # the next broadcast block's first sample
+
+    def _transition_clock(self) -> float:
+        """Time for transitions planned while a theme change is queued (the engine counts audio instead)."""
+        return time.monotonic()
 
     def schedule_transitions(self, plans: list) -> None:
         """Plan tracks' advanced transitions on the playing mix (see theme.ThemeMix.schedule_transitions)."""
         with self._lock:
             if self._pending_theme is not None:
-                self._pending_transitions = (time.monotonic(), [dict(p) for p in plans])
+                self._pending_transitions = (self._transition_clock(), [dict(p) for p in plans])
                 return
             stream = self._theme_stream
         if stream is not None and hasattr(stream, "schedule_transitions"):
@@ -430,7 +465,7 @@ class Channel:
         self._label_stream(new_stream, theme)
         planned, self._pending_transitions = self._pending_transitions, None
         if planned is not None and hasattr(new_stream, "schedule_transitions"):
-            elapsed = time.monotonic() - planned[0]
+            elapsed = self._transition_clock() - planned[0]
             new_stream.schedule_transitions([{**p, "delay": max(0.0, p.get("delay", 0.0) - elapsed)}
                                              for p in planned[1]])
         old_generator = self._chunk_generator
@@ -455,23 +490,29 @@ class Channel:
         self._glide = None
 
     def _crossfade_step(self, new_chunk: np.ndarray) -> np.ndarray:
-        """Mix one chunk of a running theme crossfade."""
+        """
+        Mix one chunk of a running theme crossfade. A mono theme and a stereo
+        one (the Stereo switch changed between them) meet in stereo: the mono
+        one centred.
+        """
         try:
             old_chunk = next(self._xfade_old)
         except StopIteration:
             old_chunk = self._silence
         size = new_chunk.shape[1]
+        channels = max(old_chunk.shape[0], new_chunk.shape[0])
+        old_chunk, new_chunk = to_channels(old_chunk, channels), to_channels(new_chunk, channels)
         pos, total = self._xfade_pos, len(self._xfade_out)
         take = max(0, min(size, total - pos))
         fade_out = np.concatenate([self._xfade_out[pos:pos + take], np.zeros(size - take, dtype=np.float32)])
         fade_in = np.concatenate([self._xfade_in[pos:pos + take], np.ones(size - take, dtype=np.float32)])
-        mixed = old_chunk.astype(np.float32).reshape(-1)[:size] * fade_out + new_chunk.astype(np.float32).reshape(-1) * fade_in
+        mixed = old_chunk.astype(np.float32)[:, :size] * fade_out + new_chunk.astype(np.float32) * fade_in
         self._xfade_pos += size
         if self._xfade_pos >= total:
             self._xfade_old.close()
             self._xfade_old = None
             logger.info(f"Channel {self.id}: Crossfade complete")
-        return np.clip(mixed, -32768, 32767).astype(np.int16).reshape(1, -1)
+        return np.clip(mixed, -32768, 32767).astype(np.int16)
 
     # --- Start/stop fade ---
 
@@ -532,6 +573,8 @@ class Channel:
                     chunk = self._silence
             if self._xfade_old is not None:
                 chunk = self._crossfade_step(chunk)
+            if chunk.shape[0] > 1 and current_channels() == 1:
+                chunk = to_channels(chunk, 1)  # Stereo switched off: a stereo mix still playing folds to mono at once
             chunk = self._apply_output_fade(chunk)
         ramp, overlay = self.ramp, self.overlay
         if ramp is not None and not ramp.idle:
@@ -581,6 +624,7 @@ class Channel:
         """Background thread that generates audio chunks, paced in real time."""
         logger.debug(f"Channel {self.id}: Generator loop started")
 
+        from sonorium.mp3_out import RealtimePacer  # here: the mix itself never needs the MP3 side
         pacer = RealtimePacer()
         try:
             while self._generator_running and self.state == ChannelState.PLAYING:
@@ -621,22 +665,36 @@ class Channel:
         with self._data_available:
             self._data_available.notify_all()
 
-    def client_connected(self, local: bool = False) -> None:
-        """Track a new client connection (local: a browser listening here)."""
+    def client_connected(self, local: bool = False, tag: Optional[str] = None) -> None:
+        """Track a new client connection (local: a browser listening here; tag: a personal channel's device)."""
         self._client_count += 1
         self._last_listener_time = time.monotonic()
         if local:
             self._local_count += 1
             self._local_time = self._last_listener_time
+            if tag:
+                entry = self._tags.setdefault(tag, [0, self._local_time])
+                entry[0] += 1
+                entry[1] = self._local_time
+            else:
+                self._untagged_count += 1
+                self._untagged_time = self._local_time
         logger.info(f"Channel {self.id}: Client connected ({self._client_count} total)")
 
-    def client_disconnected(self, local: bool = False) -> None:
+    def client_disconnected(self, local: bool = False, tag: Optional[str] = None) -> None:
         """Track a client disconnection."""
         self._client_count = max(0, self._client_count - 1)
         self._last_listener_time = time.monotonic()
         if local:
             self._local_count = max(0, self._local_count - 1)
             self._local_time = self._last_listener_time
+            if tag and tag in self._tags:
+                entry = self._tags[tag]
+                entry[0] = max(0, entry[0] - 1)
+                entry[1] = self._local_time
+            elif not tag:
+                self._untagged_count = max(0, self._untagged_count - 1)
+                self._untagged_time = self._local_time
         logger.info(f"Channel {self.id}: Client disconnected ({self._client_count} remaining)")
 
     def get_current_sequence(self) -> int:
@@ -652,14 +710,15 @@ class Channel:
         with self._data_available:
             return self._data_available.wait(timeout)
 
-    def get_stream(self, local: bool = False):
+    def get_stream(self, local: bool = False, tag: Optional[str] = None):
         """
-        Get an MP3 stream iterator for this channel (local: for a browser listening here).
+        Get an MP3 stream iterator for this channel (local: for a browser listening here;
+        tag: a personal channel's device, from its listen_path).
 
         All clients share the same audio source - they just
         encode from the broadcast buffer independently.
         """
-        return ChannelStream(self, local)
+        return ChannelStream(self, local, tag if local else None)
 
     def to_dict(self) -> dict:
         """Serialize channel state for API."""
@@ -682,10 +741,11 @@ class ChannelStream:
     All clients hear the same audio at (approximately) the same time.
     """
 
-    def __init__(self, channel: Channel, local: bool = False):
+    def __init__(self, channel: Channel, local: bool = False, tag: Optional[str] = None):
         self.channel = channel
         self.local = local
-        self.channel.client_connected(local)
+        self.tag = tag
+        self.channel.client_connected(local, tag)
 
         # Start from current position
         self._last_sequence = channel.get_current_sequence()
@@ -707,6 +767,7 @@ class ChannelStream:
 
     def __iter__(self):
         """This listener's MP3 stream: every chunk the channel broadcasts from now on, as it is made."""
+        from sonorium.mp3_out import Mp3Encoder
         encoder = Mp3Encoder()
         try:
             while self.channel.state == ChannelState.PLAYING or self.channel._generator_running:
@@ -719,7 +780,7 @@ class ChannelStream:
                     yield from encoder.encode(self._apply_mute(chunk))
         finally:
             logger.debug(f'Channel {self.channel.id}: Client stream closed')
-            self.channel.client_disconnected(self.local)
+            self.channel.client_disconnected(self.local, self.tag)
             encoder.close()
 
 

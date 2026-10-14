@@ -96,6 +96,9 @@ def test_has_what_sonorium_reads_and_writes():
         av.codec.Codec(decoder, "r")
     assert {"mp3", "wav", "flac", "ogg", "mov,mp4,m4a,3gp,3g2,mj2"} <= av.formats_available
     assert av.codec.Codec("mp3", "w").name == "libmp3lame"
+    # The audio cache (sonorium/engine/pcm_cache.py) writes stereo FLAC
+    av.codec.Codec("flac", "w")
+    av.format.ContainerFormat("flac", "w")
 
 
 @pytest.mark.parametrize("ext", list(FORMATS))

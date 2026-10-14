@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The console window (boards Win_Status ... Win_Logs). The system draws the title bar, so it
+     follows "Show accent colour on title bars" and contrast themes. -->
+<Window
+    x:Class="Sonorium.Tray.ConsoleWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Sonorium">
+    <NavigationView x:Name="Nav" PaneDisplayMode="Left" IsBackButtonVisible="Collapsed" IsSettingsVisible="False"
+                    IsPaneToggleButtonVisible="False" OpenPaneLength="260" SelectionChanged="Nav_SelectionChanged">
+        <NavigationView.MenuItems>
+            <NavigationViewItem Content="Status" Tag="Status"><NavigationViewItem.Icon><FontIcon Glyph="&#xE930;" /></NavigationViewItem.Icon></NavigationViewItem>
+            <NavigationViewItem Content="General" Tag="General"><NavigationViewItem.Icon><FontIcon Glyph="&#xE713;" /></NavigationViewItem.Icon></NavigationViewItem>
+            <NavigationViewItem Content="Folders" Tag="Folders"><NavigationViewItem.Icon><FontIcon Glyph="&#xE8B7;" /></NavigationViewItem.Icon></NavigationViewItem>
+            <NavigationViewItem Content="Connections" Tag="Connections"><NavigationViewItem.Icon><FontIcon Glyph="&#xE71B;" /></NavigationViewItem.Icon></NavigationViewItem>
+            <NavigationViewItem Content="Updates" Tag="Updates"><NavigationViewItem.Icon><FontIcon Glyph="&#xE895;" /></NavigationViewItem.Icon></NavigationViewItem>
+            <NavigationViewItem Content="Logs" Tag="Logs"><NavigationViewItem.Icon><FontIcon Glyph="&#xE8A5;" /></NavigationViewItem.Icon></NavigationViewItem>
+            <NavigationViewItem Content="About" Tag="About"><NavigationViewItem.Icon><FontIcon Glyph="&#xE946;" /></NavigationViewItem.Icon></NavigationViewItem>
+        </NavigationView.MenuItems>
+        <Frame x:Name="Pages" Padding="20,8,36,28" />
+    </NavigationView>
+</Window>
