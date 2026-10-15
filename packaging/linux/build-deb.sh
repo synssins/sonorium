@@ -60,6 +60,9 @@ echo "$PY_SHA256  $py_tar" | sha256sum -c -
 tar xzf "$py_tar" -C "$OPT"   # -> /opt/sonorium/python
 rm "$py_tar"
 PY=$OPT/python/bin/python3
+# The private Python was built with clang and asks for it when building C
+# extensions (PyAV, and any package without a wheel for this machine)
+export CC=gcc CXX=g++ LDSHARED="gcc -shared -pthread"
 "$PY" -m pip install --no-cache-dir --disable-pip-version-check --upgrade pip
 
 # 2. FFmpeg (audio only, LGPL) and PyAV against it, with the private Python's pip
