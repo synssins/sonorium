@@ -355,8 +355,8 @@ not built (AUTH.md).
   phone has full access less managing devices and keys (section 6), and the
   password sign-in and sign-in code screens are hidden.
 
-**Older servers** (before 1.6.2, no sign-in): `/api/info` answers 404. The
-app says "This Sonorium is too old for the app. Update it to 1.6.2 or later."
+**Older servers** (before 1.7.0, no sign-in): `/api/info` answers 404. The
+app says "This Sonorium is too old for the app. Update it to 1.7.0 or later."
 
 Code: `sonorium/auth/routes.py` `info()`.
 
@@ -1876,7 +1876,7 @@ Network, or `SONORIUM__TRUSTED_PROXIES`): then it is the caller's, from
 - The app declares the API versions it supports. `api` higher than the app
   knows: "Update the Sonorium app". Lower: "Update Sonorium".
 - `/api/info` missing (404 on HTTP 8008, or nothing on 8808): a server
-  before 1.6.2, without sign-in or HTTPS. Not supported; ask the user to
+  before 1.7.0, without sign-in or HTTPS. Not supported; ask the user to
   update. (Those servers had no authentication; the app must not fall back
   to plain HTTP control.)
 - Feature detection inside `api: 1`: check for fields and routes, never

@@ -2,18 +2,42 @@
 
 <!-- version list -->
 
-## v1.7.3-dev.65 (2026-10-14)
+## v1.8.0 (2026-10-14)
 
 ### Bug Fixes
 
-- **demo**: Virtual speaker log lines naming users are private
-  ([`189aaf9`](https://github.com/synssins/sonorium/commit/189aaf9f74ba99e1a193e95e5f591ec621011cba))
+- **ui**: Stereo switch on Audio Settings draws its track
+  ([`34861bf`](https://github.com/synssins/sonorium/commit/34861bf6293cdd14d19b22b109e1d71a77f7a3b9))
+
+
+> ## ⭐ 1.8.0: Plugin Framework 2, MP3 themes, hosting and security
+>
+> Plugins can add to any screen, theme audio is stored as MP3, themes import several at a time, and Sonorium is ready to run behind a reverse proxy and outside the home network. After the update, existing theme audio is converted to MP3 in the background; the originals are kept in each theme's `_originals` folder.
+
+### Highlights
+
+- **Plugin Framework 2:** plugins add fields, buttons, columns, badges and pages to the screens, rows, cards and ⋯ menus, each spot with fixed rules; keep values on themes, tracks, groups, presets, sequences, channels, speakers, playlists and users; bring devices of any kind (lights, displays, button panels); learn which sound is heard where and when (cues) and listen to a channel's mix; add actions and "Only if" conditions to command maps. A plugin lists the permissions it uses and stays off, with nothing installed or run, until an admin allows them. Plugin API 1.2.
+- **Output devices are speakers:** a plugin's audio outputs show in Settings › Speakers and the channel editor; local outputs play one at a time unless "Allow output to more than one local device" is on.
+- **MP3 standard for theme audio:** every track is stored as MP3 320 kb/s, 44.1 kHz, stereo; imports, uploads and copied files are converted as they arrive, existing themes in a background pass. Settings, presets, sequences and links follow; originals kept in `_originals`.
+- **Themes:** bulk import (several zips, or dropped on the Themes page), Duplicate theme, no two themes with the same name (409 "A theme with this name already exists"), Copy into this theme for linked files.
+- **Theme backups for the Sonorium app:** per account and device, listed in Settings › Backups, with "Load my device presets into themes" and backup space limits; theme packages the app downloads to play on the device.
+- **Channels:** sleep timer; Next moves through a theme's presets when no playlist or sequence runs, and Previous is new (`POST /api/sessions/{id}/previous`); Child Mode (formerly Kid mode); channels that were playing play again after a requested restart; Max channels is enforced; My Channel for the app.
+- **Settings:** server name (Settings › Advanced › General, also in mDNS and `/api/info`); Stereo switch in Settings › Audio Settings (off by default); Keys and Announcements switches in Settings › Advanced; Users, Keys and Announcements are part of Sonorium, no longer built-in plugins; Restart works in Docker and the Home Assistant app.
+- **Network and hosting:** HTTP and HTTPS ports in Settings › Advanced › Network (Docker and Linux) or `SONORIUM_HTTP_PORT` / `SONORIUM_HTTPS_PORT`; Trusted proxies (`SONORIUM__TRUSTED_PROXIES`); a public Stream URL is what `/api/info` and Link App codes give the app; 10.x home networks are reachable. See docs/HOSTING.md.
+- **Security:** limits for sign-in and other request sizes, uploads, theme imports, exports, streams, event streams and sign-in tries per username (Settings › Advanced › Limits; 0 is no limit); stream links for speakers outside the LAN while Require login is on; the first account only from the LAN or with `SONORIUM_SETUP_TOKEN`; sign-ins and addresses on the Logs page for admins only; theme lookups, link keys and zip entries can't reach outside the audio folder.
+- **Windows app:** the installer is released with Sonorium; 1.8.0 is the first full (not pre-release) Windows release.
+- **Fixes:** a group's file that ends cut off fades out; a preset's and a While playing step's Rise reach the channel; a zip without a top folder keeps its groups; Esc cancels the Theme Editor and the channel editor; New Channel starts at the Default volume; removing MQTT removes the Announce and plugin entities; a key's Last used counts only accepted requests; the Link App dialog closes when its code is used or expires; text files are read as UTF-8 everywhere.
+
+The full list is in the README under What's new.
+
+## v1.7.3-dev.64 (2026-10-14)
+
+### Bug Fixes
 
 - **logs**: Sign-ins and addresses only for admins on the Logs page
   ([`aa3534e`](https://github.com/synssins/sonorium/commit/aa3534e2a0b298e46ff002ed282310994c8c40c0))
 
 
-## v1.7.3-dev.62 (2026-10-14)
 ## v1.7.3-dev.61 (2026-10-14)
 
 ### Features
@@ -21,13 +45,6 @@
 - **playback**: Next steps through the theme's presets; plainer wording
   ([`d4d8a26`](https://github.com/synssins/sonorium/commit/d4d8a2689f348b975a61b1b7c5de58418dfd4b1c))
 
-
-## v1.7.3-dev.57 (2026-10-14)
-
-### Bug Fixes
-
-- **demo**: Virtual speaker streams count against the stream limits
-  ([`6e7ef8e`](https://github.com/synssins/sonorium/commit/6e7ef8eb345c9c4d56798967738451ffcd8957c7))
 
 ## v1.7.3-dev.59 (2026-10-14)
 
@@ -43,22 +60,6 @@
 
 - **security**: Exposure fixes for servers reachable from outside the LAN
   ([`40d2773`](https://github.com/synssins/sonorium/commit/40d277304df6cd3286dc6f4e69e257e524c68e06))
-
-
-## v1.7.3-dev.54 (2026-10-14)
-
-### Bug Fixes
-
-- **demo**: Virtual speakers offered in channels; no Windows build on demo
-  ([`8296976`](https://github.com/synssins/sonorium/commit/829697612266e949ec6765dfe24dc6f6bc3d7b0d))
-
-
-## v1.7.3-dev.53 (2026-10-14)
-
-### Features
-
-- **demo**: A virtual speaker for every account
-  ([`3ee8af1`](https://github.com/synssins/sonorium/commit/3ee8af1579be8d607ba8267073d96d4ec4a3e2fb))
 
 
 ## v1.7.3-dev.52 (2026-10-13)
@@ -558,6 +559,50 @@
 - **app-api**: Documentation addresses instead of LAN addresses
   ([`15a7458`](https://github.com/synssins/sonorium/commit/15a74581cb874b079a1fc5e869aae55affdef9cc))
 
+
+## v1.7.2 (2026-10-12)
+
+### Bug Fixes
+
+- **security**: A theme zip can't write outside its theme folder [skip ci]
+  ([`4db752f`](https://github.com/synssins/sonorium/commit/4db752fb918c9a8956c72a32e8a2cf525fc7f20b))
+
+
+## v1.7.1 (2026-10-12)
+
+### Bug Fixes
+
+- **security**: A theme id can't reach outside the audio folder [skip ci]
+  ([`48bccf4`](https://github.com/synssins/sonorium/commit/48bccf4f01281a337f87af0865f9cefdf7ce6606))
+
+
+## v1.7.0 (2026-10-12)
+
+### Documentation
+
+- Sonorium has its own repository; fully rewritten, no Amniotic code remains [skip ci]
+  ([`9bb4389`](https://github.com/synssins/sonorium/commit/9bb438970333b68ce21a3f28f6d119d629ae43ea))
+
+
+> ## ⭐ 1.7.0: Sign-in, announcements and plugins
+>
+> Sonorium gets users and sign-in, plays announcements sent by other systems, and runs plugins that play sounds over channels. Sign-in is optional: an update changes nothing until you turn on Require login.
+
+### Highlights
+
+- **Sign-in:** users with two roles (Admin and User), Settings › Users & devices, keys for devices and programs (Settings › Keys), and Link App, a QR code that links the Sonorium app. In the Home Assistant app, Home Assistant's users are Sonorium's users: every Home Assistant user sees Sonorium in the sidebar with the role of their Home Assistant account. Require login is on for new installs and off after an update until you turn it on.
+- **HTTPS:** port 8808 serves the web UI and the API over HTTPS for the Sonorium app (self-signed certificate). Port 8008 is unchanged; speakers keep using it. Docker announces itself as `sonorium.local`.
+- **Announcements:** Home Assistant (a notify entity per channel), MQTT (`sonorium/announce/set`) and anything that can send a web request (`POST /api/announce` with a key) send a chime and/or words to speak; Sonorium plays them on the channels named, and a playing channel gets quieter while they play. Each channel has an Announcements switch, in Home Assistant too.
+- **Zones** (Settings › Advanced, off by default): channels that belong to a user, Kid mode and its hours, a home channel for each speaker, and linked channels that play one theme or playlist.
+- **Plugins:** plugin API 1.1 with sounds and announcements over channels, volume ramps, audio outputs, commands from remotes, MQTT and webhooks, and plugin packages (Settings › Advanced, off by default). Built-in plugins can be uninstalled; Theme Merge 2.0 and Ambient Mixer Importer 3.1 for the current theme format.
+- **Status:** Now playing shows each playing channel's tracks, with countdowns and levels; As heard follows the speakers' delay.
+- **Home Assistant dashboard cards:** added when Home Assistant and MQTT are linked; Tile, Channel, Player and All channels layouts.
+- **Settings › Advanced:** the playback values every theme is built on, each with its default.
+- **Layout:** phones, tablets and short screens each get a layout that fits; Settings tables follow the window width. In the Sonorium app, a Servers button in the top bar.
+- **Under the hood:** Sonorium is fully rewritten (no Amniotic code, no fmtr.tools), has its own repository, uses its own audio-only LGPL FFmpeg build with PyAV, and is licensed under PolyForm Noncommercial 1.0.0.
+- **Fixes:** hidden folders are no longer themes; an Ambient Mixer import keeps an edit saved during its download; Sonorium opens on Channels when the remembered page can't be opened.
+
+The full list is in the README under What's new.
 
 ## v1.6.2-dev.61 (2026-10-12)
 
