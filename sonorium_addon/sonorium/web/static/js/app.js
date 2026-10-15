@@ -29,6 +29,16 @@ let playlists = [];
 // touch screens narrower than 1000 px (portrait tablets)
 const PHONE_QUERY = '(max-width: 760px), (max-height: 480px), (pointer: coarse) and (max-width: 999px)';
 
+// The caller may (any of) these permissions (slots.js); what it may not do isn't offered
+function may(...perms) {
+    return !window.Sonorium || typeof Sonorium.may !== 'function' || Sonorium.may(...perms);
+}
+
+// Loads only what the caller may see: nothing is asked that would be refused
+function loadIf(perm, load) {
+    return may(perm) ? load() : Promise.resolve();
+}
+
 async function init() {
     console.log('Sonorium init() starting...');
     console.log('BASE_PATH:', BASE_PATH);
@@ -37,16 +47,16 @@ async function init() {
         await Promise.allSettled([
             loadSessions(),
             loadThemes(),
-            loadCategories(),
-            loadSpeakerHierarchy(),
-            loadSpeakerGroups(),
-            loadEnabledSpeakers(),
+            loadIf('th.view', loadCategories),
+            loadIf('sp.view', loadSpeakerHierarchy),
+            loadIf('sp.view', loadSpeakerGroups),
+            loadIf('sp.view', loadEnabledSpeakers),
             loadChannels(),
             loadAudioSettings(),
             loadVersion(),
-            loadPlugins(),
-            loadConnectionSettings(),
-            loadNetworkInfo(),
+            loadIf('pg.use|admin.plugins', loadPlugins),
+            loadIf('admin.connection', loadConnectionSettings),
+            loadIf('sp.view', loadNetworkInfo),
             loadInstallInfo(),
             loadPlaylists(),
             loadPlaybackValues()
@@ -65,6 +75,7 @@ async function init() {
 
         // Always render sessions first (needed for session cards)
         renderSessions();
+        if (!may('ch.add')) document.querySelector('#view-actions [onclick="openNewSessionModal()"]')?.remove();
 
         // Then switch to saved view (showView handles all rendering and UI updates)
         if (savedView !== 'sessions') {
@@ -266,7 +277,7 @@ function showView(viewName) {
 
     // Update actions
     const actionsHtml = {
-        sessions: `
+        sessions: !may('ch.add') ? '' : `
             <button class="btn btn-primary" onclick="openNewSessionModal()">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="12" y1="5" x2="12" y2="19"/>
@@ -511,7 +522,7 @@ function renderSessionCard(session) {
                 <span class="ch-icon" aria-hidden="true">${themeIconOf(session.theme_id)}</span>
                 <div class="ch-title"><span class="ch-name">${name}</span>${Sonorium.cardBadges(session)}${uiZone('channel.card', 'badges', ref, 'span')}<span class="ch-sub" title="Speakers"><span class="ch-sub-txt">${escapeHtml(speakers)}</span>${Sonorium.cardSub(session)}</span></div>
                 ${chStateHtml(session)}
-                <button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>
+                ${may('ch.change') ? `<button type="button" class="icon-btn sm" aria-label="Edit ${name}" title="Edit" aria-haspopup="dialog" onclick="editSession(${spArg(id)})">${CH_ICON_EDIT}</button>` : ''}
                 <button type="button" class="icon-btn sm" aria-label="More for ${name}" aria-haspopup="menu"${uiAnchor('channel.card', 'menu', ref)} onclick="chMenu(this, ${spArg(id)})">${SP_ICON_MORE}</button>
             </div>
             <div class="ch-a">
@@ -529,10 +540,10 @@ function renderSessionCard(session) {
             </div>
             <div class="ch-b">
             <div class="ch-vol" title="Volume on the speakers">
-                <button type="button" class="ch-vol-ic ch-mute${session.speakers_muted ? ' muted' : (isPlaying ? ' on' : '')}" aria-pressed="${!!session.speakers_muted}"
+                <button type="button" class="ch-vol-ic ch-mute${session.speakers_muted ? ' muted' : (isPlaying ? ' on' : '')}" aria-pressed="${!!session.speakers_muted}"${may('ch.change|sp.mute') ? '' : ' disabled'}
                         aria-label="${session.speakers_muted ? 'Unmute the speakers' : 'Mute the speakers'}" title="${session.speakers_muted ? 'Unmute the speakers' : 'Mute the speakers'}"
                         onclick="chToggleSpeakersMuted(${spArg(id)})">${session.speakers_muted ? CH_ICON_MUTED : CH_ICON_VOLUME}</button>
-                <input type="range" class="track-slider" min="0" max="100" value="${session.volume}" aria-label="Volume: ${name}"
+                <input type="range" class="track-slider" min="0" max="100" value="${session.volume}" aria-label="Volume: ${name}"${may('ch.change') ? '' : ' disabled'}
                        oninput="updateSessionVolumeDisplay(${spArg(id)}, this.value)"
                        onchange="updateSessionVolume(${spArg(id)}, this.value)">
                 <span class="ch-vol-val">${session.volume}%</span>
@@ -652,7 +663,7 @@ function chMenu(button, sessionId) {
     const session = sessions.find(s => s.id === sessionId);
     xMenu(`ch:${sessionId}`, button,
         xMenuItem('Sleep timer…', `chSleepMenu(${spArg(sessionId)})`, { icon: CH_ICON_SLEEP, disabled: !session?.is_playing })
-        + X_SEP + xMenuItem('Delete…', `spClosePop(); deleteSession(${spArg(sessionId)})`, { icon: SP_ICON_TRASH, cls: 'danger' }),
+        + (may('ch.add') ? X_SEP + xMenuItem('Delete…', `spClosePop(); deleteSession(${spArg(sessionId)})`, { icon: SP_ICON_TRASH, cls: 'danger' }) : ''),
         { cls: 'menu sp-menu x-menu' });
 }
 

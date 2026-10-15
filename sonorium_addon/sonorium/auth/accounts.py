@@ -4,7 +4,8 @@ folder.
 
     {"require_login": bool, "ha_users": 1,
      "users": {id: {username, role, password, created, last_seen,
-                    ha, ha_user_id, ha_username, disabled, can_leave_link}}}
+                    ha, ha_user_id, ha_username, disabled, can_leave_link,
+                    scopes: {"channels": [ids]} (permissions.SCOPES)}}}
 
 Add-on: a Home Assistant user is a Sonorium user ("ha": true), one per HA
 user, found by HA's user id. Its role follows HA (ha_users.py)
@@ -49,17 +50,11 @@ SIGNIN_CODE_SECONDS = 300    # one-time sign-in code from the app
 SIGNIN_CODE_TRIES = 5        # wrong guesses before a sign-in code stops working
 USERNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,31}$")
 
-ROLES = ("admin", "user")
-ROLE_LABELS = {"admin": "Admin", "user": "User"}
-USER_PERMS = frozenset({
-    "ch.view", "ch.play", "ch.change", "ch.speakers", "ch.add",
-    "th.view",
-    "pl.view", "pl.run", "pl.edit",
-    "sp.view", "sp.mute",
-    "ev.read",
-    P.SELF,
-})
-ROLE_PERMS = {"admin": P.ALL_PERMS, "user": USER_PERMS}
+# The roles are defined once, in sonorium/auth/permissions.py (ROLES)
+ROLES = tuple(P.ROLES)
+ROLE_LABELS = {role: spec["label"] for role, spec in P.ROLES.items()}
+USER_PERMS = P.ROLES["user"]["perms"]
+ROLE_PERMS = {role: spec["perms"] for role, spec in P.ROLES.items()}
 # Nobody signed in while Require login is off: open access, but managing
 # users and keys needs a sign-in once there are accounts
 OPEN_PERMS = frozenset(P.ALL_PERMS - {"admin.users", "admin.keys"})
@@ -67,6 +62,16 @@ OPEN_PERMS = frozenset(P.ALL_PERMS - {"admin.users", "admin.keys"})
 
 def role_perms(role: str) -> frozenset:
     return ROLE_PERMS.get(role, frozenset())
+
+
+def role_scopes(role: str) -> tuple:
+    """The scopes an account of the role may carry (permissions.ROLES)."""
+    return tuple(P.ROLES.get(role, {}).get("scopes", ()))
+
+
+def role_shared(role: str) -> bool:
+    """One account used by many people at once (permissions.ROLES)."""
+    return bool(P.ROLES.get(role, {}).get("shared"))
 
 
 def _sha(value: str) -> str:
@@ -152,7 +157,8 @@ class Accounts:
         if user is None:
             return None
         return {"id": user_id, "username": user["username"], "role": user["role"],
-                "role_label": ROLE_LABELS.get(user["role"], user["role"]), "ha": bool(user.get("ha"))}
+                "role_label": ROLE_LABELS.get(user["role"], user["role"]), "ha": bool(user.get("ha")),
+                "scopes": self.scopes(user_id)}
 
     def admins(self) -> list[str]:
         return [i for i, u in self.users.items() if u.get("role") == "admin" and not u.get("disabled")]
@@ -185,6 +191,38 @@ class Accounts:
         if user["role"] == "admin" and role != "admin" and self.admins() == [user_id]:
             raise AuthError("Sonorium needs at least one admin.", 409)
         user["role"] = role
+        self.save()
+
+    def scopes(self, user_id: Optional[str]) -> dict:
+        """
+        The scopes that count for the user: those their role allows ({"channels": [ids]}); a scope
+        missing means everything. A scope set under another role is kept but doesn't count.
+        """
+        user = self.user(user_id)
+        if user is None:
+            return {}
+        stored = user.get("scopes") or {}
+        return {k: list(v) for k, v in stored.items() if k in role_scopes(user.get("role")) and v is not None}
+
+    def set_scopes(self, user_id: str, scopes: dict) -> None:
+        """{"channels": [ids] or null (all)}: only scopes the user's role allows."""
+        user = self._require(user_id)
+        if not isinstance(scopes, dict):
+            raise AuthError("scopes: an object")
+        allowed = role_scopes(user.get("role"))
+        stored = dict(user.get("scopes") or {})
+        for name, value in scopes.items():
+            if name not in P.SCOPES:
+                raise AuthError(f"Unknown scope: {name}")
+            if name not in allowed:
+                raise AuthError(f"The role {ROLE_LABELS.get(user['role'], user['role'])} has no {name} scope.", 409)
+            if value is None:
+                stored.pop(name, None)
+            elif isinstance(value, list):
+                stored[name] = [str(v) for v in value if isinstance(v, (str, int))][:200]
+            else:
+                raise AuthError(f"{name}: a list of ids, or null for all")
+        user["scopes"] = stored
         self.save()
 
     def set_can_leave_link(self, user_id: str, on: bool) -> None:

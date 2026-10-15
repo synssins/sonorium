@@ -7,6 +7,7 @@ sonorium/auth/permissions.py.
 
     GET    /api/me/channel          ch.view    the channel (made on first use) + "personal": true
     PUT    /api/me/channel          ch.change  theme, preset, sequence, playlist, volume, announcements, name
+                                    (ch.select: theme, preset, sequence and playlist only)
     POST   /api/me/channel/listen   ch.play    this device listens: {stream_path, listen_path, ...}
     DELETE /api/me/channel/listen   ch.play    this device stops listening (only this one)
 
@@ -128,6 +129,9 @@ def add_personal_routes(router, *, session_manager, to_response) -> None:
         sent = change.model_fields_set
         session = session_manager.personal_channel(account)
         sid = session.id
+        from sonorium.web.api_v2 import select_only  # ch.select alone: theme, preset, sequence, playlist
+        select_only(principal, session, custom_name=change.custom_name, volume=change.volume,
+                    announcements=change.announcements)
         try:
             session_manager.update(sid, theme_id=change.theme_id, preset_id=change.preset_id,
                                    custom_name=change.custom_name if change.custom_name else None,

@@ -5,11 +5,15 @@
 ## v1.8.1-dev.2 (2026-10-15)
 
 
+## v1.8.1-dev.1 (2026-10-14)
 ## v1.8.0 (2026-10-14)
 
 ### Bug Fixes
 
 - **ui**: Stereo switch on Audio Settings draws its track
+  ([`9530465`](https://github.com/synssins/sonorium/commit/9530465e051ae5d7686f437ba0108458741d1981))
+
+
   ([`34861bf`](https://github.com/synssins/sonorium/commit/34861bf6293cdd14d19b22b109e1d71a77f7a3b9))
 
 

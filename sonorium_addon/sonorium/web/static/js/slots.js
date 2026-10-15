@@ -34,8 +34,9 @@
     const ICON_X = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
     const ICON_WARN = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
 
-    // Settings pages and the permission each needs (the rest of the menu is for everyone)
+    // Pages and the permission each needs ("a|b": either one; the rest of the menu is for everyone)
     const NAV_PERMS = {
+        'playlists': 'pl.view', 'themes': 'th.view',
         'settings-connection': 'admin.connection', 'settings-audio': 'st.change', 'settings-spaces': 'st.change',
         'settings-speakers': 'sp.set', 'settings-groups': 'sp.set', 'settings-plugins': 'admin.plugins',
         'settings-logs': 'st.view', 'settings-advanced': 'st.change',
@@ -60,6 +61,11 @@
         },
 
         can(perm) { return !!(S.me && (S.me.perms || []).includes(perm)); },
+        // Any of these permissions ("a|b" or several arguments); true while who is calling isn't known yet
+        may(...perms) {
+            if (!S.me || !Array.isArray(S.me.perms)) return true;
+            return perms.flatMap(p => String(p).split('|')).some(p => S.can(p));
+        },
         esc(text) {
             const div = document.createElement('div');
             div.textContent = text == null ? '' : String(text);
@@ -332,16 +338,27 @@
         // ---------- what this caller may see ----------
         applyPerms() {
             if (!S.me) return;
+            // The main menu's pages (Playlists, Themes)
+            document.querySelectorAll('.nav-item').forEach(item => {
+                const view = ((item.getAttribute('onclick') || '').match(/showView\('([^']+)'\)/) || [])[1];
+                const perm = NAV_PERMS[view];
+                item.classList.toggle('perm-hidden', !!(perm && !S.may(perm)));
+            });
+            // A menu section whose pages are all hidden goes too (its title with them)
+            document.querySelectorAll('.nav-section:not(#settings-nav-section)').forEach(sec => {
+                const items = sec.querySelectorAll('.nav-item');
+                if (items.length) sec.classList.toggle('perm-hidden', [...items].every(i => i.classList.contains('perm-hidden')));
+            });
             const section = document.getElementById('settings-nav-section');
             if (!section) return;
             let any = false;
             section.querySelectorAll('.nav-sub-item').forEach(item => {
                 const view = ((item.getAttribute('onclick') || '').match(/showView\('([^']+)'\)/) || [])[1];
                 const perm = NAV_PERMS[view] || (S.page(view) || {}).perm;
-                const hide = perm && !S.can(perm);
+                const hide = perm && !S.may(perm);
                 if (hide) item.dataset.permHidden = '1'; else delete item.dataset.permHidden;
                 item.classList.toggle('perm-hidden', !!hide);
-                if (!hide && item.style.display !== 'none') any = true;
+                if (!hide && item.style.display !== 'none' && !item.hidden) any = true;  // the app's Servers item is hidden in a browser
             });
             section.classList.toggle('perm-hidden', !any);
         },

@@ -62,16 +62,52 @@ from this computer only, with an admin's rights. See
 
 ## Roles
 
-| | Admin | User |
-|---|---|---|
-| Channels: see, play and stop, change theme, preset, volume and speakers, add and remove | Yes | Yes |
-| Playlists and sequences: see, run, edit | Yes | Yes |
-| Themes and presets | See, edit, upload, delete | See |
-| Speakers | Everything | See, mute and volume |
-| Settings, plugins, Connection, Users & devices, Keys | Yes | No (hidden in the menu, refused by the server) |
-| Link their own phone | Yes | Yes |
+| | Admin | User | Listener |
+|---|---|---|---|
+| Channels: see, play and stop | Yes | Yes | Yes (all, or only some) |
+| Channels: choose theme and preset | Yes | Yes | Yes |
+| Channels: volume, name, speakers, add and remove | Yes | Yes | No |
+| Playlists and sequences | See, run, edit | See, run, edit | Choose one for a channel (run) |
+| Listen in the browser or the app (a channel, My Channel) | Yes | Yes | Yes |
+| Themes and presets | See, edit, upload, delete | See | No (only the lists to choose from) |
+| Speakers | Everything | See, mute and volume | No |
+| Settings, plugins, Connection, Users & devices, Keys, Logs | Yes | No (hidden in the menu, refused by the server) | No |
+| Link their own phone, choose a new password | Yes | Yes | No (the app signs in with the username and password) |
 
 Sonorium always keeps at least one Admin.
+
+A **Listener** account is meant to be shared: one username and password that
+many people use at once, from different browsers and devices. Every browser and
+app signed in to it listens on its own stream; nobody signing in signs the
+others out, and none of them can change the password. An admin can limit a
+Listener to some channels (Users & devices › ⋯ › Channels). People at the same
+address (behind one router or proxy) share that address's stream limit,
+**Streams per address** (Settings › Advanced, 16 by default); people at
+different addresses don't count against each other. The event stream's limit
+(event_streams_per_caller) counts a Listener account per address too.
+
+### Roles and scopes
+
+What a caller may do is decided in one place, `sonorium/auth/permissions.py`:
+
+- An **ability** is one permission (`ch.view`, `pl.run`, ...). Every route
+  names the abilities that let a caller in (`a|b`: either one).
+- A **role** is a named set of abilities (`ROLES`): Admin, User, Listener. A
+  few abilities only a role gives, never a key (`ROLE_ONLY`): `ch.select`
+  (choose a channel's theme and preset, and see the lists to choose from;
+  without `ch.change` the channel's other fields can't change) and `me.backup`
+  (a linked phone backs up its themes).
+- A **scope** narrows what an account or key sees (`SCOPES`); a role lists the
+  scopes an admin may give its accounts. Today there is one, `channels`: only
+  these channels (a key's **Only these**, a Listener's channels). What is
+  outside a caller's scope doesn't exist for it: it is missing from every
+  listing (channels, now playing, Status, Zones, stream addresses, the event
+  stream) and a request naming it answers 404. `SCOPE_PARAMS` maps path
+  parameters to scopes, which the middleware checks on every route;
+  listings filter with `sonorium/auth/scopes.py`.
+
+A new role is a new entry in `ROLES`; a new scope an entry in `SCOPES` and
+`scopes.py`, not new checks in the routes.
 
 ## Keys
 
@@ -355,7 +391,10 @@ Users (`sonorium/auth/users.py`): `POST /api/auth/setup`, `/api/auth/login`, `/a
 `POST /api/pair/login`, `POST /api/devices/recovery-code`, `GET|POST /api/users`,
 `PUT|DELETE /api/users/{id}`, `POST /api/users/{id}/password`, `POST /api/users/{id}/sign-out`,
 `DELETE /api/users/{id}/sessions/{session_id}` (signs one browser out).
-`PUT /api/users/{id}` also takes `{"can_leave_link": bool}`.
+`PUT /api/users/{id}` also takes `{"can_leave_link": bool}`, and `{"role": "admin"|"user"|"listener"}`;
+`POST /api/users` and `PUT /api/users/{id}` take `{"scopes": {"channels": [ids] or null}}` for a role
+with that scope (a Listener; null: all channels). `GET /api/users` lists the roles (`roles`) and each
+user's `scopes`; `GET /api/auth/me` gives the caller's `scopes`.
 
 Zones: `GET /api/zones` (anyone who sees channels: on or off,
 owners, Child Mode, each speaker's home and the channel using it, links; for an

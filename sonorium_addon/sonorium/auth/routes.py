@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse
 from sonorium import runtime
 from sonorium.auth import config
 from sonorium.auth.middleware import principal_of
+from sonorium.auth.scopes import scopes_of
 from sonorium.auth.ratelimit import RateLimiter
 from sonorium.auth.service import AuthService
 from sonorium.obs import logger as _logger
@@ -220,7 +221,8 @@ def create_core_auth_router(service: AuthService, *, stream_url: Callable[[], st
         ingress = p.listener == "ingress"
         body = {
             "kind": p.kind, "user": service.describe_user(p.user_id), "csrf": p.csrf, "reset": p.reset,
-            "perms": sorted(p.perms), "bypass": config.bypass_login() and not ingress, "ingress": ingress,
+            "perms": sorted(p.perms), "scopes": scopes_of(p),  # e.g. {"channels": [ids]} (auth/scopes.py)
+            "bypass": config.bypass_login() and not ingress, "ingress": ingress,
             "web_ui": ingress or not config.web_ui_only_through_ha(), "words": service.identity.words,
             "plugins": service.plugin_ids(), "accounts": service.accounts_loaded,
             "starting": not service.ready, "closed": service.closed,

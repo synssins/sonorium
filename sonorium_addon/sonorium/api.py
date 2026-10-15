@@ -433,6 +433,23 @@ class WebApp:
             if self._plugin_host:
                 self._init_framework_services()
 
+            # Scopes (auth/scopes.py): which channel an audio stream plays, so a caller limited
+            # to some channels doesn't get another channel's stream
+            try:
+                from sonorium.auth import scopes as auth_scopes
+                manager = self._session_manager
+
+                def stream_session(path, manager=manager):
+                    import re
+                    found = re.match(r"^/stream/channel(\d+)$", path or "")
+                    if not found:
+                        return None
+                    number = int(found.group(1))
+                    return next((sid for sid, ch in list(manager._session_channels.items()) if ch == number), None)
+                auth_scopes.bind_streams(stream_session)
+            except Exception as e:
+                logger.warning(f"  Stream scopes unavailable: {e}")
+
             # Zones (Users: Settings > Advanced > Zones) on the channels, and Child Mode's hours
             try:
                 from sonorium.auth import users as core_users
@@ -927,7 +944,8 @@ class WebApp:
         base = self._stream_base_url().rstrip("/")
         channels = {}
         if self._session_manager is not None:
-            for session in self._session_manager.list():
+            from sonorium.auth import scopes as auth_scopes
+            for session in auth_scopes.visible_channels(self._session_manager.list()):
                 try:
                     channels[session.id] = self._session_manager.get_stream_url(session)
                 except Exception:
@@ -3476,15 +3494,18 @@ class WebApp:
         
         # Add v2 status if initialized
         if self._v2_initialized:
-            status_data["sessions"] = len(self._state_store.sessions)
+            from sonorium.auth import scopes as auth_scopes
+            seen = auth_scopes.visible_channels(list(self._state_store.sessions.values()))  # the caller's channels
+            status_data["sessions"] = len(seen)
             status_data["speaker_groups"] = len(self._state_store.speaker_groups)
             if self._channel_manager:
                 status_data["channels"] = self._channel_manager.max_channels
                 status_data["active_channels"] = self._channel_manager.get_active_count()
+                if auth_scopes.channels_limited() and self._session_manager is not None:  # only its channels
+                    status_data["active_channels"] = sum(
+                        1 for s in seen if self._session_manager.get_session_channel(s.id) is not None)
             
             # Channels playing a playlist (theme cycling became playlists)
-            status_data["playlist_sessions"] = sum(
-                1 for s in self._state_store.sessions.values() if s.playlist_id
-            )
+            status_data["playlist_sessions"] = sum(1 for s in seen if s.playlist_id)
         
         return status_data

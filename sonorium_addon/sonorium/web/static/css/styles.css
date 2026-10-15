@@ -3997,6 +3997,8 @@ button.pk-row { cursor: pointer; }
 .ch-vol-ic.muted { background: rgba(239, 83, 80, .2); border-color: rgba(239, 83, 80, .5); color: #ef5350; }
 .ch-vol-ic.ch-listen, .ch-vol-ic.ch-mute { cursor: pointer; }
 .ch-vol-ic.ch-listen:not(.on):hover, .ch-vol-ic.ch-mute:not(.on):not(.muted):hover { color: var(--text-primary); border-color: var(--accent-secondary); }
+/* the speakers' volume for a caller who may not change it (a Listener): shown, not usable */
+.ch-vol-ic:disabled, .ch-vol .track-slider:disabled { opacity: .5; cursor: default; pointer-events: none; }
 .ch-vol-val { font-size: .75rem; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
 .ch-foot { display: flex; margin-top: auto; }
 .ch-play { flex: 1; justify-content: center; min-height: 40px; gap: .375rem; }
@@ -4402,7 +4404,7 @@ body.screen-on .sidebar, body.screen-on .main-wrapper, body.screen-on .mobile-to
 .au-logo { height: 34px; align-self: center; margin-bottom: .5rem; }
 .au-card h1 { margin: 0; font-size: 1.125rem; font-weight: 600; color: var(--text-primary); text-align: center; }
 .au-card > p { margin: 0 0 .25rem; font-size: .8125rem; color: var(--text-secondary); text-align: center; line-height: 1.45; }
-.nav-sub-item.perm-hidden, .nav-section.perm-hidden { display: none !important; }
+.nav-item.perm-hidden, .nav-sub-item.perm-hidden, .nav-section.perm-hidden { display: none !important; }
 .lk { width: 440px; min-width: 0; }
 .lk-body { display: flex; flex-direction: column; align-items: center; text-align: center; gap: .5rem; }
 .lk-qr { width: 280px; height: 280px; border-radius: .75rem; display: block; margin: .25rem 0 .5rem; }

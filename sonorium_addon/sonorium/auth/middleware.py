@@ -35,7 +35,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from starlette.responses import JSONResponse, PlainTextResponse
 
-from sonorium.auth import config, console, permissions as P
+from sonorium.auth import config, console, permissions as P, scopes
 from sonorium.auth.principal import CALLER, Principal, Reject, RequestContext
 from sonorium.auth.service import DEVICE_PREFIX, AuthService
 from sonorium.obs import logger as _logger
@@ -44,7 +44,7 @@ from sonorium.obs import logger as _logger
 logger = _logger.getChild("auth")
 
 SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
-CHANNEL_ABILITIES = frozenset({"ch.view", "ch.play", "ch.change", "ch.speakers", "ch.add"})
+CHANNEL_ABILITIES = frozenset({"ch.view", "ch.play", "ch.change", "ch.speakers", "ch.add", "ch.select"})
 PREFIXED = ("sd_", "sk_", "ss_")
 
 
@@ -199,13 +199,22 @@ class AuthMiddleware:
         if path.startswith(stream_links.OWN_SECRET_PREFIXES):  # its own secret (a virtual speaker)
             return await self.app(scope, receive, send)
         service = self.service
+        headers = _headers(scope)
         if stream_links.required() and not stream_links.allowed_without_sign_in(
                 path, scope.get("query_string") or b"", client):
-            principal, reject = resolve(service, scope, _headers(scope))
+            principal, reject = resolve(service, scope, headers)
             if reject is not None or principal.kind in ("anonymous", "open") or not principal.perms:
                 logger.debug(f"Refused a stream ({path}) to {client}: no stream link, not signed in")
                 return await answer(401, {"detail": "Sign in first", "login": True})
             scope.setdefault("state", {})["auth"] = principal
+        elif "cookie" in headers or bearer(headers, scope.get("query_string") or b""):
+            principal, _ = resolve(service, scope, headers)  # who it is, for its scopes
+        else:
+            principal = None
+        if principal is not None and principal.channels is not None:
+            channel = scopes.stream_channel(path)
+            if channel is not None and not scopes.allows(principal, "channels", channel):
+                return await answer(404, "Not Found")
         slots = stream_links.STREAMS
         if not slots.take(client, limits.count(limits.STREAMS_PER_ADDRESS), limits.count(limits.STREAMS)):
             logger.warning(f"Refused a stream ({path}) to {client}: too many streams open")
@@ -247,11 +256,14 @@ class AuthMiddleware:
                 return await self.app(scope, receive, send)
             return await answer(*self._refusal(principal))
 
-        if principal.channels is not None and perm.any_of & CHANNEL_ABILITIES:
-            if "session_id" in params:
-                if not principal.can_channel(params["session_id"]):
-                    return await answer(403, {"detail": "Not allowed for this channel"})
-            elif "channel_id" in params or (method != "GET" and path.startswith("/api/sessions")):
+        # Scopes (auth/scopes.py): what is outside the caller's scope doesn't exist for it
+        if scopes.scopes_of(principal):
+            for param, scope_name in P.SCOPE_PARAMS.items():
+                if param in params and not scopes.allows(principal, scope_name, params[param]):
+                    return await answer(404, {"detail": "Not Found"})
+            if principal.channels is not None and perm.any_of & CHANNEL_ABILITIES and (
+                    "channel_id" in params
+                    or (method != "GET" and path.startswith("/api/sessions") and "session_id" not in params)):
                 return await answer(403, {"detail": "Only allowed for some channels"})
 
         if method not in SAFE_METHODS:
