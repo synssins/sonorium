@@ -2,6 +2,8 @@
 
 ![Sonorium](logo.png)
 
+[![Join the Sonorium Discord](https://img.shields.io/badge/Discord-Join%20the%20community-5865F2?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/qg8EJJSTWE)
+
 [Announcements](#announcements) · [About](#about) · [Features](#features) · [Installation](#installation) · [What's new](#whats-new) · [API Reference](#api-reference) · [Acknowledgements](#acknowledgements) · [License](#license) · [Contributing](#contributing)
 
 ## Announcements
