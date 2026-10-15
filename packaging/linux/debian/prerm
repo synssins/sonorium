@@ -1,0 +1,11 @@
+#!/bin/sh
+# Sonorium .deb: stop the service before its files go.
+set -e
+
+if [ -d /run/systemd/system ]; then
+    systemctl stop sonorium.service >/dev/null 2>&1 || true
+    if [ "$1" = "remove" ]; then
+        systemctl disable sonorium.service >/dev/null 2>&1 || true
+    fi
+fi
+exit 0

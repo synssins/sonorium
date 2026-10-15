@@ -1,0 +1,9 @@
+# Settings for the Sonorium service. Uncomment a line to change it, then:
+#   sudo systemctl restart sonorium
+#
+# Ports for the web UI, API and streams
+#SONORIUM_HTTP_PORT=8008
+#SONORIUM_HTTPS_PORT=8808
+#
+# Where the themes are (a folder the "sonorium" user can read and write)
+#SONORIUM__PATH_AUDIO=/var/lib/sonorium/themes

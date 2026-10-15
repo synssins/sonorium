@@ -1,2 +1,5 @@
 # Shell scripts run in Linux containers: always LF, even on Windows checkouts
 *.sh text eol=lf
+
+# Linux package files are read on Linux: always LF
+packaging/linux/** text eol=lf

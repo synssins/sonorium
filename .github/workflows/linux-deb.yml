@@ -1,0 +1,139 @@
+name: Linux Package
+
+# Builds Sonorium's .deb for amd64 and arm64 (packaging/linux/build-deb.sh) and
+# tests it. No release is made here.
+#
+#   build   in a Debian 12 container on a native runner of each architecture
+#   test    installs it on the runner (Ubuntu, real systemd): the service starts,
+#           answers on 8008, starts again after a restart, and is removed cleanly
+
+on:
+  push:
+    branches:
+      - linux-deb
+    paths:
+      - 'packaging/linux/**'
+      - '.github/workflows/linux-deb.yml'
+  workflow_dispatch:
+  # Called by the release workflow once a version is reserved. The packages are
+  # the artifact "sonorium-deb" (sonorium_<version>_<arch>.deb, the version from
+  # sonorium_addon/sonorium/version at that ref, "-" turned into "~").
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Commit or tag to build (default: the triggering ref)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-deb-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build (${{ matrix.arch }})
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - name: Build the package in Debian 12
+        run: docker run --rm -v "$PWD:/src" -w /src debian:bookworm sh packaging/linux/build-deb.sh dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sonorium-deb-${{ matrix.arch }}
+          path: dist/*.deb
+          if-no-files-found: error
+
+  test:
+    name: Test (${{ matrix.arch }})
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sonorium-deb-${{ matrix.arch }}
+          path: dist
+
+      - name: Install
+        run: |
+          set -eu
+          sudo apt-get install -y ./dist/sonorium_*.deb
+          systemctl is-enabled sonorium
+
+      - name: The service answers
+        run: |
+          set -eu
+          wait_info() {
+            for i in $(seq 1 60); do
+              if curl -fsS http://127.0.0.1:8008/api/info -o info.json; then cat info.json; echo; return 0; fi
+              sleep 2
+            done
+            sudo journalctl -u sonorium --no-pager | tail -100; return 1
+          }
+          wait_info
+          boot1=$(jq -r .boot_id info.json)
+          test "$(stat -c %U /var/lib/sonorium/data)" = sonorium
+          ls /var/lib/sonorium/themes | head
+          test -n "$(ls -A /var/lib/sonorium/themes)"   # bundled themes copied in
+
+          # Exit 75 (Restart in the web UI) makes systemd start it again
+          systemctl show -p RestartForceExitStatus --value sonorium | grep -qw 75
+          sudo systemctl restart sonorium
+          wait_info
+          boot2=$(jq -r .boot_id info.json)
+          test "$boot1" != "$boot2"
+          echo "restarted: boot $boot1 -> $boot2"
+
+      - name: Remove
+        run: |
+          set -eu
+          sudo apt-get remove -y sonorium
+          if systemctl is-active --quiet sonorium; then echo "still running"; exit 1; fi
+          test ! -e /opt/sonorium/python
+          test -d /var/lib/sonorium/data   # settings are kept
+
+      - name: Log
+        if: failure()
+        run: sudo journalctl -u sonorium --no-pager | tail -200
+
+  # One artifact with both packages, for the release workflow
+  collect:
+    name: Collect packages
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sonorium-deb-*
+          merge-multiple: true
+          path: dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sonorium-deb
+          path: dist/*.deb
+          if-no-files-found: error

@@ -1,0 +1,31 @@
+#!/bin/sh
+# Sonorium .deb: the service user, the data folders, the service.
+set -e
+
+if [ "$1" = "configure" ]; then
+    if ! getent passwd sonorium >/dev/null; then
+        adduser --system --group --home /var/lib/sonorium --no-create-home \
+            --gecos "Sonorium" sonorium >/dev/null
+    fi
+    # audio: output to a sound card on this machine
+    if getent group audio >/dev/null; then
+        adduser sonorium audio >/dev/null 2>&1 || true
+    fi
+    mkdir -p /var/lib/sonorium/data /var/lib/sonorium/themes
+    chown sonorium:sonorium /var/lib/sonorium /var/lib/sonorium/data /var/lib/sonorium/themes
+    chmod 0750 /var/lib/sonorium/data
+
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload >/dev/null || true
+        if [ -z "$2" ]; then
+            # First install: start now and at every boot
+            systemctl enable --now sonorium.service >/dev/null || true
+        else
+            # Upgrade: start the new version if it was enabled
+            if systemctl is-enabled --quiet sonorium.service; then
+                systemctl restart sonorium.service >/dev/null || true
+            fi
+        fi
+    fi
+fi
+exit 0

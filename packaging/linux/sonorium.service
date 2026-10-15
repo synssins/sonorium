@@ -1,9 +1,11 @@
-# Placeholder: Sonorium as a systemd service on Linux (not built or tested yet).
-# The same switches the Windows host sets; see packaging/windows and docs/HOSTING.md.
+# Sonorium as a systemd service (installed by the .deb, see build-deb.sh).
+# The same switches the Windows host sets; see docs/HOSTING.md.
 #
 #   /opt/sonorium/python    a private Python with Sonorium's packages
 #   /opt/sonorium/app       the sonorium package and bundled themes
-#   /var/lib/sonorium       data, themes and logs
+#   /var/lib/sonorium       data (settings, plugins, logs) and themes
+#
+# Ports and folders can be changed in /etc/default/sonorium.
 
 [Unit]
 Description=Sonorium
@@ -12,9 +14,12 @@ After=network-online.target
 
 [Service]
 Type=simple
-DynamicUser=yes
-StateDirectory=sonorium
-WorkingDirectory=/var/lib/sonorium/data
+User=sonorium
+Group=sonorium
+# audio: output to a sound card on this machine
+SupplementaryGroups=audio
+UMask=0027
+WorkingDirectory=/var/lib/sonorium
 Environment=SONORIUM_STANDALONE=1
 Environment=SONORIUM_SUPERVISED=1
 Environment=SONORIUM_CONFIG_DIR=/var/lib/sonorium/data
@@ -25,11 +30,13 @@ Environment=SONORIUM_HTTP_PORT=8008
 Environment=SONORIUM_HTTPS_PORT=8808
 Environment=PYTHONPATH=/opt/sonorium/app
 Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/default/sonorium
 ExecStart=/opt/sonorium/python/bin/python3 -m sonorium.entrypoint
-# 75 = Sonorium asks to be started again (its Restart)
-Restart=always
-RestartSec=2
+# 75 = Sonorium asks to be started again (Restart in the web UI)
+Restart=on-failure
+RestartForceExitStatus=75
 SuccessExitStatus=75
+RestartSec=2
 
 [Install]
 WantedBy=multi-user.target

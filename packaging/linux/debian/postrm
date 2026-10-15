@@ -1,0 +1,10 @@
+#!/bin/sh
+# Sonorium .deb: settings and themes in /var/lib/sonorium are kept, even on
+# purge (the themes folder may hold audio added by hand). Delete it by hand
+# to start over.
+set -e
+
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+exit 0
