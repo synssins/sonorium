@@ -2,6 +2,24 @@
 
 <!-- version list -->
 
+## v1.8.1-dev.6 (2026-10-15)
+
+### Bug Fixes
+
+- **linux**: Build C extensions with gcc
+  ([`11bb34e`](https://github.com/synssins/sonorium/commit/11bb34e43554c5d5180443233a916bb1ad398ef9))
+
+### Continuous Integration
+
+- **release**: Build the Linux packages with every release
+  ([`48e8ee2`](https://github.com/synssins/sonorium/commit/48e8ee248f66d113f4c11ab3b8649f01b615a54e))
+
+### Features
+
+- **linux**: Debian package (.deb) for amd64 and arm64
+  ([`8394f6e`](https://github.com/synssins/sonorium/commit/8394f6ece8da5d7f4cfc2d62f96a8b546b4ff1c9))
+
+
 ## v1.8.1-dev.5 (2026-10-15)
 
 ### Features
