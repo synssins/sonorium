@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.8.1-dev.3 (2026-10-15)
+
+### Features
+
+- **auth**: Listener role and channel scopes
+  ([`16e3e66`](https://github.com/synssins/sonorium/commit/16e3e6600a199b1dbb8fed32b54b4b9d4e330edb))
+
+
 ## v1.8.1-dev.1 (2026-10-14)
 ## v1.8.0 (2026-10-14)
 
