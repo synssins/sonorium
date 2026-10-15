@@ -14,14 +14,18 @@ name: Add-on Version
 #   2. addon-image build every arch from that tag and push :<version>
 #      windows     build the Windows installer from the same tag and test it
 #                  on a clean runner (windows-app.yml)
-#   3. publish     only when every image was pushed and the installer passed:
+#      linux       build the .deb packages (amd64, arm64) from the same tag and
+#                  test them under systemd (linux-deb.yml)
+#   3. publish     only when every image was pushed and the installer and
+#                  packages passed:
 #                  move the branch to the release commit, so HA never sees a
 #                  version it can't pull
 #   4. addon-tags  move :latest (main), :dev (fixes) or :branch-<name>;
 #      docker      the standalone image, as before;
-#      windows-release  attach Sonorium-Setup-<version>.exe to the GitHub
-#                  release addon-v<version>: pre-release on fixes, full
-#                  release on main, none on other branches
+#      windows-release  attach Sonorium-Setup-<version>.exe and the .deb
+#                  packages to the GitHub release addon-v<version>:
+#                  pre-release on fixes, full release on main, none on other
+#                  branches
 #   cleanup        if 2 or 3 failed, delete the tag again
 #
 # The release commit is pushed with GITHUB_TOKEN and tagged "[skip ci]",
@@ -38,6 +42,9 @@ on:
       - 'packaging/windows/**'
       - '!packaging/windows/docs-screens.ps1'  # CI screenshot script, not shipped
       - '!packaging/windows/README.md'
+      # The Linux packages too
+      - 'packaging/linux/**'
+      - '!packaging/linux/README.md'
   workflow_dispatch:
     inputs:
       bump:
@@ -181,11 +188,20 @@ jobs:
     with:
       ref: addon-v${{ needs.version.outputs.version }}
 
+  linux:
+    name: Linux packages
+    needs: version
+    permissions:
+      contents: read
+    uses: ./.github/workflows/linux-deb.yml
+    with:
+      ref: addon-v${{ needs.version.outputs.version }}
+
   publish:
     name: Push release commit
     # needs: skips this job unless every add-on image was built and pushed
-    # and the Windows installer was built and passed its tests
-    needs: [version, addon-image, windows]
+    # and the Windows installer and Linux packages were built and passed their tests
+    needs: [version, addon-image, windows, linux]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -226,7 +242,7 @@ jobs:
     name: Release the version number
     # The version was reserved but not published: delete its tag, so the
     # next run can use the number (its images are rebuilt by that run)
-    needs: [version, addon-image, windows, publish]
+    needs: [version, addon-image, windows, linux, publish]
     if: failure() && needs.version.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -303,10 +319,10 @@ jobs:
       branch: ${{ github.ref_name }}
 
   windows-release:
-    name: Windows installer release
-    # Only fixes (pre-release) and main (full release) publish the installer
+    name: Windows installer and Linux packages release
+    # Only fixes (pre-release) and main (full release) publish the installer and packages
     if: github.ref_name == 'fixes' || github.ref_name == 'main'
-    needs: [version, windows, publish]
+    needs: [version, windows, linux, publish]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -325,6 +341,11 @@ jobs:
           name: sonorium-setup
           path: setup
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: sonorium-deb
+          path: deb
+
       - name: Create or update the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -340,6 +361,10 @@ jobs:
           if [ "$INSTALLER" != "$asset" ] || [ ! -f "setup/$asset" ]; then
             echo "::error::expected setup/$asset, the build made '$INSTALLER'"; ls -l setup; exit 1
           fi
+          debs=(deb/sonorium_*_amd64.deb deb/sonorium_*_arm64.deb)
+          for d in "${debs[@]}"; do
+            [ -f "$d" ] || { echo "::error::missing $d"; ls -l deb; exit 1; }
+          done
 
           # Release notes: this version's section of the add-on changelog
           awk -v h="## v$VERSION " 'index($0, h) == 1 { on = 1; next } on && /^## v/ { exit } on'             sonorium_addon/CHANGELOG.md > notes.md
@@ -360,8 +385,8 @@ jobs:
           fi
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release edit "$tag" --title "$title" --notes-file notes.md "${kind[@]}"
-            gh release upload "$tag" "setup/$asset" --clobber
+            gh release upload "$tag" "setup/$asset" "${debs[@]}" --clobber
           else
-            gh release create "$tag" "setup/$asset" --verify-tag               --title "$title" --notes-file notes.md "${kind[@]}"
+            gh release create "$tag" "setup/$asset" "${debs[@]}" --verify-tag               --title "$title" --notes-file notes.md "${kind[@]}"
           fi
-          echo "Release $tag: $asset" >> "$GITHUB_STEP_SUMMARY"
+          echo "Release $tag: $asset ${debs[*]#deb/}" >> "$GITHUB_STEP_SUMMARY"
