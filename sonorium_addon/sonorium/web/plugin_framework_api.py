@@ -87,16 +87,26 @@ def event_visible(principal, event) -> bool:
             if not principal.can(ability):
                 return False
             break
-    channel = (event.data or {}).get("channel_id") if isinstance(event.data, dict) else None
-    if channel is not None and getattr(principal, "channels", None) is not None:
-        return principal.can_channel(channel)
+    data = event.data if isinstance(event.data, dict) else {}
+    if getattr(principal, "channels", None) is not None and not data.get("personal"):
+        # outside the caller's channels (auth/scopes.py): an event naming such a channel isn't sent
+        named = [data[k] for k in ("channel_id", "session_id", "from_channel", "to_channel") if data.get(k) is not None]
+        named += [c for c in (data.get("channels") or []) if isinstance(data.get("channels"), list)]
+        return all(principal.can_channel(c) for c in named)
     return True
 
 
 def event_caller_key(request: Request) -> str:
-    """Who holds an event stream, for event_streams_per_caller: the account, phone or key, else the address."""
+    """
+    Who holds an event stream, for event_streams_per_caller: the account, phone or key, else the
+    address. An account many people share (permissions.ROLES "shared", e.g. a Listener) counts per
+    address, like the audio streams, so people at different addresses don't use up each other's.
+    """
+    from sonorium.auth import permissions as P
     from sonorium.auth.middleware import principal_of
     p = principal_of(request)
+    if p.user_id and P.ROLES.get(p.role or "", {}).get("shared"):
+        return f"user:{p.user_id}@" + (request.client.host if request.client else "")
     for kind, value in (("user", p.user_id), ("device", p.device_id), ("key", getattr(p, "key_id", None))):
         if value:
             return f"{kind}:{value}"
@@ -648,9 +658,9 @@ def _add_attribute_routes(router, _host, _json) -> None:
         if kind == "user":
             allowed = principal.can("admin.users") or (principal.can("self") and principal.user_id == ref["id"])
         else:
+            if kind == "channel" and not principal.can_channel(ref["id"]):
+                raise HTTPException(status_code=404, detail="Not Found")  # outside its scope (auth/scopes.py)
             allowed = principal.can((ATTRIBUTE_WRITE if write else ATTRIBUTE_READ)[kind])
-            if allowed and kind == "channel":
-                allowed = principal.can_channel(ref["id"])
         if not allowed:
             raise HTTPException(status_code=403, detail="Not allowed")
 
@@ -999,7 +1009,7 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
             if wanted in (None, "all", "*", ["all"], ["*"]):
                 channels = [c for c in channels if caller.can_channel(c)]
             elif not all(caller.can_channel(c) for c in channels):
-                raise HTTPException(status_code=403, detail="Not allowed for this channel")
+                raise HTTPException(status_code=404, detail="Channel not found")  # outside its scope
         if not channels:
             raise HTTPException(status_code=404, detail="No channel to announce on")
         try:

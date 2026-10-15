@@ -57,3 +57,5 @@
     .us-dev { grid-template-columns: 20px minmax(0, 1fr) auto; row-gap: .125rem; }
     .us-dev .seen { grid-column: 2; grid-row: 2; font-size: .75rem; }
 }
+/* ⋯ › Channels (a Listener): All channels / Only these, as on a key */
+.us-dlg .ky-seg { width: max-content; }

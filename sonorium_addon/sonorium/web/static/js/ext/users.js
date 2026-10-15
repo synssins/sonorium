@@ -185,12 +185,16 @@
         return shortDate(iso);
     }
 
-    const ud = { users: [], open: new Set(), opened: false };
+    // roles: [{id, label, scopes}] from the server (permissions.ROLES); channels: for a role's channels scope
+    const ud = { users: [], open: new Set(), opened: false, roles: [], channels: [] };
+    const roleOf = id => ud.roles.find(r => r.id === id) || { id, label: id, scopes: [] };
     const userOf = id => ud.users.find(u => u.id === id);
 
     async function loadUsers() {
         try {
-            ud.users = (await S.api('GET', '/users')).users || [];
+            const data = await S.api('GET', '/users');
+            ud.users = data.users || [];
+            ud.roles = data.roles || [{ id: 'admin', label: 'Admin', scopes: [] }, { id: 'user', label: 'User', scopes: [] }];
         } catch (e) {
             S.toast(e.message, 'error');
             return;
@@ -228,7 +232,7 @@
         return `<div class="us-row"><div class="sp-lrow us-grid">
             <button type="button" class="chev-btn us-chev${open ? ' open' : ''}" aria-expanded="${open}" aria-label="Devices"${u.devices.length ? '' : ' disabled'} onclick="UsersUI.toggle(${arg(u.id)})">${svg(P_CHEV, 14)}</button>
             <span class="us-name"><span class="sb-av">${esc(u.username.charAt(0).toUpperCase())}</span><span class="us-nm">${esc(u.username)}</span>${u.you ? '<span class="you">you</span>' : ''}${u.ha ? '<span class="us-ha">Home Assistant</span>' : ''}${uiZone('user.row', 'badges', userRef(u), 'span')}</span>
-            <span class="badge us-role${u.role === 'admin' ? ' admin' : ''}">${esc(u.role_label || u.role)}</span>
+            <span class="badge us-role${u.role === 'admin' ? ' admin' : ''}">${esc(u.role_label || u.role)}${u.scopes && Array.isArray(u.scopes.channels) ? ` · ${u.scopes.channels.length} ${u.scopes.channels.length === 1 ? 'channel' : 'channels'}` : ''}</span>
             <span class="us-dim d">${u.devices.length}</span><span class="us-dim d">${esc(when(u.last_seen))}</span>
             <button type="button" class="icon-btn sm" aria-label="More" aria-haspopup="menu"${uiAnchor('user.row', 'menu settings', userRef(u))} onclick="UsersUI.menu(this, ${arg(u.id)})">${I_MORE}</button></div>
             ${open ? `<div class="us-devs">${u.devices.map(d => deviceHtml(u, d)).join('')}</div>` : ''}</div>`;
@@ -284,8 +288,12 @@
             if (!u) return;
             const lastAdmin = u.role === 'admin' && ud.users.filter(x => x.role === 'admin').length === 1;
             const note = u.ha ? 'Set in Home Assistant' : lastAdmin ? 'Sonorium needs at least one admin.' : u.you ? 'You can’t remove your own account.' : '';
+            const roleItems = ud.roles.filter(r => r.id !== u.role).map(r =>
+                `<button type="button" class="mi"${lastAdmin || u.ha ? ' disabled' : ''} onclick="UsersUI.setRole(${arg(id)}, ${arg(r.id)})">Make ${esc(r.label)}</button>`).join('');
+            const channelsItem = roleOf(u.role).scopes.includes('channels')
+                ? `<button type="button" class="mi" onclick="UsersUI.channels(${arg(id)})">Channels…</button>` : '';
             spMenu('us-' + id, button, `
-                <button type="button" class="mi"${lastAdmin || u.ha ? ' disabled' : ''} onclick="UsersUI.setRole(${arg(id)}, '${u.role === 'admin' ? 'user' : 'admin'}')">${u.role === 'admin' ? 'Make User' : 'Make Admin'}</button>
+                ${roleItems}${channelsItem}
                 ${S.me && S.me.zones ? `<button type="button" class="mi" role="menuitemcheckbox" aria-checked="${!!u.can_leave_link}"${u.role === 'admin' ? ' disabled' : ''} onclick="UsersUI.setLeave(${arg(id)}, ${!u.can_leave_link})">Can leave a link<span class="sw${u.can_leave_link ? ' on' : ''}"></span></button>` : ''}
                 <button type="button" class="mi"${u.ha ? ' disabled' : ''} onclick="UsersUI.resetPassword(${arg(id)})">Reset password…</button>
                 <button type="button" class="mi" onclick="UsersUI.signOutAll(${arg(id)})">Sign out of every device</button>
@@ -305,6 +313,42 @@
             }
             if (u && u.you) window.location.reload();  // what you may do changed
             else loadUsers();
+        },
+
+        // The channels an account of a role with the channels scope (a Listener) sees: all, or only these
+        async channels(id) {
+            spClosePop();
+            const u = userOf(id);
+            if (!u) return;
+            try {
+                const list = await S.api('GET', '/sessions');
+                ud.channels = Array.isArray(list) ? list : [];
+            } catch (e) {
+                ud.channels = [];
+            }
+            const only = u.scopes && Array.isArray(u.scopes.channels) ? u.scopes.channels.map(String) : null;
+            formDialog({
+                id: 'us-ch', title: 'Channels', ok: 'Save',
+                body: `<p class="us-for">For <b>${esc(u.username)}</b>.</p>
+                    <div class="seg ky-seg" role="group" aria-label="Channels">`
+                    + `<button type="button" aria-pressed="${only === null}" onclick="UsersUI.which(true)">All channels</button>`
+                    + `<button type="button" aria-pressed="${only !== null}" onclick="UsersUI.which(false)">Only these…</button></div>`
+                    + `<div class="ky-chs" id="us-chs"${only === null ? ' hidden' : ''}>${ud.channels.map(ch =>
+                        `<label class="ky-cb"><input type="checkbox" data-ch="${esc(ch.id)}"${only !== null && only.includes(String(ch.id)) ? ' checked' : ''}><span>${esc(ch.name || ch.id)}</span></label>`).join('')}</div>`,
+                onOk: async () => {
+                    const box = document.getElementById('us-chs');
+                    const channels = !box || box.hidden ? null : [...box.querySelectorAll('[data-ch]:checked')].map(i => i.dataset.ch);
+                    await S.api('PUT', `/users/${encodeURIComponent(id)}`, { scopes: { channels } });
+                    loadUsers();
+                },
+            });
+        },
+
+        which(all) {
+            const box = document.getElementById('us-chs');
+            if (!box) return;
+            box.hidden = all;
+            document.querySelectorAll('#us-ch .ky-seg button').forEach((b, i) => b.setAttribute('aria-pressed', String(i === 0 ? all : !all)));
         },
 
         // Zones: may the user take their zone out of a link (admins always may)
@@ -392,7 +436,9 @@
                     ${fld('Password', 'us-new-pw1', 'password', 'autocomplete="new-password"')}
                     ${fld('Confirm password', 'us-new-pw2', 'password', 'autocomplete="new-password"')}
                     <div class="sp-fld"><label class="sp-fld-label" for="us-new-role">Role</label>
-                    <select class="sp-inp" id="us-new-role"><option value="user">User</option><option value="admin">Admin</option></select></div>`,
+                    <select class="sp-inp" id="us-new-role">${(ud.roles.length ? ud.roles : [{ id: 'user', label: 'User' }, { id: 'admin', label: 'Admin' }])
+                        .slice().sort((a, b) => (a.id === 'user' ? -1 : b.id === 'user' ? 1 : 0))
+                        .map(r => `<option value="${esc(r.id)}">${esc(r.label)}</option>`).join('')}</select></div>`,
                 onOk: async () => {
                     const password = checkPasswords('us-new-pw1', 'us-new-pw2');
                     await S.api('POST', '/users', { username: value('us-new-name').trim(), password, role: value('us-new-role') });
@@ -406,11 +452,12 @@
         title: 'Users & devices', html: `
         <p>The people who can sign in to Sonorium, and the devices and browsers each one uses.</p>
         <h4>Each user</h4>
-        ${term('Role', 'an Admin can change every setting. A User can play channels, playlists and sequences, and see themes and speakers.')}
+        ${term('Role', 'an Admin can change every setting. A User can play channels, playlists and sequences, and see themes and speakers. A Listener can play and stop channels, choose their theme, preset, sequence and playlist, and listen. One Listener account can be signed in on many devices at once.')}
         ${term('Devices', 'how many devices and browsers are signed in.')}
         ${term('Last seen', 'when the user last used Sonorium.')}
         ${term('Arrow', 'shows the user\'s devices and browsers.')}
-        ${term('⋯ › Make Admin, Make User', 'changes the role. Sonorium always keeps one admin.')}
+        ${term('⋯ › Make Admin, Make User, Make Listener', 'changes the role. Sonorium always keeps one admin.')}
+        ${term('⋯ › Channels', 'a Listener sees all channels, or only the ones checked.')}
         ${term('⋯ › Can leave a link', 'with Zones on: the user may take their channel out of a link and back in. An admin always may.')}
         ${term('⋯ › Reset password', 'sets a new password. The user\'s browsers are signed out. Linked devices stay linked.')}
         ${term('⋯ › Sign out of every device', 'signs out every browser and unlinks every device. You confirm first.')}

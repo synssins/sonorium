@@ -523,7 +523,7 @@ def test_key_for_some_channels_only(w):
     key = make_key(c, csrf, abilities=["ch.view", "ch.play", "ch.add"], channels=[CHANNEL])
     k = w.client()
     assert k.post(f"/api/sessions/{CHANNEL}/play", headers=H(key["key"])).status_code == 200
-    assert k.post("/api/sessions/other/play", headers=H(key["key"])).status_code == 403
+    assert k.post("/api/sessions/other/play", headers=H(key["key"])).status_code == 404
     assert k.post("/api/channels/1/play", headers=H(key["key"])).status_code == 403
     assert k.post("/api/sessions", headers=H(key["key"])).status_code == 403  # a new channel isn't one of its own
 
@@ -540,7 +540,7 @@ def test_key_last_used_counts_only_accepted_requests(w):
     assert last_used() is None
     w.clock.now += 61
     assert k.get("/api/themes", headers=H(key["key"])).status_code == 403  # no such ability
-    assert k.post("/api/sessions/other/play", headers=H(key["key"])).status_code == 403  # not its channel
+    assert k.post("/api/sessions/other/play", headers=H(key["key"])).status_code == 404  # not its channel
     m.keys.set_enabled(w.service, False)
     assert k.get("/api/sessions", headers=H(key["key"])).status_code == 401  # Keys off
     m.keys.set_enabled(w.service, True)

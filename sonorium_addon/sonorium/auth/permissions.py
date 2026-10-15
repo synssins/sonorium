@@ -9,8 +9,22 @@ Permissions no key can have:
     admin.keys        keys, and the plugin framework's older token endpoints
     admin.plugins     install, configure and remove plugins, schedules
     admin.connection  Settings > Connection (Home Assistant and MQTT credentials)
-    self              link a phone, see and remove your own phones
+    self              link a phone, see and remove your own phones, choose a new password
     device            only a linked phone (e.g. the one-time sign-in code, auth/users.py)
+
+Abilities only a role gives (never on a key; ROLE_ONLY):
+
+    ch.select         choose a channel's theme and preset (PUT /api/sessions/{id} with only
+                      those fields) and see the lists to choose from
+    me.backup         a linked phone backs up its themes and playlists (web/backup_routes.py)
+
+The model (docs/AUTH.md, "Roles and scopes"): a role is a named set of
+abilities (ROLES); an account or key may also carry scopes (SCOPES) that
+narrow what it sees, e.g. "channels": only these channels. The middleware
+enforces both: the route's permission against the abilities, and each scope
+against the route's path parameters (SCOPE_PARAMS: a hidden channel answers
+404); listings filter with sonorium/auth/scopes.py. A new role or scope is a
+new entry here, not new checks in the routes.
 
 Every route is listed with one of:
 
@@ -64,13 +78,43 @@ AREAS = [
 
 ABILITIES = frozenset(a for _, _, items in AREAS for a, _, _ in items)
 ADMIN_ONLY = frozenset({"admin.users", "admin.keys", "admin.plugins", "admin.connection"})
+ROLE_ONLY = frozenset({"ch.select", "me.backup"})
 SELF = "self"
 DEVICE = "device"
 
-ALL_PERMS = frozenset(ABILITIES | ADMIN_ONLY | {SELF})
+ALL_PERMS = frozenset(ABILITIES | ADMIN_ONLY | ROLE_ONLY | {SELF})
+
+# Roles: a named set of abilities. "scopes": the scopes an admin may give an
+# account of the role (Users & devices); "shared": one account used by many
+# people at once, so per-caller limits count per address (web/plugin_framework_api.py).
+ROLES = {
+    "admin": {"label": "Admin", "perms": ALL_PERMS, "scopes": ()},
+    "user": {"label": "User", "perms": frozenset({
+        "ch.view", "ch.play", "ch.change", "ch.speakers", "ch.add", "ch.select",
+        "th.view",
+        "pl.view", "pl.run", "pl.edit",
+        "sp.view", "sp.mute",
+        "ev.read",
+        "me.backup",
+        SELF,
+    }), "scopes": ()},
+    # See channels, play and stop them, choose theme, preset, sequence and playlist, and listen
+    "listener": {"label": "Listener", "perms": frozenset({
+        "ch.view", "ch.play", "ch.select",
+        "pl.run",
+        "ev.read",
+    }), "scopes": ("channels",), "shared": True},
+}
+
+# Scopes an account or key can carry, and the path parameters each one checks
+# (a value outside the scope answers 404, as if it didn't exist)
+SCOPES = {
+    "channels": {"params": ("session_id",)},
+}
+SCOPE_PARAMS = {param: scope for scope, spec in SCOPES.items() for param in spec["params"]}
 # A linked phone never manages users, devices or keys
 DEVICE_EXCLUDED = frozenset({"admin.users", "admin.keys", SELF})
-NEVER_FOR_KEYS = ADMIN_ONLY | {SELF, DEVICE}
+NEVER_FOR_KEYS = ADMIN_ONLY | ROLE_ONLY | {SELF, DEVICE}
 
 
 def device_perms(perms) -> frozenset:
@@ -148,7 +192,7 @@ GET     /api/install                                    ch.view
 PUT     /api/install/features                           st.change
 GET     /api/status                                     ch.view
 
-GET     /api/themes                                     th.view
+GET     /api/themes                                     th.view|ch.select
 POST    /api/themes/refresh                             th.view
 POST    /api/themes/{theme_id}/favorite                 th.edit
 GET     /api/themes/{theme_id}                          th.view
@@ -174,7 +218,7 @@ POST    /api/themes/{theme_id}/links                    th.edit
 POST    /api/themes/{theme_id}/links/{key:path}/copy-in th.edit
 DELETE  /api/themes/{theme_id}/links/{key:path}         th.edit
 PUT     /api/themes/{theme_id}/rename                   th.edit
-GET     /api/themes/{theme_id}/presets                  th.view
+GET     /api/themes/{theme_id}/presets                  th.view|ch.select
 POST    /api/themes/{theme_id}/presets                  th.edit
 POST    /api/themes/{theme_id}/presets/{preset_id}/load th.edit
 GET     /api/themes/{theme_id}/presets/{preset_id}      th.view
@@ -212,7 +256,7 @@ GET     /api/sessions                                   ch.view
 GET     /api/now-playing                                ch.view
 POST    /api/sessions                                   ch.add
 GET     /api/sessions/{session_id}                      ch.view
-PUT     /api/sessions/{session_id}                      ch.change
+PUT     /api/sessions/{session_id}                      ch.change|ch.select
 DELETE  /api/sessions/{session_id}                      ch.add
 POST    /api/sessions/{session_id}/play                 ch.play
 POST    /api/sessions/{session_id}/pause                ch.play
@@ -228,24 +272,24 @@ DELETE  /api/sessions/{session_id}/sleep                ch.play
 POST    /api/sessions/stop-all                          ch.play
 # the caller's own personal channel (web/personal_routes.py): hidden, local only, one per account
 GET     /api/me/channel                                 ch.view
-PUT     /api/me/channel                                 ch.change
+PUT     /api/me/channel                                 ch.change|ch.select
 POST    /api/me/channel/listen                          ch.play
 DELETE  /api/me/channel/listen                          ch.play
 # the caller's own theme backups (web/backup_routes.py): own account only; only a linked phone
 # writes, only its own; a key reads and deletes for the user who made it
 GET     /api/me/backups                                 self|device|th.view
 GET     /api/me/backups/settings                        self|device|th.view
-PUT     /api/me/backups/settings                        self|device
+PUT     /api/me/backups/settings                        self|me.backup
 GET     /api/me/backups/{device_id}/playlists           self|device|th.view
-PUT     /api/me/backups/{device_id}/playlists           device
+PUT     /api/me/backups/{device_id}/playlists           me.backup
 GET     /api/me/backups/{device_id}/themes/{key}        self|device|th.view
-PUT     /api/me/backups/{device_id}/themes/{key}        device
+PUT     /api/me/backups/{device_id}/themes/{key}        me.backup
 DELETE  /api/me/backups/{device_id}/themes/{key}        self|device|th.upload
 GET     /api/me/backups/{device_id}/themes/{key}/package        self|device|th.view
-PUT     /api/me/backups/{device_id}/themes/{key}/package        device
-GET     /api/me/backups/{device_id}/themes/{key}/upload         device
+PUT     /api/me/backups/{device_id}/themes/{key}/package        me.backup
+GET     /api/me/backups/{device_id}/themes/{key}/upload         me.backup
 GET     /api/me/backups/{device_id}/themes/{key}/files/{path:path}  self|device|th.view
-PUT     /api/me/backups/{device_id}/themes/{key}/files/{path:path}  device
+PUT     /api/me/backups/{device_id}/themes/{key}/files/{path:path}  me.backup
 DELETE  /api/me/backups/{device_id}                     self|device|th.upload
 GET     /api/sessions/{session_id}/playback             ch.view
 POST    /api/sessions/{session_id}/sequence             pl.run
@@ -259,7 +303,7 @@ POST    /api/sessions/{session_id}/outputs              ch.play
 PUT     /api/sessions/{session_id}/outputs/{output_id}  ch.play
 DELETE  /api/sessions/{session_id}/outputs/{output_id}  ch.play
 
-GET     /api/themes/{theme_id}/sequences                pl.view
+GET     /api/themes/{theme_id}/sequences                pl.view|ch.select
 POST    /api/themes/{theme_id}/sequences                pl.edit
 GET     /api/themes/{theme_id}/sequences/{sequence_id}  pl.view
 PUT     /api/themes/{theme_id}/sequences/{sequence_id}  pl.edit
@@ -271,7 +315,7 @@ PUT     /api/themes/{theme_id}/sequences/{sequence_id}/transitions/{preset_id}  
 GET     /api/themes/{theme_id}/sequences/{sequence_id}/while/{preset_id}        pl.view
 PUT     /api/themes/{theme_id}/sequences/{sequence_id}/while/{preset_id}        pl.edit
 GET     /api/themes/{theme_id}/transition_tracks        pl.view
-GET     /api/playlists                                  pl.view
+GET     /api/playlists                                  pl.view|ch.select
 POST    /api/playlists                                  pl.edit
 GET     /api/playlists/{playlist_id}                    pl.view
 PUT     /api/playlists/{playlist_id}                    pl.edit
@@ -448,7 +492,7 @@ def parse(text: str) -> dict:
     return table
 
 
-KNOWN = ABILITIES | ADMIN_ONLY | {SELF, DEVICE}
+KNOWN = ABILITIES | ADMIN_ONLY | ROLE_ONLY | {SELF, DEVICE}
 ROUTES: dict[tuple[str, str], RoutePermission] = parse(_ROUTES)
 
 

@@ -345,6 +345,22 @@ def _caller(request: Request):
     return principal_of(request)
 
 
+def select_only(caller, session, *, custom_name=None, volume=None, announcements=None, take_over=None) -> None:
+    """
+    "Choose theme and preset" (ch.select) without "Change theme, preset and volume" (ch.change), e.g.
+    a Listener: only the theme, preset, sequence and playlist may change. A field sent with the value
+    it already has is fine (a client may send the whole channel); anything else: 403.
+    """
+    if caller is None or session is None or caller.can("ch.change") or not caller.can("ch.select"):
+        return
+    changed = ((custom_name and custom_name != session.name)
+               or (volume is not None and volume != session.volume)
+               or (announcements is not None and announcements != session.announcements)
+               or bool(take_over))
+    if changed:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only an admin can do this")
+
+
 # Theme exports being made now (export_limit, sonorium/limits.py)
 from sonorium.limits import Slots as _Slots  # noqa: E402
 EXPORT_SLOTS = _Slots()
@@ -567,6 +583,9 @@ def create_api_router(
         old_session = session_manager.get(session_id)
         old_name = old_session.name if old_session else None
 
+        if http is not None:
+            select_only(_caller(http), old_session, custom_name=request.custom_name, volume=request.volume,
+                        announcements=request.announcements, take_over=request.take_over)
         # Changing its speakers needs "Change speakers" (a key may only have "Change theme, preset and volume")
         if old_session is not None and http is not None and not _caller(http).can("ch.speakers"):
             new_selection = request.adhoc_selection.to_selection() if request.adhoc_selection else None

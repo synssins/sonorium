@@ -424,7 +424,7 @@ def test_http_announce_respects_a_key_limited_to_some_channels(w):
         return await call_next(request)
     with TestClient(app) as client:
         r = client.post("/api/announce", json={"channels": w.t.session.id, "text": "x"})
-        assert r.status_code == 403
+        assert r.status_code == 404  # outside its scope: as if it didn't exist
         assert client.post("/api/announce", json={"channels": "all", "text": "x"}).status_code == 404
     assert w.overlay.played == []
 

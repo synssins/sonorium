@@ -209,9 +209,10 @@ def test_permission_table_writes_are_phones_only():
     for (method, path), perm in P.ROUTES.items():
         if path.startswith("/api/me/backups"):
             if method == "PUT" and not path.endswith("/settings"):
-                assert perm.any_of == {"device"}, path
+                assert perm.any_of == {"me.backup"}, path  # a role-only ability (no key); the route takes only a phone
             assert not perm.public and not perm.page
     assert P.DEVICE in P.NEVER_FOR_KEYS
+    assert "me.backup" in P.NEVER_FOR_KEYS and "me.backup" not in P.ROLES["listener"]["perms"]
 
 
 @pytest.mark.parametrize("body, status", [

@@ -9,8 +9,11 @@ accounts yet it is the first run (Create the admin account). If the accounts
 can't be loaded, sign-in stays closed (AuthService.closed): only public
 routes answer, so Sonorium is never left open by a failure.
 
-Roles: Admin (everything) and User (channels, playlists and sequences, view
-themes and speakers, their own phones). A linked phone acts as its user.
+Roles (permissions.ROLES): Admin (everything), User (channels, playlists and
+sequences, view themes and speakers, their own phones) and Listener (see
+channels, play and stop, choose theme, preset, sequence and playlist, listen;
+one account for many people at once, optionally for some channels only).
+A linked phone acts as its user.
 
 Add-on: Home Assistant's users are Sonorium's users, with their role from HA
 (ha_users.py), and sign in with their HA username and password.
@@ -119,9 +122,16 @@ class UsersAuth:
         session_id, record = found
         user = self.accounts.user(record["user_id"])
         reset = bool((record.get("data") or {}).get("reset"))
-        return Principal("session", frozenset() if reset else accounts_mod.role_perms(user["role"]),
-                         user_id=record["user_id"], role=user["role"], session_id=session_id,
-                         csrf=self.accounts.csrf(session_id), reset=reset)
+        return self.scoped(Principal("session", frozenset() if reset else accounts_mod.role_perms(user["role"]),
+                                     user_id=record["user_id"], role=user["role"], session_id=session_id,
+                                     csrf=self.accounts.csrf(session_id), reset=reset))
+
+    def scoped(self, principal: Principal) -> Principal:
+        """The account's scopes on the caller (permissions.SCOPES): e.g. only some channels."""
+        scopes = self.accounts.scopes(principal.user_id)
+        if "channels" in scopes:
+            principal.channels = list(scopes["channels"])
+        return principal
 
     def fallback(self, ctx) -> Principal:
         if not self.accounts.require_login:
@@ -138,6 +148,7 @@ class UsersAuth:
             principal.role = user["role"]
             # The role HA gives the user; nothing while HA has the user switched off
             principal.perms = frozenset() if user.get("disabled") else accounts_mod.role_perms(user["role"])
+            self.scoped(principal)
         return principal
 
     def device(self, ctx, principal: Principal, record: dict):
@@ -153,7 +164,7 @@ class UsersAuth:
         self.accounts.seen(user_id)
         principal.perms = P.device_perms(accounts_mod.role_perms(user["role"]))
         principal.role = user["role"]
-        return principal
+        return self.scoped(principal)
 
     def me(self, ctx, principal: Principal) -> dict:
         a = self.accounts
@@ -161,6 +172,27 @@ class UsersAuth:
                 "zones": bool(self.zones is not None and self.zones.enabled),
                 "needs_setup": (principal.kind == "anonymous" and not a.has_users() and a.require_login
                                 and principal.listener != "ingress" and not config.is_addon())}
+
+
+def scoped_zones(view: dict, principal) -> dict:
+    """The Zones view without the channels outside the caller's scope (auth/scopes.py)."""
+    from sonorium.auth import scopes
+    if not scopes.channels_limited(principal) or not view.get("on"):
+        return view
+    see = lambda c: c is not None and scopes.allows(principal, "channels", c)  # noqa: E731
+    out = dict(view)
+    out["zones"] = {c: z for c, z in (view.get("zones") or {}).items() if see(c)}
+    speakers = {}
+    for sp, entry in (view.get("speakers") or {}).items():
+        channels = [c for c in entry.get("channels") or [] if see(c)]
+        if channels:
+            speakers[sp] = {**entry, "channels": channels, "home": channels[0],
+                            "in_use": entry.get("in_use") if see(entry.get("in_use")) else None}
+    out["speakers"] = speakers
+    out["links"] = [{**link, "channels": [c for c in link.get("channels") or [] if see(c)],
+                     "left": [c for c in link.get("left") or [] if see(c)]}
+                    for link in view.get("links") or [] if any(see(c) for c in link.get("channels") or [])]
+    return out
 
 
 def create_router(service) -> APIRouter:
@@ -361,6 +393,8 @@ def create_router(service) -> APIRouter:
             raise HTTPException(401, "Sign in first")
         if request.headers.get("x-csrf-token") != p.csrf:
             raise HTTPException(403, "Reload the page and try again")
+        if not p.reset and not p.can(P.SELF):  # e.g. a Listener: a shared account keeps its password
+            raise HTTPException(403, "Only an admin can do this")
         hashed = await new_hash(await json_body(request))
         try:
             accounts().set_password(p.user_id, hashed)  # signs out every browser of the user, this one too
@@ -401,6 +435,9 @@ def create_router(service) -> APIRouter:
         p = p_of(request)
         if p.kind != "device" or not p.user_id:
             raise HTTPException(403, "Only a device linked to a user can show a sign-in code")
+        user = accounts().user(p.user_id)
+        if user is None or P.SELF not in accounts_mod.role_perms(user.get("role")):
+            raise HTTPException(403, "Only an admin can do this")  # e.g. a Listener's shared password
         limited(code_limiter, p.device_id, spend=True)
         try:
             code, expires = accounts().new_signin_code(p.user_id)
@@ -436,11 +473,14 @@ def create_router(service) -> APIRouter:
                           "has_password": bool(u.get("password")), "ha": bool(u.get("ha")),
                           "disabled": bool(u.get("disabled")),
                           "can_leave_link": u["role"] == "admin" or bool(u.get("can_leave_link")),
+                          "scopes": a.scopes(user_id),
                           "devices": devices, "last_seen": seen, "created": u.get("created")})
         users.sort(key=lambda u: (not u["you"], u["username"].lower()))
         unbound = [d for d in service.devices() if d.get("user_id") not in a.users]  # no (or a removed) user
+        roles = [{"id": r, "label": spec["label"], "scopes": list(spec.get("scopes", ()))}
+                 for r, spec in P.ROLES.items()]
         return {"users": users, "unlinked_devices": unbound, "require_login": a.require_login,
-                "words": service.identity.words, "bypass": config.bypass_login()}
+                "words": service.identity.words, "bypass": config.bypass_login(), "roles": roles}
 
     @router.post("/users")
     async def add_user(request: Request):
@@ -449,6 +489,8 @@ def create_router(service) -> APIRouter:
         hashed = await new_hash(data)
         try:
             user_id = accounts().add(str(data.get("username") or ""), hashed, role)
+            if data.get("scopes") is not None:
+                accounts().set_scopes(user_id, data["scopes"])
         except AuthError as e:
             fail(e)
         logger.info(f"Users: {accounts().user(user_id)['username']} added ({role})")
@@ -465,6 +507,9 @@ def create_router(service) -> APIRouter:
                 accounts().set_can_leave_link(user_id, bool(data["can_leave_link"]))
                 logger.info(f"Users: {accounts().user(user_id)['username']} "
                             f"{'can' if data['can_leave_link'] else 'can not'} leave a link")
+            if "scopes" in data:
+                accounts().set_scopes(user_id, data["scopes"])
+                logger.info(f"Users: {accounts().user(user_id)['username']}: scopes {accounts().scopes(user_id) or 'none'}")
         except AuthError as e:
             fail(e)
         brief = accounts().brief(user_id)
@@ -562,7 +607,7 @@ def create_router(service) -> APIRouter:
     @router.get("/zones")
     async def zones_view(request: Request):
         """Zones: on or off, each channel's owner and Child Mode, speaker homes and use, links."""
-        return zones().view(Actor.current())
+        return scoped_zones(zones().view(Actor.current()), p_of(request))
 
     @router.put("/zones/switch")
     async def zones_switch(request: Request):
