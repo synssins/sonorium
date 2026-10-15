@@ -22,6 +22,8 @@ name: Add-on Version
 #      windows-release  attach Sonorium-Setup-<version>.exe to the GitHub
 #                  release addon-v<version>: pre-release on fixes, full
 #                  release on main, none on other branches
+#      discord     post a full release (main only) to the Discord #release-notes
+#                  channel; needs the DISCORD_RELEASE_WEBHOOK secret
 #   cleanup        if 2 or 3 failed, delete the tag again
 #
 # The release commit is pushed with GITHUB_TOKEN and tagged "[skip ci]",
@@ -365,3 +367,29 @@ jobs:
             gh release create "$tag" "setup/$asset" --verify-tag               --title "$title" --notes-file notes.md "${kind[@]}"
           fi
           echo "Release $tag: $asset" >> "$GITHUB_STEP_SUMMARY"
+
+  discord:
+    name: Post to Discord
+    # Full releases only: main makes them; previews from fixes and other branches
+    # are not posted. A failed post never fails the release.
+    if: github.ref_name == 'main'
+    needs: [version, windows-release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout the release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.commit }}
+          persist-credentials: false
+
+      - name: Post the release to #release-notes
+        continue-on-error: true
+        env:
+          DISCORD_RELEASE_WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          REPO: ${{ github.repository }}
+          VERSION: ${{ needs.version.outputs.version }}
+        run: python3 .github/scripts/discord_release.py "$VERSION"
