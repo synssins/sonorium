@@ -14,7 +14,7 @@ set -eu
 FFMPEG_VERSION=9.0.2
 FFMPEG_SHA256=8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
 LAMER_VERSION=3.101.0
-LAMER_SHA256=81839b16fdc401e20b73389d05f32a7656008f43bcb960feff290d6f08fc109e
+LAMER_SHA256=506d8a6e855f59151a5407d848557f9ac10acad6ff61718c7b0b3441221bfe72  # commit 3ffd14f; the repo is bwlame since 2026-10 (was lamer)
 
 PREFIX=${PREFIX:-/c/sonorium-ffmpeg}
 SRC=${SRC:-/tmp/ffmpeg-src}
@@ -28,11 +28,11 @@ fetch() {  # url file sha256
     echo "$3  $2" | sha256sum -c -
 }
 
-fetch "https://github.com/basswood-io/lamer/archive/refs/tags/v${LAMER_VERSION}.tar.gz" \
+fetch "https://github.com/basswood-io/bwlame/archive/refs/tags/v${LAMER_VERSION}.tar.gz" \
     lamer.tar.gz "$LAMER_SHA256"
 tar xzf lamer.tar.gz
-make -C "lamer-${LAMER_VERSION}" -j "$JOBS" lib PIC=1
-make -C "lamer-${LAMER_VERSION}" install PREFIX="$SRC/lame"
+make -C "bwlame-${LAMER_VERSION}" -j "$JOBS" lib PIC=1
+make -C "bwlame-${LAMER_VERSION}" install PREFIX="$SRC/lame"
 
 fetch "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" ffmpeg.tar.xz "$FFMPEG_SHA256"
 tar xJf ffmpeg.tar.xz

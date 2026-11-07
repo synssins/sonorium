@@ -121,7 +121,7 @@ as *LGPL version 2.1 or later*.
 | Library | Licence | Source |
 |---|---|---|
 | FFmpeg 9.0.2 (libavcodec, libavformat, libavutil, libavfilter, libavdevice, libswresample, libswscale) | **LGPL-2.1-or-later** | https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz |
-| LAME (LAMER 3.101.0, the LAME tree PyAV builds its wheels with), linked into libavcodec | **LGPL-2.1-or-later** | https://github.com/basswood-io/lamer |
+| LAME (LAMER 3.101.0, the LAME tree PyAV builds its wheels with), linked into libavcodec | **LGPL-2.1-or-later** | https://github.com/basswood-io/bwlame |
 | zlib (from Debian / Alpine, used by FFmpeg) | Zlib | https://zlib.net/ |
 
 What the build includes: reading MP3, WAV, FLAC, Ogg (Vorbis, Opus) and M4A (AAC, ALAC)
