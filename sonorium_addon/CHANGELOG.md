@@ -2,6 +2,36 @@
 
 <!-- version list -->
 
+## v1.8.1 (2026-11-07)
+
+### Bug Fixes
+
+- **announce**: Download chime URLs with httpx ([#46](https://github.com/synssins/sonorium/pull/46),
+  [`bfc63ea`](https://github.com/synssins/sonorium/commit/bfc63ead52c366f9fab49df586b61594fafe9404))
+
+- **build**: Fetch LAME from basswood-io/bwlame
+  ([`9012a31`](https://github.com/synssins/sonorium/commit/9012a3172cd3ed026f41ed537c98d791252ac1c3))
+
+### Continuous Integration
+
+- Post full releases to the Discord #release-notes channel
+  ([`f0fee00`](https://github.com/synssins/sonorium/commit/f0fee00ce40366f4a5846e7c4b13d0debe9f4cc2))
+
+### Documentation
+
+- **readme**: Bold UI control names again, plain Quick Start steps [skip ci]
+  ([`4827209`](https://github.com/synssins/sonorium/commit/4827209d7fd237d40ccba14cd52914aa54a62344))
+
+- **readme**: Discord banner under the logo [skip ci]
+  ([`292d8b2`](https://github.com/synssins/sonorium/commit/292d8b2fc0bf4a7f105f0a96f7692be7376cf8c7))
+
+- **readme**: Plain list labels, fewer semicolons, no emoji headings [skip ci]
+  ([`f0a3293`](https://github.com/synssins/sonorium/commit/f0a3293e3c4aa0dbb95e1f56aa81473e73d00f32))
+
+- **readme**: Plainer wording, fewer semicolons and em-dashes [skip ci]
+  ([`b4acc6e`](https://github.com/synssins/sonorium/commit/b4acc6e3d329ab3afd42696ca6c48337af1257ea))
+
+
 ## v1.8.0 (2026-10-14)
 
 ### Bug Fixes
