@@ -2,6 +2,49 @@
 
 <!-- version list -->
 
+## v1.8.2-dev.1 (2026-11-07)
+
+### Bug Fixes
+
+- **announce**: Download chime URLs with httpx ([#46](https://github.com/synssins/sonorium/pull/46),
+  [`bfc63ea`](https://github.com/synssins/sonorium/commit/bfc63ead52c366f9fab49df586b61594fafe9404))
+
+- **build**: Fetch LAME from basswood-io/bwlame
+  ([`9012a31`](https://github.com/synssins/sonorium/commit/9012a3172cd3ed026f41ed537c98d791252ac1c3))
+
+- **chimes**: Relative chime paths, maker buttons, symlink test
+  ([`5a51b7a`](https://github.com/synssins/sonorium/commit/5a51b7a815052455b2554456ea0a4a839b7f7461))
+
+### Continuous Integration
+
+- Post full releases to the Discord #release-notes channel
+  ([`f0fee00`](https://github.com/synssins/sonorium/commit/f0fee00ce40366f4a5846e7c4b13d0debe9f4cc2))
+
+### Documentation
+
+- **readme**: Bold UI control names again, plain Quick Start steps [skip ci]
+  ([`4827209`](https://github.com/synssins/sonorium/commit/4827209d7fd237d40ccba14cd52914aa54a62344))
+
+- **readme**: Discord banner under the logo [skip ci]
+  ([`292d8b2`](https://github.com/synssins/sonorium/commit/292d8b2fc0bf4a7f105f0a96f7692be7376cf8c7))
+
+- **readme**: Plain list labels, fewer semicolons, no emoji headings [skip ci]
+  ([`f0a3293`](https://github.com/synssins/sonorium/commit/f0a3293e3c4aa0dbb95e1f56aa81473e73d00f32))
+
+- **readme**: Plainer wording, fewer semicolons and em-dashes [skip ci]
+  ([`b4acc6e`](https://github.com/synssins/sonorium/commit/b4acc6e3d329ab3afd42696ca6c48337af1257ea))
+
+### Features
+
+- **announce**: Chimes per channel, a default chime and chime files
+  ([`5e55b50`](https://github.com/synssins/sonorium/commit/5e55b500551569bcaecfd7b2ce0cc471433a4003))
+
+### Testing
+
+- Keep CRLF line endings in test_mqtt_discovery.py
+  ([`ead5dde`](https://github.com/synssins/sonorium/commit/ead5dde34d965582c2a9b18d9d6235a3078926e2))
+
+
 ## v1.8.0 (2026-10-14)
 
 ### Bug Fixes
