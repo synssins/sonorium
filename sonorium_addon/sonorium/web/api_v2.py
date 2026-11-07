@@ -65,6 +65,7 @@ class CreateSessionRequest(BaseModel):
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
     announcements: Optional[bool] = None  # announcements play on it (default on)
+    chime: Optional[str] = None  # the chime its announcements play first (core/chimes.py; "" = the default)
     take_over: Optional[bool] = None  # true: its local device is taken from the channel playing one (Move)
 
 
@@ -77,6 +78,7 @@ class UpdateSessionRequest(BaseModel):
     custom_name: Optional[str] = None
     volume: Optional[int] = Field(default=None, ge=0, le=100)
     announcements: Optional[bool] = None  # announcements play on this channel
+    chime: Optional[str] = None  # the chime its announcements play first (core/chimes.py; "" = the default)
     take_over: Optional[bool] = None  # true: its local device is taken from the channel playing one (Move)
 
 
@@ -101,6 +103,7 @@ class SessionResponse(BaseModel):
     playlist: Optional[dict] = None  # Playlist status: name, entry, theme, next change
     speakers_muted: bool = False  # the speakers' stream is silenced
     announcements: bool = True  # announcements play on it (off: none plays, from anywhere)
+    chime: str = ""  # the chime its announcements play first ("" = Settings' default)
     listening: bool = False  # a browser listens (its mix runs even with the speakers stopped)
     outputs: list[dict] = Field(default_factory=list)  # devices the app reports playing it (core/outputs.py)
     recent: list[dict] = Field(default_factory=list)  # Latest changes, newest first: [{"at": ISO time, "text": ...}]
@@ -165,6 +168,7 @@ class SettingsResponse(BaseModel):
     allow_multiple_local_outputs: bool = False  # more than one local audio output device plays at a time
     stereo: bool = False  # Settings > Audio Settings > Stereo: channels mix in stereo
     server_name: str = ""  # Settings > Advanced > Server name ("" = "Sonorium"; GET /api/info "name")
+    default_chime: str = "none"  # Settings > Audio Settings > Chimes (core/chimes.py)
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -178,6 +182,15 @@ class UpdateSettingsRequest(BaseModel):
     allow_multiple_local_outputs: Optional[bool] = None
     stereo: Optional[bool] = None
     server_name: Optional[str] = None  # trimmed; "" = "Sonorium"; at most servername.MAX_LENGTH characters
+    default_chime: Optional[str] = None  # "none", "tone:<id>" or "file:<name>"
+
+
+class ChimeToneRequest(BaseModel):
+    """A chime file made from a tone (core/chimes.py TONES)."""
+    tone: str
+    pitch: float = 0  # semitones
+    speed: float = 1.0
+    name: str = Field(min_length=1, max_length=60)  # the file's name, without .mp3
 
 
 class SpeakerSettingsResponse(BaseModel):
@@ -327,6 +340,7 @@ def _session_to_response(session, session_manager) -> SessionResponse:
         playlist=playback.get("playlist"),
         speakers_muted=session.speakers_muted,
         announcements=getattr(session, "announcements", True),
+        chime=getattr(session, "chime", "") or "",
         listening=session_manager.is_listened(session),
         outputs=_outputs_of(session, session_manager),
         recent=list(reversed(session.recent)),
@@ -521,9 +535,20 @@ def create_api_router(
                 channels.append(entry)
         return {"at": round(time.time(), 3), "channels": channels}
 
+    def _chime_or_400(value) -> Optional[str]:
+        """A channel's chime as stored (core/chimes.check), None when not sent; 400 for a bad one."""
+        if value is None:
+            return None
+        from sonorium.core import chimes
+        try:
+            return chimes.check(value)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
     @router.post("/sessions", status_code=status.HTTP_201_CREATED)
     async def create_session(request: CreateSessionRequest) -> SessionResponse:
         """Create a new session."""
+        chime = _chime_or_400(request.chime) or ""
         try:
             session = session_manager.create(
                 theme_id=request.theme_id,
@@ -537,8 +562,9 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e).strip("'\""))
         except ValueError as e:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-        if request.announcements is False:
-            session.announcements = False
+        if request.announcements is False or chime:
+            session.announcements = request.announcements is not False
+            session.chime = chime
             session_manager.state.save()
         if request.take_over is True:
             await session_manager.take_over_speakers(session)
@@ -567,6 +593,7 @@ def create_api_router(
         old_session = session_manager.get(session_id)
         old_name = old_session.name if old_session else None
 
+        chime = _chime_or_400(request.chime)
         # Changing its speakers needs "Change speakers" (a key may only have "Change theme, preset and volume")
         if old_session is not None and http is not None and not _caller(http).can("ch.speakers"):
             new_selection = request.adhoc_selection.to_selection() if request.adhoc_selection else None
@@ -592,6 +619,9 @@ def create_api_router(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         if request.announcements is not None and request.announcements != session.announcements:
             session_manager.set_announcements(session_id, request.announcements)
+        if chime is not None and chime != session.chime:
+            session.chime = chime
+            session_manager.state.save()
 
         if request.take_over is True:  # Move: its local device is taken from the channel playing one
             await session_manager.take_over_speakers(session)
@@ -1597,6 +1627,116 @@ def create_api_router(
         data = await asyncio.get_running_loop().run_in_executor(None, tone_mp3)
         return Response(content=data, media_type="audio/mpeg", headers={"Cache-Control": "no-cache"})
 
+    # --- Chimes (Settings > Audio Settings > Chimes, core/chimes.py) ---
+
+    def _chimes_list() -> dict:
+        from sonorium.core import chimes
+        return {"tones": [{"id": f"tone:{key}", "name": name} for key, (name, _) in chimes.TONES.items()],
+                "files": [{"id": f"file:{name}", "name": name} for name in chimes.files()],
+                "default": state_store.settings.default_chime}
+
+    @router.get("/chimes")
+    async def list_chimes() -> dict:
+        """The chimes to pick from: Sonorium's tones, the chime files, and the default."""
+        return _chimes_list()
+
+    @router.get("/chimes/preview")
+    async def preview_chime(chime: Optional[str] = None, tone: Optional[str] = None,
+                            pitch: float = 0, speed: float = 1.0) -> Response:
+        """A chime to hear in the browser: a chime id, or a tone with its pitch and speed (MP3)."""
+        from fastapi.responses import FileResponse
+        from sonorium.core import chimes, speaker_test_tone
+        try:
+            if tone is None and chime and chime.startswith("file:"):
+                path = chimes.file_path(chime[5:])
+                return FileResponse(path, headers={"Cache-Control": "no-cache"})
+            if tone is None:
+                tone = chimes.check(chime).partition(":")[2] if chime and chime.startswith("tone:") else None
+            if tone is None:
+                raise ValueError("Give a chime id or a tone")
+            samples = chimes.tone(tone, pitch, speed)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        data = await asyncio.to_thread(speaker_test_tone.mp3, samples, chimes.RATE)
+        return Response(content=data, media_type="audio/mpeg", headers={"Cache-Control": "no-cache"})
+
+    def _new_chime_path(name: str) -> Path:
+        """Where a new chime file goes; 400 for a bad name, 409 when one has it."""
+        from sonorium.core import chimes, theme_groups
+        try:
+            name = theme_groups.safe_upload_name(name)
+        except theme_groups.InvalidName as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        if len(name) > chimes.MAX_NAME or Path(name).suffix.lower() not in chimes.AUDIO_EXTENSIONS:
+            raise HTTPException(status_code=400, detail="A chime is an MP3, WAV, FLAC or OGG file")
+        chimes.folder().mkdir(parents=True, exist_ok=True)
+        if any(existing.lower() == name.lower() for existing in chimes.files()):
+            raise HTTPException(status_code=409, detail=f"A chime named '{name}' already exists")
+        return chimes.folder() / name
+
+    @router.post("/chimes/tone")
+    async def save_chime_tone(request: ChimeToneRequest) -> dict:
+        """Make a chime file from a tone with its own pitch and speed ("name" without .mp3)."""
+        from sonorium.core import chimes, speaker_test_tone
+        try:
+            samples = chimes.tone(request.tone, request.pitch, request.speed)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        path = _new_chime_path(request.name.strip() + ".mp3")
+        data = await asyncio.to_thread(speaker_test_tone.mp3, samples, chimes.RATE)
+        path.write_bytes(data)
+        logger.info(f"Chimes: made {path.name} from tone {request.tone!r}")
+        return {"id": f"file:{path.name}", **_chimes_list()}
+
+    @router.post("/chimes/upload")
+    async def upload_chime(request: Request) -> dict:
+        """Add a chime file (multipart "file"): checked to play before it is kept."""
+        import os
+        import tempfile
+        from sonorium import limits
+        from sonorium.core import decode
+        form = await request.form()
+        file = form.get("file")
+        if not file or not getattr(file, "filename", None):
+            raise HTTPException(status_code=400, detail="No file provided")
+        path = _new_chime_path(file.filename)
+        fd, temp = tempfile.mkstemp(prefix=".upload-", suffix=path.suffix, dir=path.parent)
+        try:
+            with os.fdopen(fd, "wb") as out:
+                await limits.copy_upload(file, out, limits.size(limits.UPLOAD))
+            try:
+                await asyncio.to_thread(decode.decode, Path(temp), 44100, 1.0)
+            except decode.DecodeError:  # its message names the temporary file: not for the caller
+                raise HTTPException(status_code=400, detail="Not a sound Sonorium can play")
+            os.chmod(temp, 0o644)  # like a chime Sonorium makes (mkstemp makes it 0600)
+            os.replace(temp, path)
+        finally:
+            try:
+                os.unlink(temp)
+            except OSError:
+                pass
+        logger.info(f"Chimes: added {path.name}")
+        return {"id": f"file:{path.name}", **_chimes_list()}
+
+    @router.delete("/chimes/{name}")
+    async def delete_chime(name: str) -> dict:
+        """Remove a chime file. The default and channels that used it go back to no chime and the default."""
+        from sonorium.core import chimes
+        try:
+            path = chimes.file_path(name)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        path.unlink()
+        chime_id = f"file:{path.name}"
+        if state_store.settings.default_chime == chime_id:
+            state_store.settings.default_chime = "none"
+        for session in session_manager.list():
+            if getattr(session, "chime", "") == chime_id:
+                session.chime = ""
+        state_store.save()
+        logger.info(f"Chimes: removed {path.name}")
+        return _chimes_list()
+
     @router.post("/speakers/{speaker_id}/test")
     async def test_speaker(speaker_id: str) -> dict:
         """Play a short, quiet chime on one speaker, then stop it."""
@@ -1888,6 +2028,7 @@ def create_api_router(
             allow_multiple_local_outputs=settings.allow_multiple_local_outputs,
             stereo=settings.stereo,
             server_name=settings.server_name,
+            default_chime=settings.default_chime,
         )
 
     @router.put("/settings")
@@ -1900,7 +2041,15 @@ def create_api_router(
                 new_name = servername.clean(request.server_name)
             except ValueError as error:
                 raise HTTPException(status_code=400, detail=str(error))
+        if request.default_chime is not None:
+            from sonorium.core import chimes
+            try:
+                new_chime = chimes.check(request.default_chime) or "none"
+            except ValueError as error:
+                raise HTTPException(status_code=400, detail=str(error))
 
+        if request.default_chime is not None:
+            settings.default_chime = new_chime
         if request.default_volume is not None:
             settings.default_volume = request.default_volume
         if request.crossfade_duration is not None:
@@ -1937,6 +2086,7 @@ def create_api_router(
             allow_multiple_local_outputs=settings.allow_multiple_local_outputs,
             stereo=settings.stereo,
             server_name=settings.server_name,
+            default_chime=settings.default_chime,
         )
 
     # --- Settings > Advanced: playback values ---

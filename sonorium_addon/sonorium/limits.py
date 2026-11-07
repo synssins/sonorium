@@ -145,6 +145,7 @@ RULES: list[tuple[re.Pattern, str, bool]] = [
     (re.compile(r"^/api/themes/[^/]+/upload$"), UPLOAD, True),
     (re.compile(r"^/api/themes/import$"), UPLOAD, True),
     (re.compile(r"^/api/plugins/upload$"), UPLOAD, True),
+    (re.compile(r"^/api/chimes/upload$"), UPLOAD, True),
     (re.compile(r"^/api/me/backups/[^/]+/themes/[^/]+/files/"), UPLOAD, True),
     # A theme backup's JSON has its own limit (core/backups.py MAX_JSON_BYTES), checked as its routes read it
     (re.compile(r"^/api/me/backups/"), UPLOAD, True),

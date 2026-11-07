@@ -287,6 +287,44 @@ class FakeTts:
         return wav_bytes()
 
 
+def test_announcement_plays_each_channels_chime_else_the_default():
+    """No chime sent: one sound per chime, on the channels that use it; "none" gets only the words."""
+    async def main():
+        svc, sessions, events = service()
+        sessions.state = SimpleNamespace(settings=SimpleNamespace(default_chime="tone:soft"))
+        for sid, chime in (("kitchen", ""), ("hall", ""), ("office", "tone:doorbell"), ("nursery", "none")):
+            sessions.add(sid, playing=True).chime = chime
+        played = []
+        real_play = svc.play
+
+        async def play(channels, source=None, **kwargs):
+            if kwargs.get("label") == "Chime":
+                played.append(sorted(channels))
+            return await real_play(channels, source, **kwargs)
+        svc.play = play
+        tts = FakeTts()
+        result = await m.announce.announce(svc, tts, ["kitchen", "hall", "office", "nursery"], text="Hi")
+        assert sorted(played) == [["hall", "kitchen"], ["office"]]
+        assert set(result["chime"]["channels"]) == {"kitchen", "hall", "office"}
+        assert sorted(result["played"]) == ["hall", "kitchen", "nursery", "office"] and tts.said == ["Hi"]
+        played.clear()
+        await m.announce.announce(svc, tts, ["kitchen", "office"], text="Hi", sound=False)
+        assert played == []  # false: no chime anywhere
+        await svc.wait_idle()
+        for ch in sessions.channels.values():
+            ch.stop()  # a channel left running disturbs later tests' streams
+    asyncio.run(main())
+
+
+def test_announcement_with_no_text_and_no_chime_is_refused():
+    async def main():
+        svc, sessions, events = service()
+        sessions.add("kitchen")  # stopped; no chime, and no default (no settings)
+        with pytest.raises(m.overlay_service.OverlayError):
+            await m.announce.announce(svc, FakeTts(), ["kitchen"])
+    asyncio.run(main())
+
+
 def test_announcement_starts_a_stopped_channel_plays_then_stops_it():
     async def main():
         svc, sessions, events = service()

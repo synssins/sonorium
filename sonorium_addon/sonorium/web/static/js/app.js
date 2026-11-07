@@ -43,6 +43,7 @@ async function init() {
             loadEnabledSpeakers(),
             loadChannels(),
             loadAudioSettings(),
+            loadChimes(),
             loadVersion(),
             loadPlugins(),
             loadConnectionSettings(),
@@ -372,7 +373,11 @@ function showView(viewName) {
         renderSettingsGroupsList();
     }
     if (viewName === 'settings-connection') renderConnectionSettings();
-    if (viewName === 'settings-audio') renderAudioSettings();
+    if (viewName === 'settings-audio') {
+        renderAudioSettings();
+        renderChimeFiles();
+        loadChimes().then(() => { renderAudioSettings(); renderChimeFiles(); });
+    }
     if (viewName === 'settings-speakers') {
         renderSettingsSpeakerTree();
         // Plugins' output types list their devices again
@@ -1312,6 +1317,7 @@ function openNewSessionModal() {
     document.getElementById('session-volume').value = startVolume;
     document.getElementById('volume-display').textContent = `${startVolume}%`;
     document.getElementById('session-announcements').checked = true;
+    fillChannelChime('');
 
     selectedTheme = null;
     selectedSpeakerGroupId = null;
@@ -1348,6 +1354,7 @@ function editSession(sessionId) {
     document.getElementById('session-volume').value = session.volume;
     document.getElementById('volume-display').textContent = `${session.volume}%`;
     document.getElementById('session-announcements').checked = session.announcements !== false;
+    fillChannelChime(session.chime || '');
 
     selectedTheme = session.theme_id;
     selectedSpeakerGroupId = session.speaker_group_id || null;
@@ -1435,7 +1442,8 @@ async function saveSession() {
         return;
     }
 
-    const data = { volume: volume, announcements: document.getElementById('session-announcements').checked };
+    const data = { volume: volume, announcements: document.getElementById('session-announcements').checked,
+                   chime: document.getElementById('session-chime').value };
     if (!playlistMode) {
         data.theme_id = selectedTheme;
         // Only a preset picked here: saving must not restart a running sequence
@@ -5721,7 +5729,7 @@ function tpDrop(event) {
 
 // Audio Settings
 // --- Settings > Audio: sliders change a draft; Save settings / Cancel ---
-const AUDIO_DEFAULTS = { crossfade_duration: 3.0, default_volume: 60, master_gain: 60, stereo: false };
+const AUDIO_DEFAULTS = { crossfade_duration: 3.0, default_volume: 60, master_gain: 60, stereo: false, default_chime: 'none' };
 const AUDIO_FIELDS = [
     { key: 'crossfade_duration', id: 'settings-crossfade', label: 'Crossfade', short: 'Crossfade', tip: 'Fade when changing themes', tipShort: 'Fade between themes',
       min: 0, max: 10, step: 0.5, fmt: v => `${Number(v).toFixed(1)} s`, num: v => parseFloat(v) },
@@ -5730,7 +5738,9 @@ const AUDIO_FIELDS = [
     { key: 'master_gain', id: 'settings-master-gain', label: 'Master output gain', short: 'Gain', tip: 'Multiplier for every stream', tipShort: 'All streams',
       min: 0, max: 100, step: 5, fmt: v => `${v}%`, num: v => parseInt(v, 10) },
     { key: 'stereo', id: 'settings-stereo', label: 'Stereo', short: 'Stereo', tip: 'Separate left and right for every stream', tipShort: 'Left and right',
-      type: 'switch', fmt: v => (v ? 'On' : 'Off'), num: v => !!v }
+      type: 'switch', fmt: v => (v ? 'On' : 'Off'), num: v => !!v },
+    { key: 'default_chime', id: 'settings-default-chime', label: 'Default chime', short: 'Chime', tip: 'Plays before an announcement that brings no chime of its own, on channels set to Default', tipShort: 'Announcements',
+      type: 'chime', fmt: v => chimeName(v), num: v => v }
 ];
 let audioSettings = { ...AUDIO_DEFAULTS };   // saved
 let audioDraft = { ...AUDIO_DEFAULTS };      // on screen
@@ -5743,7 +5753,8 @@ async function loadAudioSettings() {
                 crossfade_duration: result.crossfade_duration ?? AUDIO_DEFAULTS.crossfade_duration,
                 default_volume: result.default_volume ?? AUDIO_DEFAULTS.default_volume,
                 master_gain: result.master_gain ?? AUDIO_DEFAULTS.master_gain,
-                stereo: !!(result.stereo ?? AUDIO_DEFAULTS.stereo)
+                stereo: !!(result.stereo ?? AUDIO_DEFAULTS.stereo),
+                default_chime: result.default_chime || AUDIO_DEFAULTS.default_chime
             };
             audioDraft = { ...audioSettings };
             allowMultipleLocal = !!result.allow_multiple_local_outputs;
@@ -5764,7 +5775,9 @@ function renderAudioSettings() {
     rows.innerHTML = AUDIO_FIELDS.map(f => `
         <div class="sp-srow" data-key="${f.key}">
             <span class="sp-slab"><label for="${f.id}">${f.label}</label><span class="sp-tip" title="${f.tip}" aria-label="${f.tip}">${SP_ICON_INFO}</span><span class="sp-mod-dot sp-ph" title="Changed" hidden></span></span>
-            ${f.type === 'switch'
+            ${f.type === 'chime'
+                ? `<div class="sp-sl sp-chsel"><select class="sp-inp sm" id="${f.id}" onchange="onAudioInput('${f.key}', this.value)">${chimeOptions(audioDraft[f.key])}</select><button type="button" class="chev-btn chime-play" title="Play" aria-label="Play the default chime" onclick="previewChime(audioDraft.default_chime, this)">${CH_ICON_PLAY}</button></div>`
+                : f.type === 'switch'
                 ? `<div class="sp-sl"><label class="toggle-switch"><input type="checkbox" id="${f.id}" ${audioDraft[f.key] ? 'checked' : ''} onchange="onAudioInput('${f.key}', this.checked)"><span class="toggle-slider"></span></label></div>`
                 : `<div class="track-slider-wrapper sp-sl"><input type="range" class="track-slider" id="${f.id}" min="${f.min}" max="${f.max}" step="${f.step}" value="${audioDraft[f.key]}" oninput="onAudioInput('${f.key}', this.value)"></div>`}
             <span class="sp-sval"></span>
@@ -5784,7 +5797,7 @@ function updateAudioState() {
     for (const f of AUDIO_FIELDS) {
         const row = document.querySelector(`#audio-rows .sp-srow[data-key="${f.key}"]`);
         if (!row) continue;
-        row.querySelector('.sp-sval').textContent = f.fmt(audioDraft[f.key]);
+        row.querySelector('.sp-sval').textContent = f.type === 'chime' ? '' : f.fmt(audioDraft[f.key]);  // the picker shows it
         const changed = audioDraft[f.key] !== audioSettings[f.key];
         row.querySelectorAll('.sp-mod-dot').forEach(dot => { dot.hidden = !changed; });
     }
@@ -5830,6 +5843,186 @@ function askResetAudio() {
         renderAudioSettings();
         showToast('Defaults restored · not saved yet', 'success');
     });
+}
+
+// --- Chimes (core/chimes.py): the Default chime row above, the Chime files card, a channel's Chime ---
+let chimeList = { tones: [], files: [], default: 'none' };
+let chimeAudio = null;
+let chimeAudioButton = null;
+
+async function loadChimes() {
+    try {
+        chimeList = await api('GET', '/chimes');
+    } catch (error) {
+        console.log('Could not load chimes');
+    }
+    return chimeList;
+}
+
+function chimeName(id) {
+    if (!id || id === 'none') return 'None';
+    const known = [...chimeList.tones, ...chimeList.files].find(c => c.id === id);
+    const name = known ? known.name : id.replace(/^(tone|file):/, '');
+    if (!id.startsWith('file:')) return name;
+    // A file by its name without the extension, unless another file has the same name
+    const stem = name.replace(/\.[^.]+$/, '');
+    return chimeList.files.filter(c => c.name.replace(/\.[^.]+$/, '') === stem).length > 1 ? name : stem;
+}
+
+// <option>s: None, Sonorium's tones, then the chime files; `first` goes on top (a channel's Default)
+function chimeOptions(selected, first = '') {
+    const opt = c => `<option value="${escapeHtml(c.id)}"${c.id === selected ? ' selected' : ''}>${escapeHtml(chimeName(c.id))}</option>`;
+    const missing = selected && selected !== 'none' && ![...chimeList.tones, ...chimeList.files].some(c => c.id === selected)
+        ? `<option value="${escapeHtml(selected)}" selected>${escapeHtml(chimeName(selected))}</option>` : '';
+    return first + `<option value="none"${selected === 'none' ? ' selected' : ''}>None</option>` + missing
+        + `<optgroup label="Tones">${chimeList.tones.map(opt).join('')}</optgroup>`
+        + (chimeList.files.length ? `<optgroup label="Files">${chimeList.files.map(opt).join('')}</optgroup>` : '');
+}
+
+function fillChannelChime(selected) {
+    const select = document.getElementById('session-chime');
+    if (!select) return;
+    const fallback = audioSettings.default_chime || 'none';
+    select.innerHTML = chimeOptions(selected, `<option value=""${selected ? '' : ' selected'}>Default (${escapeHtml(chimeName(fallback))})</option>`);
+}
+
+function stopChimePreview() {
+    if (chimeAudio) chimeAudio.pause();
+    if (chimeAudioButton) {
+        chimeAudioButton.innerHTML = chimeAudioButton.dataset.label || CH_ICON_PLAY;
+        chimeAudioButton.classList.remove('playing');
+    }
+    chimeAudio = null;
+    chimeAudioButton = null;
+}
+
+// Play a chime here in the browser; the same button again stops it
+function previewChimeUrl(url, button) {
+    const again = chimeAudioButton === button;
+    stopChimePreview();
+    if (again) return;
+    chimeAudio = new Audio(url);
+    chimeAudioButton = button;
+    button.dataset.label = button.innerHTML;
+    button.innerHTML = button.classList.contains('chev-btn') ? CH_ICON_STOP : 'Stop';
+    button.classList.add('playing');
+    chimeAudio.onended = stopChimePreview;
+    chimeAudio.play().catch(() => { stopChimePreview(); showToast('Could not play the chime', 'error'); });
+}
+
+function previewChime(id, button) {
+    if (!id || id === 'none') { showToast('No chime to play', 'info'); return; }
+    previewChimeUrl(`${BASE_PATH}/api/chimes/preview?chime=${encodeURIComponent(id)}`, button);
+}
+
+function renderChimeFiles() {
+    const list = document.getElementById('chime-files');
+    if (!list) return;
+    list.innerHTML = chimeList.files.length
+        ? chimeList.files.map(c => `
+            <div class="sp-lrow chf">
+                <button type="button" class="chev-btn" title="Play" aria-label="Play ${escapeHtml(c.name)}" onclick="previewChime(${spArg(c.id)}, this)">${CH_ICON_PLAY}</button>
+                <span class="trk-name" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</span>
+                <button type="button" class="chev-btn" title="Delete" aria-label="Delete ${escapeHtml(c.name)}" onclick="askDeleteChime(${spArg(c.name)}, this)">${SP_ICON_TRASH}</button>
+            </div>`).join('')
+        : `<div class="chf-empty">No chime files yet. Upload an MP3, WAV, FLAC or OGG file, or make one from a tone.</div>`;
+    const tones = document.getElementById('chm-tone');
+    if (tones && !tones.options.length) {
+        tones.innerHTML = chimeList.tones.map(t => `<option value="${escapeHtml(t.id.slice(5))}">${escapeHtml(t.name)}</option>`).join('');
+    }
+}
+
+function chimesChanged(result) {
+    chimeList = result;
+    if (audioDraft.default_chime !== 'none' && ![...result.tones, ...result.files].some(c => c.id === audioDraft.default_chime)) {
+        audioDraft.default_chime = audioSettings.default_chime = result.default;  // its file was deleted
+    }
+    renderAudioSettings();
+    renderChimeFiles();
+}
+
+async function uploadChime(input) {
+    const file = input.files && input.files[0];
+    input.value = '';
+    if (!file) return;
+    const formData = new FormData();
+    formData.append('file', file);
+    try {
+        const response = await fetch(`${BASE_PATH}/api/chimes/upload`, { method: 'POST', body: formData });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(result.detail || 'Upload failed');
+        chimesChanged(result);
+        showToast(`Added ${file.name}`, 'success');
+    } catch (error) {
+        showToast(error.message || 'Upload failed', 'error');
+    }
+}
+
+function askDeleteChime(name, button) {
+    const used = audioSettings.default_chime === `file:${name}`;
+    spConfirm('chime-delete', button, {
+        title: `Delete ${name}?`,
+        sub: used ? 'It is the default chime: announcements play no chime until you pick another.'
+                  : 'Channels that use it go back to the default chime.',
+        ok: 'Delete',
+        danger: true
+    }, async () => {
+        try {
+            chimesChanged(await api('DELETE', `/chimes/${encodeURIComponent(name)}`));
+            showToast(`Deleted ${name}`, 'success');
+        } catch (error) {
+            showToast(error.message || 'Could not delete the chime', 'error');
+        }
+    });
+}
+
+function toggleChimeMaker() {
+    const maker = document.getElementById('chime-maker');
+    const button = document.getElementById('chime-make-btn');
+    maker.hidden = !maker.hidden;
+    button.setAttribute('aria-expanded', String(!maker.hidden));
+    if (!maker.hidden) {
+        renderChimeFiles();
+        chimeMakerChanged();
+        document.getElementById('chm-tone').focus();
+    } else {
+        stopChimePreview();
+    }
+}
+
+function chimeMakerValues() {
+    return {
+        tone: document.getElementById('chm-tone').value,
+        pitch: parseInt(document.getElementById('chm-pitch').value, 10),
+        speed: parseFloat(document.getElementById('chm-speed').value),
+        name: document.getElementById('chm-name').value.trim()
+    };
+}
+
+function chimeMakerChanged() {
+    const v = chimeMakerValues();
+    document.getElementById('chm-pitch-val').textContent = v.pitch > 0 ? `+${v.pitch}` : String(v.pitch);
+    document.getElementById('chm-speed-val').textContent = `${v.speed.toFixed(1)}×`;
+    document.getElementById('chm-save').disabled = !v.name || !v.tone;
+    if (chimeAudioButton && chimeAudioButton.id === 'chm-preview') stopChimePreview();  // what plays is what is set
+}
+
+function previewChimeMaker(button) {
+    const v = chimeMakerValues();
+    previewChimeUrl(`${BASE_PATH}/api/chimes/preview?tone=${encodeURIComponent(v.tone)}&pitch=${v.pitch}&speed=${v.speed}`, button);
+}
+
+async function saveChimeMaker() {
+    const v = chimeMakerValues();
+    try {
+        const result = await api('POST', '/chimes/tone', v);
+        chimesChanged(result);
+        document.getElementById('chm-name').value = '';
+        chimeMakerChanged();
+        showToast(`Saved ${result.id.slice(5)}`, 'success');
+    } catch (error) {
+        showToast(error.message || 'Could not save the chime', 'error');
+    }
 }
 
 // Settings - Connection (standalone/Docker only; the HA add-on returns 404)
@@ -11017,11 +11210,17 @@ const PAGE_HELP = {
         ${helpTerm('Default volume', 'the starting volume of a new channel.')}
         ${helpTerm('Master output gain', 'scales the volume of every stream.')}
         ${helpTerm('Stereo', 'keeps left and right apart on every stream (a mono file plays in the middle). Off: every stream is mono. Turned on, a channel plays stereo from the next theme it starts.')}
+        ${helpTerm('Default chime', 'plays before an announcement that brings no chime of its own, on every channel whose Chime is Default. None: no chime. The play button plays it here.')}
         ${helpTerm('Default', 'the value out of the box. A dot marks a change that is not saved yet.')}
         <h4>Top bar</h4>
         ${helpTerm('Save settings', 'saves the changes.')}
         ${helpTerm('Cancel', 'puts back the saved values.')}
-        ${helpTerm('⋯ › Reset to defaults', 'moves every slider back to its default. Save settings keeps it.')}` },
+        ${helpTerm('⋯ › Reset to defaults', 'moves every slider back to its default. Save settings keeps it.')}
+        <h4>Chime files</h4>
+        ${helpTerm('Upload', 'adds an MP3, WAV, FLAC or OGG file as a chime.')}
+        ${helpTerm('Make from a tone', 'makes a chime from one of Sonorium\'s tones, with its own pitch and speed. Preview plays it here; Save chime adds it to the list.')}
+        ${helpTerm('Delete', 'removes the file. Channels that used it go back to the default chime.')}
+        <p>A channel picks its own chime in its Edit dialog.</p>` },
 
     'settings-spaces': { title: 'Floors & Areas', html: `
         <p>Floors and areas say where your speakers are. Speaker lists across Sonorium are grouped by them.</p>

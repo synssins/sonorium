@@ -12,7 +12,8 @@ announcement and it plays it:
     await announce(overlay, tts, ["kitchen"], text="Dinner is ready",
                    sound="https://.../chime.mp3", volume=90)
 
-1. A chime (a sound URL, or the bytes of a sound), then
+1. A chime (a sound URL, the bytes of a sound, or a chime id from
+   core/chimes.py; none sent: each channel's chime, or the default one), then
 2. the text, spoken by a text to speech provider (plugins/tts.py),
 both over the channels' mix: the mix ducks, they play one after the other,
 the mix comes back. A channel that is stopped is started for the time they
@@ -159,8 +160,6 @@ async def announce(overlay, tts, channels, *, text: Optional[str] = None, sound=
     text = text.strip() if isinstance(text, str) else None
     if text and len(text) > MAX_TEXT:
         raise OverlayError(f"'text' is too long (at most {MAX_TEXT} characters)")
-    if not text and sound is None:
-        raise OverlayError("An announcement needs text to speak or a sound to play")
     sessions = getattr(overlay, "sessions", None)
     find = getattr(sessions, "get_any", None) or getattr(sessions, "get", None)
     off = [c for c in channels if find is not None and find(str(c)) is not None
@@ -173,16 +172,24 @@ async def announce(overlay, tts, channels, *, text: Optional[str] = None, sound=
     channels = [c for c in channels if c not in off]
     if not channels:
         return result  # nothing to play: no speech is made either
+    chimes_to_play = _chimes(sessions, find, channels, sound)
+    if not text and not chimes_to_play:
+        raise OverlayError("An announcement needs text to speak or a sound to play")
     if text and not tts_ready(tts, provider):
-        if sound is None:
+        if not chimes_to_play:
             raise TtsUnavailable(NO_TTS + ", or send a chime url instead")
         result["notice"] = "Only the chime played: " + NO_TTS[0].lower() + NO_TTS[1:]
         logger.info(f"Announcement ({origin}): no text to speech, only the chime plays")
         text = None
     common = dict(volume=volume, duck=duck, policy="queue", priority=priority, start_stopped=start_stopped,
                   override=override, origin=origin, announcement=True)
-    if sound is not None:
-        result["chime"] = await overlay.play(channels, sound, label=label or "Chime", **common)
+    for group, args in chimes_to_play:
+        played = await overlay.play(group, label=label or "Chime", **args, **common)
+        if result["chime"] is None:
+            result["chime"] = played
+        else:  # one result for every group: the first's sound id, every channel's state
+            result["chime"] = {**result["chime"], "channels": {**result["chime"].get("channels", {}),
+                                                               **(played.get("channels") or {})}}
     if text:
         try:
             audio = await tts.speak(text, provider, **({"language": language} if language else {}))
@@ -200,6 +207,34 @@ async def announce(overlay, tts, channels, *, text: Optional[str] = None, sound=
     result["played"] = [c for c, s in result["channels"].items() if s.get("state") != "skipped"]
     logger.info(f"Announcement ({origin}): {label or (text or 'chime')[:60]!r} on {len(result['played'])} channel(s)")
     return result
+
+
+def _chimes(sessions, find, channels, sound) -> list:
+    """[(channel ids, overlay.play() arguments)]: the chime sent for every channel, else each channel's own."""
+    from sonorium.core import chimes
+    if sound is False:
+        return []
+    if isinstance(sound, str) and (sound == "none" or sound.startswith(("tone:", "file:"))):
+        args = chimes.play_args(sound)
+        return [(channels, args)] if args else []
+    if sound is not None:
+        return [(channels, {"source": sound})]
+    settings = getattr(getattr(sessions, "state", None), "settings", None)
+    default = getattr(settings, "default_chime", "") or ""
+    groups: dict = {}
+    for channel in channels:
+        session = find(str(channel)) if find is not None else None
+        groups.setdefault(chimes.channel_chime(session, default), []).append(channel)
+    out = []
+    for chime, group in groups.items():
+        try:
+            args = chimes.play_args(chime)
+        except ValueError as e:  # a chime file removed since it was picked: the words still play
+            logger.warning(f"Announcement: chime {chime!r} not played: {e}")
+            continue
+        if args:
+            out.append((group, args))
+    return out
 
 
 async def announce_to(overlay, tts, channels, *, duck=True, origin: str = "sonorium", **options) -> dict:

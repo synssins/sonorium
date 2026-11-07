@@ -16,11 +16,11 @@ NOTES = ((523.25, 0.0), (659.25, 0.9))
 PEAK = 0.3  # of full scale: quiet even before the speaker volume is lowered
 
 
-def tone_samples(duration: float = DURATION, rate: int = SAMPLE_RATE) -> np.ndarray:
-    """Mono int16 samples of the chime."""
+def tone_samples(duration: float = DURATION, rate: int = SAMPLE_RATE, notes=NOTES) -> np.ndarray:
+    """Mono int16 samples of the chime: (frequency, start second) notes, each a soft bell."""
     t = np.arange(int(duration * rate)) / rate
     signal = np.zeros_like(t)
-    for freq, start in NOTES:
+    for freq, start in notes:
         local = t - start
         active = local >= 0
         attack = np.clip(local / 0.03, 0.0, 1.0)
@@ -37,19 +37,23 @@ def tone_samples(duration: float = DURATION, rate: int = SAMPLE_RATE) -> np.ndar
 @lru_cache(maxsize=1)
 def tone_mp3() -> bytes:
     """The chime as an MP3 file (built on first use)."""
+    return mp3(tone_samples())
+
+
+def mp3(samples: np.ndarray, rate: int = SAMPLE_RATE) -> bytes:
+    """Mono int16 samples as an MP3 file."""
     import av
 
     buffer = io.BytesIO()
     with av.open(buffer, mode="w", format="mp3") as container:
-        stream = container.add_stream("mp3", rate=SAMPLE_RATE)
+        stream = container.add_stream("mp3", rate=rate)
         stream.bit_rate = 128_000
         stream.layout = "mono"
-        samples = tone_samples()
         frame_size = 1152
         for start in range(0, len(samples), frame_size):
             chunk = samples[start:start + frame_size]
             frame = av.AudioFrame.from_ndarray(chunk.reshape(1, -1), format="s16", layout="mono")
-            frame.rate = SAMPLE_RATE
+            frame.rate = rate
             frame.pts = start
             for packet in stream.encode(frame):
                 container.mux(packet)

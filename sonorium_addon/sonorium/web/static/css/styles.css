@@ -3193,6 +3193,28 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .sp-sdef { font-size: .75rem; color: var(--text-muted); white-space: nowrap; }
 .sp-ui .sp-ph { display: none; }
 
+/* Audio: the default chime row (a picker and a play button in the value cell) */
+.sp-chsel { display: flex; align-items: center; gap: .375rem; min-width: 0; grid-column: span 2; }
+.sp-srow[data-key="default_chime"] .sp-sval { display: none; }  /* the picker shows the value */
+.sp-chsel select { flex: 1 1 auto; }
+/* Chime files: a list, and the tone maker that opens above it */
+.sp-chimes { margin-top: var(--box-gap); }
+.sp-chimes .sp-head { flex-wrap: wrap; }
+.chm-acts { display: flex; gap: .5rem; margin-left: auto; }
+.chm { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .875rem 1rem; margin-bottom: 1rem; padding: .875rem; background: var(--bg-secondary); border-radius: .5rem; }
+.chm[hidden] { display: none; }
+.chm output { margin-left: .25rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; }
+.chm .track-slider { width: 100%; }
+.chm-btns { display: flex; align-items: flex-end; justify-content: flex-end; gap: .5rem; }
+.chf { display: grid; grid-template-columns: 28px minmax(0, 1fr) 28px; column-gap: .625rem; align-items: center; }
+.chf .trk-name { font-weight: 500; }
+.chf-empty { padding: 1rem .75rem; font-size: .8125rem; color: var(--text-muted); }
+.sp-ui .chev-btn:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+@media (max-width: 560px) {
+    .chm { grid-template-columns: minmax(0, 1fr); }
+    .chm-acts { margin-left: 0; }
+}
+
 /* Speakers */
 .sps-tb { display: flex; flex-wrap: wrap; align-items: center; gap: .625rem; min-width: 0; padding-bottom: .5rem; }
 .sps-tb .sp-search { flex: 0 1 240px; }

@@ -306,6 +306,11 @@ PUT     /api/spaces/areas/{area_id}                     st.change
 DELETE  /api/spaces/floors/{floor_id}                   st.change
 DELETE  /api/spaces/areas/{area_id}                     st.change
 
+GET     /api/chimes                                     ch.view
+GET     /api/chimes/preview                             ch.view
+POST    /api/chimes/tone                                st.change
+POST    /api/chimes/upload                              st.change
+DELETE  /api/chimes/{name}                              st.change
 GET     /api/settings                                   ch.view
 PUT     /api/settings                                   st.change
 GET     /api/settings/playback-values                   ch.view

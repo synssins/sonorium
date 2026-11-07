@@ -62,6 +62,7 @@ class MQTTDiscoveryTests(unittest.IsolatedAsyncioTestCase):
             "mqtt_manager": AsyncMock(),
             "logger": Mock(),
             "_session_to_response": lambda session, manager: session,
+            "_chime_or_400": lambda value: None,  # the channel's chime isn't what these tests check
         }
         exec(compile(ast.fix_missing_locations(module), str(path), "exec"), namespace)
         return namespace

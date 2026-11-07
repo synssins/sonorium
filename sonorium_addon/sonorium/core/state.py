@@ -88,6 +88,10 @@ class SonoriumSettings:
     # centred). Off: mono, as Sonorium has always played (decoders.set_default_channels)
     stereo: bool = False
 
+    # Settings > Audio Settings > Chimes: what an announcement plays first when it
+    # sends no chime and its channel has none (core/chimes.py; "none" = nothing)
+    default_chime: str = "none"
+
     # (default_cycle_interval / default_cycle_randomize were removed with theme
     # cycling; from_dict drops them from older state files)
 
@@ -348,6 +352,8 @@ class Session:
     speakers_muted: bool = False
     # Announcements play on this channel (off: none plays, from any rule, Home Assistant, MQTT, the API or a plugin)
     announcements: bool = True
+    # The chime announcements play first here (core/chimes.py; "" = Settings' default)
+    chime: str = ""
 
     # Theme cycling configuration (retired: read from old state files for
     # the one-time conversion to a playlist, never saved)

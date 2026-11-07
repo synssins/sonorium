@@ -437,6 +437,7 @@ turn it off for a nap and on again after.
 | `channels` | A channel's name or id, a list of them, or `"all"`. Names are not case-sensitive | `"Kitchen"`, `["Kitchen", "Office"]` |
 | `text` | Words to speak, with Home Assistant's text to speech | `"Dinner is ready"` |
 | `url` | A sound to play first (an http or https link to MP3, WAV, OGG and more) | `"http://192.168.1.10/ding.mp3"` |
+| `chime` | A chime to play first instead of the channel's own: a chime file's name (**Settings → Audio Settings**, Chime files), one of Sonorium's tones, a file in Sonorium's audio folder, or `false` for none. Left out: each channel plays its own chime, or the default chime | `"Front door.mp3"`, `"tone:doorbell"` |
 | `volume` | 0 to 200, where 100 is the sound as recorded | `80` |
 | `duck` | How much quieter the channel gets, in dB, or `false` to not duck. Left out: **Settings → Advanced** | `18` |
 

@@ -168,14 +168,18 @@ class Announcements:
     async def announce(self, channels, data: dict) -> None:
         from sonorium.core.announce import announce_to
         text = data.get("text", data.get("message"))
-        url = data.get("url", data.get("chime"))
+        url = data.get("url")
         if url is not None and (not isinstance(url, str) or not url.lower().startswith(("http://", "https://"))):
             logger.warning("Announcements: 'url' must be an http(s) URL")
-            url = None
+            url = False  # a bad chime: none, not the default
+        elif url is None and data.get("chime") is not None:
+            from sonorium.core import chimes
+            try:
+                url = chimes.from_request(data["chime"])
+            except ValueError as e:
+                logger.warning(f"Announcements: {e}")
+                url = False
         text = text.strip() if isinstance(text, str) and text.strip() else None
-        if text is None and url is None:
-            logger.warning("Announcements: nothing to announce (send 'text', a chime 'url', or both)")
-            return
         volume = data.get("volume", VOLUME)
         if isinstance(volume, bool) or not isinstance(volume, (int, float)):
             volume = VOLUME

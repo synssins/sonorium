@@ -709,6 +709,29 @@ Example:
                             <div class="sp-srow sp-shead"><span>Setting</span><span class="sp-shead-val">Value</span><span>Default</span><span></span></div>
                             <div id="audio-rows"></div>
                         </section>
+                        <!-- Chime files: picked as the default chime above or on a channel (core/chimes.py) -->
+                        <section class="sp-card sp-chimes" aria-labelledby="chimes-title">
+                            <div class="sp-head">
+                                <h3 id="chimes-title">Chime files</h3>
+                                <span class="sp-note">For announcements: the default, or one channel's</span>
+                                <span class="chm-acts">
+                                    <button type="button" class="btn btn-secondary btn-sm" id="chime-make-btn" aria-expanded="false" aria-controls="chime-maker" onclick="toggleChimeMaker()">Make from a tone</button>
+                                    <button type="button" class="btn btn-secondary btn-sm" onclick="document.getElementById('chime-upload').click()">Upload</button>
+                                    <input type="file" id="chime-upload" accept=".mp3,.wav,.flac,.ogg" hidden onchange="uploadChime(this)">
+                                </span>
+                            </div>
+                            <div id="chime-maker" class="chm" hidden>
+                                <div class="sp-fld"><label class="sp-fld-label" for="chm-tone">Tone</label><select id="chm-tone" class="sp-inp sm" onchange="chimeMakerChanged()"></select></div>
+                                <div class="sp-fld"><label class="sp-fld-label" for="chm-pitch">Pitch <output id="chm-pitch-val" for="chm-pitch">0</output></label><input type="range" class="track-slider" id="chm-pitch" min="-12" max="12" step="1" value="0" oninput="chimeMakerChanged()"></div>
+                                <div class="sp-fld"><label class="sp-fld-label" for="chm-speed">Speed <output id="chm-speed-val" for="chm-speed">1.0×</output></label><input type="range" class="track-slider" id="chm-speed" min="0.5" max="2" step="0.1" value="1" oninput="chimeMakerChanged()"></div>
+                                <div class="sp-fld chm-name"><label class="sp-fld-label" for="chm-name">Name</label><input type="text" id="chm-name" class="sp-inp sm" maxlength="60" placeholder="Front door" oninput="chimeMakerChanged()"></div>
+                                <div class="chm-btns">
+                                    <button type="button" class="btn btn-secondary btn-sm" id="chm-preview" onclick="previewChimeMaker(this)">Preview</button>
+                                    <button type="button" class="btn btn-primary btn-sm" id="chm-save" disabled onclick="saveChimeMaker()">Save chime</button>
+                                </div>
+                            </div>
+                            <div id="chime-files" class="sp-lbody" aria-live="polite"></div>
+                        </section>
                     </div>
                 </div>
             </div>
@@ -905,6 +928,10 @@ Example:
                     <div class="session-field ch-switch">
                         <label for="session-announcements">Announcements</label>
                         <label class="toggle-switch"><input type="checkbox" id="session-announcements" checked><span class="toggle-slider"></span></label>
+                    </div>
+                    <div class="session-field">
+                        <label for="session-chime">Chime</label>
+                        <select id="session-chime"></select>
                     </div>
                     <!-- Plugins' settings for this channel: one collapsed group each, saved with Save -->
                     <div class="ui-zone ui-settings" id="ch-ui-settings" data-ui-target="channel.editor" data-ui-spot="settings" data-ui-commit></div>

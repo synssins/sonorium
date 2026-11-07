@@ -973,8 +973,10 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
         """
         Other systems announce through Sonorium (a key with Make announcements, or signed in):
         {"channels": "Kitchen" | ["Kitchen", "office"] | "all", "text": "Dinner is ready",
-         "url": "https://.../chime.mp3", "volume": 0-200, "duck": true | false | dB | {db, attack, release},
-         "provider", "language", "start_stopped"}. Only channels and text (or url) are needed.
+         "url": "https://.../chime.mp3", "chime": a chime (core/chimes.py: "tone:<id>", a chime file's name,
+         a path in the audio folder, a URL) or false, "volume": 0-200,
+         "duck": true | false | dB | {db, attack, release}, "provider", "language", "start_stopped"}.
+         Only channels are needed: with no url or chime, each channel plays its own chime (or the default).
         A chime and/or spoken text, ducking the channels' mix (a stopped channel is started for it).
         Answers which channels play it and which skipped it (Announcements off).
         409 while Announcements are switched off in Settings > Advanced.
@@ -984,13 +986,17 @@ def _add_audio_routes(router, plugin_manager, host, _host, _plugin, _json) -> No
         await _guard(check_on)
         body = await _json(request)
         text = body.get("text", body.get("message"))
-        url = body.get("url", body.get("chime"))
+        url = body.get("url")
         if text is not None and not isinstance(text, str):
             raise HTTPException(status_code=400, detail="'text' must be text")
         if url is not None and (not isinstance(url, str) or not url.lower().startswith(("http://", "https://"))):
             raise HTTPException(status_code=400, detail="'url' must be an http(s) URL")
-        if not (text or "").strip() and not url:
-            raise HTTPException(status_code=400, detail="Send 'text' to speak, a chime 'url', or both")
+        if url is None and body.get("chime") is not None:
+            from sonorium.core import chimes
+            try:
+                url = chimes.from_request(body["chime"])
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e))
         overlay = _svc("overlay", "Playing sounds")
         caller = principal_of(request)
         wanted = body.get("channels")
