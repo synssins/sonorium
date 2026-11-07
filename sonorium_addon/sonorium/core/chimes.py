@@ -134,7 +134,7 @@ def from_request(value):
         return file_path(value)
     root = paths.audio_dir().resolve()
     try:
-        path = Path(value).resolve()
+        path = (root / value).resolve()  # a relative path is inside the audio folder; an absolute one stays as is
     except (OSError, RuntimeError, ValueError):
         raise ValueError("Not a sound in Sonorium's audio folder")
     if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() not in AUDIO_EXTENSIONS:

@@ -3205,7 +3205,7 @@ select.sp-inp { padding-right: .375rem; cursor: pointer; }
 .chm[hidden] { display: none; }
 .chm output { margin-left: .25rem; color: var(--text-secondary); font-variant-numeric: tabular-nums; text-transform: none; letter-spacing: 0; }
 .chm .track-slider { width: 100%; }
-.chm-btns { display: flex; align-items: flex-end; justify-content: flex-end; gap: .5rem; }
+.chm-btns { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: .5rem; }
 .chf { display: grid; grid-template-columns: 28px minmax(0, 1fr) 28px; column-gap: .625rem; align-items: center; }
 .chf .trk-name { font-weight: 500; }
 .chf-empty { padding: 1rem .75rem; font-size: .8125rem; color: var(--text-muted); }

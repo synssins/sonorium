@@ -79,13 +79,15 @@ def test_what_an_announcement_may_send(root, tmp_path_factory):
     (theme / "drop.wav").write_bytes(b"x")
     outside = tmp_path_factory.mktemp("elsewhere") / "secret.mp3"
     outside.write_bytes(b"x")
+    os.symlink(outside, theme / "link.mp3")
     assert m.chimes.from_request(False) is False and m.chimes.from_request("none") is False
     assert m.chimes.from_request("https://h/a.mp3") == "https://h/a.mp3"
     assert m.chimes.from_request("tone:soft") == "tone:soft"
     assert m.chimes.from_request("ding.mp3") == root / ".chimes" / "ding.mp3"
     assert m.chimes.from_request("file:ding.mp3") == root / ".chimes" / "ding.mp3"
     assert m.chimes.from_request(str(theme / "drop.wav")) == (theme / "drop.wav").resolve()
-    for bad in (str(outside), str(root / "Rain" / ".." / ".." / outside.name), str(root / ".chimes" / "notes.txt"),
+    assert m.chimes.from_request("Rain/drop.wav") == (theme / "drop.wav").resolve()
+    for bad in (str(outside), str(theme / "link.mp3"), "../" + outside.name, str(root / "Rain" / ".." / ".." / outside.name), str(root / ".chimes" / "notes.txt"),
                 "", 3, True, "tone:nope", "gone.mp3", "ftp://h/a.mp3"):
         with pytest.raises(ValueError):
             m.chimes.from_request(bad)
