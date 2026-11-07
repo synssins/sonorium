@@ -73,11 +73,11 @@
 
 **Multi-Zone Ambient Soundscape Mixer**
 
-Sonorium lets you create immersive ambient audio environments. Stream richly layered soundscapes—from distant thunder and rainfall to forest ambiance and ocean waves—to speakers throughout your home or directly through your computer.
+Sonorium lets you create immersive ambient audio environments. Stream layered soundscapes (distant thunder and rainfall, forest ambiance, ocean waves) to speakers throughout your home or directly through your computer.
 
 ### Why Ambient Sound?
 
-Ambient soundscapes aren't just background noise—they're a powerful tool for mental wellness and productivity:
+Ambient soundscapes aren't only background noise. They help with mental wellness and productivity:
 
 - **ADHD & Focus**: Background noise can improve concentration by providing consistent auditory input
 - **Misophonia**: Ambient masking helps cover trigger sounds
@@ -150,7 +150,7 @@ Home Assistant, MQTT and Streaming, each with its status (Docker).
 
 #### Settings → Audio Settings
 Sound settings in one card, with Save and Cancel in the top bar. **Stereo** (off by default) keeps left
-and right apart on every stream, for speakers set up as a pair; a mono file plays in the middle. Off,
+and right apart on every stream, for speakers set up as a pair. A mono file plays in the middle. Off,
 every stream is mono, as before. A channel that is playing turns stereo from the next theme it starts.
 
 ![Settings → Audio Settings](screenshots/Settings_Audio.png)
@@ -221,17 +221,17 @@ The menu opens from the top bar.
 
 #### Theme System
 - **Theme-Based Organization**: Audio files organized into theme folders (Thunder, Forest, Ocean, etc.)
-- **Automatic Mixing**: All recordings in a theme blend together seamlessly
+- **Automatic Mixing**: All recordings in a theme blend together
 - **Theme Favorites**: Star your most-used themes for quick access
 - **Custom Categories**: Organize themes into categories like "Weather", "Nature", "Urban"
 - **Theme Icons**: Visual icons for easy theme identification
-- **Import and Duplicate**: Import several theme zips at once, or drop them on the Themes page; Duplicate copies a theme
+- **Import and Duplicate**: Import several theme zips at once, or drop them on the Themes page. Duplicate copies a theme
 - **Bundled Themes**: Includes Sleigh Ride, Tavern, and "A Rainy Day... Or is it?" out of the box
 
 #### Track Mixer
 Fine-tune how each audio file plays within a theme:
 
-- **Sections** - Tracks sit in sections by how they play (Unassigned, Background, Intermittent, Ebb & Flow); change a track's Mode or drag it, and it moves there
+- **Sections** - Tracks sit in sections by how they play (Unassigned, Background, Intermittent, Ebb & Flow). Change a track's Mode or drag it, and it moves there
 - **Interval** - Set how often each track is heard in the mix (0-100%)
 - **Per-Track Volume** - Adjust amplitude independent of interval
 - **Playback Modes**:
@@ -242,7 +242,7 @@ Fine-tune how each audio file plays within a theme:
 - **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in an Intermittent group (the default) plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside Intermittent groups. Deleting a group keeps its files.
 - **Ebb & Flow groups** - A group in the Ebb & Flow section plays every file at once, each between its minimum and maximum volume. With the group's Pause between plays on, the files pause at staggered times and at least one is always playing.
 - **Merry-go-round groups** - A Background group is Merry-go-round, a continuous bed: one file plays, then crossfades into another picked at random, never the same one twice in a row. Each group sets its crossfade (seconds). A single file crossfades into itself.
-- **Files from another theme** - Link a file from another theme without copying it; it can sit in any section or group, and a preset turns it on.
+- **Files from another theme** - Link a file from another theme without copying it. It can sit in any section or group, and a preset turns it on.
 
 #### Presets
 - **Save/Load Presets** - Store track settings as named presets
@@ -259,18 +259,18 @@ Fine-tune how each audio file plays within a theme:
 - **Announcements** - Each channel has a notify entity (`notify.sonorium_<channel>_announce`) that speaks a message on that channel, and an Announcements switch (`switch.sonorium_<channel>_announcements`). See [Announcements: let other systems use Sonorium](#announcements-let-other-systems-use-sonorium)
 
 #### Sign-in and Zones
-- **Users and Roles**: An Admin changes everything; a User plays and changes channels, playlists and sequences
+- **Users and Roles**: An Admin changes everything. A User plays and changes channels, playlists and sequences
 - **Keys**: For devices and programs, each allowed only the items checked on it, with an expiry
 - **Link App**: A QR code on the Channels page links the Sonorium app to your account
 - **Zones** (optional): Channels that belong to a user, Child Mode and its hours, a home channel for each speaker, and linked channels
 
 #### Plugins
-- **Built-in Plugins**: Theme Merge and Ambient Mixer Importer; each can be uninstalled
+- **Built-in Plugins**: Theme Merge and Ambient Mixer Importer. Each can be uninstalled
 - **Plugin API**: Plugins play sounds and announcements over channels, ramp volume, add audio outputs that work as speakers, and answer remotes, MQTT topics and webhooks
 - **Plugin Framework 2**: Plugins add to any screen, keep values on themes, channels and speakers, bring devices such as lights, follow which sound is heard when, and run only with the permissions an admin allows
 
 #### Modern Web Interface
-- **Responsive Design**: Small screens, tablets and short screens each get a layout that fits; on a small screen the menu opens from a top bar that's always there
+- **Responsive Design**: Small screens, tablets and short screens each get a layout that fits. On a small screen the menu opens from a top bar that's always there
 - **Help on Every Page**: The **?** in the top bar explains the page you're on
 - **Dark Theme**: Easy on the eyes
 - **Real-Time Status**: The Status page shows what each track of a playing channel is doing
@@ -282,7 +282,7 @@ Fine-tune how each audio file plays within a theme:
 
 Audio files: `.mp3`, `.wav`, `.flac`, `.ogg`. Sonorium stores every track as an MP3 (320 kb/s, 44.1 kHz, stereo) and keeps the original in the theme's `_originals` folder.
 
-Single-file themes loop seamlessly using crossfade blending—no jarring restarts!
+Single-file themes loop with a crossfade, so they never restart abruptly.
 
 ### Supported Speakers
 
@@ -383,8 +383,8 @@ services:
 
 **Ports.** 8008 serves the web UI, the API and the streams over HTTP. 8808 serves the web
 UI and API over HTTPS, for the Sonorium app. Its certificate is self-signed, so a browser
-warns about it; the app checks it instead. Both ports change in **Settings › Advanced ›
-Network**, or with `SONORIUM_HTTP_PORT` and `SONORIUM_HTTPS_PORT`; a change restarts
+warns about it. The app checks it instead. Both ports change in **Settings › Advanced ›
+Network**, or with `SONORIUM_HTTP_PORT` and `SONORIUM_HTTPS_PORT`. A change restarts
 Sonorium. With `network_mode: host` both ports are open on the host. Details:
 [docs/AUTH.md](docs/AUTH.md).
 
@@ -401,7 +401,7 @@ browser. Speakers, the Home Assistant entities and MQTT don't need one. Updating
 older version changes nothing until you create an account and turn on **Require login**
 (the banner at the top offers it).
 
-- **Roles:** an **Admin** can change everything; a **User** can play and change channels,
+- **Roles:** an **Admin** can change everything. A **User** can play and change channels,
   playlists and sequences, and see themes and speakers. People are added under
   **Settings → Users & devices**.
 - **Keys:** **Settings → Keys** makes keys for devices and programs, each allowed only
@@ -421,7 +421,7 @@ words to speak, or both. Sonorium plays it on the channels named. A playing chan
 quieter while it plays and comes back after it, the way a radio presenter talks over the
 music. A stopped channel has its speakers started for it and stopped again after it.
 
-The other system decides when to announce and what to say; Sonorium only plays it, so there
+The other system decides when to announce and what to say. Sonorium only plays it, so there
 is nothing to set up in Sonorium. Announcements play even on a channel with an owner or in
 its quiet hours.
 
@@ -436,7 +436,7 @@ turn it off for a nap and on again after.
 |---|---|---|
 | `channels` | A channel's name or id, a list of them, or `"all"`. Names are not case-sensitive | `"Kitchen"`, `["Kitchen", "Office"]` |
 | `text` | Words to speak, with Home Assistant's text to speech | `"Dinner is ready"` |
-| `url` | A sound to play first (an http or https link to MP3, WAV, OGG, ...) | `"http://192.168.1.10/ding.mp3"` |
+| `url` | A sound to play first (an http or https link to MP3, WAV, OGG and more) | `"http://192.168.1.10/ding.mp3"` |
 | `volume` | 0 to 200; 100 is the sound as recorded | `80` |
 | `duck` | How much quieter the channel gets, in dB; `false` to not duck. Left out: **Settings → Advanced** | `18` |
 
@@ -504,7 +504,7 @@ curl -X POST http://sonorium.local:8008/api/announce \
 Use Sonorium's address in place of `sonorium.local` when that name doesn't work on your
 network. The answer lists the channels it plays on (`played`), the channels with
 Announcements off (`skipped`), and a `notice` when only the chime played. An unknown channel
-answers 404; text with no text to speech and no `url` answers 503.
+answers 404. Text with no text to speech and no `url` answers 503.
 
 #### From MQTT
 
@@ -558,8 +558,8 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 #### 1.8.0
 
 **Plugin Framework 2**
-- **Plugins add to any screen.** A plugin adds fields, buttons, columns, badges and pages to the screens, list rows, cards and ⋯ menus. Each spot has fixed rules for what fits there; anything outside them is refused and listed on the plugin's row in **Settings → Plugins**.
-- **Values on themes, channels and more.** A plugin keeps values on themes, tracks, groups, presets, sequences, channels, speakers, playlists and users. They stay through every edit and travel with theme exports; uninstalling the plugin removes them.
+- **Plugins add to any screen.** A plugin adds fields, buttons, columns, badges and pages to the screens, list rows, cards and ⋯ menus. Each spot has fixed rules for what fits there. Anything outside them is refused and listed on the plugin's row in **Settings → Plugins**.
+- **Values on themes, channels and more.** A plugin keeps values on themes, tracks, groups, presets, sequences, channels, speakers, playlists and users. They stay through every edit and travel with theme exports. Uninstalling the plugin removes them.
 - **Permissions.** A plugin lists what it uses: channels, themes, audio, devices, screens, Home Assistant, MQTT, Python packages, the network. It stays off until an admin allows the list, and an update that asks for more stays off until allowed again. Nothing a plugin brings is installed or run before that.
 - **Devices.** A plugin brings a kind of device, such as a light, a display or a button panel. Sonorium lists, names and places it in an area, and assigns it to channels, without knowing what the device is.
 - **Output devices are speakers.** Audio outputs a plugin provides show in **Settings → Speakers** and the channel editor like any speaker. Outputs of the computer Sonorium runs on play one at a time, unless **Allow output to more than one local device** is on (**Settings → Plugins**, ⋯ menu).
@@ -568,8 +568,8 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - **For plugin authors:** plugin API 1.2. See [docs/PLUGIN_DEVELOPMENT.md](docs/PLUGIN_DEVELOPMENT.md), sections 23 to 31.
 
 **Themes**
-- **MP3 for theme audio.** Every track is stored as an MP3 at 320 kb/s, 44.1 kHz, stereo. Imports, uploads and copied files are converted as they arrive; existing themes are converted in the background after the update, one file at a time. Track settings, presets, sequences and links stay as they were. The original files are kept in the theme's `_originals` folder, which is never played and is left out of exports.
-- **Import several themes.** **Import theme…** accepts several zips at once, or drop them on the Themes page. They import one after another, each with its result; one that fails doesn't stop the rest.
+- **MP3 for theme audio.** Every track is stored as an MP3 at 320 kb/s, 44.1 kHz, stereo. Imports, uploads and copied files are converted as they arrive. Existing themes are converted in the background after the update, one file at a time. Track settings, presets, sequences and links stay as they were. The original files are kept in the theme's `_originals` folder, which is never played and is left out of exports.
+- **Import several themes.** **Import theme…** accepts several zips at once, or drop them on the Themes page. They import one after another, each with its result. One that fails doesn't stop the rest.
 - **Duplicate.** A theme's ⋯ menu, on the Themes page and in the Theme Editor, makes a separate copy under a new name.
 - **One name per theme.** Two themes can't have the same name (capitals don't count). Creating, renaming, importing or duplicating with a name in use is refused with "A theme with this name already exists".
 - **Copy into this theme.** A linked file's download button, or its ⋯ menu, copies the file into the theme in place of the link. Its settings and preset values stay.
@@ -586,8 +586,8 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 
 **Settings**
 - **Server name** (**Settings → Advanced**, General): the name the app and other devices show, also announced on the network.
-- **Stereo** (**Settings → Audio Settings**, off by default): left and right stay apart on every stream; a mono file plays in the middle.
-- **Keys and Announcements** are switches in **Settings → Advanced**; off turns the feature off everywhere at once. Users, Keys and Announcements are part of Sonorium now, no longer built-in plugins. Existing users and keys keep working.
+- **Stereo** (**Settings → Audio Settings**, off by default): left and right stay apart on every stream. A mono file plays in the middle.
+- **Keys and Announcements** are switches in **Settings → Advanced**. Off turns the feature off everywhere at once. Users, Keys and Announcements are part of Sonorium now, no longer built-in plugins. Existing users and keys keep working.
 - **Restart** from Settings works in Docker and the Home Assistant app. Before, the page could hang.
 
 **Network and hosting**
@@ -599,11 +599,11 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - **Limits** in **Settings → Advanced**, Limits: the size of sign-in requests, other requests, uploads and theme imports, the files in one theme import, exports at once, streams per address and in all, event streams per user, and sign-in tries per username. Each has a default; 0 is no limit.
 - **Stream links.** While **Require login** is on, speakers outside the LAN get stream addresses that work for a set time (12 hours by default).
 - **The first account** can only be made from the LAN, or with `SONORIUM_SETUP_TOKEN`.
-- **Logs.** Sign-ins and addresses on the Logs page are for admins; everyone else sees `[address]`. The add-on log and `docker logs` keep the full lines.
+- **Logs.** Sign-ins and addresses on the Logs page are for admins. Everyone else sees `[address]`. The add-on log and `docker logs` keep the full lines.
 - **Theme lookups and links** can't reach outside the audio folder, Windows drive letters included. A theme import leaves out files that don't belong in a theme.
 
 **Windows app**
-- **First full release.** The Windows installer (`Sonorium-Setup-1.8.0.exe`) is on the [Releases page](https://github.com/synssins/sonorium/releases) as a full release; earlier Windows builds were pre-releases. Installed Windows apps update from it.
+- **First full release.** The Windows installer (`Sonorium-Setup-1.8.0.exe`) is on the [Releases page](https://github.com/synssins/sonorium/releases) as a full release. Earlier Windows builds were pre-releases. Installed Windows apps update from it.
 
 **Fixes**
 - A group's file that ends cut off fades out instead of stopping dead.
@@ -619,17 +619,17 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 #### 1.7.0
 
 **Sign-in**
-- **Accounts and roles.** The built-in **Users** plugin adds accounts with two roles. An **Admin** can change everything; a **User** can play and change channels, run and edit playlists and sequences, and see themes and speakers. Sonorium always keeps one Admin.
-- **New installs** ask for an admin account on the first visit and need a sign-in from then on. **Updates** change nothing until you create the account and turn on **Require login**; the banner at the top offers both.
+- **Accounts and roles.** The built-in **Users** plugin adds accounts with two roles. An **Admin** can change everything. A **User** can play and change channels, run and edit playlists and sequences, and see themes and speakers. Sonorium always keeps one Admin.
+- **New installs** ask for an admin account on the first visit and need a sign-in from then on. **Updates** change nothing until you create the account and turn on **Require login**. The banner at the top offers both.
 - **Users & devices.** **Settings → Users & devices** lists each person with the browsers and devices they use. Add users, change roles, reset passwords, and sign out one browser or every device.
 - **Keys.** The built-in **Integration** plugin adds **Settings → Keys**: keys for devices and programs, each allowed only the items checked on it, for some channels or all, with an expiry. A key is shown once.
 - **Link App.** The button on the **Channels** page shows a QR code that links a device to your account. Each code works once, for 5 minutes.
-- **HTTPS.** Port 8808 serves the web UI and the API over HTTPS, with a certificate Sonorium makes itself. Port 8008 is unchanged; speakers keep using it.
+- **HTTPS.** Port 8808 serves the web UI and the API over HTTPS, with a certificate Sonorium makes itself. Port 8008 is unchanged. Speakers keep using it.
 - **sonorium.local.** The Docker version announces itself on your network: `http://sonorium.local:8008`.
 - **Forgotten password.** `BYPASS_LOGIN=true` (Docker) or `bypass_login` (Home Assistant app) opens the web UI without a sign-in, to reset the account.
 
 **Announcements**
-- **Other systems announce through Sonorium.** Home Assistant (each channel's notify entity), MQTT (`sonorium/announce/set`), anything that can make a web request (`POST /api/announce` with a key) and plugins send a chime and/or words to speak; Sonorium plays them on the channels named. See [Announcements: let other systems use Sonorium](#announcements-let-other-systems-use-sonorium).
+- **Other systems announce through Sonorium.** Home Assistant (each channel's notify entity), MQTT (`sonorium/announce/set`), anything that can make a web request (`POST /api/announce` with a key) and plugins send a chime and/or words to speak. Sonorium plays them on the channels named. See [Announcements: let other systems use Sonorium](#announcements-let-other-systems-use-sonorium).
 - **Announcements switch** on each channel, and in Home Assistant: off, nothing announces on that channel.
 
 **Plugins**
@@ -650,9 +650,9 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 
 **Zones**
 - **Zones** are off until an admin turns them on in **Settings › Advanced**. A channel can then belong to a user: only its owner and admins change it. A channel with no owner stays open to everyone who may play channels.
-- **Kid mode.** Only an admin changes the channel's speakers. Its hours set when the owner can play the channel; at the end of the hours, what the owner started fades out and stops.
+- **Kid mode.** Only an admin changes the channel's speakers. Its hours set when the owner can play the channel. At the end of the hours, what the owner started fades out and stops.
 - **Speaker homes.** A speaker plays for one channel at a time. Its home channel, the one it was added to first, can take it back.
-- **Linked channels.** An admin links channels to play one theme or playlist in all of them; each keeps its volume.
+- **Linked channels.** An admin links channels to play one theme or playlist in all of them. Each keeps its volume.
 
 **Status**
 - **Now playing.** The **Status** page shows each playing channel with its tracks by section: playing, fading, waiting, paused or muted, a countdown to the next change, and the level. **As heard** shows the mix delayed by the speakers' buffer, as it sounds in the room.
@@ -669,7 +669,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 **Fixes**
 - Hidden folders in the themes folder are no longer shown as themes, and leftovers of a crash are removed.
 - An edit saved while Ambient Mixer Importer was still downloading was lost.
-- Short file threshold left the Theme Editor's ⋯ menu (it only applied to Auto, which is retired); it is on **Settings › Advanced**.
+- Short file threshold left the Theme Editor's ⋯ menu (it only applied to Auto, which is retired). It is on **Settings › Advanced**.
 - A sequence step's dot also lights for While playing changes.
 - Sonorium opens on **Channels** when the page it remembered can't be opened.
 
@@ -688,7 +688,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - **Auto is retired.** Each Auto track keeps playing the way it did.
 
 **Sequences and playlists**
-- **Sequences.** A sequence plays some of a theme's presets in the order you choose, each for a random time in a range, gliding from one to the next. At the end it plays the list backwards, starts again or stops. For example, a mild summer storm that becomes a heavy one. Make them from **Sequences** in the Theme Editor; pick them from a channel's Preset menu. In Home Assistant they are options of the channel's Preset select, as "*name* (sequence)".
+- **Sequences.** A sequence plays some of a theme's presets in the order you choose, each for a random time in a range, gliding from one to the next. At the end it plays the list backwards, starts again or stops. For example, a mild summer storm that becomes a heavy one. Make them from **Sequences** in the Theme Editor. Pick them from a channel's Preset menu. In Home Assistant they are options of the channel's Preset select, as "*name* (sequence)".
 - **While playing.** In a sequence, a preset's ⋯ › Advanced… has a **While playing** tab: the Theme Editor's controls, for that step only. Anything you don't change follows the preset.
 - **Advanced transitions.** The same window sets how each track comes in and leaves at a step: Gusts, Swell, Build, Distance or Start fresh (and Gusts dying down, Smooth fade, Thin out, Recede or Finish then stop), in any combination, starting up to 90 seconds before the step.
 - **Playlists.** The new **Playlists** page holds themes that play one after another on a channel, each with a preset or sequence if you want one, in order or shuffled, for a random time in the playlist's range, once or on repeat. Home Assistant gets a Playlist select, a Next button and a Step sensor for each channel.
@@ -700,7 +700,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - **File fades.** **Fade in** and **Fade out** in a track's ⋯ menu soften a file that starts or ends abruptly, every time it starts or ends. Leave them empty for sounds that should hit hard, like a thunder crack.
 - **Gaps in presets.** An Intermittent group's **Gap** is saved in presets, so one preset can bring the thunder more often than another.
 - **Channels fade in and out** when they start and stop, instead of cutting (#34).
-- **Preset glides.** Picking a preset glides the mix to it over 3 seconds; a sequence glides over its ramp time.
+- **Preset glides.** Picking a preset glides the mix to it over 3 seconds. A sequence glides over its ramp time.
 - **Smooth volume changes.** Volume sliders ease to the new level instead of jumping.
 - An exported theme keeps all of its settings, presets and sequences.
 
@@ -739,14 +739,14 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 #### 1.5.2
 
 - **Clearer help** for Intermittent in groups and for track weight.
-- **Version and install type** are shown at the bottom left of the menu; the README says where to find them.
+- **Version and install type** are shown at the bottom left of the menu. The README says where to find them.
 - **Releases** no longer skip their version number after a merge.
 
 #### 1.5.0
 
 **Themes and playback**
 - **Groups.** A folder inside a theme is a group: its tracks take turns, one at a time, never overlapping, with a random gap between them. This replaces the need to check "Exclusive" on every track that needed to play independently of other exclusive tracks in a theme.
-- **The group picks the next track by weight.** Each time a track plays it gets heavier and less likely to be picked; the weight wears off as other tracks play. A track's Interval sets how fast. The same track never plays twice in a row.
+- **The group picks the next track by weight.** Each time a track plays it gets heavier and less likely to be picked. The weight wears off as other tracks play. A track's Interval sets how fast. The same track never plays twice in a row.
 - **Grouped tracks just play.** On its turn a track plays its whole file once, start to finish, with no fade in or out. A thunder crack keeps its crack, a song its first notes.
 - **A preset per channel.** Two channels can play the same theme with different presets. Before, they shared one: changing the preset on one changed it on both.
 - **New files join right away.** A file added to a theme that is playing joins the mix at once, with its saved settings. A removed file leaves the mix. Nothing restarts.
@@ -796,7 +796,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 #### v1.4.0
 
 - **Docker.** A new image, `ghcr.io/synssins/sonorium`, runs Sonorium on any Docker host, with or without Home Assistant. It finds network speakers, and Home Assistant and MQTT are set up from the web UI (#32).
-- **New channel editor.** Search themes, and pick speakers by floor, room or one at a time; ticking a floor or room selects everything in it.
+- **New channel editor.** Search themes, and pick speakers by floor, room or one at a time. Ticking a floor or room selects everything in it.
 - **Settings → Speakers.** Rename speakers, set their room and a volume offset, and play a short test sound. Only speakers switched on here appear in channels, and **Hide offline** tidies the list.
 - **Settings → Logs.** See, search, copy and download recent log messages from the web UI. If Sonorium fails to start, the web UI shows the logs instead.
 - **Speaker screens.** Nest Hub and other Google Cast displays show the Sonorium logo while playing.
@@ -844,7 +844,7 @@ A theme is a set of tracks (sound files) mixed together. This help follows the e
 
 - **Intermittent:** plays once, then goes quiet before playing again. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.
 - ***Track***
-  - **Interval:** the wait between plays. In a group, how fast its weight wears off. Higher comes back sooner; lower plays less often.
+  - **Interval:** the wait between plays. In a group, how fast its weight wears off. Higher comes back sooner. Lower plays less often.
 - ***Intermittent group***
   - **Take turns:** only one track plays at a time, never overlapping. On its turn, a track plays its whole file once, start to finish, then hands over. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
   - **Gap:** under the group's name: after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other. Presets keep their Gap.
@@ -862,7 +862,7 @@ A theme is a set of tracks (sound files) mixed together. This help follows the e
     - **Pause between plays:** off, the file loops and is always heard. On, it plays once from start to finish, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.
     - **Pause:** how long it stays quiet, in seconds, picked at random between the two numbers each time (600 is 10 minutes). It also staggers when tracks first start, so they don't all begin together.
 - ***Ebb & Flow group***
-  - **Ebb & Flow group:** every file plays at once, each between its minimum and maximum volume. Each file keeps its settings; the group's Volume and Duration scale them down.
+  - **Ebb & Flow group:** every file plays at once, each between its minimum and maximum volume. Each file keeps its settings. The group's Volume and Duration scale them down.
   - **Pause between plays:** under the group's name. On, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its Pause between plays.
   - **Volume, Duration, Mute:** apply to every track in the group.
   - *Its ⋯ menu*
@@ -878,13 +878,13 @@ A theme is a set of tracks (sound files) mixed together. This help follows the e
 **A group's ⋯ menu**
 
 - **Rename:** also by double-clicking the group name.
-- **Delete group:** keeps its files; they move back into its section.
+- **Delete group:** keeps its files. They move back into its section.
 
 **Files from another theme**
 
-- **Linked file:** plays here but stays in the theme it comes from. Add one with Add from another theme above the list; it starts in Unassigned, and can go anywhere the theme's files can. If the file is gone, it shows Missing.
+- **Linked file:** plays here but stays in the theme it comes from. Add one with Add from another theme above the list. It starts in Unassigned, and can go anywhere the theme's files can. If the file is gone, it shows Missing.
 - **Presets:** turn linked files on and other tracks off, like rain that mutes the crickets. A preset that turns a linked file on shows ⚭.
-- **Copy into this theme:** the download button next to "from …" on a linked file's row, or its ⋯ menu. The file is copied into this theme, where the link was, and keeps its settings and preset values; from then on it is a file of this theme, not a link (a playing preview goes on). The original stays in the other theme.
+- **Copy into this theme:** the download button next to "from …" on a linked file's row, or its ⋯ menu. The file is copied into this theme, where the link was, and keeps its settings and preset values. From then on it is a file of this theme, not a link (a playing preview goes on). The original stays in the other theme.
 - **Remove link:** in a linked file's ⋯ menu. The file stays in the other theme.
 
 **Sequences**
@@ -900,7 +900,7 @@ A theme is a set of tracks (sound files) mixed together. This help follows the e
   - **Theme defaults:** empty fields use the theme's time and ramp, set at the bottom of the Sequences menu.
   - **Save:** saves the sequence at once. Every channel playing this theme can pick it.
 - ***A step: ⋯ › Advanced***
-  - **While playing:** changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green; anything you don't change follows the preset.
+  - **While playing:** changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green. Anything you don't change follows the preset.
   - **Revert changes:** puts back the settings as they were when Save was last pressed.
   - **Coming in / Leaving:** tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.
   - *Coming in and Leaving*
@@ -920,7 +920,7 @@ A theme is a set of tracks (sound files) mixed together. This help follows the e
       - **Gusts + Start fresh:** the file plays from its start and rises in uneven surges.
       - **Build + Distance:** thunder comes more often and louder as it moves from far off to close.
       - **Thin out + Recede:** thunder comes less often and quieter as it drifts away.
-      - **Smooth fade + Finish then stop:** fades out over the fade time; if the current play ends first, it stops there with a short fade.
+      - **Smooth fade + Finish then stop:** fades out over the fade time. If the current play ends first, it stops there with a short fade.
 
 **Presets and saving**
 
@@ -948,7 +948,7 @@ Sonorium provides a REST API for integration:
 - `POST /api/sessions/{id}/next` - Skip to the sequence's next step or the playlist's next entry
 - `PUT /api/sessions/{id}/speakers-muted` - Mute or unmute the speakers (`{"muted": true}`)
 - `PUT /api/sessions/{id}/announcements` - Turn the channel's Announcements on or off (`{"on": false}`)
-- `PUT /api/sessions/{id}/sleep` - Sleep timer: the playing channel fades out and stops after `{"minutes": 45}` (more than 0, at most 240; replaces a running timer; 409 when it isn't playing). `GET` reads it, `DELETE` cancels it. Answers `{"channel_id", "sleep_until", "seconds_left"}`; a channel also lists `sleep_until` and `sleep_seconds_left`, and every change is a `channel.sleep_timer` event
+- `PUT /api/sessions/{id}/sleep` - Sleep timer: the playing channel fades out and stops after `{"minutes": 45}` (more than 0, at most 240; replaces a running timer; 409 when it isn't playing). `GET` reads it, `DELETE` cancels it. Answers `{"channel_id", "sleep_until", "seconds_left"}`. A channel also lists `sleep_until` and `sleep_seconds_left`, and every change is a `channel.sleep_timer` event
 - `POST /api/announce` - Play a chime and/or speak text on channels (`{"channels": "Kitchen", "text": "Dinner is ready"}`; see [Announcements](#announcements-let-other-systems-use-sonorium))
 - `POST /api/sessions/{id}/listen` / `DELETE` - Start or stop listening in a browser (the stream is `stream_path` with `?local=1`)
 
@@ -998,9 +998,9 @@ python -m pytest tests -v
 
 The AirConnect, AirPlay streaming, Arylic HTTP, and RTSP diagnostic scripts need
 LAN speakers and are excluded from automated collection. The live Linkplay
-streaming test is reported as skipped; its offline detection test runs in CI.
+streaming test is reported as skipped. Its offline detection test runs in CI.
 Run hardware diagnostics directly on a machine with access to the speakers,
 for example `python tests/test_linkplay_integration.py --ip <speaker-ip>`.
 
-Add-on version numbers are set automatically from commit messages; see
+Add-on version numbers are set automatically from commit messages. See
 [docs/VERSIONING.md](docs/VERSIONING.md).
