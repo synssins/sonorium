@@ -17,7 +17,7 @@
 > - Themes: import several zips at once, or drop them on the Themes page. **Duplicate** copies a theme, and no two themes share a name.
 > - Channels: a sleep timer, Next and Previous through a theme's presets, and Child Mode (formerly Kid mode).
 > - **Settings › Advanced:** a server name for the app and other devices, the HTTP and HTTPS ports (Docker and Linux), trusted proxies, and limits for sign-ins, requests, uploads, imports and streams.
-> - Stereo: an optional switch in **Settings › Audio Settings** keeps left and right apart on every stream.
+> - **Stereo:** an optional switch in **Settings › Audio Settings** keeps left and right apart on every stream.
 >
 > **After the update,** Sonorium converts the existing theme audio to MP3 in the background, one file at a time, while the themes keep playing. A large library needs a while. The originals stay, so the themes folder uses more disk space afterwards.
 >
@@ -27,10 +27,10 @@
 >
 > Sonorium gets users and sign-in, plays announcements sent by other systems, and runs plugins that play sounds over channels.
 >
-> - Sign-in: users with two roles, Admin and User, keys for devices and programs, and **Link App** for the Sonorium app. In the Home Assistant app, Home Assistant's users are Sonorium's users.
-> - Announcements: Home Assistant, MQTT, Node-RED or a script sends a chime or words to speak, and Sonorium plays them on the channels named. A playing channel gets quieter while the announcement plays.
-> - Zones: a channel can belong to a user, with Kid mode and its hours, a home channel for each speaker, and linked channels that play one thing. Off until an admin turns it on in **Settings › Advanced**.
-> - Now playing: the **Status** page shows what each track of a playing channel is doing.
+> - **Sign-in:** users with two roles, Admin and User, keys for devices and programs, and **Link App** for the Sonorium app. In the Home Assistant app, Home Assistant's users are Sonorium's users.
+> - **Announcements:** Home Assistant, MQTT, Node-RED or a script sends a chime or words to speak, and Sonorium plays them on the channels named. A playing channel gets quieter while the announcement plays.
+> - **Zones:** a channel can belong to a user, with Kid mode and its hours, a home channel for each speaker, and linked channels that play one thing. Off until an admin turns it on in **Settings › Advanced**.
+> - **Now playing:** the **Status** page shows what each track of a playing channel is doing.
 > - **Home Assistant dashboard cards**, added to Home Assistant when Home Assistant and MQTT are linked.
 > - **Settings › Advanced** shows the playback values every theme is built on, and each can be changed.
 > - **Small screens, tablets and short screens** each get a layout that fits.
@@ -50,8 +50,8 @@
 >
 > - **Sequences** play a theme's presets one after another, gliding from one to the next: a mild summer storm that becomes a heavy one.
 > - **Playlists** play several themes one after another on a channel.
-> - Ebb & Flow: tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time.
-> - Listen in your browser: the headphones button on a channel plays it on the device you're using.
+> - **Ebb & Flow:** tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time.
+> - **Listen in your browser:** the headphones button on a channel plays it on the device you're using.
 >
 > Your themes are converted the first time this version starts: Auto tracks and Intrusion groups are retired. Each theme keeps backups of its old settings files (`*.pre-auto.bak`, `*.pre-links.bak`, `*.pre-duration.bak`).
 
@@ -214,7 +214,7 @@ The menu opens from the top bar.
 
 #### Speakers
 - Speaker Settings: Rename speakers, set their room, and add a volume offset for speakers that play louder or quieter than the rest
-- Test Sound: Play a short, quiet chime to check a speaker
+- **Test Sound**: Play a short, quiet chime to check a speaker
 - Choose What Sonorium Uses: Speakers switched off in Settings never appear in channels
 - Network Speakers (Docker): Finds Google Cast, Sonos, DLNA, AirPlay, LinkPlay and HEOS speakers on your network, or add one by address
 - One Speaker, Two Paths (Docker): A speaker found both in Home Assistant and on the network is shown once, and you choose which way it plays
@@ -231,17 +231,17 @@ The menu opens from the top bar.
 #### Track Mixer
 Fine-tune how each audio file plays within a theme:
 
-- Sections: Tracks sit in sections by how they play (Unassigned, Background, Intermittent, Ebb & Flow). Change a track's Mode or drag it, and it moves there
-- Interval: Set how often each track is heard in the mix (0-100%)
+- **Sections** - Tracks sit in sections by how they play (Unassigned, Background, Intermittent, Ebb & Flow). Change a track's Mode or drag it, and it moves there
+- **Interval** - Set how often each track is heard in the mix (0-100%)
 - Per-Track Volume: Adjust amplitude independent of interval
 - Playback Modes:
-  - Background: Plays all the time, looping with a smooth crossfade (rain, wind, a crackling fire)
-  - Intermittent: Plays once, then goes quiet for a while before playing again. "Interval" sets the wait (bird calls, thunder claps, a door creaking)
-  - Ebb & Flow: Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. Duration increases or decreases the amount of time the track is at a value, while the Rise increases or decreases the speed at which the track reaches that value. With Pause between plays it plays the file once, then pauses for a while (wind, surf, rain on a tin roof)
-  - Unassigned: not played. Uploads land here until you pick a mode
-- Groups: A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in an Intermittent group (the default) plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside Intermittent groups. Deleting a group keeps its files.
-- Ebb & Flow groups: A group in the Ebb & Flow section plays every file at once, each between its minimum and maximum volume. With the group's Pause between plays on, the files pause at staggered times and at least one is always playing.
-- Merry-go-round groups: A Background group is Merry-go-round, a continuous bed: one file plays, then crossfades into another picked at random, never the same one twice in a row. Each group sets its crossfade (seconds). A single file crossfades into itself.
+  - **Background** - Plays all the time, looping with a smooth crossfade (rain, wind, a crackling fire)
+  - **Intermittent** - Plays once, then goes quiet for a while before playing again. "Interval" sets the wait (bird calls, thunder claps, a door creaking)
+  - **Ebb & Flow** - Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. Duration increases or decreases the amount of time the track is at a value, while the Rise increases or decreases the speed at which the track reaches that value. With Pause between plays it plays the file once, then pauses for a while (wind, surf, rain on a tin roof)
+  - **Unassigned** - Not played. Uploads land here until you pick a mode
+- **Groups** - A group is a folder inside the theme whose tracks take turns: only one plays at a time, never overlapping, with a random gap (in minutes) between them. Every track in an Intermittent group (the default) plays Intermittent: its whole file once, start to finish, with no fade. The group picks the next track by weight: each time a track plays it gets heavier and less likely to be picked, the weight wears off as other tracks play, and a track's interval sets how fast. The same track never plays twice in a row. Background and Ebb & Flow are for the ambience outside Intermittent groups. Deleting a group keeps its files.
+- **Ebb & Flow groups** - A group in the Ebb & Flow section plays every file at once, each between its minimum and maximum volume. With the group's Pause between plays on, the files pause at staggered times and at least one is always playing.
+- **Merry-go-round groups** - A Background group is Merry-go-round, a continuous bed: one file plays, then crossfades into another picked at random, never the same one twice in a row. Each group sets its crossfade (seconds). A single file crossfades into itself.
 - Files from another theme: Link a file from another theme without copying it. It can sit in any section or group, and a preset turns it on.
 
 #### Presets
@@ -256,12 +256,12 @@ Fine-tune how each audio file plays within a theme:
 - Human-Readable Names: Theme and preset dropdowns show names instead of UUIDs
 - Status Sensors: See playback status and assigned speakers from your dashboard
 - Automation Support: Use HA automations to trigger soundscapes (morning alarms, schedules, etc.)
-- Announcements: Each channel has a notify entity (`notify.sonorium_<channel>_announce`) that speaks a message on that channel, and an Announcements switch (`switch.sonorium_<channel>_announcements`). See [Announcements: let other systems use Sonorium](#announcements-let-other-systems-use-sonorium)
+- **Announcements** - Each channel has a notify entity (`notify.sonorium_<channel>_announce`) that speaks a message on that channel, and an Announcements switch (`switch.sonorium_<channel>_announcements`). See [Announcements: let other systems use Sonorium](#announcements-let-other-systems-use-sonorium)
 
 #### Sign-in and Zones
 - Users and Roles: An Admin changes everything. A User plays and changes channels, playlists and sequences
-- Keys: For devices and programs, each allowed only the items checked on it, with an expiry
-- Link App: A QR code on the Channels page links the Sonorium app to your account
+- **Keys**: For devices and programs, each allowed only the items checked on it, with an expiry
+- **Link App**: A QR code on the Channels page links the Sonorium app to your account
 - **Zones** (optional): Channels that belong to a user, Child Mode and its hours, a home channel for each speaker, and linked channels
 
 #### Plugins
@@ -298,7 +298,7 @@ Single-file themes loop with a crossfade, so they never restart abruptly.
 #### Home Assistant Addon
 - Any media_player entity in Home Assistant
 - **Google Cast** (Chromecast, Nest Hub, Google Home), played through Home Assistant's Cast integration
-- Sonos: Native streaming via SoCo library
+- **Sonos** - Native streaming via SoCo library
 - Organized by floors, areas, and custom groups
 
 ## Installation
@@ -340,9 +340,9 @@ Runs on any Docker host, with or without Home Assistant.
 
 #### Windows App
 
-1. **Download** `Sonorium-Setup-<version>.exe` from the [Releases page](https://github.com/synssins/sonorium/releases)
-2. **Run** it. If Windows SmartScreen appears, click **More info**, then **Run anyway** (the installer isn't signed yet)
-3. **Choose** Install for me only, or Install for all users (needed to run Sonorium as a service)
+1. Download `Sonorium-Setup-<version>.exe` from the [Releases page](https://github.com/synssins/sonorium/releases)
+2. Run it. If Windows SmartScreen appears, click **More info**, then **Run anyway** (the installer isn't signed yet)
+3. Choose Install for me only, or Install for all users (needed to run Sonorium as a service)
 4. Open Sonorium: right-click the Sonorium icon by the clock, then click **Open Sonorium**
 5. Create a Channel: Select a theme and speakers, then hit play
 
@@ -350,8 +350,8 @@ Runs on any Docker host, with or without Home Assistant.
 
 Sonorium needs the **Mosquitto broker** add-on (Settings → Add-ons → Add-on Store), started with **Start on boot** on.
 
-1. **Install** the addon using the button above
-2. **Open Sonorium** from your Home Assistant sidebar
+1. Install the addon using the button above
+2. Open Sonorium from your Home Assistant sidebar
 3. Add Themes: Create themes and upload audio via the web interface
 4. Create a Channel: Select a theme and speakers
 5. Play: Hit the play button
@@ -376,10 +376,10 @@ services:
     restart: unless-stopped
 ```
 
-1. **Start** it with `docker compose up -d`
-2. **Open** `http://<docker-host>:8008` and **create the admin account**
+1. Start it with `docker compose up -d`
+2. Open `http://<docker-host>:8008` and create the admin account
 3. Optional: connect Home Assistant and MQTT under **Settings → Connection**
-4. **Create a Channel** and press play
+4. Create a Channel and press play
 
 **Ports.** 8008 serves the web UI, the API and the streams over HTTP. 8808 serves the web
 UI and API over HTTPS, for the Sonorium app. Its certificate is self-signed, so a browser
@@ -404,7 +404,7 @@ older version changes nothing until you create an account and turn on **Require 
 - Roles: an **Admin** can change everything. A **User** can play and change channels,
   playlists and sequences, and see themes and speakers. People are added under
   **Settings → Users & devices**.
-- Keys: **Settings → Keys** makes keys for devices and programs, each allowed only
+- **Keys:** **Settings → Keys** makes keys for devices and programs, each allowed only
   the items checked on it.
 - Home Assistant app: the sidebar opens Sonorium without a second sign-in.
 - Forgotten password: set `BYPASS_LOGIN=true` (Docker) or `bypass_login` (Home
@@ -564,25 +564,25 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - Devices: A plugin brings a kind of device, such as a light, a display or a button panel. Sonorium lists, names and places it in an area, and assigns it to channels, without knowing what the device is.
 - Output devices are speakers: Audio outputs a plugin provides show in **Settings → Speakers** and the channel editor like any speaker. Outputs of the computer Sonorium runs on play one at a time, unless **Allow output to more than one local device** is on (**Settings → Plugins**, ⋯ menu).
 - Cues and listening: A plugin learns ahead of time which sound will be heard on which speaker, and when, and can listen to a channel's mix: lights or a display can follow the sound. Neither can slow or change playback.
-- Only if: A command map entry can have conditions (⋯ › **Only if…**): the channel is playing or stopped, the time is between two times, or a condition a plugin adds. Plugins can also add actions.
+- **Only if.** A command map entry can have conditions (⋯ › **Only if…**): the channel is playing or stopped, the time is between two times, or a condition a plugin adds. Plugins can also add actions.
 - For plugin authors: plugin API 1.2. See [docs/PLUGIN_DEVELOPMENT.md](docs/PLUGIN_DEVELOPMENT.md), sections 23 to 31.
 
 **Themes**
 - MP3 for theme audio: Every track is stored as an MP3 at 320 kb/s, 44.1 kHz, stereo. Imports, uploads and copied files are converted as they arrive. Existing themes are converted in the background after the update, one file at a time. Track settings, presets, sequences and links stay as they were. The original files are kept in the theme's `_originals` folder, which is never played and is left out of exports.
 - Import several themes: **Import theme…** accepts several zips at once, or drop them on the Themes page. They import one after another, each with its result. One that fails doesn't stop the rest.
-- Duplicate: A theme's ⋯ menu, on the Themes page and in the Theme Editor, makes a separate copy under a new name.
+- **Duplicate.** A theme's ⋯ menu, on the Themes page and in the Theme Editor, makes a separate copy under a new name.
 - One name per theme: Two themes can't have the same name (capitals don't count). Creating, renaming, importing or duplicating with a name in use is refused with "A theme with this name already exists".
-- Copy into this theme: A linked file's download button, or its ⋯ menu, copies the file into the theme in place of the link. Its settings and preset values stay.
+- **Copy into this theme.** A linked file's download button, or its ⋯ menu, copies the file into the theme in place of the link. Its settings and preset values stay.
 - Theme backups from the Sonorium app: The app backs up a device's presets, sequences, track settings and playlists to the server, and whole themes made on the device, per account and device. **Settings → Backups** lists them, and **Load my device presets into themes** adds a device's presets to the matching themes as ordinary presets. **Backup space per user** and **Backup space for all users** are in **Settings → Advanced**.
 - Themes for the app: The Sonorium app can download a theme, every file checked, to play on the device.
 
 **Channels**
-- Sleep timer: A playing channel's ⋯ › **Sleep timer…** fades it out and stops it after 15, 30 or 45 minutes, 1 to 4 hours, or a custom time. The card shows the time left. A restart keeps the timer.
-- Next and Previous: With no playlist or sequence running, **Next** (Home Assistant, MQTT, plugins, the Sonorium app) moves to the theme's next preset. **Previous**, new for the app and the API, goes back one playlist entry, sequence step or preset.
-- Child Mode: Kid mode is now called Child Mode. The card shows a lock after the speakers.
+- **Sleep timer.** A playing channel's ⋯ › **Sleep timer…** fades it out and stops it after 15, 30 or 45 minutes, 1 to 4 hours, or a custom time. The card shows the time left. A restart keeps the timer.
+- **Next and Previous.** With no playlist or sequence running, **Next** (Home Assistant, MQTT, plugins, the Sonorium app) moves to the theme's next preset. **Previous**, new for the app and the API, goes back one playlist entry, sequence step or preset.
+- **Child Mode.** Kid mode is now called Child Mode. The card shows a lock after the speakers.
 - Back after a restart: After a restart from Settings or the web UI, the channels that were playing play again with their theme, preset, sequence or playlist, and volume. After a stop or a crash they stay stopped.
 - Max channels: Starting a channel when the most channels are already playing is refused with a message, from the web UI, Home Assistant, MQTT, plugins and links.
-- My Channel: For the Sonorium app: each account has a channel that plays only on that account's devices.
+- **My Channel.** For the Sonorium app: each account has a channel that plays only on that account's devices.
 
 **Settings**
 - **Server name** (**Settings → Advanced**, General): the name the app and other devices show, also announced on the network.
@@ -593,14 +593,14 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 **Network and hosting**
 - Ports: **Settings → Advanced**, Network sets the HTTP port (8008) and the HTTPS port (8808) on Docker and Linux. `SONORIUM_HTTP_PORT` and `SONORIUM_HTTPS_PORT` do the same. A change restarts Sonorium.
 - Behind a reverse proxy: **Trusted proxies** names the proxies in front of Sonorium, so sign-in limits and the logs see each caller's address. Set the **Stream URL** to the public address: the app and Link App codes then use it. See [docs/HOSTING.md](docs/HOSTING.md).
-- **Home networks on 10.x addresses** work. They were taken for Docker's internal network.
+- Home networks on 10.x addresses work. They were taken for Docker's internal network.
 
 **Security**
 - **Limits** in **Settings → Advanced**, Limits: the size of sign-in requests, other requests, uploads and theme imports, the files in one theme import, exports at once, streams per address and in all, event streams per user, and sign-in tries per username. Each has a default, and 0 is no limit.
 - Stream links: While **Require login** is on, speakers outside the LAN get stream addresses that work for a set time (12 hours by default).
-- **The first account** can only be made from the LAN, or with `SONORIUM_SETUP_TOKEN`.
+- The first account can only be made from the LAN, or with `SONORIUM_SETUP_TOKEN`.
 - Logs: Sign-ins and addresses on the Logs page are for admins. Everyone else sees `[address]`. The add-on log and `docker logs` keep the full lines.
-- **Theme lookups and links** can't reach outside the audio folder, Windows drive letters included. A theme import leaves out files that don't belong in a theme.
+- Theme lookups and links can't reach outside the audio folder, Windows drive letters included. A theme import leaves out files that don't belong in a theme.
 
 **Windows app**
 - First full release: The Windows installer (`Sonorium-Setup-1.8.0.exe`) is on the [Releases page](https://github.com/synssins/sonorium/releases) as a full release. Earlier Windows builds were pre-releases. Installed Windows apps update from it.
@@ -612,7 +612,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - **Esc** in the Theme Editor works like **Cancel**, and closes the channel editor without saving.
 - **New Channel** starts at the **Default volume** from **Settings → Audio Settings**.
 - Removing MQTT also removes the Announce notify entities and plugins' entities from Home Assistant.
-- Keys: **Last used** changes only when a request with the key is accepted.
+- **Keys:** **Last used** changes only when a request with the key is accepted.
 - The **Link App** dialog closes once its code links a device or expires.
 - Themes load on Windows when their files contain accented letters or other special characters.
 
@@ -620,10 +620,10 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 
 **Sign-in**
 - Accounts and roles: The built-in **Users** plugin adds accounts with two roles. An **Admin** can change everything. A **User** can play and change channels, run and edit playlists and sequences, and see themes and speakers. Sonorium always keeps one Admin.
-- **New installs** ask for an admin account on the first visit and need a sign-in from then on. **Updates** change nothing until you create the account and turn on **Require login**. The banner at the top offers both.
-- Users & devices: **Settings → Users & devices** lists each person with the browsers and devices they use. Add users, change roles, reset passwords, and sign out one browser or every device.
-- Keys: The built-in **Integration** plugin adds **Settings → Keys**: keys for devices and programs, each allowed only the items checked on it, for some channels or all, with an expiry. A key is shown once.
-- Link App: The button on the **Channels** page shows a QR code that links a device to your account. Each code works once, for 5 minutes.
+- New installs ask for an admin account on the first visit and need a sign-in from then on. Updates change nothing until you create the account and turn on **Require login**. The banner at the top offers both.
+- **Users & devices.** **Settings → Users & devices** lists each person with the browsers and devices they use. Add users, change roles, reset passwords, and sign out one browser or every device.
+- **Keys.** The built-in **Integration** plugin adds **Settings → Keys**: keys for devices and programs, each allowed only the items checked on it, for some channels or all, with an expiry. A key is shown once.
+- **Link App.** The button on the **Channels** page shows a QR code that links a device to your account. Each code works once, for 5 minutes.
 - HTTPS: Port 8808 serves the web UI and the API over HTTPS, with a certificate Sonorium makes itself. Port 8008 is unchanged. Speakers keep using it.
 - sonorium.local: The Docker version announces itself on your network: `http://sonorium.local:8008`.
 - Forgotten password: `BYPASS_LOGIN=true` (Docker) or `bypass_login` (Home Assistant app) opens the web UI without a sign-in, to reset the account.
@@ -643,19 +643,19 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 - Playback values: The values every theme's playback is built on, until now fixed: **Wait between plays**, **Wait randomness**, **Gap after a group's track**, **Loop crossfade**, **Merry-go-round crossfade range**, **Track fade**, **Switch fade**, **Long pause chance**, **Turn chance** and **Short file threshold**. Each is saved as you change it, playing channels follow it, and the arrow on its row puts the default back. **Advanced** is now always in the menu.
 
 **Home Assistant dashboard cards**
-- **Sonorium's cards** are added to Home Assistant automatically when Home Assistant and MQTT are linked. Search for **Sonorium** in the card picker.
+- Sonorium's cards are added to Home Assistant automatically when Home Assistant and MQTT are linked. Search for **Sonorium** in the card picker.
 - Four layouts: **Tile**, **Channel**, **Player** and **All channels**, changed in the card's editor along with what each one shows.
 - Channel popup: Clicking a channel's name opens the channel as it looks on Sonorium's Channels page.
 - When the cards can't be added automatically, **Settings → Connection** says why and offers the file to download (Docker).
 
 **Zones**
 - **Zones** are off until an admin turns them on in **Settings › Advanced**. A channel can then belong to a user: only its owner and admins change it. A channel with no owner stays open to everyone who may play channels.
-- Kid mode: Only an admin changes the channel's speakers. Its hours set when the owner can play the channel. At the end of the hours, what the owner started fades out and stops.
+- **Kid mode.** Only an admin changes the channel's speakers. Its hours set when the owner can play the channel. At the end of the hours, what the owner started fades out and stops.
 - Speaker homes: A speaker plays for one channel at a time. Its home channel, the one it was added to first, can take it back.
 - Linked channels: An admin links channels to play one theme or playlist in all of them. Each keeps its volume.
 
 **Status**
-- Now playing: The **Status** page shows each playing channel with its tracks by section: playing, fading, waiting, paused or muted, a countdown to the next change, and the level. **As heard** shows the mix delayed by the speakers' buffer, as it sounds in the room.
+- **Now playing.** The **Status** page shows each playing channel with its tracks by section: playing, fading, waiting, paused or muted, a countdown to the next change, and the level. **As heard** shows the mix delayed by the speakers' buffer, as it sounds in the room.
 
 **Layout**
 - Small screens, tablets and short screens: Short screens, such as a device held sideways, get a one-row header. Tablets get the desktop layout, slightly larger. Settings tables use their small-screen layout when the window is too narrow for them.
@@ -677,29 +677,29 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 
 **Channels**
 - Theme or playlist: The two buttons to the right of a channel's fields choose whether it plays one theme or a playlist.
-- Speaker mute: The speaker button next to a channel's volume silences its speakers. It works on every kind of speaker. Speakers can take a few seconds to go quiet.
-- Listen in your browser: The headphones button plays the channel on the device you're using, with a separate volume, even while the speakers are stopped. Start listening on headphones, add speakers, then press Play: the speakers join the same stream without a break. Stop stops the speakers only.
+- **Speaker mute.** The speaker button next to a channel's volume silences its speakers. It works on every kind of speaker. Speakers can take a few seconds to go quiet.
+- **Listen in your browser.** The headphones button plays the channel on the device you're using, with a separate volume, even while the speakers are stopped. Start listening on headphones, add speakers, then press Play: the speakers join the same stream without a break. Stop stops the speakers only.
 
 **Theme Editor**
-- Sections: Tracks are listed by how they play: **Unassigned**, **Background**, **Intermittent** and **Ebb & Flow**. Changing a track's Mode, or dragging it to another section, moves it there.
-- Unassigned: Uploads and files added from another theme start here, and don't play until you give them a Mode.
+- **Sections.** Tracks are listed by how they play: **Unassigned**, **Background**, **Intermittent** and **Ebb & Flow**. Changing a track's Mode, or dragging it to another section, moves it there.
+- **Unassigned.** Uploads and files added from another theme start here, and don't play until you give them a Mode.
 - Groups belong to a section: A Background group is a Merry-go-round, an Intermittent group takes turns, an Ebb & Flow group plays every file at once.
-- **Files from another theme** can go in any section or group. Intrusion groups are retired.
+- Files from another theme can go in any section or group. Intrusion groups are retired.
 - Auto is retired: Each Auto track keeps playing the way it did.
 
 **Sequences and playlists**
-- Sequences: A sequence plays some of a theme's presets in the order you choose, each for a random time in a range, gliding from one to the next. At the end it plays the list backwards, starts again or stops. For example, a mild summer storm that becomes a heavy one. Make them from **Sequences** in the Theme Editor. Pick them from a channel's Preset menu. In Home Assistant they are options of the channel's Preset select, as "*name* (sequence)".
-- While playing: In a sequence, a preset's ⋯ › Advanced… has a **While playing** tab: the Theme Editor's controls, for that step only. Anything you don't change follows the preset.
+- **Sequences.** A sequence plays some of a theme's presets in the order you choose, each for a random time in a range, gliding from one to the next. At the end it plays the list backwards, starts again or stops. For example, a mild summer storm that becomes a heavy one. Make them from **Sequences** in the Theme Editor. Pick them from a channel's Preset menu. In Home Assistant they are options of the channel's Preset select, as "*name* (sequence)".
+- **While playing.** In a sequence, a preset's ⋯ › Advanced… has a **While playing** tab: the Theme Editor's controls, for that step only. Anything you don't change follows the preset.
 - Advanced transitions: The same window sets how each track comes in and leaves at a step: Gusts, Swell, Build, Distance or Start fresh (and Gusts dying down, Smooth fade, Thin out, Recede or Finish then stop), in any combination, starting up to 90 seconds before the step.
-- Playlists: The new **Playlists** page holds themes that play one after another on a channel, each with a preset or sequence if you want one, in order or shuffled, for a random time in the playlist's range, once or on repeat. Home Assistant gets a Playlist select, a Next button and a Step sensor for each channel.
+- **Playlists.** The new **Playlists** page holds themes that play one after another on a channel, each with a preset or sequence if you want one, in order or shuffled, for a random time in the playlist's range, once or on repeat. Home Assistant gets a Playlist select, a Next button and a Step sensor for each channel.
 - Theme cycling became playlists: A channel's theme cycling is turned into a playlist the first time this version starts.
 
 **Playback**
-- Ebb & Flow: Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. This interval is controlled by the Duration and Rise sliders. Duration increases or decreases the amount of time the track is at a value, while the Rise increases or decreases the speed at which the track reaches that value.
-- Pause between plays: An Ebb & Flow track can play its file once, fade out at the end and stay quiet for a random time before it comes back. In an Ebb & Flow group, this keeps at least one file playing at all times.
-- File fades: **Fade in** and **Fade out** in a track's ⋯ menu soften a file that starts or ends abruptly, every time it starts or ends. Leave them empty for sounds that should hit hard, like a thunder crack.
+- **Ebb & Flow.** Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. This interval is controlled by the Duration and Rise sliders. Duration increases or decreases the amount of time the track is at a value, while the Rise increases or decreases the speed at which the track reaches that value.
+- **Pause between plays.** An Ebb & Flow track can play its file once, fade out at the end and stay quiet for a random time before it comes back. In an Ebb & Flow group, this keeps at least one file playing at all times.
+- **File fades.** **Fade in** and **Fade out** in a track's ⋯ menu soften a file that starts or ends abruptly, every time it starts or ends. Leave them empty for sounds that should hit hard, like a thunder crack.
 - Gaps in presets: An Intermittent group's **Gap** is saved in presets, so one preset can bring the thunder more often than another.
-- **Channels fade in and out** when they start and stop, instead of cutting (#34).
+- Channels fade in and out when they start and stop, instead of cutting (#34).
 - Preset glides: Picking a preset glides the mix to it over 3 seconds. A sequence glides over its ramp time.
 - Smooth volume changes: Volume sliders ease to the new level instead of jumping.
 - An exported theme keeps all of its settings, presets and sequences.
@@ -713,8 +713,8 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 
 **Themes and playback**
 - Group modes: A group's Mode is now **Intermittent** (one track at a time with a gap, as before), **Merry-go-round** or **Intrusion**. Pick it in the group's row in the Theme Editor.
-- Merry-go-round: One file plays, then crossfades into another picked at random, never the same one twice in a row. The group's **Crossfade** sets the overlap. A single file crossfades into itself, which also fixes recordings that fade in and out.
-- Intrusions: An Intrusion group's tracks keep their mode and settings. It can hold files **linked** from other themes: **⋯ › Add from another theme** opens a picker where you preview a theme's files and tick the ones you want. Linked files play from the folder of their theme, start muted, and are turned on by presets. A linked file whose source is gone shows **Missing**.
+- **Merry-go-round.** One file plays, then crossfades into another picked at random, never the same one twice in a row. The group's **Crossfade** sets the overlap. A single file crossfades into itself, which also fixes recordings that fade in and out.
+- **Intrusions.** An Intrusion group's tracks keep their mode and settings. It can hold files **linked** from other themes: **⋯ › Add from another theme** opens a picker where you preview a theme's files and tick the ones you want. Linked files play from the folder of their theme, start muted, and are turned on by presets. A linked file whose source is gone shows **Missing**.
 - Presets show what they do: ★ marks the default preset and ⚭ marks a preset that turns intrusion tracks on. Both show in the Theme Editor and on the channel cards, and in the channel's Edit dialog.
 - Smooth preset changes: A track that a preset (or the mute button) turns on or off fades in or out over 3 seconds instead of cutting.
 - Moving linked files: Dragging a linked file to a normal group or out to the theme asks first, then copies the file into this theme. Exports copy linked files in, so a shared theme is complete.
@@ -722,11 +722,11 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 **Theme Editor**
 - Instant moves: Moving a track, and renaming or deleting a group, show at once. The list no longer greys out for a few seconds.
 - **Track preview** plays at the track's volume, follows its Volume slider as you drag, and works for muted and linked tracks.
-- **Messages** show as small notices at the top right instead of in the footer.
+- Messages show as small notices at the top right instead of in the footer.
 - Group header: Gap or Crossfade sits under the group's name.
 
 **Themes**
-- **New themes** can be edited, saved and given presets straight away, and keep the name you typed.
+- New themes can be edited, saved and given presets straight away, and keep the name you typed.
 
 **Fixes**
 - A new theme said "Theme not found" in the editor until Sonorium restarted.
@@ -745,7 +745,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
 #### 1.5.0
 
 **Themes and playback**
-- Groups: A folder inside a theme is a group: its tracks take turns, one at a time, never overlapping, with a random gap between them. This replaces the need to check "Exclusive" on every track that needed to play independently of other exclusive tracks in a theme.
+- **Groups.** A folder inside a theme is a group: its tracks take turns, one at a time, never overlapping, with a random gap between them. This replaces the need to check "Exclusive" on every track that needed to play independently of other exclusive tracks in a theme.
 - The group picks the next track by weight: Each time a track plays it gets heavier and less likely to be picked. The weight wears off as other tracks play. A track's Interval sets how fast. The same track never plays twice in a row.
 - Grouped tracks just play: On its turn a track plays its whole file once, start to finish, with no fade in or out. A thunder crack keeps its crack, a song its first notes.
 - A preset per channel: Two channels can play the same theme with different presets. Before, they shared one: changing the preset on one changed it on both.
@@ -773,7 +773,7 @@ Full documentation is available in the **[Wiki](https://github.com/synssins/sono
   - **Speakers** groups speakers by floor and area.
   - **Speaker Groups**, **Plugins**, **Advanced** and **Status** use the same layout.
 - "Add" everywhere: Buttons that make something new read "Add": **Add speaker**, **Add group**, **Add floor**, **Add area**. Empty pages no longer repeat the top-bar button.
-- **Confirmations** use a small prompt on the page instead of a browser pop-up.
+- Confirmations use a small prompt on the page instead of a browser pop-up.
 - Small screens: A top bar with the menu button is always there. The menu opens downward, closes when you pick a page or tap the button again, and Settings expands in place. Cards fill the screen width and nothing scrolls sideways.
 
 **Docker and standalone**
@@ -814,122 +814,122 @@ A theme is a set of tracks (sound files) mixed together. This help follows the e
 
 **Tracks**
 
-- Sequences: Lists this theme's sequences. Pick one to edit it, or Add sequence.
-- Preview mix: Plays the mix in this browser.
-- Upload: Uploads to Unassigned, or to the group you pick.
-- Add from another theme: Links files from another theme.
-- Reset all: Resets every track and group to defaults.
+- **Sequences:** Lists this theme's sequences. Pick one to edit it, or Add sequence.
+- **Preview mix:** Plays the mix in this browser.
+- **Upload:** Uploads to Unassigned, or to the group you pick.
+- **Add from another theme:** Links files from another theme.
+- **Reset all:** Resets every track and group to defaults.
 
 **Sections**
 
-- Sections: tracks sit in sections by how they play: Background, Intermittent and Ebb & Flow. Every section is always there, even empty. Change a track's Mode, or drag it to another section or into a group in one, and it moves there and plays that way. A track in a group plays its group's way: drag it out to change it.
-- Groups: a group belongs to its section and plays that section's way: Background groups are Merry-go-round, Intermittent groups take turns, Ebb & Flow groups play every file at once. Make one with the section's New group.
-- Moving tracks: drag a track onto a group, or use its ⋯ menu.
+- **Sections:** tracks sit in sections by how they play: Background, Intermittent and Ebb & Flow. Every section is always there, even empty. Change a track's Mode, or drag it to another section or into a group in one, and it moves there and plays that way. A track in a group plays its group's way: drag it out to change it.
+- **Groups:** a group belongs to its section and plays that section's way: Background groups are Merry-go-round, Intermittent groups take turns, Ebb & Flow groups play every file at once. Make one with the section's New group.
+- **Moving tracks:** drag a track onto a group, or use its ⋯ menu.
 
 **Unassigned**
 
-- Unassigned: uploads and files added from another theme start here. Nothing here plays. Pick each file's Mode, or drag it into a section or a group.
+- **Unassigned:** uploads and files added from another theme start here. Nothing here plays. Pick each file's Mode, or drag it into a section or a group.
 
 **Background**
 
-- Background: plays all the time, looping smoothly. Rain, wind, a fire.
+- **Background:** plays all the time, looping smoothly. Rain, wind, a fire.
 - ***Track***
-  - Gapless: in the track's ⋯ menu, outside groups. Loops without a crossfade.
+  - **Gapless:** in the track's ⋯ menu, outside groups. Loops without a crossfade.
 - ***Merry-go-round group***
-  - Merry-go-round: one file plays, then crossfades into another picked at random, never the same one twice in a row. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.
-  - Crossfade: under the group's name. Overlap between files (seconds).
-  - Volume, Mute: apply to every track in the group.
+  - **Merry-go-round:** one file plays, then crossfades into another picked at random, never the same one twice in a row. One file crossfades into itself. Use 3 or more files of the same scene for a bed that never repeats the same way.
+  - **Crossfade:** under the group's name. Overlap between files (seconds).
+  - **Volume, Mute:** apply to every track in the group.
 
 **Intermittent**
 
-- Intermittent: plays once, then goes quiet before playing again. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.
+- **Intermittent:** plays once, then goes quiet before playing again. In a group, the group decides when it plays. Bird calls, a thunder crack, a door.
 - ***Track***
-  - Interval: the wait between plays. In a group, how fast its weight wears off. Higher comes back sooner. Lower plays less often.
+  - **Interval:** the wait between plays. In a group, how fast its weight wears off. Higher comes back sooner. Lower plays less often.
 - ***Intermittent group***
-  - Take turns: only one track plays at a time, never overlapping. On its turn, a track plays its whole file once, start to finish, then hands over. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
-  - Gap: under the group's name: after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other. Presets keep their Gap.
-  - Weight: each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.
-  - Volume, Interval, Mute: apply to every track in the group.
+  - **Take turns:** only one track plays at a time, never overlapping. On its turn, a track plays its whole file once, start to finish, then hands over. Use it for sounds that shouldn't pile up, like thunder cracks or songs from one musician.
+  - **Gap:** under the group's name: after a track finishes, the group waits a random time in this range (minutes) before the next one starts. Different groups don't wait for each other. Presets keep their Gap.
+  - **Weight:** each time a track plays, it gets heavier and is less likely to be picked next. The weight wears off as other tracks play. The same track never plays twice in a row.
+  - **Volume, Interval, Mute:** apply to every track in the group.
 
 **Ebb & Flow**
 
-- Ebb & Flow: Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. Wind, surf, rain that gusts.
+- **Ebb & Flow:** Tracks can be configured with a minimum and maximum volume, and will automatically move to any value between those two limits randomly for a period of time. Wind, surf, rain that gusts.
 - ***Track***
-  - Volume: minimum and maximum volume.
-  - Duration: increases or decreases the amount of time the track is at a value.
+  - **Volume:** minimum and maximum volume.
+  - **Duration:** increases or decreases the amount of time the track is at a value.
   - *Its ⋯ menu*
-    - Rise: increases or decreases the speed at which the track reaches that value.
-    - Pause between plays: off, the file loops and is always heard. On, it plays once from start to finish, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.
-    - Pause: how long it stays quiet, in seconds, picked at random between the two numbers each time (600 is 10 minutes). It also staggers when tracks first start, so they don't all begin together.
+    - **Rise:** increases or decreases the speed at which the track reaches that value.
+    - **Pause between plays:** off, the file loops and is always heard. On, it plays once from start to finish, fades out at its end, then pauses before it comes back. Rain on a tin roof that comes and goes.
+    - **Pause:** how long it stays quiet, in seconds, picked at random between the two numbers each time (600 is 10 minutes). It also staggers when tracks first start, so they don't all begin together.
 - ***Ebb & Flow group***
-  - Ebb & Flow group: every file plays at once, each between its minimum and maximum volume. Each file keeps its settings. The group's Volume and Duration scale them down.
-  - Pause between plays: under the group's name. On, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its Pause between plays.
-  - Volume, Duration, Mute: apply to every track in the group.
+  - **Ebb & Flow group:** every file plays at once, each between its minimum and maximum volume. Each file keeps its settings. The group's Volume and Duration scale them down.
+  - **Pause between plays:** under the group's name. On, every file pauses between plays, at staggered times, so at least one is always playing. Off, each file follows its Pause between plays.
+  - **Volume, Duration, Mute:** apply to every track in the group.
   - *Its ⋯ menu*
-    - Same Rise for every file: one Rise for the whole group instead of each file's Rise.
+    - **Same Rise for every file:** one Rise for the whole group instead of each file's Rise.
 
 **A track's ⋯ menu**
 
-- Fade in / Fade out: for a file that starts or ends abruptly. Set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.
-- Move to: Unassigned, or a group.
-- New group: Creates a group in this section with the track in it.
-- Reset track: Resets the track to defaults.
+- **Fade in / Fade out:** for a file that starts or ends abruptly. Set how many seconds it fades in each time it starts, and fades out each time it ends, including each loop. Empty is off. Sequences and advanced transitions use them too.
+- **Move to:** Unassigned, or a group.
+- **New group:** Creates a group in this section with the track in it.
+- **Reset track:** Resets the track to defaults.
 
 **A group's ⋯ menu**
 
-- Rename: also by double-clicking the group name.
-- Delete group: keeps its files. They move back into its section.
+- **Rename:** also by double-clicking the group name.
+- **Delete group:** keeps its files. They move back into its section.
 
 **Files from another theme**
 
-- Linked file: plays here but stays in the theme it comes from. Add one with Add from another theme above the list. It starts in Unassigned, and can go anywhere the theme's files can. If the file is gone, it shows Missing.
-- Presets: turn linked files on and other tracks off, like rain that mutes the crickets. A preset that turns a linked file on shows ⚭.
-- Copy into this theme: the download button next to "from …" on a linked file's row, or its ⋯ menu. The file is copied into this theme, where the link was, and keeps its settings and preset values. From then on it is a file of this theme, not a link (a playing preview goes on). The original stays in the other theme.
-- Remove link: in a linked file's ⋯ menu. The file stays in the other theme.
+- **Linked file:** plays here but stays in the theme it comes from. Add one with Add from another theme above the list. It starts in Unassigned, and can go anywhere the theme's files can. If the file is gone, it shows Missing.
+- **Presets:** turn linked files on and other tracks off, like rain that mutes the crickets. A preset that turns a linked file on shows ⚭.
+- **Copy into this theme:** the download button next to "from …" on a linked file's row, or its ⋯ menu. The file is copied into this theme, where the link was, and keeps its settings and preset values. From then on it is a file of this theme, not a link (a playing preview goes on). The original stays in the other theme.
+- **Remove link:** in a linked file's ⋯ menu. The file stays in the other theme.
 
 **Sequences**
 
-- Sequence: plays presets of this theme in the order you choose, gliding from one to the next. Marked with the sequence icon (square, triangle, circle).
-- Picking one: preset lists show the sequences after the presets. Picking a preset by hand stops a running sequence.
-- Edit: pick a sequence in the preset field below, then Edit.
+- **Sequence:** plays presets of this theme in the order you choose, gliding from one to the next. Marked with the sequence icon (square, triangle, circle).
+- **Picking one:** preset lists show the sequences after the presets. Picking a preset by hand stops a running sequence.
+- **Edit:** pick a sequence in the preset field below, then Edit.
 - ***Edit sequence***
-  - Time on each preset: each preset plays for a random time in this range (minutes), drawn fresh each time.
-  - Ramp: how long the glide to the next preset takes (seconds).
-  - At the end: Reverse plays the list backwards, Start again goes back to the first preset, Stop stays on the last one.
-  - Order: drag a preset, or use its ⋯ menu.
-  - Theme defaults: empty fields use the theme's time and ramp, set at the bottom of the Sequences menu.
-  - Save: saves the sequence at once. Every channel playing this theme can pick it.
+  - **Time on each preset:** each preset plays for a random time in this range (minutes), drawn fresh each time.
+  - **Ramp:** how long the glide to the next preset takes (seconds).
+  - **At the end:** Reverse plays the list backwards, Start again goes back to the first preset, Stop stays on the last one.
+  - **Order:** drag a preset, or use its ⋯ menu.
+  - **Theme defaults:** empty fields use the theme's time and ramp, set at the bottom of the Sequences menu.
+  - **Save:** saves the sequence at once. Every channel playing this theme can pick it.
 - ***A step: ⋯ › Advanced***
-  - While playing: changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green. Anything you don't change follows the preset.
-  - Revert changes: puts back the settings as they were when Save was last pressed.
-  - Coming in / Leaving: tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.
+  - **While playing:** changes how tracks play while this step plays, for this sequence only. The same controls as the Theme Editor. A value you change shows in green. Anything you don't change follows the preset.
+  - **Revert changes:** puts back the settings as they were when Save was last pressed.
+  - **Coming in / Leaving:** tracks this step turns on or makes louder, and tracks the next step turns off or makes quieter.
   - *Coming in and Leaving*
-    - Smooth: no button on. The track follows the sequence's ramp.
-    - Buttons: click to turn a style on, click again to turn it off. Each style that's on shows its setting under Setting.
-    - Pre-fade: starts the change this many seconds before the step.
-    - Gusts / Gusts dying down: rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.
-    - Swell / Smooth fade: one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.
-    - Build / Thin out: Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.
-    - Distance / Recede: starts faint and muffled, like far-off thunder, and ends clear at the preset volume, or drifts away. How far sets the distance.
-    - Start fresh / Finish then stop: plays from the start of the file with a short fade, for music, voices and rhythm, or lets the current play finish, then stops.
-    - Preview: ▶ plays that track's change on this device and follows your edits.
-    - File fades: a file's Fade in and Fade out apply on top of every style.
-    - Combining styles: several styles can be on together. They all work over the same fade time (pre-fade plus ramp). For example:
-      - Gusts + Distance: wind starts far off and muffled, and surges unevenly as it comes closer.
-      - Gusts + Swell: the surges ride on one curved rise instead of a steady one.
-      - Gusts + Start fresh: the file plays from its start and rises in uneven surges.
-      - Build + Distance: thunder comes more often and louder as it moves from far off to close.
-      - Thin out + Recede: thunder comes less often and quieter as it drifts away.
-      - Smooth fade + Finish then stop: fades out over the fade time. If the current play ends first, it stops there with a short fade.
+    - **Smooth:** no button on. The track follows the sequence's ramp.
+    - **Buttons:** click to turn a style on, click again to turn it off. Each style that's on shows its setting under Setting.
+    - **Pre-fade:** starts the change this many seconds before the step.
+    - **Gusts / Gusts dying down:** rises or falls in uneven surges. Intensity sets how rough. Max volume caps the peaks at the preset volume.
+    - **Swell / Smooth fade:** one curved fade. Speed sets how much of the fade time (pre-fade plus ramp) it uses.
+    - **Build / Thin out:** Intermittent tracks play more often and louder over the fade, or less often and quieter. Amount sets how much.
+    - **Distance / Recede:** starts faint and muffled, like far-off thunder, and ends clear at the preset volume, or drifts away. How far sets the distance.
+    - **Start fresh / Finish then stop:** plays from the start of the file with a short fade, for music, voices and rhythm, or lets the current play finish, then stops.
+    - **Preview:** ▶ plays that track's change on this device and follows your edits.
+    - **File fades:** a file's Fade in and Fade out apply on top of every style.
+    - **Combining styles:** several styles can be on together. They all work over the same fade time (pre-fade plus ramp). For example:
+      - **Gusts + Distance:** wind starts far off and muffled, and surges unevenly as it comes closer.
+      - **Gusts + Swell:** the surges ride on one curved rise instead of a steady one.
+      - **Gusts + Start fresh:** the file plays from its start and rises in uneven surges.
+      - **Build + Distance:** thunder comes more often and louder as it moves from far off to close.
+      - **Thin out + Recede:** thunder comes less often and quieter as it drifts away.
+      - **Smooth fade + Finish then stop:** fades out over the fade time. If the current play ends first, it stops there with a short fade.
 
 **Presets and saving**
 
-- Live: changes are heard at once with Preview mix, and on channels playing this theme with no preset. A channel playing a preset hears them after Save Preset.
-- Preset: the loaded preset. Current settings is the theme without one.
-- New: makes a new preset from the current mix.
-- Save Preset: Saves loaded preset
-- Save Theme: Saves theme with all changes (presets, name, etc) Required after saving a preset.
-- Cancel: Reverts unsaved changes.
+- **Live:** changes are heard at once with Preview mix, and on channels playing this theme with no preset. A channel playing a preset hears them after Save Preset.
+- **Preset:** the loaded preset. Current settings is the theme without one.
+- **New:** makes a new preset from the current mix.
+- **Save Preset:** Saves loaded preset
+- **Save Theme:** Saves theme with all changes (presets, name, etc) Required after saving a preset.
+- **Cancel:** Reverts unsaved changes.
 
 ## API Reference
 
@@ -949,7 +949,7 @@ Sonorium provides a REST API for integration:
 - `PUT /api/sessions/{id}/speakers-muted` - Mute or unmute the speakers (`{"muted": true}`)
 - `PUT /api/sessions/{id}/announcements` - Turn the channel's Announcements on or off (`{"on": false}`)
 - `PUT /api/sessions/{id}/sleep` - Sleep timer: the playing channel fades out and stops after `{"minutes": 45}` (more than 0, at most 240. It replaces a running timer, and answers 409 when the channel isn't playing). `GET` reads it, `DELETE` cancels it. Answers `{"channel_id", "sleep_until", "seconds_left"}`. A channel also lists `sleep_until` and `sleep_seconds_left`, and every change is a `channel.sleep_timer` event
-- `POST /api/announce` - Play a chime and/or speak text on channels (`{"channels": "Kitchen", "text": "Dinner is ready"}`, see [Announcements](#announcements-let-other-systems-use-sonorium))
+- `POST /api/announce` - Play a chime and/or speak text on channels (`{"channels": "Kitchen", "text": "Dinner is ready"}`. See [Announcements](#announcements-let-other-systems-use-sonorium))
 - `POST /api/sessions/{id}/listen` / `DELETE` - Start or stop listening in a browser (the stream is `stream_path` with `?local=1`)
 
 #### Themes
