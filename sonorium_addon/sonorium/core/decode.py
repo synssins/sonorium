@@ -4,8 +4,8 @@ samples becomes mono float32 samples (int16 range) at the stream's rate.
 
 Decoding uses PyAV (FFmpeg), so anything FFmpeg reads works (MP3, WAV, OGG,
 FLAC, AAC, ...). It is blocking work: call it with asyncio.to_thread().
-Decoding stops at `max_seconds`, so a long (or endless) URL never fills
-memory.
+URLs are downloaded with httpx (Sonorium's FFmpeg has no network support),
+up to MAX_BYTES. Decoding stops at `max_seconds`.
 """
 from __future__ import annotations
 
@@ -17,10 +17,34 @@ import numpy as np
 
 URL_TIMEOUT_SECONDS = 15
 MAX_BYTES = 64 * 1024 * 1024
+_transport = None  # the tests point this at an httpx.MockTransport
 
 
 class DecodeError(ValueError):
     """The sound could not be read (the message is shown to the caller)."""
+
+
+def _fetch_url(url: str) -> bytes:
+    """The body of a sound URL, read until it is complete or passes MAX_BYTES."""
+    import httpx
+    try:
+        with httpx.Client(timeout=URL_TIMEOUT_SECONDS, follow_redirects=True, transport=_transport) as client:
+            with client.stream("GET", url) as resp:
+                resp.raise_for_status()
+                declared = resp.headers.get("content-length")
+                if declared and declared.isdigit() and int(declared) > MAX_BYTES:
+                    raise DecodeError("The sound is too large")
+                parts, total = [], 0
+                for chunk in resp.iter_bytes():
+                    total += len(chunk)
+                    if total > MAX_BYTES:
+                        raise DecodeError("The sound is too large")
+                    parts.append(chunk)
+                return b"".join(parts)
+    except DecodeError:
+        raise
+    except Exception as e:
+        raise DecodeError(f"Could not open the sound: {e}")
 
 
 def _resampler(rate: int):
@@ -57,7 +81,6 @@ def decode(source: Union[str, Path, bytes], rate: int, max_seconds: float = 0.0)
     """
     import av
     max_samples = int(max_seconds * rate) if max_seconds and max_seconds > 0 else 0
-    options = {}
     if isinstance(source, (bytes, bytearray)):
         if len(source) > MAX_BYTES:
             raise DecodeError("The sound is too large")
@@ -68,10 +91,9 @@ def decode(source: Union[str, Path, bytes], rate: int, max_seconds: float = 0.0)
             raise DecodeError(f"No such file: {path.name}")
         target = str(path)
     else:
-        target = str(source)
-        options = {"timeout": str(URL_TIMEOUT_SECONDS * 1_000_000), "rw_timeout": str(URL_TIMEOUT_SECONDS * 1_000_000)}
+        target = io.BytesIO(_fetch_url(str(source)))
     try:
-        container = av.open(target, options=options) if options else av.open(target)
+        container = av.open(target)
     except Exception as e:
         raise DecodeError(f"Could not open the sound: {e}")
     try:

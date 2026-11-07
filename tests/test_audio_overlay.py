@@ -188,6 +188,58 @@ def test_decode_stops_at_the_maximum(tmp_path):
         m.decode.decode(tmp_path / "missing.mp3", RATE)
 
 
+def _chime(tmp_path):
+    from playback_helpers import tone_mp3
+    tone_mp3(tmp_path / "chime.mp3", 0.5, 440.0)
+    return (tmp_path / "chime.mp3").read_bytes()
+
+
+def test_decode_url_decodes_a_streamed_file(tmp_path, monkeypatch):
+    httpx = pytest.importorskip("httpx")
+    body, seen = _chime(tmp_path), []
+
+    def handler(request):
+        seen.append(str(request.url))
+        return httpx.Response(200, content=body)
+
+    monkeypatch.setattr(m.decode, "_transport", httpx.MockTransport(handler))
+    pcm = m.decode.decode("https://example.test/chime.mp3", RATE)
+    assert seen == ["https://example.test/chime.mp3"]
+    assert 0.45 * RATE < pcm.shape[0] < 0.6 * RATE  # about 0.5 s, mp3 padding aside
+
+
+def test_decode_url_refuses_a_declared_size_over_the_maximum(tmp_path, monkeypatch):
+    httpx = pytest.importorskip("httpx")
+    body = _chime(tmp_path)
+    monkeypatch.setattr(m.decode, "_transport", httpx.MockTransport(lambda request: httpx.Response(200, content=body)))
+    monkeypatch.setattr(m.decode, "MAX_BYTES", 100)
+    with pytest.raises(m.decode.DecodeError, match="too large"):
+        m.decode.decode("https://example.test/chime.mp3", RATE)
+
+
+def test_decode_url_stops_a_stream_past_the_maximum(monkeypatch):
+    httpx = pytest.importorskip("httpx")
+    sent = []
+
+    def endless():  # no Content-Length: only the running count can stop it
+        while True:
+            sent.append(1)
+            yield b"\0" * 64
+
+    monkeypatch.setattr(m.decode, "_transport", httpx.MockTransport(lambda request: httpx.Response(200, content=endless())))
+    monkeypatch.setattr(m.decode, "MAX_BYTES", 1000)
+    with pytest.raises(m.decode.DecodeError, match="too large"):
+        m.decode.decode("https://example.test/endless.mp3", RATE)
+    assert len(sent) < 50
+
+
+def test_decode_url_refuses_a_bad_response(monkeypatch):
+    httpx = pytest.importorskip("httpx")
+    monkeypatch.setattr(m.decode, "_transport", httpx.MockTransport(lambda request: httpx.Response(404)))
+    with pytest.raises(m.decode.DecodeError, match="Could not open the sound"):
+        m.decode.decode("https://example.test/chime.mp3", RATE)
+
+
 # --- Ramps ---
 
 def ramp_run(ramp, seconds):
